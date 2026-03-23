@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Privacy — Planetary Resonance</title>
+<link rel="stylesheet" href="assets/style.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root {
+  --bg: #08080d;
+  --surface: #10101a;
+  --surface2: #181828;
+  --surface3: #202035;
+  --border: #2a2a40;
+  --text: #e4e4f0;
+  --text-muted: #8888a8;
+  --accent: #6c8cff;
+  --accent2: #ff6c8c;
+  --accent3: #6cffa0;
+  --accent4: #ffc86c;
+  --accent5: #c86cff;
+  --danger: #ff6c8c;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'Inter', -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.75;
+  font-size: 16px;
+}
+
+.container { max-width: 1100px; margin: 0 auto; padding: 0 28px; }
+
+/* NAV */
+nav {
+  position: sticky; top: 0; z-index: 100;
+  background: rgba(8,8,13,0.92); backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border); padding: 12px 0;
+}
+.nav-inner { display: flex; align-items: center; gap: 18px; font-size: 0.82em; flex-wrap: wrap; }
+nav a { color: var(--text-muted); text-decoration: none; font-weight: 500; cursor: pointer; transition: color 0.3s; }
+nav a:hover { color: var(--accent3); }
+nav .brand {
+  font-family: 'Playfair Display', serif;
+  font-size: 1.15em; font-weight: 700;
+  background: linear-gradient(135deg, var(--accent3), var(--accent));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-right: auto;
+}
+.nav-toggle {
+  display: none; background: none; border: 1px solid var(--border);
+  color: var(--text); font-size: 1.3em; padding: 4px 10px;
+  border-radius: 6px; cursor: pointer;
+}
+.nav-links { display: flex; align-items: center; gap: 18px; }
+.nav-links a { white-space: nowrap; }
+
+.dropdown { position: relative; }
+.dropdown-toggle {
+  background: none; border: none; color: var(--text-muted);
+  font-family: inherit; font-size: inherit; font-weight: 500;
+  cursor: pointer; transition: color 0.3s;
+}
+.dropdown-toggle:hover { color: var(--accent3); }
+.dropdown-menu {
+  display: none; position: absolute; top: 100%; left: 0;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 0; min-width: 180px;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.5); margin-top: 8px; z-index: 200;
+}
+.dropdown.open .dropdown-menu { display: block; }
+.dropdown-menu a { display: block; padding: 8px 16px; font-size: 0.95em; }
+.dropdown-menu a:hover { background: var(--surface2); }
+
+@media (max-width: 768px) {
+  .nav-toggle { display: block; }
+  .nav-links {
+    display: none; width: 100%; flex-direction: column;
+    align-items: flex-start; gap: 10px; padding-top: 12px;
+  }
+  .nav-links.open { display: flex; }
+  .dropdown-menu { position: static; box-shadow: none; margin-top: 4px; margin-left: 12px; }
+}
+
+/* HERO */
+.hero {
+  padding: 100px 0 60px;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  overflow: hidden;
+}
+.hero::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  background:
+    radial-gradient(ellipse at 30% 40%, rgba(108,255,160,0.07) 0%, transparent 55%),
+    radial-gradient(ellipse at 70% 60%, rgba(108,140,255,0.05) 0%, transparent 50%);
+}
+.hero h1 {
+  font-family: 'Playfair Display', serif;
+  font-size: 3.2em; line-height: 1.12;
+  letter-spacing: -0.02em; margin-bottom: 18px;
+  position: relative;
+  background: linear-gradient(135deg, #fff 0%, var(--accent3) 50%, var(--accent) 100%);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.hero .subtitle {
+  font-size: 1.25em; color: var(--text-muted); max-width: 640px;
+  margin: 0 auto; position: relative; line-height: 1.6;
+}
+.hero .hero-statement {
+  font-family: 'Playfair Display', serif;
+  font-size: 1.7em; color: var(--text); position: relative;
+  margin-bottom: 20px; font-weight: 700; line-height: 1.3;
+}
+
+/* SECTIONS */
+section.content { padding: 60px 0; border-bottom: 1px solid var(--border); }
+section.content:last-of-type { border-bottom: none; }
+
+section.content h2 {
+  font-family: 'Playfair Display', serif;
+  font-size: 2em; margin-bottom: 24px;
+  background: linear-gradient(135deg, var(--accent), var(--accent3));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+section.content p {
+  color: var(--text-muted); font-size: 1.05em;
+  line-height: 1.8; max-width: 780px; margin-bottom: 16px;
+}
+
+/* CARD GRID */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 24px;
+  margin-top: 24px;
+}
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 32px 28px;
+  transition: border-color 0.3s, transform 0.3s;
+}
+.card:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+.card-icon {
+  font-size: 2em; margin-bottom: 16px; display: block;
+}
+.card h3 {
+  font-size: 1.2em; margin-bottom: 10px; color: var(--text);
+  font-weight: 700;
+}
+.card p {
+  color: var(--text-muted); font-size: 0.95em; line-height: 1.7;
+}
+.card .tech {
+  margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);
+  font-family: 'JetBrains Mono', monospace; font-size: 0.82em;
+  color: var(--accent);
+}
+
+/* TABLE */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 24px;
+  font-size: 0.95em;
+  background: var(--surface);
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.data-table thead { background: var(--surface2); }
+.data-table th {
+  text-align: left; padding: 14px 18px;
+  color: var(--text-muted); font-weight: 600;
+  font-size: 0.82em; text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid var(--border);
+}
+.data-table td {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+.data-table tr:last-child td { border-bottom: none; }
+.data-table td:first-child { font-weight: 600; }
+.data-table .mono {
+  font-family: 'JetBrains Mono', monospace; font-size: 0.9em;
+}
+
+.level-low { color: var(--accent3); }
+.level-medium { color: var(--accent4); }
+.level-high { color: var(--accent2); }
+
+/* DID SECTION */
+.did-example {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 24px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.88em;
+  color: var(--accent3);
+  margin-top: 16px;
+  overflow-x: auto;
+  word-break: break-all;
+}
+
+/* PROGRESSIVE DISCLOSURE */
+.disclosure-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-top: 24px;
+  position: relative;
+}
+.disclosure-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+  padding: 20px 0;
+  border-left: 3px solid var(--border);
+  padding-left: 24px;
+  position: relative;
+}
+.disclosure-step::before {
+  content: '';
+  position: absolute;
+  left: -8px; top: 26px;
+  width: 13px; height: 13px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--bg);
+}
+.disclosure-step:nth-child(2)::before { background: var(--accent4); }
+.disclosure-step:nth-child(3)::before { background: var(--accent3); }
+.disclosure-step:nth-child(4)::before { background: var(--accent5); }
+.disclosure-step h4 {
+  font-size: 1em; color: var(--text); margin-bottom: 4px;
+}
+.disclosure-step p {
+  color: var(--text-muted); font-size: 0.93em; margin: 0;
+}
+
+/* CALLOUT */
+.callout {
+  margin: 40px 0;
+  padding: 36px 40px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent3);
+  border-radius: 12px;
+}
+.callout h3 {
+  font-family: 'Playfair Display', serif;
+  font-size: 1.35em; margin-bottom: 16px;
+  color: var(--accent3);
+}
+.callout p {
+  color: var(--text-muted); font-size: 1em; line-height: 1.8;
+}
+.callout ul {
+  list-style: none; padding: 0; margin-top: 12px;
+}
+.callout li {
+  padding: 6px 0;
+  color: var(--text-muted);
+  position: relative;
+  padding-left: 20px;
+}
+.callout li::before {
+  content: '\00D7';
+  position: absolute; left: 0;
+  color: var(--danger); font-weight: 700;
+  font-size: 1.1em;
+}
+
+/* FOOTER */
+footer {
+  border-top: 1px solid var(--border);
+  padding: 40px 0;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.85em;
+}
+footer a { color: var(--accent); text-decoration: none; }
+footer a:hover { text-decoration: underline; }
+footer .footer-links { margin-bottom: 12px; display: flex; justify-content: center; gap: 24px; flex-wrap: wrap; }
+
+@media (max-width: 768px) {
+  .hero h1 { font-size: 2.2em; }
+  .hero .hero-statement { font-size: 1.3em; }
+  .card-grid { grid-template-columns: 1fr; }
+  .data-table { font-size: 0.85em; }
+  .data-table th, .data-table td { padding: 10px 12px; }
+  .callout { padding: 24px; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="container nav-inner">
+    <a href="/docs/index.html" class="brand">Planetary Resonance</a>
+    <button class="nav-toggle" aria-label="Menu">&#9776;</button>
+    <div class="nav-links">
+      <a href="/docs/how-it-works.html">How It Works</a>
+      <a href="/docs/privacy.html">Privacy</a>
+      <div class="dropdown">
+        <button class="dropdown-toggle">Developers</button>
+        <div class="dropdown-menu">
+          <a href="/docs/developers/architecture.html">Architecture</a>
+          <a href="/docs/developers/protocol.html">Protocol</a>
+          <a href="/docs/developers/core-library.html">Core Library</a>
+          <a href="/docs/developers/eval-results.html">Eval Results</a>
+          <a href="/docs/developers/contributing.html">Contributing</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<section class="hero">
+  <div class="container">
+    <h1>Privacy</h1>
+    <p class="hero-statement">Your data never leaves your device.</p>
+    <p class="subtitle">Planetary Resonance is built on the principle that a matching network should never need to know what it's matching. Three independent layers of privacy guarantee this isn't a promise &mdash; it's a mathematical fact.</p>
+  </div>
+</section>
+
+<!-- Three layers of privacy -->
+<section class="content">
+  <div class="container">
+    <h2>Three Layers of Privacy</h2>
+    <p>Each layer operates independently. Even if one is compromised, the others still protect you.</p>
+
+    <div class="card-grid">
+      <div class="card">
+        <span class="card-icon">&#129504;</span>
+        <h3>Local AI</h3>
+        <p>The embedding model runs entirely on your machine. Your text is converted to a 768-dimensional vector locally. No cloud API call, no server-side processing, no third-party service. The raw text never touches a network interface.</p>
+        <div class="tech">nomic-embed-text v1.5 &middot; ~137 MB &middot; ONNX runtime</div>
+      </div>
+
+      <div class="card">
+        <span class="card-icon">&#128737;</span>
+        <h3>Differential Privacy</h3>
+        <p>Calibrated Laplace noise is added to every dimension of every vector before transmission. This provides formal &epsilon;-differential privacy guarantees. Even if a vector is intercepted, the original text cannot be reconstructed from the noisy representation.</p>
+        <div class="tech">Laplace mechanism &middot; &epsilon; &isin; {0.1, 1.0, 5.0} &middot; per-dimension noise</div>
+      </div>
+
+      <div class="card">
+        <span class="card-icon">&#128274;</span>
+        <h3>End-to-End Encryption</h3>
+        <p>Direct channels between matched parties use X25519 Diffie-Hellman key exchange with XSalsa20-Poly1305 authenticated encryption. The relay never sees channel contents. Only you and your match can read messages.</p>
+        <div class="tech">X25519 + XSalsa20-Poly1305 &middot; libsodium &middot; forward secrecy</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Privacy levels -->
+<section class="content">
+  <div class="container">
+    <h2>Privacy Levels</h2>
+    <p>You choose how much noise is added to your vector. Higher epsilon means less noise and better matching. Lower epsilon means more noise and stronger privacy. The trade-off is yours to make.</p>
+
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Level</th>
+          <th>Epsilon (&epsilon;)</th>
+          <th>Similarity to Original</th>
+          <th>Recall</th>
+          <th>Best For</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="level-low">Low</td>
+          <td class="mono">5.0</td>
+          <td>99.4%</td>
+          <td>98%</td>
+          <td>Maximum matching accuracy. Use when content sensitivity is low.</td>
+        </tr>
+        <tr>
+          <td class="level-medium">Medium</td>
+          <td class="mono">1.0</td>
+          <td>88.1%</td>
+          <td>82&ndash;86%</td>
+          <td>Balanced privacy and utility. The default setting for most users.</td>
+        </tr>
+        <tr>
+          <td class="level-high">High</td>
+          <td class="mono">0.1</td>
+          <td>18.2%</td>
+          <td>~14%</td>
+          <td>Maximum privacy, significantly fewer matches. For highly sensitive needs.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- DID Identity -->
+<section class="content">
+  <div class="container">
+    <h2>DID Identity</h2>
+    <p>Your identity in Planetary Resonance is a cryptographic keypair (Ed25519), expressed as a Decentralized Identifier (DID). Not an email address. Not a phone number. Not a username tied to a corporation's database.</p>
+    <div class="did-example">
+      did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK
+    </div>
+    <p style="margin-top: 20px;">You can create new identities at any time, for free, instantly, offline. There is no "account" to create, no registration flow, no email verification. Each identity is mathematically independent &mdash; no one can correlate your different DIDs unless you choose to reveal the connection.</p>
+    <p>Your private key never leaves your device. It's stored in a local encrypted database, protected by a passphrase you set during initialization. Even if someone gains access to your machine, the key is encrypted at rest.</p>
+  </div>
+</section>
+
+<!-- Progressive Disclosure -->
+<section class="content">
+  <div class="container">
+    <h2>Progressive Disclosure</h2>
+    <p>Information sharing happens in stages. Each stage requires your explicit, deliberate action. Nothing is shared automatically.</p>
+
+    <div class="disclosure-steps">
+      <div class="disclosure-step">
+        <div>
+          <h4>1. Match Notification</h4>
+          <p>You receive a similarity score and the match type (need/offer). Nothing else. You don't know who they are, what they wrote, or where they are. Just: "someone out there is a potential match at 87% similarity."</p>
+        </div>
+      </div>
+      <div class="disclosure-step">
+        <div>
+          <h4>2. Category-Level Details</h4>
+          <p>If both parties consent, you exchange high-level category information. "This is about software development" or "This is about home repair." Still no specifics, no names, no contact info.</p>
+        </div>
+      </div>
+      <div class="disclosure-step">
+        <div>
+          <h4>3. Specific Details</h4>
+          <p>With continued mutual consent, you share the specific details of your need or offer. "I'm looking for a React developer for a 3-month dashboard project." The other party shares theirs. You evaluate fit.</p>
+        </div>
+      </div>
+      <div class="disclosure-step">
+        <div>
+          <h4>4. Contact Information</h4>
+          <p>Only when both parties are satisfied that the match is genuine and valuable, you exchange contact information. Email, phone, website &mdash; whatever you choose. This is the final step, and it's entirely optional.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- What we can't do -->
+<section class="content">
+  <div class="container">
+    <div class="callout">
+      <h3>What we can't do</h3>
+      <p>The relay operator &mdash; whether that's us, a company, or a community &mdash; cannot:</p>
+      <ul>
+        <li>Read your original text</li>
+        <li>See your name or real identity</li>
+        <li>Know your physical location</li>
+        <li>Track your activity across sessions (different DIDs are unlinkable)</li>
+        <li>Sell your data (because they don't have it)</li>
+        <li>Comply with a data request (because there is no data to hand over)</li>
+        <li>Build a profile of your interests over time</li>
+        <li>Reconstruct your original embedding from the noisy version</li>
+      </ul>
+      <p style="margin-top: 16px;">This isn't a privacy policy. It's a technical constraint. The system is designed so that these capabilities are mathematically impossible, not merely prohibited by policy.</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <div class="footer-links">
+      <a href="/docs/how-it-works.html">How It Works</a>
+      <a href="/docs/privacy.html">Privacy</a>
+      <a href="/docs/developers/architecture.html">Architecture</a>
+      <a href="/docs/developers/protocol.html">Protocol</a>
+      <a href="/docs/developers/contributing.html">Contributing</a>
+    </div>
+    <p>Planetary Resonance &mdash; Connecting human needs through privacy-preserving AI.</p>
+  </div>
+</footer>
+
+<script>
+document.querySelector('.nav-toggle')?.addEventListener('click', () => {
+  document.querySelector('.nav-links')?.classList.toggle('open');
+});
+document.querySelectorAll('.dropdown-toggle').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    btn.parentElement?.classList.toggle('open');
+  });
+});
+document.addEventListener('click', () => {
+  document.querySelectorAll('.dropdown.open').forEach(d => d.classList.remove('open'));
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+{
+  "name": "@resonance/eval",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "eval": "tsx src/run.ts",
+    "eval:quick": "tsx src/run.ts --quick",
+    "smoke": "tsx src/smoke.ts"
+  },
+  "dependencies": {
+    "@resonance/core": "*",
+    "@resonance/relay": "*",
+    "cli-table3": "^0.6.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "tsx": "^4.19.0"
+  }
+}

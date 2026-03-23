@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wire Protocol — Planetary Resonance</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+
+<nav>
+  <div class="container nav-inner">
+    <a href="/docs/index.html" class="brand">Planetary Resonance</a>
+    <button class="nav-toggle" aria-label="Menu">&#9776;</button>
+    <div class="nav-links">
+      <a href="/docs/how-it-works.html">How It Works</a>
+      <a href="/docs/privacy.html">Privacy</a>
+      <div class="dropdown">
+        <button class="dropdown-toggle">Developers</button>
+        <div class="dropdown-menu">
+          <a href="/docs/developers/architecture.html">Architecture</a>
+          <a href="/docs/developers/protocol.html">Protocol</a>
+          <a href="/docs/developers/core-library.html">Core Library</a>
+          <a href="/docs/developers/eval-results.html">Eval Results</a>
+          <a href="/docs/developers/contributing.html">Contributing</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<div class="breadcrumb">
+  <div class="container">
+    <a href="/docs/index.html">Home</a>
+    <span class="sep">/</span>
+    <span>Developers</span>
+    <span class="sep">/</span>
+    <span class="current">Protocol</span>
+  </div>
+</div>
+
+<header class="hero">
+  <div class="container">
+    <div class="tag">Wire Protocol v0.1</div>
+    <h1>Wire Protocol</h1>
+    <p class="subtitle">
+      The complete specification for messages exchanged between personal nodes, relays,
+      and direct channels. All messages are signed with ed25519 and transported over TLS WebSockets.
+    </p>
+  </div>
+</header>
+
+<section>
+  <div class="container">
+    <div class="section-label">Envelope</div>
+    <h2>Message Envelope</h2>
+    <p>Every message in the Resonance protocol uses a common envelope format. The payload is generic and varies by message type.</p>
+
+    <div class="code-block">
+<span class="keyword">interface</span> <span class="type">Message</span>&lt;<span class="type">T</span>&gt; {
+  <span class="func">type</span>:       <span class="type">string</span>;       <span class="comment">// Message type identifier</span>
+  <span class="func">from</span>:       <span class="type">string</span>;       <span class="comment">// DID of sender (did:key:z...)</span>
+  <span class="func">timestamp</span>:  <span class="type">number</span>;       <span class="comment">// Unix milliseconds</span>
+  <span class="func">signature</span>:  <span class="type">string</span>;       <span class="comment">// Base64-encoded ed25519 signature</span>
+  <span class="func">payload</span>:    <span class="type">T</span>;            <span class="comment">// Type-specific payload</span>
+}
+    </div>
+
+    <div class="callout info">
+      <div class="callout-label">Signing</div>
+      <p>The <code>signature</code> field is computed over <code>JSON.stringify({ type, from, timestamp, payload })</code> using the sender's ed25519 secret key. Recipients verify using the public key derived from the sender's DID.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <div class="section-label">Node &rarr; Relay</div>
+    <h2>Node to Relay Messages</h2>
+    <p>Messages sent from a personal node to a relay for publishing, searching, consenting, and withdrawing.</p>
+
+    <h3>publish</h3>
+    <p>Publish a perturbed vector to the relay's index.</p>
+    <div class="code-block">
+<span class="keyword">interface</span> <span class="type">PublishPayload</span> {
+  <span class="func">itemId</span>:    <span class="type">string</span>;           <span class="comment">// Unique identifier for this item</span>
+  <span class="func">vector</span>:    <span class="type">number</span>[];          <span class="comment">// 768-dimensional perturbed vector</span>
+  <span class="func">itemType</span>:  <span class="string">"need"</span> | <span class="string">"offer"</span>;  <span class="comment">// Whether this is a need or an offer</span>
+  <span class="func">ttl</span>:       <span class="type">number</span>;           <span class="comment">// Time-to-live in seconds (max 86400)</span>
+}
+    </div>
+
+    <h3>search</h3>
+    <p>Search the relay's index for matching items. The query vector is a <strong>true</strong> (un-noised) embedding.</p>
+    <div class="code-block">
+<span class="keyword">interface</span> <span class="type">SearchPayload</span> {
+  <span class="func">vector</span>:     <span class="type">number</span>[];   <span class="comment">// 768-dimensional true embedding (query)</span>
+  <span class="func">k</span>:          <span class="type">number</span>;    <span class="comment">// Maximum number of results to return</span>
+  <span class="func">threshold</span>:  <span class="type">number</span>;    <span class="comment">// Minimum cosine similarity (default: 0.50)</span>
+}
+    </div>
+
+    <h3>consent</h3>
+    <p>Accept or decline a match. Optionally includes encrypted data for the partner.</p>
+    <div class="code-block">
+<span class="keyword">interface</span> <span class="type">ConsentPayload</span> {
+  <span class="func">matchId</span>:            <span class="type">string</span>;    <span class="comment">// Match ID from the match notification</span>
+  <span class="func">accept</span>:             <span class="type">boolean</span>;   <span class="comment">// true to accept, false to decline</span>
+  <span class="func">encryptedForPartner</span>: <span class="type">string</span>?;   <span class="comment">// Optional: encrypted ephemeral public key</span>
+}
+    </div>
+
+    <h3>withdraw</h3>
+    <p>Remove a previously published item from the relay's index.</p>
+    <div class="code-block">
+<span class="keyword">interface</span> <span class="type">WithdrawPayload</span> {
+  <span class="func">itemId</span>:  <span class="type">string</span>;   <span class="comment">// ID of the item to remove</span>
+}
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <div class="section-label">Relay &rarr; Node</div>
+    <h2>Relay to Node Messages</h2>
+    <p>Messages sent from the relay back to personal nodes: match notifications, search results, consent forwarding, and acknowledgments.</p>
+
+    <h3>match</h3>
+    <p>Notify a node that one of its published items matched another user's item.</p>
+    <div class="code-block">
+<span class="keyword">interface</span> <span class="type">MatchPayload</span> {
+  <span class="func">matchId</span>:          <span class="type">string</span>;           <span class="comment">// Unique match identifier</span>
+  <span class="func">partnerDID</span>:       <span class="type">string</span>;           <span class="comment">// DID of the matched partner</span>
+  <span class="func">similarity</span>:       <span class="type">number</span>;           <span class="comment">// Cosine similarity (on perturbed vectors)</span>
+  <span class="func">yourItemId</span>:       <span class="type">string</span>;           <span class="comment">// Your item that matched</span>
+  <span class="func">partnerItemType</span>:  <span class="string">"need"</span> | <span class="string">"offer"</span>;  <span class="comment">// Whether the partner's item is a need or offer</span>
+  <span class="func">expiry</span>:           <span class="type">number</span>;           <span class="comment">// Unix ms when this match expires</span>
+}
+    </div>
+
+    <h3>search_results</h3>
+    <p>Return results from a search query.</p>
+    <div class="code-block">
+<span class="keyword">interface</span> <span class="type">SearchResultsPayload</span> {
+  <span class="func">results</span>: {
+    <span class="func">did</span>:        <span class="type">string</span>;           <span class="comment">// DID of the matching item's publisher</span>
+    <span class="func">similarity</span>: <span class="type">number</span>;           <span class="comment">// Cosine similarity score</span>
+    <span class="func">itemType</span>:   <span class="string">"need"</span> | <span class="string">"offer"</span>;  <span class="comment">// Type of the matching item</span>
+  }[];
+}
+    </div>
+
+    <h3>consent_forward</h3>
+    <p>Forward a partner's consent decision (and optional encrypted payload).</p>
+    <div class="code-block">
+<span class="keyword">interface</span> <span class="type">ConsentForwardPayload</span> {
+  <span class="func">matchId</span>:    <span class="type">string</span>;   <span class="comment">// Match ID</span>
+  <span class="func">fromDID</span>:    <span class="type">string</span>;   <span class="comment">// DID of the partner who consented</span>
+  <span class="func">encrypted</span>:  <span class="type">string</span>?;  <span class="comment">// Optional encrypted data from the partner</span>
+}
+    </div>
+
+    <h3>ack</h3>
+    <p>Acknowledge receipt of a message.</p>
+    <div class="code-block">
+<span class="keyword">interface</span> <span class="type">AckPayload</span> {
+  <span class="func">ref</span>:      <span class="type">string</span>;           <span class="comment">// ID of the message being acknowledged</span>
+  <span class="func">status</span>:   <span class="string">"ok"</span> | <span class="string">"error"</span>;   <span class="comment">// Whether the operation succeeded</span>
+  <span class="func">message</span>?:  <span class="type">string</span>;           <span class="comment">// Optional human-readable error detail</span>
+}
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <div class="section-label">Direct Channel</div>
+    <h2>Direct Channel Messages</h2>
+    <p>After both parties consent and establish a shared secret via X25519 key exchange, they communicate directly. These messages are end-to-end encrypted using the derived symmetric key.</p>
+
+    <h3>confirm_embedding</h3>
+    <p>Send the true (un-noised) embedding vector for the matched item.</p>
+    <div class="code-block">
+<span class="keyword">interface</span> <span class="type">ConfirmEmbeddingPayload</span> {
+  <span class="func">vector</span>:  <span class="type">number</span>[];   <span class="comment">// 768-dimensional true embedding</span>
+}
+    </div>
+
+    <h3>confirm_result</h3>
+    <p>The result of comparing true embeddings from both sides.</p>
+    <div class="code-block">
+<span class="keyword">interface</span> <span class="type">ConfirmResultPayload</span> {
+  <span class="func">similarity</span>:  <span class="type">number</span>;    <span class="comment">// Cosine similarity of true embeddings</span>
+  <span class="func">confirmed</span>:   <span class="type">boolean</span>;   <span class="comment">// true if similarity >= 0.55</span>
+}
+    </div>
+
+    <h3>disclosure</h3>
+    <p>Progressively disclose information, from category to detail to contact info.</p>
+    <div class="code-block">
+<span class="keyword">interface</span> <span class="type">DisclosurePayload</span> {
+  <span class="func">text</span>:   <span class="type">string</span>;                                     <span class="comment">// Disclosed content</span>
+  <span class="func">level</span>:  <span class="string">"category"</span> | <span class="string">"detail"</span> | <span class="string">"contact"</span>;     <span class="comment">// Disclosure level</span>
+}
+    </div>
+
+    <div class="callout insight">
+      <div class="callout-label">Progressive Disclosure</div>
+      <p>Disclosure happens in stages. First, share a general category ("housing in Barcelona"). If the other party is still interested, share details ("2-bedroom flat in Gracia, available April"). Finally, share contact info if both parties want to proceed. Each step is a conscious choice by the user.</p>
+    </div>
+
+    <h3>accept</h3>
+    <p>Accept the exchange and optionally include a message.</p>
+    <div class="code-block">
+<span class="keyword">interface</span> <span class="type">AcceptPayload</span> {
+  <span class="func">message</span>?:  <span class="type">string</span>;   <span class="comment">// Optional message to the partner</span>
+}
+    </div>
+
+    <h3>reject</h3>
+    <p>Decline the exchange.</p>
+    <div class="code-block">
+<span class="keyword">interface</span> <span class="type">RejectPayload</span> {
+  <span class="func">reason</span>?:  <span class="type">string</span>;   <span class="comment">// Optional reason (not required)</span>
+}
+    </div>
+
+    <h3>close</h3>
+    <p>Close the direct channel. Either party can close at any time.</p>
+    <div class="code-block">
+<span class="keyword">interface</span> <span class="type">ClosePayload</span> {
+  <span class="comment">// Empty — closing the channel requires no additional data</span>
+}
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <div class="section-label">Example</div>
+    <h2>Example Flow</h2>
+    <p>A complete interaction from publishing an offer to a successful exchange.</p>
+
+    <div class="flow-container">
+      <div class="flow-step">
+        <div class="step-num">01</div>
+        <div class="step-label">Publish Offer</div>
+        <div class="step-detail">Alice publishes a perturbed vector for "Python developer available"</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">02</div>
+        <div class="step-label">Publish Need</div>
+        <div class="step-detail">Bob publishes a perturbed vector for "Looking for Django backend dev"</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">03</div>
+        <div class="step-label">Match Found</div>
+        <div class="step-detail">Relay cross-matches and notifies both parties (sim: 0.62)</div>
+      </div>
+    </div>
+
+    <div class="flow-container">
+      <div class="flow-step">
+        <div class="step-num">04</div>
+        <div class="step-label">Consent</div>
+        <div class="step-detail">Alice and Bob both accept the match</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">05</div>
+        <div class="step-label">Key Exchange</div>
+        <div class="step-detail">Ephemeral X25519 keys, derive shared secret</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">06</div>
+        <div class="step-label">Confirm</div>
+        <div class="step-detail">Exchange true embeddings, similarity = 0.72 (confirmed)</div>
+      </div>
+    </div>
+
+    <div class="flow-container">
+      <div class="flow-step">
+        <div class="step-num">07</div>
+        <div class="step-label">Disclose Category</div>
+        <div class="step-detail">Alice: "Backend development"<br>Bob: "Web project, Django"</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">08</div>
+        <div class="step-label">Disclose Detail</div>
+        <div class="step-detail">Full descriptions exchanged</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">09</div>
+        <div class="step-label">Accept</div>
+        <div class="step-detail">Both accept, share contact info, close channel</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container footer-inner">
+    <div>
+      <div class="footer-brand">Planetary Resonance</div>
+      <div class="footer-tagline">Privacy-preserving matching for human connection.</div>
+    </div>
+    <div class="footer-links">
+      <a href="/docs/index.html">Home</a>
+      <a href="/docs/how-it-works.html">How It Works</a>
+      <a href="/docs/developers/architecture.html">Architecture</a>
+      <a href="/docs/developers/core-library.html">Core Library</a>
+      <a href="/docs/developers/contributing.html">Contributing</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+document.querySelector('.nav-toggle')?.addEventListener('click', () => {
+  document.querySelector('.nav-links')?.classList.toggle('open');
+});
+document.querySelectorAll('.dropdown-toggle').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    btn.parentElement?.classList.toggle('open');
+  });
+});
+document.addEventListener('click', () => {
+  document.querySelectorAll('.dropdown.open').forEach(d => d.classList.remove('open'));
+});
+</script>
+</body>
+</html>

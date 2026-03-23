@@ -1,0 +1,556 @@
+{
+  "positive_pairs": [
+    {
+      "id": "pos-001",
+      "category": "skills",
+      "need": "I need a freelance Python developer for a 2-week Django project",
+      "offer": "Experienced Python developer specializing in Django and REST APIs, available for freelance work"
+    },
+    {
+      "id": "pos-002",
+      "category": "skills",
+      "need": "Looking for a React developer to build a dashboard for our analytics platform",
+      "offer": "Frontend developer with 5 years of React experience, skilled in data visualization and dashboards"
+    },
+    {
+      "id": "pos-003",
+      "category": "skills",
+      "need": "We need a graphic designer for our startup's branding and logo",
+      "offer": "Freelance graphic designer offering brand identity packages including logo, colors, and typography"
+    },
+    {
+      "id": "pos-004",
+      "category": "skills",
+      "need": "Seeking a data analyst who can work with SQL and Tableau for a 3-month contract",
+      "offer": "Data analyst proficient in SQL, Tableau, and Python data pipelines, open to contract work"
+    },
+    {
+      "id": "pos-005",
+      "category": "skills",
+      "need": "Need a DevOps engineer to set up our CI/CD pipeline and Kubernetes cluster",
+      "offer": "DevOps consultant specializing in CI/CD automation, Kubernetes, and cloud infrastructure"
+    },
+    {
+      "id": "pos-006",
+      "category": "skills",
+      "need": "Looking for a technical writer to document our API endpoints",
+      "offer": "Technical writer experienced with API documentation, OpenAPI specs, and developer portals"
+    },
+    {
+      "id": "pos-007",
+      "category": "skills",
+      "need": "Need a mobile app developer for an iOS and Android fitness tracking app",
+      "offer": "Mobile developer building cross-platform fitness and health apps with React Native"
+    },
+    {
+      "id": "pos-008",
+      "category": "skills",
+      "need": "Seeking a machine learning engineer to build a recommendation system",
+      "offer": "ML engineer with experience in recommendation systems, collaborative filtering, and neural embeddings"
+    },
+    {
+      "id": "pos-009",
+      "category": "skills",
+      "need": "Looking for a UX researcher to conduct user interviews for our fintech product",
+      "offer": "UX researcher specializing in fintech, experienced with user interviews, surveys, and usability testing"
+    },
+    {
+      "id": "pos-010",
+      "category": "skills",
+      "need": "Need a cybersecurity consultant to perform a penetration test on our web application",
+      "offer": "Cybersecurity professional offering penetration testing and security audits for web applications"
+    },
+    {
+      "id": "pos-011",
+      "category": "housing",
+      "need": "Looking for a room in a shared apartment in Barcelona's Eixample district",
+      "offer": "Room available in a 3-bedroom apartment in Eixample, Barcelona, close to metro"
+    },
+    {
+      "id": "pos-012",
+      "category": "housing",
+      "need": "Need to sublet my apartment in Berlin Kreuzberg for 3 months this summer",
+      "offer": "Looking to rent a furnished apartment in Berlin for the summer, preferably Kreuzberg or Neukölln"
+    },
+    {
+      "id": "pos-013",
+      "category": "housing",
+      "need": "Searching for a quiet studio apartment in Lisbon near public transport",
+      "offer": "Studio apartment for rent in Lisbon, 5 minutes walk from the metro, quiet neighborhood"
+    },
+    {
+      "id": "pos-014",
+      "category": "housing",
+      "need": "Looking for a house swap: my apartment in Paris for a place in Barcelona for 2 weeks",
+      "offer": "Offering my Barcelona apartment for a home swap, interested in Paris or Amsterdam"
+    },
+    {
+      "id": "pos-015",
+      "category": "housing",
+      "need": "Need affordable co-living space in Amsterdam for a remote worker",
+      "offer": "Co-living space in Amsterdam with fast wifi, shared kitchen, and community events for remote workers"
+    },
+    {
+      "id": "pos-016",
+      "category": "housing",
+      "need": "Searching for a pet-friendly apartment rental in Madrid, 2 bedrooms minimum",
+      "offer": "2-bedroom pet-friendly apartment for rent in Madrid center, recently renovated"
+    },
+    {
+      "id": "pos-017",
+      "category": "housing",
+      "need": "Need temporary housing in Munich for a 6-month work assignment",
+      "offer": "Furnished apartment available for medium-term rental in Munich, 6-12 months, all bills included"
+    },
+    {
+      "id": "pos-018",
+      "category": "housing",
+      "need": "Looking for a room in a women-only shared house in London",
+      "offer": "Female-only shared house in London with available room, bills included, garden access"
+    },
+    {
+      "id": "pos-019",
+      "category": "housing",
+      "need": "Seeking a garage or workshop space to rent in Barcelona for woodworking",
+      "offer": "Workshop space available for rent in Poblenou, Barcelona, suitable for crafts and woodworking"
+    },
+    {
+      "id": "pos-020",
+      "category": "housing",
+      "need": "Looking for a family-friendly apartment near international schools in Brussels",
+      "offer": "Spacious family apartment near European School in Brussels, 3 bedrooms, available September"
+    },
+    {
+      "id": "pos-021",
+      "category": "services",
+      "need": "Need a plumber to fix a leaking faucet in my apartment in Gracia, Barcelona",
+      "offer": "Licensed plumber in Barcelona, available for emergency and scheduled repairs"
+    },
+    {
+      "id": "pos-022",
+      "category": "services",
+      "need": "Looking for a Spanish-English translator for legal documents",
+      "offer": "Certified Spanish-English translator specializing in legal and business documents"
+    },
+    {
+      "id": "pos-023",
+      "category": "services",
+      "need": "Need someone to walk my dog twice a day while I'm traveling next week",
+      "offer": "Dog walker and pet sitter available in the Eixample area, experienced with all breeds"
+    },
+    {
+      "id": "pos-024",
+      "category": "services",
+      "need": "Looking for an electrician to install solar panels on my roof",
+      "offer": "Electrician specializing in solar panel installation and renewable energy systems"
+    },
+    {
+      "id": "pos-025",
+      "category": "services",
+      "need": "Need a caterer for a birthday party of 30 people, Mediterranean food preferred",
+      "offer": "Catering service offering Mediterranean cuisine for private events and parties, groups of 10-50"
+    },
+    {
+      "id": "pos-026",
+      "category": "services",
+      "need": "Looking for a personal trainer for weight loss and strength training",
+      "offer": "Certified personal trainer offering weight loss programs and strength training, home visits available"
+    },
+    {
+      "id": "pos-027",
+      "category": "services",
+      "need": "Need a photographer for a small wedding ceremony, 50 guests",
+      "offer": "Wedding photographer with natural light style, available for intimate ceremonies and elopements"
+    },
+    {
+      "id": "pos-028",
+      "category": "services",
+      "need": "Looking for someone to help with moving furniture to a new apartment",
+      "offer": "Moving assistance service, two-person team with van, available for local moves in Barcelona"
+    },
+    {
+      "id": "pos-029",
+      "category": "services",
+      "need": "Need an accountant familiar with freelancer tax obligations in Spain",
+      "offer": "Accountant specializing in freelancer and autónomo tax filings in Spain"
+    },
+    {
+      "id": "pos-030",
+      "category": "services",
+      "need": "Looking for a house cleaner for weekly deep cleaning of a 3-bedroom apartment",
+      "offer": "Professional house cleaning service, weekly and bi-weekly packages for apartments in Barcelona"
+    },
+    {
+      "id": "pos-031",
+      "category": "education",
+      "need": "Want to learn Catalan, looking for a conversation partner or tutor",
+      "offer": "Native Catalan speaker offering conversation practice and structured lessons for beginners"
+    },
+    {
+      "id": "pos-032",
+      "category": "education",
+      "need": "Looking for a math tutor for my teenager preparing for university entrance exams",
+      "offer": "Mathematics tutor for high school and university entrance preparation, 10 years experience"
+    },
+    {
+      "id": "pos-033",
+      "category": "education",
+      "need": "Want to learn guitar, complete beginner, prefer in-person lessons",
+      "offer": "Guitar teacher offering beginner to intermediate lessons, acoustic and electric, in-person in Barcelona"
+    },
+    {
+      "id": "pos-034",
+      "category": "education",
+      "need": "Seeking a mentor in startup fundraising and venture capital",
+      "offer": "Startup advisor with experience in seed and Series A fundraising, happy to mentor early-stage founders"
+    },
+    {
+      "id": "pos-035",
+      "category": "education",
+      "need": "Looking for a study group for the AWS Solutions Architect certification",
+      "offer": "Organizing a study group for AWS Solutions Architect exam, meeting weekly online"
+    },
+    {
+      "id": "pos-036",
+      "category": "education",
+      "need": "Want to practice my French conversation skills with a native speaker",
+      "offer": "French native speaker looking for language exchange, I can teach French in exchange for English or Spanish"
+    },
+    {
+      "id": "pos-037",
+      "category": "education",
+      "need": "Looking for a pottery or ceramics class in Barcelona",
+      "offer": "Ceramics workshop in Poblenou offering beginner pottery classes, wheel throwing and hand building"
+    },
+    {
+      "id": "pos-038",
+      "category": "education",
+      "need": "Need help learning how to use Blender for 3D modeling",
+      "offer": "3D artist offering Blender tutorials and one-on-one coaching for beginners"
+    },
+    {
+      "id": "pos-039",
+      "category": "education",
+      "need": "Seeking a yoga instructor for private sessions focusing on flexibility",
+      "offer": "Certified yoga instructor offering private sessions, specializing in flexibility and mobility work"
+    },
+    {
+      "id": "pos-040",
+      "category": "education",
+      "need": "Want to learn about permaculture and urban gardening",
+      "offer": "Permaculture teacher offering workshops on urban gardening, composting, and sustainable food growing"
+    },
+    {
+      "id": "pos-041",
+      "category": "community",
+      "need": "Looking for people to start a weekly board game night in Barcelona",
+      "offer": "Hosting a weekly board game meetup in Gracia, Barcelona, all levels welcome"
+    },
+    {
+      "id": "pos-042",
+      "category": "community",
+      "need": "Seeking volunteers for a beach cleanup event this Saturday",
+      "offer": "Environmental group organizing monthly beach cleanups in Barcelona, volunteers always welcome"
+    },
+    {
+      "id": "pos-043",
+      "category": "community",
+      "need": "Looking for a co-working buddy to share a cafe work routine with",
+      "offer": "Remote worker looking for a co-working partner, I work from cafes in Born and Gracia"
+    },
+    {
+      "id": "pos-044",
+      "category": "community",
+      "need": "Want to join a running group training for a half marathon",
+      "offer": "Running group in Barcelona preparing for the half marathon, training 3 times per week"
+    },
+    {
+      "id": "pos-045",
+      "category": "community",
+      "need": "Looking for musicians to form a jazz jam session group",
+      "offer": "Jazz musician (saxophone) looking for others to jam with regularly, any skill level"
+    },
+    {
+      "id": "pos-046",
+      "category": "community",
+      "need": "Seeking a book club focused on science fiction and speculative fiction",
+      "offer": "Starting a sci-fi book club in Barcelona, meeting monthly to discuss classic and new speculative fiction"
+    },
+    {
+      "id": "pos-047",
+      "category": "community",
+      "need": "Looking for parents with toddlers for a playgroup in Sarria",
+      "offer": "Parent organizing a toddler playgroup in Sarria-Sant Gervasi, Barcelona, weekday mornings"
+    },
+    {
+      "id": "pos-048",
+      "category": "community",
+      "need": "Want to join a hiking group for weekend mountain trips near Barcelona",
+      "offer": "Hiking group organizing weekend trips to Montserrat, Montseny, and Costa Brava trails"
+    },
+    {
+      "id": "pos-049",
+      "category": "community",
+      "need": "Looking for people interested in starting a community garden in Poblenou",
+      "offer": "Community garden project in Poblenou looking for new members, plots available"
+    },
+    {
+      "id": "pos-050",
+      "category": "community",
+      "need": "Seeking a conversation group to practice public speaking and debate",
+      "offer": "Toastmasters-style public speaking club in Barcelona, meetings every other Thursday"
+    }
+  ],
+  "negative_pairs": [
+    {
+      "id": "neg-001",
+      "need": "Looking for a plumber to fix a leaking pipe in my apartment",
+      "offer": "Professional piano teacher offering lessons for beginners and intermediate students"
+    },
+    {
+      "id": "neg-002",
+      "need": "Need a React developer to build our e-commerce frontend",
+      "offer": "Dog walker available for daily walks in the park, all breeds welcome"
+    },
+    {
+      "id": "neg-003",
+      "need": "Searching for a room in a shared apartment in Barcelona",
+      "offer": "Cybersecurity consultant offering penetration testing services"
+    },
+    {
+      "id": "neg-004",
+      "need": "Want to learn Catalan with a native speaker",
+      "offer": "Moving assistance service with a van for local moves"
+    },
+    {
+      "id": "neg-005",
+      "need": "Looking for a wedding photographer for 50 guests",
+      "offer": "Study group forming for AWS cloud certification exam"
+    },
+    {
+      "id": "neg-006",
+      "need": "Need someone to install solar panels on my roof",
+      "offer": "Toddler playgroup meeting weekday mornings in the park"
+    },
+    {
+      "id": "neg-007",
+      "need": "Seeking a mentor for startup fundraising",
+      "offer": "House cleaning service for apartments, weekly packages"
+    },
+    {
+      "id": "neg-008",
+      "need": "Looking for a running group training for a marathon",
+      "offer": "Certified Spanish-English translator for legal documents"
+    },
+    {
+      "id": "neg-009",
+      "need": "Need a caterer for a Mediterranean dinner party",
+      "offer": "3D modeling tutorials using Blender for complete beginners"
+    },
+    {
+      "id": "neg-010",
+      "need": "Want to join a sci-fi book club",
+      "offer": "Electrician available for residential wiring and installations"
+    },
+    {
+      "id": "neg-011",
+      "need": "Searching for a co-living space for remote workers",
+      "offer": "Mathematics tutor for university entrance exam preparation"
+    },
+    {
+      "id": "neg-012",
+      "need": "Need a data analyst for a 3-month SQL and Tableau contract",
+      "offer": "Pottery and ceramics classes in a workshop setting"
+    },
+    {
+      "id": "neg-013",
+      "need": "Looking for volunteers for a beach cleanup event",
+      "offer": "Freelance graphic designer offering branding packages"
+    },
+    {
+      "id": "neg-014",
+      "need": "Seeking a personal trainer for weight loss",
+      "offer": "Room available in a shared apartment near the metro"
+    },
+    {
+      "id": "neg-015",
+      "need": "Need an accountant for freelancer taxes in Spain",
+      "offer": "Jazz musician looking for a jam session group"
+    },
+    {
+      "id": "neg-016",
+      "need": "Looking for a garage space for woodworking in Barcelona",
+      "offer": "French native speaker offering language exchange"
+    },
+    {
+      "id": "neg-017",
+      "need": "Want to start a board game night group",
+      "offer": "DevOps engineer offering CI/CD pipeline setup and Kubernetes consulting"
+    },
+    {
+      "id": "neg-018",
+      "need": "Need a mobile app developer for a fitness tracking app",
+      "offer": "Permaculture teacher offering urban gardening workshops"
+    },
+    {
+      "id": "neg-019",
+      "need": "Looking for a family apartment near international schools in Brussels",
+      "offer": "Catering service for Mediterranean cuisine at private events"
+    },
+    {
+      "id": "neg-020",
+      "need": "Seeking a UX researcher for fintech user interviews",
+      "offer": "Hiking group organizing weekend mountain trips"
+    },
+    {
+      "id": "neg-021",
+      "need": "Need a technical writer for API documentation",
+      "offer": "Community garden in Poblenou looking for new members"
+    },
+    {
+      "id": "neg-022",
+      "need": "Looking for someone to help move furniture",
+      "offer": "Machine learning engineer with recommendation system experience"
+    },
+    {
+      "id": "neg-023",
+      "need": "Want to learn guitar, complete beginner",
+      "offer": "Pet-friendly apartment for rent in Madrid, 2 bedrooms"
+    },
+    {
+      "id": "neg-024",
+      "need": "Looking for a house swap between Paris and Barcelona",
+      "offer": "Public speaking and debate club meeting biweekly"
+    },
+    {
+      "id": "neg-025",
+      "need": "Need temporary housing in Munich for 6 months",
+      "offer": "Certified yoga instructor for private flexibility sessions"
+    },
+    {
+      "id": "neg-026",
+      "need": "Seeking musicians to start a jazz jam group",
+      "offer": "Python developer specializing in Django REST APIs"
+    },
+    {
+      "id": "neg-027",
+      "need": "Looking for a women-only shared house in London",
+      "offer": "Data analyst proficient in SQL and Tableau"
+    },
+    {
+      "id": "neg-028",
+      "need": "Want to practice French conversation with a native",
+      "offer": "Solar panel installation by certified electrician"
+    },
+    {
+      "id": "neg-029",
+      "need": "Need a dog walker for twice daily walks while traveling",
+      "offer": "Wedding photographer with natural light style"
+    },
+    {
+      "id": "neg-030",
+      "need": "Looking for a ceramics class in Barcelona",
+      "offer": "Accountant for freelancer tax filings in Spain"
+    },
+    {
+      "id": "neg-031",
+      "need": "Seeking a co-working buddy for cafe work sessions",
+      "offer": "Furnished apartment in Munich for medium-term rent"
+    },
+    {
+      "id": "neg-032",
+      "need": "Need help learning Blender for 3D modeling",
+      "offer": "Beach cleanup volunteer group meets monthly"
+    },
+    {
+      "id": "neg-033",
+      "need": "Looking for parents for a toddler playgroup",
+      "offer": "Technical writer for developer documentation and API specs"
+    },
+    {
+      "id": "neg-034",
+      "need": "Want to join a hiking group near Barcelona",
+      "offer": "React developer with dashboard and visualization experience"
+    },
+    {
+      "id": "neg-035",
+      "need": "Need a quiet studio apartment in Lisbon",
+      "offer": "Running group training for half marathon three times weekly"
+    },
+    {
+      "id": "neg-036",
+      "need": "Looking for a math tutor for university entrance exams",
+      "offer": "Dog walker in Eixample for all breeds"
+    },
+    {
+      "id": "neg-037",
+      "need": "Seeking a startup fundraising mentor",
+      "offer": "Plumber available for emergency repairs in Barcelona"
+    },
+    {
+      "id": "neg-038",
+      "need": "Need a cybersecurity penetration test for our web app",
+      "offer": "Guitar teacher for acoustic and electric, beginner lessons"
+    },
+    {
+      "id": "neg-039",
+      "need": "Looking for a co-living space in Amsterdam",
+      "offer": "Caterer for birthday parties, Mediterranean food"
+    },
+    {
+      "id": "neg-040",
+      "need": "Want to start a community garden in Poblenou",
+      "offer": "Mobile app developer for cross-platform fitness apps"
+    },
+    {
+      "id": "neg-041",
+      "need": "Seeking an AWS certification study group",
+      "offer": "House cleaner for weekly deep cleaning of apartments"
+    },
+    {
+      "id": "neg-042",
+      "need": "Need a Catalan tutor for conversation practice",
+      "offer": "Workshop space for rent in Poblenou for crafts"
+    },
+    {
+      "id": "neg-043",
+      "need": "Looking for a yoga instructor for private sessions",
+      "offer": "Spanish-English legal document translator"
+    },
+    {
+      "id": "neg-044",
+      "need": "Want to join a sci-fi book club in Barcelona",
+      "offer": "Personal trainer for weight loss and strength training"
+    },
+    {
+      "id": "neg-045",
+      "need": "Need a graphic designer for startup branding",
+      "offer": "Apartment sublet in Berlin Kreuzberg for summer"
+    },
+    {
+      "id": "neg-046",
+      "need": "Looking for a public speaking practice group",
+      "offer": "Permaculture and urban gardening workshops"
+    },
+    {
+      "id": "neg-047",
+      "need": "Need a ML engineer for a recommendation system",
+      "offer": "Catalan conversation practice for beginners"
+    },
+    {
+      "id": "neg-048",
+      "need": "Seeking a photographer for an intimate wedding",
+      "offer": "Co-living space with fast wifi for remote workers"
+    },
+    {
+      "id": "neg-049",
+      "need": "Looking for a board game night in Barcelona",
+      "offer": "UX researcher for fintech usability testing"
+    },
+    {
+      "id": "neg-050",
+      "need": "Need an apartment near European School in Brussels",
+      "offer": "Saxophone player looking for jazz jam partners"
+    }
+  ]
+}

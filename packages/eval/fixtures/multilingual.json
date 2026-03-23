@@ -1,0 +1,143 @@
+{
+  "description": "Multilingual test pairs for Barcelona pilot. Tests cross-language and same-language matching.",
+  "cross_language_pairs": [
+    {
+      "id": "ml-cross-001",
+      "need": "Necesito un desarrollador Python para un proyecto de Django",
+      "need_lang": "es",
+      "offer": "Experienced Python developer specializing in Django and REST APIs, available for freelance work",
+      "offer_lang": "en",
+      "category": "skills"
+    },
+    {
+      "id": "ml-cross-002",
+      "need": "Busco una habitación en un piso compartido en el Eixample de Barcelona",
+      "need_lang": "es",
+      "offer": "Room available in a 3-bedroom apartment in Eixample, Barcelona, close to metro",
+      "offer_lang": "en",
+      "category": "housing"
+    },
+    {
+      "id": "ml-cross-003",
+      "need": "Necessito un lampista per arreglar una fuita al meu pis de Gràcia",
+      "need_lang": "ca",
+      "offer": "Licensed plumber in Barcelona, available for emergency and scheduled repairs",
+      "offer_lang": "en",
+      "category": "services"
+    },
+    {
+      "id": "ml-cross-004",
+      "need": "Vull aprendre guitarra, sóc principiant total",
+      "need_lang": "ca",
+      "offer": "Guitar teacher offering beginner to intermediate lessons, acoustic and electric, in-person in Barcelona",
+      "offer_lang": "en",
+      "category": "education"
+    },
+    {
+      "id": "ml-cross-005",
+      "need": "Busco gente para un grupo de senderismo los fines de semana cerca de Barcelona",
+      "need_lang": "es",
+      "offer": "Hiking group organizing weekend trips to Montserrat, Montseny, and Costa Brava trails",
+      "offer_lang": "en",
+      "category": "community"
+    },
+    {
+      "id": "ml-cross-006",
+      "need": "Looking for a Spanish tutor for conversational practice",
+      "need_lang": "en",
+      "offer": "Profesor de español nativo, clases de conversación para todos los niveles",
+      "offer_lang": "es",
+      "category": "education"
+    },
+    {
+      "id": "ml-cross-007",
+      "need": "Necesito un fotógrafo para una boda pequeña de 50 personas",
+      "need_lang": "es",
+      "offer": "Wedding photographer with natural light style, available for intimate ceremonies",
+      "offer_lang": "en",
+      "category": "services"
+    },
+    {
+      "id": "ml-cross-008",
+      "need": "Busco un contable que conozca las obligaciones fiscales de autónomos en España",
+      "need_lang": "es",
+      "offer": "Accountant specializing in freelancer and autónomo tax filings in Spain",
+      "offer_lang": "en",
+      "category": "services"
+    },
+    {
+      "id": "ml-cross-009",
+      "need": "Cherche un développeur React pour construire un tableau de bord",
+      "need_lang": "fr",
+      "offer": "Frontend developer with 5 years of React experience, skilled in data visualization and dashboards",
+      "offer_lang": "en",
+      "category": "skills"
+    },
+    {
+      "id": "ml-cross-010",
+      "need": "Cerco una stanza in un appartamento condiviso a Barcellona",
+      "need_lang": "it",
+      "offer": "Room available in a shared apartment in Barcelona, close to metro, all bills included",
+      "offer_lang": "en",
+      "category": "housing"
+    }
+  ],
+  "same_language_pairs": [
+    {
+      "id": "ml-same-001",
+      "need": "Necesito un desarrollador freelance de Python para un proyecto web",
+      "offer": "Desarrollador Python con experiencia en Django y APIs REST, disponible para trabajo freelance",
+      "lang": "es",
+      "category": "skills"
+    },
+    {
+      "id": "ml-same-002",
+      "need": "Busco una habitación en un piso compartido en Barcelona cerca del metro",
+      "offer": "Habitación disponible en piso compartido de 3 habitaciones en el Eixample, cerca del metro",
+      "lang": "es",
+      "category": "housing"
+    },
+    {
+      "id": "ml-same-003",
+      "need": "Necesito un fontanero para arreglar un grifo que gotea en mi piso",
+      "offer": "Fontanero profesional en Barcelona, disponible para reparaciones urgentes y programadas",
+      "lang": "es",
+      "category": "services"
+    },
+    {
+      "id": "ml-same-004",
+      "need": "Quiero aprender catalán con un hablante nativo",
+      "offer": "Profesor nativo de catalán ofreciendo clases de conversación y lecciones estructuradas",
+      "lang": "es",
+      "category": "education"
+    },
+    {
+      "id": "ml-same-005",
+      "need": "Busco un grupo para correr y entrenar para una media maratón",
+      "offer": "Grupo de running en Barcelona preparando la media maratón, entrenamos 3 veces por semana",
+      "lang": "es",
+      "category": "community"
+    },
+    {
+      "id": "ml-same-006",
+      "need": "Necessito un dissenyador gràfic per al branding de la nostra startup",
+      "offer": "Dissenyador gràfic freelance oferint paquets d'identitat de marca incloent logo i tipografia",
+      "lang": "ca",
+      "category": "skills"
+    },
+    {
+      "id": "ml-same-007",
+      "need": "Busco un espai de taller per llogar a Barcelona per fer fusteria",
+      "offer": "Espai de taller disponible a Poblenou, Barcelona, adequat per a artesania i fusteria",
+      "lang": "ca",
+      "category": "housing"
+    },
+    {
+      "id": "ml-same-008",
+      "need": "Vull unir-me a un club de lectura de ciència-ficció a Barcelona",
+      "offer": "Club de lectura de ciència-ficció a Barcelona, ens trobem mensualment per discutir clàssics i novetats",
+      "lang": "ca",
+      "category": "community"
+    }
+  ]
+}

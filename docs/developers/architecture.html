@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Architecture — Planetary Resonance</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+
+<nav>
+  <div class="container nav-inner">
+    <a href="/docs/index.html" class="brand">Planetary Resonance</a>
+    <button class="nav-toggle" aria-label="Menu">&#9776;</button>
+    <div class="nav-links">
+      <a href="/docs/how-it-works.html">How It Works</a>
+      <a href="/docs/privacy.html">Privacy</a>
+      <div class="dropdown">
+        <button class="dropdown-toggle">Developers</button>
+        <div class="dropdown-menu">
+          <a href="/docs/developers/architecture.html">Architecture</a>
+          <a href="/docs/developers/protocol.html">Protocol</a>
+          <a href="/docs/developers/core-library.html">Core Library</a>
+          <a href="/docs/developers/eval-results.html">Eval Results</a>
+          <a href="/docs/developers/contributing.html">Contributing</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<div class="breadcrumb">
+  <div class="container">
+    <a href="/docs/index.html">Home</a>
+    <span class="sep">/</span>
+    <span>Developers</span>
+    <span class="sep">/</span>
+    <span class="current">Architecture</span>
+  </div>
+</div>
+
+<header class="hero">
+  <div class="container">
+    <div class="tag">Technical Reference</div>
+    <h1>Architecture</h1>
+    <p class="subtitle">
+      A three-tier system where personal nodes handle computation and privacy,
+      relays handle anonymous discovery, and direct channels handle verified exchange.
+      Every design decision is validated by evaluation data.
+    </p>
+  </div>
+</header>
+
+<section>
+  <div class="container">
+    <div class="section-label">Overview</div>
+    <h2>Three-Tier Architecture</h2>
+    <p>Resonance separates concerns across three trust boundaries. Data visibility decreases as you move from the personal node outward.</p>
+
+    <div class="flow-container" style="flex-direction: column; gap: 0; padding: 32px;">
+      <div style="display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; margin-bottom: 8px;">
+        <div class="flow-step" style="border-color: rgba(108,140,255,0.4); min-width: 160px;">
+          <div class="step-num">Tier 1</div>
+          <div class="step-label" style="color: var(--accent);">Personal Node</div>
+          <div class="step-detail">User's device<br>Full data visibility<br>Embedding + perturbation</div>
+        </div>
+      </div>
+      <div style="text-align: center; color: var(--text-muted); font-size: 0.85em; padding: 8px 0;">&#8595; noisy vectors + DIDs &#8595;</div>
+      <div style="display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; margin: 8px 0;">
+        <div class="flow-step" style="border-color: rgba(255,200,108,0.4); min-width: 160px;">
+          <div class="step-num">Tier 2</div>
+          <div class="step-label" style="color: var(--accent4);">Relay</div>
+          <div class="step-detail">Community server<br>Perturbed vectors only<br>HNSW index + matching</div>
+        </div>
+      </div>
+      <div style="text-align: center; color: var(--text-muted); font-size: 0.85em; padding: 8px 0;">&#8595; match notification &#8595;</div>
+      <div style="display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; margin-top: 8px;">
+        <div class="flow-step" style="border-color: rgba(108,255,160,0.4); min-width: 160px;">
+          <div class="step-num">Tier 3</div>
+          <div class="step-label" style="color: var(--accent3);">Direct Channel</div>
+          <div class="step-detail">Peer-to-peer encrypted<br>True embeddings + disclosures<br>User-controlled</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <div class="section-label">Codebase</div>
+    <h2>Monorepo Structure</h2>
+    <p>The project is organized as a TypeScript monorepo with three packages.</p>
+
+    <div class="code-block">
+resonance/
+  <span class="keyword">packages/</span>
+    <span class="type">core/</span>              <span class="comment">// Types, crypto, perturbation, embedding, protocol</span>
+      src/
+        types.ts          <span class="comment">// Shared type definitions and constants</span>
+        crypto.ts         <span class="comment">// Ed25519 signing, X25519 DH, symmetric encryption</span>
+        perturbation.ts   <span class="comment">// Laplace noise mechanism for differential privacy</span>
+        embedding.ts      <span class="comment">// EmbeddingEngine using @huggingface/transformers</span>
+        vectors.ts        <span class="comment">// Cosine similarity, normalization, dot product</span>
+        protocol.ts       <span class="comment">// Message creation, signing, verification</span>
+    <span class="type">relay/</span>             <span class="comment">// HNSW index, MatchingIndex, relay server</span>
+      src/
+        matching-index.ts <span class="comment">// Separate HNSW indexes for needs vs offers</span>
+        relay-server.ts   <span class="comment">// WebSocket server, rate limiting, admin API</span>
+    <span class="type">eval/</span>              <span class="comment">// Benchmarks and evaluation suite</span>
+      src/
+        benchmarks/       <span class="comment">// Individual benchmark files</span>
+        run.ts            <span class="comment">// Benchmark runner and report generator</span>
+  docs/                   <span class="comment">// This documentation site</span>
+    evals/                <span class="comment">// Auto-generated eval reports</span>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <div class="section-label">Data Flow</div>
+    <h2>End-to-End Data Flow</h2>
+    <p>This is the complete path from user input to successful exchange.</p>
+
+    <div class="flow-container">
+      <div class="flow-step">
+        <div class="step-num">01</div>
+        <div class="step-label">User Input</div>
+        <div class="step-detail">Natural language text describing a need or offer</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">02</div>
+        <div class="step-label">Embed Locally</div>
+        <div class="step-detail">768-dim vector via HuggingFace transformer model</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">03</div>
+        <div class="step-label">Perturb</div>
+        <div class="step-detail">Add Laplace noise (epsilon-calibrated)</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">04</div>
+        <div class="step-label">Publish</div>
+        <div class="step-detail">Send noisy vector to relay over TLS</div>
+      </div>
+    </div>
+
+    <div class="flow-container">
+      <div class="flow-step">
+        <div class="step-num">05</div>
+        <div class="step-label">Index</div>
+        <div class="step-detail">Relay inserts into MatchingIndex (separate need/offer HNSW)</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">06</div>
+        <div class="step-label">Match</div>
+        <div class="step-detail">Cross-search needs against offers at threshold 0.50</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">07</div>
+        <div class="step-label">Notify</div>
+        <div class="step-detail">Both parties receive match notification with similarity score</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">08</div>
+        <div class="step-label">Consent</div>
+        <div class="step-detail">Both parties accept to open direct channel</div>
+      </div>
+    </div>
+
+    <div class="flow-container">
+      <div class="flow-step">
+        <div class="step-num">09</div>
+        <div class="step-label">Key Exchange</div>
+        <div class="step-detail">X25519 Diffie-Hellman via ephemeral keys</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">10</div>
+        <div class="step-label">Confirm</div>
+        <div class="step-detail">Exchange true embeddings, verify similarity &ge; 0.55</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">11</div>
+        <div class="step-label">Disclose</div>
+        <div class="step-detail">Progressive disclosure: category &rarr; detail &rarr; contact</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">12</div>
+        <div class="step-label">Exchange</div>
+        <div class="step-detail">Accept or reject, close channel</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <div class="section-label">Design Decisions</div>
+    <h2>Key Design Decisions</h2>
+    <p>Every major design choice in Resonance was validated by the evaluation suite. Here are the decisions that most impact matching quality and privacy.</p>
+
+    <h3>Index-Only Perturbation</h3>
+    <p>Only the <strong>indexed</strong> vectors (published to the relay) receive Laplace noise. When a personal node searches the relay, it uses the <strong>true embedding</strong> as the query vector. This asymmetric approach preserves search quality while keeping indexed data private.</p>
+    <div class="callout evidence">
+      <div class="callout-label">Eval Evidence</div>
+      <p>Index-only perturbation at epsilon=1.0 achieves 80% recall at threshold 0.50. Double perturbation (both index and query noised) at the same epsilon drops to 48% recall at 0.50 and requires lowering the threshold to 0.30 for full recall&mdash;which produces 397 matches with unacceptable noise.</p>
+    </div>
+
+    <h3>Relay Threshold: 0.50</h3>
+    <p>The relay's cosine similarity threshold was lowered from the original 0.72 to 0.50 based on evaluation data.</p>
+    <div class="callout evidence">
+      <div class="callout-label">Eval Evidence</div>
+      <p>At threshold 0.72, recall was only 4% (2/50 pairs matched). At 0.50, recall jumps to 94% for baseline and 82% for the MatchingIndex with perturbation. The confirmation step at 0.55 on true embeddings filters the false positives.</p>
+    </div>
+
+    <h3>Confirmation Threshold: 0.55</h3>
+    <p>After both parties consent, they exchange true (un-noised) embeddings over the encrypted direct channel and verify that the cosine similarity exceeds 0.55. This catches false positives from the noisy relay matching.</p>
+
+    <h3>MatchingIndex: Separate Need/Offer Indexes</h3>
+    <p>The relay maintains two separate HNSW indexes: one for needs and one for offers. Needs are only searched against offers and vice versa.</p>
+    <div class="callout evidence">
+      <div class="callout-label">Eval Evidence</div>
+      <p>A flat (single) index produced 131 matches at epsilon=1.0 and threshold 0.50, but 65% of those matches were same-type noise (needs matching needs, offers matching offers). The MatchingIndex eliminated this entirely, reducing matches to 47 with only 2.1% false positive rate.</p>
+    </div>
+
+    <h3>Query Rewriting</h3>
+    <p>Need-type items are rewritten to strip demand framing before embedding. "I'm looking for a Django developer" becomes "Django developer" so it matches offer-side descriptions.</p>
+    <div class="callout evidence">
+      <div class="callout-label">Eval Evidence</div>
+      <p>Rewriting improved average need-offer similarity from 0.634 to 0.650 (+1.5pp) and boosted recall from 80% to 86% at epsilon=1.0 with threshold 0.50.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <div class="section-label">Trust Model</div>
+    <h2>Trust Boundaries</h2>
+    <p>Each tier of the architecture has different data visibility. This table shows exactly what each component can and cannot see.</p>
+
+    <table class="spec-table">
+      <thead>
+        <tr>
+          <th>Data</th>
+          <th>Personal Node</th>
+          <th>Relay</th>
+          <th>Direct Channel</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Original text</td>
+          <td style="color: var(--accent3);">Yes</td>
+          <td style="color: var(--danger);">No</td>
+          <td style="color: var(--danger);">No (unless disclosed)</td>
+        </tr>
+        <tr>
+          <td>True embedding (768-dim)</td>
+          <td style="color: var(--accent3);">Yes</td>
+          <td style="color: var(--danger);">No</td>
+          <td style="color: var(--accent3);">Yes (for confirmation)</td>
+        </tr>
+        <tr>
+          <td>Perturbed embedding</td>
+          <td style="color: var(--accent3);">Yes</td>
+          <td style="color: var(--accent3);">Yes</td>
+          <td style="color: var(--danger);">No</td>
+        </tr>
+        <tr>
+          <td>DID (identifier)</td>
+          <td style="color: var(--accent3);">Yes</td>
+          <td style="color: var(--accent3);">Yes</td>
+          <td style="color: var(--accent3);">Yes</td>
+        </tr>
+        <tr>
+          <td>Private keys</td>
+          <td style="color: var(--accent3);">Yes</td>
+          <td style="color: var(--danger);">No</td>
+          <td style="color: var(--danger);">No</td>
+        </tr>
+        <tr>
+          <td>Match similarity score</td>
+          <td style="color: var(--accent3);">Yes</td>
+          <td style="color: var(--accent3);">Yes (noisy)</td>
+          <td style="color: var(--accent3);">Yes (true)</td>
+        </tr>
+        <tr>
+          <td>Partner identity</td>
+          <td style="color: var(--accent3);">Yes (DID only)</td>
+          <td style="color: var(--accent3);">Yes (DID only)</td>
+          <td style="color: var(--accent3);">Yes (DID + disclosures)</td>
+        </tr>
+        <tr>
+          <td>Disclosed text/contact</td>
+          <td style="color: var(--accent3);">Yes</td>
+          <td style="color: var(--danger);">No</td>
+          <td style="color: var(--accent3);">Yes</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<footer>
+  <div class="container footer-inner">
+    <div>
+      <div class="footer-brand">Planetary Resonance</div>
+      <div class="footer-tagline">Privacy-preserving matching for human connection.</div>
+    </div>
+    <div class="footer-links">
+      <a href="/docs/index.html">Home</a>
+      <a href="/docs/how-it-works.html">How It Works</a>
+      <a href="/docs/privacy.html">Privacy</a>
+      <a href="/docs/developers/protocol.html">Protocol</a>
+      <a href="/docs/developers/contributing.html">Contributing</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+document.querySelector('.nav-toggle')?.addEventListener('click', () => {
+  document.querySelector('.nav-links')?.classList.toggle('open');
+});
+document.querySelectorAll('.dropdown-toggle').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    btn.parentElement?.classList.toggle('open');
+  });
+});
+document.addEventListener('click', () => {
+  document.querySelectorAll('.dropdown.open').forEach(d => d.classList.remove('open'));
+});
+</script>
+</body>
+</html>

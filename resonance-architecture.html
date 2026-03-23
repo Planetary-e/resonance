@@ -1,0 +1,1435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Planetary Resonance — Network Architecture</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root {
+  --bg: #08080d;
+  --surface: #10101a;
+  --surface2: #181828;
+  --surface3: #202035;
+  --border: #2a2a40;
+  --text: #e4e4f0;
+  --text-muted: #8888a8;
+  --accent: #6c8cff;
+  --accent2: #ff6c8c;
+  --accent3: #6cffa0;
+  --accent4: #ffc86c;
+  --accent5: #c86cff;
+  --node-personal: #6c8cff;
+  --node-relay: #ffc86c;
+  --node-direct: #6cffa0;
+  --danger: #ff6c8c;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'Inter', -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.75;
+  font-size: 16px;
+}
+
+.container { max-width: 1100px; margin: 0 auto; padding: 0 28px; }
+
+/* NAV */
+nav {
+  position: sticky; top: 0; z-index: 100;
+  background: rgba(8,8,13,0.92); backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border); padding: 12px 0;
+}
+nav .container { display: flex; align-items: center; gap: 18px; font-size: 0.82em; flex-wrap: wrap; }
+nav a { color: var(--text-muted); text-decoration: none; font-weight: 500; cursor: pointer; transition: color 0.3s; }
+nav a:hover { color: var(--accent3); }
+nav .brand {
+  font-family: 'Playfair Display', serif;
+  font-size: 1.15em; font-weight: 700;
+  background: linear-gradient(135deg, var(--accent3), var(--accent));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+
+/* HERO */
+.hero {
+  padding: 100px 0 70px;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  overflow: hidden;
+}
+.hero::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  background:
+    radial-gradient(ellipse at 25% 50%, rgba(108,140,255,0.06) 0%, transparent 60%),
+    radial-gradient(ellipse at 75% 50%, rgba(255,200,108,0.06) 0%, transparent 60%),
+    radial-gradient(ellipse at 50% 80%, rgba(108,255,160,0.04) 0%, transparent 50%);
+}
+.hero h1 {
+  font-family: 'Playfair Display', serif;
+  font-size: 3.2em; line-height: 1.12;
+  letter-spacing: -0.02em; margin-bottom: 18px;
+  position: relative;
+  background: linear-gradient(135deg, #fff 0%, var(--accent) 50%, var(--accent3) 100%);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.hero .subtitle {
+  font-size: 1.15em; color: var(--text-muted);
+  max-width: 720px; margin: 0 auto 24px;
+  font-weight: 300; position: relative;
+}
+.hero .meta { font-size: 0.85em; color: var(--text-muted); position: relative; }
+.hero .tag {
+  display: inline-block;
+  background: rgba(108,140,255,0.12); color: var(--accent);
+  padding: 4px 14px; border-radius: 20px;
+  font-size: 0.78em; font-weight: 600;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  margin-bottom: 20px; position: relative;
+  border: 1px solid rgba(108,140,255,0.2);
+}
+
+/* SECTIONS */
+section { padding: 60px 0; border-bottom: 1px solid var(--border); }
+section:last-of-type { border-bottom: none; }
+.section-label {
+  font-size: 0.78em; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.12em; margin-bottom: 8px;
+}
+
+h2 {
+  font-family: 'Playfair Display', serif;
+  font-size: 2em; margin-bottom: 20px; line-height: 1.2;
+  color: #fff;
+}
+h3 { font-size: 1.2em; margin: 32px 0 14px; color: var(--accent); font-weight: 600; }
+h4 { font-size: 1em; font-weight: 600; margin: 24px 0 8px; color: var(--accent4); }
+p { margin-bottom: 16px; }
+
+/* CARDS */
+.card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin: 24px 0; }
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px; padding: 24px;
+  transition: border-color 0.3s, transform 0.2s;
+}
+.card:hover { border-color: var(--accent); transform: translateY(-2px); }
+.card .card-icon { font-size: 2em; margin-bottom: 12px; }
+.card h4 { color: var(--text); margin: 0 0 8px; font-size: 1.05em; }
+.card p { font-size: 0.9em; color: var(--text-muted); margin: 0; }
+.card .card-tag {
+  display: inline-block; padding: 2px 10px; border-radius: 20px;
+  font-size: 0.72em; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.05em; margin-bottom: 10px;
+}
+.tag-personal { background: rgba(108,140,255,0.12); color: var(--node-personal); }
+.tag-relay { background: rgba(255,200,108,0.12); color: var(--node-relay); }
+.tag-direct { background: rgba(108,255,160,0.12); color: var(--node-direct); }
+.tag-privacy { background: rgba(200,108,255,0.12); color: var(--accent5); }
+
+/* TABLES */
+.spec-table { width: 100%; border-collapse: collapse; margin: 24px 0; font-size: 0.88em; }
+.spec-table th, .spec-table td { padding: 12px 14px; border: 1px solid var(--border); }
+.spec-table th {
+  background: var(--surface2); font-weight: 600; font-size: 0.82em;
+  text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);
+}
+.spec-table td { color: var(--text-muted); }
+.spec-table td:first-child { font-weight: 600; color: var(--text); }
+.spec-table tr:hover td { background: var(--surface); }
+
+/* STAT ROW */
+.stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin: 24px 0; }
+.stat {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; padding: 20px; text-align: center;
+}
+.stat .num { font-size: 2.2em; font-weight: 800; line-height: 1.1; font-family: 'JetBrains Mono', monospace; }
+.stat .label { font-size: 0.72em; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 6px; }
+.stat.blue .num { color: var(--node-personal); }
+.stat.gold .num { color: var(--node-relay); }
+.stat.green .num { color: var(--node-direct); }
+.stat.purple .num { color: var(--accent5); }
+.stat.red .num { color: var(--danger); }
+
+/* CALLOUT */
+.callout {
+  background: var(--surface); border-left: 4px solid var(--accent);
+  padding: 20px 24px; margin: 24px 0; border-radius: 0 10px 10px 0;
+}
+.callout.warning { border-left-color: var(--danger); background: rgba(255,108,140,0.04); }
+.callout.evidence { border-left-color: var(--accent3); background: rgba(108,255,160,0.04); }
+.callout.insight { border-left-color: var(--accent5); background: rgba(200,108,255,0.04); }
+.callout.tech { border-left-color: var(--accent4); background: rgba(255,200,108,0.04); }
+.callout .callout-label {
+  font-size: 0.72em; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.08em; margin-bottom: 6px;
+}
+.callout.warning .callout-label { color: var(--danger); }
+.callout.evidence .callout-label { color: var(--accent3); }
+.callout.insight .callout-label { color: var(--accent5); }
+.callout.tech .callout-label { color: var(--accent4); }
+
+/* ARCHITECTURE DIAGRAM */
+.arch-diagram {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 40px 30px;
+  margin: 30px 0;
+  position: relative;
+  overflow: hidden;
+}
+.arch-diagram::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  background: radial-gradient(ellipse at 50% 50%, rgba(108,140,255,0.03) 0%, transparent 70%);
+}
+
+.tier-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  margin: 16px 0;
+  position: relative;
+  z-index: 1;
+}
+
+.tier-label {
+  writing-mode: vertical-lr;
+  text-orientation: mixed;
+  transform: rotate(180deg);
+  font-size: 0.68em;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  width: 28px;
+  text-align: center;
+  padding: 10px 0;
+}
+
+.node-box {
+  border-radius: 10px;
+  padding: 14px 20px;
+  text-align: center;
+  font-size: 0.82em;
+  font-weight: 600;
+  min-width: 120px;
+  border: 1px solid;
+  position: relative;
+}
+.node-personal {
+  background: rgba(108,140,255,0.08);
+  border-color: rgba(108,140,255,0.3);
+  color: var(--node-personal);
+}
+.node-relay {
+  background: rgba(255,200,108,0.08);
+  border-color: rgba(255,200,108,0.3);
+  color: var(--node-relay);
+}
+.node-direct {
+  background: rgba(108,255,160,0.08);
+  border-color: rgba(108,255,160,0.3);
+  color: var(--node-direct);
+}
+
+.conn-line {
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 0.72em;
+  position: relative;
+  z-index: 1;
+}
+.conn-line::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0; bottom: 0;
+  width: 1px;
+  background: linear-gradient(to bottom, var(--border), rgba(108,140,255,0.3));
+}
+
+/* FLOW DIAGRAM */
+.flow-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  margin: 24px 0;
+  padding: 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.flow-step {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 18px;
+  text-align: center;
+  font-size: 0.82em;
+  min-width: 130px;
+}
+.flow-step .step-num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.72em;
+  color: var(--accent);
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.flow-step .step-label { font-weight: 600; color: var(--text); margin-bottom: 2px; }
+.flow-step .step-detail { font-size: 0.85em; color: var(--text-muted); }
+.flow-arrow { color: var(--accent); font-size: 1.4em; font-weight: 300; }
+
+/* CODE BLOCKS */
+.code-block {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 24px;
+  margin: 20px 0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.82em;
+  line-height: 1.7;
+  overflow-x: auto;
+  color: var(--text-muted);
+}
+.code-block .keyword { color: var(--accent5); }
+.code-block .type { color: var(--accent); }
+.code-block .string { color: var(--accent3); }
+.code-block .comment { color: #555570; font-style: italic; }
+.code-block .func { color: var(--accent4); }
+.code-block .num { color: var(--danger); }
+
+/* TABS */
+.tab-container { margin: 24px 0; }
+.tab-nav { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 0; }
+.tab-btn {
+  background: none; border: none; color: var(--text-muted);
+  padding: 10px 20px; font-size: 0.85em; font-weight: 600;
+  cursor: pointer; border-bottom: 2px solid transparent;
+  font-family: 'Inter', sans-serif; transition: all 0.3s;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab-panel { display: none; padding: 24px 0; }
+.tab-panel.active { display: block; }
+
+/* CHART */
+.chart-container {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  margin: 24px 0;
+  max-height: 420px;
+}
+
+/* LAYER STACK */
+.layer-stack { margin: 30px 0; }
+.layer {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 24px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  transition: border-color 0.3s;
+}
+.layer:hover { border-color: var(--accent); }
+.layer .layer-icon { font-size: 1.5em; min-width: 40px; text-align: center; }
+.layer .layer-name { font-weight: 700; font-size: 0.95em; min-width: 180px; }
+.layer .layer-desc { font-size: 0.85em; color: var(--text-muted); }
+
+/* RESPONSIVE */
+@media (max-width: 768px) {
+  .hero h1 { font-size: 2em; }
+  h2 { font-size: 1.5em; }
+  .tier-row { flex-wrap: wrap; gap: 10px; }
+  .node-box { min-width: 100px; font-size: 0.75em; padding: 10px 14px; }
+  .flow-container { flex-direction: column; }
+  .flow-arrow { transform: rotate(90deg); }
+  .layer { flex-direction: column; text-align: center; gap: 8px; }
+  .stat-row { grid-template-columns: repeat(2, 1fr); }
+}
+</style>
+</head>
+<body>
+
+<!-- NAVIGATION -->
+<nav>
+  <div class="container">
+    <span class="brand">Planetary Resonance</span>
+    <a href="#overview">Overview</a>
+    <a href="#three-tiers">Three Tiers</a>
+    <a href="#personal-node">Personal Node</a>
+    <a href="#relay-mesh">Relay Mesh</a>
+    <a href="#data-flow">Data Flow</a>
+    <a href="#direct-channel">Direct Channel</a>
+    <a href="#routing">Routing Protocol</a>
+    <a href="#scaling">Scaling</a>
+    <a href="#security">Security Model</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<header class="hero">
+  <div class="container">
+    <div class="tag">Network Architecture v0.1</div>
+    <h1>How Resonance Works</h1>
+    <p class="subtitle">
+      A three-tier architecture for privacy-preserving matching:
+      personal nodes compute, relay meshes discover, direct channels connect.
+      Your data never leaves. Only the resonance travels.
+    </p>
+    <p class="meta">Planetary Project &mdash; Architecture Specification &mdash; March 2026</p>
+  </div>
+</header>
+
+<!-- 1. OVERVIEW -->
+<section id="overview">
+  <div class="container">
+    <div class="section-label" style="color: var(--accent);">Chapter 1</div>
+    <h2>The Architecture in One Breath</h2>
+
+    <p>Planetary Resonance is a distributed matching network. You describe what you need or what you offer &mdash; a skill, a room, a service, a connection &mdash; and the network finds the person on the other side. Unlike every centralized platform that exists today, <strong>your raw data never leaves your device</strong>. The network only sees mathematical shadows &mdash; vector embeddings &mdash; that are close enough to find matches but too lossy to reconstruct what you actually said.</p>
+
+    <p>The architecture has three tiers, each with a distinct responsibility and a distinct trust boundary:</p>
+
+    <div class="stat-row">
+      <div class="stat blue">
+        <div class="num">T1</div>
+        <div class="label">Personal Node</div>
+      </div>
+      <div class="stat gold">
+        <div class="num">T2</div>
+        <div class="label">Relay Mesh</div>
+      </div>
+      <div class="stat green">
+        <div class="num">T3</div>
+        <div class="label">Direct Channel</div>
+      </div>
+    </div>
+
+    <div class="callout evidence">
+      <div class="callout-label">Design Principle</div>
+      <p style="margin:0;"><strong>Relays are functions, not servers.</strong> Any node can become a relay temporarily. No one owns a relay. Relays rotate, and the vector index is sharded across multiple relays so no single relay ever holds the complete picture. This prevents the "instance admin" problem that plagues federated systems like Mastodon.</p>
+    </div>
+
+    <!-- Architecture Diagram -->
+    <div class="arch-diagram">
+      <div style="text-align:center; margin-bottom:20px; font-size:0.78em; font-weight:700; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted);">Three-Tier Architecture</div>
+
+      <div class="tier-row">
+        <div class="node-box node-personal">Personal Node A<br><span style="font-weight:400;font-size:0.85em;">Raw data + embeddings</span></div>
+        <div class="node-box node-personal">Personal Node B<br><span style="font-weight:400;font-size:0.85em;">Raw data + embeddings</span></div>
+        <div class="node-box node-personal">Personal Node C<br><span style="font-weight:400;font-size:0.85em;">Raw data + embeddings</span></div>
+        <div class="node-box node-personal">Personal Node N<br><span style="font-weight:400;font-size:0.85em;">Raw data + embeddings</span></div>
+      </div>
+
+      <div class="conn-line">&darr; perturbed embeddings only &darr;</div>
+
+      <div class="tier-row">
+        <div class="node-box node-relay">Relay &alpha;<br><span style="font-weight:400;font-size:0.85em;">Shard of ANN index</span></div>
+        <div class="node-box node-relay">Relay &beta;<br><span style="font-weight:400;font-size:0.85em;">Shard of ANN index</span></div>
+        <div class="node-box node-relay">Relay &gamma;<br><span style="font-weight:400;font-size:0.85em;">Shard of ANN index</span></div>
+      </div>
+
+      <div class="conn-line">&darr; match notification &darr;</div>
+
+      <div class="tier-row">
+        <div class="node-box node-direct" style="min-width:280px;">Direct Encrypted Channel<br><span style="font-weight:400;font-size:0.85em;">A &harr; B &mdash; full-fidelity exchange</span></div>
+      </div>
+    </div>
+
+    <p>The key insight: <strong>the relay introduces you, then gets out of the way.</strong> Like a matchmaker who makes introductions but isn't present for the conversation. The relay sees enough to know you might be a good match (noisy embeddings), but never enough to know what you actually need (raw data), and once the match is made, the relay is no longer involved.</p>
+  </div>
+</section>
+
+<!-- 2. THREE TIERS DEEP DIVE -->
+<section id="three-tiers">
+  <div class="container">
+    <div class="section-label" style="color: var(--node-personal);">Chapter 2</div>
+    <h2>The Three Tiers</h2>
+
+    <p>Each tier has a strict trust boundary. Data flows upward (personal &rarr; relay) only in degraded form. Data flows horizontally (personal &harr; personal) only with mutual consent. Data never flows downward (relay &rarr; personal) in reconstructable form.</p>
+
+    <table class="spec-table">
+      <thead>
+        <tr>
+          <th>Property</th>
+          <th style="color:var(--node-personal);">Personal Node</th>
+          <th style="color:var(--node-relay);">Relay Mesh</th>
+          <th style="color:var(--node-direct);">Direct Channel</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Sees raw data</td>
+          <td style="color:var(--accent3);">Yes &mdash; it's your device</td>
+          <td style="color:var(--danger);">Never</td>
+          <td style="color:var(--accent4);">Only if both consent</td>
+        </tr>
+        <tr>
+          <td>Sees embeddings</td>
+          <td style="color:var(--accent3);">Full fidelity</td>
+          <td style="color:var(--accent4);">Perturbed (noisy)</td>
+          <td style="color:var(--accent3);">Full fidelity (for confirmation)</td>
+        </tr>
+        <tr>
+          <td>Persistence</td>
+          <td>Permanent (your device)</td>
+          <td>Ephemeral (rotate every 24-72h)</td>
+          <td>Session-based (until closed)</td>
+        </tr>
+        <tr>
+          <td>Trust required</td>
+          <td>Self (zero trust needed)</td>
+          <td>Minimal (can't reconstruct data)</td>
+          <td>Mutual (both parties consent)</td>
+        </tr>
+        <tr>
+          <td>Who operates it</td>
+          <td>You (phone, laptop, Raspberry Pi)</td>
+          <td>Any node volunteering relay capacity</td>
+          <td>The two matched nodes</td>
+        </tr>
+        <tr>
+          <td>Network role</td>
+          <td>Data sovereignty</td>
+          <td>Discovery &amp; routing</td>
+          <td>Value exchange</td>
+        </tr>
+        <tr>
+          <td>Scales by</td>
+          <td>More users joining</td>
+          <td>More nodes volunteering relay duty</td>
+          <td>Automatic (P2P, no bottleneck)</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- 3. PERSONAL NODE -->
+<section id="personal-node">
+  <div class="container">
+    <div class="section-label" style="color: var(--node-personal);">Chapter 3</div>
+    <h2>Personal Node: Your Sovereign Core</h2>
+
+    <p>The personal node is the atomic unit of Resonance. It runs on your device &mdash; a phone, laptop, a Raspberry Pi in your closet, a small VPS you control. It is <strong>the only place where your raw data exists</strong>. Everything else in the network works with mathematical approximations of that data.</p>
+
+    <h3>Internal Architecture</h3>
+
+    <div class="card-grid">
+      <div class="card">
+        <span class="card-tag tag-personal">Core</span>
+        <div class="card-icon">🗄️</div>
+        <h4>Local Data Store</h4>
+        <p>Encrypted local database (SQLite + libsodium). Holds your raw needs, offers, profile data, and match history. Never synced. Never uploaded. Encrypted at rest with your key.</p>
+      </div>
+      <div class="card">
+        <span class="card-tag tag-personal">Core</span>
+        <div class="card-icon">🧠</div>
+        <h4>Embedding Engine</h4>
+        <p>Local inference of open embedding models (BGE-small, E5, Nomic-embed, GTE). Converts your text inputs into 384-768 dimensional vectors. Runs on CPU &mdash; no GPU required. ~50ms per embedding.</p>
+      </div>
+      <div class="card">
+        <span class="card-tag tag-privacy">Privacy</span>
+        <div class="card-icon">🎲</div>
+        <h4>Perturbation Engine</h4>
+        <p>Applies calibrated differential privacy noise to embeddings before they leave your device. Controls the privacy-utility tradeoff: more noise = more privacy, fuzzier matches. User-configurable &epsilon; parameter.</p>
+      </div>
+      <div class="card">
+        <span class="card-tag tag-personal">Core</span>
+        <div class="card-icon">🔑</div>
+        <h4>Identity Manager</h4>
+        <p>DID-based decentralized identity. Generates ed25519 keypairs. Signs all outgoing embeddings. Manages consent tokens for direct channels. No central identity provider.</p>
+      </div>
+      <div class="card">
+        <span class="card-tag tag-relay">Network</span>
+        <div class="card-icon">📡</div>
+        <h4>Relay Client</h4>
+        <p>Connects to the relay mesh via libp2p. Publishes perturbed embeddings. Receives match notifications. Manages relay selection and rotation. Handles NAT traversal.</p>
+      </div>
+      <div class="card">
+        <span class="card-tag tag-direct">Exchange</span>
+        <div class="card-icon">🤝</div>
+        <h4>Channel Manager</h4>
+        <p>Opens and manages direct encrypted channels with matched nodes. Handles the mutual consent handshake. Supports progressive disclosure &mdash; reveal only what you choose, when you choose.</p>
+      </div>
+    </div>
+
+    <h3>Node Lifecycle</h3>
+
+    <div class="flow-container">
+      <div class="flow-step">
+        <div class="step-num">01</div>
+        <div class="step-label">Bootstrap</div>
+        <div class="step-detail">Generate DID keypair, download embedding model (~100MB)</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">02</div>
+        <div class="step-label">Connect</div>
+        <div class="step-detail">Join DHT, discover relay nodes via bootstrap peers</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">03</div>
+        <div class="step-label">Publish</div>
+        <div class="step-detail">Create embeddings, perturb, publish to relay shards</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">04</div>
+        <div class="step-label">Listen</div>
+        <div class="step-detail">Receive match notifications, evaluate candidates</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">05</div>
+        <div class="step-label">Connect</div>
+        <div class="step-detail">Open direct channel, confirm match, exchange value</div>
+      </div>
+    </div>
+
+    <h3>Embedding Model Selection</h3>
+
+    <p>The personal node ships with a small, efficient embedding model that runs on consumer hardware. The choice of model is not locked &mdash; nodes can use different models as long as they share a common vector space or a translation layer is available.</p>
+
+    <table class="spec-table">
+      <thead>
+        <tr>
+          <th>Model</th>
+          <th>Dimensions</th>
+          <th>Size</th>
+          <th>CPU Latency</th>
+          <th>Quality (MTEB)</th>
+          <th>Best For</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>BGE-small-en</td>
+          <td>384</td>
+          <td>33 MB</td>
+          <td>~30ms</td>
+          <td>62.2</td>
+          <td>Mobile, low-resource nodes</td>
+        </tr>
+        <tr>
+          <td>Nomic-embed-text</td>
+          <td>768</td>
+          <td>137 MB</td>
+          <td>~50ms</td>
+          <td>66.5</td>
+          <td>Default choice, good balance</td>
+        </tr>
+        <tr>
+          <td>E5-base-v2</td>
+          <td>768</td>
+          <td>109 MB</td>
+          <td>~45ms</td>
+          <td>64.8</td>
+          <td>Multilingual needs</td>
+        </tr>
+        <tr>
+          <td>GTE-large</td>
+          <td>1024</td>
+          <td>326 MB</td>
+          <td>~120ms</td>
+          <td>68.4</td>
+          <td>High-fidelity nodes with resources</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="callout tech">
+      <div class="callout-label">Implementation Note</div>
+      <p style="margin:0;">Nodes using different embedding models need a <strong>projection layer</strong> &mdash; a small learned linear map that aligns vector spaces. This is trained on public benchmark data and shipped with the node software. Relay shards maintain separate HNSW indexes per vector space family, or use projected vectors in a unified space.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 4. RELAY MESH -->
+<section id="relay-mesh">
+  <div class="container">
+    <div class="section-label" style="color: var(--node-relay);">Chapter 4</div>
+    <h2>Relay Mesh: Discovery Without Dominion</h2>
+
+    <p>The relay mesh is the nervous system of Resonance. It enables network-wide discovery &mdash; finding your match not just among your neighbors but across the entire network &mdash; without any single entity controlling the index. Relays are <strong>ephemeral, rotating, and sharded</strong>.</p>
+
+    <h3>What a Relay Does</h3>
+
+    <p>A relay node performs exactly three functions: it receives perturbed embeddings from personal nodes, it maintains a shard of the network's approximate nearest-neighbor (ANN) index, and it sends match notifications when two embeddings in its shard are close enough in vector space. That's it. It does not store raw data. It does not authenticate users. It does not moderate content. It does not decide who sees what. It is a pure matching function.</p>
+
+    <h3>Relay Rotation</h3>
+
+    <p>No node is a permanent relay. Relay duty is assigned through a verifiable random function (VRF) seeded by the network's distributed randomness beacon. Every epoch (configurable, default 24 hours), the relay set rotates:</p>
+
+    <div class="code-block">
+      <span class="comment">// Relay selection via VRF</span><br>
+      <span class="keyword">function</span> <span class="func">selectRelays</span>(epoch, nodePool, targetCount) {<br>
+      &nbsp;&nbsp;<span class="keyword">const</span> seed = <span class="func">deriveEpochSeed</span>(epoch, networkRandomness)<br>
+      &nbsp;&nbsp;<span class="keyword">const</span> eligible = nodePool.<span class="func">filter</span>(n =&gt; n.uptime &gt; <span class="num">0.95</span> &amp;&amp; n.stake &gt;= MIN_STAKE)<br>
+      &nbsp;&nbsp;<span class="keyword">const</span> selected = <span class="func">vrfSelect</span>(eligible, seed, targetCount)<br><br>
+      &nbsp;&nbsp;<span class="comment">// Handoff: old relays transfer index shards to new relays</span><br>
+      &nbsp;&nbsp;<span class="keyword">for</span> (<span class="keyword">const</span> relay <span class="keyword">of</span> selected) {<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">const</span> shard = <span class="func">assignShard</span>(relay, seed, SHARD_COUNT)<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;relay.<span class="func">acceptShard</span>(shard, previousEpochRelays[shard])<br>
+      &nbsp;&nbsp;}<br>
+      &nbsp;&nbsp;<span class="keyword">return</span> selected<br>
+      }
+    </div>
+
+    <div class="callout insight">
+      <div class="callout-label">Why Rotation Matters</div>
+      <p style="margin:0;">If relays were permanent, they'd accumulate power. A relay that runs for months would build a complete picture of who's looking for what, could analyze matching patterns, could selectively censor matches. Rotation prevents this: by the time a relay could learn anything useful, it's no longer a relay. The knowledge evaporates.</p>
+    </div>
+
+    <h3>Index Sharding</h3>
+
+    <p>The network's ANN index is never held by a single relay. It is split into <strong>S shards</strong> (default: 16 at launch, scaling with network size), where each shard covers a region of the vector space. When a personal node publishes a perturbed embedding, a deterministic function maps it to the correct shard(s):</p>
+
+    <div class="code-block">
+      <span class="comment">// Shard assignment via locality-sensitive hashing</span><br>
+      <span class="keyword">function</span> <span class="func">assignToShards</span>(embedding, shardCount, replicationFactor = <span class="num">3</span>) {<br>
+      &nbsp;&nbsp;<span class="comment">// LSH projects the embedding into shard buckets</span><br>
+      &nbsp;&nbsp;<span class="keyword">const</span> primaryShard = <span class="func">lshHash</span>(embedding) % shardCount<br><br>
+      &nbsp;&nbsp;<span class="comment">// Replicate to adjacent shards for boundary matches</span><br>
+      &nbsp;&nbsp;<span class="keyword">const</span> shards = [primaryShard]<br>
+      &nbsp;&nbsp;<span class="keyword">for</span> (<span class="keyword">let</span> i = <span class="num">1</span>; i &lt; replicationFactor; i++) {<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;shards.<span class="func">push</span>((primaryShard + i) % shardCount)<br>
+      &nbsp;&nbsp;}<br>
+      &nbsp;&nbsp;<span class="keyword">return</span> shards <span class="comment">// embedding goes to 3 shards</span><br>
+      }
+    </div>
+
+    <p>Each shard is maintained by <strong>R relay nodes</strong> (default: 3) for redundancy. This means each embedding is stored on 3&times;3 = 9 relay instances across the network. No single relay holds more than 1/S of the total index, and each shard has enough replicas to survive relay failures.</p>
+
+    <h3>HNSW Index Per Shard</h3>
+
+    <p>Within each shard, the relay builds a Hierarchical Navigable Small World (HNSW) graph &mdash; the state-of-the-art structure for approximate nearest-neighbor search. HNSW provides sub-millisecond search over millions of vectors with ~95% recall.</p>
+
+    <table class="spec-table">
+      <thead>
+        <tr>
+          <th>Parameter</th>
+          <th>Value</th>
+          <th>Rationale</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>M (connections per layer)</td>
+          <td>16</td>
+          <td>Balance between recall and memory. Higher M = better recall, more RAM</td>
+        </tr>
+        <tr>
+          <td>ef_construction</td>
+          <td>200</td>
+          <td>Index build quality. Higher = better graph but slower insertion</td>
+        </tr>
+        <tr>
+          <td>ef_search</td>
+          <td>100</td>
+          <td>Query quality. Tuned per latency target (50 for real-time, 200 for async)</td>
+        </tr>
+        <tr>
+          <td>Distance metric</td>
+          <td>Cosine similarity</td>
+          <td>Standard for text embeddings. Normalized vectors, angle-based comparison</td>
+        </tr>
+        <tr>
+          <td>Max vectors per shard</td>
+          <td>~2M</td>
+          <td>Keeps memory under 8GB per shard relay. Scale by adding shards</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Relay Economics</h3>
+
+    <p>Running a relay costs real resources &mdash; RAM for the HNSW index, bandwidth for receiving embeddings and sending notifications, compute for index updates. Following the compensation model from our analysis, relay operators receive:</p>
+
+    <div class="card-grid">
+      <div class="card">
+        <span class="card-tag tag-relay">Phase 1</span>
+        <h4>Cost Reimbursement</h4>
+        <p>Estimated €20-80/month for relay duty depending on shard size. Covers RAM (~4-8GB), bandwidth (~50GB/month), and electricity. Measured, not flat-rate.</p>
+      </div>
+      <div class="card">
+        <span class="card-tag tag-relay">Phase 2</span>
+        <h4>Network Credits</h4>
+        <p>1 credit per relay-hour served. Credits buy priority matching and expanded query radius. Non-transferable. Non-speculative. Use-value only.</p>
+      </div>
+      <div class="card">
+        <span class="card-tag tag-relay">Bonus</span>
+        <h4>Reliability Premium</h4>
+        <p>Relays with &gt;99% uptime during their epoch earn 1.5x credits. Encourages committed capacity over sporadic availability.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 5. DATA FLOW -->
+<section id="data-flow">
+  <div class="container">
+    <div class="section-label" style="color: var(--accent3);">Chapter 5</div>
+    <h2>Data Flow: From Need to Resonance</h2>
+
+    <p>This is the critical path &mdash; the journey from "I need something" to "someone has it." Every step is designed so that privacy increases as data moves further from the user, and fidelity increases as the match gets closer to confirmation.</p>
+
+    <h3>The Complete Flow</h3>
+
+    <div class="tab-container">
+      <div class="tab-nav">
+        <button class="tab-btn active" onclick="showTab(event, 'publish')">Publishing</button>
+        <button class="tab-btn" onclick="showTab(event, 'async-match')">Async Matching</button>
+        <button class="tab-btn" onclick="showTab(event, 'live-search')">Live Search</button>
+        <button class="tab-btn" onclick="showTab(event, 'confirmation')">Confirmation</button>
+      </div>
+
+      <!-- PUBLISH TAB -->
+      <div id="publish" class="tab-panel active">
+        <h4>Step 1: Create &amp; Publish</h4>
+        <p>The user describes their need or offer in natural language. The personal node converts it into a vector embedding, applies differential privacy noise, signs it, and sends it to the appropriate relay shards.</p>
+
+        <div class="code-block">
+          <span class="comment">// Publishing flow on the personal node</span><br>
+          <span class="keyword">async function</span> <span class="func">publishNeed</span>(rawText, privacyLevel) {<br>
+          &nbsp;&nbsp;<span class="comment">// 1. Raw text never leaves this function</span><br>
+          &nbsp;&nbsp;<span class="keyword">const</span> embedding = <span class="keyword">await</span> model.<span class="func">encode</span>(rawText)  <span class="comment">// local inference</span><br><br>
+          &nbsp;&nbsp;<span class="comment">// 2. Apply differential privacy</span><br>
+          &nbsp;&nbsp;<span class="keyword">const</span> epsilon = <span class="func">privacyToEpsilon</span>(privacyLevel) <span class="comment">// low=0.1, med=1.0, high=5.0</span><br>
+          &nbsp;&nbsp;<span class="keyword">const</span> noisy = <span class="func">addLaplaceNoise</span>(embedding, epsilon)<br>
+          &nbsp;&nbsp;<span class="keyword">const</span> perturbed = <span class="func">normalize</span>(noisy) <span class="comment">// re-normalize to unit sphere</span><br><br>
+          &nbsp;&nbsp;<span class="comment">// 3. Sign with DID key</span><br>
+          &nbsp;&nbsp;<span class="keyword">const</span> signed = <span class="func">signEmbedding</span>(perturbed, myDID, myPrivKey)<br><br>
+          &nbsp;&nbsp;<span class="comment">// 4. Route to correct relay shards</span><br>
+          &nbsp;&nbsp;<span class="keyword">const</span> shards = <span class="func">assignToShards</span>(perturbed, SHARD_COUNT)<br>
+          &nbsp;&nbsp;<span class="keyword">for</span> (<span class="keyword">const</span> shardId <span class="keyword">of</span> shards) {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">const</span> relays = <span class="func">getRelaysForShard</span>(shardId)<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">await</span> <span class="func">publishToRelays</span>(relays, signed, shardId)<br>
+          &nbsp;&nbsp;}<br><br>
+          &nbsp;&nbsp;<span class="comment">// 5. Store locally for later confirmation</span><br>
+          &nbsp;&nbsp;localDB.<span class="func">save</span>({ rawText, embedding, perturbed, shards, timestamp: <span class="func">now</span>() })<br>
+          }
+        </div>
+
+        <div class="callout tech">
+          <div class="callout-label">Privacy Budget</div>
+          <p style="margin:0;">Each publication consumes from a <strong>privacy budget</strong>. Publishing the same need repeatedly with different noise would allow an observer to average out the noise and recover the true embedding. The personal node tracks cumulative &epsilon; spend and warns the user when re-publishing would degrade privacy below their configured threshold.</p>
+        </div>
+      </div>
+
+      <!-- ASYNC MATCH TAB -->
+      <div id="async-match" class="tab-panel">
+        <h4>Step 2a: Async Matching (Bulletin Board Mode)</h4>
+        <p>Your perturbed embedding sits in the relay's HNSW index. When a new embedding arrives that's close enough in vector space, the relay sends both parties a match notification.</p>
+
+        <div class="code-block">
+          <span class="comment">// Relay-side matching loop</span><br>
+          <span class="keyword">async function</span> <span class="func">onNewEmbedding</span>(incoming) {<br>
+          &nbsp;&nbsp;<span class="comment">// Search existing index for neighbors</span><br>
+          &nbsp;&nbsp;<span class="keyword">const</span> neighbors = hnswIndex.<span class="func">search</span>(incoming.vector, {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;k: <span class="num">10</span>,         <span class="comment">// top 10 candidates</span><br>
+          &nbsp;&nbsp;&nbsp;&nbsp;ef: <span class="num">100</span>,       <span class="comment">// search quality parameter</span><br>
+          &nbsp;&nbsp;&nbsp;&nbsp;threshold: <span class="num">0.72</span> <span class="comment">// minimum cosine similarity</span><br>
+          &nbsp;&nbsp;})<br><br>
+          &nbsp;&nbsp;<span class="comment">// Notify matched parties</span><br>
+          &nbsp;&nbsp;<span class="keyword">for</span> (<span class="keyword">const</span> match <span class="keyword">of</span> neighbors) {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">const</span> notification = {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;matchId: <span class="func">generateMatchId</span>(),<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;similarity: match.score,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;partnerDID: match.did, <span class="comment">// pseudonymous, not real identity</span><br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;relayShard: <span class="keyword">this</span>.shardId,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;expiry: <span class="func">now</span>() + MATCH_TTL<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;}<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">await</span> <span class="func">notifyNode</span>(incoming.did, notification)<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">await</span> <span class="func">notifyNode</span>(match.did, notification)<br>
+          &nbsp;&nbsp;}<br><br>
+          &nbsp;&nbsp;<span class="comment">// Insert into index for future matches</span><br>
+          &nbsp;&nbsp;hnswIndex.<span class="func">insert</span>(incoming.vector, incoming.did)<br>
+          }
+        </div>
+
+        <p>The relay never knows <em>what</em> the match is about. It only knows that two vectors are close in a high-dimensional space. The semantic meaning &mdash; whether it's a housing match, a skill match, or a healthcare match &mdash; is invisible to the relay.</p>
+      </div>
+
+      <!-- LIVE SEARCH TAB -->
+      <div id="live-search" class="tab-panel">
+        <h4>Step 2b: Live Search (Real-Time Mode)</h4>
+        <p>For urgent needs, the personal node can perform a live query across the relay mesh. The query is a perturbed embedding sent as a one-shot search &mdash; it is not stored in the index.</p>
+
+        <div class="code-block">
+          <span class="comment">// Live search from personal node</span><br>
+          <span class="keyword">async function</span> <span class="func">liveSearch</span>(rawText, privacyLevel, maxResults = <span class="num">5</span>) {<br>
+          &nbsp;&nbsp;<span class="keyword">const</span> embedding = <span class="keyword">await</span> model.<span class="func">encode</span>(rawText)<br>
+          &nbsp;&nbsp;<span class="keyword">const</span> perturbed = <span class="func">addLaplaceNoise</span>(embedding, <span class="func">privacyToEpsilon</span>(privacyLevel))<br><br>
+          &nbsp;&nbsp;<span class="comment">// Query all shards in parallel (or target specific shards)</span><br>
+          &nbsp;&nbsp;<span class="keyword">const</span> targetShards = <span class="func">assignToShards</span>(perturbed, SHARD_COUNT)<br>
+          &nbsp;&nbsp;<span class="keyword">const</span> results = <span class="keyword">await</span> Promise.<span class="func">all</span>(<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;targetShards.<span class="func">map</span>(shardId =&gt; {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">const</span> relays = <span class="func">getRelaysForShard</span>(shardId)<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">return</span> <span class="func">queryRelay</span>(relays[<span class="num">0</span>], perturbed, { k: maxResults, ephemeral: <span class="keyword">true</span> })<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;})<br>
+          &nbsp;&nbsp;)<br><br>
+          &nbsp;&nbsp;<span class="comment">// Merge, deduplicate, rank by similarity</span><br>
+          &nbsp;&nbsp;<span class="keyword">return</span> <span class="func">mergeAndRank</span>(results.flat(), maxResults)<br>
+          }
+        </div>
+
+        <p>The <code>ephemeral: true</code> flag tells the relay not to insert this embedding into its index. It's a read-only query. The relay processes it, returns results, and forgets it. This is important for privacy: a live search doesn't leave a trace in the network.</p>
+      </div>
+
+      <!-- CONFIRMATION TAB -->
+      <div id="confirmation" class="tab-panel">
+        <h4>Step 3: Match Confirmation</h4>
+        <p>When both parties receive a match notification and choose to explore it, they enter the confirmation protocol &mdash; a direct P2P exchange of higher-fidelity information to verify the match is real.</p>
+
+        <div class="flow-container">
+          <div class="flow-step">
+            <div class="step-num">3.1</div>
+            <div class="step-label">Mutual Consent</div>
+            <div class="step-detail">Both nodes signal interest via the relay</div>
+          </div>
+          <div class="flow-arrow">&rarr;</div>
+          <div class="flow-step">
+            <div class="step-num">3.2</div>
+            <div class="step-label">Key Exchange</div>
+            <div class="step-detail">X25519 Diffie-Hellman via relay (relay can't read)</div>
+          </div>
+          <div class="flow-arrow">&rarr;</div>
+          <div class="flow-step">
+            <div class="step-num">3.3</div>
+            <div class="step-label">Direct Probe</div>
+            <div class="step-detail">Exchange full-fidelity embeddings, compute true similarity</div>
+          </div>
+          <div class="flow-arrow">&rarr;</div>
+          <div class="flow-step">
+            <div class="step-num">3.4</div>
+            <div class="step-label">Confirm / Reject</div>
+            <div class="step-detail">If similarity &gt; threshold, proceed to direct channel</div>
+          </div>
+        </div>
+
+        <p>This two-phase approach (noisy match &rarr; precise confirmation) means <strong>false positives from noise are caught before any real information is exchanged</strong>. The perturbation that protects privacy at the relay level is resolved at the personal level only between consenting parties.</p>
+      </div>
+    </div>
+
+    <!-- Data visibility diagram -->
+    <h3>What Each Tier Sees</h3>
+
+    <table class="spec-table">
+      <thead>
+        <tr>
+          <th>Data Type</th>
+          <th style="color:var(--node-personal);">Personal Node</th>
+          <th style="color:var(--node-relay);">Relay</th>
+          <th style="color:var(--node-direct);">Matched Peer</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>"I need a plumber in Barcelona"</td>
+          <td style="color:var(--accent3);">Full text</td>
+          <td style="color:var(--danger);">Nothing</td>
+          <td style="color:var(--accent4);">Only if you share it</td>
+        </tr>
+        <tr>
+          <td>True embedding [0.23, -0.81, ...]</td>
+          <td style="color:var(--accent3);">Full vector</td>
+          <td style="color:var(--danger);">Nothing</td>
+          <td style="color:var(--accent3);">During confirmation</td>
+        </tr>
+        <tr>
+          <td>Perturbed embedding [0.19, -0.77, ...]</td>
+          <td style="color:var(--accent3);">Has it</td>
+          <td style="color:var(--accent4);">This is all it sees</td>
+          <td style="color:var(--text-muted);">Not needed</td>
+        </tr>
+        <tr>
+          <td>Your DID (pseudonymous)</td>
+          <td style="color:var(--accent3);">Knows it</td>
+          <td style="color:var(--accent4);">Sees it (can't link to identity)</td>
+          <td style="color:var(--accent4);">Sees it (during channel)</td>
+        </tr>
+        <tr>
+          <td>Your real identity</td>
+          <td style="color:var(--accent3);">Knows it</td>
+          <td style="color:var(--danger);">Nothing</td>
+          <td style="color:var(--accent4);">Only if you choose</td>
+        </tr>
+        <tr>
+          <td>Match patterns over time</td>
+          <td style="color:var(--accent3);">Full history</td>
+          <td style="color:var(--accent4);">24-72h window only (rotation)</td>
+          <td style="color:var(--danger);">Nothing</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- 6. DIRECT CHANNEL -->
+<section id="direct-channel">
+  <div class="container">
+    <div class="section-label" style="color: var(--node-direct);">Chapter 6</div>
+    <h2>Direct Channel: Where Value Happens</h2>
+
+    <p>The direct channel is where Resonance stops being infrastructure and starts being useful. Once two nodes confirm a match, they establish an encrypted peer-to-peer connection that bypasses the relay mesh entirely. The relay facilitated the introduction; now it steps aside.</p>
+
+    <h3>Channel Properties</h3>
+
+    <div class="card-grid">
+      <div class="card">
+        <span class="card-tag tag-direct">Encryption</span>
+        <div class="card-icon">🔐</div>
+        <h4>End-to-End Encrypted</h4>
+        <p>X25519 key exchange, ChaCha20-Poly1305 symmetric cipher. Forward secrecy via ephemeral keys per session. No relay, no server, no third party can read the channel.</p>
+      </div>
+      <div class="card">
+        <span class="card-tag tag-direct">Consent</span>
+        <div class="card-icon">✋</div>
+        <h4>Progressive Disclosure</h4>
+        <p>You control what to share and when. Start with just the category ("I offer plumbing services"). Progress to details ("available weekdays in Barcelona, €40/h"). Share contact info only when ready.</p>
+      </div>
+      <div class="card">
+        <span class="card-tag tag-direct">Protocol</span>
+        <div class="card-icon">🔄</div>
+        <h4>Structured Exchange</h4>
+        <p>The channel protocol supports typed messages: offers, counteroffers, confirmations, reviews. Not free-form chat (that comes later if both want it). Structured to minimize friction.</p>
+      </div>
+      <div class="card">
+        <span class="card-tag tag-privacy">Trust</span>
+        <div class="card-icon">⭐</div>
+        <h4>Mutual Reputation</h4>
+        <p>After an exchange, both parties can leave a signed, encrypted review. Reviews are stored locally and shared selectively &mdash; you choose who sees your reputation. No global public rating system.</p>
+      </div>
+    </div>
+
+    <h3>Connection Protocol</h3>
+
+    <div class="code-block">
+      <span class="comment">// Direct channel establishment</span><br>
+      <span class="keyword">async function</span> <span class="func">openDirectChannel</span>(matchNotification) {<br>
+      &nbsp;&nbsp;<span class="comment">// 1. Signal consent via relay (encrypted, relay can't read)</span><br>
+      &nbsp;&nbsp;<span class="keyword">const</span> consent = <span class="func">encryptForPeer</span>({<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;matchId: matchNotification.matchId,<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;accept: <span class="keyword">true</span>,<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;ephemeralPubKey: <span class="func">generateX25519Keypair</span>().publicKey<br>
+      &nbsp;&nbsp;}, matchNotification.partnerDID)<br>
+      &nbsp;&nbsp;<span class="keyword">await</span> relay.<span class="func">forward</span>(consent, matchNotification.partnerDID)<br><br>
+      &nbsp;&nbsp;<span class="comment">// 2. Wait for partner's consent + ephemeral key</span><br>
+      &nbsp;&nbsp;<span class="keyword">const</span> partnerConsent = <span class="keyword">await</span> <span class="func">waitForConsent</span>(matchNotification.matchId)<br><br>
+      &nbsp;&nbsp;<span class="comment">// 3. Derive shared secret (Diffie-Hellman)</span><br>
+      &nbsp;&nbsp;<span class="keyword">const</span> sharedSecret = <span class="func">x25519</span>(myEphemeralPrivKey, partnerConsent.ephemeralPubKey)<br><br>
+      &nbsp;&nbsp;<span class="comment">// 4. Establish direct P2P connection (QUIC/WebRTC)</span><br>
+      &nbsp;&nbsp;<span class="keyword">const</span> channel = <span class="keyword">await</span> <span class="func">connectPeer</span>(partnerConsent.endpoints, {<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;cipher: <span class="string">'chacha20-poly1305'</span>,<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;key: sharedSecret,<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;natTraversal: <span class="keyword">true</span>  <span class="comment">// ICE/STUN/TURN as needed</span><br>
+      &nbsp;&nbsp;})<br><br>
+      &nbsp;&nbsp;<span class="comment">// 5. Exchange full-fidelity embeddings to confirm match</span><br>
+      &nbsp;&nbsp;<span class="keyword">const</span> trueSimilarity = <span class="func">cosineSim</span>(myTrueEmbedding, channel.<span class="func">receive</span>())<br>
+      &nbsp;&nbsp;<span class="keyword">if</span> (trueSimilarity &lt; CONFIRM_THRESHOLD) {<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;channel.<span class="func">close</span>(<span class="string">'match_not_confirmed'</span>)<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">return null</span><br>
+      &nbsp;&nbsp;}<br><br>
+      &nbsp;&nbsp;<span class="keyword">return</span> channel <span class="comment">// ready for structured exchange</span><br>
+      }
+    </div>
+
+    <div class="callout evidence">
+      <div class="callout-label">NAT Traversal</div>
+      <p style="margin:0;">Most personal nodes sit behind NATs and firewalls. Direct P2P connections use <strong>ICE (Interactive Connectivity Establishment)</strong> with STUN for discovery and TURN as fallback relay. The TURN relay is only a transport proxy &mdash; it forwards encrypted bytes it cannot read. Community-operated TURN servers are part of the infrastructure contribution model.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 7. ROUTING PROTOCOL -->
+<section id="routing">
+  <div class="container">
+    <div class="section-label" style="color: var(--accent5);">Chapter 7</div>
+    <h2>Routing Protocol: Finding Your Shard</h2>
+
+    <p>Routing in Resonance answers a simple question: given a perturbed embedding, which relay nodes should receive it? And given a live search, which shards should be queried? This is the plumbing that makes network-wide discovery work without centralized coordination.</p>
+
+    <h3>Network Layer: libp2p</h3>
+
+    <p>Resonance uses <strong>libp2p</strong> as its networking layer &mdash; the same protocol stack that powers IPFS, Filecoin, and Ethereum 2.0. libp2p provides peer discovery, NAT traversal, multiplexed connections, and a Kademlia-based DHT for routing.</p>
+
+    <h3>The Routing Table</h3>
+
+    <p>Every personal node maintains a local routing table that maps shard IDs to current relay nodes. This table is updated every epoch when relays rotate:</p>
+
+    <div class="code-block">
+      <span class="comment">// Routing table structure</span><br>
+      <span class="keyword">type</span> <span class="type">RoutingTable</span> = {<br>
+      &nbsp;&nbsp;epoch: <span class="type">number</span>,<br>
+      &nbsp;&nbsp;shards: Map&lt;<span class="type">ShardId</span>, {<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;relays: <span class="type">PeerId</span>[],     <span class="comment">// ordered by latency</span><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;vectorSpace: <span class="type">string</span>, <span class="comment">// which embedding family</span><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;lshParams: <span class="type">LSHConfig</span> <span class="comment">// for shard assignment</span><br>
+      &nbsp;&nbsp;}&gt;,<br>
+      &nbsp;&nbsp;ttl: <span class="type">number</span>  <span class="comment">// refresh before this timestamp</span><br>
+      }<br><br>
+      <span class="comment">// Routing table is published to DHT by relay coordinators</span><br>
+      <span class="comment">// Personal nodes subscribe to routing updates via pubsub</span><br>
+      <span class="keyword">const</span> ROUTING_TOPIC = <span class="string">'/planetary/resonance/routing/v1'</span>
+    </div>
+
+    <h3>Publish Routing</h3>
+
+    <p>When you publish an embedding, the routing path is:</p>
+
+    <div class="flow-container">
+      <div class="flow-step">
+        <div class="step-num">R1</div>
+        <div class="step-label">LSH Hash</div>
+        <div class="step-detail">Hash perturbed embedding into shard bucket(s)</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">R2</div>
+        <div class="step-label">Lookup Relays</div>
+        <div class="step-detail">Check local routing table for shard's relay set</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">R3</div>
+        <div class="step-label">Multicast</div>
+        <div class="step-detail">Send to all replicas for redundancy (3 per shard)</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">R4</div>
+        <div class="step-label">Acknowledge</div>
+        <div class="step-detail">Wait for 2-of-3 ACKs before confirming publish</div>
+      </div>
+    </div>
+
+    <h3>Search Routing</h3>
+
+    <p>Live searches follow a similar path but with two modes:</p>
+
+    <table class="spec-table">
+      <thead>
+        <tr>
+          <th>Mode</th>
+          <th>Shards Queried</th>
+          <th>Latency</th>
+          <th>Recall</th>
+          <th>Privacy Cost</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="color:var(--accent3);">Targeted</td>
+          <td>Primary shard + 2 neighbors</td>
+          <td>~100ms</td>
+          <td>~85%</td>
+          <td>Low (1 query seen by 3 relays)</td>
+        </tr>
+        <tr>
+          <td style="color:var(--accent4);">Broadcast</td>
+          <td>All shards</td>
+          <td>~500ms</td>
+          <td>~98%</td>
+          <td>Higher (query seen by all relays)</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>The default is targeted search. Broadcast is available as a premium feature (costs network credits) for when completeness matters more than speed or privacy.</p>
+
+    <h3>Cross-Region Routing</h3>
+
+    <p>As the network scales to multiple regions, shards become <strong>geo-aware</strong>. Each shard is tagged with a region affinity (but not restricted to it). A housing search in Barcelona routes preferentially to shards with Mediterranean-region embeddings, but can fall back to global shards if local results are insufficient.</p>
+
+    <div class="callout insight">
+      <div class="callout-label">Why Not Pure DHT?</div>
+      <p style="margin:0;">A pure Kademlia DHT would route by content hash, not by vector similarity. Two semantically similar embeddings would hash to completely different parts of the DHT. Locality-sensitive hashing (LSH) bridges this gap: similar vectors hash to the same bucket with high probability, so the shard assignment preserves the semantic proximity that makes ANN search work.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 8. SCALING -->
+<section id="scaling">
+  <div class="container">
+    <div class="section-label" style="color: var(--accent4);">Chapter 8</div>
+    <h2>Progressive Scaling</h2>
+
+    <p>Resonance is designed to start small and scale without rewrites. The architecture is the same at 100 nodes and 10 million &mdash; only the parameters change.</p>
+
+    <h3>Growth Stages</h3>
+
+    <table class="spec-table">
+      <thead>
+        <tr>
+          <th>Stage</th>
+          <th>Nodes</th>
+          <th>Shards</th>
+          <th>Relays</th>
+          <th>Embeddings</th>
+          <th>Architecture Change</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="color:var(--accent3);">Pilot</td>
+          <td>100-500</td>
+          <td>1</td>
+          <td>3</td>
+          <td>~5K</td>
+          <td>Single shard, 3 relay replicas. Every relay has the full index. Simple.</td>
+        </tr>
+        <tr>
+          <td style="color:var(--accent);">Community</td>
+          <td>500-5K</td>
+          <td>4</td>
+          <td>12</td>
+          <td>~50K</td>
+          <td>Add sharding. LSH routing kicks in. Relay rotation starts.</td>
+        </tr>
+        <tr>
+          <td style="color:var(--accent4);">City</td>
+          <td>5K-50K</td>
+          <td>16</td>
+          <td>48</td>
+          <td>~500K</td>
+          <td>Geo-aware shards. Cross-region routing. TURN infrastructure needed.</td>
+        </tr>
+        <tr>
+          <td style="color:var(--accent5);">Regional</td>
+          <td>50K-500K</td>
+          <td>64</td>
+          <td>192</td>
+          <td>~5M</td>
+          <td>Multi-region relay mesh. Projection layers for model diversity. Tiered search.</td>
+        </tr>
+        <tr>
+          <td style="color:var(--danger);">Global</td>
+          <td>500K+</td>
+          <td>256+</td>
+          <td>768+</td>
+          <td>50M+</td>
+          <td>Hierarchical shard trees. Super-relays for cross-continent routing. Full federation.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>What Changes vs. What Doesn't</h3>
+
+    <div class="card-grid">
+      <div class="card" style="border-color: rgba(108,255,160,0.3);">
+        <h4 style="color:var(--accent3);">Never Changes</h4>
+        <p>Raw data stays local. Embeddings are perturbed. Relays are ephemeral. Direct channels are E2E encrypted. The three-tier model holds at any scale.</p>
+      </div>
+      <div class="card" style="border-color: rgba(255,200,108,0.3);">
+        <h4 style="color:var(--accent4);">Scales Horizontally</h4>
+        <p>Number of shards. Number of relays per shard. Relay rotation frequency. HNSW parameters. Replication factor. All configurable, all additive.</p>
+      </div>
+      <div class="card" style="border-color: rgba(200,108,255,0.3);">
+        <h4 style="color:var(--accent5);">Emerges at Scale</h4>
+        <p>Hierarchical shard trees. Cross-region super-relays. Multi-model projection layers. Tiered search (free vs. credit-based). Governance-driven parameter tuning.</p>
+      </div>
+    </div>
+
+    <!-- Scaling chart -->
+    <div class="chart-container">
+      <canvas id="scalingChart"></canvas>
+    </div>
+  </div>
+</section>
+
+<!-- 9. SECURITY MODEL -->
+<section id="security">
+  <div class="container">
+    <div class="section-label" style="color: var(--danger);">Chapter 9</div>
+    <h2>Security Model: What Can Go Wrong</h2>
+
+    <p>Every distributed system has attack surfaces. Resonance is no exception. The architecture is designed to make attacks <strong>expensive, detectable, and limited in blast radius</strong>. Here's what we defend against and how.</p>
+
+    <div class="card-grid">
+      <div class="card">
+        <span class="card-tag" style="background:rgba(255,108,140,0.12);color:var(--danger);">Attack</span>
+        <h4>Malicious Relay</h4>
+        <p><strong>Threat:</strong> A relay logs all embeddings, analyzes patterns, or selectively drops matches.<br><strong>Defense:</strong> Relay rotation limits exposure to 24-72h. Sharding means each relay sees &lt;7% of traffic. Replication means dropped matches are caught by other replicas. Users can verify match completeness via cross-shard queries.</p>
+      </div>
+      <div class="card">
+        <span class="card-tag" style="background:rgba(255,108,140,0.12);color:var(--danger);">Attack</span>
+        <h4>Embedding Inversion</h4>
+        <p><strong>Threat:</strong> An attacker tries to reconstruct raw text from a perturbed embedding.<br><strong>Defense:</strong> Two layers: (1) embedding models are lossy by design &mdash; many texts map to similar vectors; (2) differential privacy noise makes inversion exponentially harder. At &epsilon;=1.0, successful reconstruction probability is &lt;0.1%.</p>
+      </div>
+      <div class="card">
+        <span class="card-tag" style="background:rgba(255,108,140,0.12);color:var(--danger);">Attack</span>
+        <h4>Sybil Attack</h4>
+        <p><strong>Threat:</strong> An attacker creates thousands of fake nodes to dominate relay selection or flood the index.<br><strong>Defense:</strong> Relay selection requires minimum uptime + stake (compute contribution history). New nodes have a probationary period. VRF-based selection is resistant to manipulation.</p>
+      </div>
+      <div class="card">
+        <span class="card-tag" style="background:rgba(255,108,140,0.12);color:var(--danger);">Attack</span>
+        <h4>Correlation Attack</h4>
+        <p><strong>Threat:</strong> An observer monitors relay traffic to correlate who publishes when, linking DIDs to IP addresses.<br><strong>Defense:</strong> Nodes publish via mixnet-style batching &mdash; embeddings are queued and published in shuffled batches every 5-15 minutes. Optional Tor/I2P integration for transport-level anonymity.</p>
+      </div>
+      <div class="card">
+        <span class="card-tag" style="background:rgba(255,108,140,0.12);color:var(--danger);">Attack</span>
+        <h4>Index Poisoning</h4>
+        <p><strong>Threat:</strong> An attacker floods the index with garbage embeddings to degrade search quality.<br><strong>Defense:</strong> Rate limiting per DID. Reputation-weighted indexing (new DIDs get lower index priority). Anomaly detection on embedding distributions. Community reporting and blacklisting via governance.</p>
+      </div>
+      <div class="card">
+        <span class="card-tag" style="background:rgba(255,108,140,0.12);color:var(--danger);">Attack</span>
+        <h4>Relay Collusion</h4>
+        <p><strong>Threat:</strong> Multiple relays collude to reconstruct a larger picture of the network.<br><strong>Defense:</strong> VRF relay selection is random &mdash; you can't choose your co-relays. Shard assignments rotate independently. Cross-shard data has different perturbation seeds. Colluding relays would need to control a majority of shards simultaneously, which becomes harder as the network grows.</p>
+      </div>
+    </div>
+
+    <div class="callout warning">
+      <div class="callout-label">Honest Limitation</div>
+      <p style="margin:0;"><strong>No system is perfectly private.</strong> A sufficiently motivated state-level adversary with persistent control of a large fraction of relay nodes could learn aggregate patterns about the network (e.g., "housing queries are increasing in Barcelona"). The architecture makes this expensive and limits the granularity of what can be learned, but it doesn't make it impossible. We are honest about this. The goal is to make mass surveillance impractical and individual targeting extremely difficult &mdash; not to promise mathematical impossibility against nation-state adversaries.</p>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER / NEXT STEPS -->
+<section style="padding: 60px 0; text-align: center;">
+  <div class="container">
+    <div class="section-label" style="color: var(--accent3);">What Comes Next</div>
+    <h2>From Architecture to Implementation</h2>
+    <p style="max-width: 700px; margin: 0 auto 30px; color: var(--text-muted);">This document defines the <em>what</em> and the <em>why</em>. The next step is the <em>how</em>: a technical specification with wire protocols, message formats, library choices, and a reference implementation for each tier.</p>
+
+    <div class="stat-row">
+      <div class="stat blue">
+        <div class="num">Next</div>
+        <div class="label">Wire Protocol Spec</div>
+      </div>
+      <div class="stat gold">
+        <div class="num">Next</div>
+        <div class="label">Reference Node Implementation</div>
+      </div>
+      <div class="stat green">
+        <div class="num">Next</div>
+        <div class="label">Pilot Deployment Plan</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer style="padding: 30px 0; text-align: center; border-top: 1px solid var(--border); font-size: 0.82em; color: var(--text-muted);">
+  <div class="container">
+    Planetary Resonance &mdash; Network Architecture v0.1 &mdash; March 2026<br>
+    Part of the <a href="#" style="color: var(--accent);">Planetary Project</a> &mdash; Breaking the Extraction Machine
+  </div>
+</footer>
+
+<script>
+// Tab switching
+function showTab(event, tabId) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(tabId).classList.add('active');
+  event.target.classList.add('active');
+}
+
+// Scaling chart
+const ctx = document.getElementById('scalingChart');
+if (ctx) {
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: ['Pilot', 'Community', 'City', 'Regional', 'Global'],
+      datasets: [
+        {
+          label: 'Personal Nodes',
+          data: [250, 2500, 25000, 250000, 2500000],
+          borderColor: '#6c8cff',
+          backgroundColor: 'rgba(108,140,255,0.1)',
+          fill: true,
+          tension: 0.4
+        },
+        {
+          label: 'Relay Nodes',
+          data: [3, 12, 48, 192, 768],
+          borderColor: '#ffc86c',
+          backgroundColor: 'rgba(255,200,108,0.1)',
+          fill: true,
+          tension: 0.4,
+          yAxisID: 'y2'
+        },
+        {
+          label: 'Shards',
+          data: [1, 4, 16, 64, 256],
+          borderColor: '#c86cff',
+          backgroundColor: 'rgba(200,108,255,0.1)',
+          fill: true,
+          tension: 0.4,
+          yAxisID: 'y2'
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: {
+        title: {
+          display: true,
+          text: 'Network Growth: Nodes, Relays & Shards by Stage',
+          color: '#e4e4f0',
+          font: { size: 14, family: 'Inter' }
+        },
+        legend: {
+          labels: { color: '#8888a8', font: { family: 'Inter' } }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: '#8888a8' },
+          grid: { color: 'rgba(42,42,64,0.5)' }
+        },
+        y: {
+          type: 'logarithmic',
+          position: 'left',
+          title: { display: true, text: 'Personal Nodes', color: '#6c8cff' },
+          ticks: { color: '#8888a8' },
+          grid: { color: 'rgba(42,42,64,0.5)' }
+        },
+        y2: {
+          type: 'logarithmic',
+          position: 'right',
+          title: { display: true, text: 'Relays / Shards', color: '#ffc86c' },
+          ticks: { color: '#8888a8' },
+          grid: { display: false }
+        }
+      }
+    }
+  });
+}
+
+// Smooth scroll for nav links
+document.querySelectorAll('nav a[href^="#"]').forEach(a => {
+  a.addEventListener('click', e => {
+    e.preventDefault();
+    const target = document.querySelector(a.getAttribute('href'));
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+});
+</script>
+</body>
+</html>

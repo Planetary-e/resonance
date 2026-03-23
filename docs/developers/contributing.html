@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Contributing — Planetary Resonance</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+
+<nav>
+  <div class="container nav-inner">
+    <a href="/docs/index.html" class="brand">Planetary Resonance</a>
+    <button class="nav-toggle" aria-label="Menu">&#9776;</button>
+    <div class="nav-links">
+      <a href="/docs/how-it-works.html">How It Works</a>
+      <a href="/docs/privacy.html">Privacy</a>
+      <div class="dropdown">
+        <button class="dropdown-toggle">Developers</button>
+        <div class="dropdown-menu">
+          <a href="/docs/developers/architecture.html">Architecture</a>
+          <a href="/docs/developers/protocol.html">Protocol</a>
+          <a href="/docs/developers/core-library.html">Core Library</a>
+          <a href="/docs/developers/eval-results.html">Eval Results</a>
+          <a href="/docs/developers/contributing.html">Contributing</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<div class="breadcrumb">
+  <div class="container">
+    <a href="/docs/index.html">Home</a>
+    <span class="sep">/</span>
+    <span>Developers</span>
+    <span class="sep">/</span>
+    <span class="current">Contributing</span>
+  </div>
+</div>
+
+<header class="hero">
+  <div class="container">
+    <div class="tag">Open Source</div>
+    <h1>Contributing</h1>
+    <p class="subtitle">
+      Resonance is open source and welcomes contributions. Whether you are fixing a bug,
+      adding a benchmark, or improving documentation, here is everything you need to get started.
+    </p>
+  </div>
+</header>
+
+<section>
+  <div class="container">
+    <div class="section-label">Setup</div>
+    <h2>Development Setup</h2>
+    <p>Get the project running locally in a few steps.</p>
+
+    <h3>Prerequisites</h3>
+    <div class="card-grid">
+      <div class="card">
+        <h4>Node.js 20+</h4>
+        <p>The project uses modern ESM features and requires Node.js 20 or later. Check your version with <code>node --version</code>.</p>
+      </div>
+      <div class="card">
+        <h4>npm</h4>
+        <p>Package management via npm. The monorepo uses npm workspaces to link packages together.</p>
+      </div>
+      <div class="card">
+        <h4>Git</h4>
+        <p>Standard git workflow. Fork the repository, create a feature branch, submit a pull request.</p>
+      </div>
+    </div>
+
+    <h3>Clone and Install</h3>
+    <div class="code-block">
+<span class="comment"># Clone the repository</span>
+git clone https://github.com/planetary/resonance.git
+<span class="keyword">cd</span> resonance
+
+<span class="comment"># Install all dependencies (monorepo-wide)</span>
+npm install
+
+<span class="comment"># Verify everything works</span>
+npx vitest run
+    </div>
+
+    <div class="callout info">
+      <div class="callout-label">First Run</div>
+      <p>The first time you run tests or eval, the embedding model (~90MB) will be downloaded and cached. Subsequent runs start in under a second.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <div class="section-label">Structure</div>
+    <h2>Project Structure</h2>
+    <p>The monorepo is organized into three packages, each with a focused responsibility.</p>
+
+    <div class="code-block">
+resonance/
+  <span class="type">packages/</span>
+    <span class="func">core/</span>                   <span class="comment">// The heart of the system</span>
+      src/
+        types.ts            <span class="comment">// Shared types, constants, config</span>
+        crypto.ts           <span class="comment">// Identity, signing, encryption</span>
+        perturbation.ts     <span class="comment">// Laplace noise / differential privacy</span>
+        embedding.ts        <span class="comment">// HuggingFace transformer embeddings</span>
+        vectors.ts          <span class="comment">// Vector math (cosine sim, normalize)</span>
+        protocol.ts         <span class="comment">// Wire protocol messages</span>
+      __tests__/            <span class="comment">// Unit tests for core</span>
+
+    <span class="func">relay/</span>                  <span class="comment">// Relay server</span>
+      src/
+        matching-index.ts   <span class="comment">// Separate HNSW for needs/offers</span>
+        relay-server.ts     <span class="comment">// WebSocket server + admin API</span>
+      __tests__/            <span class="comment">// Unit tests for relay</span>
+
+    <span class="func">eval/</span>                   <span class="comment">// Evaluation and benchmarks</span>
+      src/
+        benchmarks/         <span class="comment">// Individual benchmark modules</span>
+          bootstrap.ts
+          embedding.ts
+          perturbation.ts
+          hnsw.ts
+          recall.ts
+          rewriting.ts
+          matching-index.ts
+          cross-language.ts
+          latency.ts
+        run.ts              <span class="comment">// Main runner + report generator</span>
+
+  <span class="type">docs/</span>                     <span class="comment">// Documentation site (this site)</span>
+    assets/style.css        <span class="comment">// Shared stylesheet</span>
+    evals/                  <span class="comment">// Auto-generated eval reports</span>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <div class="section-label">Testing</div>
+    <h2>Running Tests</h2>
+
+    <h3>Unit Tests</h3>
+    <p>The project has 74 unit tests covering crypto, perturbation, vectors, protocol, and matching.</p>
+    <div class="code-block">
+<span class="comment"># Run all tests</span>
+npx vitest run
+
+<span class="comment"># Run tests in watch mode</span>
+npx vitest
+
+<span class="comment"># Run tests for a specific package</span>
+npx vitest run --filter core
+npx vitest run --filter relay
+    </div>
+
+    <h3>Evaluation Suite</h3>
+    <p>The eval suite is separate from unit tests. It runs real benchmarks with real data and generates reports.</p>
+    <div class="code-block">
+<span class="comment"># Quick eval: 10K vectors, ~2 minutes</span>
+npm run eval:quick
+
+<span class="comment"># Full eval: 100K vectors, ~15 minutes</span>
+npm run eval
+
+<span class="comment"># Reports are saved to docs/evals/eval-YYYY-MM-DD-HH-MM-SS.md</span>
+    </div>
+
+    <div class="stat-row">
+      <div class="stat blue">
+        <div class="num">74</div>
+        <div class="label">Unit Tests</div>
+      </div>
+      <div class="stat green">
+        <div class="num">9</div>
+        <div class="label">Benchmarks</div>
+      </div>
+      <div class="stat gold">
+        <div class="num">18</div>
+        <div class="label">Eval Metrics</div>
+      </div>
+      <div class="stat purple">
+        <div class="num">~2m</div>
+        <div class="label">Quick Eval Time</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <div class="section-label">Patterns</div>
+    <h2>Key Patterns &amp; Dependencies</h2>
+    <p>Important patterns and libraries used throughout the codebase.</p>
+
+    <table class="spec-table">
+      <thead>
+        <tr>
+          <th>Pattern / Dependency</th>
+          <th>Used For</th>
+          <th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>Float32Array</code></td>
+          <td>All vector storage</td>
+          <td>Memory-efficient (3KB per 768-dim vector). Used everywhere vectors are passed.</td>
+        </tr>
+        <tr>
+          <td><code>tweetnacl</code></td>
+          <td>Cryptography</td>
+          <td>Ed25519 signing, X25519 key exchange, NaCl box/secretbox. Zero dependencies, audited.</td>
+        </tr>
+        <tr>
+          <td><code>@huggingface/transformers</code></td>
+          <td>Embeddings</td>
+          <td>Local transformer inference. No API calls. Model downloaded on first use (~90MB).</td>
+        </tr>
+        <tr>
+          <td><code>hnswlib-node</code></td>
+          <td>Approximate nearest neighbor</td>
+          <td>Native HNSW implementation. Used in the relay's MatchingIndex for fast vector search.</td>
+        </tr>
+        <tr>
+          <td><code>vitest</code></td>
+          <td>Testing</td>
+          <td>Fast ESM-native test runner. Compatible with Jest API.</td>
+        </tr>
+        <tr>
+          <td>TypeScript strict</td>
+          <td>Type safety</td>
+          <td>All packages use strict mode. No <code>any</code> types. All functions are typed.</td>
+        </tr>
+        <tr>
+          <td>ESM</td>
+          <td>Module system</td>
+          <td>Pure ESM throughout. No CommonJS. <code>"type": "module"</code> in all package.json files.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <div class="section-label">Benchmarks</div>
+    <h2>Adding a Benchmark</h2>
+    <p>To add a new benchmark to the eval suite, follow this pattern.</p>
+
+    <h3>1. Create the Benchmark File</h3>
+    <p>Create a new file in <code>packages/eval/src/benchmarks/</code>:</p>
+    <div class="code-block">
+<span class="comment">// packages/eval/src/benchmarks/my-benchmark.ts</span>
+
+<span class="keyword">import</span> <span class="keyword">type</span> { <span class="type">BenchmarkResult</span> } <span class="keyword">from</span> <span class="string">'../types.js'</span>;
+
+<span class="keyword">export async function</span> <span class="func">runMyBenchmark</span>(): <span class="type">Promise</span>&lt;<span class="type">BenchmarkResult</span>[]&gt; {
+  <span class="keyword">const</span> results: <span class="type">BenchmarkResult</span>[] = [];
+
+  <span class="comment">// Your benchmark logic here...</span>
+
+  results.<span class="func">push</span>({
+    <span class="func">metric</span>:  <span class="string">'My metric name'</span>,
+    <span class="func">target</span>:  <span class="string">'&gt;0.50'</span>,           <span class="comment">// or 'info' for tracking-only</span>
+    <span class="func">actual</span>:  <span class="string">'0.72'</span>,
+    <span class="func">pass</span>:    <span class="keyword">true</span>,               <span class="comment">// or null for info metrics</span>
+  });
+
+  <span class="keyword">return</span> results;
+}
+    </div>
+
+    <h3>2. Wire into run.ts</h3>
+    <p>Import and call your benchmark in the main runner:</p>
+    <div class="code-block">
+<span class="comment">// packages/eval/src/run.ts</span>
+<span class="keyword">import</span> { <span class="func">runMyBenchmark</span> } <span class="keyword">from</span> <span class="string">'./benchmarks/my-benchmark.js'</span>;
+
+<span class="comment">// Add to the benchmark list</span>
+<span class="keyword">const</span> benchmarks = [
+  <span class="comment">// ...existing benchmarks...</span>
+  { <span class="func">name</span>: <span class="string">'My Benchmark'</span>, <span class="func">fn</span>: runMyBenchmark },
+];
+    </div>
+
+    <h3>3. Run and Verify</h3>
+    <div class="code-block">
+npm run eval:quick
+<span class="comment"># Check the generated report in docs/evals/</span>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <div class="section-label">Guidelines</div>
+    <h2>Code Style</h2>
+    <p>Keep these guidelines in mind when contributing.</p>
+
+    <div class="card-grid">
+      <div class="card">
+        <h4>TypeScript Strict</h4>
+        <p>All code must pass <code>tsc --strict</code>. No <code>any</code> types, no implicit returns, no unused variables. The compiler is your friend.</p>
+      </div>
+      <div class="card">
+        <h4>ESM Only</h4>
+        <p>Pure ECMAScript Modules throughout. Use <code>.js</code> extensions in imports (even for TypeScript files). No <code>require()</code>.</p>
+      </div>
+      <div class="card">
+        <h4>No GPL Dependencies</h4>
+        <p>All dependencies must be MIT, Apache-2.0, or BSD licensed. No GPL or LGPL. Check before adding a new dependency.</p>
+      </div>
+      <div class="card">
+        <h4>Test Everything</h4>
+        <p>New features need unit tests. New algorithms need eval benchmarks. If it affects matching quality, it should show up in the eval report.</p>
+      </div>
+    </div>
+
+    <div class="callout warning">
+      <div class="callout-label">Important</div>
+      <p>Never commit real embedding vectors, private keys, or personal data to the repository. Test data should be synthetic or clearly marked as sample data. Eval benchmarks use curated test pairs, not real user data.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <div class="section-label">Process</div>
+    <h2>Contribution Workflow</h2>
+
+    <div class="flow-container">
+      <div class="flow-step">
+        <div class="step-num">01</div>
+        <div class="step-label">Fork</div>
+        <div class="step-detail">Fork the repo and create a feature branch</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">02</div>
+        <div class="step-label">Develop</div>
+        <div class="step-detail">Write code, add tests, run eval</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">03</div>
+        <div class="step-label">Test</div>
+        <div class="step-detail"><code>npx vitest run</code> + <code>npm run eval:quick</code></div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">04</div>
+        <div class="step-label">PR</div>
+        <div class="step-detail">Submit a pull request with description and eval results</div>
+      </div>
+    </div>
+
+    <div class="callout info">
+      <div class="callout-label">Pull Request Tips</div>
+      <p>Include the output of <code>npm run eval:quick</code> in your PR description when your change affects matching quality, privacy, or performance. This makes review much faster.</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container footer-inner">
+    <div>
+      <div class="footer-brand">Planetary Resonance</div>
+      <div class="footer-tagline">Privacy-preserving matching for human connection.</div>
+    </div>
+    <div class="footer-links">
+      <a href="/docs/index.html">Home</a>
+      <a href="/docs/how-it-works.html">How It Works</a>
+      <a href="/docs/developers/architecture.html">Architecture</a>
+      <a href="/docs/developers/protocol.html">Protocol</a>
+      <a href="/docs/developers/eval-results.html">Eval Results</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+document.querySelector('.nav-toggle')?.addEventListener('click', () => {
+  document.querySelector('.nav-links')?.classList.toggle('open');
+});
+document.querySelectorAll('.dropdown-toggle').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    btn.parentElement?.classList.toggle('open');
+  });
+});
+document.addEventListener('click', () => {
+  document.querySelectorAll('.dropdown.open').forEach(d => d.classList.remove('open'));
+});
+</script>
+</body>
+</html>

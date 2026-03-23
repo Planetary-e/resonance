@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.resonance/
+packages/eval/results/
+*.log
+.DS_Store
+.memory/
