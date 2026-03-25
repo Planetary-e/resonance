@@ -1,0 +1,129 @@
+name: Build Desktop App
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-14
+            target: node20-macos-arm64
+            artifact: resonance-macos-arm64
+            native_platform: darwin
+            native_arch: arm64
+          - os: macos-13
+            target: node20-macos-x64
+            artifact: resonance-macos-x64
+            native_platform: darwin
+            native_arch: x64
+          - os: ubuntu-latest
+            target: node20-linux-x64
+            artifact: resonance-linux-x64
+            native_platform: linux
+            native_arch: x64
+          - os: windows-latest
+            target: node20-win-x64
+            artifact: resonance-win-x64.exe
+            native_platform: win32
+            native_arch: x64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npx vitest run
+
+      - name: Bundle with esbuild
+        run: npx tsx packages/app/scripts/build.ts
+
+      - name: Build binary with pkg
+        run: |
+          cd packages/app
+          npx pkg dist/main.js --target ${{ matrix.target }} --output dist/bin/${{ matrix.artifact }}
+
+      - name: Collect native modules
+        shell: bash
+        run: |
+          mkdir -p packages/app/dist/release
+
+          # Copy the binary
+          cp packages/app/dist/bin/${{ matrix.artifact }} packages/app/dist/release/
+
+          # Copy better-sqlite3 native binding
+          SQLITE_BINDING=$(find node_modules/better-sqlite3 -name "*.node" | head -1)
+          if [ -n "$SQLITE_BINDING" ]; then
+            cp "$SQLITE_BINDING" packages/app/dist/release/better_sqlite3.node
+            echo "Copied better-sqlite3: $SQLITE_BINDING"
+          fi
+
+          # Copy onnxruntime native binding for this platform
+          ORT_BINDING=$(find node_modules/onnxruntime-node -path "*/${{ matrix.native_platform }}/${{ matrix.native_arch }}/*.node" | head -1)
+          if [ -n "$ORT_BINDING" ]; then
+            cp "$ORT_BINDING" packages/app/dist/release/onnxruntime_binding.node
+            echo "Copied onnxruntime: $ORT_BINDING"
+          fi
+
+          # Copy UI files
+          cp -r packages/app/dist/ui packages/app/dist/release/ui
+
+          ls -lh packages/app/dist/release/
+
+      - name: Create archive (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          cd packages/app/dist/release
+          chmod +x ${{ matrix.artifact }}
+          tar czf ../../../${{ matrix.artifact }}.tar.gz *
+
+      - name: Create archive (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path packages/app/dist/release/* -DestinationPath packages/app/${{ matrix.artifact }}.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            packages/app/${{ matrix.artifact }}.tar.gz
+            packages/app/${{ matrix.artifact }}.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/**/*.tar.gz
+            artifacts/**/*.zip
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') }}
