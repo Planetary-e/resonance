@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Resonance</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+</head>
+<body>
+
+  <!-- ================================================================
+       Loading Screen
+       ================================================================ -->
+  <div id="loading-screen">
+    <div class="logo">Resonance</div>
+    <div class="spinner"></div>
+    <div class="subtitle">Initializing privacy engine...</div>
+  </div>
+
+  <!-- ================================================================
+       Login Screen
+       ================================================================ -->
+  <div id="login-screen" style="display:none">
+    <div class="login-card">
+      <div class="logo">Resonance</div>
+      <p id="login-description" class="description">Create a password to generate your identity.</p>
+      <form id="login-form">
+        <div class="form-group">
+          <label for="login-password">Password</label>
+          <input type="password" id="login-password" placeholder="Enter your password" autocomplete="off" required>
+        </div>
+        <button type="submit" id="login-btn" class="btn btn-primary w-full">Create Identity</button>
+        <div id="login-error" class="error-msg"></div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ================================================================
+       Main App
+       ================================================================ -->
+  <div id="app" style="display:none">
+
+    <!-- Top Bar -->
+    <header id="topbar">
+      <div class="topbar-left">
+        <span class="topbar-brand">Resonance</span>
+        <span id="topbar-did" class="topbar-did"></span>
+      </div>
+      <div class="topbar-right">
+        <div id="relay-status" class="relay-status">
+          <span id="relay-dot" class="status-dot disconnected"></span>
+          <span id="relay-label">Disconnected</span>
+        </div>
+        <button id="btn-lock" class="btn btn-ghost btn-icon" title="Lock session">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="7" width="10" height="7" rx="1.5"/>
+            <path d="M5 7V5a3 3 0 0 1 6 0v2"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Tab Navigation -->
+    <nav id="tabs">
+      <button data-tab="dashboard" class="active">Dashboard</button>
+      <button data-tab="publish">Publish</button>
+      <button data-tab="search">Search</button>
+      <button data-tab="matches">Matches</button>
+      <button data-tab="channels">Channels</button>
+    </nav>
+
+    <!-- Tab Panels -->
+    <main>
+
+      <!-- ====== Dashboard ====== -->
+      <div id="tab-dashboard" class="tab-panel active">
+        <h2>Dashboard</h2>
+
+        <div class="stats-grid">
+          <div class="stat-card stat-accent">
+            <div id="stat-items" class="stat-value">0</div>
+            <div class="stat-label">Published Items</div>
+          </div>
+          <div class="stat-card stat-purple">
+            <div id="stat-matches" class="stat-value">0</div>
+            <div class="stat-label">Matches</div>
+          </div>
+          <div class="stat-card stat-green">
+            <div id="stat-channels" class="stat-value">0</div>
+            <div class="stat-label">Channels</div>
+          </div>
+          <div class="stat-card stat-gold">
+            <div id="stat-relay" class="stat-value">--</div>
+            <div class="stat-label">Relay Status</div>
+          </div>
+        </div>
+
+        <h3>Recent Activity</h3>
+        <div id="activity-feed" class="activity-list">
+          <div class="empty-state">
+            <div class="empty-icon">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" opacity="0.4">
+                <circle cx="12" cy="12" r="10"/>
+                <path d="M12 6v6l4 2"/>
+              </svg>
+            </div>
+            <div class="empty-title">No activity yet</div>
+            <div class="empty-description">Publish your first need or offer to get started.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ====== Publish ====== -->
+      <div id="tab-publish" class="tab-panel">
+        <h2>Publish a Need or Offer</h2>
+        <div class="card">
+          <form id="publish-form">
+            <div class="form-group">
+              <label for="publish-text">Description</label>
+              <textarea id="publish-text" placeholder="Describe what you need or offer..." rows="4" required></textarea>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Type</label>
+                <div class="toggle-group">
+                  <button type="button" class="toggle active" data-value="need">Need</button>
+                  <button type="button" class="toggle" data-value="offer">Offer</button>
+                </div>
+              </div>
+              <div class="form-group">
+                <label>Privacy: <span id="privacy-label">Medium</span></label>
+                <input type="range" id="privacy-slider" min="0" max="2" value="1">
+                <div class="slider-labels">
+                  <span>Low</span>
+                  <span>Medium</span>
+                  <span>High</span>
+                </div>
+              </div>
+            </div>
+            <button type="submit" class="btn btn-primary">Publish</button>
+          </form>
+        </div>
+
+        <div id="items-list" class="mt-lg">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+
+      <!-- ====== Search ====== -->
+      <div id="tab-search" class="tab-panel">
+        <h2>Search the Network</h2>
+        <div class="card">
+          <form id="search-form">
+            <div class="form-group">
+              <label for="search-text">What are you looking for?</label>
+              <input type="text" id="search-text" placeholder="e.g. Looking for a graphic designer in Barcelona..." required>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Search for</label>
+                <div class="toggle-group" id="search-type-toggle">
+                  <button type="button" class="toggle active" data-value="need">Needs</button>
+                  <button type="button" class="toggle" data-value="offer">Offers</button>
+                </div>
+              </div>
+            </div>
+            <button type="submit" class="btn btn-primary">Search</button>
+          </form>
+        </div>
+        <div id="search-results" class="mt-lg">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+
+      <!-- ====== Matches ====== -->
+      <div id="tab-matches" class="tab-panel">
+        <h2>Matches</h2>
+        <div id="matches-list">
+          <div class="empty-state">
+            <div class="empty-icon">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" opacity="0.4">
+                <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78z"/>
+              </svg>
+            </div>
+            <div class="empty-title">No matches yet</div>
+            <div class="empty-description">When someone matches with your published items, they will appear here.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ====== Channels ====== -->
+      <div id="tab-channels" class="tab-panel">
+        <h2>Channels</h2>
+        <div id="channels-list">
+          <div class="empty-state">
+            <div class="empty-icon">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" opacity="0.4">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+              </svg>
+            </div>
+            <div class="empty-title">No channels open</div>
+            <div class="empty-description">Channels open when you connect with a match for gradual disclosure.</div>
+          </div>
+        </div>
+
+        <div id="channel-view" style="display:none">
+          <div id="channel-header">
+            <div class="channel-title">
+              <span id="channel-peer-did" class="text-mono text-sm text-muted"></span>
+              <span id="channel-state-dot" class="status-dot"></span>
+            </div>
+            <button id="btn-back-channels" class="btn btn-ghost btn-sm">Back</button>
+          </div>
+          <div id="channel-messages"></div>
+          <div id="channel-actions">
+            <form id="disclose-form">
+              <select id="disclose-level">
+                <option value="category">Category</option>
+                <option value="detail">Detail</option>
+                <option value="contact">Contact</option>
+              </select>
+              <input type="text" id="disclose-text" placeholder="Share information...">
+              <button type="submit" class="btn btn-primary btn-sm">Send</button>
+            </form>
+            <div class="channel-btns">
+              <button id="btn-accept" class="btn btn-success btn-sm">Accept</button>
+              <button id="btn-reject" class="btn btn-danger btn-sm">Reject</button>
+              <button id="btn-close-channel" class="btn btn-secondary btn-sm">Close Channel</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- Toast Container -->
+  <div id="toasts"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

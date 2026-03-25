@@ -17,6 +17,7 @@
     { "path": "packages/core" },
     { "path": "packages/relay" },
     { "path": "packages/eval" },
-    { "path": "packages/node" }
+    { "path": "packages/node" },
+    { "path": "packages/app" }
   ]
 }
