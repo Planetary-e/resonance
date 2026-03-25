@@ -12,23 +12,27 @@
 <body>
 
 <nav>
-  <div class="container nav-inner">
+  <div class="container" style="display:flex;align-items:center;min-height:56px;font-size:0.84em;">
     <a href="/docs/index.html" class="brand">Planetary Resonance</a>
-    <button class="nav-toggle" aria-label="Menu">&#9776;</button>
-    <div class="nav-links">
-      <a href="/docs/how-it-works.html">How It Works</a>
-      <a href="/docs/privacy.html">Privacy</a>
-      <div class="dropdown">
-        <button class="dropdown-toggle">Developers</button>
+    <button class="nav-toggle" aria-label="Menu"><span></span></button>
+    <ul class="nav-links">
+      <li><a href="/docs/how-it-works.html">How It Works</a></li>
+      <li><a href="/docs/privacy.html">Privacy</a></li>
+      <li><a href="/docs/use-cases.html">Use Cases</a></li>
+      <li><a href="/docs/getting-started.html">Get Started</a></li>
+      <li><a href="/docs/organizations.html">Organizations</a></li>
+      <li style="position:relative;">
+        <button class="nav-dropdown-toggle">Developers</button>
         <div class="dropdown-menu">
           <a href="/docs/developers/architecture.html">Architecture</a>
-          <a href="/docs/developers/protocol.html">Protocol</a>
-          <a href="/docs/developers/core-library.html">Core Library</a>
+          <a href="/docs/developers/protocol.html">Wire Protocol</a>
+          <a href="/docs/developers/api.html">API Reference</a>
           <a href="/docs/developers/eval-results.html">Eval Results</a>
           <a href="/docs/developers/contributing.html">Contributing</a>
         </div>
-      </div>
-    </div>
+      </li>
+      <li><a href="/docs/press.html">Press</a></li>
+    </ul>
   </div>
 </nav>
 
@@ -44,15 +48,16 @@
 
 <header class="hero">
   <div class="container">
-    <div class="tag">Latest Eval: 2026-03-23</div>
+    <div class="tag">35/35 metrics pass</div>
     <h1>Evaluation Results</h1>
     <p class="subtitle">
-      Every claim in Resonance is backed by automated evaluation. 18 metrics, 9 benchmarks,
+      Every claim in Resonance is backed by automated evaluation. 35 metrics across 4 phases,
       all passing. Here are the numbers from the latest run.
     </p>
   </div>
 </header>
 
+<!-- SUMMARY STATS -->
 <section>
   <div class="container">
     <div class="section-label">Summary</div>
@@ -60,56 +65,38 @@
 
     <div class="stat-row">
       <div class="stat blue">
-        <div class="num">23ms</div>
+        <div class="num">14ms</div>
         <div class="label">Embedding Latency (P95)</div>
       </div>
       <div class="stat gold">
-        <div class="num">1.7ms</div>
+        <div class="num">1.5ms</div>
         <div class="label">HNSW Search (P95)</div>
       </div>
       <div class="stat green">
-        <div class="num">82%</div>
-        <div class="label">Recall (MatchingIndex)</div>
+        <div class="num">86%</div>
+        <div class="label">Recall (rewritten, &epsilon;=1.0)</div>
       </div>
       <div class="stat red">
-        <div class="num">&lt;2%</div>
+        <div class="num">&lt;3%</div>
         <div class="label">False Positive Rate</div>
-      </div>
-    </div>
-
-    <div class="stat-row">
-      <div class="stat purple">
-        <div class="num">29ms</div>
-        <div class="label">End-to-End (P95)</div>
-      </div>
-      <div class="stat green">
-        <div class="num">18/18</div>
-        <div class="label">Metrics Passing</div>
-      </div>
-      <div class="stat blue">
-        <div class="num">0.9s</div>
-        <div class="label">Bootstrap Time</div>
-      </div>
-      <div class="stat gold">
-        <div class="num">0.65</div>
-        <div class="label">Avg Need/Offer Similarity</div>
       </div>
     </div>
   </div>
 </section>
 
+<!-- PHASE 1: EMBEDDING, PERTURBATION, HNSW, RECALL -->
 <section>
   <div class="container">
-    <div class="section-label">Full Results</div>
-    <h2>All 18 Metrics</h2>
-    <p>Complete results from the latest eval run (2026-03-23). All metrics that have targets are passing.</p>
+    <div class="section-label">Phase 1</div>
+    <h2>Embedding, Perturbation, HNSW &amp; Recall</h2>
+    <p>Core matching pipeline metrics: how fast we embed, how noise affects recall, and how the HNSW index performs.</p>
 
     <table class="spec-table">
       <thead>
         <tr>
           <th>Metric</th>
           <th>Target</th>
-          <th>Result</th>
+          <th>Actual</th>
           <th>Status</th>
         </tr>
       </thead>
@@ -123,31 +110,31 @@
         <tr>
           <td>Embedding latency (p95)</td>
           <td>&lt;100ms</td>
-          <td>23.1ms</td>
+          <td>14ms</td>
           <td style="color: var(--accent3);">PASS</td>
         </tr>
         <tr>
-          <td>Perturbation low (epsilon=5.0)</td>
+          <td>Perturbation low (&epsilon;=5.0)</td>
           <td>normalized</td>
-          <td>sim=0.994 +/-0.000</td>
+          <td>sim=0.994 &plusmn;0.000</td>
           <td style="color: var(--accent3);">PASS</td>
         </tr>
         <tr>
-          <td>Perturbation medium (epsilon=1.0)</td>
+          <td>Perturbation medium (&epsilon;=1.0)</td>
           <td>sim &lt; 0.95</td>
-          <td>sim=0.880 +/-0.010</td>
+          <td>sim=0.880 &plusmn;0.010</td>
           <td style="color: var(--accent3);">PASS</td>
         </tr>
         <tr>
-          <td>Perturbation high (epsilon=0.1)</td>
+          <td>Perturbation high (&epsilon;=0.1)</td>
           <td>sim &lt; 0.80</td>
-          <td>sim=0.179 +/-0.034</td>
+          <td>sim=0.179 &plusmn;0.034</td>
           <td style="color: var(--accent3);">PASS</td>
         </tr>
         <tr>
           <td>HNSW search (p95, 10K)</td>
           <td>&lt;5ms</td>
-          <td>1.7ms</td>
+          <td>1.5ms</td>
           <td style="color: var(--accent3);">PASS</td>
         </tr>
         <tr>
@@ -159,7 +146,7 @@
         <tr>
           <td>HNSW memory (10K)</td>
           <td>&lt;4GB</td>
-          <td>&lt;50MB</td>
+          <td>7MB</td>
           <td style="color: var(--accent3);">PASS</td>
         </tr>
         <tr>
@@ -169,43 +156,43 @@
           <td style="color: var(--accent);">INFO</td>
         </tr>
         <tr>
-          <td>Recall: Index-only epsilon=5.0 @0.50</td>
+          <td>Recall: Index-only &epsilon;=5.0 @0.50</td>
           <td>&gt;90%</td>
           <td>94.0% (47/50)</td>
           <td style="color: var(--accent3);">PASS</td>
         </tr>
         <tr>
-          <td>Recall: Index-only epsilon=1.0 @0.50</td>
-          <td>&gt;75%</td>
-          <td>80.0% (40/50)</td>
-          <td style="color: var(--accent3);">PASS</td>
-        </tr>
-        <tr>
-          <td>Recall (rewritten) epsilon=5.0 @0.50</td>
-          <td>&gt;90%</td>
-          <td>98.0% (49/50)</td>
-          <td style="color: var(--accent3);">PASS</td>
-        </tr>
-        <tr>
-          <td>Recall (rewritten) epsilon=1.0 @0.50</td>
-          <td>&gt;75%</td>
-          <td>86.0% (43/50)</td>
-          <td style="color: var(--accent3);">PASS</td>
-        </tr>
-        <tr>
-          <td>FPR (rewritten, epsilon=1.0 @0.50)</td>
-          <td>&lt;30%</td>
-          <td>1.1% (1/94)</td>
-          <td style="color: var(--accent3);">PASS</td>
-        </tr>
-        <tr>
-          <td>MatchingIndex recall (epsilon=1.0 @0.50)</td>
+          <td>Recall: Index-only &epsilon;=1.0 @0.50</td>
           <td>&gt;75%</td>
           <td>82.0% (41/50)</td>
           <td style="color: var(--accent3);">PASS</td>
         </tr>
         <tr>
-          <td>MatchingIndex FPR (epsilon=1.0 @0.50)</td>
+          <td>Recall (rewritten) &epsilon;=5.0 @0.50</td>
+          <td>&gt;90%</td>
+          <td>98.0% (49/50)</td>
+          <td style="color: var(--accent3);">PASS</td>
+        </tr>
+        <tr>
+          <td>Recall (rewritten) &epsilon;=1.0 @0.50</td>
+          <td>&gt;75%</td>
+          <td>86.0% (43/50)</td>
+          <td style="color: var(--accent3);">PASS</td>
+        </tr>
+        <tr>
+          <td>FPR (rewritten, &epsilon;=1.0 @0.50)</td>
+          <td>&lt;30%</td>
+          <td>1.1% (1/94)</td>
+          <td style="color: var(--accent3);">PASS</td>
+        </tr>
+        <tr>
+          <td>MatchingIndex recall (&epsilon;=1.0 @0.50)</td>
+          <td>&gt;75%</td>
+          <td>82.0% (41/50)</td>
+          <td style="color: var(--accent3);">PASS</td>
+        </tr>
+        <tr>
+          <td>MatchingIndex FPR (&epsilon;=1.0 @0.50)</td>
           <td>&lt;20%</td>
           <td>2.1% (1/47)</td>
           <td style="color: var(--accent3);">PASS</td>
@@ -213,144 +200,216 @@
         <tr>
           <td>Rewriting improvement</td>
           <td>&gt;0</td>
-          <td>+1.5pp (0.634 to 0.650)</td>
+          <td>+1.5pp (0.634 &rarr; 0.650)</td>
           <td style="color: var(--accent3);">PASS</td>
         </tr>
         <tr>
-          <td>End-to-end latency (p95)</td>
-          <td>&lt;2s</td>
-          <td>29.2ms</td>
-          <td style="color: var(--accent3);">PASS</td>
+          <td>Cross-language similarity (avg)</td>
+          <td>info</td>
+          <td>0.476 (75% of EN)</td>
+          <td style="color: var(--accent);">INFO</td>
         </tr>
       </tbody>
     </table>
   </div>
 </section>
 
+<!-- PHASE 2: CRYPTO & STORE -->
 <section>
   <div class="container">
-    <div class="section-label">Benchmarks</div>
-    <h2>Benchmark Descriptions</h2>
-    <p>The eval suite consists of 9 benchmarks, each testing a different aspect of the system.</p>
-
-    <div class="card-grid">
-      <div class="card">
-        <span class="card-tag tag-personal">Performance</span>
-        <h4>Bootstrap Benchmark</h4>
-        <p>Measures time to initialize the embedding model from cold start. Target: under 30 seconds. Actual: 0.9s on Apple Silicon.</p>
-      </div>
-      <div class="card">
-        <span class="card-tag tag-personal">Performance</span>
-        <h4>Embedding Benchmark</h4>
-        <p>Measures embedding latency across 100 representative texts. Reports p50, p95, p99, mean, min, and max. Target: p95 under 100ms.</p>
-      </div>
-      <div class="card">
-        <span class="card-tag tag-privacy">Privacy</span>
-        <h4>Perturbation Benchmark</h4>
-        <p>Tests Laplace noise at three epsilon levels (5.0, 1.0, 0.1). Verifies that perturbation reduces similarity appropriately and that vectors remain normalized.</p>
-      </div>
-      <div class="card">
-        <span class="card-tag tag-relay">Search</span>
-        <h4>HNSW Benchmark</h4>
-        <p>Builds a 10K-vector HNSW index, measures insert time, search latency (p50/p95/p99), and memory usage. Target: search p95 under 5ms.</p>
-      </div>
-      <div class="card">
-        <span class="card-tag tag-direct">Quality</span>
-        <h4>Recall Benchmark</h4>
-        <p>Tests matching recall across 50 curated need-offer pairs under different perturbation strategies: baseline, index-only, and double perturbation at multiple thresholds.</p>
-      </div>
-      <div class="card">
-        <span class="card-tag tag-direct">Quality</span>
-        <h4>Rewriting Benchmark</h4>
-        <p>Measures the impact of query rewriting on need-offer similarity and recall. Compares raw vs rewritten embeddings.</p>
-      </div>
-      <div class="card">
-        <span class="card-tag tag-relay">Architecture</span>
-        <h4>MatchingIndex Benchmark</h4>
-        <p>Tests the separate need/offer index architecture. Compares recall and FPR against a flat single-index approach. Measures same-type noise elimination.</p>
-      </div>
-      <div class="card">
-        <span class="card-tag tag-privacy">Multilingual</span>
-        <h4>Cross-Language Benchmark</h4>
-        <p>Tests matching across languages (English, Spanish, Catalan). Measures cross-language similarity, same-language non-English similarity, and overall viability.</p>
-      </div>
-      <div class="card">
-        <span class="card-tag tag-personal">End-to-End</span>
-        <h4>Latency Benchmark</h4>
-        <p>Measures the full pipeline: embed, perturb, search, match. Target: p95 under 2 seconds. Actual: 29.2ms at the 95th percentile.</p>
-      </div>
-    </div>
-  </div>
-</section>
-
-<section>
-  <div class="container">
-    <div class="section-label">Privacy Tradeoff</div>
-    <h2>Privacy vs. Utility</h2>
-    <p>The fundamental tradeoff in differential privacy: more noise means more privacy but less matching accuracy. Here is how each epsilon level performs.</p>
+    <div class="section-label">Phase 2</div>
+    <h2>Crypto &amp; Store</h2>
+    <p>Cryptographic identity, key exchange, encryption round-trips, and local store performance.</p>
 
     <table class="spec-table">
       <thead>
         <tr>
-          <th>Epsilon</th>
-          <th>Privacy Level</th>
-          <th>Cosine Similarity</th>
-          <th>Recall @0.50</th>
-          <th>Interpretation</th>
+          <th>Metric</th>
+          <th>Target</th>
+          <th>Actual</th>
+          <th>Status</th>
         </tr>
       </thead>
       <tbody>
         <tr>
-          <td>5.0</td>
-          <td>Low</td>
-          <td>0.994</td>
-          <td>94%</td>
-          <td>Minimal noise. Vectors nearly identical to originals. Good for trusted relays.</td>
+          <td>Identity generation</td>
+          <td>&lt;10ms</td>
+          <td>1.44ms</td>
+          <td style="color: var(--accent3);">PASS</td>
         </tr>
         <tr>
-          <td>1.0</td>
-          <td>Medium</td>
-          <td>0.880</td>
-          <td>82%</td>
-          <td>Moderate noise. Signal preserved, real privacy added. Recommended default.</td>
+          <td>Sign + verify round-trip</td>
+          <td>lossless</td>
+          <td>lossless</td>
+          <td style="color: var(--accent3);">PASS</td>
         </tr>
         <tr>
-          <td>0.1</td>
-          <td>High</td>
-          <td>0.179</td>
-          <td>~5%</td>
-          <td>Heavy noise. Strong privacy, but very low utility. Requires lower thresholds.</td>
+          <td>Box encrypt/decrypt round-trip</td>
+          <td>lossless</td>
+          <td>lossless</td>
+          <td style="color: var(--accent3);">PASS</td>
+        </tr>
+        <tr>
+          <td>DH key exchange + secretbox round-trip</td>
+          <td>lossless</td>
+          <td>lossless</td>
+          <td style="color: var(--accent3);">PASS</td>
+        </tr>
+        <tr>
+          <td>Identity export/import round-trip</td>
+          <td>lossless</td>
+          <td>lossless</td>
+          <td style="color: var(--accent3);">PASS</td>
+        </tr>
+        <tr>
+          <td>Store insert latency</td>
+          <td>&lt;1ms</td>
+          <td>77&mu;s</td>
+          <td style="color: var(--accent3);">PASS</td>
+        </tr>
+        <tr>
+          <td>Store get latency</td>
+          <td>&lt;1ms</td>
+          <td>34&mu;s</td>
+          <td style="color: var(--accent3);">PASS</td>
         </tr>
       </tbody>
     </table>
-
-    <div class="callout insight">
-      <div class="callout-label">Recommendation</div>
-      <p>For most deployments, <strong>epsilon=1.0 (medium)</strong> provides the best balance. It adds enough noise that a relay cannot meaningfully reconstruct the original text, while preserving enough signal for 82% recall. The confirmation step on true embeddings catches the remaining false positives.</p>
-    </div>
   </div>
 </section>
 
+<!-- PHASE 3: RELAY -->
 <section>
   <div class="container">
-    <div class="section-label">Running</div>
-    <h2>How to Run</h2>
-    <p>The eval suite is part of the monorepo and can be run locally.</p>
+    <div class="section-label">Phase 3</div>
+    <h2>Relay</h2>
+    <p>WebSocket relay server performance: authentication, publish, and match notification latency.</p>
 
-    <h3>Quick Eval</h3>
-    <p>Runs all benchmarks with 10K vectors. Takes about 2 minutes on modern hardware.</p>
+    <table class="spec-table">
+      <thead>
+        <tr>
+          <th>Metric</th>
+          <th>Target</th>
+          <th>Actual</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Auth + publish round-trip</td>
+          <td>&lt;100ms</td>
+          <td>19ms</td>
+          <td style="color: var(--accent3);">PASS</td>
+        </tr>
+        <tr>
+          <td>Match notification latency</td>
+          <td>&lt;100ms</td>
+          <td>19ms</td>
+          <td style="color: var(--accent3);">PASS</td>
+        </tr>
+        <tr>
+          <td>Relay rate limiting</td>
+          <td>functional</td>
+          <td>functional</td>
+          <td style="color: var(--accent3);">PASS</td>
+        </tr>
+        <tr>
+          <td>Relay admin API</td>
+          <td>functional</td>
+          <td>functional</td>
+          <td style="color: var(--accent3);">PASS</td>
+        </tr>
+        <tr>
+          <td>Relay TTL expiry</td>
+          <td>functional</td>
+          <td>functional</td>
+          <td style="color: var(--accent3);">PASS</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- PHASE 4: CHANNEL -->
+<section>
+  <div class="container">
+    <div class="section-label">Phase 4</div>
+    <h2>Channel</h2>
+    <p>End-to-end encrypted direct channel performance: consent handshake, embedding confirmation, and message round-trip.</p>
+
+    <table class="spec-table">
+      <thead>
+        <tr>
+          <th>Metric</th>
+          <th>Target</th>
+          <th>Actual</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Consent handshake</td>
+          <td>&lt;100ms</td>
+          <td>16ms</td>
+          <td style="color: var(--accent3);">PASS</td>
+        </tr>
+        <tr>
+          <td>Confirmation exchange</td>
+          <td>&lt;100ms</td>
+          <td>25ms</td>
+          <td style="color: var(--accent3);">PASS</td>
+        </tr>
+        <tr>
+          <td>Message round-trip</td>
+          <td>&lt;50ms</td>
+          <td>9.5ms</td>
+          <td style="color: var(--accent3);">PASS</td>
+        </tr>
+        <tr>
+          <td>E2E encryption integrity</td>
+          <td>lossless</td>
+          <td>lossless</td>
+          <td style="color: var(--accent3);">PASS</td>
+        </tr>
+        <tr>
+          <td>Channel close</td>
+          <td>functional</td>
+          <td>functional</td>
+          <td style="color: var(--accent3);">PASS</td>
+        </tr>
+        <tr>
+          <td>Progressive disclosure flow</td>
+          <td>functional</td>
+          <td>functional</td>
+          <td style="color: var(--accent3);">PASS</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- METHODOLOGY -->
+<section>
+  <div class="container">
+    <div class="section-label">Methodology</div>
+    <h2>How We Evaluate</h2>
+    <p>The eval suite runs real benchmarks with real data and generates timestamped reports in <code>docs/evals/</code>.</p>
+
+    <div class="callout info">
+      <div class="callout-label">Eval Methodology</div>
+      <p>All benchmarks run against 50 curated need-offer pairs across categories (housing, skills, services, community). Recall is measured as the fraction of known-matching pairs that the system correctly identifies. FPR is measured as the fraction of returned matches that are not in the ground-truth set. Latency metrics use p95 over 100+ iterations. All crypto benchmarks verify round-trip losslessness. No real user data is used&mdash;all test data is synthetic.</p>
+    </div>
+
+    <h3>Running Evals</h3>
     <div class="code-block">
+<span class="comment"># Quick eval: ~2 minutes, 10K vectors</span>
 npm run eval:quick
-    </div>
 
-    <h3>Full Eval</h3>
-    <p>Runs all benchmarks with 100K vectors for more statistically significant results.</p>
-    <div class="code-block">
+<span class="comment"># Full eval: ~15 minutes, 100K vectors</span>
 npm run eval
-    </div>
 
-    <h3>Reports</h3>
-    <p>Reports are auto-generated in Markdown format and saved to <code>docs/evals/</code> on every run. Each report is timestamped and includes all metrics, analysis, and the privacy vs. utility tradeoff table.</p>
+<span class="comment"># Reports saved to docs/evals/eval-YYYY-MM-DD-HH-MM-SS.md</span>
+    </div>
 
     <div class="callout tech">
       <div class="callout-label">CI Integration</div>
@@ -367,26 +426,29 @@ npm run eval
     </div>
     <div class="footer-links">
       <a href="/docs/index.html">Home</a>
-      <a href="/docs/developers/architecture.html">Architecture</a>
-      <a href="/docs/developers/protocol.html">Protocol</a>
-      <a href="/docs/developers/core-library.html">Core Library</a>
-      <a href="/docs/developers/contributing.html">Contributing</a>
+      <a href="/docs/getting-started.html">Get Started</a>
+      <a href="/docs/privacy.html">Privacy</a>
+      <a href="/docs/developers/architecture.html">Developers</a>
+      <a href="/docs/press.html">Press</a>
+      <a href="https://github.com/Planetary-e/resonance">GitHub</a>
     </div>
   </div>
 </footer>
 
 <script>
-document.querySelector('.nav-toggle')?.addEventListener('click', () => {
+document.querySelector('.nav-toggle')?.addEventListener('click', function() {
+  this.classList.toggle('open');
   document.querySelector('.nav-links')?.classList.toggle('open');
 });
-document.querySelectorAll('.dropdown-toggle').forEach(btn => {
-  btn.addEventListener('click', (e) => {
+document.querySelectorAll('.nav-dropdown-toggle').forEach(btn => {
+  btn.addEventListener('click', function(e) {
     e.stopPropagation();
-    btn.parentElement?.classList.toggle('open');
+    this.classList.toggle('open');
+    this.nextElementSibling?.classList.toggle('open');
   });
 });
 document.addEventListener('click', () => {
-  document.querySelectorAll('.dropdown.open').forEach(d => d.classList.remove('open'));
+  document.querySelectorAll('.nav-dropdown-toggle.open').forEach(b => { b.classList.remove('open'); b.nextElementSibling?.classList.remove('open'); });
 });
 </script>
 </body>

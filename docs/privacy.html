@@ -1,520 +1,443 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Privacy — Planetary Resonance</title>
-<link rel="stylesheet" href="assets/style.css">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap');
-
-:root {
-  --bg: #08080d;
-  --surface: #10101a;
-  --surface2: #181828;
-  --surface3: #202035;
-  --border: #2a2a40;
-  --text: #e4e4f0;
-  --text-muted: #8888a8;
-  --accent: #6c8cff;
-  --accent2: #ff6c8c;
-  --accent3: #6cffa0;
-  --accent4: #ffc86c;
-  --accent5: #c86cff;
-  --danger: #ff6c8c;
-}
-
-* { margin: 0; padding: 0; box-sizing: border-box; }
-
-body {
-  font-family: 'Inter', -apple-system, sans-serif;
-  background: var(--bg);
-  color: var(--text);
-  line-height: 1.75;
-  font-size: 16px;
-}
-
-.container { max-width: 1100px; margin: 0 auto; padding: 0 28px; }
-
-/* NAV */
-nav {
-  position: sticky; top: 0; z-index: 100;
-  background: rgba(8,8,13,0.92); backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--border); padding: 12px 0;
-}
-.nav-inner { display: flex; align-items: center; gap: 18px; font-size: 0.82em; flex-wrap: wrap; }
-nav a { color: var(--text-muted); text-decoration: none; font-weight: 500; cursor: pointer; transition: color 0.3s; }
-nav a:hover { color: var(--accent3); }
-nav .brand {
-  font-family: 'Playfair Display', serif;
-  font-size: 1.15em; font-weight: 700;
-  background: linear-gradient(135deg, var(--accent3), var(--accent));
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-  background-clip: text;
-  margin-right: auto;
-}
-.nav-toggle {
-  display: none; background: none; border: 1px solid var(--border);
-  color: var(--text); font-size: 1.3em; padding: 4px 10px;
-  border-radius: 6px; cursor: pointer;
-}
-.nav-links { display: flex; align-items: center; gap: 18px; }
-.nav-links a { white-space: nowrap; }
-
-.dropdown { position: relative; }
-.dropdown-toggle {
-  background: none; border: none; color: var(--text-muted);
-  font-family: inherit; font-size: inherit; font-weight: 500;
-  cursor: pointer; transition: color 0.3s;
-}
-.dropdown-toggle:hover { color: var(--accent3); }
-.dropdown-menu {
-  display: none; position: absolute; top: 100%; left: 0;
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: 8px; padding: 8px 0; min-width: 180px;
-  box-shadow: 0 12px 32px rgba(0,0,0,0.5); margin-top: 8px; z-index: 200;
-}
-.dropdown.open .dropdown-menu { display: block; }
-.dropdown-menu a { display: block; padding: 8px 16px; font-size: 0.95em; }
-.dropdown-menu a:hover { background: var(--surface2); }
-
-@media (max-width: 768px) {
-  .nav-toggle { display: block; }
-  .nav-links {
-    display: none; width: 100%; flex-direction: column;
-    align-items: flex-start; gap: 10px; padding-top: 12px;
-  }
-  .nav-links.open { display: flex; }
-  .dropdown-menu { position: static; box-shadow: none; margin-top: 4px; margin-left: 12px; }
-}
-
-/* HERO */
-.hero {
-  padding: 100px 0 60px;
-  text-align: center;
-  border-bottom: 1px solid var(--border);
-  position: relative;
-  overflow: hidden;
-}
-.hero::before {
-  content: '';
-  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
-  background:
-    radial-gradient(ellipse at 30% 40%, rgba(108,255,160,0.07) 0%, transparent 55%),
-    radial-gradient(ellipse at 70% 60%, rgba(108,140,255,0.05) 0%, transparent 50%);
-}
-.hero h1 {
-  font-family: 'Playfair Display', serif;
-  font-size: 3.2em; line-height: 1.12;
-  letter-spacing: -0.02em; margin-bottom: 18px;
-  position: relative;
-  background: linear-gradient(135deg, #fff 0%, var(--accent3) 50%, var(--accent) 100%);
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-.hero .subtitle {
-  font-size: 1.25em; color: var(--text-muted); max-width: 640px;
-  margin: 0 auto; position: relative; line-height: 1.6;
-}
-.hero .hero-statement {
-  font-family: 'Playfair Display', serif;
-  font-size: 1.7em; color: var(--text); position: relative;
-  margin-bottom: 20px; font-weight: 700; line-height: 1.3;
-}
-
-/* SECTIONS */
-section.content { padding: 60px 0; border-bottom: 1px solid var(--border); }
-section.content:last-of-type { border-bottom: none; }
-
-section.content h2 {
-  font-family: 'Playfair Display', serif;
-  font-size: 2em; margin-bottom: 24px;
-  background: linear-gradient(135deg, var(--accent), var(--accent3));
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-section.content p {
-  color: var(--text-muted); font-size: 1.05em;
-  line-height: 1.8; max-width: 780px; margin-bottom: 16px;
-}
-
-/* CARD GRID */
-.card-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 24px;
-  margin-top: 24px;
-}
-.card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 32px 28px;
-  transition: border-color 0.3s, transform 0.3s;
-}
-.card:hover {
-  border-color: var(--accent);
-  transform: translateY(-2px);
-}
-.card-icon {
-  font-size: 2em; margin-bottom: 16px; display: block;
-}
-.card h3 {
-  font-size: 1.2em; margin-bottom: 10px; color: var(--text);
-  font-weight: 700;
-}
-.card p {
-  color: var(--text-muted); font-size: 0.95em; line-height: 1.7;
-}
-.card .tech {
-  margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);
-  font-family: 'JetBrains Mono', monospace; font-size: 0.82em;
-  color: var(--accent);
-}
-
-/* TABLE */
-.data-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 24px;
-  font-size: 0.95em;
-  background: var(--surface);
-  border-radius: 12px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-}
-.data-table thead { background: var(--surface2); }
-.data-table th {
-  text-align: left; padding: 14px 18px;
-  color: var(--text-muted); font-weight: 600;
-  font-size: 0.82em; text-transform: uppercase;
-  letter-spacing: 0.06em;
-  border-bottom: 1px solid var(--border);
-}
-.data-table td {
-  padding: 14px 18px;
-  border-bottom: 1px solid var(--border);
-  color: var(--text);
-}
-.data-table tr:last-child td { border-bottom: none; }
-.data-table td:first-child { font-weight: 600; }
-.data-table .mono {
-  font-family: 'JetBrains Mono', monospace; font-size: 0.9em;
-}
-
-.level-low { color: var(--accent3); }
-.level-medium { color: var(--accent4); }
-.level-high { color: var(--accent2); }
-
-/* DID SECTION */
-.did-example {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 20px 24px;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.88em;
-  color: var(--accent3);
-  margin-top: 16px;
-  overflow-x: auto;
-  word-break: break-all;
-}
-
-/* PROGRESSIVE DISCLOSURE */
-.disclosure-steps {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  margin-top: 24px;
-  position: relative;
-}
-.disclosure-step {
-  display: flex;
-  align-items: flex-start;
-  gap: 20px;
-  padding: 20px 0;
-  border-left: 3px solid var(--border);
-  padding-left: 24px;
-  position: relative;
-}
-.disclosure-step::before {
-  content: '';
-  position: absolute;
-  left: -8px; top: 26px;
-  width: 13px; height: 13px;
-  border-radius: 50%;
-  background: var(--accent);
-  border: 2px solid var(--bg);
-}
-.disclosure-step:nth-child(2)::before { background: var(--accent4); }
-.disclosure-step:nth-child(3)::before { background: var(--accent3); }
-.disclosure-step:nth-child(4)::before { background: var(--accent5); }
-.disclosure-step h4 {
-  font-size: 1em; color: var(--text); margin-bottom: 4px;
-}
-.disclosure-step p {
-  color: var(--text-muted); font-size: 0.93em; margin: 0;
-}
-
-/* CALLOUT */
-.callout {
-  margin: 40px 0;
-  padding: 36px 40px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-left: 4px solid var(--accent3);
-  border-radius: 12px;
-}
-.callout h3 {
-  font-family: 'Playfair Display', serif;
-  font-size: 1.35em; margin-bottom: 16px;
-  color: var(--accent3);
-}
-.callout p {
-  color: var(--text-muted); font-size: 1em; line-height: 1.8;
-}
-.callout ul {
-  list-style: none; padding: 0; margin-top: 12px;
-}
-.callout li {
-  padding: 6px 0;
-  color: var(--text-muted);
-  position: relative;
-  padding-left: 20px;
-}
-.callout li::before {
-  content: '\00D7';
-  position: absolute; left: 0;
-  color: var(--danger); font-weight: 700;
-  font-size: 1.1em;
-}
-
-/* FOOTER */
-footer {
-  border-top: 1px solid var(--border);
-  padding: 40px 0;
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 0.85em;
-}
-footer a { color: var(--accent); text-decoration: none; }
-footer a:hover { text-decoration: underline; }
-footer .footer-links { margin-bottom: 12px; display: flex; justify-content: center; gap: 24px; flex-wrap: wrap; }
-
-@media (max-width: 768px) {
-  .hero h1 { font-size: 2.2em; }
-  .hero .hero-statement { font-size: 1.3em; }
-  .card-grid { grid-template-columns: 1fr; }
-  .data-table { font-size: 0.85em; }
-  .data-table th, .data-table td { padding: 10px 12px; }
-  .callout { padding: 24px; }
-}
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Planetary Resonance privacy model: local AI, differential privacy, E2E encryption. Three independent layers that make surveillance structurally impossible.">
+  <title>Privacy by Mathematics — Planetary Resonance</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
 
+<!-- NAVIGATION -->
 <nav>
-  <div class="container nav-inner">
+  <div class="container" style="display:flex;align-items:center;min-height:56px;font-size:0.84em;">
     <a href="/docs/index.html" class="brand">Planetary Resonance</a>
-    <button class="nav-toggle" aria-label="Menu">&#9776;</button>
-    <div class="nav-links">
-      <a href="/docs/how-it-works.html">How It Works</a>
-      <a href="/docs/privacy.html">Privacy</a>
-      <div class="dropdown">
-        <button class="dropdown-toggle">Developers</button>
+    <button class="nav-toggle" aria-label="Menu"><span></span></button>
+    <ul class="nav-links">
+      <li><a href="/docs/how-it-works.html">How It Works</a></li>
+      <li><a href="/docs/privacy.html" class="active">Privacy</a></li>
+      <li><a href="/docs/use-cases.html">Use Cases</a></li>
+      <li><a href="/docs/getting-started.html">Get Started</a></li>
+      <li><a href="/docs/organizations.html">Organizations</a></li>
+      <li style="position:relative;">
+        <button class="nav-dropdown-toggle">Developers</button>
         <div class="dropdown-menu">
           <a href="/docs/developers/architecture.html">Architecture</a>
-          <a href="/docs/developers/protocol.html">Protocol</a>
-          <a href="/docs/developers/core-library.html">Core Library</a>
+          <a href="/docs/developers/protocol.html">Wire Protocol</a>
+          <a href="/docs/developers/api.html">API Reference</a>
           <a href="/docs/developers/eval-results.html">Eval Results</a>
           <a href="/docs/developers/contributing.html">Contributing</a>
         </div>
-      </div>
-    </div>
+      </li>
+      <li><a href="/docs/press.html">Press</a></li>
+    </ul>
   </div>
 </nav>
 
-<section class="hero">
+<!-- HERO -->
+<header class="hero">
   <div class="container">
-    <h1>Privacy</h1>
-    <p class="hero-statement">Your data never leaves your device.</p>
-    <p class="subtitle">Planetary Resonance is built on the principle that a matching network should never need to know what it's matching. Three independent layers of privacy guarantee this isn't a promise &mdash; it's a mathematical fact.</p>
+    <div class="tag">Privacy Model</div>
+    <h1>Privacy by Mathematics</h1>
+    <p class="subtitle">
+      Resonance doesn't protect your privacy with a policy document.
+      It protects it with math, cryptography, and architecture decisions
+      that make surveillance structurally impossible.
+    </p>
   </div>
-</section>
+</header>
 
-<!-- Three layers of privacy -->
-<section class="content">
+<!-- THREE INDEPENDENT LAYERS -->
+<section>
   <div class="container">
-    <h2>Three Layers of Privacy</h2>
-    <p>Each layer operates independently. Even if one is compromised, the others still protect you.</p>
+    <div class="section-label">Foundation</div>
+    <h2>Three Independent Layers</h2>
+    <p class="section-intro">
+      Each layer operates independently. Even if one is compromised, the others still protect you.
+      This is defense in depth &mdash; not redundancy, but independent guarantees.
+    </p>
 
     <div class="card-grid">
       <div class="card">
         <span class="card-icon">&#129504;</span>
+        <div class="card-tag tag-personal">Layer 1</div>
         <h3>Local AI</h3>
-        <p>The embedding model runs entirely on your machine. Your text is converted to a 768-dimensional vector locally. No cloud API call, no server-side processing, no third-party service. The raw text never touches a network interface.</p>
-        <div class="tech">nomic-embed-text v1.5 &middot; ~137 MB &middot; ONNX runtime</div>
+        <p>The embedding model (Nomic-embed-text) runs entirely on your device. Your text is converted to a 768-dimensional vector locally using ONNX runtime. No cloud API call, no server-side processing, no third-party service. The raw text never touches a network interface.</p>
       </div>
 
       <div class="card">
         <span class="card-icon">&#128737;</span>
+        <div class="card-tag tag-privacy">Layer 2</div>
         <h3>Differential Privacy</h3>
-        <p>Calibrated Laplace noise is added to every dimension of every vector before transmission. This provides formal &epsilon;-differential privacy guarantees. Even if a vector is intercepted, the original text cannot be reconstructed from the noisy representation.</p>
-        <div class="tech">Laplace mechanism &middot; &epsilon; &isin; {0.1, 1.0, 5.0} &middot; per-dimension noise</div>
+        <p>Calibrated Laplace noise is added to every dimension of every vector before transmission. This provides formal &epsilon;-differential privacy guarantees. Even with unlimited computation, the original text cannot be reconstructed from the noisy representation.</p>
       </div>
 
       <div class="card">
         <span class="card-icon">&#128274;</span>
-        <h3>End-to-End Encryption</h3>
-        <p>Direct channels between matched parties use X25519 Diffie-Hellman key exchange with XSalsa20-Poly1305 authenticated encryption. The relay never sees channel contents. Only you and your match can read messages.</p>
-        <div class="tech">X25519 + XSalsa20-Poly1305 &middot; libsodium &middot; forward secrecy</div>
+        <div class="card-tag tag-direct">Layer 3</div>
+        <h3>E2E Encryption</h3>
+        <p>Direct channels between matched parties use X25519 Diffie-Hellman key exchange to derive a shared secret, then XSalsa20-Poly1305 authenticated encryption for all messages. The relay cannot read channel contents. Only you and your match hold the keys.</p>
       </div>
+    </div>
+
+    <div class="callout evidence">
+      <div class="callout-label">Independence matters</div>
+      <p>If a future vulnerability is found in the embedding model, your data is still protected by differential privacy noise and encryption. If the encryption library has a bug, your raw text was never sent anyway. If the noise calibration is weakened, the relay still only sees vectors &mdash; never text, never identity. Each layer stands alone.</p>
     </div>
   </div>
 </section>
 
-<!-- Privacy levels -->
-<section class="content">
+<!-- PRIVACY LEVELS TABLE -->
+<section>
   <div class="container">
+    <div class="section-label">Differential Privacy</div>
     <h2>Privacy Levels</h2>
-    <p>You choose how much noise is added to your vector. Higher epsilon means less noise and better matching. Lower epsilon means more noise and stronger privacy. The trade-off is yours to make.</p>
+    <p class="section-intro">
+      You choose how much noise is added to your vector. The trade-off is yours to make:
+      more noise means stronger privacy but fewer matches. The formula is transparent and auditable.
+    </p>
 
-    <table class="data-table">
+    <div class="code-block">
+<span class="comment">// Noise scale formula</span>
+<span class="keyword">scale</span> = <span class="num">0.38</span> / (&epsilon; &middot; &radic;<span class="num">768</span>)
+
+<span class="comment">// Each of 768 dimensions gets independent Laplace noise</span>
+noisy_vector[i] = true_vector[i] + <span class="func">Laplace</span>(<span class="num">0</span>, scale)
+    </div>
+
+    <table class="spec-table">
       <thead>
         <tr>
           <th>Level</th>
           <th>Epsilon (&epsilon;)</th>
-          <th>Similarity to Original</th>
-          <th>Recall</th>
-          <th>Best For</th>
+          <th>Similarity Retained</th>
+          <th>Match Recall</th>
+          <th>Use Case</th>
         </tr>
       </thead>
       <tbody>
         <tr>
-          <td class="level-low">Low</td>
-          <td class="mono">5.0</td>
-          <td>99.4%</td>
-          <td>98%</td>
-          <td>Maximum matching accuracy. Use when content sensitivity is low.</td>
+          <td style="color:var(--accent3);font-weight:700;">Low Privacy</td>
+          <td><code>5.0</code></td>
+          <td>~99.4%</td>
+          <td>~98%</td>
+          <td>Non-sensitive content. Job postings, event announcements, general offers.</td>
         </tr>
         <tr>
-          <td class="level-medium">Medium</td>
-          <td class="mono">1.0</td>
-          <td>88.1%</td>
+          <td style="color:var(--accent4);font-weight:700;">Medium Privacy</td>
+          <td><code>1.0</code></td>
+          <td>~88.1%</td>
           <td>82&ndash;86%</td>
-          <td>Balanced privacy and utility. The default setting for most users.</td>
+          <td>Default. Balanced privacy and utility. Good for most personal and professional needs.</td>
         </tr>
         <tr>
-          <td class="level-high">High</td>
-          <td class="mono">0.1</td>
-          <td>18.2%</td>
+          <td style="color:var(--accent2);font-weight:700;">High Privacy</td>
+          <td><code>0.1</code></td>
+          <td>~18.2%</td>
           <td>~14%</td>
-          <td>Maximum privacy, significantly fewer matches. For highly sensitive needs.</td>
+          <td>Highly sensitive needs. Legal, medical, or personal matters. Maximum privacy.</td>
         </tr>
       </tbody>
     </table>
-  </div>
-</section>
 
-<!-- DID Identity -->
-<section class="content">
-  <div class="container">
-    <h2>DID Identity</h2>
-    <p>Your identity in Planetary Resonance is a cryptographic keypair (Ed25519), expressed as a Decentralized Identifier (DID). Not an email address. Not a phone number. Not a username tied to a corporation's database.</p>
-    <div class="did-example">
-      did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK
+    <div class="stat-row" style="margin-top:24px;">
+      <div class="stat green">
+        <div class="num">99.4%</div>
+        <div class="label">Similarity at &epsilon;=5.0</div>
+      </div>
+      <div class="stat gold">
+        <div class="num">88.1%</div>
+        <div class="label">Similarity at &epsilon;=1.0</div>
+      </div>
+      <div class="stat red">
+        <div class="num">18.2%</div>
+        <div class="label">Similarity at &epsilon;=0.1</div>
+      </div>
     </div>
-    <p style="margin-top: 20px;">You can create new identities at any time, for free, instantly, offline. There is no "account" to create, no registration flow, no email verification. Each identity is mathematically independent &mdash; no one can correlate your different DIDs unless you choose to reveal the connection.</p>
-    <p>Your private key never leaves your device. It's stored in a local encrypted database, protected by a passphrase you set during initialization. Even if someone gains access to your machine, the key is encrypted at rest.</p>
   </div>
 </section>
 
-<!-- Progressive Disclosure -->
-<section class="content">
+<!-- WHAT THE RELAY CANNOT DO -->
+<section>
   <div class="container">
+    <div class="section-label">Structural Constraints</div>
+    <h2>What the Relay Cannot Do</h2>
+    <p class="section-intro">
+      The relay operator &mdash; whether that's us, a company, or a community &mdash; is
+      structurally prevented from performing these actions. Not by policy. By mathematics and architecture.
+    </p>
+
+    <div class="card-grid">
+      <div class="card">
+        <span class="card-icon">&#128683;</span>
+        <h3>Cannot Read Your Text</h3>
+        <p>Your text is embedded locally and never transmitted. The relay receives only a noisy 768-dimensional vector &mdash; a mathematical shadow that cannot be inverted back to text.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#128683;</span>
+        <h3>Cannot See Your True Embedding</h3>
+        <p>Differential privacy noise is added before transmission. The relay operates on perturbed vectors. The true embedding exists only on your device.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#128683;</span>
+        <h3>Cannot Decrypt Channel Messages</h3>
+        <p>Channels use end-to-end encryption with keys derived from a Diffie-Hellman exchange between peers. The relay transports ciphertext it cannot read.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#128683;</span>
+        <h3>Cannot Link You to Your Real Identity</h3>
+        <p>Your identity is a DID (did:key) generated from an Ed25519 keypair created offline. No email, no phone, no social login. The DID is pseudonymous by construction.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#128683;</span>
+        <h3>Cannot Block Progressive Disclosure</h3>
+        <p>Progressive disclosure is controlled by your node, not the relay. The relay has no mechanism to force, prevent, or observe what you share in encrypted channels.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#128683;</span>
+        <h3>Cannot See What You Share in Channels</h3>
+        <p>All channel content &mdash; categories, details, contact info &mdash; is encrypted end-to-end. The relay is a blind courier that routes sealed envelopes.</p>
+      </div>
+    </div>
+
+    <div class="callout warning">
+      <div class="callout-label">Not promises. Mathematical constraints.</div>
+      <p>These aren't pledges in a terms-of-service document. They are consequences of the system's architecture. Even a malicious relay operator &mdash; one who wants to violate your privacy &mdash; cannot do so. The data they would need simply does not exist on their infrastructure. A subpoena to the relay yields perturbed vectors and pseudonymous DIDs: no text, no names, no contacts, no messages.</p>
+    </div>
+  </div>
+</section>
+
+<!-- IDENTITY & DIDS -->
+<section>
+  <div class="container">
+    <div class="section-label">Identity</div>
+    <h2>Decentralized Identifiers (DIDs)</h2>
+    <p class="section-intro">
+      Your identity in Resonance is a cryptographic keypair, not an account on someone else's server.
+      No registration. No email verification. No phone number. No passwords.
+    </p>
+
+    <p>
+      Resonance uses the <code>did:key</code> method with Ed25519 keypairs. Your identity is generated
+      entirely offline in a single cryptographic operation. The resulting DID is a globally unique,
+      self-certifying identifier that proves you are you without revealing who you are.
+    </p>
+
+    <div class="code-block">
+<span class="comment">// Your identity is a DID generated from an Ed25519 keypair</span>
+<span class="type">did:key</span>:<span class="string">z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK</span>
+
+<span class="comment">// No email, no phone, no social login, no password</span>
+<span class="comment">// Created offline, instantly, for free</span>
+<span class="comment">// Your private key never leaves your device</span>
+    </div>
+
+    <div class="card-grid" style="grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));">
+      <div class="card">
+        <span class="card-icon">&#128273;</span>
+        <h3>Offline Creation</h3>
+        <p>Generate a new identity with no internet connection. It's a cryptographic operation, not a server request.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#128256;</span>
+        <h3>Multiple Identities</h3>
+        <p>Create as many DIDs as you need. Each is mathematically independent &mdash; no one can correlate them unless you choose to reveal the connection.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#128230;</span>
+        <h3>Export &amp; Import</h3>
+        <p>Back up your identity with password-encrypted export files. Restore on any device. Your keys, your control.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#128272;</span>
+        <h3>Encrypted at Rest</h3>
+        <p>Private keys are stored in a local encrypted database, protected by a passphrase you set during initialization.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PROGRESSIVE DISCLOSURE -->
+<section>
+  <div class="container">
+    <div class="section-label">Information Control</div>
     <h2>Progressive Disclosure</h2>
-    <p>Information sharing happens in stages. Each stage requires your explicit, deliberate action. Nothing is shared automatically.</p>
+    <p class="section-intro">
+      Information sharing happens in stages. Each stage requires your explicit, deliberate action.
+      Nothing is shared automatically. The protocol defaults to silence.
+    </p>
 
-    <div class="disclosure-steps">
-      <div class="disclosure-step">
-        <div>
-          <h4>1. Match Notification</h4>
-          <p>You receive a similarity score and the match type (need/offer). Nothing else. You don't know who they are, what they wrote, or where they are. Just: "someone out there is a potential match at 87% similarity."</p>
-        </div>
+    <div class="flow-container">
+      <div class="flow-step">
+        <div class="step-num">01</div>
+        <div class="step-label">Match Notification</div>
+        <div class="step-detail">Similarity score + DID only. You don't know who they are or what they wrote.</div>
       </div>
-      <div class="disclosure-step">
-        <div>
-          <h4>2. Category-Level Details</h4>
-          <p>If both parties consent, you exchange high-level category information. "This is about software development" or "This is about home repair." Still no specifics, no names, no contact info.</p>
-        </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">02</div>
+        <div class="step-label">Category</div>
+        <div class="step-detail">"Backend development" &mdash; high-level topic, no specifics.</div>
       </div>
-      <div class="disclosure-step">
-        <div>
-          <h4>3. Specific Details</h4>
-          <p>With continued mutual consent, you share the specific details of your need or offer. "I'm looking for a React developer for a 3-month dashboard project." The other party shares theirs. You evaluate fit.</p>
-        </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">03</div>
+        <div class="step-label">Detail</div>
+        <div class="step-detail">"Django expert, available remote" &mdash; specific but still pseudonymous.</div>
       </div>
-      <div class="disclosure-step">
-        <div>
-          <h4>4. Contact Information</h4>
-          <p>Only when both parties are satisfied that the match is genuine and valuable, you exchange contact information. Email, phone, website &mdash; whatever you choose. This is the final step, and it's entirely optional.</p>
-        </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">04</div>
+        <div class="step-label">Contact</div>
+        <div class="step-detail">Email, phone, website &mdash; only if you choose.</div>
       </div>
+    </div>
+
+    <p style="margin-top:24px;">
+      Each step is gated by mutual consent. Both parties must agree to advance to the next disclosure level.
+      If you decide at any point that the match isn't right, you simply stop. No data has been leaked,
+      no profile has been built, no trace remains on the relay.
+    </p>
+
+    <div class="callout insight">
+      <div class="callout-label">Design philosophy</div>
+      <p>You control every step. The protocol cannot force disclosure. Information flows outward only when you push it &mdash; the system never pulls it from you. This is the opposite of how traditional platforms work, where sharing is the default and privacy requires opt-out.</p>
     </div>
   </div>
 </section>
 
-<!-- What we can't do -->
-<section class="content">
+<!-- TRUST BOUNDARIES -->
+<section>
   <div class="container">
-    <div class="callout">
-      <h3>What we can't do</h3>
-      <p>The relay operator &mdash; whether that's us, a company, or a community &mdash; cannot:</p>
-      <ul>
-        <li>Read your original text</li>
-        <li>See your name or real identity</li>
-        <li>Know your physical location</li>
-        <li>Track your activity across sessions (different DIDs are unlinkable)</li>
-        <li>Sell your data (because they don't have it)</li>
-        <li>Comply with a data request (because there is no data to hand over)</li>
-        <li>Build a profile of your interests over time</li>
-        <li>Reconstruct your original embedding from the noisy version</li>
-      </ul>
-      <p style="margin-top: 16px;">This isn't a privacy policy. It's a technical constraint. The system is designed so that these capabilities are mathematically impossible, not merely prohibited by policy.</p>
+    <div class="section-label">Architecture</div>
+    <h2>Trust Boundaries</h2>
+    <p class="section-intro">
+      Different components of the system have access to different data.
+      Here is exactly what each component can and cannot see.
+    </p>
+
+    <table class="spec-table">
+      <thead>
+        <tr>
+          <th>Data</th>
+          <th>Personal Node</th>
+          <th>Relay</th>
+          <th>Direct Channel</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Original text</td>
+          <td style="color:var(--accent3);">Yes</td>
+          <td style="color:var(--accent2);">No</td>
+          <td style="color:var(--accent2);">No</td>
+        </tr>
+        <tr>
+          <td>True embedding</td>
+          <td style="color:var(--accent3);">Yes</td>
+          <td style="color:var(--accent2);">No</td>
+          <td style="color:var(--accent3);">Yes (for confirmation)</td>
+        </tr>
+        <tr>
+          <td>Perturbed embedding</td>
+          <td style="color:var(--accent3);">Yes</td>
+          <td style="color:var(--accent3);">Yes</td>
+          <td style="color:var(--accent2);">No</td>
+        </tr>
+        <tr>
+          <td>DID identity</td>
+          <td style="color:var(--accent3);">Yes</td>
+          <td style="color:var(--accent3);">Yes (pseudonymous)</td>
+          <td style="color:var(--accent3);">Yes (pseudonymous)</td>
+        </tr>
+        <tr>
+          <td>Real identity</td>
+          <td style="color:var(--accent3);">Yes</td>
+          <td style="color:var(--accent2);">No</td>
+          <td style="color:var(--accent4);">Only if disclosed</td>
+        </tr>
+        <tr>
+          <td>Private keys</td>
+          <td style="color:var(--accent3);">Yes</td>
+          <td style="color:var(--accent2);">No</td>
+          <td style="color:var(--accent2);">No</td>
+        </tr>
+        <tr>
+          <td>Channel messages</td>
+          <td style="color:var(--accent3);">Yes</td>
+          <td style="color:var(--accent2);">No (ciphertext only)</td>
+          <td style="color:var(--accent3);">Yes (plaintext)</td>
+        </tr>
+        <tr>
+          <td>Disclosure content</td>
+          <td style="color:var(--accent3);">Yes</td>
+          <td style="color:var(--accent2);">No</td>
+          <td style="color:var(--accent3);">Yes (as shared)</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="callout tech">
+      <div class="callout-label">GDPR by Architecture</div>
+      <p>Because the relay holds no personal data &mdash; only perturbed vectors and pseudonymous DIDs &mdash; there is no personal data to regulate, delete, or breach. This isn't GDPR compliance through legal effort; it's GDPR irrelevance through architectural design. There is nothing to subpoena because there is nothing to store.</p>
     </div>
   </div>
 </section>
 
+<!-- CTA -->
+<section>
+  <div class="container" style="text-align:center;">
+    <div class="section-label">Learn More</div>
+    <h2>Explore the Protocol</h2>
+    <p class="section-intro" style="margin-left:auto;margin-right:auto;text-align:center;">
+      See how these privacy guarantees work in practice, from the five-step protocol flow
+      to the architecture that enforces every constraint.
+    </p>
+    <div style="display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-top:8px;">
+      <a href="/docs/how-it-works.html" class="btn btn-primary">How It Works</a>
+      <a href="/docs/developers/architecture.html" class="btn btn-secondary">Architecture Docs &rarr;</a>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
 <footer>
-  <div class="container">
-    <div class="footer-links">
-      <a href="/docs/how-it-works.html">How It Works</a>
-      <a href="/docs/privacy.html">Privacy</a>
-      <a href="/docs/developers/architecture.html">Architecture</a>
-      <a href="/docs/developers/protocol.html">Protocol</a>
-      <a href="/docs/developers/contributing.html">Contributing</a>
+  <div class="container footer-inner">
+    <div>
+      <div class="footer-brand">Planetary Resonance</div>
+      <div class="footer-tagline">Privacy-preserving matching for human connection.</div>
     </div>
-    <p>Planetary Resonance &mdash; Connecting human needs through privacy-preserving AI.</p>
+    <div class="footer-links">
+      <a href="/docs/index.html">Home</a>
+      <a href="/docs/getting-started.html">Get Started</a>
+      <a href="/docs/privacy.html">Privacy</a>
+      <a href="/docs/developers/architecture.html">Developers</a>
+      <a href="/docs/press.html">Press</a>
+      <a href="https://github.com/Planetary-e/resonance">GitHub</a>
+    </div>
   </div>
 </footer>
 
 <script>
-document.querySelector('.nav-toggle')?.addEventListener('click', () => {
+document.querySelector('.nav-toggle')?.addEventListener('click', function() {
+  this.classList.toggle('open');
   document.querySelector('.nav-links')?.classList.toggle('open');
 });
-document.querySelectorAll('.dropdown-toggle').forEach(btn => {
-  btn.addEventListener('click', (e) => {
+document.querySelectorAll('.nav-dropdown-toggle').forEach(btn => {
+  btn.addEventListener('click', function(e) {
     e.stopPropagation();
-    btn.parentElement?.classList.toggle('open');
+    this.classList.toggle('open');
+    this.nextElementSibling?.classList.toggle('open');
   });
 });
 document.addEventListener('click', () => {
-  document.querySelectorAll('.dropdown.open').forEach(d => d.classList.remove('open'));
+  document.querySelectorAll('.nav-dropdown-toggle.open').forEach(b => { b.classList.remove('open'); b.nextElementSibling?.classList.remove('open'); });
 });
 </script>
+
 </body>
 </html>

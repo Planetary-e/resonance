@@ -99,9 +99,30 @@ export interface RejectPayload {
 
 export interface ClosePayload {}
 
+// --- Authentication ---
+
+export interface AuthPayload {}
+
+// --- Channel bridge (via relay) ---
+
+export interface ChannelMessagePayload {
+  matchId: string;
+  encrypted: string;  // secretbox(JSON, sharedSecret) → base64
+  nonce: string;      // base64
+}
+
+export interface ChannelForwardPayload {
+  matchId: string;
+  fromDID: string;
+  encrypted: string;  // base64 (relay cannot read)
+  nonce: string;      // base64
+}
+
 // --- Message type constants ---
 
 export const MessageTypes = {
+  // Authentication
+  AUTH: 'auth',
   // Node → Relay
   PUBLISH: 'publish',
   SEARCH: 'search',
@@ -119,6 +140,9 @@ export const MessageTypes = {
   ACCEPT: 'accept',
   REJECT: 'reject',
   CLOSE: 'close',
+  // Channel bridge (via relay)
+  CHANNEL_MESSAGE: 'channel_message',
+  CHANNEL_FORWARD: 'channel_forward',
 } as const;
 
 // --- Signing and Verification ---

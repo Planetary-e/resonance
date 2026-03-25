@@ -13,6 +13,7 @@
     "build": "tsc -b",
     "test": "vitest run",
     "eval": "npm run eval --workspace=@resonance/eval",
-    "eval:quick": "npm run eval:quick --workspace=@resonance/eval"
+    "eval:quick": "npm run eval:quick --workspace=@resonance/eval",
+    "resonance": "npm run resonance --workspace=@resonance/node --"
   }
 }

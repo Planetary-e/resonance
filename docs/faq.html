@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Frequently asked questions about Planetary Resonance: privacy, technical details, matching accuracy, and how to get started with privacy-preserving P2P matching.">
+  <title>FAQ — Planetary Resonance</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="assets/style.css">
+  <style>
+    .faq-category { margin-bottom: 48px; }
+    .faq-item {
+      border-bottom: 1px solid var(--border);
+      padding: 24px 0;
+    }
+    .faq-item:last-child { border-bottom: none; }
+    .faq-question {
+      font-size: 1.1em;
+      font-weight: 600;
+      color: var(--text);
+      cursor: pointer;
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      background: none;
+      border: none;
+      font-family: inherit;
+      text-align: left;
+      width: 100%;
+      padding: 0;
+      line-height: 1.5;
+      transition: color 0.3s;
+    }
+    .faq-question:hover { color: var(--accent); }
+    .faq-question::before {
+      content: '+';
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1.2em;
+      font-weight: 700;
+      color: var(--accent);
+      flex-shrink: 0;
+      width: 24px;
+      text-align: center;
+      transition: transform 0.3s;
+      line-height: 1.4;
+    }
+    .faq-question.open::before {
+      content: '\2212';
+      color: var(--accent3);
+    }
+    .faq-answer {
+      display: none;
+      padding: 16px 0 8px 38px;
+      color: var(--text-muted);
+      font-size: 0.95em;
+      line-height: 1.8;
+    }
+    .faq-answer.open { display: block; }
+    .faq-answer p { margin-bottom: 12px; }
+    .faq-answer p:last-child { margin-bottom: 0; }
+    .faq-answer code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.88em;
+      background: var(--surface2);
+      padding: 2px 7px;
+      border-radius: 4px;
+      color: var(--accent);
+    }
+    .faq-answer a { color: var(--accent); text-decoration: none; transition: color 0.3s; }
+    .faq-answer a:hover { color: var(--accent3); }
+  </style>
+</head>
+<body>
+
+<!-- NAVIGATION -->
+<nav>
+  <div class="container" style="display:flex;align-items:center;min-height:56px;font-size:0.84em;">
+    <a href="/docs/index.html" class="brand">Planetary Resonance</a>
+    <button class="nav-toggle" aria-label="Menu"><span></span></button>
+    <ul class="nav-links">
+      <li><a href="/docs/how-it-works.html">How It Works</a></li>
+      <li><a href="/docs/privacy.html">Privacy</a></li>
+      <li><a href="/docs/use-cases.html">Use Cases</a></li>
+      <li><a href="/docs/getting-started.html">Get Started</a></li>
+      <li><a href="/docs/organizations.html">Organizations</a></li>
+      <li style="position:relative;">
+        <button class="nav-dropdown-toggle">Developers</button>
+        <div class="dropdown-menu">
+          <a href="/docs/developers/architecture.html">Architecture</a>
+          <a href="/docs/developers/protocol.html">Wire Protocol</a>
+          <a href="/docs/developers/api.html">API Reference</a>
+          <a href="/docs/developers/eval-results.html">Eval Results</a>
+          <a href="/docs/developers/contributing.html">Contributing</a>
+        </div>
+      </li>
+      <li><a href="/docs/press.html">Press</a></li>
+    </ul>
+  </div>
+</nav>
+
+<!-- HERO -->
+<header class="hero">
+  <div class="container">
+    <div class="tag">Support</div>
+    <h1>Frequently Asked Questions</h1>
+    <p class="subtitle">
+      Everything you need to know about Planetary Resonance &mdash; from the big picture
+      to the technical details. Can't find your answer? Check the
+      <a href="/docs/developers/architecture.html" style="color:var(--accent);">developer docs</a>.
+    </p>
+  </div>
+</header>
+
+<!-- GENERAL -->
+<section>
+  <div class="container">
+    <div class="section-label">General</div>
+    <h2>About Resonance</h2>
+
+    <div class="faq-category">
+
+      <div class="faq-item">
+        <button class="faq-question">What is Planetary Resonance?</button>
+        <div class="faq-answer">
+          <p>Planetary Resonance is a privacy-preserving peer-to-peer matching protocol. It connects people with complementary needs and offers &mdash; "I need a plumber" finds "I do plumbing" &mdash; without any central platform seeing your data.</p>
+          <p>You describe what you need or offer in plain language. Your device converts that text into a mathematical vector using a local AI model, adds calibrated noise for privacy, and publishes the noisy vector to a relay network. The relay finds matches between needs and offers, and both parties connect through an end-to-end encrypted channel.</p>
+          <p>No accounts, no profiles, no data collection. Your identity is a cryptographic keypair generated on your device. The relay sees only noisy vectors and pseudonymous identifiers.</p>
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-question">How is this different from LinkedIn, Craigslist, or other matching platforms?</button>
+        <div class="faq-answer">
+          <p><strong>Data ownership:</strong> On LinkedIn or Craigslist, the platform owns your data, builds profiles, and monetizes your activity. On Resonance, your data never leaves your device. The relay sees only noisy mathematical vectors &mdash; it cannot read your text, know your name, or track your behavior.</p>
+          <p><strong>No accounts:</strong> Traditional platforms require email, phone, or social login. Resonance uses cryptographic identity (did:key) generated offline. No registration, no verification, no password.</p>
+          <p><strong>Semantic matching:</strong> Instead of keyword search or manual browsing, Resonance uses AI embeddings to understand the meaning of your text and find complementary matches automatically. "My sink is leaking" matches "Professional plumber available" even though they share no keywords.</p>
+          <p><strong>Cross-matching:</strong> Resonance matches needs to offers, not similar posts to each other. This is fundamentally different from search &mdash; it finds the other side of a transaction.</p>
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-question">Is this a blockchain project?</button>
+        <div class="faq-answer">
+          <p><strong>No.</strong> No tokens, no chain, no consensus mechanism, no mining, no staking, no NFTs, no smart contracts, no gas fees. Resonance is a networking protocol built on standard cryptography (Ed25519, X25519, XSalsa20-Poly1305), AI embeddings (Nomic-embed-text), and differential privacy.</p>
+          <p>It uses Decentralized Identifiers (DIDs) for identity, but DIDs are a W3C standard &mdash; not a blockchain concept. The <code>did:key</code> method used by Resonance is purely cryptographic and requires no ledger.</p>
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-question">What does "privacy-preserving" mean technically?</button>
+        <div class="faq-answer">
+          <p>It means three specific, independent things:</p>
+          <p><strong>1. Local computation:</strong> Your text is processed by an AI model running on your own device. The raw text never touches a network interface.</p>
+          <p><strong>2. Differential privacy:</strong> Calibrated Laplace noise is added to your embedding vector before transmission, providing formal &epsilon;-differential privacy guarantees. The original text cannot be reconstructed from the noisy vector, regardless of computational power.</p>
+          <p><strong>3. End-to-end encryption:</strong> Channels between matched peers use X25519 key exchange and XSalsa20-Poly1305 authenticated encryption. The relay transports ciphertext it cannot read.</p>
+          <p>These aren't marketing claims. They're mathematical properties of the system that can be independently verified in the <a href="https://github.com/Planetary-e/resonance">open-source code</a>.</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- PRIVACY -->
+<section>
+  <div class="container">
+    <div class="section-label">Privacy</div>
+    <h2>Data &amp; Security</h2>
+
+    <div class="faq-category">
+
+      <div class="faq-item">
+        <button class="faq-question">Can the relay operator read my data?</button>
+        <div class="faq-answer">
+          <p><strong>No.</strong> This is not a policy decision &mdash; it's a mathematical constraint. The relay receives only perturbed embedding vectors (768 noisy floating-point numbers) and pseudonymous DIDs. It never receives your original text, your real identity, or your unperturbed embedding.</p>
+          <p>The differential privacy noise added to your vector is calibrated using the Laplace mechanism with your chosen &epsilon; parameter. At the default setting (&epsilon;=1.0), the noisy vector retains approximately 88% similarity to the original &mdash; enough to find approximate matches, but far too lossy to reconstruct the source text.</p>
+          <p>Even a malicious relay operator with unlimited computation cannot reverse the noise to recover your text. This is a proven property of differential privacy.</p>
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-question">What if someone subpoenas the relay?</button>
+        <div class="faq-answer">
+          <p>A subpoena to the relay would yield:</p>
+          <p><strong>What exists:</strong> Perturbed 768-dimensional vectors (noisy floating-point arrays), pseudonymous DIDs (did:key identifiers), entry types (need or offer), and timestamps.</p>
+          <p><strong>What does not exist:</strong> Original text, real names, email addresses, phone numbers, physical locations, message contents, contact information, or any link between a DID and a real-world identity.</p>
+          <p>The relay cannot produce data it does not have. There are no logs to hand over, no profiles to export, no messages to decrypt. The vectors are noisy, the identities are pseudonymous, and the channels are end-to-end encrypted. Published vectors expire from the relay after 7 days.</p>
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-question">Can my matches be traced back to me?</button>
+        <div class="faq-answer">
+          <p>Your identity in Resonance is a DID (Decentralized Identifier) generated from an Ed25519 keypair created offline. This DID is pseudonymous &mdash; it proves you are a consistent entity without revealing who you are in the real world.</p>
+          <p>There is no link between your DID and your real identity unless you explicitly choose to share personal information through the progressive disclosure process in an encrypted channel. Even then, that information is shared only with your match, not with the relay.</p>
+          <p>You can create multiple independent DIDs. No one &mdash; including the relay &mdash; can correlate them unless you reveal the connection.</p>
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-question">What happens to my data if I stop using Resonance?</button>
+        <div class="faq-answer">
+          <p><strong>Local data</strong> (your text, true embeddings, private keys, channel history) lives on your device and is entirely under your control. Delete it whenever you want.</p>
+          <p><strong>Published vectors</strong> (the noisy, perturbed vectors you sent to the relay) expire automatically after <strong>7 days</strong>. After that, they are removed from the relay's index. No backups, no archives.</p>
+          <p>There is no "account" to close, no "data deletion request" to file, no retention policy to wait out. When the vectors expire, they're gone. What remains on your device is yours to keep or destroy.</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- TECHNICAL -->
+<section>
+  <div class="container">
+    <div class="section-label">Technical</div>
+    <h2>Under the Hood</h2>
+
+    <div class="faq-category">
+
+      <div class="faq-item">
+        <button class="faq-question">What embedding model does it use?</button>
+        <div class="faq-answer">
+          <p><strong>Nomic-embed-text v1</strong>, a 768-dimensional text embedding model that runs locally via ONNX runtime. The model weighs approximately 137 MB and is downloaded once during initialization.</p>
+          <p>It produces L2-normalized vectors where cosine similarity accurately captures semantic relatedness. Embedding a typical sentence takes about 14ms at the 95th percentile on consumer CPU hardware. No GPU required.</p>
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-question">How accurate is the matching?</button>
+        <div class="faq-answer">
+          <p>At the default privacy level (&epsilon;=1.0, medium privacy):</p>
+          <p><strong>Recall:</strong> 82&ndash;86% &mdash; meaning 82&ndash;86% of true matches are found despite the privacy noise.</p>
+          <p><strong>False positive rate:</strong> Less than 3% &mdash; meaning very few non-matches are incorrectly identified as matches.</p>
+          <p><strong>Similarity retained:</strong> ~88.1% of the original cosine similarity is preserved after noise addition.</p>
+          <p>At low privacy (&epsilon;=5.0), recall exceeds 98%. At high privacy (&epsilon;=0.1), recall drops to ~14% but privacy protection is maximized. The true embedding confirmation step (threshold 0.55) catches false positives introduced by noise.</p>
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-question">Does it work in languages other than English?</button>
+        <div class="faq-answer">
+          <p><strong>Yes.</strong> Nomic-embed-text supports multiple languages. Our eval results show:</p>
+          <p><strong>Same-language similarity</strong> (Spanish/Catalan pairs): 0.650 average cosine similarity &mdash; strong enough for reliable matching within a single language.</p>
+          <p><strong>Cross-language similarity</strong> (e.g., English to Spanish): 0.476 average cosine similarity &mdash; sufficient for matching across languages, though with somewhat lower recall than same-language pairs.</p>
+          <p>This means a need written in Spanish can match an offer written in Catalan or English, though same-language pairs produce stronger signals.</p>
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-question">Can I run my own relay?</button>
+        <div class="faq-answer">
+          <p><strong>Yes.</strong> The relay is open-source and designed to be self-hosted. Run it with:</p>
+          <div class="code-block" style="margin:12px 0;">
+<span class="func">npx</span> tsx packages/relay/src/main.ts
+          </div>
+          <p>A self-hosted relay is useful for organizations that want to keep matching internal, communities that want autonomy, or developers who want to test and contribute. The relay is stateless and lightweight &mdash; it holds noisy vectors in memory and an HNSW index for fast search.</p>
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-question">What are the system requirements?</button>
+        <div class="faq-answer">
+          <p><strong>Runtime:</strong> Node.js 20 or later.</p>
+          <p><strong>CPU:</strong> Any modern CPU. No GPU required. Embedding runs in a single ONNX forward pass.</p>
+          <p><strong>Disk:</strong> Approximately 200 MB for the embedding model (downloaded once during initialization).</p>
+          <p><strong>Network:</strong> Required only for relay communication. Embedding and identity creation work offline.</p>
+          <p><strong>OS:</strong> Linux, macOS, or Windows. Anywhere Node.js runs.</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- USING RESONANCE -->
+<section>
+  <div class="container">
+    <div class="section-label">Using Resonance</div>
+    <h2>Getting Started</h2>
+
+    <div class="faq-category">
+
+      <div class="faq-item">
+        <button class="faq-question">How do I get started?</button>
+        <div class="faq-answer">
+          <p>Three commands to go from zero to your first published entry:</p>
+          <div class="code-block" style="margin:12px 0;">
+<span class="comment"># Initialize your identity and download the model</span>
+<span class="func">npx</span> resonance init
+
+<span class="comment"># Publish a need or offer</span>
+<span class="func">npx</span> resonance publish --type need --text <span class="string">"I need a plumber in Barcelona"</span>
+
+<span class="comment"># Check for matches</span>
+<span class="func">npx</span> resonance matches
+          </div>
+          <p>For a complete walkthrough, see the <a href="/docs/getting-started.html">Get Started guide</a>.</p>
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-question">What are the 8 CLI commands?</button>
+        <div class="faq-answer">
+          <table class="spec-table" style="margin:12px 0;">
+            <thead>
+              <tr>
+                <th>Command</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>init</code></td>
+                <td>Initialize identity (Ed25519 keypair) and download the embedding model</td>
+              </tr>
+              <tr>
+                <td><code>publish</code></td>
+                <td>Publish a need or offer with natural language text</td>
+              </tr>
+              <tr>
+                <td><code>matches</code></td>
+                <td>Check for and display current matches</td>
+              </tr>
+              <tr>
+                <td><code>connect</code></td>
+                <td>Open an E2E encrypted channel with a matched peer</td>
+              </tr>
+              <tr>
+                <td><code>disclose</code></td>
+                <td>Share information through progressive disclosure stages</td>
+              </tr>
+              <tr>
+                <td><code>status</code></td>
+                <td>View your published entries and active channels</td>
+              </tr>
+              <tr>
+                <td><code>export</code></td>
+                <td>Export your identity with password encryption</td>
+              </tr>
+              <tr>
+                <td><code>import</code></td>
+                <td>Import a previously exported identity</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-question">Can organizations use Resonance?</button>
+        <div class="faq-answer">
+          <p><strong>Yes.</strong> Organizations can deploy self-hosted relays for internal skills matching, community coordination, partner discovery, or volunteer/resource matching. Because the relay holds no personal data, there is zero data liability &mdash; GDPR-friendly by architecture, not just policy.</p>
+          <p>For details on organizational deployment, relay hosting, and integration options, see the <a href="/docs/organizations.html">Organizations page</a>.</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section>
+  <div class="container" style="text-align:center;">
+    <div class="section-label">Ready to start?</div>
+    <h2>Try Resonance Today</h2>
+    <p class="section-intro" style="margin-left:auto;margin-right:auto;text-align:center;">
+      Install the CLI, generate an identity, and publish your first need or offer in under two minutes.
+      Open source, MIT licensed, no account required.
+    </p>
+    <div style="display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-top:8px;">
+      <a href="/docs/getting-started.html" class="btn btn-primary">Get Started</a>
+      <a href="https://github.com/Planetary-e/resonance" class="btn btn-secondary">View on GitHub &rarr;</a>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="container footer-inner">
+    <div>
+      <div class="footer-brand">Planetary Resonance</div>
+      <div class="footer-tagline">Privacy-preserving matching for human connection.</div>
+    </div>
+    <div class="footer-links">
+      <a href="/docs/index.html">Home</a>
+      <a href="/docs/getting-started.html">Get Started</a>
+      <a href="/docs/privacy.html">Privacy</a>
+      <a href="/docs/developers/architecture.html">Developers</a>
+      <a href="/docs/press.html">Press</a>
+      <a href="https://github.com/Planetary-e/resonance">GitHub</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+document.querySelector('.nav-toggle')?.addEventListener('click', function() {
+  this.classList.toggle('open');
+  document.querySelector('.nav-links')?.classList.toggle('open');
+});
+document.querySelectorAll('.nav-dropdown-toggle').forEach(btn => {
+  btn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    this.classList.toggle('open');
+    this.nextElementSibling?.classList.toggle('open');
+  });
+});
+document.addEventListener('click', () => {
+  document.querySelectorAll('.nav-dropdown-toggle.open').forEach(b => { b.classList.remove('open'); b.nextElementSibling?.classList.remove('open'); });
+});
+
+// FAQ accordion
+document.querySelectorAll('.faq-question').forEach(btn => {
+  btn.addEventListener('click', function() {
+    this.classList.toggle('open');
+    const answer = this.nextElementSibling;
+    if (answer) answer.classList.toggle('open');
+  });
+});
+</script>
+
+</body>
+</html>

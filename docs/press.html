@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Press kit for Planetary Resonance — key facts, differentiators, and contact information for journalists and researchers.">
+  <title>Press &amp; Media — Planetary Resonance</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<!-- NAVIGATION -->
+<nav>
+  <div class="container" style="display:flex;align-items:center;min-height:56px;font-size:0.84em;">
+    <a href="/docs/index.html" class="brand">Planetary Resonance</a>
+    <button class="nav-toggle" aria-label="Menu"><span></span></button>
+    <ul class="nav-links">
+      <li><a href="/docs/how-it-works.html">How It Works</a></li>
+      <li><a href="/docs/privacy.html">Privacy</a></li>
+      <li><a href="/docs/use-cases.html">Use Cases</a></li>
+      <li><a href="/docs/getting-started.html">Get Started</a></li>
+      <li><a href="/docs/organizations.html">Organizations</a></li>
+      <li style="position:relative;">
+        <button class="nav-dropdown-toggle">Developers</button>
+        <div class="dropdown-menu">
+          <a href="/docs/developers/architecture.html">Architecture</a>
+          <a href="/docs/developers/protocol.html">Wire Protocol</a>
+          <a href="/docs/developers/api.html">API Reference</a>
+          <a href="/docs/developers/eval-results.html">Eval Results</a>
+          <a href="/docs/developers/contributing.html">Contributing</a>
+        </div>
+      </li>
+      <li><a href="/docs/press.html" class="active">Press</a></li>
+    </ul>
+  </div>
+</nav>
+
+<!-- HERO -->
+<header class="hero">
+  <div class="container">
+    <div class="tag">Press Kit</div>
+    <h1>Press &amp; Media</h1>
+    <p class="subtitle">
+      Key facts, differentiators, and resources for journalists, researchers, and analysts covering
+      decentralized technology, digital privacy, and peer-to-peer protocols.
+    </p>
+  </div>
+</header>
+
+<!-- ABOUT -->
+<section id="about">
+  <div class="container">
+    <div class="section-label">About</div>
+    <h2>What Is Planetary Resonance?</h2>
+    <p>
+      Planetary Resonance is an open-source, privacy-preserving protocol for matching people with complementary needs and offers. It uses on-device AI embedding, differential privacy, and end-to-end encryption to enable peer-to-peer discovery without any central platform seeing user data. A person describes what they need or what they offer in plain language; the protocol converts this to a mathematical vector on the user's device, adds calibrated noise for privacy protection, and publishes only the protected vector to a decentralized relay mesh. When two users have complementary intent above a similarity threshold, they're matched and can communicate through an encrypted channel &mdash; revealing details progressively and on their own terms.
+    </p>
+  </div>
+</section>
+
+<!-- KEY FACTS -->
+<section id="facts">
+  <div class="container">
+    <div class="section-label">Key Facts</div>
+    <h2>At a Glance</h2>
+
+    <table class="spec-table">
+      <tbody>
+        <tr>
+          <td>What</td>
+          <td>Privacy-preserving peer-to-peer matching protocol</td>
+        </tr>
+        <tr>
+          <td>Who</td>
+          <td>Built by Marcos Cuevas as part of the Planetary Project</td>
+        </tr>
+        <tr>
+          <td>Where</td>
+          <td>Barcelona, Spain</td>
+        </tr>
+        <tr>
+          <td>License</td>
+          <td>MIT (fully open source)</td>
+        </tr>
+        <tr>
+          <td>Tech Stack</td>
+          <td>TypeScript, Node.js 20+, Nomic-embed-text (768-dim vectors)</td>
+        </tr>
+        <tr>
+          <td>Privacy</td>
+          <td>Laplace differential privacy with configurable &epsilon; (5.0 / 1.0 / 0.1)</td>
+        </tr>
+        <tr>
+          <td>Crypto</td>
+          <td>Ed25519 signing, X25519 DH key exchange, XSalsa20-Poly1305 encryption</td>
+        </tr>
+        <tr>
+          <td>Identity</td>
+          <td><code>did:key</code> (Ed25519) &mdash; no account, email, or phone needed</td>
+        </tr>
+        <tr>
+          <td>Performance</td>
+          <td>14ms embedding (p95, CPU), 1.5ms search, 82-86% recall at &epsilon;=1.0</td>
+        </tr>
+        <tr>
+          <td>Test Coverage</td>
+          <td>119 tests, 35 evaluation metrics, all passing</td>
+        </tr>
+        <tr>
+          <td>Source</td>
+          <td><a href="https://github.com/Planetary-e/resonance">github.com/Planetary-e/resonance</a></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- DIFFERENTIATORS -->
+<section id="differentiators">
+  <div class="container">
+    <div class="section-label">Differentiators</div>
+    <h2>What Makes It Different</h2>
+    <p class="section-intro">
+      Five architectural decisions that distinguish Resonance from every matching platform that exists today.
+    </p>
+
+    <div class="card-grid">
+      <div class="card">
+        <span class="card-icon">&#x1f9ee;</span>
+        <h3>Mathematical Privacy, Not Policy Privacy</h3>
+        <p>Most platforms protect your data with a privacy policy &mdash; a document that can change. Resonance uses differential privacy (Laplace mechanism) to ensure that no entity in the network can reconstruct your original input. This is a mathematical guarantee that holds regardless of who operates the relay.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#x1f504;</span>
+        <h3>Complementary, Not Duplicate Matching</h3>
+        <p>Search engines and social platforms match similar content to similar content. Resonance matches needs to offers &mdash; it understands that "I need a plumber" and "I do plumbing" are complementary, not duplicates. This is the fundamental insight that makes the protocol useful for real-world coordination.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#x1f6ab;</span>
+        <h3>No Accounts, No Profiles</h3>
+        <p>Identity is a locally-generated cryptographic keypair (<code>did:key</code> with Ed25519). No email, no phone number, no social login, no password, no username. Users exist as keys, not as profiles in a database.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#x1f4f1;</span>
+        <h3>Consumer Hardware Only</h3>
+        <p>The entire protocol &mdash; including AI embedding &mdash; runs on consumer hardware at 14ms p95 on CPU. No GPU, no cloud API, no external service dependency. A laptop, a Raspberry Pi, or a phone is enough.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#x1f50e;</span>
+        <h3>Fully Auditable</h3>
+        <p>Every line of code is open source under the MIT license. The privacy guarantees are not claims &mdash; they are verifiable properties of the code. 119 tests and 35 evaluation metrics ensure the system behaves as documented.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- TALKING POINTS -->
+<section id="talking-points">
+  <div class="container">
+    <div class="section-label">For Your Coverage</div>
+    <h2>Quotes &amp; Talking Points</h2>
+    <p class="section-intro">
+      The following statements can be attributed to the project. Use them freely in your coverage.
+    </p>
+
+    <div class="callout insight">
+      <div class="callout-label">On the Problem</div>
+      <p>"Every matching platform today &mdash; job boards, housing sites, dating apps, freelance marketplaces &mdash; requires you to hand all your data to a middleman. Resonance proves that the middleman was never necessary for the matching itself. The math works without it."</p>
+    </div>
+
+    <div class="callout evidence">
+      <div class="callout-label">On Privacy</div>
+      <p>"We don't protect your privacy with a policy document. We protect it with Laplace noise, differential privacy, and end-to-end encryption. The relay literally cannot read what you said &mdash; not because we promise not to, but because the information isn't there."</p>
+    </div>
+
+    <div class="callout tech">
+      <div class="callout-label">On Performance</div>
+      <p>"Privacy has a cost, and we measured it precisely: at medium privacy (&epsilon;=1.0), you keep 82-86% of match recall with a false positive rate under 3%. The embedding takes 14 milliseconds on a CPU. That's the trade-off, and we think it's worth it."</p>
+    </div>
+
+    <div class="callout info">
+      <div class="callout-label">On the Vision</div>
+      <p>"Resonance is infrastructure for a world where people can find each other without being watched. It's not an app &mdash; it's a protocol. Anyone can build on it, anyone can run a relay, and no one controls the network."</p>
+    </div>
+  </div>
+</section>
+
+<!-- LINKS & RESOURCES -->
+<section id="resources">
+  <div class="container">
+    <div class="section-label">Resources</div>
+    <h2>Links</h2>
+
+    <div class="card-grid" style="grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));">
+      <a href="https://github.com/Planetary-e/resonance" class="audience-card" style="padding:28px 24px;">
+        <span class="card-icon">&#x1f4bb;</span>
+        <h3>GitHub Repository</h3>
+        <p>Source code, issues, and releases.</p>
+        <span class="card-link">github.com/Planetary-e/resonance &rarr;</span>
+      </a>
+      <a href="/docs/index.html" class="audience-card card-green" style="padding:28px 24px;">
+        <span class="card-icon">&#x1f4d6;</span>
+        <h3>Documentation</h3>
+        <p>Full protocol documentation, architecture, and API reference.</p>
+        <span class="card-link">View docs &rarr;</span>
+      </a>
+      <a href="/docs/getting-started.html" class="audience-card card-gold" style="padding:28px 24px;">
+        <span class="card-icon">&#x1f680;</span>
+        <h3>Getting Started</h3>
+        <p>Install and run Resonance in under 5 minutes.</p>
+        <span class="card-link">Quick start guide &rarr;</span>
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- CONTACT -->
+<section id="contact">
+  <div class="container">
+    <div class="section-label">Contact</div>
+    <h2>Get in Touch</h2>
+
+    <div class="callout info">
+      <div class="callout-label">Media Contact</div>
+      <p>
+        <strong>Marcos Cuevas</strong><br>
+        Project Lead, Planetary Project<br>
+        Barcelona, Spain<br><br>
+        For press inquiries, interviews, and technical questions, reach out via the
+        <a href="https://github.com/Planetary-e/resonance">GitHub repository</a> or through the Planetary Project channels.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="container footer-inner">
+    <div>
+      <div class="footer-brand">Planetary Resonance</div>
+      <div class="footer-tagline">Privacy-preserving matching for human connection.</div>
+    </div>
+    <div class="footer-links">
+      <a href="/docs/index.html">Home</a>
+      <a href="/docs/getting-started.html">Get Started</a>
+      <a href="/docs/privacy.html">Privacy</a>
+      <a href="/docs/developers/architecture.html">Developers</a>
+      <a href="/docs/press.html">Press</a>
+      <a href="https://github.com/Planetary-e/resonance">GitHub</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+document.querySelector('.nav-toggle')?.addEventListener('click', function() {
+  this.classList.toggle('open');
+  document.querySelector('.nav-links')?.classList.toggle('open');
+});
+document.querySelectorAll('.nav-dropdown-toggle').forEach(btn => {
+  btn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    this.classList.toggle('open');
+    this.nextElementSibling?.classList.toggle('open');
+  });
+});
+document.addEventListener('click', () => {
+  document.querySelectorAll('.nav-dropdown-toggle.open').forEach(b => { b.classList.remove('open'); b.nextElementSibling?.classList.remove('open'); });
+});
+</script>
+
+</body>
+</html>

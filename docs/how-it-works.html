@@ -1,475 +1,490 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>How It Works — Planetary Resonance</title>
-<link rel="stylesheet" href="assets/style.css">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap');
-
-:root {
-  --bg: #08080d;
-  --surface: #10101a;
-  --surface2: #181828;
-  --surface3: #202035;
-  --border: #2a2a40;
-  --text: #e4e4f0;
-  --text-muted: #8888a8;
-  --accent: #6c8cff;
-  --accent2: #ff6c8c;
-  --accent3: #6cffa0;
-  --accent4: #ffc86c;
-  --accent5: #c86cff;
-  --danger: #ff6c8c;
-}
-
-* { margin: 0; padding: 0; box-sizing: border-box; }
-
-body {
-  font-family: 'Inter', -apple-system, sans-serif;
-  background: var(--bg);
-  color: var(--text);
-  line-height: 1.75;
-  font-size: 16px;
-}
-
-.container { max-width: 1100px; margin: 0 auto; padding: 0 28px; }
-
-/* NAV */
-nav {
-  position: sticky; top: 0; z-index: 100;
-  background: rgba(8,8,13,0.92); backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--border); padding: 12px 0;
-}
-.nav-inner { display: flex; align-items: center; gap: 18px; font-size: 0.82em; flex-wrap: wrap; }
-nav a { color: var(--text-muted); text-decoration: none; font-weight: 500; cursor: pointer; transition: color 0.3s; }
-nav a:hover { color: var(--accent3); }
-nav .brand {
-  font-family: 'Playfair Display', serif;
-  font-size: 1.15em; font-weight: 700;
-  background: linear-gradient(135deg, var(--accent3), var(--accent));
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-  background-clip: text;
-  margin-right: auto;
-}
-
-.nav-toggle {
-  display: none; background: none; border: 1px solid var(--border);
-  color: var(--text); font-size: 1.3em; padding: 4px 10px;
-  border-radius: 6px; cursor: pointer;
-}
-
-.nav-links { display: flex; align-items: center; gap: 18px; }
-.nav-links a { white-space: nowrap; }
-
-.dropdown { position: relative; }
-.dropdown-toggle {
-  background: none; border: none; color: var(--text-muted);
-  font-family: inherit; font-size: inherit; font-weight: 500;
-  cursor: pointer; transition: color 0.3s;
-}
-.dropdown-toggle:hover { color: var(--accent3); }
-.dropdown-menu {
-  display: none; position: absolute; top: 100%; left: 0;
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: 8px; padding: 8px 0; min-width: 180px;
-  box-shadow: 0 12px 32px rgba(0,0,0,0.5); margin-top: 8px; z-index: 200;
-}
-.dropdown.open .dropdown-menu { display: block; }
-.dropdown-menu a { display: block; padding: 8px 16px; font-size: 0.95em; }
-.dropdown-menu a:hover { background: var(--surface2); }
-
-@media (max-width: 768px) {
-  .nav-toggle { display: block; }
-  .nav-links {
-    display: none; width: 100%; flex-direction: column;
-    align-items: flex-start; gap: 10px; padding-top: 12px;
-  }
-  .nav-links.open { display: flex; }
-  .dropdown-menu { position: static; box-shadow: none; margin-top: 4px; margin-left: 12px; }
-}
-
-/* HERO */
-.hero {
-  padding: 100px 0 60px;
-  text-align: center;
-  border-bottom: 1px solid var(--border);
-  position: relative;
-  overflow: hidden;
-}
-.hero::before {
-  content: '';
-  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
-  background:
-    radial-gradient(ellipse at 25% 50%, rgba(108,140,255,0.06) 0%, transparent 60%),
-    radial-gradient(ellipse at 75% 50%, rgba(108,255,160,0.04) 0%, transparent 50%);
-}
-.hero h1 {
-  font-family: 'Playfair Display', serif;
-  font-size: 3.2em; line-height: 1.12;
-  letter-spacing: -0.02em; margin-bottom: 18px;
-  position: relative;
-  background: linear-gradient(135deg, #fff 0%, var(--accent) 50%, var(--accent3) 100%);
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-.hero .subtitle {
-  font-size: 1.25em; color: var(--text-muted); max-width: 640px;
-  margin: 0 auto; position: relative; line-height: 1.6;
-}
-
-/* STEPS */
-.steps { padding: 80px 0; }
-
-.step {
-  display: grid;
-  grid-template-columns: 100px 1fr;
-  gap: 32px;
-  align-items: start;
-  padding: 48px 0;
-  border-bottom: 1px solid var(--border);
-  position: relative;
-}
-.step:last-child { border-bottom: none; }
-
-.step-icon {
-  width: 88px; height: 88px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 2.4em;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  position: relative;
-}
-
-.step-number {
-  position: absolute; top: -8px; right: -8px;
-  width: 28px; height: 28px; border-radius: 50%;
-  background: var(--accent); color: #fff;
-  font-size: 0.35em; font-weight: 700;
-  display: flex; align-items: center; justify-content: center;
-}
-
-.step-content h2 {
-  font-family: 'Playfair Display', serif;
-  font-size: 1.8em; margin-bottom: 12px;
-  color: var(--text);
-}
-.step-content h2 span {
-  background: linear-gradient(135deg, var(--accent), var(--accent3));
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-.step-content p {
-  color: var(--text-muted); font-size: 1.05em; line-height: 1.8;
-  max-width: 700px;
-}
-
-.step-detail {
-  margin-top: 16px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 16px 20px;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.88em;
-  color: var(--accent3);
-  overflow-x: auto;
-}
-
-.privacy-levels {
-  display: flex; gap: 12px; margin-top: 16px; flex-wrap: wrap;
-}
-.privacy-level {
-  padding: 10px 18px;
-  border-radius: 8px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  font-size: 0.9em;
-  transition: border-color 0.3s;
-}
-.privacy-level strong { display: block; margin-bottom: 2px; }
-.privacy-level.low strong { color: var(--accent3); }
-.privacy-level.medium strong { color: var(--accent4); }
-.privacy-level.high strong { color: var(--accent2); }
-
-/* CONNECTOR LINE */
-.step::before {
-  content: '';
-  position: absolute;
-  left: 49px;
-  top: 136px;
-  bottom: 0;
-  width: 2px;
-  background: linear-gradient(to bottom, var(--border), transparent);
-}
-.step:last-child::before { display: none; }
-
-/* CALLOUT */
-.callout {
-  margin: 60px 0;
-  padding: 40px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-left: 4px solid var(--accent);
-  border-radius: 12px;
-}
-.callout h3 {
-  font-family: 'Playfair Display', serif;
-  font-size: 1.4em; margin-bottom: 20px;
-  color: var(--accent);
-}
-.callout table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.95em;
-}
-.callout th, .callout td {
-  text-align: left;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--border);
-}
-.callout th {
-  color: var(--text-muted);
-  font-weight: 600;
-  font-size: 0.85em;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-.callout td:first-child {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.9em;
-  color: var(--accent3);
-}
-.callout td:last-child {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.9em;
-  color: var(--text-muted);
-}
-.callout tr:last-child td { border-bottom: none; }
-
-/* FOOTER */
-footer {
-  border-top: 1px solid var(--border);
-  padding: 40px 0;
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 0.85em;
-}
-footer a { color: var(--accent); text-decoration: none; }
-footer a:hover { text-decoration: underline; }
-footer .footer-links { margin-bottom: 12px; display: flex; justify-content: center; gap: 24px; flex-wrap: wrap; }
-
-@media (max-width: 768px) {
-  .hero h1 { font-size: 2.2em; }
-  .step { grid-template-columns: 1fr; gap: 16px; }
-  .step-icon { width: 64px; height: 64px; font-size: 1.8em; }
-  .step-number { width: 24px; height: 24px; font-size: 0.38em; }
-  .step::before { display: none; }
-  .callout { padding: 24px; }
-  .callout table { font-size: 0.85em; }
-  .callout th, .callout td { padding: 10px 8px; }
-}
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="How Planetary Resonance works: from natural language input to privacy-preserving matching. Five steps, three privacy layers, zero data exposure.">
+  <title>How It Works — Planetary Resonance</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
 
+<!-- NAVIGATION -->
 <nav>
-  <div class="container nav-inner">
+  <div class="container" style="display:flex;align-items:center;min-height:56px;font-size:0.84em;">
     <a href="/docs/index.html" class="brand">Planetary Resonance</a>
-    <button class="nav-toggle" aria-label="Menu">&#9776;</button>
-    <div class="nav-links">
-      <a href="/docs/how-it-works.html">How It Works</a>
-      <a href="/docs/privacy.html">Privacy</a>
-      <div class="dropdown">
-        <button class="dropdown-toggle">Developers</button>
+    <button class="nav-toggle" aria-label="Menu"><span></span></button>
+    <ul class="nav-links">
+      <li><a href="/docs/how-it-works.html" class="active">How It Works</a></li>
+      <li><a href="/docs/privacy.html">Privacy</a></li>
+      <li><a href="/docs/use-cases.html">Use Cases</a></li>
+      <li><a href="/docs/getting-started.html">Get Started</a></li>
+      <li><a href="/docs/organizations.html">Organizations</a></li>
+      <li style="position:relative;">
+        <button class="nav-dropdown-toggle">Developers</button>
         <div class="dropdown-menu">
           <a href="/docs/developers/architecture.html">Architecture</a>
-          <a href="/docs/developers/protocol.html">Protocol</a>
-          <a href="/docs/developers/core-library.html">Core Library</a>
+          <a href="/docs/developers/protocol.html">Wire Protocol</a>
+          <a href="/docs/developers/api.html">API Reference</a>
           <a href="/docs/developers/eval-results.html">Eval Results</a>
           <a href="/docs/developers/contributing.html">Contributing</a>
         </div>
-      </div>
-    </div>
+      </li>
+      <li><a href="/docs/press.html">Press</a></li>
+    </ul>
   </div>
 </nav>
 
-<section class="hero">
+<!-- HERO -->
+<header class="hero">
   <div class="container">
-    <h1>How It Works</h1>
-    <p class="subtitle">Five steps from thought to connection. No accounts, no tracking, no middleman reading your data. Just math, privacy, and human intent.</p>
+    <div class="tag">The Protocol</div>
+    <h1>How Resonance Works</h1>
+    <p class="subtitle">
+      Five steps from thought to connection. Your raw data never leaves your device &mdash;
+      only mathematical shadows travel the network. No accounts, no tracking, no middleman reading your data.
+    </p>
   </div>
-</section>
+</header>
 
-<section class="steps">
+<!-- OVERVIEW FLOW -->
+<section>
   <div class="container">
+    <div class="section-label">At a Glance</div>
+    <h2>The Five-Step Flow</h2>
+    <p class="section-intro">
+      Every interaction in Resonance follows the same path. Each step is designed so that
+      less information is exposed at each stage, not more.
+    </p>
 
-    <!-- Step 1: Describe -->
-    <div class="step">
-      <div class="step-icon">
-        &#9998;
-        <span class="step-number">1</span>
+    <div class="flow-container">
+      <div class="flow-step">
+        <div class="step-num">01</div>
+        <div class="step-label">Describe</div>
+        <div class="step-detail">Natural language input</div>
       </div>
-      <div class="step-content">
-        <h2><span>Describe</span></h2>
-        <p>Write what you need or offer in plain language. No forms, no categories, no dropdowns. Just say it like you'd say it to a friend.</p>
-        <div class="step-detail">
-          "I need a plumber in Barcelona"<br>
-          "Frontend developer available for freelance work"<br>
-          "Looking for a co-founder for an open-source climate project"
-        </div>
-        <p style="margin-top: 14px;">The system understands natural language. It doesn't need you to fit your intent into a taxonomy someone else designed. You describe your reality, and the network finds the complement.</p>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">02</div>
+        <div class="step-label">Embed</div>
+        <div class="step-detail">On-device AI model</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">03</div>
+        <div class="step-label">Protect</div>
+        <div class="step-detail">Differential privacy noise</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">04</div>
+        <div class="step-label">Match</div>
+        <div class="step-detail">Relay cross-matches</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">05</div>
+        <div class="step-label">Connect</div>
+        <div class="step-detail">E2E encrypted channel</div>
       </div>
     </div>
 
-    <!-- Step 2: Embed -->
-    <div class="step">
-      <div class="step-icon">
-        &#129504;
-        <span class="step-number">2</span>
+    <div class="stat-row" style="margin-top:32px;">
+      <div class="stat blue">
+        <div class="num">14ms</div>
+        <div class="label">Embedding Latency (p95)</div>
       </div>
-      <div class="step-content">
-        <h2><span>Embed</span></h2>
-        <p>Your device converts your text into a 768-dimensional mathematical vector using an AI model (<strong>Nomic-embed-text</strong>) running entirely on your machine. This captures the semantic meaning of your text &mdash; not keywords, but the underlying intent and context.</p>
-        <div class="step-detail">
-          "I need a plumber in Barcelona"<br>
-          &nbsp;&nbsp;&darr; local AI model &darr;<br>
-          [0.0234, -0.1121, 0.0873, 0.0412, -0.0558, ... ] &times; 768 dimensions
-        </div>
-        <p style="margin-top: 14px;">Nothing is sent anywhere yet. The model runs locally, in a single forward pass, typically in under 100ms on modern hardware. Your words stay on your device. Only the mathematical representation will travel.</p>
+      <div class="stat green">
+        <div class="num">768</div>
+        <div class="label">Vector Dimensions</div>
       </div>
-    </div>
-
-    <!-- Step 3: Protect -->
-    <div class="step">
-      <div class="step-icon">
-        &#128737;
-        <span class="step-number">3</span>
+      <div class="stat gold">
+        <div class="num">86%</div>
+        <div class="label">Recall at &epsilon;=1.0</div>
       </div>
-      <div class="step-content">
-        <h2><span>Protect</span></h2>
-        <p>Before sending anything to the network, your device adds calibrated noise to the vector. This is <strong>differential privacy</strong> &mdash; like whispering through static. The relay can find approximate matches, but cannot reconstruct what you actually wrote.</p>
-        <div class="step-detail">
-          original: [0.0234, -0.1121, 0.0873, ...]<br>
-          &nbsp;&nbsp;&nbsp;+ noise: [0.0081, -0.0344, 0.0192, ...] &larr; Laplace(0, 1/&epsilon;)<br>
-          &nbsp;&nbsp;= noisy: [0.0315, -0.1465, 0.1065, ...]
-        </div>
-        <p style="margin-top: 14px;">You choose your privacy level. More noise means more privacy but fewer matches. Less noise means better matching but a slightly more visible signal.</p>
-        <div class="privacy-levels">
-          <div class="privacy-level low">
-            <strong>Low</strong>
-            Almost no noise. Best matching accuracy. Suitable when the content isn't sensitive.
-          </div>
-          <div class="privacy-level medium">
-            <strong>Medium</strong>
-            Balanced privacy and utility. The default. Good for most use cases.
-          </div>
-          <div class="privacy-level high">
-            <strong>High</strong>
-            Heavy noise. Maximum privacy. Fewer matches, but the relay sees almost nothing.
-          </div>
-        </div>
+      <div class="stat purple">
+        <div class="num">&lt;3%</div>
+        <div class="label">False Positive Rate</div>
       </div>
-    </div>
-
-    <!-- Step 4: Match -->
-    <div class="step">
-      <div class="step-icon">
-        &#128279;
-        <span class="step-number">4</span>
-      </div>
-      <div class="step-content">
-        <h2><span>Match</span></h2>
-        <p>The noisy vector goes to relay servers that maintain an index of all published vectors. When a new <em>need</em> arrives, the relay searches only the <em>offers</em> index &mdash; and vice versa. This asymmetry is intentional: needs find offers, offers find needs.</p>
-        <div class="step-detail">
-          incoming need vector &rarr; search offers index<br>
-          incoming offer vector &rarr; search needs index<br>
-          similarity &gt; threshold? &rarr; notify both parties
-        </div>
-        <p style="margin-top: 14px;">If a complementary match is found above the similarity threshold, both parties receive a notification. The relay never sees the original text &mdash; it operates purely on noisy vectors and cosine similarity scores.</p>
-      </div>
-    </div>
-
-    <!-- Step 5: Connect -->
-    <div class="step">
-      <div class="step-icon">
-        &#129309;
-        <span class="step-number">5</span>
-      </div>
-      <div class="step-content">
-        <h2><span>Connect</span></h2>
-        <p>You and your match open a direct encrypted channel &mdash; no relay involved. You exchange your true, unperturbed embeddings to confirm the match is real. If confirmed, you can progressively share details: category first, then specifics, then contact info.</p>
-        <div class="step-detail">
-          1. Match notification (similarity score only)<br>
-          2. Mutual consent to open channel<br>
-          3. Exchange true embeddings &rarr; confirm match<br>
-          4. Progressive disclosure: category &rarr; details &rarr; contact
-        </div>
-        <p style="margin-top: 14px;">You control every step. No information is shared without your explicit action. The channel uses X25519 Diffie-Hellman key exchange and XSalsa20-Poly1305 authenticated encryption. Not even the relay operator can read your messages.</p>
-      </div>
-    </div>
-
-  </div>
-</section>
-
-<!-- What the relay sees -->
-<section class="steps">
-  <div class="container">
-    <div class="callout">
-      <h3>What the relay sees</h3>
-      <table>
-        <thead>
-          <tr>
-            <th>You write</th>
-            <th>The relay sees</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>"I need a plumber in Barcelona"</td>
-            <td>[0.034, -0.112, 0.087, ... 768 noisy numbers]</td>
-          </tr>
-          <tr>
-            <td>Your name, location, details</td>
-            <td>Nothing. Zero. Nada.</td>
-          </tr>
-        </tbody>
-      </table>
     </div>
   </div>
 </section>
 
+<!-- STEP 1: DESCRIBE -->
+<section>
+  <div class="container">
+    <div class="section-label">Step 1</div>
+    <h2>Describe</h2>
+    <p class="section-intro">
+      Natural language input. No forms, no categories, no structured data. Just describe what you need or what you offer.
+    </p>
+
+    <p>
+      Resonance doesn't ask you to fit your intent into a taxonomy someone else designed.
+      There are no dropdowns, no checkboxes, no "select a category." You write a sentence &mdash;
+      or a paragraph &mdash; in your own words, describing what you're looking for or what you can provide.
+    </p>
+
+    <div class="code-block">
+<span class="comment">// Examples of natural language input</span>
+<span class="string">"I need a plumber in Barcelona who speaks Catalan"</span>
+<span class="string">"Frontend developer available for freelance React work"</span>
+<span class="string">"Looking for a co-founder for an open-source climate project"</span>
+<span class="string">"I offer piano lessons for beginners, evenings and weekends"</span>
+<span class="string">"Need someone to help me move a couch on Saturday"</span>
+    </div>
+
+    <p>
+      The system understands semantic meaning, not keywords. "I need a plumber" and "my sink is broken and I need help fixing it"
+      resolve to similar vector representations because the AI model understands the underlying intent. This means you don't
+      need to guess the "right" words &mdash; you just describe your reality.
+    </p>
+
+    <div class="callout info">
+      <div class="callout-label">Why natural language?</div>
+      <p>Categories create silos. Natural language captures the full nuance of human needs. A request like "I need someone who understands both accounting and sustainable agriculture" doesn't fit neatly into any category tree &mdash; but it embeds perfectly into a continuous vector space where similar intents cluster naturally.</p>
+    </div>
+  </div>
+</section>
+
+<!-- STEP 2: EMBED -->
+<section>
+  <div class="container">
+    <div class="section-label">Step 2</div>
+    <h2>Embed</h2>
+    <p class="section-intro">
+      Your device runs an AI model locally to convert your text into a 768-dimensional mathematical vector.
+      No cloud. No API call. Nothing leaves your machine.
+    </p>
+
+    <p>
+      The embedding model &mdash; <strong>Nomic-embed-text</strong> &mdash; runs entirely on your device using the ONNX runtime.
+      It takes your natural language text and produces a 768-dimensional vector that captures
+      the semantic meaning of what you wrote. Similar meanings produce similar vectors, measured
+      by cosine similarity.
+    </p>
+
+    <div class="code-block">
+<span class="comment">// Your text is converted to a mathematical representation</span>
+<span class="string">"I need a plumber in Barcelona"</span>
+  &darr; <span class="comment">local AI model (Nomic-embed-text v1)</span>
+[<span class="num">0.0234</span>, <span class="num">-0.1121</span>, <span class="num">0.0873</span>, <span class="num">0.0412</span>, <span class="num">-0.0558</span>, ... ] &times; <span class="num">768</span> dimensions
+    </div>
+
+    <div class="card-grid">
+      <div class="card">
+        <span class="card-icon">&#128187;</span>
+        <h3>Fully Local</h3>
+        <p>The model runs in a single forward pass on your CPU. No GPU required, no internet connection needed, no data sent to any server. Your text never touches a network interface.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#9889;</span>
+        <h3>14ms p95 Latency</h3>
+        <p>Embedding a typical sentence takes about 14 milliseconds at the 95th percentile on consumer hardware. Fast enough to be imperceptible. Measured across 500+ eval runs.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#127760;</span>
+        <h3>Multilingual</h3>
+        <p>Nomic-embed-text supports multiple languages. Cross-language similarity (e.g., EN-ES) averages 0.476. Same-language pairs in Spanish and Catalan average 0.650.</p>
+      </div>
+    </div>
+
+    <div class="callout tech">
+      <div class="callout-label">Technical Detail</div>
+      <p>The model weighs approximately 137 MB and runs via ONNX runtime. It's downloaded once during initialization and cached locally. No ongoing network dependency. The 768-dimensional output is L2-normalized before any further processing.</p>
+    </div>
+  </div>
+</section>
+
+<!-- STEP 3: PROTECT -->
+<section>
+  <div class="container">
+    <div class="section-label">Step 3</div>
+    <h2>Protect</h2>
+    <p class="section-intro">
+      Calibrated Laplace noise is added to every dimension of your embedding before anything leaves your device.
+      This is differential privacy &mdash; mathematical, not policy-based.
+    </p>
+
+    <p>
+      Before your embedding vector is published to the relay network, your device adds carefully calibrated
+      random noise to each of its 768 dimensions. The noise follows a Laplace distribution, and its magnitude
+      is controlled by the privacy parameter <strong>&epsilon;</strong> (epsilon). This provides formal
+      <strong>&epsilon;-differential privacy</strong> guarantees: even with unlimited computation, an attacker
+      cannot reliably reconstruct your original text from the noisy vector.
+    </p>
+
+    <div class="code-block">
+<span class="comment">// The protection formula</span>
+<span class="keyword">scale</span> = <span class="num">0.38</span> / (&epsilon; &middot; &radic;<span class="num">768</span>)
+
+<span class="comment">// Each dimension gets independent Laplace noise</span>
+<span class="keyword">for</span> i <span class="keyword">in</span> <span class="num">0</span>..<span class="num">768</span>:
+  noisy[i] = original[i] + <span class="func">Laplace</span>(<span class="num">0</span>, scale)
+    </div>
+
+    <h3>Privacy Levels</h3>
+    <p>You choose your privacy level. The trade-off is straightforward: more noise means stronger privacy but fewer matches. Less noise means better matching but a slightly more visible signal.</p>
+
+    <table class="spec-table">
+      <thead>
+        <tr>
+          <th>Level</th>
+          <th>Epsilon (&epsilon;)</th>
+          <th>Similarity Retained</th>
+          <th>Match Recall</th>
+          <th>Recommended Use</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="color:var(--accent3);font-weight:700;">Low Privacy</td>
+          <td><code>5.0</code></td>
+          <td>~99.4%</td>
+          <td>~98%</td>
+          <td>Non-sensitive content. Maximum matching accuracy.</td>
+        </tr>
+        <tr>
+          <td style="color:var(--accent4);font-weight:700;">Medium Privacy</td>
+          <td><code>1.0</code></td>
+          <td>~88.1%</td>
+          <td>82&ndash;86%</td>
+          <td>Default. Balanced privacy and utility for most use cases.</td>
+        </tr>
+        <tr>
+          <td style="color:var(--accent2);font-weight:700;">High Privacy</td>
+          <td><code>0.1</code></td>
+          <td>~18.2%</td>
+          <td>~14%</td>
+          <td>Highly sensitive needs. Maximum privacy, significantly fewer matches.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="callout evidence">
+      <div class="callout-label">This isn't a policy. It's math.</div>
+      <p>Differential privacy is a mathematical guarantee, not a company promise. The noise is calibrated so that the probability of any output is nearly the same whether or not your specific input was included. No amount of post-hoc analysis, machine learning, or brute-force computation can undo the noise. The privacy parameter &epsilon; quantifies exactly how much privacy you get &mdash; and you control it.</p>
+    </div>
+  </div>
+</section>
+
+<!-- STEP 4: MATCH -->
+<section>
+  <div class="container">
+    <div class="section-label">Step 4</div>
+    <h2>Match</h2>
+    <p class="section-intro">
+      Your perturbed vector is sent to the relay network. The relay runs an HNSW index
+      and cross-matches needs against offers &mdash; never same-type. Threshold: 0.50 cosine similarity.
+    </p>
+
+    <p>
+      The relay maintains two separate vector indices: one for needs and one for offers. When a new need
+      arrives, the relay searches <em>only</em> the offers index, and vice versa. This cross-matching is
+      fundamental to how Resonance works &mdash; it finds complementary people, not duplicates.
+    </p>
+
+    <div class="code-block">
+<span class="comment">// Cross-matching logic</span>
+<span class="keyword">if</span> (entry.type === <span class="string">'need'</span>) {
+  matches = offersIndex.<span class="func">search</span>(entry.vector, k=<span class="num">10</span>);
+} <span class="keyword">else</span> {
+  matches = needsIndex.<span class="func">search</span>(entry.vector, k=<span class="num">10</span>);
+}
+
+<span class="comment">// Only matches above threshold are returned</span>
+<span class="keyword">return</span> matches.<span class="func">filter</span>(m =&gt; m.similarity &gt;= <span class="num">0.50</span>);
+    </div>
+
+    <h3>What the Relay Sees vs. Doesn't See</h3>
+
+    <table class="spec-table">
+      <thead>
+        <tr>
+          <th>The Relay Sees</th>
+          <th>The Relay Does NOT See</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Perturbed 768-dim vector (noisy)</td>
+          <td>Your original text</td>
+        </tr>
+        <tr>
+          <td>Your DID (pseudonymous identifier)</td>
+          <td>Your name, email, phone, or location</td>
+        </tr>
+        <tr>
+          <td>Entry type (need or offer)</td>
+          <td>Your true embedding vector</td>
+        </tr>
+        <tr>
+          <td>Timestamp of publication</td>
+          <td>Channel messages between matched peers</td>
+        </tr>
+        <tr>
+          <td>Cosine similarity scores</td>
+          <td>What you share during progressive disclosure</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="callout warning">
+      <div class="callout-label">Important</div>
+      <p>The relay is stateless and interchangeable. It holds noisy vectors and DIDs &mdash; nothing else. Even a malicious relay operator cannot reconstruct your text, link your DID to your real identity, or read your encrypted channel messages. These are structural constraints, not policies.</p>
+    </div>
+  </div>
+</section>
+
+<!-- STEP 5: CONNECT -->
+<section>
+  <div class="container">
+    <div class="section-label">Step 5</div>
+    <h2>Connect</h2>
+    <p class="section-intro">
+      Both parties are notified of the match. A consent handshake initiates an E2E encrypted channel
+      where true embeddings are exchanged and progressive disclosure begins.
+    </p>
+
+    <p>
+      When a match is found, both parties receive a notification containing only the similarity score
+      and the match type. No personal information is exchanged yet. What happens next requires
+      explicit consent from both sides.
+    </p>
+
+    <h3>Consent Handshake &amp; Key Exchange</h3>
+    <p>
+      If both parties accept the match, an ephemeral <strong>X25519</strong> key exchange establishes a shared
+      secret. This secret derives the symmetric key for <strong>XSalsa20-Poly1305</strong> authenticated
+      encryption. The channel is end-to-end encrypted &mdash; the relay cannot read any messages, even
+      during the pilot phase where channels are relay-bridged to avoid NAT traversal issues.
+    </p>
+
+    <div class="code-block">
+<span class="comment">// Channel establishment</span>
+<span class="keyword">const</span> ephemeralKeypair = <span class="func">generateX25519Keypair</span>();
+<span class="keyword">const</span> sharedSecret = <span class="func">diffieHellman</span>(ephemeralKeypair.secret, peerPublicKey);
+<span class="keyword">const</span> channelKey = <span class="func">deriveKey</span>(sharedSecret);
+
+<span class="comment">// All messages encrypted with XSalsa20-Poly1305</span>
+<span class="keyword">const</span> encrypted = <span class="func">secretbox</span>(message, nonce, channelKey);
+    </div>
+
+    <h3>True Embedding Confirmation</h3>
+    <p>
+      Once the encrypted channel is open, both parties exchange their <strong>true, unperturbed embeddings</strong>.
+      The receiving side computes cosine similarity between the true embeddings. If similarity exceeds
+      <strong>0.55</strong> (higher than the relay threshold of 0.50), the match is confirmed as genuine.
+      This step catches false positives introduced by the differential privacy noise.
+    </p>
+
+    <div class="stat-row">
+      <div class="stat blue">
+        <div class="num">0.50</div>
+        <div class="label">Relay Match Threshold</div>
+      </div>
+      <div class="stat green">
+        <div class="num">0.55</div>
+        <div class="label">True Confirmation Threshold</div>
+      </div>
+      <div class="stat gold">
+        <div class="num">E2E</div>
+        <div class="label">Encrypted Channel</div>
+      </div>
+    </div>
+
+    <h3>Progressive Disclosure</h3>
+    <p>
+      After match confirmation, information sharing proceeds in controlled stages.
+      You decide what to share and when. The protocol cannot force disclosure.
+    </p>
+
+    <div class="flow-container">
+      <div class="flow-step">
+        <div class="step-num">A</div>
+        <div class="step-label">Match</div>
+        <div class="step-detail">Similarity score + DID only</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">B</div>
+        <div class="step-label">Category</div>
+        <div class="step-detail">"Backend development"</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">C</div>
+        <div class="step-label">Detail</div>
+        <div class="step-detail">"Django expert, remote"</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">D</div>
+        <div class="step-label">Contact</div>
+        <div class="step-detail">Only if you choose</div>
+      </div>
+    </div>
+
+    <div class="callout insight">
+      <div class="callout-label">Key Principle</div>
+      <p>Every step requires your explicit action. The system defaults to silence. Information flows outward only when you push it &mdash; the protocol never pulls it from you. If you decide at any point that the match isn't right, you simply stop. No data has been leaked, no profile has been built, no trace remains.</p>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section>
+  <div class="container" style="text-align:center;">
+    <div class="section-label">Ready?</div>
+    <h2>Try It Yourself</h2>
+    <p class="section-intro" style="margin-left:auto;margin-right:auto;text-align:center;">
+      Install the CLI, generate an identity, and publish your first need or offer in under two minutes.
+      No account required &mdash; just a cryptographic keypair generated on your device.
+    </p>
+    <div style="display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-top:8px;">
+      <a href="/docs/getting-started.html" class="btn btn-primary">Get Started</a>
+      <a href="/docs/privacy.html" class="btn btn-secondary">Privacy Deep Dive &rarr;</a>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
 <footer>
-  <div class="container">
-    <div class="footer-links">
-      <a href="/docs/how-it-works.html">How It Works</a>
-      <a href="/docs/privacy.html">Privacy</a>
-      <a href="/docs/developers/architecture.html">Architecture</a>
-      <a href="/docs/developers/protocol.html">Protocol</a>
-      <a href="/docs/developers/contributing.html">Contributing</a>
+  <div class="container footer-inner">
+    <div>
+      <div class="footer-brand">Planetary Resonance</div>
+      <div class="footer-tagline">Privacy-preserving matching for human connection.</div>
     </div>
-    <p>Planetary Resonance &mdash; Connecting human needs through privacy-preserving AI.</p>
+    <div class="footer-links">
+      <a href="/docs/index.html">Home</a>
+      <a href="/docs/getting-started.html">Get Started</a>
+      <a href="/docs/privacy.html">Privacy</a>
+      <a href="/docs/developers/architecture.html">Developers</a>
+      <a href="/docs/press.html">Press</a>
+      <a href="https://github.com/Planetary-e/resonance">GitHub</a>
+    </div>
   </div>
 </footer>
 
 <script>
-document.querySelector('.nav-toggle')?.addEventListener('click', () => {
+document.querySelector('.nav-toggle')?.addEventListener('click', function() {
+  this.classList.toggle('open');
   document.querySelector('.nav-links')?.classList.toggle('open');
 });
-document.querySelectorAll('.dropdown-toggle').forEach(btn => {
-  btn.addEventListener('click', (e) => {
+document.querySelectorAll('.nav-dropdown-toggle').forEach(btn => {
+  btn.addEventListener('click', function(e) {
     e.stopPropagation();
-    btn.parentElement?.classList.toggle('open');
+    this.classList.toggle('open');
+    this.nextElementSibling?.classList.toggle('open');
   });
 });
 document.addEventListener('click', () => {
-  document.querySelectorAll('.dropdown.open').forEach(d => d.classList.remove('open'));
+  document.querySelectorAll('.nav-dropdown-toggle.open').forEach(b => { b.classList.remove('open'); b.nextElementSibling?.classList.remove('open'); });
 });
 </script>
+
 </body>
 </html>

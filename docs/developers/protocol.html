@@ -12,23 +12,27 @@
 <body>
 
 <nav>
-  <div class="container nav-inner">
+  <div class="container" style="display:flex;align-items:center;min-height:56px;font-size:0.84em;">
     <a href="/docs/index.html" class="brand">Planetary Resonance</a>
-    <button class="nav-toggle" aria-label="Menu">&#9776;</button>
-    <div class="nav-links">
-      <a href="/docs/how-it-works.html">How It Works</a>
-      <a href="/docs/privacy.html">Privacy</a>
-      <div class="dropdown">
-        <button class="dropdown-toggle">Developers</button>
+    <button class="nav-toggle" aria-label="Menu"><span></span></button>
+    <ul class="nav-links">
+      <li><a href="/docs/how-it-works.html">How It Works</a></li>
+      <li><a href="/docs/privacy.html">Privacy</a></li>
+      <li><a href="/docs/use-cases.html">Use Cases</a></li>
+      <li><a href="/docs/getting-started.html">Get Started</a></li>
+      <li><a href="/docs/organizations.html">Organizations</a></li>
+      <li style="position:relative;">
+        <button class="nav-dropdown-toggle">Developers</button>
         <div class="dropdown-menu">
           <a href="/docs/developers/architecture.html">Architecture</a>
-          <a href="/docs/developers/protocol.html">Protocol</a>
-          <a href="/docs/developers/core-library.html">Core Library</a>
+          <a href="/docs/developers/protocol.html">Wire Protocol</a>
+          <a href="/docs/developers/api.html">API Reference</a>
           <a href="/docs/developers/eval-results.html">Eval Results</a>
           <a href="/docs/developers/contributing.html">Contributing</a>
         </div>
-      </div>
-    </div>
+      </li>
+      <li><a href="/docs/press.html">Press</a></li>
+    </ul>
   </div>
 </nav>
 
@@ -38,21 +42,22 @@
     <span class="sep">/</span>
     <span>Developers</span>
     <span class="sep">/</span>
-    <span class="current">Protocol</span>
+    <span class="current">Wire Protocol</span>
   </div>
 </div>
 
 <header class="hero">
   <div class="container">
-    <div class="tag">Wire Protocol v0.1</div>
+    <div class="tag">Wire Protocol v0.2</div>
     <h1>Wire Protocol</h1>
     <p class="subtitle">
-      The complete specification for messages exchanged between personal nodes, relays,
-      and direct channels. All messages are signed with ed25519 and transported over TLS WebSockets.
+      The complete specification for the 17 message types exchanged between personal nodes, relays,
+      and direct channels. All messages are JSON over WebSocket, signed with Ed25519, and transported over TLS.
     </p>
   </div>
 </header>
 
+<!-- MESSAGE ENVELOPE -->
 <section>
   <div class="container">
     <div class="section-label">Envelope</div>
@@ -61,28 +66,51 @@
 
     <div class="code-block">
 <span class="keyword">interface</span> <span class="type">Message</span>&lt;<span class="type">T</span>&gt; {
-  <span class="func">type</span>:       <span class="type">string</span>;       <span class="comment">// Message type identifier</span>
-  <span class="func">from</span>:       <span class="type">string</span>;       <span class="comment">// DID of sender (did:key:z...)</span>
+  <span class="func">type</span>:       <span class="type">string</span>;       <span class="comment">// Message type identifier (one of 17 types)</span>
+  <span class="func">from</span>:       <span class="type">string</span>;       <span class="comment">// DID of sender (did:key:z6Mk...)</span>
   <span class="func">timestamp</span>:  <span class="type">number</span>;       <span class="comment">// Unix milliseconds</span>
-  <span class="func">signature</span>:  <span class="type">string</span>;       <span class="comment">// Base64-encoded ed25519 signature</span>
+  <span class="func">signature</span>:  <span class="type">string</span>;       <span class="comment">// Base64-encoded Ed25519 signature</span>
   <span class="func">payload</span>:    <span class="type">T</span>;            <span class="comment">// Type-specific payload</span>
 }
     </div>
 
     <div class="callout info">
       <div class="callout-label">Signing</div>
-      <p>The <code>signature</code> field is computed over <code>JSON.stringify({ type, from, timestamp, payload })</code> using the sender's ed25519 secret key. Recipients verify using the public key derived from the sender's DID.</p>
+      <p>The <code>signature</code> field is computed over <code>JSON.stringify({ type, from, timestamp, payload })</code> using the sender's Ed25519 secret key. Recipients verify using the public key derived from the sender's DID. All messages must be signed&mdash;unsigned messages are rejected.</p>
     </div>
   </div>
 </section>
 
+<!-- AUTH -->
+<section>
+  <div class="container">
+    <div class="section-label">Authentication</div>
+    <h2>AUTH</h2>
+    <p>The first message sent when a node connects to a relay. Authenticates the node's identity via its DID and signature.</p>
+
+    <div class="code-block">
+<span class="keyword">interface</span> <span class="type">AuthPayload</span> {
+  <span class="func">did</span>:        <span class="type">string</span>;       <span class="comment">// The node's DID (did:key:z6Mk...)</span>
+  <span class="func">challenge</span>:  <span class="type">string</span>;       <span class="comment">// Server-provided challenge nonce</span>
+  <span class="func">proof</span>:      <span class="type">string</span>;       <span class="comment">// Signature over the challenge</span>
+}
+    </div>
+
+    <div class="callout tech">
+      <div class="callout-label">Authentication Flow</div>
+      <p>The relay sends a random challenge on WebSocket connect. The node signs the challenge with its Ed25519 key and sends AUTH. The relay verifies the signature against the DID's public key. Eval benchmark: 19ms auth+publish round-trip.</p>
+    </div>
+  </div>
+</section>
+
+<!-- NODE → RELAY -->
 <section>
   <div class="container">
     <div class="section-label">Node &rarr; Relay</div>
     <h2>Node to Relay Messages</h2>
     <p>Messages sent from a personal node to a relay for publishing, searching, consenting, and withdrawing.</p>
 
-    <h3>publish</h3>
+    <h3>PUBLISH</h3>
     <p>Publish a perturbed vector to the relay's index.</p>
     <div class="code-block">
 <span class="keyword">interface</span> <span class="type">PublishPayload</span> {
@@ -93,7 +121,7 @@
 }
     </div>
 
-    <h3>search</h3>
+    <h3>SEARCH</h3>
     <p>Search the relay's index for matching items. The query vector is a <strong>true</strong> (un-noised) embedding.</p>
     <div class="code-block">
 <span class="keyword">interface</span> <span class="type">SearchPayload</span> {
@@ -103,7 +131,7 @@
 }
     </div>
 
-    <h3>consent</h3>
+    <h3>CONSENT</h3>
     <p>Accept or decline a match. Optionally includes encrypted data for the partner.</p>
     <div class="code-block">
 <span class="keyword">interface</span> <span class="type">ConsentPayload</span> {
@@ -113,7 +141,7 @@
 }
     </div>
 
-    <h3>withdraw</h3>
+    <h3>WITHDRAW</h3>
     <p>Remove a previously published item from the relay's index.</p>
     <div class="code-block">
 <span class="keyword">interface</span> <span class="type">WithdrawPayload</span> {
@@ -123,13 +151,14 @@
   </div>
 </section>
 
+<!-- RELAY → NODE -->
 <section>
   <div class="container">
     <div class="section-label">Relay &rarr; Node</div>
     <h2>Relay to Node Messages</h2>
     <p>Messages sent from the relay back to personal nodes: match notifications, search results, consent forwarding, and acknowledgments.</p>
 
-    <h3>match</h3>
+    <h3>MATCH</h3>
     <p>Notify a node that one of its published items matched another user's item.</p>
     <div class="code-block">
 <span class="keyword">interface</span> <span class="type">MatchPayload</span> {
@@ -142,7 +171,7 @@
 }
     </div>
 
-    <h3>search_results</h3>
+    <h3>SEARCH_RESULTS</h3>
     <p>Return results from a search query.</p>
     <div class="code-block">
 <span class="keyword">interface</span> <span class="type">SearchResultsPayload</span> {
@@ -154,7 +183,7 @@
 }
     </div>
 
-    <h3>consent_forward</h3>
+    <h3>CONSENT_FORWARD</h3>
     <p>Forward a partner's consent decision (and optional encrypted payload).</p>
     <div class="code-block">
 <span class="keyword">interface</span> <span class="type">ConsentForwardPayload</span> {
@@ -164,7 +193,7 @@
 }
     </div>
 
-    <h3>ack</h3>
+    <h3>ACK</h3>
     <p>Acknowledge receipt of a message.</p>
     <div class="code-block">
 <span class="keyword">interface</span> <span class="type">AckPayload</span> {
@@ -176,13 +205,14 @@
   </div>
 </section>
 
+<!-- DIRECT CHANNEL -->
 <section>
   <div class="container">
     <div class="section-label">Direct Channel</div>
     <h2>Direct Channel Messages</h2>
-    <p>After both parties consent and establish a shared secret via X25519 key exchange, they communicate directly. These messages are end-to-end encrypted using the derived symmetric key.</p>
+    <p>After both parties consent and establish a shared secret via X25519 key exchange, they communicate through the direct channel. These messages are end-to-end encrypted using the derived symmetric key.</p>
 
-    <h3>confirm_embedding</h3>
+    <h3>CONFIRM_EMBEDDING</h3>
     <p>Send the true (un-noised) embedding vector for the matched item.</p>
     <div class="code-block">
 <span class="keyword">interface</span> <span class="type">ConfirmEmbeddingPayload</span> {
@@ -190,7 +220,7 @@
 }
     </div>
 
-    <h3>confirm_result</h3>
+    <h3>CONFIRM_RESULT</h3>
     <p>The result of comparing true embeddings from both sides.</p>
     <div class="code-block">
 <span class="keyword">interface</span> <span class="type">ConfirmResultPayload</span> {
@@ -199,7 +229,7 @@
 }
     </div>
 
-    <h3>disclosure</h3>
+    <h3>DISCLOSURE</h3>
     <p>Progressively disclose information, from category to detail to contact info.</p>
     <div class="code-block">
 <span class="keyword">interface</span> <span class="type">DisclosurePayload</span> {
@@ -213,7 +243,7 @@
       <p>Disclosure happens in stages. First, share a general category ("housing in Barcelona"). If the other party is still interested, share details ("2-bedroom flat in Gracia, available April"). Finally, share contact info if both parties want to proceed. Each step is a conscious choice by the user.</p>
     </div>
 
-    <h3>accept</h3>
+    <h3>ACCEPT</h3>
     <p>Accept the exchange and optionally include a message.</p>
     <div class="code-block">
 <span class="keyword">interface</span> <span class="type">AcceptPayload</span> {
@@ -221,7 +251,7 @@
 }
     </div>
 
-    <h3>reject</h3>
+    <h3>REJECT</h3>
     <p>Decline the exchange.</p>
     <div class="code-block">
 <span class="keyword">interface</span> <span class="type">RejectPayload</span> {
@@ -229,7 +259,7 @@
 }
     </div>
 
-    <h3>close</h3>
+    <h3>CLOSE</h3>
     <p>Close the direct channel. Either party can close at any time.</p>
     <div class="code-block">
 <span class="keyword">interface</span> <span class="type">ClosePayload</span> {
@@ -239,68 +269,103 @@
   </div>
 </section>
 
+<!-- CHANNEL BRIDGE -->
+<section>
+  <div class="container">
+    <div class="section-label">Channel Bridge</div>
+    <h2>Channel Bridge Messages</h2>
+    <p>In the pilot, direct channels are bridged through the relay. These two message types handle the forwarding of encrypted channel traffic. The relay cannot read the content&mdash;it only sees opaque ciphertext and routing DIDs.</p>
+
+    <h3>CHANNEL_MESSAGE</h3>
+    <p>Sent by a node to the relay, requesting delivery of an encrypted message to the channel partner.</p>
+    <div class="code-block">
+<span class="keyword">interface</span> <span class="type">ChannelMessagePayload</span> {
+  <span class="func">channelId</span>:   <span class="type">string</span>;   <span class="comment">// Channel identifier (derived from matchId)</span>
+  <span class="func">toDID</span>:       <span class="type">string</span>;   <span class="comment">// DID of the intended recipient</span>
+  <span class="func">encrypted</span>:   <span class="type">string</span>;   <span class="comment">// E2E encrypted payload (opaque to relay)</span>
+}
+    </div>
+
+    <h3>CHANNEL_FORWARD</h3>
+    <p>Sent by the relay to the recipient node, delivering the encrypted message.</p>
+    <div class="code-block">
+<span class="keyword">interface</span> <span class="type">ChannelForwardPayload</span> {
+  <span class="func">channelId</span>:   <span class="type">string</span>;   <span class="comment">// Channel identifier</span>
+  <span class="func">fromDID</span>:     <span class="type">string</span>;   <span class="comment">// DID of the sender</span>
+  <span class="func">encrypted</span>:   <span class="type">string</span>;   <span class="comment">// E2E encrypted payload (opaque to relay)</span>
+}
+    </div>
+
+    <div class="callout info">
+      <div class="callout-label">Why Relay-Bridged?</div>
+      <p>Relay-bridged channels avoid the complexity of NAT traversal and peer-to-peer networking for the pilot phase. The relay acts as a dumb pipe&mdash;it forwards encrypted blobs without inspecting them. A future version may add direct WebRTC channels as an optimization.</p>
+    </div>
+  </div>
+</section>
+
+<!-- EXAMPLE FLOW -->
 <section>
   <div class="container">
     <div class="section-label">Example</div>
     <h2>Example Flow</h2>
-    <p>A complete interaction from publishing an offer to a successful exchange.</p>
+    <p>A complete interaction from publishing an offer to a successful exchange, in 9 steps.</p>
 
     <div class="flow-container">
       <div class="flow-step">
         <div class="step-num">01</div>
-        <div class="step-label">Publish Offer</div>
-        <div class="step-detail">Alice publishes a perturbed vector for "Python developer available"</div>
+        <div class="step-label">AUTH</div>
+        <div class="step-detail">Alice and Bob connect to the relay and authenticate via DID</div>
       </div>
       <div class="flow-arrow">&rarr;</div>
       <div class="flow-step">
         <div class="step-num">02</div>
-        <div class="step-label">Publish Need</div>
-        <div class="step-detail">Bob publishes a perturbed vector for "Looking for Django backend dev"</div>
+        <div class="step-label">PUBLISH</div>
+        <div class="step-detail">Alice publishes a perturbed vector for "Python developer available"</div>
       </div>
       <div class="flow-arrow">&rarr;</div>
       <div class="flow-step">
         <div class="step-num">03</div>
-        <div class="step-label">Match Found</div>
-        <div class="step-detail">Relay cross-matches and notifies both parties (sim: 0.62)</div>
+        <div class="step-label">PUBLISH</div>
+        <div class="step-detail">Bob publishes a perturbed vector for "Looking for Django backend dev"</div>
       </div>
     </div>
 
     <div class="flow-container">
       <div class="flow-step">
         <div class="step-num">04</div>
-        <div class="step-label">Consent</div>
-        <div class="step-detail">Alice and Bob both accept the match</div>
+        <div class="step-label">MATCH</div>
+        <div class="step-detail">Relay cross-matches need vs offer, notifies both (sim: 0.62)</div>
       </div>
       <div class="flow-arrow">&rarr;</div>
       <div class="flow-step">
         <div class="step-num">05</div>
-        <div class="step-label">Key Exchange</div>
-        <div class="step-detail">Ephemeral X25519 keys, derive shared secret</div>
+        <div class="step-label">CONSENT</div>
+        <div class="step-detail">Alice and Bob both accept the match with ephemeral keys</div>
       </div>
       <div class="flow-arrow">&rarr;</div>
       <div class="flow-step">
         <div class="step-num">06</div>
-        <div class="step-label">Confirm</div>
-        <div class="step-detail">Exchange true embeddings, similarity = 0.72 (confirmed)</div>
+        <div class="step-label">CONFIRM</div>
+        <div class="step-detail">Exchange true embeddings via encrypted channel, similarity = 0.72</div>
       </div>
     </div>
 
     <div class="flow-container">
       <div class="flow-step">
         <div class="step-num">07</div>
-        <div class="step-label">Disclose Category</div>
-        <div class="step-detail">Alice: "Backend development"<br>Bob: "Web project, Django"</div>
+        <div class="step-label">DISCLOSURE</div>
+        <div class="step-detail">Alice: "Backend development" / Bob: "Web project, Django"</div>
       </div>
       <div class="flow-arrow">&rarr;</div>
       <div class="flow-step">
         <div class="step-num">08</div>
-        <div class="step-label">Disclose Detail</div>
-        <div class="step-detail">Full descriptions exchanged</div>
+        <div class="step-label">DISCLOSURE</div>
+        <div class="step-detail">Full descriptions exchanged at detail level</div>
       </div>
       <div class="flow-arrow">&rarr;</div>
       <div class="flow-step">
         <div class="step-num">09</div>
-        <div class="step-label">Accept</div>
+        <div class="step-label">ACCEPT + CLOSE</div>
         <div class="step-detail">Both accept, share contact info, close channel</div>
       </div>
     </div>
@@ -315,26 +380,29 @@
     </div>
     <div class="footer-links">
       <a href="/docs/index.html">Home</a>
-      <a href="/docs/how-it-works.html">How It Works</a>
-      <a href="/docs/developers/architecture.html">Architecture</a>
-      <a href="/docs/developers/core-library.html">Core Library</a>
-      <a href="/docs/developers/contributing.html">Contributing</a>
+      <a href="/docs/getting-started.html">Get Started</a>
+      <a href="/docs/privacy.html">Privacy</a>
+      <a href="/docs/developers/architecture.html">Developers</a>
+      <a href="/docs/press.html">Press</a>
+      <a href="https://github.com/Planetary-e/resonance">GitHub</a>
     </div>
   </div>
 </footer>
 
 <script>
-document.querySelector('.nav-toggle')?.addEventListener('click', () => {
+document.querySelector('.nav-toggle')?.addEventListener('click', function() {
+  this.classList.toggle('open');
   document.querySelector('.nav-links')?.classList.toggle('open');
 });
-document.querySelectorAll('.dropdown-toggle').forEach(btn => {
-  btn.addEventListener('click', (e) => {
+document.querySelectorAll('.nav-dropdown-toggle').forEach(btn => {
+  btn.addEventListener('click', function(e) {
     e.stopPropagation();
-    btn.parentElement?.classList.toggle('open');
+    this.classList.toggle('open');
+    this.nextElementSibling?.classList.toggle('open');
   });
 });
 document.addEventListener('click', () => {
-  document.querySelectorAll('.dropdown.open').forEach(d => d.classList.remove('open'));
+  document.querySelectorAll('.nav-dropdown-toggle.open').forEach(b => { b.classList.remove('open'); b.nextElementSibling?.classList.remove('open'); });
 });
 </script>
 </body>

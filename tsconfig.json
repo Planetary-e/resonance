@@ -16,6 +16,7 @@
   "references": [
     { "path": "packages/core" },
     { "path": "packages/relay" },
-    { "path": "packages/eval" }
+    { "path": "packages/eval" },
+    { "path": "packages/node" }
   ]
 }

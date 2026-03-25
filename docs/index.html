@@ -3,49 +3,87 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Planetary Resonance matches people with complementary needs and offers — without any platform seeing your data. Privacy-preserving discovery for the real world.">
-  <title>Planetary Resonance</title>
+  <meta name="description" content="Planetary Resonance matches people with complementary needs and offers — without any platform seeing your data. Privacy-preserving P2P matching for the real world.">
+  <title>Planetary Resonance — Privacy-Preserving Matching Protocol</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap">
   <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
 
 <!-- NAVIGATION -->
 <nav>
-  <div class="container nav-inner">
+  <div class="container" style="display:flex;align-items:center;min-height:56px;font-size:0.84em;">
     <a href="/docs/index.html" class="brand">Planetary Resonance</a>
-    <button class="nav-toggle" aria-label="Menu">&#9776;</button>
-    <div class="nav-links">
-      <a href="/docs/how-it-works.html">How It Works</a>
-      <a href="/docs/privacy.html">Privacy</a>
-      <div class="dropdown">
-        <button class="dropdown-toggle">Developers</button>
+    <button class="nav-toggle" aria-label="Menu"><span></span></button>
+    <ul class="nav-links">
+      <li><a href="/docs/how-it-works.html">How It Works</a></li>
+      <li><a href="/docs/privacy.html">Privacy</a></li>
+      <li><a href="/docs/use-cases.html">Use Cases</a></li>
+      <li><a href="/docs/getting-started.html">Get Started</a></li>
+      <li><a href="/docs/organizations.html">Organizations</a></li>
+      <li style="position:relative;">
+        <button class="nav-dropdown-toggle">Developers</button>
         <div class="dropdown-menu">
           <a href="/docs/developers/architecture.html">Architecture</a>
-          <a href="/docs/developers/protocol.html">Protocol</a>
-          <a href="/docs/developers/core-library.html">Core Library</a>
+          <a href="/docs/developers/protocol.html">Wire Protocol</a>
+          <a href="/docs/developers/api.html">API Reference</a>
           <a href="/docs/developers/eval-results.html">Eval Results</a>
           <a href="/docs/developers/contributing.html">Contributing</a>
         </div>
-      </div>
-    </div>
+      </li>
+      <li><a href="/docs/press.html">Press</a></li>
+    </ul>
   </div>
 </nav>
 
 <!-- HERO -->
 <header class="hero">
   <div class="container">
-    <div class="tag">Privacy-Preserving Protocol</div>
+    <div class="tag">Privacy-Preserving P2P Protocol</div>
     <h1>Find who you need.<br>Keep what's yours.</h1>
     <p class="subtitle">
       Planetary Resonance matches people with complementary needs and offers &mdash;
       without any platform seeing your data. Describe what you're looking for in plain language,
-      and the network finds the other side.
+      and a decentralized relay mesh finds the other side. No accounts. No profiles. No middleman.
     </p>
     <div class="cta-group">
-      <a href="developers/architecture.html" class="btn btn-secondary">Read the Docs &rarr;</a>
+      <a href="/docs/getting-started.html" class="btn btn-primary">Get Started</a>
+      <a href="https://github.com/Planetary-e/resonance" class="btn btn-secondary">View on GitHub &rarr;</a>
     </div>
   </div>
 </header>
+
+<!-- STATS -->
+<section id="stats">
+  <div class="container">
+    <div class="section-label">By the Numbers</div>
+    <h2>Built and Measured</h2>
+    <p class="section-intro">
+      Every claim is backed by evaluation data from real embedding models, real privacy parameters, and real latency benchmarks &mdash; not projections.
+    </p>
+
+    <div class="stat-row">
+      <div class="stat blue">
+        <div class="num">14ms</div>
+        <div class="label">Embedding Latency (p95, CPU)</div>
+      </div>
+      <div class="stat gold">
+        <div class="num">1.5ms</div>
+        <div class="label">Search Latency</div>
+      </div>
+      <div class="stat green">
+        <div class="num">86%</div>
+        <div class="label">Match Recall at &epsilon;=1.0</div>
+      </div>
+      <div class="stat purple">
+        <div class="num">&lt;3%</div>
+        <div class="label">False Positive Rate</div>
+      </div>
+    </div>
+  </div>
+</section>
 
 <!-- HOW IT WORKS -->
 <section id="how-it-works">
@@ -67,102 +105,40 @@
       <div class="flow-step">
         <div class="step-num">02</div>
         <div class="step-label">Embed</div>
-        <div class="step-detail">AI on your device converts text to a vector</div>
+        <div class="step-detail">On-device AI converts text to a 768-dim vector</div>
       </div>
       <div class="flow-arrow">&rarr;</div>
       <div class="flow-step">
         <div class="step-num">03</div>
         <div class="step-label">Protect</div>
-        <div class="step-detail">Differential privacy adds calibrated noise</div>
+        <div class="step-detail">Laplace noise with differential privacy (&epsilon;-calibrated)</div>
       </div>
       <div class="flow-arrow">&rarr;</div>
       <div class="flow-step">
         <div class="step-num">04</div>
         <div class="step-label">Match</div>
-        <div class="step-detail">Relay mesh finds complementary vectors</div>
+        <div class="step-detail">Relay mesh finds complementary vectors above threshold</div>
       </div>
       <div class="flow-arrow">&rarr;</div>
       <div class="flow-step">
         <div class="step-num">05</div>
         <div class="step-label">Connect</div>
-        <div class="step-detail">Encrypted direct channel between peers</div>
+        <div class="step-detail">E2E encrypted channel between matched peers</div>
       </div>
     </div>
 
     <div class="callout evidence">
       <div class="callout-label">Key Insight</div>
-      <p>The relay network never sees your original text. It operates on noisy vector embeddings that are close enough to find meaningful matches but too lossy to reconstruct what you actually said.</p>
+      <p>The relay network never sees your original text. It operates on noisy vector embeddings that are close enough to find meaningful matches but too lossy to reconstruct what you actually said. Progressive disclosure (category &rarr; detail &rarr; contact) ensures you control what you reveal, and when.</p>
+    </div>
+
+    <div style="text-align:center;margin-top:24px;">
+      <a href="/docs/how-it-works.html" class="btn btn-secondary">Deep Dive: How It Works &rarr;</a>
     </div>
   </div>
 </section>
 
-<!-- WHAT MAKES IT DIFFERENT -->
-<section id="privacy">
-  <div class="container">
-    <div class="section-label">Privacy by Design</div>
-    <h2>What Makes It Different</h2>
-    <p class="section-intro">
-      Every matching platform today requires you to hand your data to a middleman.
-      Resonance is built on a different assumption: your data is yours.
-    </p>
-
-    <div class="card-grid">
-      <div class="card">
-        <span class="card-icon">&#x1f6e1;</span>
-        <h4>No Middleman</h4>
-        <p>Your data stays on your device. The network only sees mathematical noise &mdash; vector embeddings perturbed with differential privacy. No server ever holds your raw descriptions, preferences, or identity.</p>
-      </div>
-      <div class="card">
-        <span class="card-icon">&#x1f500;</span>
-        <h4>Complementary Matching</h4>
-        <p>Resonance matches needs to offers, not duplicates to duplicates. When you say "I need a plumber," the system finds someone who says "I do plumbing" &mdash; it understands intent and reciprocity.</p>
-      </div>
-      <div class="card">
-        <span class="card-icon">&#x1f513;</span>
-        <h4>Progressive Disclosure</h4>
-        <p>You decide what to share, when, and with whom. A match is just the start &mdash; you reveal details gradually through an encrypted channel, on your terms. No profile pages. No public data.</p>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- EVAL RESULTS -->
-<section id="evals">
-  <div class="container">
-    <div class="section-label">Evaluation Results</div>
-    <h2>Built and Measured</h2>
-    <p class="section-intro">
-      Resonance is not a whitepaper. Every claim is backed by evaluation data from real
-      embedding models, real privacy parameters, and real latency benchmarks.
-    </p>
-
-    <div class="stat-row">
-      <div class="stat blue">
-        <div class="num">23ms</div>
-        <div class="label">Embedding Latency</div>
-      </div>
-      <div class="stat green">
-        <div class="num">82%</div>
-        <div class="label">Recall at Medium Privacy</div>
-      </div>
-      <div class="stat purple">
-        <div class="num">&lt;2%</div>
-        <div class="label">False Positive Rate</div>
-      </div>
-      <div class="stat gold">
-        <div class="num">0.65</div>
-        <div class="label">Multilingual Similarity</div>
-      </div>
-    </div>
-
-    <div class="callout tech">
-      <div class="callout-label">Methodology</div>
-      <p>Benchmarks measured using all-MiniLM-L6-v2 embeddings with epsilon-calibrated Laplacian noise on a consumer device. Recall is measured as the proportion of true top-10 matches preserved after privacy perturbation. Full evaluation reports are available in the <a href="developers/eval-results.html" style="color: var(--accent4);">evaluation results</a>.</p>
-    </div>
-  </div>
-</section>
-
-<!-- WHO IS THIS FOR -->
+<!-- AUDIENCE ROUTING -->
 <section id="audience">
   <div class="container">
     <div class="section-label">Get Involved</div>
@@ -173,61 +149,113 @@
     </p>
 
     <div class="audience-grid">
-      <a href="how-it-works.html" class="audience-card card-green">
-        <span class="card-icon">&#x1f4a1;</span>
-        <h3>Understand the Vision</h3>
-        <p>Learn how Resonance matches people with complementary needs and offers using privacy-preserving AI &mdash; no middleman, no profiles, no data collection. Five steps from thought to connection.</p>
-        <span class="card-link">Learn how it works &rarr;</span>
+      <a href="/docs/getting-started.html" class="audience-card">
+        <span class="card-icon">&#x1f9d1;</span>
+        <h3>I'm a User</h3>
+        <p>Install the CLI, publish a need or offer, and start matching in minutes. No account, no email, no phone number &mdash; just a cryptographic identity generated on your device.</p>
+        <span class="card-link">Get started &rarr;</span>
       </a>
 
-      <a href="privacy.html" class="audience-card card-gold">
-        <span class="card-icon">&#x1f6e1;</span>
-        <h3>Privacy Model</h3>
-        <p>Three independent layers of privacy guarantee your data never leaves your device. Differential privacy, local AI, and end-to-end encryption &mdash; not a policy, a mathematical constraint.</p>
-        <span class="card-link">Understand the privacy model &rarr;</span>
-      </a>
-
-      <a href="developers/architecture.html" class="audience-card card-purple">
+      <a href="/docs/developers/architecture.html" class="audience-card card-green">
         <span class="card-icon">&#x1f6e0;</span>
-        <h3>Developers</h3>
-        <p>Build on the Resonance protocol. Integrate privacy-preserving matching into your application, contribute to the open-source node implementation, or design new relay topologies.</p>
-        <span class="card-link">Read the developer docs &rarr;</span>
+        <h3>I'm a Developer</h3>
+        <p>Read the architecture docs, explore the wire protocol, integrate with the API, or contribute to the open-source TypeScript implementation. 119 tests, 35 eval metrics, all passing.</p>
+        <span class="card-link">Read developer docs &rarr;</span>
       </a>
+
+      <a href="/docs/organizations.html" class="audience-card card-gold">
+        <span class="card-icon">&#x1f3e2;</span>
+        <h3>I'm an Organization</h3>
+        <p>Deploy a self-hosted relay for internal skills matching, community coordination, or partner discovery &mdash; with zero data liability. GDPR-friendly by architecture, not just policy.</p>
+        <span class="card-link">Learn about org deployment &rarr;</span>
+      </a>
+
+      <a href="/docs/press.html" class="audience-card card-purple">
+        <span class="card-icon">&#x1f4f0;</span>
+        <h3>Press &amp; Media</h3>
+        <p>Key facts, differentiators, talking points, and contact information for journalists and researchers covering decentralized technology and digital privacy.</p>
+        <span class="card-link">View press kit &rarr;</span>
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- KEY PROPERTIES -->
+<section id="properties">
+  <div class="container">
+    <div class="section-label">Design Principles</div>
+    <h2>Private by Construction</h2>
+    <p class="section-intro">
+      Resonance doesn't protect your privacy with a policy document. It protects it with math, cryptography, and architecture decisions that make surveillance structurally impossible.
+    </p>
+
+    <div class="card-grid">
+      <div class="card">
+        <span class="card-icon">&#x1f6e1;</span>
+        <h3>Private by Design</h3>
+        <p>Three independent privacy layers: local-only AI embedding (Nomic-embed-text), Laplace differential privacy noise, and XSalsa20-Poly1305 end-to-end encryption. No server ever holds your raw data.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#x1f500;</span>
+        <h3>Complementary Matching</h3>
+        <p>Resonance matches needs to offers, not duplicates. "I need a plumber" finds "I do plumbing." The system understands intent and reciprocity, not just keyword overlap.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#x1f513;</span>
+        <h3>No Account Required</h3>
+        <p>Identity is a <code>did:key</code> keypair (Ed25519) generated locally on your device. No email, no phone number, no username, no password. You are your key.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#x1f4bb;</span>
+        <h3>Consumer Hardware</h3>
+        <p>14ms p95 embedding latency on CPU. No GPU required, no cloud dependency. The entire protocol runs on a laptop, a Raspberry Pi, or a phone.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#x1f310;</span>
+        <h3>Decentralized Relay Mesh</h3>
+        <p>No central server. Relays are stateless and interchangeable. Anyone can run one. If a relay disappears, the network routes around it.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#x1f4dc;</span>
+        <h3>Open Source</h3>
+        <p>MIT licensed. TypeScript. Node.js 20+. Every line of code is auditable. 119 tests and 35 eval metrics ensure it works as documented.</p>
+      </div>
     </div>
   </div>
 </section>
 
 <!-- FOOTER -->
 <footer>
-  <div class="container">
-    <div class="footer-inner">
-      <div>
-        <div class="footer-brand">Planetary Resonance</div>
-        <div class="footer-tagline">Part of the Planetary Project</div>
-      </div>
-      <ul class="footer-links">
-        <li><a href="how-it-works.html">How It Works</a></li>
-        <li><a href="privacy.html">Privacy</a></li>
-        <li><a href="developers/architecture.html">Architecture</a></li>
-        <li><a href="developers/protocol.html">Protocol</a></li>
-        <li><a href="developers/contributing.html">Contributing</a></li>
-      </ul>
+  <div class="container footer-inner">
+    <div>
+      <div class="footer-brand">Planetary Resonance</div>
+      <div class="footer-tagline">Privacy-preserving matching for human connection.</div>
+    </div>
+    <div class="footer-links">
+      <a href="/docs/index.html">Home</a>
+      <a href="/docs/getting-started.html">Get Started</a>
+      <a href="/docs/privacy.html">Privacy</a>
+      <a href="/docs/developers/architecture.html">Developers</a>
+      <a href="/docs/press.html">Press</a>
+      <a href="https://github.com/Planetary-e/resonance">GitHub</a>
     </div>
   </div>
 </footer>
 
 <script>
-document.querySelector('.nav-toggle')?.addEventListener('click', () => {
+document.querySelector('.nav-toggle')?.addEventListener('click', function() {
+  this.classList.toggle('open');
   document.querySelector('.nav-links')?.classList.toggle('open');
 });
-document.querySelectorAll('.dropdown-toggle').forEach(btn => {
-  btn.addEventListener('click', (e) => {
+document.querySelectorAll('.nav-dropdown-toggle').forEach(btn => {
+  btn.addEventListener('click', function(e) {
     e.stopPropagation();
-    btn.parentElement?.classList.toggle('open');
+    this.classList.toggle('open');
+    this.nextElementSibling?.classList.toggle('open');
   });
 });
 document.addEventListener('click', () => {
-  document.querySelectorAll('.dropdown.open').forEach(d => d.classList.remove('open'));
+  document.querySelectorAll('.nav-dropdown-toggle.open').forEach(b => { b.classList.remove('open'); b.nextElementSibling?.classList.remove('open'); });
 });
 </script>
 

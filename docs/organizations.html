@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Resonance for Organizations — deploy privacy-preserving matching for internal skills, community coordination, and partner discovery with zero data liability.">
+  <title>For Organizations — Planetary Resonance</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<!-- NAVIGATION -->
+<nav>
+  <div class="container" style="display:flex;align-items:center;min-height:56px;font-size:0.84em;">
+    <a href="/docs/index.html" class="brand">Planetary Resonance</a>
+    <button class="nav-toggle" aria-label="Menu"><span></span></button>
+    <ul class="nav-links">
+      <li><a href="/docs/how-it-works.html">How It Works</a></li>
+      <li><a href="/docs/privacy.html">Privacy</a></li>
+      <li><a href="/docs/use-cases.html">Use Cases</a></li>
+      <li><a href="/docs/getting-started.html">Get Started</a></li>
+      <li><a href="/docs/organizations.html" class="active">Organizations</a></li>
+      <li style="position:relative;">
+        <button class="nav-dropdown-toggle">Developers</button>
+        <div class="dropdown-menu">
+          <a href="/docs/developers/architecture.html">Architecture</a>
+          <a href="/docs/developers/protocol.html">Wire Protocol</a>
+          <a href="/docs/developers/api.html">API Reference</a>
+          <a href="/docs/developers/eval-results.html">Eval Results</a>
+          <a href="/docs/developers/contributing.html">Contributing</a>
+        </div>
+      </li>
+      <li><a href="/docs/press.html">Press</a></li>
+    </ul>
+  </div>
+</nav>
+
+<!-- HERO -->
+<header class="hero">
+  <div class="container">
+    <div class="tag">For Organizations</div>
+    <h1>Resonance for Organizations</h1>
+    <p class="subtitle">
+      Deploy privacy-preserving matching for your team, community, or consortium.
+      Internal skills discovery, member coordination, and partner matching &mdash;
+      with zero data liability and no central database to breach.
+    </p>
+  </div>
+</header>
+
+<!-- VALUE PROPOSITION -->
+<section id="value">
+  <div class="container">
+    <div class="section-label">Why Resonance</div>
+    <h2>The Problem with Internal Matching</h2>
+    <p class="section-intro">
+      Organizations need to connect people &mdash; employees with projects, members with mentors, partners with opportunities.
+      Today, this requires centralized databases that create liability, siloed platforms that fragment communication, and HR tools that employees don't trust with honest self-assessment.
+    </p>
+
+    <div class="card-grid">
+      <div class="card">
+        <span class="card-icon">&#x1f50d;</span>
+        <h3>Internal Skills Matching</h3>
+        <p>Help employees find collaborators across teams and departments. "I need someone who understands Kubernetes networking" matches with "I've been running production K8s clusters for 3 years" &mdash; without publishing a skills directory.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#x1f91d;</span>
+        <h3>Community Matching</h3>
+        <p>Connect members of a professional association, alumni network, or cooperative. Facilitate introductions between people with complementary interests without maintaining a profile database.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#x1f6e1;</span>
+        <h3>No Data Liability</h3>
+        <p>Your relay never stores raw descriptions, personal data, or identity information. If it's compromised, attackers get noisy vectors &mdash; mathematically useless for reconstructing the original text. No PII means no breach notification, no GDPR fines.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- DEPLOYMENT OPTIONS -->
+<section id="deployment">
+  <div class="container">
+    <div class="section-label">Deployment</div>
+    <h2>Deployment Options</h2>
+    <p class="section-intro">
+      Resonance is flexible enough to fit your organization's infrastructure and security requirements.
+    </p>
+
+    <div class="card-grid" style="grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));">
+      <div class="card">
+        <span class="card-tag tag-relay">Recommended</span>
+        <h3>Self-Hosted Relay</h3>
+        <p>Run a relay on your own infrastructure &mdash; a single server, a VM, or a container. Your relay serves only your organization's members, giving you control over the matching network while maintaining the protocol's privacy guarantees.</p>
+        <div class="code-block" style="margin-top:16px;margin-bottom:0;">
+<span class="comment"># Deploy on your infrastructure</span>
+resonance init --relay
+resonance serve --relay --port 4444
+        </div>
+      </div>
+      <div class="card">
+        <span class="card-tag tag-direct">Alternative</span>
+        <h3>Community Relay</h3>
+        <p>Join an existing public relay mesh. Your members' data is still protected by differential privacy &mdash; the relay only sees noisy vectors. This option requires zero infrastructure but shares the relay with other organizations and individuals.</p>
+        <div class="code-block" style="margin-top:16px;margin-bottom:0;">
+<span class="comment"># Connect to a community relay</span>
+resonance init --relay wss://relay.example.com
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS FOR ORGS -->
+<section id="org-flow">
+  <div class="container">
+    <div class="section-label">Workflow</div>
+    <h2>How It Works for Organizations</h2>
+    <p class="section-intro">
+      Four steps from deployment to automatic matching across your organization.
+    </p>
+
+    <div class="flow-container">
+      <div class="flow-step">
+        <div class="step-num">01</div>
+        <div class="step-label">Deploy Relay</div>
+        <div class="step-detail">Set up a self-hosted relay on your infrastructure</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">02</div>
+        <div class="step-label">Members Install</div>
+        <div class="step-detail">Each member installs the Resonance CLI and connects to your relay</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">03</div>
+        <div class="step-label">Publish</div>
+        <div class="step-detail">Members publish needs and offers in natural language</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-num">04</div>
+        <div class="step-label">Auto-Match</div>
+        <div class="step-detail">Matches happen automatically; members connect directly</div>
+      </div>
+    </div>
+
+    <div class="callout tech">
+      <div class="callout-label">For IT Teams</div>
+      <p>The relay is a single Node.js process. It stores only differentially-private vectors in memory (no database required for basic deployments). Resource usage is minimal: a small VM or container is sufficient for organizations of any size. The relay exposes a WebSocket endpoint that members connect to via the CLI.</p>
+    </div>
+  </div>
+</section>
+
+<!-- PRIVACY BENEFITS -->
+<section id="privacy-benefits">
+  <div class="container">
+    <div class="section-label">Compliance</div>
+    <h2>Privacy &amp; Compliance Benefits</h2>
+    <p class="section-intro">
+      Resonance doesn't just minimize data collection &mdash; it eliminates it architecturally. This creates compliance advantages that are impossible with traditional centralized tools.
+    </p>
+
+    <div class="card-grid">
+      <div class="card">
+        <span class="card-icon">&#x1f512;</span>
+        <h3>No PII Stored Centrally</h3>
+        <p>The relay never receives names, emails, descriptions, or any personally identifiable information. Members' raw text is embedded and noise-perturbed on their own devices before anything leaves their machine.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#x1f1ea;&#x1f1fa;</span>
+        <h3>GDPR-Friendly by Architecture</h3>
+        <p>No personal data processing means no consent forms, no data processing agreements, no right-to-erasure obligations on the relay side. The architecture makes most GDPR obligations moot because the data never exists centrally.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#x1f4a5;</span>
+        <h3>No Data Breaches Possible</h3>
+        <p>If your relay is compromised, the attacker gets noisy 768-dimensional vectors. Reconstructing the original text from a Laplace-perturbed embedding is computationally infeasible &mdash; that's a mathematical guarantee, not a policy promise.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#x1f510;</span>
+        <h3>Employee Trust</h3>
+        <p>Employees can honestly describe their skills, interests, and career goals because they know the organization can't see their raw input. This leads to better matching and more honest self-assessment.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#x1f50d;</span>
+        <h3>Auditable</h3>
+        <p>The entire protocol is open source (MIT licensed). Your security team can audit every line of code, verify the privacy guarantees, and confirm that the relay truly cannot reconstruct member data.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#x1f30d;</span>
+        <h3>Cross-Border Ready</h3>
+        <p>No personal data crosses borders because no personal data exists on the network. Noisy vectors are not personal data under any reasonable interpretation of privacy law.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- GETTING STARTED FOR ORGS -->
+<section id="org-start">
+  <div class="container">
+    <div class="section-label">Quickstart</div>
+    <h2>Deploy a Relay in 5 Minutes</h2>
+    <p class="section-intro">
+      Get your organization's relay running and invite members to start matching.
+    </p>
+
+    <h3>1. Install Resonance</h3>
+    <div class="code-block">
+npm install -g @planetary/resonance
+    </div>
+
+    <h3>2. Initialize a Relay Node</h3>
+    <div class="code-block">
+resonance init --relay
+    </div>
+
+    <h3>3. Start the Relay</h3>
+    <div class="code-block">
+resonance serve --relay --port 4444
+    </div>
+
+    <h3>4. Share the Relay URL with Members</h3>
+    <p>Distribute your relay's WebSocket URL to team members. They connect with:</p>
+    <div class="code-block">
+<span class="comment"># Each member runs:</span>
+resonance init --relay wss://your-relay.example.com:4444
+resonance publish --type offer <span class="string">"Describe your skills and what you can help with"</span>
+resonance publish --type need <span class="string">"Describe what you're looking for"</span>
+    </div>
+
+    <div class="callout evidence">
+      <div class="callout-label">That's It</div>
+      <p>Matches happen automatically. When two members have complementary needs and offers above the relay threshold (0.50), they're notified and can open an encrypted channel to discuss details. The relay never knows what they said.</p>
+    </div>
+
+    <div style="text-align:center;margin-top:32px;">
+      <a href="/docs/getting-started.html" class="btn btn-primary">Full Getting Started Guide</a>
+      <a href="/docs/developers/architecture.html" class="btn btn-secondary" style="margin-left:12px;">Architecture Docs &rarr;</a>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="container footer-inner">
+    <div>
+      <div class="footer-brand">Planetary Resonance</div>
+      <div class="footer-tagline">Privacy-preserving matching for human connection.</div>
+    </div>
+    <div class="footer-links">
+      <a href="/docs/index.html">Home</a>
+      <a href="/docs/getting-started.html">Get Started</a>
+      <a href="/docs/privacy.html">Privacy</a>
+      <a href="/docs/developers/architecture.html">Developers</a>
+      <a href="/docs/press.html">Press</a>
+      <a href="https://github.com/Planetary-e/resonance">GitHub</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+document.querySelector('.nav-toggle')?.addEventListener('click', function() {
+  this.classList.toggle('open');
+  document.querySelector('.nav-links')?.classList.toggle('open');
+});
+document.querySelectorAll('.nav-dropdown-toggle').forEach(btn => {
+  btn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    this.classList.toggle('open');
+    this.nextElementSibling?.classList.toggle('open');
+  });
+});
+document.addEventListener('click', () => {
+  document.querySelectorAll('.nav-dropdown-toggle.open').forEach(b => { b.classList.remove('open'); b.nextElementSibling?.classList.remove('open'); });
+});
+</script>
+
+</body>
+</html>

@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Get started with Planetary Resonance — install the CLI, publish needs and offers, and start privacy-preserving matching in minutes.">
+  <title>Get Started — Planetary Resonance</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<!-- NAVIGATION -->
+<nav>
+  <div class="container" style="display:flex;align-items:center;min-height:56px;font-size:0.84em;">
+    <a href="/docs/index.html" class="brand">Planetary Resonance</a>
+    <button class="nav-toggle" aria-label="Menu"><span></span></button>
+    <ul class="nav-links">
+      <li><a href="/docs/how-it-works.html">How It Works</a></li>
+      <li><a href="/docs/privacy.html">Privacy</a></li>
+      <li><a href="/docs/use-cases.html">Use Cases</a></li>
+      <li><a href="/docs/getting-started.html" class="active">Get Started</a></li>
+      <li><a href="/docs/organizations.html">Organizations</a></li>
+      <li style="position:relative;">
+        <button class="nav-dropdown-toggle">Developers</button>
+        <div class="dropdown-menu">
+          <a href="/docs/developers/architecture.html">Architecture</a>
+          <a href="/docs/developers/protocol.html">Wire Protocol</a>
+          <a href="/docs/developers/api.html">API Reference</a>
+          <a href="/docs/developers/eval-results.html">Eval Results</a>
+          <a href="/docs/developers/contributing.html">Contributing</a>
+        </div>
+      </li>
+      <li><a href="/docs/press.html">Press</a></li>
+    </ul>
+  </div>
+</nav>
+
+<!-- HERO -->
+<header class="hero">
+  <div class="container">
+    <div class="tag">Quick Start</div>
+    <h1>Get Started with Resonance</h1>
+    <p class="subtitle">
+      From zero to your first match in under five minutes. All you need is Node.js and a terminal.
+      No account, no registration, no cloud dependency.
+    </p>
+  </div>
+</header>
+
+<!-- PREREQUISITES -->
+<section id="prerequisites">
+  <div class="container">
+    <div class="section-label">Prerequisites</div>
+    <h2>What You Need</h2>
+
+    <div class="card-grid" style="grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));">
+      <div class="card">
+        <span class="card-icon">&#x2699;</span>
+        <h3>Node.js 20+</h3>
+        <p>Resonance requires Node.js version 20 or later. Check with <code>node --version</code>.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#x1f4e6;</span>
+        <h3>npm</h3>
+        <p>Comes bundled with Node.js. Used to install the Resonance CLI globally.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#x1f4bb;</span>
+        <h3>Any OS</h3>
+        <p>macOS, Linux, or Windows. No GPU required &mdash; everything runs on CPU at 14ms p95.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- STEP BY STEP -->
+<section id="steps">
+  <div class="container">
+    <div class="section-label">Walkthrough</div>
+    <h2>Step by Step</h2>
+    <p class="section-intro">
+      Follow these six steps to install Resonance, create your identity, publish needs and offers, find matches, and connect with peers &mdash; all from your terminal.
+    </p>
+
+    <!-- Step 1: Install -->
+    <h3>Step 1: Install</h3>
+    <p>Install the Resonance CLI globally via npm:</p>
+    <div class="code-block">
+<span class="comment"># Install globally</span>
+npm install -g @planetary/resonance
+
+<span class="comment"># Verify installation</span>
+resonance --version
+    </div>
+
+    <!-- Step 2: Init -->
+    <h3>Step 2: Initialize Your Node</h3>
+    <p>Create your local identity and configuration. This generates an Ed25519 keypair (<code>did:key</code>) and stores it locally. No server is contacted.</p>
+    <div class="code-block">
+resonance init
+    </div>
+    <div class="callout info">
+      <div class="callout-label">What happens</div>
+      <p>A <code>did:key</code> identity (Ed25519) is generated and stored in <code>~/.resonance/</code>. This is your cryptographic identity. No email, phone, or username is needed. You can regenerate it at any time.</p>
+    </div>
+
+    <!-- Step 3: Publish -->
+    <h3>Step 3: Publish a Need or Offer</h3>
+    <p>Describe what you need or what you offer in plain language. The CLI embeds the text locally using Nomic-embed-text (768 dimensions), applies Laplace noise for differential privacy, and publishes the protected vector to the relay mesh.</p>
+    <div class="code-block">
+<span class="comment"># Publish a need</span>
+resonance publish --type need <span class="string">"Looking for a React developer with WebRTC experience"</span>
+
+<span class="comment"># Publish an offer</span>
+resonance publish --type offer <span class="string">"Senior frontend engineer, 5 years React, real-time video"</span>
+
+<span class="comment"># Adjust privacy level (low=5.0, medium=1.0, high=0.1)</span>
+resonance publish --type need --epsilon 0.1 <span class="string">"Sensitive request with maximum privacy"</span>
+    </div>
+
+    <!-- Step 4: Search -->
+    <h3>Step 4: Search for Matches</h3>
+    <p>Query the relay mesh for complementary matches. Results are returned with similarity scores. The relay threshold is 0.50; confirmation threshold is 0.55.</p>
+    <div class="code-block">
+resonance search <span class="string">"React developer with WebRTC experience"</span>
+    </div>
+    <p>Results include match scores and category-level information. No personal details are revealed until you choose to connect.</p>
+
+    <!-- Step 5: Connect -->
+    <h3>Step 5: Connect with a Match</h3>
+    <p>When you find a match above the confirmation threshold (0.55), initiate a direct encrypted channel. A Diffie-Hellman key exchange (X25519) derives a shared secret for end-to-end encryption.</p>
+    <div class="code-block">
+<span class="comment"># Connect to a matched peer by their DID</span>
+resonance connect &lt;peer-did&gt;
+    </div>
+
+    <!-- Step 6: Disclose -->
+    <h3>Step 6: Progressive Disclosure</h3>
+    <p>Send messages through the encrypted channel. You control what you reveal and when. The protocol supports three disclosure levels: category, detail, and contact.</p>
+    <div class="code-block">
+<span class="comment"># Open a channel and send a message</span>
+resonance channel &lt;peer-did&gt; <span class="string">"Hi! I saw we matched on frontend development. Can you tell me more about the project?"</span>
+    </div>
+    <div class="callout evidence">
+      <div class="callout-label">E2E Encryption</div>
+      <p>All channel messages are encrypted with XSalsa20-Poly1305 using a shared secret derived from X25519 Diffie-Hellman key exchange. Neither relays nor any third party can read your messages.</p>
+    </div>
+  </div>
+</section>
+
+<!-- CLI REFERENCE -->
+<section id="cli-reference">
+  <div class="container">
+    <div class="section-label">Reference</div>
+    <h2>CLI Commands</h2>
+    <p class="section-intro">
+      The Resonance CLI provides 8 commands that cover the full lifecycle from identity creation to encrypted communication.
+    </p>
+
+    <table class="spec-table">
+      <thead>
+        <tr>
+          <th>Command</th>
+          <th>Description</th>
+          <th>Key Options</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>init</code></td>
+          <td>Initialize a new node: generate Ed25519 keypair and local config</td>
+          <td><code>--relay &lt;url&gt;</code> to set default relay</td>
+        </tr>
+        <tr>
+          <td><code>publish</code></td>
+          <td>Publish a need or offer to the relay mesh</td>
+          <td><code>--type need|offer</code>, <code>--epsilon &lt;value&gt;</code>, <code>--category &lt;cat&gt;</code></td>
+        </tr>
+        <tr>
+          <td><code>search</code></td>
+          <td>Search for complementary matches on the network</td>
+          <td><code>--limit &lt;n&gt;</code>, <code>--threshold &lt;score&gt;</code></td>
+        </tr>
+        <tr>
+          <td><code>matches</code></td>
+          <td>List current matches and their status</td>
+          <td><code>--format json|table</code></td>
+        </tr>
+        <tr>
+          <td><code>connect</code></td>
+          <td>Initiate a DH key exchange and open a channel with a peer</td>
+          <td><code>&lt;peer-did&gt;</code></td>
+        </tr>
+        <tr>
+          <td><code>channel</code></td>
+          <td>Send or receive E2E encrypted messages on an open channel</td>
+          <td><code>&lt;peer-did&gt;</code>, <code>&lt;message&gt;</code></td>
+        </tr>
+        <tr>
+          <td><code>status</code></td>
+          <td>Show node status: identity, connected relays, active publications</td>
+          <td><code>--verbose</code></td>
+        </tr>
+        <tr>
+          <td><code>serve</code></td>
+          <td>Start the node as a long-running process (relay or personal node)</td>
+          <td><code>--port &lt;n&gt;</code>, <code>--relay</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- RUNNING A RELAY -->
+<section id="relay">
+  <div class="container">
+    <div class="section-label">Power Users</div>
+    <h2>Running a Relay</h2>
+    <p class="section-intro">
+      Relays are lightweight, stateless nodes that facilitate matching between peers. Anyone can run one.
+      They never see raw text &mdash; only noisy vectors and encrypted metadata.
+    </p>
+
+    <div class="code-block">
+<span class="comment"># Initialize a relay node</span>
+resonance init --relay
+
+<span class="comment"># Start the relay</span>
+resonance serve --relay --port 4444
+    </div>
+
+    <div class="callout tech">
+      <div class="callout-label">Relay Architecture</div>
+      <p>Relays store only differentially-private vectors and ephemeral routing metadata. They cannot reconstruct the original text, identify users beyond their <code>did:key</code>, or read channel messages. If your relay goes down, peers automatically route through other relays in the mesh.</p>
+    </div>
+  </div>
+</section>
+
+<!-- DEV CLUSTER -->
+<section id="dev-cluster">
+  <div class="container">
+    <div class="section-label">Development</div>
+    <h2>Dev Cluster</h2>
+    <p class="section-intro">
+      For development and testing, spin up a local cluster with multiple nodes and a relay using the included script.
+    </p>
+
+    <div class="code-block">
+<span class="comment"># Clone the repository</span>
+git clone https://github.com/Planetary-e/resonance.git
+cd resonance
+
+<span class="comment"># Install dependencies</span>
+npm install
+
+<span class="comment"># Start a local dev cluster (relay + 2 nodes)</span>
+bash scripts/dev-cluster.sh
+    </div>
+
+    <p>The dev cluster script starts a local relay and two peer nodes, publishes sample needs and offers, and demonstrates the full matching flow. It's the fastest way to see the protocol in action.</p>
+
+    <div class="callout info">
+      <div class="callout-label">Test Suite</div>
+      <p>Run <code>npm test</code> to execute all 119 tests across the core library, protocol layer, and privacy module. Run <code>npm run eval</code> to generate evaluation reports with all 35 metrics.</p>
+    </div>
+  </div>
+</section>
+
+<!-- NEXT STEPS -->
+<section id="next-steps">
+  <div class="container" style="text-align:center;">
+    <h2>Next Steps</h2>
+    <p class="section-intro" style="margin-left:auto;margin-right:auto;">
+      Now that you're up and running, dive deeper into the protocol, architecture, or contribute to the project.
+    </p>
+    <div class="audience-grid">
+      <a href="/docs/how-it-works.html" class="audience-card">
+        <span class="card-icon">&#x1f4a1;</span>
+        <h3>How It Works</h3>
+        <p>Understand the full protocol flow, from embedding to matching to progressive disclosure.</p>
+        <span class="card-link">Learn more &rarr;</span>
+      </a>
+      <a href="/docs/developers/architecture.html" class="audience-card card-green">
+        <span class="card-icon">&#x1f3d7;</span>
+        <h3>Architecture</h3>
+        <p>Explore the system design, component layers, and how privacy guarantees are enforced at each stage.</p>
+        <span class="card-link">Read architecture docs &rarr;</span>
+      </a>
+      <a href="/docs/developers/contributing.html" class="audience-card card-purple">
+        <span class="card-icon">&#x1f91d;</span>
+        <h3>Contributing</h3>
+        <p>Help build the protocol. We welcome contributions to the core library, relay implementation, and evaluation suite.</p>
+        <span class="card-link">Contributing guide &rarr;</span>
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="container footer-inner">
+    <div>
+      <div class="footer-brand">Planetary Resonance</div>
+      <div class="footer-tagline">Privacy-preserving matching for human connection.</div>
+    </div>
+    <div class="footer-links">
+      <a href="/docs/index.html">Home</a>
+      <a href="/docs/getting-started.html">Get Started</a>
+      <a href="/docs/privacy.html">Privacy</a>
+      <a href="/docs/developers/architecture.html">Developers</a>
+      <a href="/docs/press.html">Press</a>
+      <a href="https://github.com/Planetary-e/resonance">GitHub</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+document.querySelector('.nav-toggle')?.addEventListener('click', function() {
+  this.classList.toggle('open');
+  document.querySelector('.nav-links')?.classList.toggle('open');
+});
+document.querySelectorAll('.nav-dropdown-toggle').forEach(btn => {
+  btn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    this.classList.toggle('open');
+    this.nextElementSibling?.classList.toggle('open');
+  });
+});
+document.addEventListener('click', () => {
+  document.querySelectorAll('.nav-dropdown-toggle.open').forEach(b => { b.classList.remove('open'); b.nextElementSibling?.classList.remove('open'); });
+});
+</script>
+
+</body>
+</html>

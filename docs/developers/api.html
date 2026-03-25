@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Core Library API — Planetary Resonance</title>
+<title>API Reference — Planetary Resonance</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap">
@@ -12,23 +12,27 @@
 <body>
 
 <nav>
-  <div class="container nav-inner">
+  <div class="container" style="display:flex;align-items:center;min-height:56px;font-size:0.84em;">
     <a href="/docs/index.html" class="brand">Planetary Resonance</a>
-    <button class="nav-toggle" aria-label="Menu">&#9776;</button>
-    <div class="nav-links">
-      <a href="/docs/how-it-works.html">How It Works</a>
-      <a href="/docs/privacy.html">Privacy</a>
-      <div class="dropdown">
-        <button class="dropdown-toggle">Developers</button>
+    <button class="nav-toggle" aria-label="Menu"><span></span></button>
+    <ul class="nav-links">
+      <li><a href="/docs/how-it-works.html">How It Works</a></li>
+      <li><a href="/docs/privacy.html">Privacy</a></li>
+      <li><a href="/docs/use-cases.html">Use Cases</a></li>
+      <li><a href="/docs/getting-started.html">Get Started</a></li>
+      <li><a href="/docs/organizations.html">Organizations</a></li>
+      <li style="position:relative;">
+        <button class="nav-dropdown-toggle">Developers</button>
         <div class="dropdown-menu">
           <a href="/docs/developers/architecture.html">Architecture</a>
-          <a href="/docs/developers/protocol.html">Protocol</a>
-          <a href="/docs/developers/core-library.html">Core Library</a>
+          <a href="/docs/developers/protocol.html">Wire Protocol</a>
+          <a href="/docs/developers/api.html">API Reference</a>
           <a href="/docs/developers/eval-results.html">Eval Results</a>
           <a href="/docs/developers/contributing.html">Contributing</a>
         </div>
-      </div>
-    </div>
+      </li>
+      <li><a href="/docs/press.html">Press</a></li>
+    </ul>
   </div>
 </nav>
 
@@ -38,17 +42,17 @@
     <span class="sep">/</span>
     <span>Developers</span>
     <span class="sep">/</span>
-    <span class="current">Core Library</span>
+    <span class="current">API Reference</span>
   </div>
 </div>
 
 <header class="hero">
   <div class="container">
-    <div class="tag">API Reference</div>
-    <h1>Core Library API</h1>
+    <div class="tag">@resonance/core</div>
+    <h1>API Reference</h1>
     <p class="subtitle">
-      The <code>@resonance/core</code> package provides cryptographic identity, differential privacy perturbation,
-      semantic embedding, vector operations, and the wire protocol. Everything a personal node needs.
+      Complete API documentation for the <code>@resonance/core</code> package&mdash;cryptographic identity,
+      differential privacy perturbation, semantic embedding, vector operations, and the wire protocol.
     </p>
   </div>
 </header>
@@ -58,33 +62,26 @@
   <div class="container">
     <div class="section-label">crypto.ts</div>
     <h2>Crypto</h2>
-    <p>Cryptographic primitives for identity, signing, and encryption. Built on <code>tweetnacl</code>.</p>
+    <p>Cryptographic primitives for identity, signing, and encryption. Built on <code>tweetnacl</code> (zero dependencies, audited).</p>
 
-    <h3>Identity</h3>
+    <h3>generateIdentity()</h3>
+    <p>Generate a new Ed25519 identity with keypair and DID.</p>
     <div class="code-block">
-<span class="comment">// Generate a new identity (ed25519 keypair + DID)</span>
 <span class="keyword">function</span> <span class="func">generateIdentity</span>(): <span class="type">Identity</span>
-
-<span class="keyword">interface</span> <span class="type">Identity</span> {
-  <span class="func">publicKey</span>:  <span class="type">Uint8Array</span>;   <span class="comment">// 32 bytes ed25519 public key</span>
-  <span class="func">secretKey</span>:  <span class="type">Uint8Array</span>;   <span class="comment">// 64 bytes ed25519 secret key</span>
-  <span class="func">did</span>:        <span class="type">string</span>;       <span class="comment">// did:key:z6Mk... format</span>
-}
-
-<span class="comment">// Convert between DID and public key</span>
-<span class="keyword">function</span> <span class="func">publicKeyToDid</span>(<span class="func">publicKey</span>: <span class="type">Uint8Array</span>): <span class="type">string</span>
-<span class="keyword">function</span> <span class="func">didToPublicKey</span>(<span class="func">did</span>: <span class="type">string</span>): <span class="type">Uint8Array</span>
     </div>
 
-    <h3>Signing</h3>
+    <h3>sign()</h3>
+    <p>Sign a message with an Ed25519 secret key.</p>
     <div class="code-block">
-<span class="comment">// Sign a message with ed25519</span>
 <span class="keyword">function</span> <span class="func">sign</span>(
   <span class="func">message</span>: <span class="type">Uint8Array</span>,
   <span class="func">secretKey</span>: <span class="type">Uint8Array</span>
 ): <span class="type">Uint8Array</span>
+    </div>
 
-<span class="comment">// Verify an ed25519 signature</span>
+    <h3>verify()</h3>
+    <p>Verify an Ed25519 signature against a public key.</p>
+    <div class="code-block">
 <span class="keyword">function</span> <span class="func">verify</span>(
   <span class="func">message</span>: <span class="type">Uint8Array</span>,
   <span class="func">signature</span>: <span class="type">Uint8Array</span>,
@@ -92,16 +89,15 @@
 ): <span class="type">boolean</span>
     </div>
 
-    <h3>Asymmetric Encryption</h3>
+    <h3>boxEncrypt() / boxDecrypt()</h3>
+    <p>Asymmetric encryption using NaCl box (X25519 + XSalsa20-Poly1305).</p>
     <div class="code-block">
-<span class="comment">// Encrypt a message for a specific recipient (NaCl box)</span>
 <span class="keyword">function</span> <span class="func">boxEncrypt</span>(
   <span class="func">message</span>: <span class="type">Uint8Array</span>,
   <span class="func">recipientPublicKey</span>: <span class="type">Uint8Array</span>,
   <span class="func">senderSecretKey</span>: <span class="type">Uint8Array</span>
 ): <span class="type">Uint8Array</span>
 
-<span class="comment">// Decrypt a message from a specific sender</span>
 <span class="keyword">function</span> <span class="func">boxDecrypt</span>(
   <span class="func">encrypted</span>: <span class="type">Uint8Array</span>,
   <span class="func">senderPublicKey</span>: <span class="type">Uint8Array</span>,
@@ -109,92 +105,50 @@
 ): <span class="type">Uint8Array</span> | <span class="keyword">null</span>
     </div>
 
-    <h3>Key Exchange (X25519)</h3>
+    <h3>generateEphemeralKeyPair()</h3>
+    <p>Generate an ephemeral X25519 keypair for Diffie-Hellman key exchange in direct channels.</p>
     <div class="code-block">
-<span class="comment">// Generate an ephemeral X25519 keypair for Diffie-Hellman</span>
 <span class="keyword">function</span> <span class="func">generateEphemeralKeyPair</span>(): {
   <span class="func">publicKey</span>: <span class="type">Uint8Array</span>;
   <span class="func">secretKey</span>: <span class="type">Uint8Array</span>;
 }
+    </div>
 
-<span class="comment">// Derive a shared secret from DH key exchange</span>
+    <h3>deriveSharedSecret()</h3>
+    <p>Derive a shared secret from a Diffie-Hellman key exchange.</p>
+    <div class="code-block">
 <span class="keyword">function</span> <span class="func">deriveSharedSecret</span>(
   <span class="func">mySecretKey</span>: <span class="type">Uint8Array</span>,
   <span class="func">theirPublicKey</span>: <span class="type">Uint8Array</span>
 ): <span class="type">Uint8Array</span>
     </div>
 
-    <h3>Symmetric Encryption</h3>
+    <h3>secretboxEncrypt() / secretboxDecrypt()</h3>
+    <p>Symmetric encryption using NaCl secretbox (XSalsa20-Poly1305).</p>
     <div class="code-block">
-<span class="comment">// Encrypt with a shared secret (NaCl secretbox)</span>
 <span class="keyword">function</span> <span class="func">secretboxEncrypt</span>(
   <span class="func">message</span>: <span class="type">Uint8Array</span>,
   <span class="func">key</span>: <span class="type">Uint8Array</span>
 ): <span class="type">Uint8Array</span>
 
-<span class="comment">// Decrypt with a shared secret</span>
 <span class="keyword">function</span> <span class="func">secretboxDecrypt</span>(
   <span class="func">encrypted</span>: <span class="type">Uint8Array</span>,
   <span class="func">key</span>: <span class="type">Uint8Array</span>
 ): <span class="type">Uint8Array</span> | <span class="keyword">null</span>
     </div>
 
-    <h3>Identity Export / Import</h3>
+    <h3>exportIdentity() / importIdentity()</h3>
+    <p>Export an identity encrypted with a password (for backup), and import it back.</p>
     <div class="code-block">
-<span class="comment">// Export identity encrypted with a password (for backup)</span>
 <span class="keyword">function</span> <span class="func">exportIdentity</span>(
   <span class="func">identity</span>: <span class="type">Identity</span>,
   <span class="func">password</span>: <span class="type">string</span>
 ): <span class="type">string</span>
 
-<span class="comment">// Import a previously exported identity</span>
 <span class="keyword">function</span> <span class="func">importIdentity</span>(
   <span class="func">encrypted</span>: <span class="type">string</span>,
   <span class="func">password</span>: <span class="type">string</span>
 ): <span class="type">Identity</span>
-    </div>
-  </div>
-</section>
-
-<!-- PERTURBATION MODULE -->
-<section>
-  <div class="container">
-    <div class="section-label">perturbation.ts</div>
-    <h2>Perturbation</h2>
-    <p>Differential privacy via calibrated Laplace noise. This module adds noise to embedding vectors before they leave the personal node.</p>
-
-    <div class="code-block">
-<span class="comment">// Perturb a vector with Laplace noise at a given epsilon</span>
-<span class="keyword">function</span> <span class="func">perturbVector</span>(
-  <span class="func">vector</span>: <span class="type">Float32Array</span>,
-  <span class="func">epsilon</span>: <span class="type">number</span>
-): <span class="type">PerturbationResult</span>
-
-<span class="keyword">interface</span> <span class="type">PerturbationResult</span> {
-  <span class="func">perturbed</span>:  <span class="type">Float32Array</span>;   <span class="comment">// The noisy vector</span>
-  <span class="func">scale</span>:      <span class="type">number</span>;         <span class="comment">// Laplace scale parameter used</span>
-  <span class="func">epsilon</span>:    <span class="type">number</span>;         <span class="comment">// Privacy parameter</span>
-}
-
-<span class="comment">// Perturb using named privacy levels</span>
-<span class="keyword">function</span> <span class="func">perturbWithLevel</span>(
-  <span class="func">vector</span>: <span class="type">Float32Array</span>,
-  <span class="func">level</span>: <span class="string">"low"</span> | <span class="string">"medium"</span> | <span class="string">"high"</span>
-): <span class="type">PerturbationResult</span>
-
-<span class="comment">// Calculate the Laplace scale parameter for given epsilon and dimensions</span>
-<span class="keyword">function</span> <span class="func">calibrateScale</span>(
-  <span class="func">epsilon</span>: <span class="type">number</span>,
-  <span class="func">dimensions</span>?: <span class="type">number</span>          <span class="comment">// default: 768</span>
-): <span class="type">number</span>
-
-<span class="comment">// Sample from a Laplace distribution</span>
-<span class="keyword">function</span> <span class="func">sampleLaplace</span>(<span class="func">scale</span>: <span class="type">number</span>): <span class="type">number</span>
-    </div>
-
-    <div class="callout tech">
-      <div class="callout-label">Privacy Levels</div>
-      <p>The named levels map to epsilon values: <strong>low</strong> = 5.0 (sim ~0.994, minimal privacy), <strong>medium</strong> = 1.0 (sim ~0.880, recommended), <strong>high</strong> = 0.1 (sim ~0.179, strong privacy but low utility). Medium is the default for most use cases.</p>
     </div>
   </div>
 </section>
@@ -206,22 +160,17 @@
     <h2>Embedding</h2>
     <p>Semantic embedding using <code>@huggingface/transformers</code>. Runs locally on the personal node&mdash;no API calls, no data leaves the device.</p>
 
+    <h3>EmbeddingEngine</h3>
     <div class="code-block">
 <span class="keyword">class</span> <span class="type">EmbeddingEngine</span> {
   <span class="comment">// Initialize the model (downloads on first use, ~90MB)</span>
   <span class="keyword">async</span> <span class="func">initialize</span>(): <span class="type">Promise</span>&lt;<span class="keyword">void</span>&gt;
 
-  <span class="comment">// Embed a single text string</span>
+  <span class="comment">// Embed a single text string → 768-dimensional vector</span>
   <span class="keyword">async</span> <span class="func">embed</span>(
     <span class="func">text</span>: <span class="type">string</span>,
-    <span class="func">prefix</span>?: <span class="type">string</span>      <span class="comment">// Optional model-specific prefix</span>
-  ): <span class="type">Promise</span>&lt;<span class="type">Float32Array</span>&gt;
-
-  <span class="comment">// Embed multiple texts in a batch</span>
-  <span class="keyword">async</span> <span class="func">embedBatch</span>(
-    <span class="func">texts</span>: <span class="type">string</span>[],
     <span class="func">prefix</span>?: <span class="type">string</span>
-  ): <span class="type">Promise</span>&lt;<span class="type">Float32Array</span>[]&gt;
+  ): <span class="type">Promise</span>&lt;<span class="type">Float32Array</span>&gt;
 
   <span class="comment">// Embed with query rewriting for matching (handles need/offer asymmetry)</span>
   <span class="keyword">async</span> <span class="func">embedForMatching</span>(
@@ -229,9 +178,18 @@
     <span class="func">itemType</span>: <span class="string">"need"</span> | <span class="string">"offer"</span>,
     <span class="func">prefix</span>?: <span class="type">string</span>
   ): <span class="type">Promise</span>&lt;<span class="type">Float32Array</span>&gt;
-}
 
-<span class="comment">// Rewrite a need/offer text to improve complementary matching</span>
+  <span class="comment">// Embed multiple texts in a batch</span>
+  <span class="keyword">async</span> <span class="func">embedBatch</span>(
+    <span class="func">texts</span>: <span class="type">string</span>[],
+    <span class="func">prefix</span>?: <span class="type">string</span>
+  ): <span class="type">Promise</span>&lt;<span class="type">Float32Array</span>[]&gt;
+}
+    </div>
+
+    <h3>rewriteForMatching()</h3>
+    <p>Rewrite a need/offer text to improve complementary matching. Strips demand framing from needs so they embed closer to matching offers.</p>
+    <div class="code-block">
 <span class="keyword">function</span> <span class="func">rewriteForMatching</span>(
   <span class="func">text</span>: <span class="type">string</span>,
   <span class="func">itemType</span>: <span class="string">"need"</span> | <span class="string">"offer"</span>
@@ -244,7 +202,7 @@
         <div class="label">Dimensions</div>
       </div>
       <div class="stat green">
-        <div class="num">23ms</div>
+        <div class="num">14ms</div>
         <div class="label">Embed Latency (P95)</div>
       </div>
       <div class="stat gold">
@@ -255,30 +213,83 @@
   </div>
 </section>
 
+<!-- PERTURBATION MODULE -->
+<section>
+  <div class="container">
+    <div class="section-label">perturbation.ts</div>
+    <h2>Perturbation</h2>
+    <p>Differential privacy via calibrated Laplace noise. Adds noise to embedding vectors before they leave the personal node.</p>
+
+    <h3>perturbVector()</h3>
+    <p>Perturb a vector with Laplace noise at a given epsilon value.</p>
+    <div class="code-block">
+<span class="keyword">function</span> <span class="func">perturbVector</span>(
+  <span class="func">vector</span>: <span class="type">Float32Array</span>,
+  <span class="func">epsilon</span>: <span class="type">number</span>
+): <span class="type">PerturbationResult</span>
+    </div>
+
+    <h3>perturbWithLevel()</h3>
+    <p>Perturb using named privacy levels instead of raw epsilon values.</p>
+    <div class="code-block">
+<span class="keyword">function</span> <span class="func">perturbWithLevel</span>(
+  <span class="func">vector</span>: <span class="type">Float32Array</span>,
+  <span class="func">level</span>: <span class="string">"low"</span> | <span class="string">"medium"</span> | <span class="string">"high"</span>
+): <span class="type">PerturbationResult</span>
+    </div>
+
+    <h3>calibrateScale()</h3>
+    <p>Calculate the Laplace scale parameter for a given epsilon and dimensionality.</p>
+    <div class="code-block">
+<span class="keyword">function</span> <span class="func">calibrateScale</span>(
+  <span class="func">epsilon</span>: <span class="type">number</span>,
+  <span class="func">dimensions</span>?: <span class="type">number</span>   <span class="comment">// default: 768</span>
+): <span class="type">number</span>
+    </div>
+
+    <h3>sampleLaplace()</h3>
+    <p>Sample a single value from a Laplace distribution.</p>
+    <div class="code-block">
+<span class="keyword">function</span> <span class="func">sampleLaplace</span>(<span class="func">scale</span>: <span class="type">number</span>): <span class="type">number</span>
+    </div>
+
+    <div class="callout tech">
+      <div class="callout-label">Privacy Levels</div>
+      <p>Named levels map to epsilon values: <strong>low</strong> = 5.0 (sim ~0.994, minimal privacy), <strong>medium</strong> = 1.0 (sim ~0.880, recommended default), <strong>high</strong> = 0.1 (sim ~0.179, strong privacy but low utility).</p>
+    </div>
+  </div>
+</section>
+
 <!-- VECTORS MODULE -->
 <section>
   <div class="container">
     <div class="section-label">vectors.ts</div>
     <h2>Vectors</h2>
-    <p>Vector math utilities optimized for Float32Array. Used internally by embedding, perturbation, and matching.</p>
+    <p>Vector math utilities optimized for <code>Float32Array</code>. Used internally by embedding, perturbation, and matching.</p>
 
+    <h3>cosineSimilarity()</h3>
     <div class="code-block">
-<span class="comment">// Cosine similarity between two vectors (-1 to 1)</span>
 <span class="keyword">function</span> <span class="func">cosineSimilarity</span>(
   <span class="func">a</span>: <span class="type">Float32Array</span>,
   <span class="func">b</span>: <span class="type">Float32Array</span>
-): <span class="type">number</span>
+): <span class="type">number</span>   <span class="comment">// Returns value between -1 and 1</span>
+    </div>
 
-<span class="comment">// Dot product</span>
+    <h3>dotProduct()</h3>
+    <div class="code-block">
 <span class="keyword">function</span> <span class="func">dotProduct</span>(
   <span class="func">a</span>: <span class="type">Float32Array</span>,
   <span class="func">b</span>: <span class="type">Float32Array</span>
 ): <span class="type">number</span>
+    </div>
 
-<span class="comment">// L2 (Euclidean) norm</span>
+    <h3>l2Norm()</h3>
+    <div class="code-block">
 <span class="keyword">function</span> <span class="func">l2Norm</span>(<span class="func">v</span>: <span class="type">Float32Array</span>): <span class="type">number</span>
+    </div>
 
-<span class="comment">// Normalize a vector to unit length</span>
+    <h3>normalize()</h3>
+    <div class="code-block">
 <span class="keyword">function</span> <span class="func">normalize</span>(<span class="func">v</span>: <span class="type">Float32Array</span>): <span class="type">Float32Array</span>
     </div>
 
@@ -294,34 +305,43 @@
   <div class="container">
     <div class="section-label">protocol.ts</div>
     <h2>Protocol</h2>
-    <p>Message creation, signing, verification, and serialization for the wire protocol.</p>
+    <p>Message creation, signing, verification, and serialization for the wire protocol. See <a href="/docs/developers/protocol.html">Wire Protocol</a> for the full message specification.</p>
 
+    <h3>createMessage()</h3>
     <div class="code-block">
-<span class="comment">// Create a signed protocol message</span>
 <span class="keyword">function</span> <span class="func">createMessage</span>&lt;<span class="type">T</span>&gt;(
   <span class="func">type</span>: <span class="type">string</span>,
   <span class="func">payload</span>: <span class="type">T</span>,
   <span class="func">identity</span>: <span class="type">Identity</span>
 ): <span class="type">Message</span>&lt;<span class="type">T</span>&gt;
+    </div>
 
-<span class="comment">// Verify a message signature (optionally provide known public key)</span>
+    <h3>verifyMessage()</h3>
+    <div class="code-block">
 <span class="keyword">function</span> <span class="func">verifyMessage</span>(
   <span class="func">msg</span>: <span class="type">Message</span>&lt;<span class="keyword">unknown</span>&gt;,
   <span class="func">publicKey</span>?: <span class="type">Uint8Array</span>
 ): <span class="type">boolean</span>
+    </div>
 
-<span class="comment">// Parse a JSON string into a typed Message</span>
+    <h3>parseMessage()</h3>
+    <div class="code-block">
 <span class="keyword">function</span> <span class="func">parseMessage</span>(
   <span class="func">raw</span>: <span class="type">string</span>
 ): <span class="type">Message</span>&lt;<span class="keyword">unknown</span>&gt;
+    </div>
 
-<span class="comment">// Serialize a Message to JSON string</span>
+    <h3>serializeMessage()</h3>
+    <div class="code-block">
 <span class="keyword">function</span> <span class="func">serializeMessage</span>(
   <span class="func">msg</span>: <span class="type">Message</span>&lt;<span class="keyword">unknown</span>&gt;
 ): <span class="type">string</span>
+    </div>
 
-<span class="comment">// All valid message type constants</span>
+    <h3>MessageTypes</h3>
+    <div class="code-block">
 <span class="keyword">const</span> <span class="func">MessageTypes</span> = {
+  <span class="func">AUTH</span>:               <span class="string">"auth"</span>,
   <span class="func">PUBLISH</span>:            <span class="string">"publish"</span>,
   <span class="func">SEARCH</span>:             <span class="string">"search"</span>,
   <span class="func">CONSENT</span>:            <span class="string">"consent"</span>,
@@ -336,33 +356,67 @@
   <span class="func">ACCEPT</span>:             <span class="string">"accept"</span>,
   <span class="func">REJECT</span>:             <span class="string">"reject"</span>,
   <span class="func">CLOSE</span>:              <span class="string">"close"</span>,
+  <span class="func">CHANNEL_MESSAGE</span>:    <span class="string">"channel_message"</span>,
+  <span class="func">CHANNEL_FORWARD</span>:    <span class="string">"channel_forward"</span>,
 } <span class="keyword">as const</span>;
     </div>
   </div>
 </section>
 
-<!-- TYPES MODULE -->
+<!-- TYPES & CONSTANTS -->
 <section>
   <div class="container">
     <div class="section-label">types.ts</div>
     <h2>Types &amp; Constants</h2>
     <p>Shared type definitions and default constants used across the codebase.</p>
 
+    <h3>Core Types</h3>
     <div class="code-block">
-<span class="comment">// Privacy levels for perturbation</span>
+<span class="keyword">interface</span> <span class="type">Identity</span> {
+  <span class="func">publicKey</span>:  <span class="type">Uint8Array</span>;   <span class="comment">// 32 bytes Ed25519 public key</span>
+  <span class="func">secretKey</span>:  <span class="type">Uint8Array</span>;   <span class="comment">// 64 bytes Ed25519 secret key</span>
+  <span class="func">did</span>:        <span class="type">string</span>;       <span class="comment">// did:key:z6Mk... format</span>
+}
+
 <span class="keyword">type</span> <span class="type">PrivacyLevel</span> = <span class="string">"low"</span> | <span class="string">"medium"</span> | <span class="string">"high"</span>;
 
-<span class="comment">// Item types for the matching index</span>
 <span class="keyword">type</span> <span class="type">ItemType</span> = <span class="string">"need"</span> | <span class="string">"offer"</span>;
 
-<span class="comment">// Epsilon values for each privacy level</span>
+<span class="keyword">interface</span> <span class="type">PerturbationResult</span> {
+  <span class="func">perturbed</span>:  <span class="type">Float32Array</span>;   <span class="comment">// The noisy vector (normalized)</span>
+  <span class="func">scale</span>:      <span class="type">number</span>;         <span class="comment">// Laplace scale parameter used</span>
+  <span class="func">epsilon</span>:    <span class="type">number</span>;         <span class="comment">// Privacy parameter</span>
+}
+
+<span class="keyword">interface</span> <span class="type">MatchResult</span> {
+  <span class="func">did</span>:         <span class="type">string</span>;           <span class="comment">// DID of the matched partner</span>
+  <span class="func">similarity</span>:  <span class="type">number</span>;           <span class="comment">// Cosine similarity score</span>
+  <span class="func">itemType</span>:    <span class="string">"need"</span> | <span class="string">"offer"</span>;  <span class="comment">// Type of the matched item</span>
+}
+
+<span class="keyword">interface</span> <span class="type">Message</span>&lt;<span class="type">T</span>&gt; {
+  <span class="func">type</span>:       <span class="type">string</span>;
+  <span class="func">from</span>:       <span class="type">string</span>;
+  <span class="func">timestamp</span>:  <span class="type">number</span>;
+  <span class="func">signature</span>:  <span class="type">string</span>;
+  <span class="func">payload</span>:    <span class="type">T</span>;
+}
+    </div>
+
+    <h3>Constants</h3>
+    <div class="code-block">
 <span class="keyword">const</span> <span class="func">EPSILON_MAP</span> = {
-  <span class="func">low</span>:    <span class="num">5.0</span>,   <span class="comment">// Minimal noise, ~0.994 similarity</span>
-  <span class="func">medium</span>: <span class="num">1.0</span>,   <span class="comment">// Moderate noise, ~0.880 similarity</span>
-  <span class="func">high</span>:   <span class="num">0.1</span>,   <span class="comment">// Heavy noise, ~0.179 similarity</span>
+  <span class="func">low</span>:    <span class="num">5.0</span>,   <span class="comment">// Minimal noise, sim ~0.994</span>
+  <span class="func">medium</span>: <span class="num">1.0</span>,   <span class="comment">// Moderate noise, sim ~0.880 (recommended)</span>
+  <span class="func">high</span>:   <span class="num">0.1</span>,   <span class="comment">// Heavy noise, sim ~0.179</span>
 } <span class="keyword">as const</span>;
 
-<span class="comment">// HNSW index defaults</span>
+<span class="keyword">const</span> <span class="func">EMBEDDING_CONFIG</span> = {
+  <span class="func">model</span>:       <span class="string">"Xenova/all-MiniLM-L6-v2"</span>,
+  <span class="func">dimensions</span>:  <span class="num">768</span>,
+  <span class="func">maxLength</span>:   <span class="num">512</span>,     <span class="comment">// Max tokens per input</span>
+} <span class="keyword">as const</span>;
+
 <span class="keyword">const</span> <span class="func">HNSW_DEFAULTS</span> = {
   <span class="func">M</span>:                <span class="num">16</span>,
   <span class="func">efConstruction</span>:   <span class="num">200</span>,
@@ -371,19 +425,11 @@
   <span class="func">metric</span>:           <span class="string">"cosine"</span>,
 } <span class="keyword">as const</span>;
 
-<span class="comment">// Protocol defaults</span>
 <span class="keyword">const</span> <span class="func">PROTOCOL_DEFAULTS</span> = {
-  <span class="func">relayThreshold</span>:        <span class="num">0.50</span>,
-  <span class="func">confirmationThreshold</span>: <span class="num">0.55</span>,
-  <span class="func">defaultTTL</span>:            <span class="num">86400</span>,    <span class="comment">// 24 hours in seconds</span>
-  <span class="func">maxK</span>:                  <span class="num">20</span>,
-} <span class="keyword">as const</span>;
-
-<span class="comment">// Embedding model configuration</span>
-<span class="keyword">const</span> <span class="func">EMBEDDING_CONFIG</span> = {
-  <span class="func">model</span>:       <span class="string">"Xenova/all-MiniLM-L6-v2"</span>,
-  <span class="func">dimensions</span>:  <span class="num">768</span>,
-  <span class="func">maxLength</span>:   <span class="num">512</span>,     <span class="comment">// Max tokens</span>
+  <span class="func">relayThreshold</span>:        <span class="num">0.50</span>,   <span class="comment">// Relay matching threshold</span>
+  <span class="func">confirmationThreshold</span>: <span class="num">0.55</span>,   <span class="comment">// Direct channel confirmation threshold</span>
+  <span class="func">defaultTTL</span>:            <span class="num">86400</span>,  <span class="comment">// 24 hours in seconds</span>
+  <span class="func">maxK</span>:                  <span class="num">20</span>,     <span class="comment">// Maximum search results</span>
 } <span class="keyword">as const</span>;
     </div>
   </div>
@@ -397,26 +443,29 @@
     </div>
     <div class="footer-links">
       <a href="/docs/index.html">Home</a>
-      <a href="/docs/developers/architecture.html">Architecture</a>
-      <a href="/docs/developers/protocol.html">Protocol</a>
-      <a href="/docs/developers/eval-results.html">Eval Results</a>
-      <a href="/docs/developers/contributing.html">Contributing</a>
+      <a href="/docs/getting-started.html">Get Started</a>
+      <a href="/docs/privacy.html">Privacy</a>
+      <a href="/docs/developers/architecture.html">Developers</a>
+      <a href="/docs/press.html">Press</a>
+      <a href="https://github.com/Planetary-e/resonance">GitHub</a>
     </div>
   </div>
 </footer>
 
 <script>
-document.querySelector('.nav-toggle')?.addEventListener('click', () => {
+document.querySelector('.nav-toggle')?.addEventListener('click', function() {
+  this.classList.toggle('open');
   document.querySelector('.nav-links')?.classList.toggle('open');
 });
-document.querySelectorAll('.dropdown-toggle').forEach(btn => {
-  btn.addEventListener('click', (e) => {
+document.querySelectorAll('.nav-dropdown-toggle').forEach(btn => {
+  btn.addEventListener('click', function(e) {
     e.stopPropagation();
-    btn.parentElement?.classList.toggle('open');
+    this.classList.toggle('open');
+    this.nextElementSibling?.classList.toggle('open');
   });
 });
 document.addEventListener('click', () => {
-  document.querySelectorAll('.dropdown.open').forEach(d => d.classList.remove('open'));
+  document.querySelectorAll('.nav-dropdown-toggle.open').forEach(b => { b.classList.remove('open'); b.nextElementSibling?.classList.remove('open'); });
 });
 </script>
 </body>

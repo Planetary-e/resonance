@@ -6,6 +6,8 @@
 import HnswLib from 'hnswlib-node';
 const { HierarchicalNSW } = HnswLib;
 
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import type { MatchResult, ItemType } from '@resonance/core';
 import { HNSW_DEFAULTS } from '@resonance/core';
 
@@ -106,6 +108,45 @@ export class HnswIndex {
     this.index.readIndexSync(path);
   }
 
+  /** Save HNSW binary + metadata JSON to a directory with a prefix. */
+  saveWithMetadata(dir: string, prefix: string): void {
+    if (!this.index) throw new Error('Index not initialized');
+    mkdirSync(dir, { recursive: true });
+    this.index.writeIndexSync(join(dir, `${prefix}.hnsw`));
+    const meta = {
+      labelCount: this.labelCount,
+      metadata: Array.from(this.metadata.entries()),
+    };
+    writeFileSync(join(dir, `${prefix}-meta.json`), JSON.stringify(meta));
+  }
+
+  /** Load HNSW binary + metadata JSON from a directory with a prefix. */
+  loadWithMetadata(dir: string, prefix: string): void {
+    if (!this.index) throw new Error('Index not initialized');
+    const hnswPath = join(dir, `${prefix}.hnsw`);
+    const metaPath = join(dir, `${prefix}-meta.json`);
+    if (!existsSync(hnswPath) || !existsSync(metaPath)) return;
+
+    this.index.readIndexSync(hnswPath);
+    this.index.setEf(this.config.efSearch);
+    const raw = JSON.parse(readFileSync(metaPath, 'utf-8'));
+    // Resize to configured max if the loaded index had a smaller capacity
+    try { this.index.resizeIndex(this.config.maxElements); } catch { /* already at size */ }
+    this.labelCount = raw.labelCount;
+    this.metadata.clear();
+    for (const [label, meta] of raw.metadata) {
+      this.metadata.set(label, meta);
+    }
+  }
+
+  getLabelCount(): number {
+    return this.labelCount;
+  }
+
+  getMetadataEntries(): [number, VectorMetadata][] {
+    return Array.from(this.metadata.entries());
+  }
+
   resize(newMaxElements: number): void {
     if (!this.index) throw new Error('Index not initialized');
     this.index.resizeIndex(newMaxElements);
@@ -192,5 +233,17 @@ export class MatchingIndex {
     const needs = this.needsIndex.getCount();
     const offers = this.offersIndex.getCount();
     return { needs, offers, total: needs + offers };
+  }
+
+  /** Save both sub-indexes to a directory. */
+  save(dir: string): void {
+    this.needsIndex.saveWithMetadata(dir, 'needs');
+    this.offersIndex.saveWithMetadata(dir, 'offers');
+  }
+
+  /** Load both sub-indexes from a directory. */
+  load(dir: string): void {
+    this.needsIndex.loadWithMetadata(dir, 'needs');
+    this.offersIndex.loadWithMetadata(dir, 'offers');
   }
 }

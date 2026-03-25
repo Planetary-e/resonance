@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Real-world use cases for Planetary Resonance — privacy-preserving matching for freelancers, housing, local services, education, community building, and emergency response.">
+  <title>Use Cases — Planetary Resonance</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<!-- NAVIGATION -->
+<nav>
+  <div class="container" style="display:flex;align-items:center;min-height:56px;font-size:0.84em;">
+    <a href="/docs/index.html" class="brand">Planetary Resonance</a>
+    <button class="nav-toggle" aria-label="Menu"><span></span></button>
+    <ul class="nav-links">
+      <li><a href="/docs/how-it-works.html">How It Works</a></li>
+      <li><a href="/docs/privacy.html">Privacy</a></li>
+      <li><a href="/docs/use-cases.html" class="active">Use Cases</a></li>
+      <li><a href="/docs/getting-started.html">Get Started</a></li>
+      <li><a href="/docs/organizations.html">Organizations</a></li>
+      <li style="position:relative;">
+        <button class="nav-dropdown-toggle">Developers</button>
+        <div class="dropdown-menu">
+          <a href="/docs/developers/architecture.html">Architecture</a>
+          <a href="/docs/developers/protocol.html">Wire Protocol</a>
+          <a href="/docs/developers/api.html">API Reference</a>
+          <a href="/docs/developers/eval-results.html">Eval Results</a>
+          <a href="/docs/developers/contributing.html">Contributing</a>
+        </div>
+      </li>
+      <li><a href="/docs/press.html">Press</a></li>
+    </ul>
+  </div>
+</nav>
+
+<!-- HERO -->
+<header class="hero">
+  <div class="container">
+    <div class="tag">Applications</div>
+    <h1>Real-World Use Cases</h1>
+    <p class="subtitle">
+      Resonance works wherever people need to find each other without exposing their data to a platform.
+      From freelancing to emergency response, the protocol adapts to the problem &mdash; not the other way around.
+    </p>
+  </div>
+</header>
+
+<!-- USE CASE CARDS -->
+<section id="use-cases">
+  <div class="container">
+    <div class="section-label">Scenarios</div>
+    <h2>Where Resonance Fits</h2>
+    <p class="section-intro">
+      Each use case follows the same pattern: describe what you need or offer in plain language,
+      and the protocol finds the complementary match without revealing your identity to anyone but the match itself.
+    </p>
+
+    <div class="card-grid">
+      <div class="card">
+        <span class="card-icon">&#x1f4bc;</span>
+        <h3>Freelancers &amp; Skills</h3>
+        <p>Find collaborators, clients, or mentors by describing what you do and what you need &mdash; without broadcasting your availability on a public marketplace. Your skills stay private until there's a mutual match.</p>
+        <div class="callout info" style="margin-top:16px;margin-bottom:0;">
+          <div class="callout-label">Example</div>
+          <p><strong>Need:</strong> "Looking for a React developer experienced with WebRTC for a 2-week project"<br>
+          <strong>Offer:</strong> "Senior frontend engineer, 5 years React, built real-time video apps"</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <span class="card-icon">&#x1f3e0;</span>
+        <h3>Housing &amp; Accommodation</h3>
+        <p>Match tenants with landlords, flatmates with each other, or house-sitters with homeowners. Describe your ideal living situation and let the network find the complement &mdash; no scraped profiles, no public listings.</p>
+        <div class="callout info" style="margin-top:16px;margin-bottom:0;">
+          <div class="callout-label">Example</div>
+          <p><strong>Need:</strong> "Looking for a quiet room in central Barcelona, 500-700 EUR, available April"<br>
+          <strong>Offer:</strong> "Room available in Eixample, 600 EUR/month, quiet flatmate preferred"</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <span class="card-icon">&#x1f527;</span>
+        <h3>Local Services</h3>
+        <p>Connect with plumbers, electricians, tutors, pet-sitters, or any local service provider. No review gaming, no platform fees, no data harvesting. Just a direct match between someone who needs help and someone who provides it.</p>
+        <div class="callout info" style="margin-top:16px;margin-bottom:0;">
+          <div class="callout-label">Example</div>
+          <p><strong>Need:</strong> "Need someone to fix a leaking kitchen faucet in Gr&agrave;cia this week"<br>
+          <strong>Offer:</strong> "Licensed plumber in Barcelona, available weekdays, fair rates"</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <span class="card-icon">&#x1f393;</span>
+        <h3>Education &amp; Learning</h3>
+        <p>Find study partners, language exchange buddies, or subject-matter experts. Resonance matches learners with teachers and peers with complementary knowledge &mdash; without requiring anyone to join a platform.</p>
+        <div class="callout info" style="margin-top:16px;margin-bottom:0;">
+          <div class="callout-label">Example</div>
+          <p><strong>Need:</strong> "Want to practice conversational Spanish, I speak fluent English"<br>
+          <strong>Offer:</strong> "Native Spanish speaker looking for English conversation practice"</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <span class="card-icon">&#x1f91d;</span>
+        <h3>Community Building</h3>
+        <p>Organize around shared interests without creating yet another group chat or forum. Find people in your neighborhood who share a hobby, a cause, or a goal &mdash; privately and without a centralized directory.</p>
+        <div class="callout info" style="margin-top:16px;margin-bottom:0;">
+          <div class="callout-label">Example</div>
+          <p><strong>Need:</strong> "Looking for people to start a community garden in Poblenou"<br>
+          <strong>Offer:</strong> "Experienced urban gardener, have seeds and tools, looking for a plot and partners"</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <span class="card-icon">&#x1f6a8;</span>
+        <h3>Emergency Response</h3>
+        <p>During crises, match people who need help with those who can provide it &mdash; shelter, transport, medical supplies, translation. No registration, no app downloads, no data collection during the most vulnerable moments.</p>
+        <div class="callout info" style="margin-top:16px;margin-bottom:0;">
+          <div class="callout-label">Example</div>
+          <p><strong>Need:</strong> "Family of 4 needs temporary shelter near Valencia after flooding"<br>
+          <strong>Offer:</strong> "Have spare bedrooms and supplies, can host a family short-term"</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- WHAT MAKES IT DIFFERENT -->
+<section id="different">
+  <div class="container">
+    <div class="section-label">Comparison</div>
+    <h2>What Makes Resonance Different</h2>
+    <p class="section-intro">
+      Centralized platforms solve matching by collecting all the data in one place.
+      Resonance proves that's unnecessary.
+    </p>
+
+    <table class="spec-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th>Centralized Platforms</th>
+          <th>Planetary Resonance</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Data storage</td>
+          <td>Platform holds all user data</td>
+          <td>Data stays on your device; relays see only noisy vectors</td>
+        </tr>
+        <tr>
+          <td>Identity</td>
+          <td>Email, phone, social login required</td>
+          <td><code>did:key</code> (Ed25519) generated locally &mdash; no PII needed</td>
+        </tr>
+        <tr>
+          <td>Matching</td>
+          <td>Keyword search, filters, algorithms</td>
+          <td>Semantic complementary matching via 768-dim embeddings</td>
+        </tr>
+        <tr>
+          <td>Privacy</td>
+          <td>Trust the platform's policy</td>
+          <td>Differential privacy (&epsilon;-calibrated Laplace noise) &mdash; mathematical guarantee</td>
+        </tr>
+        <tr>
+          <td>Communication</td>
+          <td>In-app messages the platform can read</td>
+          <td>E2E encrypted channels (X25519 DH + XSalsa20-Poly1305)</td>
+        </tr>
+        <tr>
+          <td>Disclosure</td>
+          <td>Full profile visible to everyone</td>
+          <td>Progressive: category &rarr; detail &rarr; contact, on your terms</td>
+        </tr>
+        <tr>
+          <td>Resilience</td>
+          <td>Single point of failure</td>
+          <td>Decentralized relay mesh; any node can go down</td>
+        </tr>
+        <tr>
+          <td>Cost</td>
+          <td>Platform fees, subscriptions, ads</td>
+          <td>Free, open source, MIT licensed</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="callout insight">
+      <div class="callout-label">The Core Difference</div>
+      <p>Centralized platforms need your data to work. Resonance is designed so that no one &mdash; not even the relay operators &mdash; can reconstruct what you said. The matching still works because similarity is preserved in the embedding space, even after noise perturbation (82-86% recall at &epsilon;=1.0).</p>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section id="cta">
+  <div class="container" style="text-align:center;">
+    <h2>Ready to Try It?</h2>
+    <p class="section-intro" style="margin-left:auto;margin-right:auto;">
+      Resonance is open source and ready to use. Install it, publish a need or offer, and see matching in action.
+    </p>
+    <div class="cta-group" style="justify-content:center;">
+      <a href="/docs/getting-started.html" class="btn btn-primary">Get Started</a>
+      <a href="/docs/developers/architecture.html" class="btn btn-secondary">Read the Architecture &rarr;</a>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="container footer-inner">
+    <div>
+      <div class="footer-brand">Planetary Resonance</div>
+      <div class="footer-tagline">Privacy-preserving matching for human connection.</div>
+    </div>
+    <div class="footer-links">
+      <a href="/docs/index.html">Home</a>
+      <a href="/docs/getting-started.html">Get Started</a>
+      <a href="/docs/privacy.html">Privacy</a>
+      <a href="/docs/developers/architecture.html">Developers</a>
+      <a href="/docs/press.html">Press</a>
+      <a href="https://github.com/Planetary-e/resonance">GitHub</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+document.querySelector('.nav-toggle')?.addEventListener('click', function() {
+  this.classList.toggle('open');
+  document.querySelector('.nav-links')?.classList.toggle('open');
+});
+document.querySelectorAll('.nav-dropdown-toggle').forEach(btn => {
+  btn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    this.classList.toggle('open');
+    this.nextElementSibling?.classList.toggle('open');
+  });
+});
+document.addEventListener('click', () => {
+  document.querySelectorAll('.nav-dropdown-toggle.open').forEach(b => { b.classList.remove('open'); b.nextElementSibling?.classList.remove('open'); });
+});
+</script>
+
+</body>
+</html>
