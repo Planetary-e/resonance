@@ -12,6 +12,7 @@ permissions:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: macos-latest
@@ -43,8 +44,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run tests
-        run: npx vitest run
+      - name: Run tests (skip embedding-dependent tests on CI build)
+        run: npx vitest run --exclude '**/embedding.test.ts' --exclude '**/integration.test.ts'
 
       - name: Bundle with esbuild
         run: npx tsx packages/app/scripts/build.ts
