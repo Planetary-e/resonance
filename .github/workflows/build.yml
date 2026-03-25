@@ -87,7 +87,7 @@ jobs:
         run: |
           cd packages/app/dist/release
           chmod +x ${{ matrix.artifact }}
-          tar czf ../../../${{ matrix.artifact }}.tar.gz *
+          tar czf ../../${{ matrix.artifact }}.tar.gz *
 
       - name: Create archive (Windows)
         if: runner.os == 'Windows'
