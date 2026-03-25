@@ -6,8 +6,15 @@
   "main": "./src/main.ts",
   "scripts": {
     "start": "tsx src/main.ts",
-    "build": "tsc",
+    "build": "tsx scripts/build.ts",
+    "pkg": "npm run build && pkg dist/main.js --config pkg.json",
     "test": "vitest run"
+  },
+  "pkg": {
+    "assets": [
+      "dist/ui/**/*"
+    ],
+    "outputPath": "dist/bin"
   },
   "dependencies": {
     "@resonance/core": "*",
@@ -16,6 +23,8 @@
   },
   "devDependencies": {
     "@types/ws": "^8.5.0",
+    "@yao-pkg/pkg": "^6.14.1",
+    "esbuild": "^0.27.4",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "vitest": "^3.2.0"

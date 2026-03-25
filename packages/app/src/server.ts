@@ -5,14 +5,27 @@
 
 import { createServer, type Server } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
-import { join, extname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join, extname, dirname } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { handleApi } from './api.js';
 import { setSessionEvents } from './session.js';
 
-const __dirname = fileURLToPath(new URL('.', import.meta.url));
-const UI_DIR = join(__dirname, 'ui');
+// Resolve UI directory: works in tsx (ESM), esbuild bundle (CJS), and pkg snapshot
+function resolveUiDir(): string {
+  // In pkg, __dirname points to /snapshot/...
+  // In esbuild CJS bundle, __dirname is the dist/ directory
+  // In tsx ESM, we use import.meta.url
+  try {
+    // ESM mode (tsx)
+    const dir = dirname(new URL(import.meta.url).pathname);
+    return join(dir, 'ui');
+  } catch {
+    // CJS mode (esbuild/pkg) — __dirname is available
+    return join(__dirname, 'ui');
+  }
+}
+
+const UI_DIR = resolveUiDir();
 
 const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html',
