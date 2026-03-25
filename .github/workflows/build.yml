@@ -14,16 +14,11 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: macos-14
+          - os: macos-latest
             target: node20-macos-arm64
             artifact: resonance-macos-arm64
             native_platform: darwin
             native_arch: arm64
-          - os: macos-13
-            target: node20-macos-x64
-            artifact: resonance-macos-x64
-            native_platform: darwin
-            native_arch: x64
           - os: ubuntu-latest
             target: node20-linux-x64
             artifact: resonance-linux-x64
