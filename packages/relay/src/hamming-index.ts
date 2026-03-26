@@ -28,11 +28,13 @@ export interface HammingMatch {
 export class HammingIndex {
   private hashes: Uint8Array[] = [];
   private metadata: HashMetadata[] = [];
+  private createdAt: number[] = [];
 
   addHash(hash: Uint8Array, meta: HashMetadata): number {
     const id = this.hashes.length;
     this.hashes.push(hash);
     this.metadata.push(meta);
+    this.createdAt.push(Date.now());
     return id;
   }
 
@@ -55,6 +57,21 @@ export class HammingIndex {
     return this.metadata[id];
   }
 
+  /** Remove entries older than ttlMs. */
+  expireOlderThan(ttlMs: number): number {
+    const cutoff = Date.now() - ttlMs;
+    let removed = 0;
+    for (let i = this.hashes.length - 1; i >= 0; i--) {
+      if (this.createdAt[i] < cutoff) {
+        this.hashes.splice(i, 1);
+        this.metadata.splice(i, 1);
+        this.createdAt.splice(i, 1);
+        removed++;
+      }
+    }
+    return removed;
+  }
+
   getCount(): number {
     return this.hashes.length;
   }
@@ -64,6 +81,7 @@ export class HammingIndex {
     const data = {
       hashes: this.hashes.map(h => Array.from(h)),
       metadata: this.metadata,
+      createdAt: this.createdAt,
     };
     writeFileSync(join(dir, `${prefix}-hamming.json`), JSON.stringify(data));
   }
@@ -74,6 +92,7 @@ export class HammingIndex {
     const data = JSON.parse(readFileSync(path, 'utf-8'));
     this.hashes = data.hashes.map((h: number[]) => new Uint8Array(h));
     this.metadata = data.metadata;
+    this.createdAt = data.createdAt ?? data.hashes.map(() => Date.now());
   }
 }
 
@@ -126,6 +145,11 @@ export class ComplementaryHammingIndex {
     const needs = this.needsIndex.getCount();
     const offers = this.offersIndex.getCount();
     return { needs, offers, total: needs + offers };
+  }
+
+  /** Remove expired items from both indexes. */
+  expireOlderThan(ttlMs: number): number {
+    return this.needsIndex.expireOlderThan(ttlMs) + this.offersIndex.expireOlderThan(ttlMs);
   }
 
   save(dir: string): void {

@@ -9,6 +9,8 @@ import {
   hashEmbedding,
   getSharedProjectionMatrix,
   encodeBase64,
+  DEFAULT_RELAY_PORT,
+  BOOTSTRAP_RELAYS,
   type Identity,
   type MatchPayload,
   type ConsentForwardPayload,
@@ -20,6 +22,7 @@ import {
   createIdentityManager,
   openStoreAsync,
   deriveStoreKey,
+  getDataDir,
   getDbPath,
   ensureDataDir,
   createRelayClient,
@@ -30,6 +33,9 @@ import {
   type IdentityManager,
 } from '@resonance/node';
 import { randomUUID } from 'node:crypto';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { createRelayServer, type RelayServer } from '@resonance/relay';
 
 export interface SessionEvents {
   onMatch?: (matchId: string, partnerDID: string, similarity: number, yourItemId: string) => void;
@@ -52,6 +58,78 @@ export interface Session {
 
 let session: Session | null = null;
 let sessionEvents: SessionEvents = {};
+let relayServer: RelayServer | null = null;
+
+// --- Relay config persistence ---
+
+interface RelayConfig { enabled: boolean; port: number; }
+
+function getRelayConfigPath(): string {
+  return join(getDataDir(), 'relay-config.json');
+}
+
+export function loadRelayConfig(): RelayConfig {
+  const path = getRelayConfigPath();
+  if (existsSync(path)) {
+    try { return JSON.parse(readFileSync(path, 'utf-8')); } catch { /* corrupt */ }
+  }
+  return { enabled: false, port: DEFAULT_RELAY_PORT };
+}
+
+function saveRelayConfig(config: RelayConfig): void {
+  ensureDataDir();
+  writeFileSync(getRelayConfigPath(), JSON.stringify(config));
+}
+
+// --- Relay mode ---
+
+export async function startRelayMode(port?: number): Promise<{ port: number }> {
+  const p = port ?? DEFAULT_RELAY_PORT;
+  if (relayServer) return { port: p };
+
+  const persistDir = join(getDataDir(), 'relay-data');
+  relayServer = createRelayServer({
+    port: p,
+    host: '0.0.0.0', // Accept connections from other machines
+    persistDir,
+    maxAuthAttemptsPerMin: 20,
+  });
+  await relayServer.start();
+  saveRelayConfig({ enabled: true, port: p });
+
+  // If session is active, reconnect client to local relay
+  if (session) {
+    session.relayClient.disconnect();
+    const localClient = createRelayClient({
+      relayUrl: `ws://localhost:${p}`,
+      identity: session.identity,
+      fallbackUrls: BOOTSTRAP_RELAYS,
+      autoReconnect: true,
+    });
+    try { await localClient.connect(); } catch { /* will auto-reconnect */ }
+    session.relayClient = localClient;
+    wireEvents(session);
+  }
+
+  return { port: p };
+}
+
+export async function stopRelayMode(): Promise<void> {
+  if (!relayServer) return;
+  await relayServer.stop();
+  relayServer = null;
+  saveRelayConfig({ enabled: false, port: DEFAULT_RELAY_PORT });
+}
+
+export function isRelayMode(): boolean {
+  return relayServer !== null;
+}
+
+export function getRelayStats(): { enabled: boolean; port: number; stats: any } | null {
+  if (!relayServer) return null;
+  const config = loadRelayConfig();
+  return { enabled: true, port: config.port, stats: relayServer.getStats() };
+}
 
 export function getSession(): Session | null {
   return session;
@@ -144,14 +222,32 @@ export async function unlockSession(password: string, relayUrl: string): Promise
   const engine = new EmbeddingEngine();
   await engine.initialize();
 
-  const relayClient = createRelayClient({ relayUrl, identity });
+  // Auto-start relay if config says enabled
+  const relayConfig = loadRelayConfig();
+  if (relayConfig.enabled && !relayServer) {
+    try { await startRelayMode(relayConfig.port); } catch { /* port busy? */ }
+  }
+
+  // Build relay URL list: local relay first (if running), then configured, then bootstrap
+  const urls: string[] = [];
+  if (relayServer) urls.push(`ws://localhost:${relayConfig.port}`);
+  if (relayUrl && relayUrl !== 'ws://localhost:9090') urls.push(relayUrl);
+  urls.push(...BOOTSTRAP_RELAYS.filter(u => !urls.includes(u)));
+  if (urls.length === 0) urls.push(relayUrl); // fallback to whatever was passed
+
+  const relayClient = createRelayClient({
+    relayUrl: urls[0],
+    identity,
+    fallbackUrls: urls.slice(1),
+    autoReconnect: true,
+  });
   const channelMgr = createChannelManager({ identity, store, relayClient });
 
-  // Connect to relay
+  // Connect to relay (tries all URLs in order)
   try {
     await relayClient.connect();
   } catch {
-    // Relay may not be available — continue in local-only mode
+    // No relay available — continue in local-only mode, will auto-reconnect
   }
 
   session = { identity, store, engine, relayClient, channelMgr, identityMgr: mgr };

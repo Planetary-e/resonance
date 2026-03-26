@@ -299,6 +299,7 @@ async function refreshDashboardStats() {
   document.getElementById('stat-relay').textContent = data.relayConnected ? 'Online' : 'Offline';
 
   updateRelayDot(data.relayConnected);
+  updateRelayModeDisplay(data.relayMode);
 }
 
 function updateRelayDot(connected) {
@@ -310,8 +311,35 @@ function updateRelayDot(connected) {
 
 async function updateRelayDisplay() {
   const data = await api('GET', '/api/status');
-  if (!data.error) updateRelayDot(data.relayConnected);
+  if (!data.error) {
+    updateRelayDot(data.relayConnected);
+    updateRelayModeDisplay(data.relayMode);
+  }
 }
+
+function updateRelayModeDisplay(enabled) {
+  const toggle = document.getElementById('relay-mode-toggle');
+  if (toggle) toggle.checked = !!enabled;
+  const label = document.getElementById('relay-mode-label');
+  if (label) label.textContent = enabled ? 'Relay Active' : 'Relay Off';
+}
+
+// Relay mode toggle handler
+document.getElementById('relay-mode-toggle')?.addEventListener('change', async function() {
+  if (this.checked) {
+    const result = await api('POST', '/api/relay/start');
+    if (result.error) {
+      this.checked = false;
+      toast('Failed to start relay: ' + result.error, 'error');
+    } else {
+      toast('Relay started on port ' + result.port, 'success');
+    }
+  } else {
+    await api('POST', '/api/relay/stop');
+    toast('Relay stopped', 'info');
+  }
+  updateRelayDisplay();
+});
 
 
 // Activity feed — stored in memory for the session

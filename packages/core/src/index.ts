@@ -30,6 +30,8 @@ export {
 
 export { EmbeddingEngine, rewriteForMatching, type EmbeddingPrefix } from './embedding.js';
 
+export { BOOTSTRAP_RELAYS, DEFAULT_RELAY_PORT } from './bootstrap.js';
+
 export {
   generateProjectionMatrix,
   hashEmbedding,

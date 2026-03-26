@@ -140,6 +140,11 @@ export class MatchingEngine {
     return results;
   }
 
+  /** Expire items older than ttlMs from the index. */
+  expireItems(ttlMs: number): number {
+    return this.index.expireOlderThan(ttlMs);
+  }
+
   /** Mark an item as withdrawn. */
   withdraw(did: string, itemId: string): boolean {
     this.withdrawnItems.add(itemId);

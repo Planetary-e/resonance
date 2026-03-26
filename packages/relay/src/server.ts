@@ -341,19 +341,21 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
 
       // Periodic persistence
       persistTimer = setInterval(persist, cfg.persistIntervalMs);
-      // Periodic rate limiter cleanup
+      // Periodic cleanup
       cleanupTimer = setInterval(() => {
         rateLimiter.cleanup();
-        // VULN-10: Expire old matchRegistry entries
+        // Expire old matchRegistry entries
         const cutoff = Date.now() - cfg.matchExpiryMs;
         for (const [id, entry] of matchRegistry) {
           if (entry.createdAt < cutoff) matchRegistry.delete(id);
         }
-        // VULN-13: Clean old auth attempt records
+        // Clean old auth attempt records
         const authCutoff = Date.now() - 60_000;
         for (const [ip, att] of authAttempts) {
           if (att.start < authCutoff) authAttempts.delete(ip);
         }
+        // TTL: expire old indexed hashes
+        engine.expireItems(cfg.matchExpiryMs);
       }, 5 * 60_000);
     },
 

@@ -26,6 +26,10 @@ import {
 export interface RelayClientConfig {
   relayUrl: string;
   identity: Identity;
+  /** Additional relay URLs to try if primary fails. */
+  fallbackUrls?: string[];
+  /** Enable auto-reconnect with exponential backoff. */
+  autoReconnect?: boolean;
 }
 
 export interface RelayClientEvents {
@@ -33,6 +37,7 @@ export interface RelayClientEvents {
   onConsentForward?: (payload: ConsentForwardPayload) => void;
   onChannelForward?: (payload: ChannelForwardPayload) => void;
   onDisconnect?: (reason: string) => void;
+  onReconnect?: () => void;
 }
 
 export interface RelayClient {
@@ -56,9 +61,32 @@ interface PendingRequest {
 export function createRelayClient(config: RelayClientConfig): RelayClient {
   let ws: WebSocket | null = null;
   let connected = false;
+  let intentionalDisconnect = false;
+  let reconnectDelay = 1000;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let currentUrl = config.relayUrl;
+  const allUrls = [config.relayUrl, ...(config.fallbackUrls ?? [])];
+  let urlIndex = 0;
   const events: Partial<RelayClientEvents> = {};
   const pending = new Map<string, PendingRequest>();
   let pendingSearchResolve: ((value: SearchResultsPayload) => void) | null = null;
+
+  function scheduleReconnect(): void {
+    if (!config.autoReconnect || intentionalDisconnect) return;
+    reconnectTimer = setTimeout(async () => {
+      // Try next URL in list
+      urlIndex = (urlIndex + 1) % allUrls.length;
+      currentUrl = allUrls[urlIndex];
+      try {
+        await doConnect(currentUrl);
+        reconnectDelay = 1000; // Reset on success
+        events.onReconnect?.();
+      } catch {
+        reconnectDelay = Math.min(reconnectDelay * 2, 30_000);
+        scheduleReconnect();
+      }
+    }, reconnectDelay);
+  }
 
   function send<T>(type: string, payload: T): void {
     if (!ws || ws.readyState !== WebSocket.OPEN) throw new Error('Not connected');
@@ -113,54 +141,69 @@ export function createRelayClient(config: RelayClientConfig): RelayClient {
     }
   }
 
-  return {
-    connect(): Promise<void> {
-      return new Promise((resolve, reject) => {
-        ws = new WebSocket(config.relayUrl);
+  function doConnect(url: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      ws = new WebSocket(url);
 
-        ws.on('open', () => {
-          send(MessageTypes.AUTH, {});
-        });
-
-        ws.on('message', (data: Buffer) => {
-          // Check for auth ACK before setting up general handler
-          let msg: Message;
-          try {
-            msg = parseMessage(data.toString('utf-8'));
-          } catch {
-            return;
-          }
-
-          if (msg.type === MessageTypes.ACK && (msg.payload as AckPayload).ref === 'auth') {
-            const ack = msg.payload as AckPayload;
-            if (ack.status === 'ok') {
-              connected = true;
-              ws!.removeAllListeners('message');
-              ws!.on('message', handleMessage);
-              resolve();
-            } else {
-              reject(new Error(`Auth failed: ${ack.message}`));
-            }
-            return;
-          }
-        });
-
-        ws.on('close', (code, reason) => {
-          connected = false;
-          events.onDisconnect?.(reason.toString() || `code:${code}`);
-        });
-
-        ws.on('error', (err) => {
-          if (!connected) reject(err);
-        });
-
-        setTimeout(() => {
-          if (!connected) reject(new Error('Connection timeout'));
-        }, 10_000);
+      ws.on('open', () => {
+        send(MessageTypes.AUTH, {});
       });
+
+      ws.on('message', (data: Buffer) => {
+        let msg: Message;
+        try { msg = parseMessage(data.toString('utf-8')); } catch { return; }
+
+        if (msg.type === MessageTypes.ACK && (msg.payload as AckPayload).ref === 'auth') {
+          const ack = msg.payload as AckPayload;
+          if (ack.status === 'ok') {
+            connected = true;
+            intentionalDisconnect = false;
+            ws!.removeAllListeners('message');
+            ws!.on('message', handleMessage);
+            resolve();
+          } else {
+            reject(new Error(`Auth failed: ${ack.message}`));
+          }
+          return;
+        }
+      });
+
+      ws.on('close', (code, reason) => {
+        connected = false;
+        events.onDisconnect?.(reason.toString() || `code:${code}`);
+        scheduleReconnect();
+      });
+
+      ws.on('error', (err) => {
+        if (!connected) reject(err);
+      });
+
+      setTimeout(() => {
+        if (!connected) reject(new Error('Connection timeout'));
+      }, 10_000);
+    });
+  }
+
+  return {
+    async connect(): Promise<void> {
+      intentionalDisconnect = false;
+      // Try all URLs in order
+      for (let i = 0; i < allUrls.length; i++) {
+        try {
+          currentUrl = allUrls[i];
+          await doConnect(currentUrl);
+          urlIndex = i;
+          return;
+        } catch {
+          // Try next
+        }
+      }
+      throw new Error('All relay URLs failed');
     },
 
     disconnect(): void {
+      intentionalDisconnect = true;
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
       if (ws) {
         ws.close();
         ws = null;

@@ -19,6 +19,7 @@
   "dependencies": {
     "@resonance/core": "*",
     "@resonance/node": "*",
+    "@resonance/relay": "*",
     "ws": "^8.18.0"
   },
   "devDependencies": {

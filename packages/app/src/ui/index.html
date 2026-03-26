@@ -98,6 +98,25 @@
           </div>
         </div>
 
+        <div style="margin: 24px 0; padding: 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px;">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <div>
+              <h3 style="margin: 0 0 4px; color: var(--accent4); font-size: 1em;">Act as Relay</h3>
+              <p style="margin: 0; font-size: 0.85em; color: var(--text-muted);">Help the network by relaying matches for others.</p>
+            </div>
+            <label style="position: relative; display: inline-block; width: 50px; height: 26px; cursor: pointer;">
+              <input type="checkbox" id="relay-mode-toggle" style="opacity: 0; width: 0; height: 0;">
+              <span style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--surface3); border-radius: 26px; transition: 0.3s;"></span>
+              <span style="position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; background: var(--text-muted); border-radius: 50%; transition: 0.3s;"></span>
+            </label>
+          </div>
+          <div id="relay-mode-label" style="margin-top: 8px; font-size: 0.82em; color: var(--text-muted);">Relay Off</div>
+        </div>
+        <style>
+          #relay-mode-toggle:checked ~ span:first-of-type { background: var(--accent3) !important; }
+          #relay-mode-toggle:checked ~ span:last-of-type { transform: translateX(24px); background: white !important; }
+        </style>
+
         <h3>Recent Activity</h3>
         <div id="activity-feed" class="activity-list">
           <div class="empty-state">

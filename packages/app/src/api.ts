@@ -8,10 +8,14 @@ import {
   getSession,
   isUnlocked,
   isInitialized,
+  isRelayMode,
   initSession,
   unlockSession,
   lockSession,
   resetInactivityTimer,
+  startRelayMode,
+  stopRelayMode,
+  getRelayStats,
   publishItem,
   searchRelay,
   initiateChannel,
@@ -95,6 +99,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
       unlocked,
       did: s?.identity.did ?? null,
       relayConnected: s?.relayClient.isConnected() ?? false,
+      relayMode: isRelayMode(),
       items: s ? s.store.listItems().length : 0,
       matches: s ? s.store.listMatches().length : 0,
     });
@@ -276,6 +281,36 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
     const channel = getSession()!.channelMgr.getChannel(channelId);
     if (!channel) { error(res, 'Channel not found', 404); return true; }
     json(res, channel);
+    return true;
+  }
+
+  // --- Relay mode ---
+
+  if (url === '/api/relay/status' && method === 'GET') {
+    const stats = getRelayStats();
+    json(res, { enabled: isRelayMode(), ...(stats ?? { port: null, stats: null }) });
+    return true;
+  }
+
+  if (url === '/api/relay/start' && method === 'POST') {
+    const body = await readBody(req);
+    const port = body.port as number | undefined;
+    try {
+      const result = await startRelayMode(port);
+      json(res, result);
+    } catch (err) {
+      error(res, 'Internal error', 500);
+    }
+    return true;
+  }
+
+  if (url === '/api/relay/stop' && method === 'POST') {
+    try {
+      await stopRelayMode();
+      json(res, { stopped: true });
+    } catch (err) {
+      error(res, 'Internal error', 500);
+    }
     return true;
   }
 
