@@ -18,18 +18,12 @@ jobs:
           - os: macos-latest
             target: node20-macos-arm64
             artifact: resonance-macos-arm64
-            native_platform: darwin
-            native_arch: arm64
           - os: ubuntu-latest
             target: node20-linux-x64
             artifact: resonance-linux-x64
-            native_platform: linux
-            native_arch: x64
           - os: windows-latest
             target: node20-win-x64
             artifact: resonance-win-x64.exe
-            native_platform: win32
-            native_arch: x64
 
     runs-on: ${{ matrix.os }}
 
@@ -55,29 +49,13 @@ jobs:
           cd packages/app
           npx pkg dist/main.js --target ${{ matrix.target }} --output dist/bin/${{ matrix.artifact }}
 
-      - name: Collect native modules
+      - name: Prepare release archive
         shell: bash
         run: |
           mkdir -p packages/app/dist/release
 
-          # Copy the binary
+          # Copy binary + UI files (no native modules needed — all WASM)
           cp packages/app/dist/bin/${{ matrix.artifact }} packages/app/dist/release/
-
-          # Copy better-sqlite3 native binding
-          SQLITE_BINDING=$(find node_modules/better-sqlite3 -name "*.node" | head -1)
-          if [ -n "$SQLITE_BINDING" ]; then
-            cp "$SQLITE_BINDING" packages/app/dist/release/better_sqlite3.node
-            echo "Copied better-sqlite3: $SQLITE_BINDING"
-          fi
-
-          # Copy onnxruntime native binding for this platform
-          ORT_BINDING=$(find node_modules/onnxruntime-node -path "*/${{ matrix.native_platform }}/${{ matrix.native_arch }}/*.node" | head -1)
-          if [ -n "$ORT_BINDING" ]; then
-            cp "$ORT_BINDING" packages/app/dist/release/onnxruntime_binding.node
-            echo "Copied onnxruntime: $ORT_BINDING"
-          fi
-
-          # Copy UI files
           cp -r packages/app/dist/ui packages/app/dist/release/ui
 
           ls -lh packages/app/dist/release/
