@@ -60,8 +60,30 @@ jobs:
 
           ls -lh packages/app/dist/release/
 
+      - name: Create macOS .app bundle and .dmg
+        if: runner.os == 'macOS'
+        run: |
+          APP="packages/app/dist/Resonance.app"
+          mkdir -p "$APP/Contents/MacOS"
+          mkdir -p "$APP/Contents/Resources"
+
+          # Copy Info.plist
+          cp packages/app/macos/Info.plist "$APP/Contents/"
+
+          # Copy binary and launcher
+          cp packages/app/dist/bin/${{ matrix.artifact }} "$APP/Contents/MacOS/resonance"
+          cp packages/app/macos/launch "$APP/Contents/MacOS/launch"
+          chmod +x "$APP/Contents/MacOS/resonance" "$APP/Contents/MacOS/launch"
+
+          # Copy UI files next to binary (where the app looks for them)
+          cp -r packages/app/dist/ui "$APP/Contents/MacOS/ui"
+
+          # Create DMG
+          hdiutil create -volname "Resonance" -srcfolder "$APP" -ov -format UDZO "packages/app/Resonance-macos.dmg"
+          ls -lh packages/app/Resonance-macos.dmg
+
       - name: Create archive (Unix)
-        if: runner.os != 'Windows'
+        if: runner.os == 'Linux'
         run: |
           cd packages/app/dist/release
           chmod +x ${{ matrix.artifact }}
@@ -80,6 +102,7 @@ jobs:
           path: |
             packages/app/${{ matrix.artifact }}.tar.gz
             packages/app/${{ matrix.artifact }}.zip
+            packages/app/Resonance-macos.dmg
 
   release:
     needs: build
@@ -98,6 +121,7 @@ jobs:
           files: |
             artifacts/**/*.tar.gz
             artifacts/**/*.zip
+            artifacts/**/*.dmg
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') }}
