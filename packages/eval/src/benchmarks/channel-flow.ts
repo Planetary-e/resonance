@@ -3,6 +3,9 @@ import {
   generateIdentity,
   EmbeddingEngine,
   perturbWithLevel,
+  hashEmbedding,
+  getSharedProjectionMatrix,
+  encodeBase64,
   normalize,
   type MatchPayload,
 } from '@resonance/core';
@@ -65,10 +68,10 @@ export async function benchmarkChannelFlow(engine: EmbeddingEngine): Promise<Ben
     await bobClient.connect();
 
     // --- Measure: publish → match notification ---
-    await aliceClient.publish({ itemId: 'o1', vector: Array.from(offerP.perturbed), itemType: 'offer', ttl: 86400 });
+    await aliceClient.publish({ itemId: 'o1', hash: encodeBase64(hashEmbedding(offerEmb, getSharedProjectionMatrix())), itemType: 'offer', ttl: 86400 });
 
     const { durationMs: matchLatency } = await timeAsync(async () => {
-      await bobClient.publish({ itemId: 'n1', vector: Array.from(needP.perturbed), itemType: 'need', ttl: 86400 });
+      await bobClient.publish({ itemId: 'n1', hash: encodeBase64(hashEmbedding(needEmb, getSharedProjectionMatrix())), itemType: 'need', ttl: 86400 });
       await Promise.all([aliceGotMatch, bobGotMatch]);
     });
 

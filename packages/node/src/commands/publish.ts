@@ -7,6 +7,9 @@ import { createInterface } from 'node:readline';
 import {
   EmbeddingEngine,
   perturbWithLevel,
+  hashEmbedding,
+  getSharedProjectionMatrix,
+  encodeBase64,
   type ItemType,
   type PrivacyLevel,
 } from '@resonance/core';
@@ -88,9 +91,10 @@ export async function publishCommand(
     try {
       const client = createRelayClient({ relayUrl, identity });
       await client.connect();
+      const hash = hashEmbedding(embedding, getSharedProjectionMatrix());
       await client.publish({
         itemId: id,
-        vector: Array.from(perturbed),
+        hash: encodeBase64(hash),
         itemType,
         ttl: 604800,
       });

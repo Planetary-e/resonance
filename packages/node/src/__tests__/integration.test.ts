@@ -9,6 +9,9 @@ import {
   generateIdentity,
   EmbeddingEngine,
   perturbWithLevel,
+  hashEmbedding,
+  getSharedProjectionMatrix,
+  encodeBase64,
   normalize,
   type MatchPayload,
 } from '@resonance/core';
@@ -100,10 +103,11 @@ describe('Phase 4 end-to-end', () => {
     await aliceClient.connect();
     await bobClient.connect();
 
-    // Alice publishes offer
+    // Alice publishes offer (LSH hash)
+    const matrix = getSharedProjectionMatrix();
     await aliceClient.publish({
       itemId: 'alice-offer',
-      vector: Array.from(offerPerturbed.perturbed),
+      hash: encodeBase64(hashEmbedding(offerEmbedding, matrix)),
       itemType: 'offer',
       ttl: 86400,
     });
@@ -111,7 +115,7 @@ describe('Phase 4 end-to-end', () => {
     // Bob publishes need — should trigger match
     await bobClient.publish({
       itemId: 'bob-need',
-      vector: Array.from(needPerturbed.perturbed),
+      hash: encodeBase64(hashEmbedding(needEmbedding, matrix)),
       itemType: 'need',
       ttl: 86400,
     });

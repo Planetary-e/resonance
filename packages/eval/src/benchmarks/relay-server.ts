@@ -1,4 +1,5 @@
 import WebSocket from 'ws';
+import { hashEmbedding, getSharedProjectionMatrix, encodeBase64 } from '@resonance/core';
 import type { BenchmarkResult } from '@resonance/core';
 import {
   generateIdentity,
@@ -78,7 +79,7 @@ export async function benchmarkRelayServer(): Promise<BenchmarkResult[]> {
         const conn = await connectAndAuth(port, identity);
         const vec = generateRandomUnitVector(768);
         conn.ws.send(serializeMessage(createMessage<PublishPayload>(MessageTypes.PUBLISH, {
-          itemId: 'bench-1', vector: Array.from(vec), itemType: 'offer', ttl: 86400,
+          itemId: 'bench-1', hash: encodeBase64(hashEmbedding(vec, getSharedProjectionMatrix())), itemType: 'offer', ttl: 86400,
         }, identity)));
         await waitForType(conn.messages, MessageTypes.ACK);
         conn.ws.close();
@@ -103,7 +104,7 @@ export async function benchmarkRelayServer(): Promise<BenchmarkResult[]> {
       // Alice publishes an offer
       const offerVec = generateRandomUnitVector(768);
       aliceConn.ws.send(serializeMessage(createMessage<PublishPayload>(MessageTypes.PUBLISH, {
-        itemId: 'match-offer', vector: Array.from(offerVec), itemType: 'offer', ttl: 86400,
+        itemId: 'match-offer', hash: encodeBase64(hashEmbedding(offerVec, getSharedProjectionMatrix())), itemType: 'offer', ttl: 86400,
       }, alice)));
       await waitForType(aliceConn.messages, MessageTypes.ACK);
 
@@ -111,7 +112,7 @@ export async function benchmarkRelayServer(): Promise<BenchmarkResult[]> {
       const needVec = similarVector(offerVec, 0.03);
       const { durationMs } = await timeAsync(async () => {
         bobConn.ws.send(serializeMessage(createMessage<PublishPayload>(MessageTypes.PUBLISH, {
-          itemId: 'match-need', vector: needVec, itemType: 'need', ttl: 86400,
+          itemId: 'match-need', hash: encodeBase64(hashEmbedding(new Float32Array(needVec), getSharedProjectionMatrix())), itemType: 'need', ttl: 86400,
         }, bob)));
         await waitForType(bobConn.messages, MessageTypes.MATCH);
       });

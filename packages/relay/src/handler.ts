@@ -63,8 +63,10 @@ export function handlePublish(ctx: HandlerContext, client: ClientState, msg: Mes
     return;
   }
 
+  // Decode base64 hash from the client
+  const hash = Uint8Array.from(Buffer.from(payload.hash, 'base64'));
   const notifications = ctx.engine.insertAndMatch(
-    payload.vector,
+    hash,
     { did: client.did, itemType: payload.itemType, itemId: payload.itemId },
     ctx.matchK,
     ctx.matchThreshold,
@@ -111,8 +113,9 @@ export function handleSearch(ctx: HandlerContext, client: ClientState, msg: Mess
     return;
   }
 
-  // Ephemeral search — infer queryType from the search context (default: 'need' searches offers)
-  const results = ctx.engine.search(payload.vector, 'need', payload.k, payload.threshold);
+  // Ephemeral search — decode hash, search complementary index
+  const hash = Uint8Array.from(Buffer.from(payload.hash, 'base64'));
+  const results = ctx.engine.search(hash, 'need', payload.k, payload.threshold);
 
   const response = createMessage<SearchResultsPayload>(MessageTypes.SEARCH_RESULTS, {
     results: results.map(r => ({ did: r.did, similarity: r.similarity, itemType: r.itemType })),

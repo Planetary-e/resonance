@@ -36,6 +36,8 @@ export {
   hammingDistance,
   hammingSimilarity,
   expectedHammingSimilarity,
+  getSharedProjectionMatrix,
+  LSH_DEFAULTS,
 } from './lsh.js';
 
 export {

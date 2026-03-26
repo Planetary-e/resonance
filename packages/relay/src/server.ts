@@ -69,7 +69,7 @@ const DEFAULT_CONFIG: RelayConfig = {
   host: '0.0.0.0',
   persistDir: './data',
   persistIntervalMs: 60_000,
-  matchThreshold: PROTOCOL_DEFAULTS.relayThreshold,
+  matchThreshold: 0.70,  // Hamming similarity threshold for LSH matching
   matchK: 10,
   matchExpiryMs: 7 * 24 * 60 * 60 * 1000,
   maxPublishesPerMin: 10,
@@ -82,7 +82,7 @@ const DEFAULT_CONFIG: RelayConfig = {
 export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   const cfg = { ...DEFAULT_CONFIG, ...config };
 
-  const engine = new MatchingEngine({ matchExpiryMs: cfg.matchExpiryMs });
+  const engine = new MatchingEngine({ matchExpiryMs: cfg.matchExpiryMs, matchThreshold: cfg.matchThreshold });
   engine.initialize();
 
   const rateLimiter = new RateLimiter({

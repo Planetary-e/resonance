@@ -1,14 +1,15 @@
 /**
- * Matching engine: wraps MatchingIndex with relay-specific logic.
+ * Matching engine: wraps ComplementaryHammingIndex with relay-specific logic.
  * Generates match IDs, deduplicates DID pairs, tracks stats, handles persistence.
+ *
+ * Uses LSH binary hashes instead of float vectors — the relay never sees embeddings.
  */
 
 import { randomUUID } from 'node:crypto';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import type { ItemType, MatchResult } from '@resonance/core';
-import { HNSW_DEFAULTS } from '@resonance/core';
-import { MatchingIndex, type HnswIndexConfig, type VectorMetadata } from './hnsw.js';
+import type { ItemType } from '@resonance/core';
+import { ComplementaryHammingIndex, type HashMetadata } from './hamming-index.js';
 
 export interface MatchNotification {
   matchId: string;
@@ -28,39 +29,46 @@ export interface SearchResult {
   itemType: ItemType;
 }
 
+export interface MatchingEngineConfig {
+  matchExpiryMs?: number;
+  matchThreshold?: number;
+}
+
+const DEFAULT_HAMMING_THRESHOLD = 0.70;
+
 export class MatchingEngine {
-  private index: MatchingIndex;
+  private index = new ComplementaryHammingIndex();
   private notifiedPairs = new Set<string>();
   private withdrawnItems = new Set<string>();
   private pendingNotifications: MatchNotification[] = [];
   private matchesToday = 0;
   private matchesTodayDate = new Date().toISOString().slice(0, 10);
   private matchExpiryMs: number;
+  private matchThreshold: number;
 
-  constructor(config?: Partial<HnswIndexConfig> & { matchExpiryMs?: number }) {
-    this.index = new MatchingIndex(config);
+  constructor(config?: MatchingEngineConfig) {
     this.matchExpiryMs = config?.matchExpiryMs ?? 7 * 24 * 60 * 60 * 1000;
+    this.matchThreshold = config?.matchThreshold ?? DEFAULT_HAMMING_THRESHOLD;
   }
 
   initialize(): void {
-    this.index.initialize();
+    // No-op for Hamming index (no HNSW init needed)
   }
 
-  /** Insert a vector and return match notifications for complementary items. */
+  /** Insert a hash and return match notifications for complementary items. */
   insertAndMatch(
-    vector: number[],
-    meta: VectorMetadata,
+    hash: Uint8Array,
+    meta: HashMetadata,
     k: number = 10,
-    threshold: number = HNSW_DEFAULTS.similarityThreshold,
+    threshold?: number,
   ): MatchNotification[] {
-    const { matches } = this.index.addAndMatch(vector, meta, k, threshold);
+    const t = threshold ?? this.matchThreshold;
+    const { matches } = this.index.addAndMatch(hash, meta, k, t);
     const notifications: MatchNotification[] = [];
     const now = Date.now();
 
     for (const match of matches) {
-      // Look up the matched item's metadata from the complementary index
-      const matchedType: ItemType = meta.itemType === 'need' ? 'offer' : 'need';
-      const matchedMeta = this.index.getMetadata(match.label, matchedType);
+      const matchedMeta = match.metadata;
       if (!matchedMeta) continue;
 
       // Skip withdrawn items
@@ -94,7 +102,7 @@ export class MatchingEngine {
     return notifications;
   }
 
-  /** Get pending notifications for a DID (both as publisher and as matched partner). */
+  /** Get pending notifications for a DID. */
   getPendingForDID(did: string): MatchNotification[] {
     const now = Date.now();
     return this.pendingNotifications.filter(
@@ -102,7 +110,7 @@ export class MatchingEngine {
     );
   }
 
-  /** Remove a notification from the queue (after successful delivery). */
+  /** Remove a notification from the queue. */
   removeNotification(matchId: string, did: string): void {
     this.pendingNotifications = this.pendingNotifications.filter(
       n => !(n.matchId === matchId && (n.publisherDID === did || n.matchedDID === did)),
@@ -111,36 +119,34 @@ export class MatchingEngine {
 
   /** Ephemeral search — does NOT index the query. */
   search(
-    vector: number[],
+    hash: Uint8Array,
     queryType: ItemType,
     k: number = 10,
-    threshold: number = HNSW_DEFAULTS.similarityThreshold,
+    threshold?: number,
   ): SearchResult[] {
-    const matches = this.index.search(vector, queryType, k, threshold);
+    const t = threshold ?? this.matchThreshold;
+    const matches = this.index.search(hash, queryType, k, t);
     const results: SearchResult[] = [];
 
-    const matchedType: ItemType = queryType === 'need' ? 'offer' : 'need';
     for (const match of matches) {
-      const meta = this.index.getMetadata(match.label, matchedType);
-      if (!meta) continue;
-      if (this.withdrawnItems.has(meta.itemId)) continue;
+      if (this.withdrawnItems.has(match.metadata.itemId)) continue;
       results.push({
-        did: meta.did,
+        did: match.metadata.did,
         similarity: match.similarity,
-        itemType: meta.itemType,
+        itemType: match.metadata.itemType,
       });
     }
 
     return results;
   }
 
-  /** Mark an item as withdrawn. Cannot truly remove from HNSW, so we filter on search. */
+  /** Mark an item as withdrawn. */
   withdraw(did: string, itemId: string): boolean {
     this.withdrawnItems.add(itemId);
     return true;
   }
 
-  /** Save index, dedup set, withdrawn set, and stats to disk. */
+  /** Save index + state to disk. */
   save(dir: string): void {
     mkdirSync(dir, { recursive: true });
     this.index.save(dir);
@@ -153,20 +159,18 @@ export class MatchingEngine {
     writeFileSync(join(dir, 'queue.json'), JSON.stringify(this.pendingNotifications));
   }
 
-  /** Load index, dedup set, withdrawn set, and stats from disk. */
+  /** Load index + state from disk. */
   load(dir: string): void {
     this.index.load(dir);
 
     const dedupPath = join(dir, 'dedup.json');
     if (existsSync(dedupPath)) {
-      const pairs: string[] = JSON.parse(readFileSync(dedupPath, 'utf-8'));
-      this.notifiedPairs = new Set(pairs);
+      this.notifiedPairs = new Set(JSON.parse(readFileSync(dedupPath, 'utf-8')));
     }
 
     const withdrawnPath = join(dir, 'withdrawn.json');
     if (existsSync(withdrawnPath)) {
-      const items: string[] = JSON.parse(readFileSync(withdrawnPath, 'utf-8'));
-      this.withdrawnItems = new Set(items);
+      this.withdrawnItems = new Set(JSON.parse(readFileSync(withdrawnPath, 'utf-8')));
     }
 
     const statsPath = join(dir, 'stats.json');

@@ -109,3 +109,22 @@ export function hammingSimilarity(a: Uint8Array, b: Uint8Array): number {
 export function expectedHammingSimilarity(cosineSimilarity: number): number {
   return 1 - Math.acos(Math.min(1, Math.max(-1, cosineSimilarity))) / Math.PI;
 }
+
+// --- Shared projection matrix ---
+
+/** Default LSH parameters for the Resonance protocol. */
+export const LSH_DEFAULTS = {
+  hashBits: 512,
+  dimensions: 768,
+  seed: 20260326, // Fixed seed — all nodes use the same projection
+} as const;
+
+let _cachedMatrix: Float32Array[] | null = null;
+
+/** Get the shared projection matrix (cached). All nodes must use the same matrix. */
+export function getSharedProjectionMatrix(): Float32Array[] {
+  if (!_cachedMatrix) {
+    _cachedMatrix = generateProjectionMatrix(LSH_DEFAULTS.hashBits, LSH_DEFAULTS.dimensions, LSH_DEFAULTS.seed);
+  }
+  return _cachedMatrix;
+}

@@ -6,6 +6,9 @@
 import {
   EmbeddingEngine,
   perturbWithLevel,
+  hashEmbedding,
+  getSharedProjectionMatrix,
+  encodeBase64,
   type Identity,
   type MatchPayload,
   type ConsentForwardPayload,
@@ -180,25 +183,28 @@ export function lockSession(): void {
 }
 
 export async function publishItem(text: string, type: ItemType, privacy: PrivacyLevel): Promise<{
-  id: string; status: string; epsilon: number; dims: number;
+  id: string; status: string; dims: number;
 }> {
   const s = session!;
   const embedding = await s.engine.embedForMatching(text, type);
-  const { perturbed, epsilon } = perturbWithLevel(embedding, privacy);
+  // LSH: hash the embedding instead of perturbing it
+  const hash = hashEmbedding(embedding, getSharedProjectionMatrix());
   const id = randomUUID();
 
+  // Still store perturbed locally for backward compat, but relay gets hash
+  const { perturbed, epsilon } = perturbWithLevel(embedding, privacy);
   s.store.insertItem({ id, type, rawText: text, embedding, privacyLevel: privacy, perturbed, epsilon });
 
   let status = 'local';
   if (s.relayClient.isConnected()) {
     try {
-      await s.relayClient.publish({ itemId: id, vector: Array.from(perturbed), itemType: type, ttl: 604800 });
+      await s.relayClient.publish({ itemId: id, hash: encodeBase64(hash), itemType: type, ttl: 604800 });
       s.store.updateItemStatus(id, 'published');
       status = 'published';
     } catch { /* relay unavailable */ }
   }
 
-  return { id, status, epsilon, dims: embedding.length };
+  return { id, status, dims: embedding.length };
 }
 
 export async function searchRelay(text: string, type: ItemType): Promise<Array<{
@@ -206,11 +212,10 @@ export async function searchRelay(text: string, type: ItemType): Promise<Array<{
 }>> {
   const s = session!;
   const embedding = await s.engine.embedForMatching(text, type);
-  // Apply light perturbation to search queries (ε=5.0 — minimal noise, ~99% similarity preserved)
-  // Prevents relay from seeing exact embeddings while maintaining search quality
-  const { perturbed } = perturbWithLevel(embedding, 'low');
+  // LSH: hash the query — relay sees only the binary hash, not the embedding
+  const hash = hashEmbedding(embedding, getSharedProjectionMatrix());
   if (!s.relayClient.isConnected()) return [];
-  const results = await s.relayClient.search({ vector: Array.from(perturbed), k: 10, threshold: 0.45 });
+  const results = await s.relayClient.search({ hash: encodeBase64(hash), k: 10, threshold: 0.65 });
   return results.results;
 }
 

@@ -7,6 +7,9 @@ import {
   parseMessage,
   MessageTypes,
   normalize,
+  hashEmbedding,
+  getSharedProjectionMatrix,
+  encodeBase64,
   type Identity,
   type Message,
   type AckPayload,
@@ -32,6 +35,11 @@ function similarVector(base: number[], noise = 0.05): number[] {
   for (let i = 0; i < base.length; i++) v[i] = base[i] + (Math.random() - 0.5) * noise;
   const n = normalize(v);
   return Array.from(n);
+}
+
+const matrix = getSharedProjectionMatrix();
+function toHash(vec: number[]): string {
+  return encodeBase64(hashEmbedding(new Float32Array(vec), matrix));
 }
 
 function connectAndAuth(identity: Identity): Promise<{ ws: WebSocket; messages: Message[] }> {
@@ -133,7 +141,7 @@ describe('Relay integration', () => {
     const offerVec = randomUnitVector();
     const publishOffer = createMessage<PublishPayload>(MessageTypes.PUBLISH, {
       itemId: 'offer-1',
-      vector: offerVec,
+      hash: toHash(offerVec),
       itemType: 'offer',
       ttl: 86400,
     }, alice);
@@ -146,7 +154,7 @@ describe('Relay integration', () => {
     const needVec = similarVector(offerVec, 0.03);
     const publishNeed = createMessage<PublishPayload>(MessageTypes.PUBLISH, {
       itemId: 'need-1',
-      vector: needVec,
+      hash: toHash(needVec),
       itemType: 'need',
       ttl: 86400,
     }, bob);
@@ -178,13 +186,13 @@ describe('Relay integration', () => {
     // Publish complementary items
     const vec = randomUnitVector();
     aliceConn.ws.send(serializeMessage(createMessage<PublishPayload>(MessageTypes.PUBLISH, {
-      itemId: 'o2', vector: vec, itemType: 'offer', ttl: 86400,
+      itemId: 'o2', hash: toHash(vec), itemType: 'offer', ttl: 86400,
     }, alice)));
 
     await waitForMessage(aliceConn.messages, MessageTypes.ACK);
 
     bobConn.ws.send(serializeMessage(createMessage<PublishPayload>(MessageTypes.PUBLISH, {
-      itemId: 'n2', vector: similarVector(vec, 0.03), itemType: 'need', ttl: 86400,
+      itemId: 'n2', hash: toHash(similarVector(vec, 0.03)), itemType: 'need', ttl: 86400,
     }, bob)));
 
     const bobMatch = await waitForMessage(bobConn.messages, MessageTypes.MATCH);
@@ -217,7 +225,7 @@ describe('Relay integration', () => {
     const aliceConn1 = await connectAndAuth(alice);
     const offerVec = randomUnitVector();
     aliceConn1.ws.send(serializeMessage(createMessage<PublishPayload>(MessageTypes.PUBLISH, {
-      itemId: 'offline-offer', vector: offerVec, itemType: 'offer', ttl: 86400,
+      itemId: 'offline-offer', hash: toHash(offerVec), itemType: 'offer', ttl: 86400,
     }, alice)));
     await waitForMessage(aliceConn1.messages, MessageTypes.ACK);
     aliceConn1.ws.close();
@@ -228,7 +236,7 @@ describe('Relay integration', () => {
     // Bob publishes a complementary need — Alice is offline
     const bobConn = await connectAndAuth(bob);
     bobConn.ws.send(serializeMessage(createMessage<PublishPayload>(MessageTypes.PUBLISH, {
-      itemId: 'offline-need', vector: similarVector(offerVec, 0.03), itemType: 'need', ttl: 86400,
+      itemId: 'offline-need', hash: toHash(similarVector(offerVec, 0.03)), itemType: 'need', ttl: 86400,
     }, bob)));
     // Bob gets the match immediately
     const bobMatch = await waitForMessage(bobConn.messages, MessageTypes.MATCH);

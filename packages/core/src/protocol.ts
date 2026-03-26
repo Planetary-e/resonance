@@ -21,13 +21,13 @@ export interface Message<T = unknown> {
 
 export interface PublishPayload {
   itemId: string;
-  vector: number[];
+  hash: string;         // base64-encoded LSH binary hash
   itemType: ItemType;
-  ttl: number;         // seconds until expiry (default: 604800 = 7 days)
+  ttl: number;          // seconds until expiry (default: 604800 = 7 days)
 }
 
 export interface SearchPayload {
-  vector: number[];
+  hash: string;          // base64-encoded LSH binary hash
   k: number;
   threshold: number;
 }

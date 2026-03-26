@@ -4,7 +4,7 @@
  */
 
 import { createInterface } from 'node:readline';
-import { EmbeddingEngine, perturbWithLevel, type ItemType } from '@resonance/core';
+import { EmbeddingEngine, hashEmbedding, getSharedProjectionMatrix, encodeBase64, type ItemType } from '@resonance/core';
 import { createIdentityManager } from '../identity.js';
 import { createRelayClient } from '../relay-client.js';
 
@@ -39,11 +39,11 @@ export async function searchCommand(
   const password = options.password ?? await promptPassword('Password: ');
   const identity = await mgr.load(password);
 
-  // Embed query with light perturbation (ε=5.0 — prevents exact reconstruction by relay)
+  // Embed query and hash (relay only sees binary hash — not the embedding)
   const engine = new EmbeddingEngine();
   await engine.initialize();
   const embedding = await engine.embedForMatching(text, queryType);
-  const { perturbed } = perturbWithLevel(embedding, 'low');
+  const hash = hashEmbedding(embedding, getSharedProjectionMatrix());
 
   const relayUrl = options.relay ?? 'ws://localhost:9090';
   const client = createRelayClient({ relayUrl, identity });
@@ -51,9 +51,9 @@ export async function searchCommand(
   try {
     await client.connect();
     const results = await client.search({
-      vector: Array.from(perturbed),
+      hash: encodeBase64(hash),
       k,
-      threshold: Math.max(threshold - 0.05, 0.3), // slightly lower to compensate for noise
+      threshold: Math.max(threshold, 0.65), // Hamming similarity threshold
     });
 
     if (results.results.length === 0) {
