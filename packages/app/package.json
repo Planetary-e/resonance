@@ -3,6 +3,7 @@
   "version": "0.1.2",
   "description": "Resonance — Privacy-preserving decentralized matching",
   "author": "Planetary Project <hello@planetary.earth>",
+  "repository": "https://github.com/Planetary-e/resonance",
   "private": true,
   "type": "module",
   "main": "dist-electron/main.js",
