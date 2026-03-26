@@ -4,6 +4,8 @@
  */
 
 import { createServer, type Server } from 'node:http';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 import {
   MessageTypes,
@@ -45,6 +47,8 @@ export interface RelayConfig {
   maxPublishesPerMin: number;
   maxSearchesPerMin: number;
   authWindowMs: number;
+  adminApiKey: string | null;
+  maxAuthAttemptsPerMin: number;
 }
 
 export interface RelayStats {
@@ -71,6 +75,8 @@ const DEFAULT_CONFIG: RelayConfig = {
   maxPublishesPerMin: 10,
   maxSearchesPerMin: 30,
   authWindowMs: 30_000,
+  adminApiKey: null,
+  maxAuthAttemptsPerMin: 5,
 };
 
 export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
@@ -84,9 +90,31 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     maxSearchesPerMin: cfg.maxSearchesPerMin,
   });
 
-  const relayIdentity: Identity = generateIdentity();
+  // VULN-12: Persist relay identity
+  const identityPath = join(cfg.persistDir, 'relay-identity.json');
+  let relayIdentity: Identity;
+  mkdirSync(cfg.persistDir, { recursive: true });
+  if (existsSync(identityPath)) {
+    const data = JSON.parse(readFileSync(identityPath, 'utf-8'));
+    relayIdentity = {
+      publicKey: Uint8Array.from(Object.values(data.publicKey)),
+      secretKey: Uint8Array.from(Object.values(data.secretKey)),
+      did: data.did,
+    };
+  } else {
+    relayIdentity = generateIdentity();
+    writeFileSync(identityPath, JSON.stringify({
+      publicKey: Array.from(relayIdentity.publicKey),
+      secretKey: Array.from(relayIdentity.secretKey),
+      did: relayIdentity.did,
+    }));
+  }
+
   const clients = new Map<string, ClientState>();
-  const matchRegistry = new Map<string, { publisherDID: string; matchedDID: string }>();
+  const matchRegistry = new Map<string, { publisherDID: string; matchedDID: string; createdAt: number }>();
+
+  // VULN-13: Auth attempt rate limiting by IP
+  const authAttempts = new Map<string, { count: number; start: number }>();
 
   const ctx: HandlerContext = {
     engine,
@@ -123,7 +151,16 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       res.end(JSON.stringify({ status: 'ok' }));
       return;
     }
-    if (req.url === '/stats' && req.method === 'GET') {
+    if (req.url?.startsWith('/stats') && req.method === 'GET') {
+      // VULN-07: Require API key if configured
+      if (cfg.adminApiKey) {
+        const url = new URL(req.url, 'http://localhost');
+        if (url.searchParams.get('key') !== cfg.adminApiKey) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'unauthorized' }));
+          return;
+        }
+      }
       const stats = engine.getStats();
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
@@ -138,8 +175,22 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     res.end();
   }
 
-  function handleConnection(ws: WebSocket): void {
+  function handleConnection(ws: WebSocket, req: any): void {
     let clientState: ClientState | null = null;
+
+    // VULN-13: Rate limit auth attempts by IP
+    const ip = req?.socket?.remoteAddress ?? 'unknown';
+    const now = Date.now();
+    let attempts = authAttempts.get(ip);
+    if (!attempts || now - attempts.start > 60_000) {
+      attempts = { count: 0, start: now };
+      authAttempts.set(ip, attempts);
+    }
+    attempts.count++;
+    if (attempts.count > cfg.maxAuthAttemptsPerMin) {
+      ws.close(4029, 'too_many_auth_attempts');
+      return;
+    }
 
     const authTimeout = setTimeout(() => {
       if (!clientState?.authenticated) {
@@ -291,7 +342,19 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       // Periodic persistence
       persistTimer = setInterval(persist, cfg.persistIntervalMs);
       // Periodic rate limiter cleanup
-      cleanupTimer = setInterval(() => rateLimiter.cleanup(), 5 * 60_000);
+      cleanupTimer = setInterval(() => {
+        rateLimiter.cleanup();
+        // VULN-10: Expire old matchRegistry entries
+        const cutoff = Date.now() - cfg.matchExpiryMs;
+        for (const [id, entry] of matchRegistry) {
+          if (entry.createdAt < cutoff) matchRegistry.delete(id);
+        }
+        // VULN-13: Clean old auth attempt records
+        const authCutoff = Date.now() - 60_000;
+        for (const [ip, att] of authAttempts) {
+          if (att.start < authCutoff) authAttempts.delete(ip);
+        }
+      }, 5 * 60_000);
     },
 
     async stop(): Promise<void> {

@@ -153,12 +153,27 @@ export async function unlockSession(password: string, relayUrl: string): Promise
 
   session = { identity, store, engine, relayClient, channelMgr, identityMgr: mgr };
   wireEvents(session);
+  resetInactivityTimer();
 
   return { did: identity.did };
 }
 
+// VULN-08: Session timeout
+const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+let inactivityTimer: ReturnType<typeof setTimeout> | null = null;
+
+export function resetInactivityTimer(): void {
+  if (inactivityTimer) clearTimeout(inactivityTimer);
+  if (session) {
+    inactivityTimer = setTimeout(() => lockSession(), SESSION_TIMEOUT_MS);
+  }
+}
+
 export function lockSession(): void {
+  if (inactivityTimer) { clearTimeout(inactivityTimer); inactivityTimer = null; }
   if (!session) return;
+  // VULN-16: Zero key material
+  session.identity.secretKey.fill(0);
   session.relayClient.disconnect();
   session.store.close();
   session = null;

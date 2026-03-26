@@ -26,6 +26,7 @@ beforeAll(async () => {
     port: PORT,
     host: '127.0.0.1',
     persistDir: `/tmp/resonance-e2e-${Date.now()}`,
+    maxAuthAttemptsPerMin: 100,
     persistIntervalMs: 999_999,
   });
   await server.start();

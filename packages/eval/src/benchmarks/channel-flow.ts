@@ -31,6 +31,7 @@ export async function benchmarkChannelFlow(engine: EmbeddingEngine): Promise<Ben
     port,
     host: '127.0.0.1',
     persistDir: `/tmp/resonance-eval-channel-${Date.now()}`,
+    maxAuthAttemptsPerMin: 100,
     persistIntervalMs: 999_999,
   });
   await server.start();

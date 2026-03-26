@@ -65,6 +65,7 @@ export async function benchmarkRelayServer(): Promise<BenchmarkResult[]> {
     port,
     host: '127.0.0.1',
     persistDir: `/tmp/resonance-eval-relay-${Date.now()}`,
+    maxAuthAttemptsPerMin: 100,
     persistIntervalMs: 999_999,
   });
   await server.start();

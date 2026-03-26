@@ -40,7 +40,7 @@ export interface HandlerContext {
   matchK: number;
   matchExpiryMs: number;
   /** Map from matchId → { publisherDID, matchedDID } for consent forwarding */
-  matchRegistry: Map<string, { publisherDID: string; matchedDID: string }>;
+  matchRegistry: Map<string, { publisherDID: string; matchedDID: string; createdAt: number }>;
 }
 
 function sendAck(ctx: HandlerContext, ws: WebSocket, ref: string, status: 'ok' | 'error', message?: string): void {
@@ -72,7 +72,7 @@ export function handlePublish(ctx: HandlerContext, client: ClientState, msg: Mes
 
   // Send match notifications to both parties
   for (const n of notifications) {
-    ctx.matchRegistry.set(n.matchId, { publisherDID: n.publisherDID, matchedDID: n.matchedDID });
+    ctx.matchRegistry.set(n.matchId, { publisherDID: n.publisherDID, matchedDID: n.matchedDID, createdAt: Date.now() });
 
     // Notify the publisher (current client)
     const publisherMatch = createMessage<MatchPayload>(MessageTypes.MATCH, {

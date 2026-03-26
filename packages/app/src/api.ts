@@ -11,6 +11,7 @@ import {
   initSession,
   unlockSession,
   lockSession,
+  resetInactivityTimer,
   publishItem,
   searchRelay,
   initiateChannel,
@@ -68,6 +69,9 @@ function requireSession(res: Res): boolean {
 export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<boolean> {
   const url = req.url ?? '';
   const method = req.method ?? 'GET';
+
+  // VULN-08: Reset inactivity timer on each request
+  if (isUnlocked()) resetInactivityTimer();
 
   // CORS preflight
   if (method === 'OPTIONS') {

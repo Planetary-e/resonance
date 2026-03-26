@@ -83,6 +83,7 @@ beforeAll(async () => {
   server = createRelayServer({
     port: PORT,
     host: '127.0.0.1',
+    maxAuthAttemptsPerMin: 100, // High limit for tests
     persistDir: `/tmp/resonance-integration-test-${Date.now()}`,
     persistIntervalMs: 999_999, // Don't persist during tests
   });

@@ -147,6 +147,15 @@ export function createChannelManager(config: ChannelManagerConfig): ChannelManag
   const matchToChannel = new Map<string, string>();
   const events: Partial<ChannelManagerEvents> = {};
 
+  /** VULN-16: Zero key material and remove channel from memory. */
+  function cleanupChannel(ch: InternalChannel): void {
+    ch.sharedSecret?.fill(0);
+    ch.myKeyPair?.secretKey.fill(0);
+    ch.myEmbedding = null;
+    ch.partnerEmbedding = null;
+    channels.delete(ch.id);
+  }
+
   function sendEncrypted(ch: InternalChannel, type: string, payload: unknown): void {
     if (!ch.sharedSecret) throw new Error('No shared secret');
     const json = JSON.stringify({ type, payload });
@@ -320,12 +329,14 @@ export function createChannelManager(config: ChannelManagerConfig): ChannelManag
           ch.state = 'closed';
           store.updateChannelStatus(ch.id, 'closed');
           events.onReject?.(ch.id, p.reason);
+          cleanupChannel(ch);
           break;
         }
         case MessageTypes.CLOSE: {
           ch.state = 'closed';
           store.updateChannelStatus(ch.id, 'closed');
           events.onClose?.(ch.id);
+          cleanupChannel(ch);
           break;
         }
       }
@@ -356,6 +367,7 @@ export function createChannelManager(config: ChannelManagerConfig): ChannelManag
       sendEncrypted(ch, MessageTypes.REJECT, { reason } satisfies RejectPayload);
       ch.state = 'closed';
       store.updateChannelStatus(ch.id, 'closed');
+      cleanupChannel(ch);
     },
 
     async sendClose(channelId: string): Promise<void> {
@@ -364,6 +376,7 @@ export function createChannelManager(config: ChannelManagerConfig): ChannelManag
       sendEncrypted(ch, MessageTypes.CLOSE, {});
       ch.state = 'closed';
       store.updateChannelStatus(ch.id, 'closed');
+      cleanupChannel(ch);
     },
 
     getChannel(channelId: string): ChannelInfo | null {
