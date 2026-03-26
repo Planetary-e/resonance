@@ -16,9 +16,6 @@
     "@resonance/core": "*",
     "ws": "^8.18.0"
   },
-  "optionalDependencies": {
-    "hnswlib-node": "^3.0.0"
-  },
   "devDependencies": {
     "@types/ws": "^8.5.0",
     "tsx": "^4.19.0",

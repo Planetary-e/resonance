@@ -3,8 +3,14 @@
  * Wraps hnswlib-node with Resonance-specific types and cosine similarity threshold.
  */
 
-import HnswLib from 'hnswlib-node';
-const { HierarchicalNSW } = HnswLib;
+// Lazy import — hnswlib-node is optional (only used by legacy eval benchmarks)
+let HierarchicalNSW: any;
+try {
+  const HnswLib = await import('hnswlib-node');
+  HierarchicalNSW = HnswLib.default?.HierarchicalNSW ?? HnswLib.HierarchicalNSW;
+} catch {
+  // hnswlib-node not available — HNSW classes will throw on use
+}
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
