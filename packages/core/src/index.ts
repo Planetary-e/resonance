@@ -31,6 +31,14 @@ export {
 export { EmbeddingEngine, rewriteForMatching, type EmbeddingPrefix } from './embedding.js';
 
 export {
+  generateProjectionMatrix,
+  hashEmbedding,
+  hammingDistance,
+  hammingSimilarity,
+  expectedHammingSimilarity,
+} from './lsh.js';
+
+export {
   type Identity,
   type KeyPair,
   type BoxResult,

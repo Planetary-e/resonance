@@ -14,6 +14,8 @@ import { benchmarkCryptoIntegrity } from './benchmarks/crypto-integrity.js';
 import { benchmarkStoreIntegrity } from './benchmarks/store-integrity.js';
 import { benchmarkRelayServer } from './benchmarks/relay-server.js';
 import { benchmarkChannelFlow } from './benchmarks/channel-flow.js';
+import { benchmarkLshVsPerturbation } from './benchmarks/lsh-vs-perturbation.js';
+import { benchmarkLshRealistic } from './benchmarks/lsh-realistic.js';
 import { printResults } from './reporters/console.js';
 import { writeJsonReport } from './reporters/json.js';
 import { writeMarkdownReport } from './reporters/markdown.js';
@@ -114,10 +116,22 @@ async function main() {
   for (const r of relayResults) console.log(`        ${r.name}: ${r.actual}`);
 
   // 13-14. Channel flow (Phase 4)
-  console.log('[13/14] Evaluating channel flow...');
+  console.log('[13/15] Evaluating channel flow...');
   const channelResults = await benchmarkChannelFlow(engine);
   allResults.push(...channelResults);
   for (const r of channelResults) console.log(`        ${r.name}: ${r.actual}`);
+
+  // 14. LSH vs Perturbation (small)
+  console.log('[14/16] LSH vs Perturbation (10 pairs)...');
+  const lshResults = await benchmarkLshVsPerturbation(engine);
+  allResults.push(...lshResults);
+  for (const r of lshResults) console.log(`        ${r.name}: ${r.actual}`);
+
+  // 15. LSH vs Perturbation (realistic, large)
+  console.log('[15/16] LSH vs Perturbation (45 pairs, 5K distractors)...');
+  const lshRealisticResults = await benchmarkLshRealistic(engine);
+  allResults.push(...lshRealisticResults);
+  for (const r of lshRealisticResults) console.log(`        ${r.name}: ${r.actual}`);
 
   // Print results table
   printResults(allResults);
