@@ -22,7 +22,7 @@ jobs:
         run: npm ci
 
       - name: Run tests
-        run: npx vitest run
+        run: npm test
 
       - name: Run eval suite (quick)
         run: npm run eval:quick

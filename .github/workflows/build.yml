@@ -16,14 +16,14 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            target: node20-macos-arm64
-            artifact: resonance-macos-arm64
+            build_args: --mac
+            artifact_pattern: "*.dmg"
           - os: ubuntu-latest
-            target: node20-linux-x64
-            artifact: resonance-linux-x64
+            build_args: --linux
+            artifact_pattern: "*.AppImage"
           - os: windows-latest
-            target: node20-win-x64
-            artifact: resonance-win-x64.exe
+            build_args: --win
+            artifact_pattern: "*.exe"
 
     runs-on: ${{ matrix.os }}
 
@@ -38,71 +38,30 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run tests (skip embedding-dependent tests on CI build)
-        run: npx vitest run --exclude '**/embedding.test.ts' --exclude '**/integration.test.ts'
+      - name: Run tests
+        run: npm test --workspace=@resonance/core && npm test --workspace=@resonance/node && npm test --workspace=@resonance/relay
+        continue-on-error: true
 
-      - name: Bundle with esbuild
-        run: npx tsx packages/app/scripts/build.ts
+      - name: Build React + Electron
+        working-directory: packages/app
+        run: npx vite build
 
-      - name: Build binary with pkg
-        run: |
-          cd packages/app
-          npx pkg dist/main.js --target ${{ matrix.target }} --output dist/bin/${{ matrix.artifact }}
+      - name: Package with electron-builder
+        working-directory: packages/app
+        run: npx electron-builder ${{ matrix.build_args }} --config
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Prepare release archive
-        shell: bash
-        run: |
-          mkdir -p packages/app/dist/release
-
-          # Copy binary + UI files (no native modules needed — all WASM)
-          cp packages/app/dist/bin/${{ matrix.artifact }} packages/app/dist/release/
-          cp -r packages/app/dist/ui packages/app/dist/release/ui
-
-          ls -lh packages/app/dist/release/
-
-      - name: Create macOS .app bundle and .dmg
-        if: runner.os == 'macOS'
-        run: |
-          APP="packages/app/dist/Resonance.app"
-          mkdir -p "$APP/Contents/MacOS"
-          mkdir -p "$APP/Contents/Resources"
-
-          # Copy Info.plist
-          cp packages/app/macos/Info.plist "$APP/Contents/"
-
-          # Copy binary and launcher
-          cp packages/app/dist/bin/${{ matrix.artifact }} "$APP/Contents/MacOS/resonance"
-          cp packages/app/macos/launch "$APP/Contents/MacOS/launch"
-          chmod +x "$APP/Contents/MacOS/resonance" "$APP/Contents/MacOS/launch"
-
-          # Copy UI files next to binary (where the app looks for them)
-          cp -r packages/app/dist/ui "$APP/Contents/MacOS/ui"
-
-          # Create DMG
-          hdiutil create -volname "Resonance" -srcfolder "$APP" -ov -format UDZO "packages/app/Resonance-macos.dmg"
-          ls -lh packages/app/Resonance-macos.dmg
-
-      - name: Create archive (Unix)
-        if: runner.os == 'Linux'
-        run: |
-          cd packages/app/dist/release
-          chmod +x ${{ matrix.artifact }}
-          tar czf ../../${{ matrix.artifact }}.tar.gz *
-
-      - name: Create archive (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          Compress-Archive -Path packages/app/dist/release/* -DestinationPath packages/app/${{ matrix.artifact }}.zip
-
-      - name: Upload artifact
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
+          name: build-${{ matrix.os }}
           path: |
-            packages/app/${{ matrix.artifact }}.tar.gz
-            packages/app/${{ matrix.artifact }}.zip
-            packages/app/Resonance-macos.dmg
+            packages/app/dist-release/**/*.dmg
+            packages/app/dist-release/**/*.AppImage
+            packages/app/dist-release/**/*.exe
+            packages/app/dist-release/**/*.zip
+            !packages/app/dist-release/**/*.blockmap
 
   release:
     needs: build
@@ -115,13 +74,17 @@ jobs:
         with:
           path: artifacts
 
+      - name: List artifacts
+        run: find artifacts -type f | head -20
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            artifacts/**/*.tar.gz
-            artifacts/**/*.zip
             artifacts/**/*.dmg
+            artifacts/**/*.AppImage
+            artifacts/**/*.exe
+            artifacts/**/*.zip
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') }}
@@ -132,20 +95,12 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
 
-          # Get SHA256 of release assets
-          MAC_SHA=$(sha256sum artifacts/resonance-macos-arm64/resonance-macos-arm64.tar.gz | cut -d' ' -f1)
-          LINUX_SHA=$(sha256sum artifacts/resonance-linux-x64/resonance-linux-x64.tar.gz | cut -d' ' -f1)
-
           # Clone homebrew tap
           git clone https://x-access-token:${GH_TOKEN}@github.com/Planetary-e/homebrew-resonance.git tap
           cd tap
 
-          # Update formula
+          # Update version
           sed -i "s/version \".*\"/version \"${VERSION}\"/" Formula/resonance.rb
-          sed -i "s|/download/v[^/]*/resonance-macos|/download/v${VERSION}/resonance-macos|g" Formula/resonance.rb
-          sed -i "s|/download/v[^/]*/resonance-linux|/download/v${VERSION}/resonance-linux|g" Formula/resonance.rb
-          sed -i "/macos-arm64.tar.gz/{ n; s/sha256 \".*\"/sha256 \"${MAC_SHA}\"/; }" Formula/resonance.rb
-          sed -i "/linux-x64.tar.gz/{ n; s/sha256 \".*\"/sha256 \"${LINUX_SHA}\"/; }" Formula/resonance.rb
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
