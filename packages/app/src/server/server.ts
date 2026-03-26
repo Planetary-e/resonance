@@ -10,19 +10,18 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import { handleApi, sessionToken } from './api.js';
 import { setSessionEvents } from './session.js';
 
-// Resolve UI directory: works in tsx (ESM), esbuild CJS, and pkg snapshot
+// Resolve UI directory: Vite builds to dist/ in the app package root
 function resolveUiDir(): string {
-  // In pkg binary: look for ui/ next to the executable
-  if ((process as any).pkg) {
-    return join(dirname(process.execPath), 'ui');
-  }
   try {
-    // ESM mode (tsx)
+    // ESM mode (tsx) — server file is at src/server/server.ts, dist/ is at ../../dist/
     const dir = dirname(new URL(import.meta.url).pathname);
-    return join(dir, 'ui');
+    const distDir = resolve(dir, '../../dist');
+    if (existsSync(distDir)) return distDir;
+    // Fallback: old ui/ directory
+    return join(dir, '../ui');
   } catch {
-    // CJS mode (esbuild bundle)
-    return join(__dirname, 'ui');
+    // CJS mode
+    return join(__dirname, '../../dist');
   }
 }
 
