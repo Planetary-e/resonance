@@ -1,6 +1,8 @@
 {
   "name": "@resonance/app",
-  "version": "0.1.0",
+  "version": "0.1.2",
+  "description": "Resonance — Privacy-preserving decentralized matching",
+  "author": "Planetary Project <hello@planetary.earth>",
   "private": true,
   "type": "module",
   "main": "dist-electron/main.js",
@@ -16,13 +18,18 @@
   "build": {
     "appId": "earth.planetary.resonance",
     "productName": "Resonance",
+    "electronVersion": "34.5.8",
     "directories": {
       "output": "dist-release"
     },
     "files": [
       "dist/**/*",
-      "dist-electron/**/*"
+      "dist-electron/**/*",
+      "package.json",
+      "!node_modules"
     ],
+    "asar": true,
+    "npmRebuild": false,
     "mac": {
       "target": ["dmg"],
       "category": "public.app-category.social-networking"

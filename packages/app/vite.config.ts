@@ -13,14 +13,10 @@ export default defineConfig({
           build: {
             outDir: 'dist-electron',
             rollupOptions: {
+              // Only externalize truly native modules and electron itself
               external: [
-                '@resonance/core',
-                '@resonance/node',
-                '@resonance/relay',
-                'better-sqlite3',
+                'electron',
                 'hnswlib-node',
-                'sql.js',
-                'ws',
               ],
             },
           },

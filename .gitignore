@@ -6,3 +6,4 @@ packages/eval/results/
 *.log
 .DS_Store
 .memory/
+dist-release/
