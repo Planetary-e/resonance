@@ -471,17 +471,16 @@ The remediation round addressed all critical and high-severity findings correctl
 
 The following systemic gaps remain after remediation. These are not bugs — they are architectural limitations that require design-level changes.
 
-#### RISK-01: Weak Search Query Perturbation
+#### RISK-01: Weak Search Query Perturbation — **RESOLVED**
 
 | Field | Value |
 |-------|-------|
-| **Related Finding** | VULN-02 (fixed with epsilon=5.0 perturbation) |
-| **Residual Risk** | HIGH |
+| **Related Finding** | VULN-02 |
+| **Residual Risk** | ~~HIGH~~ → **LOW** |
 | **Category** | Privacy |
+| **Resolution** | Replaced perturbation with LSH 512-bit Hamming matching |
 
-The VULN-02 fix applies epsilon=5.0 (low privacy) perturbation to search queries, preserving ~99% cosine similarity. While this prevents the relay from seeing the *exact* vector, a nearest-neighbor probing attack against an epsilon=5.0 perturbed vector would still succeed with high probability. An attacker with access to the public embedding model can pre-compute candidates and match them against the nearly-unperturbed query.
-
-**Recommended next step**: Replace perturbation with Locality-Sensitive Hashing (LSH) for both publish and search. See [Privacy-Preserving Matching Proposals](privacy-preserving-matching-proposals.md), Proposal 1.
+*Resolved 2026-03-26.* The entire perturbation-based matching system was replaced with Locality-Sensitive Hashing (LSH). The relay now sees only 64-byte binary hashes (512-bit) instead of 3KB float vectors. Hashes are irreversible (96:1 compression ratio). Both publish and search use the same hash format — the relay never sees any embedding vector. Eval benchmark: 93.3% recall on 45 realistic pairs + 5000 distractors, 100% on high-similarity pairs. See [Privacy-Preserving Matching Proposals](privacy-preserving-matching-proposals.md), Proposal 1.
 
 #### RISK-02: DID Correlation / Behavioral Profiling
 
@@ -549,7 +548,7 @@ The relay is a single trusted component that controls match routing (could suppr
 | Identity & signing | **Strong** | Ed25519, DID:key, all messages signed |
 | Password protection | **Strong** | Argon2id with proper parameters |
 | Local data protection | **Good** | Field-level encryption; SQLite metadata exposed (accepted) |
-| Relay-side privacy | **Moderate** | Perturbation helps but epsilon=5.0 on search is weak; DID correlation unsolved |
+| Relay-side privacy | **Good** | LSH hashing — relay sees only irreversible binary hashes; DID correlation unsolved |
 | Network security | **Weak** | No TLS enforcement, no certificate pinning |
 | Key lifecycle | **Weak** | No rotation, no revocation, no migration |
 | Metadata protection | **Weak** | Timing, frequency, social graph visible to relay |

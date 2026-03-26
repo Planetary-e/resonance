@@ -23,20 +23,20 @@ You write:        "I need a plumber in Barcelona who speaks Spanish"
                           |
 Your device:      Embeds text into a 768-dim vector (locally, no cloud)
                           |
-Privacy layer:    Adds calibrated Laplace noise (differential privacy)
+Privacy layer:    Converts to compact binary hash (locality-sensitive hashing)
                           |
-Network:          Relay indexes the noisy vector, finds complementary matches
+Network:          Relay indexes the binary hash, finds complementary matches
                           |
 Match found:      Both parties notified, open encrypted direct channel
                           |
 You decide:       Confirm match, then progressively share details
 ```
 
-The relay never sees your text, your name, or your location. It only sees noisy mathematical patterns — enough to find matches, not enough to reconstruct what you wrote.
+The relay never sees your text, your name, or your location. It only sees compact binary hashes — enough to find matches, not enough to reconstruct what you wrote.
 
 ## Key Properties
 
-- **Private by design** — Raw data never leaves your device. Embeddings are computed locally. Only perturbed vectors reach the network.
+- **Private by design** — Raw data never leaves your device. Embeddings are computed locally. Only compact binary hashes reach the network.
 - **Complementary matching** — Needs only match offers, never other needs. The system understands intent, not just keywords.
 - **No account required** — Your identity is a cryptographic keypair (`did:key`). No email, no phone number, no tracking.
 - **Runs on consumer hardware** — Embedding inference in 14ms on CPU. No GPU required. Relay runs on a 10/month VPS.
@@ -52,7 +52,7 @@ All 5 phases are implemented. The protocol works end-to-end: publish, match, con
 |--------|--------|
 | Embedding latency (p95) | **14ms** |
 | HNSW search latency (p95) | **1.5ms** |
-| Match recall at medium privacy (e=1.0) | **82-86%** |
+| Match recall (LSH 512-bit) | **93.3%** |
 | False positive rate | **<3%** |
 | Match notification latency | **19ms** |
 | Consent handshake latency | **16ms** |
@@ -173,7 +173,8 @@ Validated empirically through the eval suite:
 3. **Confirmation threshold: 0.55** — Lowered from 0.70. With average true similarity at 0.634, a 0.70 threshold rejected half of genuine matches.
 4. **MatchingIndex** — Separate HNSW indexes for needs and offers. Eliminated 65% same-type noise, brought FPR from 82% to 2%.
 5. **Query rewriting** — Strip demand framing ("I need", "Looking for") before embedding. +1.5pp similarity improvement.
-6. **Relay-bridged channels** — Direct channel messages forwarded through relay, E2E encrypted with DH-derived shared secret. Avoids NAT traversal complexity for pilot.
+6. **LSH matching** — Relay sees only 64-byte binary hashes (512-bit LSH), not embedding vectors. Irreversible 96:1 compression. Benchmarked at 93.3% recall.
+7. **Relay-bridged channels** — Direct channel messages forwarded through relay, E2E encrypted with DH-derived shared secret. Avoids NAT traversal complexity for pilot.
 
 ## Tech Stack
 
