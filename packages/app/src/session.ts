@@ -15,7 +15,7 @@ import {
 } from '@resonance/core';
 import {
   createIdentityManager,
-  openStore,
+  openStoreAsync,
   deriveStoreKey,
   getDbPath,
   ensureDataDir,
@@ -125,7 +125,7 @@ export async function initSession(password: string): Promise<{ did: string }> {
   // Initialize engine + create DB
   const engine = new EmbeddingEngine();
   await engine.initialize();
-  const store = openStore(getDbPath(), deriveStoreKey(identity));
+  const store = await openStoreAsync(getDbPath(), deriveStoreKey(identity));
   store.close();
 
   return { did: identity.did };
@@ -136,7 +136,7 @@ export async function unlockSession(password: string, relayUrl: string): Promise
 
   const mgr = createIdentityManager();
   const identity = mgr.load(password);
-  const store = openStore(getDbPath(), deriveStoreKey(identity));
+  const store = await openStoreAsync(getDbPath(), deriveStoreKey(identity));
 
   const engine = new EmbeddingEngine();
   await engine.initialize();

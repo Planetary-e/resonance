@@ -12,7 +12,7 @@ import {
 } from '@resonance/core';
 import { getDbPath, deriveStoreKey } from '../config.js';
 import { createIdentityManager } from '../identity.js';
-import { openStore } from '../store.js';
+import { openStoreAsync } from '../store.js';
 import { createRelayClient } from '../relay-client.js';
 
 async function promptPassword(prompt: string): Promise<string> {
@@ -65,7 +65,7 @@ export async function publishCommand(
 
   // Store locally
   const id = randomUUID();
-  const store = openStore(getDbPath(), deriveStoreKey(identity));
+  const store = await openStoreAsync(getDbPath(), deriveStoreKey(identity));
   store.insertItem({
     id,
     type: itemType,

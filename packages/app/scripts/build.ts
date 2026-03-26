@@ -23,9 +23,8 @@ buildSync({
   format: 'cjs',
   outfile: join(DIST, 'main.js'),
   external: [
-    'better-sqlite3',
-    'hnswlib-node',
-    'onnxruntime-node',
+    'hnswlib-node',       // only used in relay server (not in app)
+    'onnxruntime-node',   // will fall back to onnxruntime-web (WASM)
   ],
   banner: {
     js: '// Resonance Desktop App — bundled with esbuild\n',

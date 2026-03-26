@@ -5,7 +5,7 @@
 import { createInterface } from 'node:readline';
 import { getDbPath, deriveStoreKey } from '../config.js';
 import { createIdentityManager } from '../identity.js';
-import { openStore } from '../store.js';
+import { openStoreAsync } from '../store.js';
 
 async function promptPassword(prompt: string): Promise<string> {
   const rl = createInterface({ input: process.stdin, output: process.stderr });
@@ -24,7 +24,7 @@ export async function matchesCommand(options: { password?: string; status?: stri
 
   const password = options.password ?? await promptPassword('Password: ');
   const identity = mgr.load(password);
-  const store = openStore(getDbPath(), deriveStoreKey(identity));
+  const store = await openStoreAsync(getDbPath(), deriveStoreKey(identity));
 
   const matches = store.listMatches(options.status ? { status: options.status } : undefined);
   store.close();

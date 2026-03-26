@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import nacl from 'tweetnacl';
-import { openStore, type LocalStore } from '../store.js';
+import { openStoreAsync, type LocalStore } from '../store.js';
 
 function randomKey(): Uint8Array {
   return nacl.randomBytes(nacl.secretbox.keyLength);
@@ -20,9 +20,9 @@ describe('LocalStore matches', () => {
   let store: LocalStore;
   let key: Uint8Array;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     key = randomKey();
-    store = openStore(':memory:', key);
+    store = await openStoreAsync(':memory:', key);
     // Insert an item so foreign key works
     store.insertItem({ id: 'item-1', type: 'need', rawText: 'test', embedding: randomEmbedding(), privacyLevel: 'medium' });
   });
@@ -67,9 +67,9 @@ describe('LocalStore channels', () => {
   let store: LocalStore;
   let key: Uint8Array;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     key = randomKey();
-    store = openStore(':memory:', key);
+    store = await openStoreAsync(':memory:', key);
     store.insertItem({ id: 'item-1', type: 'need', rawText: 'test', embedding: randomEmbedding(), privacyLevel: 'medium' });
     store.insertMatch({ id: 'match-1', itemId: 'item-1', partnerDID: 'did:key:z6MkBob', similarity: 0.73 });
   });

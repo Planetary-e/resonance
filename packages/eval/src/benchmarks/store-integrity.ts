@@ -5,10 +5,10 @@ import {
   perturbWithLevel,
   cosineSimilarity,
 } from '@resonance/core';
-import { openStore, deriveStoreKey } from '@resonance/node';
+import { openStoreAsync, deriveStoreKey } from '@resonance/node';
 import { randomUUID } from 'node:crypto';
 import nacl from 'tweetnacl';
-import Database from 'better-sqlite3';
+import initSqlJs from 'sql.js';
 import { timeSync, formatMs } from '../utils.js';
 
 /** Benchmark: store encryption integrity and embedding fidelity */
@@ -29,7 +29,7 @@ export async function benchmarkStoreIntegrity(engine: EmbeddingEngine): Promise<
 
     let allPerfect = true;
     let maxDrift = 0;
-    const store = openStore(':memory:', key);
+    const store = await openStoreAsync(':memory:', key);
 
     for (const text of texts) {
       const embedding = await engine.embedForMatching(text, 'need');
@@ -67,7 +67,7 @@ export async function benchmarkStoreIntegrity(engine: EmbeddingEngine): Promise<
 
   // --- Encryption at rest verification ---
   {
-    const store = openStore(':memory:', key);
+    const store = await openStoreAsync(':memory:', key);
     const text = 'This is highly sensitive private text that must be encrypted';
     const embedding = await engine.embed(text);
     store.insertItem({ id: 'enc-check', type: 'offer', rawText: text, embedding, privacyLevel: 'high' });
@@ -75,26 +75,22 @@ export async function benchmarkStoreIntegrity(engine: EmbeddingEngine): Promise<
 
     // Cannot easily inspect :memory: DB from outside, so use a temp file
     const tmpPath = `/tmp/resonance-eval-${Date.now()}.db`;
-    const fileStore = openStore(tmpPath, key);
+    const fileStore = await openStoreAsync(tmpPath, key);
     fileStore.insertItem({ id: 'enc-check', type: 'offer', rawText: text, embedding, privacyLevel: 'high' });
     fileStore.close();
 
-    // Open raw database and check that encrypted columns are not plaintext
-    const rawDb = new Database(tmpPath);
-    const row = rawDb.prepare('SELECT raw_text_encrypted, embedding_encrypted FROM items WHERE id = ?').get('enc-check') as {
-      raw_text_encrypted: Buffer;
-      embedding_encrypted: Buffer;
-    };
+    // Open raw database with sql.js and check that encrypted columns are not plaintext
+    const { readFileSync, unlinkSync } = await import('node:fs');
+    const SQL = await initSqlJs();
+    const rawDb = new SQL.Database(readFileSync(tmpPath));
+    const rawResult = rawDb.exec("SELECT raw_text_encrypted FROM items WHERE id = 'enc-check'");
     rawDb.close();
 
-    const rawBytes = row.raw_text_encrypted;
-    const containsPlaintext = rawBytes.toString('utf-8').includes(text);
+    const rawBytes = rawResult[0]?.values[0]?.[0] as Uint8Array | undefined;
+    const containsPlaintext = rawBytes ? Buffer.from(rawBytes).toString('utf-8').includes(text) : false;
 
     // Cleanup
-    try { (await import('node:fs')).unlinkSync(tmpPath); } catch { /* ignore */ }
-    // Also remove WAL/SHM files
-    try { (await import('node:fs')).unlinkSync(tmpPath + '-wal'); } catch { /* ignore */ }
-    try { (await import('node:fs')).unlinkSync(tmpPath + '-shm'); } catch { /* ignore */ }
+    try { unlinkSync(tmpPath); } catch { /* ignore */ }
 
     results.push({
       name: 'Store encryption at rest',
@@ -108,13 +104,13 @@ export async function benchmarkStoreIntegrity(engine: EmbeddingEngine): Promise<
   // --- Wrong key rejection ---
   {
     const tmpPath = `/tmp/resonance-eval-wk-${Date.now()}.db`;
-    const store = openStore(tmpPath, key);
+    const store = await openStoreAsync(tmpPath, key);
     const embedding = await engine.embed('Test text');
     store.insertItem({ id: 'wk-1', type: 'need', rawText: 'Secret', embedding, privacyLevel: 'medium' });
     store.close();
 
     const wrongKey = nacl.randomBytes(nacl.secretbox.keyLength);
-    const wrongStore = openStore(tmpPath, wrongKey);
+    const wrongStore = await openStoreAsync(tmpPath, wrongKey);
     let rejected = false;
     try {
       wrongStore.getItem('wk-1');
@@ -139,7 +135,7 @@ export async function benchmarkStoreIntegrity(engine: EmbeddingEngine): Promise<
 
   // --- Store CRUD performance ---
   {
-    const store = openStore(':memory:', key);
+    const store = await openStoreAsync(':memory:', key);
     const embedding = await engine.embed('Performance test');
     const { perturbed, epsilon } = perturbWithLevel(embedding, 'medium');
     const count = 100;

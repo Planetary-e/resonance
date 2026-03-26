@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import nacl from 'tweetnacl';
-import Database from 'better-sqlite3';
-import { openStore, type LocalStore } from '../store.js';
+import { openStoreAsync, type LocalStore } from '../store.js';
 
 function randomKey(): Uint8Array {
   return nacl.randomBytes(nacl.secretbox.keyLength);
@@ -22,9 +21,9 @@ describe('LocalStore', () => {
   let store: LocalStore;
   let key: Uint8Array;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     key = randomKey();
-    store = openStore(':memory:', key);
+    store = await openStoreAsync(':memory:', key);
   });
 
   afterEach(() => {
@@ -122,7 +121,7 @@ describe('LocalStore', () => {
     }
   });
 
-  it('encrypts raw_text at rest (not readable from raw DB)', () => {
+  it('encrypts raw_text at rest (not readable from raw DB)', async () => {
     const embedding = randomEmbedding();
     store.insertItem({
       id: 'enc-1',
@@ -138,7 +137,7 @@ describe('LocalStore', () => {
     store.close();
 
     const wrongKey = randomKey();
-    const store2 = openStore(':memory:', key);
+    const store2 = await openStoreAsync(':memory:', key);
     // Re-insert to the new in-memory DB for this test
     store2.insertItem({
       id: 'enc-1',
@@ -150,7 +149,7 @@ describe('LocalStore', () => {
     store2.close();
 
     // Open with wrong key — decryption should fail
-    const store3 = openStore(':memory:', wrongKey);
+    const store3 = await openStoreAsync(':memory:', wrongKey);
     store3.insertItem({
       id: 'enc-2',
       type: 'need',
@@ -163,14 +162,13 @@ describe('LocalStore', () => {
     store3.close();
   });
 
-  it('schema_version is set to 1', () => {
+  it('schema_version is set to 1', async () => {
     // Open a raw DB connection to check schema version
-    const db = new Database(':memory:');
-    db.pragma('journal_mode = WAL');
+    
     // Manually run what openStore does — just open a store and check
     store.close();
 
-    const testStore = openStore(':memory:', key);
+    const testStore = await openStoreAsync(':memory:', key);
     // The store manages its own DB, but we can verify via the store behavior
     // that migration ran (items table exists and works)
     testStore.insertItem({
@@ -182,6 +180,5 @@ describe('LocalStore', () => {
     });
     expect(testStore.getItem('schema-test')).not.toBeNull();
     testStore.close();
-    db.close();
   });
 });

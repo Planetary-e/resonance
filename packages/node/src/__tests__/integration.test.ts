@@ -13,7 +13,7 @@ import {
   type MatchPayload,
 } from '@resonance/core';
 import { createRelayServer, type RelayServer } from '@resonance/relay';
-import { openStore, type LocalStore } from '../store.js';
+import { openStoreAsync, type LocalStore } from '../store.js';
 import { createRelayClient } from '../relay-client.js';
 import { createChannelManager, type ChannelManager } from '../channel.js';
 
@@ -38,9 +38,9 @@ afterAll(async () => {
   await server.stop();
 });
 
-function createInMemoryStore(): LocalStore {
+async function createInMemoryStore(): Promise<LocalStore> {
   const key = nacl.randomBytes(nacl.secretbox.keyLength);
-  return openStore(':memory:', key);
+  return openStoreAsync(':memory:', key);
 }
 
 function delay(ms: number): Promise<void> {
@@ -51,8 +51,8 @@ describe('Phase 4 end-to-end', () => {
   it('full flow: publish → match → consent → confirm → disclosure → close', async () => {
     const alice = generateIdentity();
     const bob = generateIdentity();
-    const aliceStore = createInMemoryStore();
-    const bobStore = createInMemoryStore();
+    const aliceStore = await createInMemoryStore();
+    const bobStore = await createInMemoryStore();
 
     // Embed complementary texts
     const offerText = 'Experienced Python developer available for freelance Django projects';

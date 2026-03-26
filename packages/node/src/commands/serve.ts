@@ -6,7 +6,7 @@
 import { createInterface } from 'node:readline';
 import { getDbPath, deriveStoreKey } from '../config.js';
 import { createIdentityManager } from '../identity.js';
-import { openStore } from '../store.js';
+import { openStoreAsync } from '../store.js';
 import { createRelayClient } from '../relay-client.js';
 import { createChannelManager } from '../channel.js';
 
@@ -27,7 +27,7 @@ export async function serveCommand(options: { password?: string; relay?: string 
 
   const password = options.password ?? await promptPassword('Password: ');
   const identity = mgr.load(password);
-  const store = openStore(getDbPath(), deriveStoreKey(identity));
+  const store = await openStoreAsync(getDbPath(), deriveStoreKey(identity));
   const relayUrl = options.relay ?? 'ws://localhost:9090';
 
   const client = createRelayClient({ relayUrl, identity });

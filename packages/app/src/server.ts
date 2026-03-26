@@ -10,17 +10,18 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import { handleApi } from './api.js';
 import { setSessionEvents } from './session.js';
 
-// Resolve UI directory: works in tsx (ESM), esbuild bundle (CJS), and pkg snapshot
+// Resolve UI directory: works in tsx (ESM), esbuild CJS, and pkg snapshot
 function resolveUiDir(): string {
-  // In pkg, __dirname points to /snapshot/...
-  // In esbuild CJS bundle, __dirname is the dist/ directory
-  // In tsx ESM, we use import.meta.url
+  // In pkg binary: look for ui/ next to the executable
+  if ((process as any).pkg) {
+    return join(dirname(process.execPath), 'ui');
+  }
   try {
     // ESM mode (tsx)
     const dir = dirname(new URL(import.meta.url).pathname);
     return join(dir, 'ui');
   } catch {
-    // CJS mode (esbuild/pkg) — __dirname is available
+    // CJS mode (esbuild bundle)
     return join(__dirname, 'ui');
   }
 }

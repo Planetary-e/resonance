@@ -6,7 +6,7 @@ import { createInterface } from 'node:readline';
 import { EmbeddingEngine } from '@resonance/core';
 import { ensureDataDir, getDataDir, getDbPath, deriveStoreKey } from '../config.js';
 import { createIdentityManager } from '../identity.js';
-import { openStore } from '../store.js';
+import { openStoreAsync } from '../store.js';
 
 async function promptPassword(prompt: string): Promise<string> {
   const rl = createInterface({ input: process.stdin, output: process.stderr });
@@ -48,7 +48,7 @@ export async function initCommand(options: { password?: string }): Promise<void>
   console.log('Embedding model ready.');
 
   // 4. Create database with schema
-  const store = openStore(getDbPath(), deriveStoreKey(identity));
+  const store = await openStoreAsync(getDbPath(), deriveStoreKey(identity));
   store.close();
   console.log('Local database created.');
 
