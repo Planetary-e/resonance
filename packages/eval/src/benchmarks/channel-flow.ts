@@ -7,7 +7,7 @@ import {
   type MatchPayload,
 } from '@resonance/core';
 import { createRelayServer, type RelayServer } from '@resonance/relay';
-import { openStore } from '@resonance/node';
+import { openStoreAsync } from '@resonance/node';
 import { createRelayClient } from '@resonance/node';
 import { createChannelManager } from '@resonance/node';
 import nacl from 'tweetnacl';
@@ -15,8 +15,8 @@ import { timeAsync, formatMs } from '../utils.js';
 
 const PORT = 49090 + Math.floor(Math.random() * 1000);
 
-function makeStore() {
-  return openStore(':memory:', nacl.randomBytes(nacl.secretbox.keyLength));
+async function makeStore() {
+  return openStoreAsync(':memory:', nacl.randomBytes(nacl.secretbox.keyLength));
 }
 
 function delay(ms: number): Promise<void> {
@@ -38,8 +38,8 @@ export async function benchmarkChannelFlow(engine: EmbeddingEngine): Promise<Ben
   try {
     const alice = generateIdentity();
     const bob = generateIdentity();
-    const aliceStore = makeStore();
-    const bobStore = makeStore();
+    const aliceStore = await makeStore();
+    const bobStore = await makeStore();
 
     // Embed complementary texts
     const offerEmb = await engine.embedForMatching('Python developer available for Django projects', 'offer');
