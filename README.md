@@ -76,24 +76,27 @@ npm run eval:quick
 
 ### Run the protocol
 
-**Terminal 1 — Start a relay:**
+**No centralized server needed.** Any user can act as a relay.
+
+**User A — Start the app and enable relay mode:**
 ```bash
-npx tsx packages/relay/src/main.ts
+npm run app
+# In the browser: toggle "Act as Relay" on the dashboard
+# Other users can now connect to your relay
 ```
 
-**Terminal 2 — Alice (provider):**
+**User B — Connect and publish:**
+```bash
+npm run app
+# The app auto-discovers relays via the bootstrap list
+# Publish needs/offers, see matches, open channels
+```
+
+**Or use the CLI:**
 ```bash
 resonance init --password alice
 resonance publish --type offer --password alice "Experienced Python developer available for Django projects"
 resonance serve --password alice
-```
-
-**Terminal 3 — Bob (seeker):**
-```bash
-resonance init --password bob
-resonance publish --type need --password bob "Looking for a Python developer for our Django backend"
-resonance matches --password bob
-resonance connect <matchId> --password bob
 ```
 
 Or run the automated demo:
