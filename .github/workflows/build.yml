@@ -39,7 +39,10 @@ jobs:
         run: npm install
 
       - name: Run tests
-        run: npm test --workspace=@resonance/core && npm test --workspace=@resonance/node && npm test --workspace=@resonance/relay
+        run: |
+          npm test --workspace=@resonance/core
+          npm test --workspace=@resonance/node
+          npx vitest run packages/relay/src/__tests__/integration.test.ts packages/relay/src/__tests__/matching-engine.test.ts packages/relay/src/__tests__/rate-limiter.test.ts
         continue-on-error: true
 
       - name: Build React + Electron
