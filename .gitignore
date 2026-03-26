@@ -7,3 +7,4 @@ packages/eval/results/
 .DS_Store
 .memory/
 dist-release/
+dist-electron/
