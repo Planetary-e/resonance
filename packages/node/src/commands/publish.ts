@@ -51,7 +51,7 @@ export async function publishCommand(
   }
 
   const password = options.password ?? await promptPassword('Password: ');
-  const identity = mgr.load(password);
+  const identity = await mgr.load(password);
 
   // Initialize embedding engine
   const engine = new EmbeddingEngine();

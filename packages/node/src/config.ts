@@ -34,8 +34,13 @@ export function ensureDataDir(): void {
 
 /**
  * Derive a 32-byte symmetric encryption key from an identity's secret key.
- * Used for encrypting sensitive fields in the local store.
+ * Uses domain separation to prevent key reuse across different purposes.
  */
 export function deriveStoreKey(identity: Identity): Uint8Array {
-  return nacl.hash(identity.secretKey).slice(0, nacl.secretbox.keyLength);
+  // Domain-separated: hash(secretKey || domain) to produce a unique key for the store
+  const domain = new TextEncoder().encode('resonance-store-key-v1');
+  const input = new Uint8Array(identity.secretKey.length + domain.length);
+  input.set(identity.secretKey);
+  input.set(domain, identity.secretKey.length);
+  return nacl.hash(input).slice(0, nacl.secretbox.keyLength);
 }

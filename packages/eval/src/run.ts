@@ -97,7 +97,7 @@ async function main() {
 
   // 10. Crypto integrity
   console.log('[10/13] Evaluating crypto integrity...');
-  const cryptoResults = benchmarkCryptoIntegrity();
+  const cryptoResults = await benchmarkCryptoIntegrity();
   allResults.push(...cryptoResults);
   for (const r of cryptoResults) console.log(`        ${r.name}: ${r.actual}`);
 

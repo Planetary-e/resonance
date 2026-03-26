@@ -202,11 +202,30 @@ export function secretboxDecrypt(
 
 // --- Key Export/Import ---
 
-/** Export an identity encrypted with a password. */
-export function exportIdentity(identity: Identity, password: string): string {
-  const passwordBytes = decodeUTF8(password);
-  // Derive a key from the password using a simple hash (for pilot; use scrypt/argon2 in production)
-  const key = nacl.hash(passwordBytes).slice(0, nacl.secretbox.keyLength);
+/** Derive a 32-byte key from a password using Argon2id. */
+async function deriveKeyFromPassword(password: string, salt: Uint8Array): Promise<Uint8Array> {
+  const { argon2id } = await import('hash-wasm');
+  const hash = await argon2id({
+    password,
+    salt,
+    parallelism: 1,
+    iterations: 3,
+    memorySize: 65536, // 64 MiB
+    hashLength: 32,
+    outputType: 'binary',
+  });
+  return new Uint8Array(hash);
+}
+
+/** Legacy key derivation (for reading v1 identity files). */
+function deriveKeyLegacy(password: string): Uint8Array {
+  return nacl.hash(decodeUTF8(password)).slice(0, nacl.secretbox.keyLength);
+}
+
+/** Export an identity encrypted with a password (Argon2id KDF). */
+export async function exportIdentity(identity: Identity, password: string): Promise<string> {
+  const salt = nacl.randomBytes(16);
+  const key = await deriveKeyFromPassword(password, salt);
   const data = decodeUTF8(JSON.stringify({
     publicKey: encodeBase64(identity.publicKey),
     secretKey: encodeBase64(identity.secretKey),
@@ -214,17 +233,27 @@ export function exportIdentity(identity: Identity, password: string): string {
   }));
   const { nonce, ciphertext } = secretboxEncrypt(data, key);
   return JSON.stringify({
+    version: 2,
+    salt: encodeBase64(salt),
     nonce: encodeBase64(nonce),
     ciphertext: encodeBase64(ciphertext),
   });
 }
 
-/** Import an identity from an encrypted export. */
-export function importIdentity(encrypted: string, password: string): Identity {
-  const passwordBytes = decodeUTF8(password);
-  const key = nacl.hash(passwordBytes).slice(0, nacl.secretbox.keyLength);
-  const { nonce, ciphertext } = JSON.parse(encrypted);
-  const decrypted = secretboxDecrypt(decodeBase64(ciphertext), decodeBase64(nonce), key);
+/** Import an identity from an encrypted export. Supports v1 (SHA-512) and v2 (Argon2id). */
+export async function importIdentity(encrypted: string, password: string): Promise<Identity> {
+  const parsed = JSON.parse(encrypted);
+  let key: Uint8Array;
+
+  if (parsed.version === 2) {
+    // v2: Argon2id with salt
+    key = await deriveKeyFromPassword(password, decodeBase64(parsed.salt));
+  } else {
+    // v1 (legacy): raw SHA-512
+    key = deriveKeyLegacy(password);
+  }
+
+  const decrypted = secretboxDecrypt(decodeBase64(parsed.ciphertext), decodeBase64(parsed.nonce), key);
   if (!decrypted) throw new Error('Decryption failed — wrong password?');
   const data = JSON.parse(encodeUTF8(decrypted));
   return {

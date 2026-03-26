@@ -2,6 +2,7 @@
  * REST API route handlers for the web UI.
  */
 
+import { randomBytes } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
   getSession,
@@ -18,8 +19,17 @@ import {
 type Req = IncomingMessage;
 type Res = ServerResponse;
 
+const ALLOWED_ORIGIN = 'http://127.0.0.1';
+const MAX_BODY_SIZE = 1024 * 1024; // 1 MiB
+
+// Session token for WebSocket authentication (set on unlock)
+export let sessionToken: string | null = null;
+
 function json(res: Res, data: unknown, status = 200): void {
-  res.writeHead(status, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+  res.writeHead(status, {
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
+  });
   res.end(JSON.stringify(data));
 }
 
@@ -28,12 +38,22 @@ function error(res: Res, message: string, status = 400): void {
 }
 
 async function readBody(req: Req): Promise<Record<string, unknown>> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     let body = '';
-    req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+    let size = 0;
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > MAX_BODY_SIZE) {
+        req.destroy();
+        reject(new Error('Body too large'));
+        return;
+      }
+      body += chunk.toString();
+    });
     req.on('end', () => {
       try { resolve(JSON.parse(body)); } catch { resolve({}); }
     });
+    req.on('error', () => resolve({}));
   });
 }
 
@@ -52,7 +72,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
   // CORS preflight
   if (method === 'OPTIONS') {
     res.writeHead(204, {
-      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
       'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type',
     });
@@ -86,7 +106,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
       const result = await initSession(password);
       json(res, result);
     } catch (err) {
-      error(res, String(err), 500);
+      error(res, 'Internal error', 500);
     }
     return true;
   }
@@ -98,7 +118,8 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
     if (!password) { error(res, 'Password required'); return true; }
     try {
       const result = await unlockSession(password, relayUrl);
-      json(res, result);
+      sessionToken = randomBytes(32).toString('hex');
+      json(res, { ...result, token: sessionToken });
     } catch (err) {
       error(res, 'Wrong password or corrupted identity', 401);
     }
@@ -136,7 +157,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
       const result = await publishItem(text, type as any, privacy as any);
       json(res, result);
     } catch (err) {
-      error(res, String(err), 500);
+      error(res, 'Internal error', 500);
     }
     return true;
   }
@@ -174,7 +195,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
       const results = await searchRelay(text, type as any);
       json(res, { results });
     } catch (err) {
-      error(res, String(err), 500);
+      error(res, 'Internal error', 500);
     }
     return true;
   }
@@ -197,7 +218,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
       const result = await initiateChannel(matchId);
       json(res, result);
     } catch (err) {
-      error(res, String(err), 500);
+      error(res, 'Internal error', 500);
     }
     return true;
   }
@@ -228,7 +249,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
           error(res, 'Unknown action', 404);
       }
     } catch (err) {
-      error(res, String(err), 500);
+      error(res, 'Internal error', 500);
     }
     return true;
   }
@@ -240,7 +261,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
       await getSession()!.channelMgr.sendClose(channelId);
       json(res, { closed: true });
     } catch (err) {
-      error(res, String(err), 500);
+      error(res, 'Internal error', 500);
     }
     return true;
   }

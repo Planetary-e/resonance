@@ -26,10 +26,12 @@ async function api(method, path, body) {
 // ============================================================================
 
 let ws = null;
+let authToken = null;
 
 function connectEvents() {
+  if (!authToken) return;
   try {
-    ws = new WebSocket('ws://localhost:3000/api/events');
+    ws = new WebSocket(`ws://localhost:3000/api/events?token=${authToken}`);
 
     ws.onopen = () => {
       updateRelayDisplay();
@@ -213,6 +215,9 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
 
 
 async function onUnlocked(data) {
+  // Save session token for WebSocket auth
+  if (data.token) authToken = data.token;
+
   // Set DID in topbar
   if (data.did) {
     document.getElementById('topbar-did').textContent = truncateDID(data.did);

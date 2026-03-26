@@ -38,7 +38,7 @@ export async function initCommand(options: { password?: string }): Promise<void>
   console.log(`Data directory: ${getDataDir()}`);
 
   // 2. Generate and save identity
-  const identity = mgr.create(password);
+  const identity = await mgr.create(password);
   console.log(`Identity created: ${identity.did}`);
 
   // 3. Initialize embedding engine (downloads model on first run)

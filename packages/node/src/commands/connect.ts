@@ -29,7 +29,7 @@ export async function connectCommand(
   }
 
   const password = options.password ?? await promptPassword('Password: ');
-  const identity = mgr.load(password);
+  const identity = await mgr.load(password);
   const store = await openStoreAsync(getDbPath(), deriveStoreKey(identity));
 
   const match = store.getMatch(matchId);

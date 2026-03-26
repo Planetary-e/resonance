@@ -159,25 +159,33 @@ describe('SecretBox Encryption', () => {
 });
 
 describe('Identity Export/Import', () => {
-  it('round-trips with correct password', () => {
+  it('round-trips with correct password (Argon2id)', async () => {
     const original = generateIdentity();
-    const exported = exportIdentity(original, 'mypassword123');
-    const imported = importIdentity(exported, 'mypassword123');
+    const exported = await exportIdentity(original, 'mypassword123');
+    const imported = await importIdentity(exported, 'mypassword123');
 
     expect(imported.did).toBe(original.did);
     expect(imported.publicKey).toEqual(original.publicKey);
     expect(imported.secretKey).toEqual(original.secretKey);
   });
 
-  it('fails with wrong password', () => {
+  it('fails with wrong password', async () => {
     const original = generateIdentity();
-    const exported = exportIdentity(original, 'correct');
-    expect(() => importIdentity(exported, 'wrong')).toThrow();
+    const exported = await exportIdentity(original, 'correct');
+    await expect(importIdentity(exported, 'wrong')).rejects.toThrow();
   });
 
-  it('exported data is not plaintext', () => {
+  it('exported data is not plaintext', async () => {
     const original = generateIdentity();
-    const exported = exportIdentity(original, 'pass');
+    const exported = await exportIdentity(original, 'pass');
     expect(exported).not.toContain(original.did);
+  });
+
+  it('v2 format includes salt and version', async () => {
+    const original = generateIdentity();
+    const exported = await exportIdentity(original, 'test');
+    const parsed = JSON.parse(exported);
+    expect(parsed.version).toBe(2);
+    expect(parsed.salt).toBeDefined();
   });
 });

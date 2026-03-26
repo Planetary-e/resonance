@@ -26,7 +26,7 @@ export async function serveCommand(options: { password?: string; relay?: string 
   }
 
   const password = options.password ?? await promptPassword('Password: ');
-  const identity = mgr.load(password);
+  const identity = await mgr.load(password);
   const store = await openStoreAsync(getDbPath(), deriveStoreKey(identity));
   const relayUrl = options.relay ?? 'ws://localhost:9090';
 

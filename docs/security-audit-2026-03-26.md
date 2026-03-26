@@ -1,0 +1,472 @@
+# Resonance Security Audit Report
+
+**Date**: 2026-03-26
+**Scope**: Full codebase — `packages/core`, `packages/node`, `packages/relay`, `packages/app`
+**Methodology**: Manual source code review with focus on safety, security, and privacy
+
+---
+
+## Executive Summary
+
+Planetary Resonance is a privacy-preserving P2P matching protocol built on Ed25519/X25519 cryptography, differential privacy perturbation, and end-to-end encrypted channels. The codebase demonstrates solid cryptographic engineering — correct use of TweetNaCl primitives, unique random nonces per encryption, field-level store encryption, and comprehensive message signing.
+
+However, this audit identified **16 vulnerabilities** — **3 critical, 4 high, and 9 medium** severity — that undermine the protocol's two core promises:
+
+- **Privacy**: The search function sends unperturbed embeddings to the relay, bypassing the entire differential privacy model (VULN-02).
+- **E2E Encryption**: The channel key exchange is unauthenticated, allowing a malicious relay to perform a man-in-the-middle attack and read all channel traffic (VULN-01).
+
+These two findings, combined with a weak password KDF (VULN-03), represent the highest priority remediations before any production deployment.
+
+---
+
+## Findings
+
+### CRITICAL Severity
+
+#### VULN-01: Relay Man-in-the-Middle on Channel Key Exchange
+
+| Field | Value |
+|-------|-------|
+| **Severity** | CRITICAL |
+| **Category** | Cryptographic Protocol Flaw |
+| **CVSS Estimate** | 9.1 |
+| **Files** | `packages/node/src/channel.ts:160-166, 208-215` `packages/relay/src/handler.ts:126-148` |
+
+**Description**
+
+The consent handshake transmits ephemeral X25519 public keys as plaintext JSON inside the `encryptedForPartner` field. Despite the field name suggesting encryption, the actual value is:
+
+```typescript
+// channel.ts:164-166
+encryptedForPartner: JSON.stringify({
+  ephemeralPublicKey: encodeBase64(myKP.publicKey),
+})
+```
+
+No encryption. No signature. No authentication binding the ephemeral key to the sender's DID.
+
+The relay's `handleConsent` function (handler.ts:139-143) receives this value and forwards it verbatim to the partner in a `CONSENT_FORWARD` message. A malicious relay can:
+
+1. Intercept Alice's ephemeral public key from her CONSENT message
+2. Generate its own ephemeral keypair
+3. Substitute its own public key in the CONSENT_FORWARD to Bob
+4. Repeat when Bob responds to Alice
+5. Derive shared secrets with **both** parties independently
+6. Decrypt, read, and re-encrypt **all** channel messages transparently
+
+This completely breaks the E2E encryption guarantee. The protocol has Ed25519 signing infrastructure (`createMessage`/`verifyMessage` in protocol.ts) and box encryption (`boxEncrypt`/`boxDecrypt` in crypto.ts), but neither is used to protect the key exchange.
+
+**Impact**: Total compromise of channel confidentiality. The relay can read all progressive disclosures, confirm embeddings, accept/reject messages, and contact information exchanged between matched users.
+
+**Root Cause**: No cryptographic authentication of ephemeral keys to the sender's identity. The protocol's honest-but-curious relay assumption is not enforced cryptographically.
+
+**Recommended Fix**:
+1. Sign the ephemeral public key with the sender's Ed25519 identity key. Include `matchId` and partner DID in the signed payload to prevent replay/misdirection.
+2. Use `boxEncrypt` (already implemented in crypto.ts) to encrypt the consent payload for the partner's public key derived from their DID.
+3. On receipt, verify the signature against the sender's DID before accepting the ephemeral key.
+4. Consider adopting a Noise protocol handshake (e.g., Noise_XX) for stronger forward secrecy guarantees.
+
+---
+
+#### VULN-02: Search Sends Unperturbed Embeddings to Relay
+
+| Field | Value |
+|-------|-------|
+| **Severity** | CRITICAL |
+| **Category** | Privacy Model Bypass |
+| **CVSS Estimate** | 8.6 |
+| **Files** | `packages/app/src/session.ts:189-197` `packages/core/src/types.ts:71` |
+
+**Description**
+
+The `searchRelay()` function embeds the query text and sends the resulting vector directly to the relay without perturbation:
+
+```typescript
+// session.ts:193-195
+const embedding = await s.engine.embedForMatching(text, type);
+const results = await s.relayClient.search({
+  vector: Array.from(embedding),  // TRUE embedding — no perturbation
+  k: 10,
+  threshold: 0.5,
+});
+```
+
+This is by design — the comment in types.ts:71 states `perturbMode: 'index-only'` — "Only perturb indexed (published) embeddings; queries use true embeddings." However, it fundamentally undermines the privacy model.
+
+Compare with the `publishItem()` function (session.ts:172) which correctly applies differential privacy:
+
+```typescript
+// session.ts:172
+const { perturbed, epsilon } = perturbWithLevel(embedding, privacy);
+```
+
+Every time a user searches, the relay receives an exact semantic representation of their intent. Since users must search to discover matches, this gives the relay access to unperturbed intent vectors for every active user.
+
+**Impact**: The relay can reconstruct user interests with full precision. The differential privacy applied to published items becomes meaningless if the same information is available via search queries.
+
+**Root Cause**: Architectural decision to send raw queries for better search precision, without recognizing this negates the differential privacy applied to published items.
+
+**Recommended Fix**:
+1. Apply `perturbWithLevel()` to search queries using the same mechanism as publishing.
+2. Accept the reduced search precision — the direct channel confirmation step (true embedding exchange peer-to-peer) provides a compensation mechanism for false negatives from perturbed queries.
+3. For stronger guarantees, consider Private Information Retrieval (PIR) techniques or a multi-relay architecture where no single relay sees the full query.
+
+---
+
+#### VULN-03: Weak Password Key Derivation (Raw SHA-512)
+
+| Field | Value |
+|-------|-------|
+| **Severity** | CRITICAL |
+| **Category** | Cryptographic Weakness |
+| **CVSS Estimate** | 8.1 |
+| **Files** | `packages/core/src/crypto.ts:207-209, 225` `packages/node/src/config.ts:39-41` |
+
+**Description**
+
+Both `exportIdentity` and `deriveStoreKey` derive encryption keys using a single pass of `nacl.hash()` (SHA-512) truncated to 32 bytes:
+
+```typescript
+// crypto.ts:208-209
+// Derive a key from the password using a simple hash (for pilot; use scrypt/argon2 in production)
+const key = nacl.hash(passwordBytes).slice(0, nacl.secretbox.keyLength);
+
+// config.ts:39-41
+export function deriveStoreKey(identity: Identity): Uint8Array {
+  return nacl.hash(identity.secretKey).slice(0, nacl.secretbox.keyLength);
+}
+```
+
+For `exportIdentity`:
+- **No salt**: Identical passwords produce identical keys, enabling precomputed rainbow table attacks.
+- **No iterations**: A single SHA-512 hash can be computed at ~10 billion hashes/second on modern GPUs.
+- **No memory cost**: No defense against parallelized attacks.
+
+For `deriveStoreKey`: The input is a 64-byte Ed25519 secret key (high entropy), making brute force impractical. However, the pattern is still poor practice — no domain separation means the same key derivation is used for different purposes.
+
+**Impact**: An attacker who obtains the encrypted `identity.json` file can mount an efficient offline dictionary/brute-force attack against the password. If successful, they gain the user's full Ed25519 identity (DID, signing key, and by extension, store decryption key).
+
+**Root Cause**: Placeholder implementation acknowledged in code comments, not yet upgraded.
+
+**Recommended Fix**:
+1. Replace `nacl.hash(password)` with Argon2id: memory cost >= 64 MiB, time cost >= 3 iterations, parallelism = 1.
+2. Generate a unique random 16-byte salt, stored alongside the ciphertext in `identity.json`.
+3. For `deriveStoreKey`, use HKDF-SHA256 with a domain separation label (e.g., `"resonance-store-key-v1"`) to derive the store key from the identity secret key.
+
+---
+
+### HIGH Severity
+
+#### VULN-04: No Request Body Size Limit (Memory Exhaustion DoS)
+
+| Field | Value |
+|-------|-------|
+| **Severity** | HIGH |
+| **CVSS Estimate** | 7.5 |
+| **File** | `packages/app/src/api.ts:30-38` |
+
+**Description**
+
+The `readBody()` function accumulates incoming request body chunks into a string without any size check:
+
+```typescript
+async function readBody(req: Req): Promise<Record<string, unknown>> {
+  return new Promise((resolve) => {
+    let body = '';
+    req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+    req.on('end', () => {
+      try { resolve(JSON.parse(body)); } catch { resolve({}); }
+    });
+  });
+}
+```
+
+An attacker can send an arbitrarily large POST body to any API endpoint (`/api/init`, `/api/unlock`, `/api/items`, `/api/search`) to exhaust the Node.js process memory. While the app server binds to `127.0.0.1` (server.ts:138), exploitation is possible through VULN-05 (CORS wildcard) from any website the user visits.
+
+**Recommended Fix**:
+1. Add a maximum body size constant (e.g., 1 MiB).
+2. Track accumulated size in `readBody()` and destroy the request stream with a 413 status if exceeded.
+
+---
+
+#### VULN-05: CORS Wildcard on All Sensitive API Endpoints
+
+| Field | Value |
+|-------|-------|
+| **Severity** | HIGH |
+| **CVSS Estimate** | 7.4 |
+| **File** | `packages/app/src/api.ts:22, 54-58` |
+
+**Description**
+
+Every API response includes `Access-Control-Allow-Origin: *`:
+
+```typescript
+function json(res: Res, data: unknown, status = 200): void {
+  res.writeHead(status, {
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': '*',  // Allows ANY origin
+  });
+  res.end(JSON.stringify(data));
+}
+```
+
+The CORS preflight handler (lines 53-61) also returns wildcard origin. This allows any website the user visits to:
+
+- Submit passwords to `/api/unlock` and `/api/init`
+- Read all stored items (including decrypted raw text) from `/api/items`
+- Read match data and partner DIDs from `/api/matches`
+- Initiate channels and perform actions on behalf of the user
+- Search the relay using `/api/search`
+
+**Recommended Fix**:
+1. Remove the wildcard origin.
+2. Restrict to `http://127.0.0.1:<port>` (the local UI origin).
+3. Validate the `Origin` header against an allowlist before setting CORS headers.
+4. Consider adding CSRF tokens for state-mutating endpoints.
+
+---
+
+#### VULN-06: Unauthenticated WebSocket Event Stream
+
+| Field | Value |
+|-------|-------|
+| **Severity** | HIGH |
+| **CVSS Estimate** | 7.1 |
+| **File** | `packages/app/src/server.ts:131-135` |
+
+**Description**
+
+The WebSocket server at `/api/events` accepts any connection without authentication:
+
+```typescript
+wss = new WebSocketServer({ server: httpServer, path: '/api/events' });
+wss.on('connection', (ws) => {
+  wsClients.add(ws);
+  ws.on('close', () => wsClients.delete(ws));
+});
+```
+
+All session events are broadcast to every connected client — match notifications (including partner DIDs and similarity scores), channel readiness, confirmation results, disclosure text, accept/reject messages. WebSocket connections bypass CORS entirely (the Same-Origin Policy does not apply to WebSocket upgrades), so any website can open a `ws://localhost:<port>/api/events` connection.
+
+**Recommended Fix**:
+1. Require a session-scoped authentication token on WebSocket connection (via query parameter or initial message).
+2. Generate the token on `/api/unlock` and require it for WebSocket subscription.
+3. Validate the `Origin` header on upgrade requests as defense-in-depth.
+
+---
+
+#### VULN-07: Unauthenticated Relay Stats Endpoint
+
+| Field | Value |
+|-------|-------|
+| **Severity** | HIGH |
+| **CVSS Estimate** | 5.3 |
+| **File** | `packages/relay/src/server.ts:126-135` |
+
+**Description**
+
+The `/stats` HTTP endpoint returns operational metrics without authentication:
+
+```typescript
+if (req.url === '/stats' && req.method === 'GET') {
+  const stats = engine.getStats();
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({
+    indexed_embeddings: stats.total,
+    connected_nodes: clients.size,
+    matches_today: stats.matchesToday,
+    uptime: Math.floor((Date.now() - startTime) / 1000),
+  }));
+}
+```
+
+The relay listens on `0.0.0.0` (line 65), making this endpoint network-accessible. Exposed metrics aid reconnaissance by revealing network size, activity levels, and server restart patterns.
+
+**Recommended Fix**: Add API key authentication or restrict to an admin-only bind address.
+
+---
+
+### MEDIUM Severity
+
+#### VULN-08: No Session Timeout / Auto-Lock
+
+| Field | Value |
+|-------|-------|
+| **Severity** | MEDIUM |
+| **File** | `packages/app/src/session.ts` |
+
+Once `unlockSession()` is called (line 134), the session persists in memory indefinitely. The `lockSession()` function (line 160) exists but is never called automatically. The session holds the full Ed25519 secret key, store encryption key, and active relay connection. An unattended device remains fully accessible.
+
+**Fix**: Implement a configurable inactivity timer (default 15-30 min) that calls `lockSession()`. Reset on each API request.
+
+---
+
+#### VULN-09: Fragile Directory Traversal Protection
+
+| Field | Value |
+|-------|-------|
+| **Severity** | MEDIUM |
+| **File** | `packages/app/src/server.ts:108` |
+
+The static file server sanitizes paths with a blocklist approach:
+
+```typescript
+filePath = filePath.replace(/\.\./g, '');
+```
+
+While this handles common `../` sequences, it is fragile. Proper defense should verify the resolved path remains within the expected directory.
+
+**Fix**: After constructing `fullPath`, verify `path.resolve(fullPath).startsWith(path.resolve(UI_DIR))` before serving.
+
+---
+
+#### VULN-10: matchRegistry Unbounded Memory Growth
+
+| Field | Value |
+|-------|-------|
+| **Severity** | MEDIUM |
+| **Files** | `packages/relay/src/server.ts:89` `packages/relay/src/handler.ts:75` |
+
+The `matchRegistry` Map grows without bound — `handlePublish` adds an entry for every match notification, but no code ever removes entries. The `notifiedPairs` Set in `MatchingEngine` (matching-engine.ts) has the same issue. Long-running relays will eventually exhaust memory.
+
+**Fix**: Add TTL-based expiry (aligned with `matchExpiryMs`) and periodic cleanup. Consider an LRU cache with a maximum size.
+
+---
+
+#### VULN-11: DID Reuse Enables Relay-Side Correlation
+
+| Field | Value |
+|-------|-------|
+| **Severity** | MEDIUM |
+| **Category** | Privacy / Architectural |
+| **Files** | `packages/node/src/identity.ts` `packages/relay/src/handler.ts:58-104` |
+
+Each user has a single DID used for all published items, searches, consent exchanges, and channel establishment. The relay can trivially correlate all activity from the same DID, building a complete behavioral profile: what types of items a user publishes, how often they search, who they match with, which matches they consent to.
+
+**Fix**: Consider per-item or per-session ephemeral DIDs. Use blind signatures or group signatures for authorization without identity linkage. At minimum, document the correlation risk in the threat model.
+
+---
+
+#### VULN-12: Relay Identity Ephemeral on Restart
+
+| Field | Value |
+|-------|-------|
+| **Severity** | MEDIUM |
+| **File** | `packages/relay/src/server.ts:87` |
+
+The relay generates a fresh identity on every startup via `generateIdentity()`. The DID is logged but never persisted. Clients cannot verify relay continuity or detect impersonation.
+
+**Fix**: Persist the relay identity to disk. Allow clients to pin the relay's DID and warn if it changes.
+
+---
+
+#### VULN-13: No Rate Limiting on Authentication Attempts
+
+| Field | Value |
+|-------|-------|
+| **Severity** | MEDIUM |
+| **File** | `packages/relay/src/server.ts:174-216` |
+
+The AUTH handler validates timestamp freshness but does not limit authentication attempt rates. The existing `RateLimiter` only covers `publish` and `search` actions.
+
+**Fix**: Add IP-based rate limiting for WebSocket connection attempts. Implement exponential backoff after repeated failed connections.
+
+---
+
+#### VULN-14: Sensitive Data Leakage in Error Responses
+
+| Field | Value |
+|-------|-------|
+| **Severity** | MEDIUM |
+| **File** | `packages/app/src/api.ts:89, 139, 177, 200, 231` |
+
+Several error handlers pass `String(err)` directly to the client (e.g., `error(res, String(err), 500)`). JavaScript error objects may include stack traces, file paths, and internal state descriptions. Line 103 correctly uses a generic message, but other paths do not.
+
+**Fix**: Return generic error messages to the client. Log full details server-side.
+
+---
+
+#### VULN-15: SQLite Database File Not Encrypted at Rest
+
+| Field | Value |
+|-------|-------|
+| **Severity** | MEDIUM |
+| **File** | `packages/node/src/store.ts` |
+
+While sensitive field values (raw_text, embedding, shared_key) are encrypted with secretbox, the SQLite file itself is unencrypted. An attacker with file system access can read: table structure, item IDs and types, privacy level settings, status values, partner DIDs, similarity scores, timestamps, and row counts. The `perturbed` column (line 114) is stored unencrypted as it is "public data sent to relays."
+
+**Fix**: Consider SQLCipher for full database encryption. Set restrictive file permissions (0600). Document which metadata is exposed.
+
+---
+
+#### VULN-16: Key Material Not Zeroed from Memory
+
+| Field | Value |
+|-------|-------|
+| **Severity** | MEDIUM |
+| **File** | `packages/node/src/channel.ts` `packages/app/src/session.ts:160-165` |
+
+After channel close, shared secrets and ephemeral key pairs remain in the JavaScript heap. The `InternalChannel` object stays in the `channels` Map. `lockSession()` sets `session = null` but does not zero `identity.secretKey`.
+
+**Fix**: On channel close, zero `sharedSecret` and `myKeyPair.secretKey` with `.fill(0)` and remove from Map. On session lock, zero `identity.secretKey`. Acknowledge JavaScript provides no memory erasure guarantees, but zeroing reduces the exposure window.
+
+---
+
+## Strengths
+
+The audit also identified several well-implemented security measures worth acknowledging:
+
+- **Correct crypto primitive selection**: TweetNaCl (Ed25519, X25519, XSalsa20-Poly1305) is a well-vetted, audited library
+- **Unique random nonces**: Every encryption operation generates a fresh nonce via `nacl.randomBytes()` (CSPRNG-backed)
+- **Field-level encryption**: Sensitive store fields are encrypted individually with unique nonces
+- **Forward secrecy per channel**: Ephemeral X25519 keypairs generated per channel
+- **No hardcoded secrets**: Clean separation of configuration and credentials
+- **DID-based identity**: No centralized user registry or email/phone requirements
+- **Comprehensive message signing**: All protocol messages signed with Ed25519 and verified
+- **Rate limiting**: Per-DID fixed-window rate limiter for publish/search operations
+- **Log sanitization**: Vectors and embeddings stripped from log output
+- **Input validation**: Type checking on protocol messages, DID format validation, SQL schema constraints
+
+---
+
+## Remediation Priority Matrix
+
+| Priority | ID | Finding | Effort | Impact if Unresolved |
+|----------|----|---------|--------|---------------------|
+| **P0** | VULN-01 | MITM key exchange | Medium | E2E encryption broken |
+| **P0** | VULN-02 | Raw search embeddings | Low | Privacy model defeated |
+| **P0** | VULN-03 | Weak password KDF | Low | Identity theft via offline attack |
+| **P1** | VULN-05 | CORS wildcard | Low | Cross-origin data exfiltration |
+| **P1** | VULN-06 | Unauthenticated WebSocket | Low | Real-time eavesdropping |
+| **P1** | VULN-04 | No body size limit | Low | Memory exhaustion DoS |
+| **P1** | VULN-07 | Unauthenticated stats | Low | Reconnaissance |
+| **P2** | VULN-08 | No session timeout | Low | Unattended access |
+| **P2** | VULN-09 | Directory traversal | Low | Potential file read |
+| **P2** | VULN-10 | matchRegistry leak | Low | Long-term DoS |
+| **P2** | VULN-14 | Error data leakage | Low | Information disclosure |
+| **P3** | VULN-11 | DID correlation | High | Privacy degradation |
+| **P3** | VULN-12 | Relay identity ephemeral | Medium | Impersonation risk |
+| **P3** | VULN-13 | Auth rate limiting | Low | Brute-force enablement |
+| **P3** | VULN-15 | SQLite unencrypted | Medium | Metadata exposure |
+| **P3** | VULN-16 | Key material in memory | Low | Forensic recovery |
+
+---
+
+## Recommended Fix Order
+
+The fixes have dependencies that inform sequencing:
+
+1. **VULN-03** (KDF) — Standalone change in `crypto.ts` and `config.ts`. Requires adding Argon2 dependency. No other fix depends on it.
+
+2. **VULN-01** (MITM) — Uses existing `sign`/`verify` and `boxEncrypt`/`boxDecrypt` from crypto.ts. Changes span `channel.ts` (both handshake directions) and may require a new consent payload field in `protocol.ts`.
+
+3. **VULN-02** (search perturbation) — One-line change in `session.ts` to add `perturbWithLevel()`. **Must re-run eval benchmarks** (`npm run eval`) to measure impact on search recall.
+
+4. **VULN-04, VULN-05, VULN-06, VULN-07** — Independent changes in `api.ts` and `server.ts`. Can be parallelized.
+
+5. **VULN-10 + VULN-12** — Both involve relay lifecycle; implement together.
+
+---
+
+*Report generated by manual code audit. All file paths and line numbers verified against the current codebase.*

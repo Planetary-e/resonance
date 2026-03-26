@@ -14,11 +14,11 @@ import { getIdentityPath, ensureDataDir } from './config.js';
 
 export interface IdentityManager {
   /** Generate a new identity and save it encrypted with the password. */
-  create(password: string): Identity;
+  create(password: string): Promise<Identity>;
   /** Load an existing identity by decrypting with the password. */
-  load(password: string): Identity;
+  load(password: string): Promise<Identity>;
   /** Save an identity encrypted with the password. */
-  save(identity: Identity, password: string): void;
+  save(identity: Identity, password: string): Promise<void>;
   /** Check if an identity file exists. */
   exists(): boolean;
 }
@@ -27,20 +27,20 @@ export function createIdentityManager(identityPath?: string): IdentityManager {
   const filePath = identityPath ?? getIdentityPath();
 
   return {
-    create(password: string): Identity {
+    async create(password: string): Promise<Identity> {
       const identity = generateIdentity();
-      this.save(identity, password);
+      await this.save(identity, password);
       return identity;
     },
 
-    load(password: string): Identity {
+    async load(password: string): Promise<Identity> {
       const encrypted = readFileSync(filePath, 'utf-8');
       return importIdentity(encrypted, password);
     },
 
-    save(identity: Identity, password: string): void {
+    async save(identity: Identity, password: string): Promise<void> {
       ensureDataDir();
-      const encrypted = exportIdentity(identity, password);
+      const encrypted = await exportIdentity(identity, password);
       writeFileSync(filePath, encrypted, 'utf-8');
     },
 

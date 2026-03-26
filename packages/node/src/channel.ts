@@ -12,6 +12,9 @@ import {
   deriveSharedSecret,
   secretboxEncrypt,
   secretboxDecrypt,
+  sign,
+  verify,
+  didToPublicKey,
   encodeBase64,
   decodeBase64,
   decodeUTF8,
@@ -91,6 +94,50 @@ interface InternalChannel {
   partnerEmbedding: Float32Array | null;
 }
 
+// --- Authenticated key exchange helpers ---
+
+/** Sign the consent payload to prevent MITM by the relay. */
+function signConsentData(
+  ephemeralPublicKey: Uint8Array,
+  matchId: string,
+  partnerDID: string,
+  identity: Identity,
+): string {
+  const payload = JSON.stringify({
+    ephemeralPublicKey: encodeBase64(ephemeralPublicKey),
+    matchId,
+    partnerDID,
+  });
+  const sig = sign(decodeUTF8(payload), identity.secretKey);
+  return JSON.stringify({
+    payload,
+    signature: encodeBase64(sig),
+    senderDID: identity.did,
+  });
+}
+
+/** Verify and extract the ephemeral public key from a signed consent. */
+function verifyConsentData(
+  data: string,
+  expectedMatchId: string,
+): { ephemeralPublicKey: Uint8Array; senderDID: string } {
+  const outer = JSON.parse(data);
+  const { payload, signature, senderDID } = outer;
+
+  // Verify signature with the sender's public key (derived from DID)
+  const pubKey = didToPublicKey(senderDID);
+  const isValid = verify(decodeUTF8(payload), decodeBase64(signature), pubKey);
+  if (!isValid) throw new Error('Invalid consent signature — possible MITM');
+
+  const inner = JSON.parse(payload);
+  if (inner.matchId !== expectedMatchId) throw new Error('Consent matchId mismatch');
+
+  return {
+    ephemeralPublicKey: decodeBase64(inner.ephemeralPublicKey),
+    senderDID,
+  };
+}
+
 // --- Implementation ---
 
 export function createChannelManager(config: ChannelManagerConfig): ChannelManager {
@@ -157,13 +204,11 @@ export function createChannelManager(config: ChannelManagerConfig): ChannelManag
       // Store channel in DB
       store.insertChannel({ id, matchId, partnerDID });
 
-      // Send consent with our ephemeral public key
+      // Send consent with signed ephemeral public key (prevents relay MITM)
       await relayClient.sendConsent({
         matchId,
         accept: true,
-        encryptedForPartner: JSON.stringify({
-          ephemeralPublicKey: encodeBase64(myKP.publicKey),
-        }),
+        encryptedForPartner: signConsentData(myKP.publicKey, matchId, partnerDID, identity),
       });
 
       store.updateMatchStatus(matchId, 'consented');
@@ -171,8 +216,11 @@ export function createChannelManager(config: ChannelManagerConfig): ChannelManag
     },
 
     async handleConsentForward(payload: ConsentForwardPayload): Promise<void> {
-      const data = JSON.parse(payload.encrypted);
-      const partnerPubKey = decodeBase64(data.ephemeralPublicKey);
+      // Verify signature to prevent relay MITM
+      const { ephemeralPublicKey: partnerPubKey, senderDID } = verifyConsentData(
+        payload.encrypted,
+        payload.matchId,
+      );
       const channelId = matchToChannel.get(payload.matchId);
 
       if (channelId) {
@@ -205,13 +253,11 @@ export function createChannelManager(config: ChannelManagerConfig): ChannelManag
 
         store.insertChannel({ id, matchId: payload.matchId, partnerDID: payload.fromDID, sharedKey: sharedSecret });
 
-        // Send our consent back
+        // Send our consent back (signed to prevent relay MITM)
         await relayClient.sendConsent({
           matchId: payload.matchId,
           accept: true,
-          encryptedForPartner: JSON.stringify({
-            ephemeralPublicKey: encodeBase64(myKP.publicKey),
-          }),
+          encryptedForPartner: signConsentData(myKP.publicKey, payload.matchId, payload.fromDID, identity),
         });
 
         store.updateMatchStatus(payload.matchId, 'consented');

@@ -21,7 +21,7 @@ import { timeSync } from '../utils.js';
 const ITERATIONS = 100;
 
 /** Benchmark: crypto round-trip integrity and performance */
-export function benchmarkCryptoIntegrity(): BenchmarkResult[] {
+export async function benchmarkCryptoIntegrity(): Promise<BenchmarkResult[]> {
   const results: BenchmarkResult[] = [];
 
   // --- Identity generation + DID ---
@@ -44,14 +44,14 @@ export function benchmarkCryptoIntegrity(): BenchmarkResult[] {
     });
   }
 
-  // --- Identity export/import round-trip ---
+  // --- Identity export/import round-trip (Argon2id — slower, fewer iterations) ---
   {
     let allMatch = true;
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 3; i++) {
       const identity = generateIdentity();
       const password = `test-password-${i}`;
-      const exported = exportIdentity(identity, password);
-      const imported = importIdentity(exported, password);
+      const exported = await exportIdentity(identity, password);
+      const imported = await importIdentity(exported, password);
       if (imported.did !== identity.did) allMatch = false;
       if (Buffer.from(imported.publicKey).compare(Buffer.from(identity.publicKey)) !== 0) allMatch = false;
       if (Buffer.from(imported.secretKey).compare(Buffer.from(identity.secretKey)) !== 0) allMatch = false;
@@ -59,9 +59,9 @@ export function benchmarkCryptoIntegrity(): BenchmarkResult[] {
 
     // Verify wrong password fails
     const id = generateIdentity();
-    const exp = exportIdentity(id, 'correct');
+    const exp = await exportIdentity(id, 'correct');
     let wrongFails = false;
-    try { importIdentity(exp, 'wrong'); } catch { wrongFails = true; }
+    try { await importIdentity(exp, 'wrong'); } catch { wrongFails = true; }
 
     results.push({
       name: 'Identity export/import round-trip',

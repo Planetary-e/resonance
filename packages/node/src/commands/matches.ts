@@ -23,7 +23,7 @@ export async function matchesCommand(options: { password?: string; status?: stri
   }
 
   const password = options.password ?? await promptPassword('Password: ');
-  const identity = mgr.load(password);
+  const identity = await mgr.load(password);
   const store = await openStoreAsync(getDbPath(), deriveStoreKey(identity));
 
   const matches = store.listMatches(options.status ? { status: options.status } : undefined);

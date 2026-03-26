@@ -120,7 +120,7 @@ function wireEvents(s: Session): void {
 export async function initSession(password: string): Promise<{ did: string }> {
   ensureDataDir();
   const mgr = createIdentityManager();
-  const identity = mgr.create(password);
+  const identity = await mgr.create(password);
 
   // Initialize engine + create DB
   const engine = new EmbeddingEngine();
@@ -135,7 +135,7 @@ export async function unlockSession(password: string, relayUrl: string): Promise
   if (session) return { did: session.identity.did };
 
   const mgr = createIdentityManager();
-  const identity = mgr.load(password);
+  const identity = await mgr.load(password);
   const store = await openStoreAsync(getDbPath(), deriveStoreKey(identity));
 
   const engine = new EmbeddingEngine();
@@ -191,8 +191,11 @@ export async function searchRelay(text: string, type: ItemType): Promise<Array<{
 }>> {
   const s = session!;
   const embedding = await s.engine.embedForMatching(text, type);
+  // Apply light perturbation to search queries (ε=5.0 — minimal noise, ~99% similarity preserved)
+  // Prevents relay from seeing exact embeddings while maintaining search quality
+  const { perturbed } = perturbWithLevel(embedding, 'low');
   if (!s.relayClient.isConnected()) return [];
-  const results = await s.relayClient.search({ vector: Array.from(embedding), k: 10, threshold: 0.5 });
+  const results = await s.relayClient.search({ vector: Array.from(perturbed), k: 10, threshold: 0.45 });
   return results.results;
 }
 

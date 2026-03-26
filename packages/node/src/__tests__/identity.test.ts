@@ -22,9 +22,9 @@ describe('IdentityManager', () => {
     expect(mgr.exists()).toBe(false);
   });
 
-  it('creates and persists an identity', () => {
+  it('creates and persists an identity', async () => {
     const mgr = createIdentityManager(identityPath);
-    const identity = mgr.create('test-password');
+    const identity = await mgr.create('test-password');
 
     expect(identity.did).toMatch(/^did:key:z/);
     expect(identity.publicKey).toHaveLength(32);
@@ -32,20 +32,20 @@ describe('IdentityManager', () => {
     expect(mgr.exists()).toBe(true);
   });
 
-  it('loads the same identity with correct password', () => {
+  it('loads the same identity with correct password', async () => {
     const mgr = createIdentityManager(identityPath);
-    const original = mgr.create('my-password');
-    const loaded = mgr.load('my-password');
+    const original = await mgr.create('my-password');
+    const loaded = await mgr.load('my-password');
 
     expect(loaded.did).toBe(original.did);
     expect(Buffer.from(loaded.publicKey)).toEqual(Buffer.from(original.publicKey));
     expect(Buffer.from(loaded.secretKey)).toEqual(Buffer.from(original.secretKey));
   });
 
-  it('throws with wrong password', () => {
+  it('throws with wrong password', async () => {
     const mgr = createIdentityManager(identityPath);
-    mgr.create('correct-password');
+    await mgr.create('correct-password');
 
-    expect(() => mgr.load('wrong-password')).toThrow();
+    await expect(mgr.load('wrong-password')).rejects.toThrow();
   });
 });

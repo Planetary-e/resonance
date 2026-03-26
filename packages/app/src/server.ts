@@ -5,9 +5,9 @@
 
 import { createServer, type Server } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
-import { join, extname, dirname } from 'node:path';
+import { join, extname, dirname, resolve } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { handleApi } from './api.js';
+import { handleApi, sessionToken } from './api.js';
 import { setSessionEvents } from './session.js';
 
 // Resolve UI directory: works in tsx (ESM), esbuild CJS, and pkg snapshot
@@ -104,11 +104,10 @@ export function createAppServer(config: AppServerConfig): AppServer {
 
         // Static file serving
         let filePath = url === '/' ? '/index.html' : url;
-        // Security: prevent directory traversal
-        filePath = filePath.replace(/\.\./g, '');
-        const fullPath = join(UI_DIR, filePath);
+        const fullPath = resolve(join(UI_DIR, filePath));
 
-        if (!existsSync(fullPath)) {
+        // Security: verify resolved path is within UI_DIR (prevent directory traversal)
+        if (!fullPath.startsWith(resolve(UI_DIR)) || !existsSync(fullPath)) {
           // SPA fallback: serve index.html for unknown routes
           const indexPath = join(UI_DIR, 'index.html');
           if (existsSync(indexPath)) {
@@ -127,9 +126,16 @@ export function createAppServer(config: AppServerConfig): AppServer {
         res.end(readFileSync(fullPath));
       });
 
-      // WebSocket for live events
+      // WebSocket for live events (requires session token)
       wss = new WebSocketServer({ server: httpServer, path: '/api/events' });
-      wss.on('connection', (ws) => {
+      wss.on('connection', (ws, req) => {
+        // Verify session token from query parameter
+        const url = new URL(req.url ?? '', `http://${req.headers.host}`);
+        const token = url.searchParams.get('token');
+        if (!sessionToken || token !== sessionToken) {
+          ws.close(4001, 'unauthorized');
+          return;
+        }
         wsClients.add(ws);
         ws.on('close', () => wsClients.delete(ws));
       });
