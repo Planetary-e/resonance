@@ -11,7 +11,7 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "test": "vitest run",
+    "test": "npm test --workspace=@resonance/core && npm test --workspace=@resonance/node && npm test --workspace=@resonance/relay",
     "eval": "npm run eval --workspace=@resonance/eval",
     "eval:quick": "npm run eval:quick --workspace=@resonance/eval",
     "resonance": "npm run resonance --workspace=@resonance/node --",

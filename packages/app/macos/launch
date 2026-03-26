@@ -1,7 +1,0 @@
-#!/bin/bash
-# Resonance launcher — runs the binary and opens the browser
-DIR="$(cd "$(dirname "$0")" && pwd)"
-RESOURCES="$DIR/../Resources"
-
-# Run the resonance binary with UI path set
-exec "$DIR/resonance" "$@"
