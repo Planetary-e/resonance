@@ -25,7 +25,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["dmg", "deb", "rpm", "nsis", "msi"],
     "externalBin": [
       "binaries/node"
     ],

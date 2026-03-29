@@ -18,7 +18,7 @@ jobs:
           - os: macos-latest
             rust-target: aarch64-apple-darwin
             artifact: Resonance-macos-arm64
-          - os: macos-13
+          - os: macos-latest
             rust-target: x86_64-apple-darwin
             artifact: Resonance-macos-x64
           - os: ubuntu-22.04
@@ -87,14 +87,14 @@ jobs:
           name: ${{ matrix.artifact }}
           path: packages/app/src-tauri/target/release/bundle/dmg/*.dmg
 
-      - name: Upload Linux AppImage + deb
+      - name: Upload Linux deb + rpm
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
           path: |
-            packages/app/src-tauri/target/release/bundle/appimage/*.AppImage
             packages/app/src-tauri/target/release/bundle/deb/*.deb
+            packages/app/src-tauri/target/release/bundle/rpm/*.rpm
 
       - name: Upload Windows installer
         if: runner.os == 'Windows'
@@ -124,8 +124,8 @@ jobs:
         with:
           files: |
             artifacts/**/*.dmg
-            artifacts/**/*.AppImage
             artifacts/**/*.deb
+            artifacts/**/*.rpm
             artifacts/**/*.msi
             artifacts/**/*.exe
           generate_release_notes: true
