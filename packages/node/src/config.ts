@@ -12,9 +12,9 @@ export const DATA_DIR_NAME = '.resonance';
 export const DB_FILENAME = 'resonance.db';
 export const IDENTITY_FILENAME = 'identity.json';
 
-/** Returns the path to ~/.resonance/ */
+/** Returns the path to ~/.resonance/ (or RESONANCE_DATA_DIR if set) */
 export function getDataDir(): string {
-  return join(homedir(), DATA_DIR_NAME);
+  return process.env.RESONANCE_DATA_DIR ?? join(homedir(), DATA_DIR_NAME);
 }
 
 /** Returns the path to ~/.resonance/resonance.db */

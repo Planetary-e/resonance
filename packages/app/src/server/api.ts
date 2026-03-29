@@ -24,16 +24,34 @@ import {
 type Req = IncomingMessage;
 type Res = ServerResponse;
 
-const ALLOWED_ORIGIN = 'http://127.0.0.1';
+// In dev mode, Tauri WebView loads from Vite (localhost:5173) and fetches the API on :3000.
+// In production, the frontend is served from the same origin as the API.
+const ALLOWED_ORIGINS = new Set([
+  'http://127.0.0.1',
+  'http://localhost',
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:3000',
+  'tauri://localhost',         // Tauri production on macOS/Linux
+  'https://tauri.localhost',   // Tauri production on Windows
+]);
+
+function getAllowedOrigin(req: Req): string {
+  const origin = req.headers.origin ?? '';
+  return ALLOWED_ORIGINS.has(origin) ? origin : '';
+}
 const MAX_BODY_SIZE = 1024 * 1024; // 1 MiB
 
 // Session token for WebSocket authentication (set on unlock)
 export let sessionToken: string | null = null;
 
 function json(res: Res, data: unknown, status = 200): void {
+  const origin = (res as any).__reqOrigin ?? '';
   res.writeHead(status, {
     'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
+    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Credentials': 'true',
   });
   res.end(JSON.stringify(data));
 }
@@ -74,15 +92,20 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
   const url = req.url ?? '';
   const method = req.method ?? 'GET';
 
+  // Resolve CORS origin for this request
+  const origin = getAllowedOrigin(req);
+  (res as any).__reqOrigin = origin;
+
   // VULN-08: Reset inactivity timer on each request
   if (isUnlocked()) resetInactivityTimer();
 
   // CORS preflight
   if (method === 'OPTIONS') {
     res.writeHead(204, {
-      'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
+      'Access-Control-Allow-Origin': origin,
       'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Allow-Credentials': 'true',
     });
     res.end();
     return true;

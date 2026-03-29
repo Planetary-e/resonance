@@ -1,5 +1,5 @@
 <!-- MEMORY:START -->
-# Resonance
+# app
 
 _Last updated: 2026-03-29 | 0 active memories, 0 total_
 

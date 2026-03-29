@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist-server",
+    "rootDir": "./src/server",
+    "declaration": false,
+    "sourceMap": false
+  },
+  "include": ["src/server/**/*"],
+  "references": [
+    { "path": "../core" },
+    { "path": "../node" },
+    { "path": "../relay" }
+  ]
+}
