@@ -74,20 +74,30 @@ npx vitest run
 npm run eval:quick
 ```
 
+### Desktop App
+
+Download the desktop app from the [GitHub Releases](https://github.com/Planetary-e/resonance/releases) page. Available for macOS (`.dmg`), Windows (`.msi`), and Linux (`.AppImage`).
+
+Or build from source:
+```bash
+npm install && cd packages/app && npx tauri build
+```
+
 ### Run the protocol
 
 **No centralized server needed.** Any user can act as a relay.
 
 **User A — Start the app and enable relay mode:**
 ```bash
-npm run app
-# In the browser: toggle "Act as Relay" on the dashboard
+cd packages/app && npx tauri dev
+# Starts Vite + Tauri window + backend
+# In the app: toggle "Act as Relay" on the dashboard
 # Other users can now connect to your relay
 ```
 
 **User B — Connect and publish:**
 ```bash
-npm run app
+cd packages/app && npx tauri dev
 # The app auto-discovers relays via the bootstrap list
 # Publish needs/offers, see matches, open channels
 ```
@@ -144,6 +154,8 @@ All commands accept `--password <pw>` and `--relay <url>` (default: `ws://localh
                 +-----------------+
 ```
 
+The desktop app uses **Tauri** — a system WebView for the UI with a Node.js sidecar for the backend (embedding, relay client, local store). No bundled browser engine; lightweight and native on each platform.
+
 **Three tiers, three trust levels:**
 
 | Tier | Sees | Doesn't see |
@@ -160,6 +172,7 @@ resonance/
 │   ├── core/                  # Crypto, embedding, perturbation, wire protocol
 │   ├── relay/                 # WebSocket relay server, HNSW index, matching engine
 │   ├── node/                  # Personal node: CLI, local store, relay client, channels
+│   ├── app/                   # Tauri desktop app (React + Vite + Node.js sidecar)
 │   └── eval/                  # 14 benchmarks, 35 metrics
 ├── scripts/
 │   └── dev-cluster.sh         # Local development cluster
@@ -189,6 +202,7 @@ Validated empirically through the eval suite:
 | Crypto | `tweetnacl` (Ed25519, X25519, XSalsa20-Poly1305) |
 | Local Store | `better-sqlite3` (field-level secretbox encryption) |
 | WebSocket | `ws` (relay server + node client) |
+| Desktop App | Tauri 2 (system WebView + Node.js sidecar), React, Vite |
 | CLI | `commander` |
 | Testing | Vitest (119 tests) |
 | Monorepo | npm workspaces |
