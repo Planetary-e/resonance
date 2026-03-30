@@ -102,7 +102,6 @@ jobs:
         with:
           name: ${{ matrix.artifact }}
           path: |
-            packages/app/src-tauri/target/release/bundle/msi/*.msi
             packages/app/src-tauri/target/release/bundle/nsis/*.exe
 
   release:
@@ -126,7 +125,6 @@ jobs:
             artifacts/**/*.dmg
             artifacts/**/*.deb
             artifacts/**/*.rpm
-            artifacts/**/*.msi
             artifacts/**/*.exe
           generate_release_notes: true
           draft: false
