@@ -82,9 +82,16 @@ async function readBody(req: Req): Promise<Record<string, unknown>> {
   });
 }
 
-function requireSession(res: Res): boolean {
+/** Verify the session is unlocked AND the request carries a valid Bearer token. */
+function requireAuth(req: Req, res: Res): boolean {
   if (!isUnlocked()) {
     error(res, 'Session locked. POST /api/unlock first.', 401);
+    return false;
+  }
+  const auth = req.headers.authorization ?? '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  if (!sessionToken || token !== sessionToken) {
+    error(res, 'Invalid or missing authorization token.', 401);
     return false;
   }
   return true;
@@ -105,7 +112,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
     res.writeHead(204, {
       'Access-Control-Allow-Origin': _currentOrigin,
       'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       'Access-Control-Allow-Credentials': 'true',
     });
     res.end();
@@ -168,7 +175,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
   // --- Items ---
 
   if (url === '/api/items' && method === 'GET') {
-    if (!requireSession(res)) return true;
+    if (!requireAuth(req, res)) return true;
     const items = getSession()!.store.listItems();
     json(res, items.map(i => ({
       id: i.id, type: i.type, rawText: i.rawText, privacyLevel: i.privacyLevel,
@@ -178,7 +185,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
   }
 
   if (url === '/api/items' && method === 'POST') {
-    if (!requireSession(res)) return true;
+    if (!requireAuth(req, res)) return true;
     const body = await readBody(req);
     const text = body.text as string;
     const type = (body.type ?? 'need') as string;
@@ -196,7 +203,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
   }
 
   if (url.startsWith('/api/items/') && method === 'DELETE') {
-    if (!requireSession(res)) return true;
+    if (!requireAuth(req, res)) return true;
     const id = url.slice('/api/items/'.length);
     const s = getSession()!;
     s.store.updateItemStatus(id, 'withdrawn');
@@ -210,7 +217,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
   // --- Matches ---
 
   if (url === '/api/matches' && method === 'GET') {
-    if (!requireSession(res)) return true;
+    if (!requireAuth(req, res)) return true;
     const matches = getSession()!.store.listMatches();
     json(res, matches);
     return true;
@@ -219,7 +226,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
   // --- Search ---
 
   if (url === '/api/search' && method === 'POST') {
-    if (!requireSession(res)) return true;
+    if (!requireAuth(req, res)) return true;
     const body = await readBody(req);
     const text = body.text as string;
     const type = (body.type ?? 'need') as string;
@@ -236,14 +243,14 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
   // --- Channels ---
 
   if (url === '/api/channels' && method === 'GET') {
-    if (!requireSession(res)) return true;
+    if (!requireAuth(req, res)) return true;
     const channels = getSession()!.channelMgr.listChannels();
     json(res, channels);
     return true;
   }
 
   if (url === '/api/channels' && method === 'POST') {
-    if (!requireSession(res)) return true;
+    if (!requireAuth(req, res)) return true;
     const body = await readBody(req);
     const matchId = body.matchId as string;
     if (!matchId) { error(res, 'matchId required'); return true; }
@@ -259,7 +266,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
   // Channel actions: /api/channels/:id/disclose, /accept, /reject, /close
   const channelMatch = url.match(/^\/api\/channels\/([^/]+)\/(\w+)$/);
   if (channelMatch && method === 'POST') {
-    if (!requireSession(res)) return true;
+    if (!requireAuth(req, res)) return true;
     const [, channelId, action] = channelMatch;
     const s = getSession()!;
     const body = await readBody(req);
@@ -288,7 +295,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
   }
 
   if (url.match(/^\/api\/channels\/[^/]+$/) && method === 'DELETE') {
-    if (!requireSession(res)) return true;
+    if (!requireAuth(req, res)) return true;
     const channelId = url.slice('/api/channels/'.length);
     try {
       await getSession()!.channelMgr.sendClose(channelId);
@@ -300,7 +307,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
   }
 
   if (url.match(/^\/api\/channels\/[^/]+$/) && method === 'GET') {
-    if (!requireSession(res)) return true;
+    if (!requireAuth(req, res)) return true;
     const channelId = url.slice('/api/channels/'.length);
     const channel = getSession()!.channelMgr.getChannel(channelId);
     if (!channel) { error(res, 'Channel not found', 404); return true; }
@@ -317,8 +324,13 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
   }
 
   if (url === '/api/relay/start' && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
     const body = await readBody(req);
     const port = body.port as number | undefined;
+    if (port !== undefined && (typeof port !== 'number' || port < 1024 || port > 65535)) {
+      error(res, 'Port must be a number between 1024 and 65535');
+      return true;
+    }
     try {
       const result = await startRelayMode(port);
       json(res, result);
@@ -329,6 +341,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
   }
 
   if (url === '/api/relay/stop' && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
     try {
       await stopRelayMode();
       json(res, { stopped: true });

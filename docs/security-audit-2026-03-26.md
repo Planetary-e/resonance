@@ -596,3 +596,29 @@ The origin is validated per-request. Requests from unknown origins receive an em
 - RISK-03 (No TLS for relay) — still applies
 - RISK-04 (No key rotation) — still applies
 - RISK-05 (Relay trust) — partially mitigated by peer relay mode
+
+---
+
+## Addendum: Security Fixes (2026-03-30)
+
+### VULN-17: Unauthenticated relay endpoints (FIXED)
+
+| Field | Value |
+|-------|-------|
+| **Severity** | HIGH |
+| **File** | `packages/app/src/server/api.ts:319-338` |
+
+`/api/relay/start` and `/api/relay/stop` had no `requireAuth()` guard, allowing any local process to open a relay listener on `0.0.0.0` (network-facing) on an arbitrary port without authentication.
+
+**Fix**: Added `requireAuth(req, res)` to both endpoints. Added port validation (1024-65535).
+
+### VULN-18: No per-request HTTP authentication (FIXED)
+
+| Field | Value |
+|-------|-------|
+| **Severity** | MEDIUM |
+| **File** | `packages/app/src/server/api.ts` (all authenticated endpoints) |
+
+After session unlock, all HTTP API endpoints were accessible without any per-request credential. The `sessionToken` was only checked for WebSocket connections. Any local process could read all items (including `rawText`), matches, channels, and act on the user's behalf.
+
+**Fix**: Replaced `requireSession(res)` with `requireAuth(req, res)` which validates both session state AND a `Bearer` token in the `Authorization` header. The token (generated at unlock) is now required for all authenticated HTTP endpoints. The frontend `api.client.ts` sends the token with every request via `setAuthToken()`.

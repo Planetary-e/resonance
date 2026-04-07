@@ -88,14 +88,25 @@ export interface AppEvent {
 }
 
 // ============================================================================
+// Auth token (set after unlock, sent with every authenticated request)
+// ============================================================================
+
+let _authToken: string | null = null;
+
+export function setAuthToken(token: string | null): void {
+  _authToken = token;
+}
+
+// ============================================================================
 // Helpers
 // ============================================================================
 
 async function api<T = unknown>(method: string, path: string, body?: unknown): Promise<T & { error?: string }> {
-  const opts: RequestInit = {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-  };
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (_authToken) {
+    headers['Authorization'] = `Bearer ${_authToken}`;
+  }
+  const opts: RequestInit = { method, headers };
   if (body !== undefined) {
     opts.body = JSON.stringify(body);
   }
