@@ -140,6 +140,20 @@ export default function App() {
     wsRef.current = ws;
   }, [handleEvent, session.token]);
 
+  // ---- Cleanup WebSocket on unmount ----
+  useEffect(() => {
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+    };
+  }, []);
+
   // ---- Initial status check ----
   useEffect(() => {
     let cancelled = false;

@@ -46,11 +46,13 @@ const MAX_BODY_SIZE = 1024 * 1024; // 1 MiB
 // Session token for WebSocket authentication (set on unlock)
 export let sessionToken: string | null = null;
 
+// Per-request CORS origin, set at the top of handleApi()
+let _currentOrigin = '';
+
 function json(res: Res, data: unknown, status = 200): void {
-  const origin = (res as any).__reqOrigin ?? '';
   res.writeHead(status, {
     'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Origin': _currentOrigin,
     'Access-Control-Allow-Credentials': 'true',
   });
   res.end(JSON.stringify(data));
@@ -93,8 +95,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
   const method = req.method ?? 'GET';
 
   // Resolve CORS origin for this request
-  const origin = getAllowedOrigin(req);
-  (res as any).__reqOrigin = origin;
+  _currentOrigin = getAllowedOrigin(req);
 
   // VULN-08: Reset inactivity timer on each request
   if (isUnlocked()) resetInactivityTimer();
@@ -102,7 +103,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
   // CORS preflight
   if (method === 'OPTIONS') {
     res.writeHead(204, {
-      'Access-Control-Allow-Origin': origin,
+      'Access-Control-Allow-Origin': _currentOrigin,
       'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type',
       'Access-Control-Allow-Credentials': 'true',

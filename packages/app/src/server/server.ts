@@ -44,7 +44,7 @@ export interface AppServerConfig {
 }
 
 export interface AppServer {
-  start(): Promise<void>;
+  start(): Promise<number>;  // returns actual port
   stop(): Promise<void>;
 }
 
@@ -88,7 +88,7 @@ export function createAppServer(config: AppServerConfig): AppServer {
   });
 
   return {
-    async start(): Promise<void> {
+    async start(): Promise<number> {
       httpServer = createServer(async (req, res) => {
         const url = req.url ?? '/';
 
@@ -143,6 +143,10 @@ export function createAppServer(config: AppServerConfig): AppServer {
       await new Promise<void>((resolve) => {
         httpServer.listen(port, '127.0.0.1', () => resolve());
       });
+
+      const addr = httpServer.address();
+      const actualPort = typeof addr === 'object' && addr ? addr.port : port;
+      return actualPort;
     },
 
     async stop(): Promise<void> {

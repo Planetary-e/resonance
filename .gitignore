@@ -11,6 +11,7 @@ packages/eval/results/
 packages/app/src-tauri/target/
 packages/app/src-tauri/binaries/
 packages/app/src-tauri/resources/server/
+packages/app/src-tauri/gen/schemas/
 packages/app/dist-electron/
 packages/app/dist-release/
 packages/app/dist-server-bundle/

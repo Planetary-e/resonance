@@ -15,8 +15,10 @@ const server = createAppServer({ port: PORT, relayUrl: RELAY_URL });
 
 async function main(): Promise<void> {
   console.log('Starting Resonance...');
-  await server.start();
-  console.log(`Resonance running on port ${PORT}`);
+  const actualPort = await server.start();
+  // Print a machine-readable line so the Tauri shell can detect the port
+  console.log(`RESONANCE_READY:${actualPort}`);
+  console.log(`Resonance running on port ${actualPort}`);
 }
 
 async function shutdown(): Promise<void> {

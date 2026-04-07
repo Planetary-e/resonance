@@ -1,16 +1,45 @@
-use std::process::{Command, Child};
+use std::io::{BufRead, BufReader};
+use std::process::{Command, Child, Stdio};
 use std::sync::Mutex;
-use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 static SERVER_PROCESS: Mutex<Option<Child>> = Mutex::new(None);
 
-/// Start the Node.js backend in dev mode using `npx tsx`.
-fn start_backend_dev() {
-    // In dev, the CWD is src-tauri/, so go up to packages/app/
-    let app_dir = std::env::current_dir()
-        .expect("Failed to get cwd");
-    // src-tauri -> app (when running from src-tauri dir)
+/// Start the Node.js backend and wait until it prints the RESONANCE_READY line.
+/// Returns the port the server is listening on.
+fn start_and_wait(mut child: Child, timeout: Duration) -> u16 {
+    let stdout = child.stdout.take().expect("Failed to capture stdout");
+    let reader = BufReader::new(stdout);
+    let start = Instant::now();
+
+    let mut port: u16 = 3000;
+
+    for line in reader.lines() {
+        if start.elapsed() > timeout {
+            eprintln!("Backend startup timed out after {:?}", timeout);
+            break;
+        }
+        match line {
+            Ok(text) => {
+                eprintln!("[backend] {}", text); // forward to Tauri console
+                if let Some(rest) = text.strip_prefix("RESONANCE_READY:") {
+                    if let Ok(p) = rest.trim().parse::<u16>() {
+                        port = p;
+                    }
+                    break;
+                }
+            }
+            Err(_) => break,
+        }
+    }
+
+    *SERVER_PROCESS.lock().unwrap() = Some(child);
+    port
+}
+
+/// Start the backend in dev mode using `npx tsx`.
+fn start_backend_dev() -> u16 {
+    let app_dir = std::env::current_dir().expect("Failed to get cwd");
     let app_root = if app_dir.ends_with("src-tauri") {
         app_dir.parent().unwrap().to_path_buf()
     } else {
@@ -22,10 +51,11 @@ fn start_backend_dev() {
         .current_dir(&app_root)
         .env("RESONANCE_PORT", "3000")
         .env("RESONANCE_RELAY", "ws://localhost:9091")
+        .stdout(Stdio::piped())
         .spawn()
         .expect("Failed to start backend server");
 
-    *SERVER_PROCESS.lock().unwrap() = Some(child);
+    start_and_wait(child, Duration::from_secs(30))
 }
 
 fn stop_backend() {
@@ -37,12 +67,9 @@ fn stop_backend() {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // In dev mode, start backend before Tauri (no resource resolution needed)
+    // In dev mode, start backend before Tauri
     #[cfg(debug_assertions)]
-    start_backend_dev();
-
-    // Give the server time to start
-    thread::sleep(Duration::from_secs(3));
+    let _port = start_backend_dev();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -56,7 +83,6 @@ pub fn run() {
                 let server_mjs = resource_dir.join("server").join("server.mjs");
                 let node_modules = resource_dir.join("server").join("node_modules");
 
-                // Find the node sidecar binary
                 let app_dir = std::env::current_exe()
                     .expect("Failed to get exe path")
                     .parent()
@@ -69,10 +95,11 @@ pub fn run() {
                     .env("RESONANCE_PORT", "3000")
                     .env("RESONANCE_RELAY", "ws://localhost:9091")
                     .env("NODE_PATH", &node_modules)
+                    .stdout(Stdio::piped())
                     .spawn()
                     .expect("Failed to start backend server (production)");
 
-                *SERVER_PROCESS.lock().unwrap() = Some(child);
+                let _port = start_and_wait(child, Duration::from_secs(30));
             }
             Ok(())
         })
@@ -103,6 +130,5 @@ fn find_sidecar(app_dir: &std::path::Path, name: &str) -> std::path::PathBuf {
             return c.clone();
         }
     }
-    // Fallback: use `node` from PATH
     std::path::PathBuf::from("node")
 }

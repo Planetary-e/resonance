@@ -1,9 +1,25 @@
 /**
  * Browser-side API client for the Resonance web UI.
- * Talks to the local HTTP server at the same origin.
+ * Talks to the local HTTP server.
+ *
+ * In dev mode (Vite on :5173), API is on localhost:3000.
+ * In production (Tauri WebView), API is same-origin.
  */
+function resolveApiBase(): string {
+  // Tauri production: tauri://localhost or https://tauri.localhost — API is on localhost:3000
+  const origin = window.location.origin;
+  if (origin.startsWith('tauri://') || origin.startsWith('https://tauri.')) {
+    return 'http://localhost:3000';
+  }
+  // Vite dev server (port 5173) — API is on localhost:3000
+  if (window.location.port === '5173') {
+    return 'http://localhost:3000';
+  }
+  // Same-origin (e.g., served by backend directly)
+  return '';
+}
 
-const API_BASE = 'http://localhost:3000';
+const API_BASE = resolveApiBase();
 
 // ============================================================================
 // Types
@@ -223,9 +239,9 @@ export function connectEvents(
   onEvent: (event: AppEvent) => void,
   onClose?: () => void,
 ): WebSocket {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = window.location.host;
-  const ws = new WebSocket(`${protocol}//${host}/api/events?token=${token}`);
+  // WebSocket must connect to the API server, not the Vite/Tauri origin
+  const wsBase = API_BASE ? API_BASE.replace(/^http/, 'ws') : `ws://${window.location.host}`;
+  const ws = new WebSocket(`${wsBase}/api/events?token=${token}`);
 
   ws.onmessage = (e) => {
     try {
