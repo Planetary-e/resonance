@@ -25,6 +25,7 @@ export const RELAY_PEER_REQUEST_FRAME_TYPE = 'relay_peer_request' as const;
 export const RELAY_PEER_RESPONSE_FRAME_TYPE = 'relay_peer_response' as const;
 export const MAX_RELAY_DESCRIPTOR_LIFETIME_MS = 24 * 60 * 60 * 1000;
 export const MAX_RELAY_PEERS_PER_RESPONSE = 32;
+export const MAX_RELAY_DISCOVERY_FRAME_BYTES = 1024 * 1024;
 
 const MAX_RELAY_ENDPOINTS = 8;
 const MAX_RELAY_GROUPS = 64;
@@ -415,17 +416,18 @@ export function serializeRelayPeerRequestFrameV1(frame: RelayPeerRequestFrameV1)
   if (frame.type !== RELAY_PEER_REQUEST_FRAME_TYPE || !verifyRelayPeerRequestV1(frame.request)) {
     throw new Error('Invalid relay peer request frame');
   }
-  return JSON.stringify(frame);
+  return serializeBoundedFrame(frame);
 }
 
 export function serializeRelayPeerResponseFrameV1(frame: RelayPeerResponseFrameV1): string {
   if (frame.type !== RELAY_PEER_RESPONSE_FRAME_TYPE || !verifyRelayPeerResponseV1(frame.response)) {
     throw new Error('Invalid relay peer response frame');
   }
-  return JSON.stringify(frame);
+  return serializeBoundedFrame(frame);
 }
 
 export function parseRelayPeerRequestFrameV1(raw: string): RelayPeerRequestFrameV1 {
+  assertBoundedFrame(raw);
   const parsed: unknown = JSON.parse(raw);
   if (!isObject(parsed)
     || !hasOnlyKeys(parsed, ['request', 'type'])
@@ -437,6 +439,7 @@ export function parseRelayPeerRequestFrameV1(raw: string): RelayPeerRequestFrame
 }
 
 export function parseRelayPeerResponseFrameV1(raw: string): RelayPeerResponseFrameV1 {
+  assertBoundedFrame(raw);
   const parsed: unknown = JSON.parse(raw);
   if (!isObject(parsed)
     || !hasOnlyKeys(parsed, ['response', 'type'])
@@ -553,7 +556,7 @@ function supportsRequestedGroups(descriptor: RelayDescriptorV1, requestedGroups:
 }
 
 function canonicalEndpoint(value: string): string {
-  if (typeof value !== 'string' || value.length < 1 || value.length > 2_048) {
+  if (typeof value !== 'string' || value.length < 1 || decodeUTF8(value).length > 2_048) {
     throw new Error('Invalid relay endpoint');
   }
   let parsed: URL;
@@ -570,7 +573,9 @@ function canonicalEndpoint(value: string): string {
     || parsed.hash.length !== 0) {
     throw new Error('Invalid relay endpoint');
   }
-  return parsed.toString();
+  const canonical = parsed.toString();
+  if (decodeUTF8(canonical).length > 2_048) throw new Error('Invalid relay endpoint');
+  return canonical;
 }
 
 function isCanonicalEndpoint(value: string): boolean {
@@ -631,8 +636,20 @@ function canonicalize(value: unknown): string {
 function isBoundedName(value: unknown): value is string {
   return typeof value === 'string'
     && value.length >= 1
-    && value.length <= 128
+    && decodeUTF8(value).length <= 128
     && !/[\u0000-\u001f\u007f]/.test(value);
+}
+
+function serializeBoundedFrame(frame: RelayPeerRequestFrameV1 | RelayPeerResponseFrameV1): string {
+  const serialized = JSON.stringify(frame);
+  assertBoundedFrame(serialized);
+  return serialized;
+}
+
+function assertBoundedFrame(raw: string): void {
+  if (typeof raw !== 'string' || decodeUTF8(raw).length > MAX_RELAY_DISCOVERY_FRAME_BYTES) {
+    throw new Error('Relay discovery frame exceeds the maximum size');
+  }
 }
 
 function isTimestamp(value: unknown): value is number {

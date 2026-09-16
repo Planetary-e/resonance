@@ -38,6 +38,7 @@ export {
   RELAY_PEER_RESPONSE_FRAME_TYPE,
   MAX_RELAY_DESCRIPTOR_LIFETIME_MS,
   MAX_RELAY_PEERS_PER_RESPONSE,
+  MAX_RELAY_DISCOVERY_FRAME_BYTES,
   type RelayReachability,
   type RelayContactHintSource,
   type RelayCapabilitiesV1,

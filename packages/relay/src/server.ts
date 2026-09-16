@@ -10,6 +10,7 @@ import {
   MAILBOX_DEPOSIT_FRAME_TYPE,
   MAILBOX_REQUEST_FRAME_TYPE,
   MAILBOX_RESPONSE_MESSAGE_TYPE,
+  MAX_RELAY_DISCOVERY_FRAME_BYTES,
   PUBLICATION_OPERATION_FRAME_TYPE,
   RELATIONSHIP_MAILBOX_DEPOSIT_FRAME_TYPE,
   RELATIONSHIP_MAILBOX_REQUEST_FRAME_TYPE,
@@ -52,6 +53,7 @@ import {
   type RelationshipMailboxDepositV2,
   type RelationshipMailboxRequestV2,
   type RelayDescriptorV1,
+  type RelayContactHintV1,
   type RelayReachability,
   type RelayStorageCapacityV1,
 } from '@resonance/core';
@@ -67,6 +69,11 @@ import {
   RelayDirectory,
   type RelayDescriptorObservation,
 } from './relay-directory.js';
+import {
+  discoverRelayContactV1,
+  type RelayContactDiscoveryOptions,
+  type RelayContactDiscoveryResult,
+} from './relay-discovery-client.js';
 import type { AdmissionCapabilityVerifierV2 } from './admission.js';
 
 export interface RelayDiscoveryConfig {
@@ -114,6 +121,13 @@ export interface RelayStats {
   uptime: number;
 }
 
+export interface RelayDiscoveryIngestResult extends RelayContactDiscoveryResult {
+  observations: Array<{
+    relayId: string;
+    status: RelayDescriptorObservation;
+  }>;
+}
+
 export interface RelayServer {
   start(): Promise<void>;
   stop(): Promise<void>;
@@ -121,6 +135,10 @@ export interface RelayServer {
   getRelayDescriptor(now?: number): RelayDescriptorV1 | null;
   observeRelayDescriptor(value: unknown, now?: number): RelayDescriptorObservation;
   getKnownRelayDescriptors(now?: number): RelayDescriptorV1[];
+  discoverRelay(
+    hint: RelayContactHintV1,
+    options?: RelayContactDiscoveryOptions,
+  ): Promise<RelayDiscoveryIngestResult>;
 }
 
 const DEFAULT_CONFIG: RelayConfig = {
@@ -864,7 +882,10 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       log('info', 'journal_replayed', { dir: cfg.persistDir, entries: operationLog.length });
 
       httpServer = createServer(handleHttpRequest);
-      wss = new WebSocketServer({ server: httpServer });
+      wss = new WebSocketServer({
+        server: httpServer,
+        maxPayload: MAX_RELAY_DISCOVERY_FRAME_BYTES,
+      });
       wss.on('connection', handleConnection);
 
       await new Promise<void>((resolve) => {
@@ -929,6 +950,22 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
 
     getKnownRelayDescriptors(now = Date.now()): RelayDescriptorV1[] {
       return relayDirectory.select({ limit: cfg.relayDiscovery?.maxKnownRelays ?? 256, now });
+    },
+
+    async discoverRelay(
+      hint: RelayContactHintV1,
+      options: RelayContactDiscoveryOptions = {},
+    ): Promise<RelayDiscoveryIngestResult> {
+      const result = await discoverRelayContactV1(hint, {
+        supportedGroups: cfg.relayDiscovery?.supportedGroups ?? [],
+        ...options,
+      });
+      const now = Date.now();
+      const observations = result.descriptors.map(descriptor => ({
+        relayId: descriptor.relayId,
+        status: relayDirectory.observe(descriptor, now),
+      }));
+      return { ...result, observations };
     },
   };
 }

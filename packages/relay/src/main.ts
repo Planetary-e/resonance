@@ -4,9 +4,12 @@
  * Relay server entry point. Configured via environment variables.
  */
 
+import { createRelayContactHintV1 } from '@resonance/core';
+import { log } from './logger.js';
 import { createRelayServer } from './server.js';
 
 const publicEndpoints = parseList(process.env.RELAY_PUBLIC_ENDPOINTS);
+const configuredContacts = parseList(process.env.RELAY_CONTACTS);
 const discoveryEnabled = process.env.RELAY_DISCOVERY === 'true' || publicEndpoints.length > 0;
 const storageCapacityBytes = parseNonNegativeInteger(
   process.env.RELAY_STORAGE_CAPACITY_BYTES,
@@ -38,6 +41,19 @@ const server = createRelayServer({
 });
 
 await server.start();
+
+await Promise.all(configuredContacts.map(async (endpoint) => {
+  try {
+    const result = await server.discoverRelay(createRelayContactHintV1('configured', endpoint));
+    log('info', 'relay_contact_discovered', {
+      endpoint: result.hint.endpoint,
+      responderId: result.responder.relayId,
+      descriptors: result.descriptors.length,
+    });
+  } catch (error) {
+    log('warn', 'relay_contact_failed', { endpoint, error: String(error) });
+  }
+}));
 
 // Graceful shutdown
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {

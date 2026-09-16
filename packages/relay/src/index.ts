@@ -5,6 +5,7 @@ export {
   createRelayServer,
   type RelayConfig,
   type RelayDiscoveryConfig,
+  type RelayDiscoveryIngestResult,
   type RelayServer,
   type RelayStats,
 } from './server.js';
@@ -13,6 +14,11 @@ export {
   type RelayDescriptorObservation,
   type RelayDirectorySelection,
 } from './relay-directory.js';
+export {
+  discoverRelayContactV1,
+  type RelayContactDiscoveryOptions,
+  type RelayContactDiscoveryResult,
+} from './relay-discovery-client.js';
 export {
   PublicationOperationStore,
   type PublicationApplyResult,

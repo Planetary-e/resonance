@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { generateIdentity } from '../crypto.js';
 import {
+  MAX_RELAY_DISCOVERY_FRAME_BYTES,
   MAX_RELAY_DESCRIPTOR_LIFETIME_MS,
   createRelayContactHintV1,
   createRelayDescriptorV1,
@@ -98,6 +99,10 @@ describe('relay descriptors', () => {
     expect(() => descriptor('wss://relay.example.net', {
       reachability: 'outbound-only',
     })).toThrow('Invalid relay descriptor input');
+    expect(() => descriptor(`wss://relay.example.net/${'😀'.repeat(600)}`)).toThrow('Invalid relay endpoint');
+    expect(() => descriptor('wss://relay.example.net', {
+      supportedGroups: ['😀'.repeat(33)],
+    })).toThrow('Invalid relay group list');
   });
 
   it('represents outbound-only volunteers without inventing a reachable endpoint', () => {
@@ -212,5 +217,7 @@ describe('signed peer exchange', () => {
     expect(parseRelayPeerResponseFrameV1(serializeRelayPeerResponseFrameV1(responseFrame))).toEqual(responseFrame);
     expect(() => parseRelayPeerRequestFrameV1(JSON.stringify({ ...requestFrame, extra: true }))).toThrow();
     expect(() => parseRelayPeerResponseFrameV1(JSON.stringify({ ...responseFrame, extra: true }))).toThrow();
+    expect(() => parseRelayPeerResponseFrameV1(' '.repeat(MAX_RELAY_DISCOVERY_FRAME_BYTES + 1)))
+      .toThrow('exceeds the maximum size');
   });
 });

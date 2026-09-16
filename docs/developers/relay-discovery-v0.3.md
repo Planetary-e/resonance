@@ -21,7 +21,7 @@ These fields are claims, not measurements. Later connection management will comb
 Peer requests use a fresh one-use signing key so discovery does not expose a personal identity or create a stable requester identifier. Requests expire within 60 seconds and cap responses at 32 descriptors.
 An empty requested-group list accepts relays from any group; otherwise, every returned relay must advertise at least one requested group.
 
-The responding relay signs the complete response, including the request ID and descriptor set. Each returned descriptor must also carry its own valid relay signature and be active at response time. Response verification rejects duplicate relay identities, stale descriptors, unsorted or non-canonical data, extra fields, and responses larger than the request allowed.
+The responding relay signs the complete response, including the request ID and descriptor set. Each returned descriptor must also carry its own valid relay signature and be active at response time. Response verification rejects duplicate relay identities, stale descriptors, unsorted or non-canonical data, extra fields, responses larger than the request allowed, and discovery frames over 1 MiB.
 
 This exchange provides discovery, not consensus. A malicious relay can still advertise Sybil identities that it controls. Replica placement therefore must use independently observed peers and diversity signals, and must treat signed durability receipts and subsequent repair checks as stronger evidence than a peer recommendation.
 
@@ -33,6 +33,12 @@ The relay directory accepts only active, independently verifiable descriptors. A
 
 The standalone relay enables discovery when `RELAY_DISCOVERY=true` or `RELAY_PUBLIC_ENDPOINTS` contains a comma-separated list of public `ws://` or `wss://` endpoints. `RELAY_SUPPORTED_GROUPS` defaults to `public`. `RELAY_STORAGE_CAPACITY_BYTES` and `RELAY_STORAGE_AVAILABLE_BYTES` control the signed capacity claim and default to 1 GiB when discovery is enabled. A relay with discovery enabled and no public endpoint advertises itself as `outbound-only`.
 
+## Outbound discovery
+
+The outbound discovery client accepts configured, invitation, or local contact hints and creates a fresh request identity for every connection. It verifies the complete signed response, requires an invitation's relay-ID pin to match, and requires the responder's independently signed descriptor to bind the exact endpoint contacted. Only then does the server merge returned descriptors into its bounded directory.
+
+`RELAY_CONTACTS` can provide a comma-separated set of configured contact endpoints to the standalone relay. They are queried in parallel after the relay starts. The contacts remain hints: they do not become authorities, and every descriptor they return must verify independently. Peer-exchange descriptors are cached but are not dialed automatically, preventing an untrusted relay from turning discovery into an unrestricted connection or local-network scanning mechanism.
+
 ## Next integration step
 
-Connection management will resolve configured, invitation, and local hints; verify the contacted relay's descriptor; exchange peers; and feed verified observations into the bounded directory. It will then maintain several outbound peer links, including for relays that cannot accept unsolicited inbound connections.
+Connection management will refresh known contacts, add local discovery, and maintain several authenticated outbound peer links, including for relays that cannot accept unsolicited inbound connections. The long-lived link protocol must let an outbound-only relay announce its descriptor without exposing a personal-node identity.
