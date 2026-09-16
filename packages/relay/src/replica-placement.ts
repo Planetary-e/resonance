@@ -28,7 +28,7 @@ export const REPLICA_PLACEMENT_VERSION = 1 as const;
 export const DEFAULT_DESIRED_REPLICA_COUNT = 5;
 export const DEFAULT_MINIMUM_HEALTHY_REPLICA_COUNT = 3;
 export const MAX_REPLICA_TARGETS = 5;
-/** Bounded, per-operation refusal history retained across restarts. */
+/** Bounded, per-operation target exclusion history retained across restarts. */
 export const MAX_PERMANENTLY_REJECTED_REPLICA_TARGETS = 64;
 /** A reconciliation requirement can name only currently selected targets. */
 export const MAX_RECONCILIATION_REQUIRED_REPLICA_TARGETS = MAX_REPLICA_TARGETS;
@@ -46,8 +46,8 @@ export interface ReplicaPlacementIntentV1 {
   operationSignature: string;
   targetRelayIds: string[];
   /**
-   * Targets removed after a signed capacity refusal for this exact operation.
-   * Omitted only by journals written before capacity replacement existed.
+   * Targets removed after signed capacity refusal or graceful retirement for
+   * this exact operation. Omitted only by older journals.
    */
   permanentlyRejectedRelayIds?: string[];
   /**
@@ -77,7 +77,7 @@ export interface ReplicaPlacementStatus {
   intent: ReplicaPlacementIntentV1;
   confirmedRelayIds: string[];
   pendingRelayIds: string[];
-  /** Targets replaced after a signed capacity refusal for this operation. */
+  /** Targets replaced after signed capacity refusal or graceful retirement. */
   permanentlyRejectedRelayIds: string[];
   /** Targets whose signed refusal requires state reconciliation before fan-out. */
   reconciliationRequiredRelayIds: string[];

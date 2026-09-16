@@ -15,6 +15,7 @@ import {
   PUBLICATION_OPERATION_FRAME_TYPE,
   RELAY_LINK_OPEN_FRAME_TYPE,
   RELAY_REPLICA_INVENTORY_BATCH_REQUEST_FRAME_TYPE,
+  RELAY_REPLICA_HANDOFF_RESPONSE_FRAME_TYPE,
   RELAY_REPLICA_INVENTORY_REQUEST_FRAME_TYPE,
   RELAY_REPLICA_RECONCILIATION_REQUEST_FRAME_TYPE,
   RELAY_REPLICA_PUT_FRAME_TYPE,
@@ -36,6 +37,9 @@ import {
   createRelayReplicaReconciliationResponseV1,
   createRelayReplicaReceiptFrameV1,
   createRelayReplicaReceiptV1,
+  createRelayReplicaHandoffRequestFrameV1,
+  createRelayReplicaHandoffRequestV1,
+  decodeRelayReplicaHandoffResultV1,
   createRelayDescriptorV1,
   createRelayPeerResponseFrameV1,
   createRelayPeerResponseV1,
@@ -62,10 +66,12 @@ import {
   parseRelayReplicaInventoryRequestFrameV1,
   parseRelayReplicaReconciliationRequestFrameV1,
   parseRelayReplicaPutFrameV1,
+  parseRelayReplicaHandoffResponseFrameV1,
   parseRelayPeerRequestFrameV1,
   parseSearchRequestFrameV2,
   parseMessage,
   verifyMessage,
+  verifyRelayReplicaHandoffResponseV1,
   createMessage,
   serializeMessage,
   serializeRelayLinkAcceptFrameV1,
@@ -73,6 +79,7 @@ import {
   serializeRelayReplicaInventoryResponseFrameV1,
   serializeRelayReplicaReconciliationResponseFrameV1,
   serializeRelayReplicaReceiptFrameV1,
+  serializeRelayReplicaHandoffRequestFrameV1,
   serializeRelayPeerResponseFrameV1,
   verifyMatchOperationAgainstPublicationsV2,
   type AckPayload,
@@ -96,6 +103,8 @@ import {
   type RelayReplicaReconciliationRejectionReasonV1,
   type RelayReplicaPutV1,
   type RelayReplicaReceiptV1,
+  type RelayReplicaHandoffRequestV1,
+  type RelayReplicaHandoffResponseV1,
   type RelayReplicaRejectionReasonV1,
 } from '@resonance/core';
 import { MatchingEngine, type MatchNotification } from './matching-engine.js';
@@ -232,7 +241,7 @@ export interface RelayDiscoveryIngestResult extends RelayContactDiscoveryResult 
 
 export interface RelayServer {
   start(): Promise<void>;
-  stop(): Promise<void>;
+  stop(options?: { graceful?: boolean }): Promise<void>;
   getStats(): RelayStats;
   getRelayDescriptor(now?: number): RelayDescriptorV1 | null;
   observeRelayDescriptor(value: unknown, now?: number): RelayDescriptorObservation;
@@ -275,6 +284,8 @@ const MAX_SEEN_REPLICA_REQUESTS = 8_192;
 const MAX_SEEN_REPLICA_REQUESTS_PER_RELAY = 256;
 const MAX_REPLICA_INVENTORY_CHECKS_PER_REPAIR = 32;
 const MAX_REPLICA_RECONCILIATIONS_PER_REPAIR = 16;
+const MAX_REPLICA_HANDOFF_OPERATIONS = 64;
+const REPLICA_HANDOFF_TIMEOUT_MS = 2_000;
 const DEFAULT_PUBLICATION_STORAGE_QUOTA_BYTES = 1024 * 1024 * 1024;
 const STORAGE_AVAILABILITY_GRANULARITY_BYTES = 64 * 1024;
 const STORAGE_AVAILABILITY_REFRESH_MS = 60_000;
@@ -376,6 +387,13 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     descriptor: RelayDescriptorV1;
     lastPongAt: number;
   }>();
+  const pendingReplicaHandoffs = new Map<string, {
+    request: RelayReplicaHandoffRequestV1;
+    controllerRelayId: string;
+    timer: ReturnType<typeof setTimeout>;
+    resolve: (response: RelayReplicaHandoffResponseV1) => void;
+    reject: (error: Error) => void;
+  }>();
   let relayDescriptor: RelayDescriptorV1 | null = null;
   let relayDescriptorSequence = Date.now();
   let relayDescriptorStorageUpdatedAt = 0;
@@ -389,6 +407,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   let replicaRepairWakeupTimer: ReturnType<typeof setTimeout> | null = null;
   let replicaRepairQueued = false;
   let replicaRepairRunning = false;
+  let stopping = false;
   const replicaRefreshes = new Set<string>();
   const startTime = Date.now();
   const placementTracker = new ReplicaPlacementTracker(relayIdentity.did);
@@ -466,6 +485,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       return descriptor;
     }, {
       ...cfg.relayLinks,
+      onReplicaHandoffRequest: acceptReplicaHandoffRequest,
       onEvent(event) {
         log(event.kind === 'failed' ? 'warn' : 'info', `relay_link_${event.kind}`, {
           endpoint: event.endpoint,
@@ -902,6 +922,72 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       reason: receipt.reason,
     });
     return true;
+  }
+
+  async function acceptReplicaHandoffRequest(
+    request: RelayReplicaHandoffRequestV1,
+  ): Promise<{ accepted: boolean[]; safeElsewhere: boolean[] }> {
+    if (stopping || !rateLimiter.checkMany(
+      `relay:${request.retiringRelayId}`,
+      'replica',
+      request.operations.length,
+    )) {
+      return {
+        accepted: request.operations.map(() => false),
+        safeElsewhere: request.operations.map(() => false),
+      };
+    }
+    const accepted: boolean[] = [];
+    const safeElsewhere: boolean[] = [];
+    for (const reference of request.operations) {
+      const operation = publicationStore.get(reference.publicationId);
+      const intent = placementTracker.getIntent(reference.publicationId);
+      const receipts = placementTracker.receiptsFor(reference.publicationId);
+      const retiringReceipt = receipts.find(receipt => (
+        receipt.responderRelayId === request.retiringRelayId
+        && receipt.operationSequence === reference.operationSequence
+        && receipt.operationKind === reference.operationKind
+        && receipt.operationSignature === reference.operationSignature
+      ));
+      const exact = operation !== undefined
+        && operation.sequence === reference.operationSequence
+        && operation.kind === reference.operationKind
+        && operation.signature === reference.operationSignature;
+      if (!exact || !intent || !placementMatchesOperation(intent, operation)
+        || (intent.reconciliationRequiredRelayIds ?? []).length > 0
+        || !intent.targetRelayIds.includes(request.retiringRelayId)
+        || !retiringReceipt) {
+        accepted.push(false);
+        safeElsewhere.push(false);
+        continue;
+      }
+      const alreadySafe = receipts.filter(receipt => (
+        receipt.responderRelayId !== request.retiringRelayId
+        && intent.targetRelayIds.includes(receipt.responderRelayId)
+      )).length >= intent.minimumHealthyReplicaCount;
+      const next = nextReplicaPlacementIntent(operation, {
+        additionallyRejectedRelayIds: [request.retiringRelayId],
+        allowExpansion: true,
+      });
+      if (!next || next.targetRelayIds.includes(request.retiringRelayId)) {
+        accepted.push(false);
+        safeElsewhere.push(false);
+        continue;
+      }
+      operationLog.append({ kind: 'placement-intent', intent: next });
+      if (!placementTracker.applyIntent(next)) {
+        throw new Error('Cannot apply graceful replica handoff placement intent');
+      }
+      accepted.push(true);
+      safeElsewhere.push(alreadySafe);
+      log('info', 'replica_handoff_accepted', {
+        publicationId: reference.publicationId,
+        retiringRelayId: request.retiringRelayId,
+        safeElsewhere: alreadySafe,
+      });
+    }
+    if (accepted.some(Boolean)) queueReplicaRepair();
+    return { accepted, safeElsewhere };
   }
 
   function quarantineReplicaPlacement(receipt: RelayReplicaReceiptV1): boolean {
@@ -1880,6 +1966,117 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     });
   }
 
+  function requestReplicaHandoff(
+    controllerRelayId: string,
+    operations: readonly PublicationOperation[],
+    timeoutMs = REPLICA_HANDOFF_TIMEOUT_MS,
+  ): Promise<RelayReplicaHandoffResponseV1> {
+    const link = inboundRelayLinks.get(controllerRelayId);
+    if (!link || link.socket.readyState !== WebSocket.OPEN) {
+      return Promise.reject(new Error('Replica controller link is unavailable'));
+    }
+    const createdAt = Date.now();
+    const request = createRelayReplicaHandoffRequestV1(
+      operations,
+      controllerRelayId,
+      relayIdentity,
+      createdAt,
+      createdAt + timeoutMs + 1_000,
+    );
+    const frame = serializeRelayReplicaHandoffRequestFrameV1(
+      createRelayReplicaHandoffRequestFrameV1(request),
+    );
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        pendingReplicaHandoffs.delete(request.requestId);
+        reject(new Error('Replica handoff timed out'));
+      }, timeoutMs);
+      timer.unref?.();
+      pendingReplicaHandoffs.set(request.requestId, {
+        request,
+        controllerRelayId,
+        timer,
+        resolve,
+        reject,
+      });
+      link.socket.send(frame, error => {
+        if (!error) return;
+        const pending = pendingReplicaHandoffs.get(request.requestId);
+        if (!pending) return;
+        clearTimeout(pending.timer);
+        pendingReplicaHandoffs.delete(request.requestId);
+        pending.reject(error);
+      });
+    });
+  }
+
+  function handleReplicaHandoffResponse(
+    ws: WebSocket,
+    raw: string,
+    linkedRelayId: string,
+  ): void {
+    try {
+      const { response } = parseRelayReplicaHandoffResponseFrameV1(raw);
+      const pending = pendingReplicaHandoffs.get(response.requestId);
+      if (!pending
+        || pending.controllerRelayId !== linkedRelayId
+        || response.controllerRelayId !== linkedRelayId
+        || response.retiringRelayId !== relayIdentity.did
+        || !verifyRelayReplicaHandoffResponseV1(response, pending.request)) {
+        throw new Error('Replica handoff response is not bound to this request');
+      }
+      clearTimeout(pending.timer);
+      pendingReplicaHandoffs.delete(response.requestId);
+      pending.resolve(response);
+    } catch {
+      ws.close(4000, 'invalid_replica_handoff_response');
+    }
+  }
+
+  async function handoffHostedReplicas(): Promise<void> {
+    const operationsByController = new Map<string, PublicationOperation[]>();
+    for (const operation of publicationStore.list()) {
+      const allocation = replicaStorageLedger.allocationFor(operation.publicationId);
+      if (!allocation || allocation.allocationOrigin !== 'replica') continue;
+      const operations = operationsByController.get(allocation.allocationRelayId);
+      if (operations) operations.push(operation);
+      else operationsByController.set(allocation.allocationRelayId, [operation]);
+    }
+    let hosted = 0;
+    let acknowledged = 0;
+    let safeElsewhere = 0;
+    await Promise.all([...operationsByController].map(async ([controllerRelayId, operations]) => {
+      hosted += operations.length;
+      const deadline = Date.now() + REPLICA_HANDOFF_TIMEOUT_MS;
+      for (let index = 0; index < operations.length; index += MAX_REPLICA_HANDOFF_OPERATIONS) {
+        const chunk = operations.slice(index, index + MAX_REPLICA_HANDOFF_OPERATIONS);
+        const remainingMs = deadline - Date.now();
+        if (remainingMs < 100) break;
+        try {
+          const result = decodeRelayReplicaHandoffResultV1(
+            await requestReplicaHandoff(controllerRelayId, chunk, remainingMs),
+          );
+          acknowledged += result.accepted.filter(Boolean).length;
+          safeElsewhere += result.safeElsewhere.filter(Boolean).length;
+        } catch (error) {
+          log('warn', 'replica_handoff_failed', {
+            controllerRelayId,
+            operationCount: chunk.length,
+            error: String(error),
+          });
+        }
+      }
+    }));
+    if (hosted > 0) {
+      log('info', 'replica_handoff_complete', {
+        hosted,
+        acknowledged,
+        safeElsewhere,
+        unacknowledged: hosted - acknowledged,
+      });
+    }
+  }
+
   function handleConnection(ws: WebSocket, req: any): void {
     const ip = req?.socket?.remoteAddress ?? 'unknown';
     let linkedRelayId: string | null = null;
@@ -1907,6 +2104,9 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         }
         if (isObject(frameCandidate) && frameCandidate.type === RELAY_REPLICA_PUT_FRAME_TYPE) {
           handleReplicaPlacement(ws, raw, linkedRelayId);
+        } else if (isObject(frameCandidate)
+          && frameCandidate.type === RELAY_REPLICA_HANDOFF_RESPONSE_FRAME_TYPE) {
+          handleReplicaHandoffResponse(ws, raw, linkedRelayId);
         } else if (isObject(frameCandidate)
           && frameCandidate.type === RELAY_REPLICA_INVENTORY_BATCH_REQUEST_FRAME_TYPE) {
           handleReplicaInventoryBatch(ws, raw, linkedRelayId);
@@ -2433,6 +2633,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
 
   return {
     async start(): Promise<void> {
+      stopping = false;
       const records = operationLog.load();
       for (const record of records) replayOperation(record.entry);
       for (const record of records) replayPlacementOperation(record.entry);
@@ -2508,7 +2709,8 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       }
     },
 
-    async stop(): Promise<void> {
+    async stop(options = {}): Promise<void> {
+      stopping = true;
       if (publicationExpiryTimer) clearTimeout(publicationExpiryTimer);
       if (cleanupTimer) clearInterval(cleanupTimer);
       if (relayLinkHeartbeatTimer) clearInterval(relayLinkHeartbeatTimer);
@@ -2517,6 +2719,12 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       replicaRepairTimer = null;
       replicaRepairWakeupTimer = null;
       replicaRepairQueued = false;
+      if (options.graceful !== false) await handoffHostedReplicas();
+      for (const pending of pendingReplicaHandoffs.values()) {
+        clearTimeout(pending.timer);
+        pending.reject(new Error('Relay stopped before replica handoff completed'));
+      }
+      pendingReplicaHandoffs.clear();
       outboundRelayLinks?.stop();
       for (const link of inboundRelayLinks.values()) link.socket.close(1001, 'relay_stopping');
       inboundRelayLinks.clear();

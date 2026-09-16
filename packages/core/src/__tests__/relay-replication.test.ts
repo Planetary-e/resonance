@@ -21,6 +21,11 @@ import {
   createRelayReplicaReconciliationResponseV1,
   createRelayReplicaReceiptFrameV1,
   createRelayReplicaReceiptV1,
+  createRelayReplicaHandoffRequestFrameV1,
+  createRelayReplicaHandoffRequestV1,
+  createRelayReplicaHandoffResponseFrameV1,
+  createRelayReplicaHandoffResponseV1,
+  decodeRelayReplicaHandoffResultV1,
   decodeRelayReplicaInventoryBatchPresenceV1,
   isDurabilityReceiptV1,
   isRelayReplicaInventoryRequestActiveV1,
@@ -36,6 +41,8 @@ import {
   parseRelayReplicaReconciliationResponseFrameV1,
   parseRelayReplicaPutFrameV1,
   parseRelayReplicaReceiptFrameV1,
+  parseRelayReplicaHandoffRequestFrameV1,
+  parseRelayReplicaHandoffResponseFrameV1,
   serializeRelayReplicaInventoryRequestFrameV1,
   serializeRelayReplicaInventoryResponseFrameV1,
   serializeRelayReplicaInventoryBatchRequestFrameV1,
@@ -44,6 +51,8 @@ import {
   serializeRelayReplicaReconciliationResponseFrameV1,
   serializeRelayReplicaPutFrameV1,
   serializeRelayReplicaReceiptFrameV1,
+  serializeRelayReplicaHandoffRequestFrameV1,
+  serializeRelayReplicaHandoffResponseFrameV1,
   verifyRelayReplicaInventoryRequestV1,
   verifyRelayReplicaInventoryResponseV1,
   verifyRelayReplicaInventoryBatchRequestV1,
@@ -52,6 +61,8 @@ import {
   verifyRelayReplicaReconciliationResponseV1,
   verifyRelayReplicaPutV1,
   verifyRelayReplicaReceiptV1,
+  verifyRelayReplicaHandoffRequestV1,
+  verifyRelayReplicaHandoffResponseV1,
 } from '../relay-replication.js';
 
 const NOW = 1_800_000_000_000;
@@ -68,6 +79,54 @@ function publication() {
 }
 
 describe('relay replica placement', () => {
+  it('binds a retiring relay handoff to canonical exact operations and controller acknowledgement', () => {
+    const retiring = generateIdentity();
+    const controller = generateIdentity();
+    const operations = [publication(), publication()];
+    const request = createRelayReplicaHandoffRequestV1(
+      [...operations].reverse(),
+      controller.did,
+      retiring,
+      NOW,
+      NOW + 30_000,
+    );
+    const response = createRelayReplicaHandoffResponseV1(
+      request,
+      controller,
+      [true, true],
+      [true, false],
+      NOW + 1,
+    );
+
+    expect(verifyRelayReplicaHandoffRequestV1(request)).toBe(true);
+    expect(request.operations.map(operation => operation.publicationId))
+      .toEqual([...request.operations].map(operation => operation.publicationId).sort());
+    expect(verifyRelayReplicaHandoffResponseV1(response, request)).toBe(true);
+    expect(decodeRelayReplicaHandoffResultV1(response)).toEqual({
+      accepted: [true, true],
+      safeElsewhere: [true, false],
+    });
+    const requestFrame = createRelayReplicaHandoffRequestFrameV1(request);
+    const responseFrame = createRelayReplicaHandoffResponseFrameV1(response);
+    expect(parseRelayReplicaHandoffRequestFrameV1(
+      serializeRelayReplicaHandoffRequestFrameV1(requestFrame),
+    )).toEqual(requestFrame);
+    expect(parseRelayReplicaHandoffResponseFrameV1(
+      serializeRelayReplicaHandoffResponseFrameV1(responseFrame),
+    )).toEqual(responseFrame);
+
+    const tampered = structuredClone(response);
+    tampered.safeElsewhereBitmap = 'Aw==';
+    expect(verifyRelayReplicaHandoffResponseV1(tampered, request)).toBe(false);
+    expect(() => createRelayReplicaHandoffResponseV1(
+      request,
+      controller,
+      [false, true],
+      [true, false],
+      NOW + 1,
+    )).toThrow('Invalid replica handoff response input');
+  });
+
   it('binds a signed durability receipt to the exact owner-signed operation', () => {
     const sender = generateIdentity();
     const responder = generateIdentity();

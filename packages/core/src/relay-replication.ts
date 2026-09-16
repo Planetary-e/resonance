@@ -26,8 +26,11 @@ export const RELAY_REPLICA_INVENTORY_BATCH_REQUEST_FRAME_TYPE = 'relay_replica_i
 export const RELAY_REPLICA_INVENTORY_BATCH_RESPONSE_FRAME_TYPE = 'relay_replica_inventory_batch_response' as const;
 export const RELAY_REPLICA_RECONCILIATION_REQUEST_FRAME_TYPE = 'relay_replica_reconciliation_request' as const;
 export const RELAY_REPLICA_RECONCILIATION_RESPONSE_FRAME_TYPE = 'relay_replica_reconciliation_response' as const;
+export const RELAY_REPLICA_HANDOFF_REQUEST_FRAME_TYPE = 'relay_replica_handoff_request' as const;
+export const RELAY_REPLICA_HANDOFF_RESPONSE_FRAME_TYPE = 'relay_replica_handoff_response' as const;
 export const MAX_RELAY_REPLICA_REQUEST_LIFETIME_MS = 60_000;
 export const MAX_RELAY_REPLICA_INVENTORY_BATCH_RECEIPTS = 64;
+export const MAX_RELAY_REPLICA_HANDOFF_OPERATIONS = 64;
 
 const PUT_DOMAIN = 'resonance:relay-replication:v1:put';
 const RECEIPT_DOMAIN = 'resonance:relay-replication:v1:receipt';
@@ -37,6 +40,8 @@ const INVENTORY_BATCH_REQUEST_DOMAIN = 'resonance:relay-replication:v1:inventory
 const INVENTORY_BATCH_RESPONSE_DOMAIN = 'resonance:relay-replication:v1:inventory-batch-response';
 const RECONCILIATION_REQUEST_DOMAIN = 'resonance:relay-replication:v1:reconciliation-request';
 const RECONCILIATION_RESPONSE_DOMAIN = 'resonance:relay-replication:v1:reconciliation-response';
+const HANDOFF_REQUEST_DOMAIN = 'resonance:relay-replication:v1:handoff-request';
+const HANDOFF_RESPONSE_DOMAIN = 'resonance:relay-replication:v1:handoff-response';
 const PUT_BODY_KEYS = [
   'createdAt',
   'expiresAt',
@@ -139,6 +144,30 @@ const RECONCILIATION_RESPONSE_BODY_KEYS = [
   'version',
 ] as const;
 const RECONCILIATION_RESPONSE_KEYS = [...RECONCILIATION_RESPONSE_BODY_KEYS, 'signature'] as const;
+const HANDOFF_REQUEST_BODY_KEYS = [
+  'controllerRelayId',
+  'createdAt',
+  'expiresAt',
+  'kind',
+  'operations',
+  'requestId',
+  'retiringRelayId',
+  'version',
+] as const;
+const HANDOFF_REQUEST_KEYS = [...HANDOFF_REQUEST_BODY_KEYS, 'signature'] as const;
+const HANDOFF_RESPONSE_BODY_KEYS = [
+  'acceptedBitmap',
+  'controllerRelayId',
+  'createdAt',
+  'kind',
+  'operationSignatures',
+  'requestId',
+  'requestSignature',
+  'retiringRelayId',
+  'safeElsewhereBitmap',
+  'version',
+] as const;
+const HANDOFF_RESPONSE_KEYS = [...HANDOFF_RESPONSE_BODY_KEYS, 'signature'] as const;
 
 export type RelayReplicaReceiptStatusV1 = 'stored' | 'already-stored' | 'rejected';
 export type RelayReplicaInventoryStatusV1 = 'present' | 'missing' | 'rejected';
@@ -311,6 +340,47 @@ export interface RelayReplicaReconciliationResponseV1
   signature: string;
 }
 
+export interface RelayReplicaOperationReferenceV1 {
+  publicationId: string;
+  operationSequence: number;
+  operationKind: PublicationOperation['kind'];
+  operationSignature: string;
+}
+
+/** A retiring replica relay asks the original controller to replace exact hosted operations. */
+export interface RelayReplicaHandoffRequestBodyV1 {
+  version: typeof RELAY_REPLICATION_VERSION;
+  kind: 'relay-replica-handoff-request';
+  requestId: string;
+  retiringRelayId: string;
+  controllerRelayId: string;
+  operations: RelayReplicaOperationReferenceV1[];
+  createdAt: number;
+  expiresAt: number;
+}
+
+export interface RelayReplicaHandoffRequestV1 extends RelayReplicaHandoffRequestBodyV1 {
+  signature: string;
+}
+
+/** Signed controller acknowledgement; bitmaps follow canonical request order. */
+export interface RelayReplicaHandoffResponseBodyV1 {
+  version: typeof RELAY_REPLICATION_VERSION;
+  kind: 'relay-replica-handoff-response';
+  requestId: string;
+  requestSignature: string;
+  retiringRelayId: string;
+  controllerRelayId: string;
+  operationSignatures: string[];
+  acceptedBitmap: string;
+  safeElsewhereBitmap: string;
+  createdAt: number;
+}
+
+export interface RelayReplicaHandoffResponseV1 extends RelayReplicaHandoffResponseBodyV1 {
+  signature: string;
+}
+
 export interface RelayReplicaPutFrameV1 {
   type: typeof RELAY_REPLICA_PUT_FRAME_TYPE;
   request: RelayReplicaPutV1;
@@ -349,6 +419,16 @@ export interface RelayReplicaReconciliationRequestFrameV1 {
 export interface RelayReplicaReconciliationResponseFrameV1 {
   type: typeof RELAY_REPLICA_RECONCILIATION_RESPONSE_FRAME_TYPE;
   response: RelayReplicaReconciliationResponseV1;
+}
+
+export interface RelayReplicaHandoffRequestFrameV1 {
+  type: typeof RELAY_REPLICA_HANDOFF_REQUEST_FRAME_TYPE;
+  request: RelayReplicaHandoffRequestV1;
+}
+
+export interface RelayReplicaHandoffResponseFrameV1 {
+  type: typeof RELAY_REPLICA_HANDOFF_RESPONSE_FRAME_TYPE;
+  response: RelayReplicaHandoffResponseV1;
 }
 
 export function createRelayReplicaPutV1(
@@ -839,6 +919,147 @@ export function verifyRelayReplicaReconciliationResponseV1(
   }
 }
 
+export function createRelayReplicaHandoffRequestV1(
+  operations: readonly PublicationOperation[],
+  controllerRelayId: string,
+  identity: Identity,
+  createdAt = Date.now(),
+  expiresAt = createdAt + 30_000,
+): RelayReplicaHandoffRequestV1 {
+  const references = operations.map(operation => ({
+    publicationId: operation.publicationId,
+    operationSequence: operation.sequence,
+    operationKind: operation.kind,
+    operationSignature: operation.signature,
+  })).sort((first, second) => {
+    const firstReference = handoffOperationReference(first);
+    const secondReference = handoffOperationReference(second);
+    return firstReference < secondReference ? -1 : firstReference > secondReference ? 1 : 0;
+  });
+  const body: RelayReplicaHandoffRequestBodyV1 = {
+    version: RELAY_REPLICATION_VERSION,
+    kind: 'relay-replica-handoff-request',
+    requestId: opaqueRequestId(generateSigningKeyPair().publicKey, 'rrh'),
+    retiringRelayId: identity.did,
+    controllerRelayId,
+    operations: references,
+    createdAt,
+    expiresAt,
+  };
+  if (!isRelayReplicaHandoffRequestBody(body) || !identityMatches(identity)) {
+    throw new Error('Invalid replica handoff request input');
+  }
+  return {
+    ...body,
+    signature: encodeBase64(sign(signable(HANDOFF_REQUEST_DOMAIN, body), identity.secretKey)),
+  };
+}
+
+export function verifyRelayReplicaHandoffRequestV1(
+  value: unknown,
+): value is RelayReplicaHandoffRequestV1 {
+  if (!isObject(value) || !hasOnlyKeys(value, HANDOFF_REQUEST_KEYS)) return false;
+  const { signature, ...body } = value;
+  if (!isCanonicalBase64(signature, 64) || !isRelayReplicaHandoffRequestBody(body)) return false;
+  try {
+    return verify(
+      signable(HANDOFF_REQUEST_DOMAIN, body),
+      decodeBase64(signature),
+      didToPublicKey(body.retiringRelayId),
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function isRelayReplicaHandoffRequestActiveV1(
+  value: unknown,
+  now: number,
+): value is RelayReplicaHandoffRequestV1 {
+  return isTimestamp(now)
+    && verifyRelayReplicaHandoffRequestV1(value)
+    && now >= value.createdAt
+    && now < value.expiresAt;
+}
+
+export function createRelayReplicaHandoffResponseV1(
+  request: RelayReplicaHandoffRequestV1,
+  identity: Identity,
+  accepted: readonly boolean[],
+  safeElsewhere: readonly boolean[],
+  createdAt = Date.now(),
+): RelayReplicaHandoffResponseV1 {
+  const body: RelayReplicaHandoffResponseBodyV1 = {
+    version: RELAY_REPLICATION_VERSION,
+    kind: 'relay-replica-handoff-response',
+    requestId: request.requestId,
+    requestSignature: request.signature,
+    retiringRelayId: request.retiringRelayId,
+    controllerRelayId: identity.did,
+    operationSignatures: request.operations.map(operation => operation.operationSignature),
+    acceptedBitmap: encodePresenceBitmap(accepted),
+    safeElsewhereBitmap: encodePresenceBitmap(safeElsewhere),
+    createdAt,
+  };
+  if (!isRelayReplicaHandoffRequestActiveV1(request, createdAt)
+    || request.controllerRelayId !== identity.did
+    || accepted.length !== request.operations.length
+    || safeElsewhere.length !== request.operations.length
+    || safeElsewhere.some((safe, index) => safe && !accepted[index])
+    || !isRelayReplicaHandoffResponseBody(body)
+    || !identityMatches(identity)) {
+    throw new Error('Invalid replica handoff response input');
+  }
+  return {
+    ...body,
+    signature: encodeBase64(sign(signable(HANDOFF_RESPONSE_DOMAIN, body), identity.secretKey)),
+  };
+}
+
+export function verifyRelayReplicaHandoffResponseV1(
+  value: unknown,
+  request?: RelayReplicaHandoffRequestV1,
+): value is RelayReplicaHandoffResponseV1 {
+  if (!isObject(value) || !hasOnlyKeys(value, HANDOFF_RESPONSE_KEYS)) return false;
+  const { signature, ...body } = value;
+  if (!isCanonicalBase64(signature, 64) || !isRelayReplicaHandoffResponseBody(body)) return false;
+  if (request !== undefined && (!verifyRelayReplicaHandoffRequestV1(request)
+    || body.requestId !== request.requestId
+    || body.requestSignature !== request.signature
+    || body.retiringRelayId !== request.retiringRelayId
+    || body.controllerRelayId !== request.controllerRelayId
+    || body.operationSignatures.length !== request.operations.length
+    || body.operationSignatures.some((signatureValue, index) => (
+      signatureValue !== request.operations[index]?.operationSignature
+    ))
+    || body.createdAt < request.createdAt
+    || body.createdAt >= request.expiresAt)) return false;
+  try {
+    return verify(
+      signable(HANDOFF_RESPONSE_DOMAIN, body),
+      decodeBase64(signature),
+      didToPublicKey(body.controllerRelayId),
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function decodeRelayReplicaHandoffResultV1(
+  response: RelayReplicaHandoffResponseV1,
+): { accepted: boolean[]; safeElsewhere: boolean[] } {
+  if (!verifyRelayReplicaHandoffResponseV1(response)) {
+    throw new Error('Invalid replica handoff response');
+  }
+  return {
+    accepted: decodePresenceBitmap(response.acceptedBitmap, response.operationSignatures.length),
+    safeElsewhere: decodePresenceBitmap(
+      response.safeElsewhereBitmap,
+      response.operationSignatures.length,
+    ),
+  };
+}
+
 export function createRelayReplicaPutFrameV1(request: RelayReplicaPutV1): RelayReplicaPutFrameV1 {
   if (!verifyRelayReplicaPutV1(request)) throw new Error('Cannot frame an invalid replica placement');
   return { type: RELAY_REPLICA_PUT_FRAME_TYPE, request };
@@ -903,6 +1124,24 @@ export function createRelayReplicaReconciliationResponseFrameV1(
     throw new Error('Cannot frame an invalid replica reconciliation response');
   }
   return { type: RELAY_REPLICA_RECONCILIATION_RESPONSE_FRAME_TYPE, response };
+}
+
+export function createRelayReplicaHandoffRequestFrameV1(
+  request: RelayReplicaHandoffRequestV1,
+): RelayReplicaHandoffRequestFrameV1 {
+  if (!verifyRelayReplicaHandoffRequestV1(request)) {
+    throw new Error('Cannot frame an invalid replica handoff request');
+  }
+  return { type: RELAY_REPLICA_HANDOFF_REQUEST_FRAME_TYPE, request };
+}
+
+export function createRelayReplicaHandoffResponseFrameV1(
+  response: RelayReplicaHandoffResponseV1,
+): RelayReplicaHandoffResponseFrameV1 {
+  if (!verifyRelayReplicaHandoffResponseV1(response)) {
+    throw new Error('Cannot frame an invalid replica handoff response');
+  }
+  return { type: RELAY_REPLICA_HANDOFF_RESPONSE_FRAME_TYPE, response };
 }
 
 export function serializeRelayReplicaPutFrameV1(frame: RelayReplicaPutFrameV1): string {
@@ -975,6 +1214,26 @@ export function serializeRelayReplicaReconciliationResponseFrameV1(
   if (frame.type !== RELAY_REPLICA_RECONCILIATION_RESPONSE_FRAME_TYPE
     || !verifyRelayReplicaReconciliationResponseV1(frame.response)) {
     throw new Error('Invalid replica reconciliation response frame');
+  }
+  return serializeBounded(frame);
+}
+
+export function serializeRelayReplicaHandoffRequestFrameV1(
+  frame: RelayReplicaHandoffRequestFrameV1,
+): string {
+  if (frame.type !== RELAY_REPLICA_HANDOFF_REQUEST_FRAME_TYPE
+    || !verifyRelayReplicaHandoffRequestV1(frame.request)) {
+    throw new Error('Invalid replica handoff request frame');
+  }
+  return serializeBounded(frame);
+}
+
+export function serializeRelayReplicaHandoffResponseFrameV1(
+  frame: RelayReplicaHandoffResponseFrameV1,
+): string {
+  if (frame.type !== RELAY_REPLICA_HANDOFF_RESPONSE_FRAME_TYPE
+    || !verifyRelayReplicaHandoffResponseV1(frame.response)) {
+    throw new Error('Invalid replica handoff response frame');
   }
   return serializeBounded(frame);
 }
@@ -1073,6 +1332,32 @@ export function parseRelayReplicaReconciliationResponseFrameV1(
     throw new Error('Invalid replica reconciliation response frame');
   }
   return parsed as unknown as RelayReplicaReconciliationResponseFrameV1;
+}
+
+export function parseRelayReplicaHandoffRequestFrameV1(
+  raw: string,
+): RelayReplicaHandoffRequestFrameV1 {
+  const parsed = parseBounded(raw);
+  if (!isObject(parsed)
+    || !hasOnlyKeys(parsed, ['request', 'type'])
+    || parsed.type !== RELAY_REPLICA_HANDOFF_REQUEST_FRAME_TYPE
+    || !verifyRelayReplicaHandoffRequestV1(parsed.request)) {
+    throw new Error('Invalid replica handoff request frame');
+  }
+  return parsed as unknown as RelayReplicaHandoffRequestFrameV1;
+}
+
+export function parseRelayReplicaHandoffResponseFrameV1(
+  raw: string,
+): RelayReplicaHandoffResponseFrameV1 {
+  const parsed = parseBounded(raw);
+  if (!isObject(parsed)
+    || !hasOnlyKeys(parsed, ['response', 'type'])
+    || parsed.type !== RELAY_REPLICA_HANDOFF_RESPONSE_FRAME_TYPE
+    || !verifyRelayReplicaHandoffResponseV1(parsed.response)) {
+    throw new Error('Invalid replica handoff response frame');
+  }
+  return parsed as unknown as RelayReplicaHandoffResponseFrameV1;
 }
 
 function isRelayReplicaPutBody(value: unknown): value is RelayReplicaPutBodyV1 {
@@ -1233,6 +1518,73 @@ function isRelayReplicaReconciliationResponseBody(
   return value.reason === null;
 }
 
+function isRelayReplicaHandoffRequestBody(
+  value: unknown,
+): value is RelayReplicaHandoffRequestBodyV1 {
+  if (!isObject(value) || !hasOnlyKeys(value, HANDOFF_REQUEST_BODY_KEYS)) return false;
+  if (value.version !== RELAY_REPLICATION_VERSION
+    || value.kind !== 'relay-replica-handoff-request'
+    || !isOpaqueRequestId(value.requestId, 'rrh')
+    || !isRelayId(value.retiringRelayId)
+    || !isRelayId(value.controllerRelayId)
+    || value.retiringRelayId === value.controllerRelayId
+    || !Array.isArray(value.operations)
+    || value.operations.length < 1
+    || value.operations.length > MAX_RELAY_REPLICA_HANDOFF_OPERATIONS
+    || !value.operations.every(isRelayReplicaOperationReference)
+    || !isStrictlySorted(value.operations.map(handoffOperationReference))
+    || !isTimestamp(value.createdAt)
+    || !isTimestamp(value.expiresAt)) return false;
+  return value.expiresAt > value.createdAt
+    && value.expiresAt - value.createdAt <= MAX_RELAY_REPLICA_REQUEST_LIFETIME_MS;
+}
+
+function isRelayReplicaHandoffResponseBody(
+  value: unknown,
+): value is RelayReplicaHandoffResponseBodyV1 {
+  if (!isObject(value) || !hasOnlyKeys(value, HANDOFF_RESPONSE_BODY_KEYS)) return false;
+  if (value.version !== RELAY_REPLICATION_VERSION
+    || value.kind !== 'relay-replica-handoff-response'
+    || !isOpaqueRequestId(value.requestId, 'rrh')
+    || !isCanonicalBase64(value.requestSignature, 64)
+    || !isRelayId(value.retiringRelayId)
+    || !isRelayId(value.controllerRelayId)
+    || value.retiringRelayId === value.controllerRelayId
+    || !Array.isArray(value.operationSignatures)
+    || value.operationSignatures.length < 1
+    || value.operationSignatures.length > MAX_RELAY_REPLICA_HANDOFF_OPERATIONS
+    || !value.operationSignatures.every(signature => isCanonicalBase64(signature, 64))
+    || !isTimestamp(value.createdAt)) return false;
+  try {
+    const accepted = decodePresenceBitmap(value.acceptedBitmap, value.operationSignatures.length);
+    const safeElsewhere = decodePresenceBitmap(
+      value.safeElsewhereBitmap,
+      value.operationSignatures.length,
+    );
+    return safeElsewhere.every((safe, index) => !safe || accepted[index]);
+  } catch {
+    return false;
+  }
+}
+
+function isRelayReplicaOperationReference(
+  value: unknown,
+): value is RelayReplicaOperationReferenceV1 {
+  return isObject(value)
+    && hasOnlyKeys(value, [
+      'operationKind',
+      'operationSequence',
+      'operationSignature',
+      'publicationId',
+    ])
+    && typeof value.publicationId === 'string'
+    && /^pub_[A-Za-z0-9_-]{43}$/.test(value.publicationId)
+    && Number.isSafeInteger(value.operationSequence)
+    && (value.operationSequence as number) >= 0
+    && (value.operationKind === 'publication' || value.operationKind === 'publication-tombstone')
+    && isCanonicalBase64(value.operationSignature, 64);
+}
+
 function isRejectionReason(value: unknown): value is RelayReplicaRejectionReasonV1 {
   return value === 'expired'
     || value === 'unsupported-group'
@@ -1306,7 +1658,9 @@ function serializeBounded(
     | RelayReplicaInventoryBatchRequestFrameV1
     | RelayReplicaInventoryBatchResponseFrameV1
     | RelayReplicaReconciliationRequestFrameV1
-    | RelayReplicaReconciliationResponseFrameV1,
+    | RelayReplicaReconciliationResponseFrameV1
+    | RelayReplicaHandoffRequestFrameV1
+    | RelayReplicaHandoffResponseFrameV1,
 ): string {
   const raw = JSON.stringify(value);
   if (decodeUTF8(raw).length > MAX_RELAY_DISCOVERY_FRAME_BYTES) {
@@ -1317,6 +1671,10 @@ function serializeBounded(
 
 function inventoryReceiptReference(receipt: RelayReplicaReceiptV1): string {
   return `${receipt.publicationId}\u0000${receipt.operationSequence.toString().padStart(16, '0')}\u0000${receipt.operationKind}\u0000${receipt.operationSignature}`;
+}
+
+function handoffOperationReference(operation: RelayReplicaOperationReferenceV1): string {
+  return `${operation.publicationId}\u0000${operation.operationSequence.toString().padStart(16, '0')}\u0000${operation.operationKind}\u0000${operation.operationSignature}`;
 }
 
 function isStrictlySorted(values: readonly string[]): boolean {

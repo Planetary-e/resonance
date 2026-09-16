@@ -5,6 +5,7 @@ import {
   MAX_RELAY_DISCOVERY_FRAME_BYTES,
   MAX_RELAY_REPLICA_INVENTORY_BATCH_RECEIPTS,
   RELAY_REPLICA_INVENTORY_BATCH_RESPONSE_FRAME_TYPE,
+  RELAY_REPLICA_HANDOFF_REQUEST_FRAME_TYPE,
   RELAY_REPLICA_INVENTORY_RESPONSE_FRAME_TYPE,
   RELAY_REPLICA_RECONCILIATION_RESPONSE_FRAME_TYPE,
   RELAY_REPLICA_RECEIPT_FRAME_TYPE,
@@ -18,11 +19,15 @@ import {
   createRelayReplicaReconciliationRequestV1,
   createRelayReplicaPutFrameV1,
   createRelayReplicaPutV1,
+  createRelayReplicaHandoffResponseFrameV1,
+  createRelayReplicaHandoffResponseV1,
   isDurabilityReceiptV1,
   isRelayReplicaReconciliationReceiptV1,
   isRelayLinkAcceptActiveV1,
+  isRelayReplicaHandoffRequestActiveV1,
   parseRelayLinkAcceptFrameV1,
   parseRelayReplicaInventoryResponseFrameV1,
+  parseRelayReplicaHandoffRequestFrameV1,
   parseRelayReplicaInventoryBatchResponseFrameV1,
   parseRelayReplicaReconciliationResponseFrameV1,
   parseRelayReplicaReceiptFrameV1,
@@ -31,6 +36,7 @@ import {
   serializeRelayReplicaInventoryBatchRequestFrameV1,
   serializeRelayReplicaReconciliationRequestFrameV1,
   serializeRelayReplicaPutFrameV1,
+  serializeRelayReplicaHandoffResponseFrameV1,
   verifyRelayReplicaInventoryResponseV1,
   verifyRelayReplicaInventoryBatchResponseV1,
   verifyRelayReplicaReconciliationResponseV1,
@@ -48,6 +54,7 @@ import {
   type RelayReplicaReconciliationResponseV1,
   type RelayReplicaPutV1,
   type RelayReplicaReceiptV1,
+  type RelayReplicaHandoffRequestV1,
 } from '@resonance/core';
 
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
@@ -62,6 +69,10 @@ export interface RelayLinkClientOptions {
   /** Re-authenticate the link to refresh signed peer metadata. */
   descriptorRefreshIntervalMs?: number;
   now?: () => number;
+  /** Handle a signed shutdown notice sent by this link's authenticated target. */
+  onReplicaHandoffRequest?: (
+    request: RelayReplicaHandoffRequestV1,
+  ) => Promise<{ accepted: boolean[]; safeElsewhere: boolean[] }>;
 }
 
 export interface RelayLinkClose {
@@ -222,6 +233,37 @@ export function connectRelayLinkV1(
         }
         if (!isObject(candidate)) {
           socket.close(4000, 'unexpected_link_message');
+          return;
+        }
+        if (candidate.type === RELAY_REPLICA_HANDOFF_REQUEST_FRAME_TYPE) {
+          try {
+            const frame = parseRelayReplicaHandoffRequestFrameV1(raw);
+            if (!isRelayReplicaHandoffRequestActiveV1(frame.request, clock())
+              || frame.request.retiringRelayId !== acceptedRemoteDescriptor?.relayId
+              || frame.request.controllerRelayId !== localDescriptor.relayId
+              || !options.onReplicaHandoffRequest) {
+              throw new Error('Replica handoff request is not bound to this relay link');
+            }
+            void options.onReplicaHandoffRequest(frame.request).then(result => {
+              if (socket.readyState !== WebSocket.OPEN) return;
+              const response = createRelayReplicaHandoffResponseV1(
+                frame.request,
+                identity,
+                result.accepted,
+                result.safeElsewhere,
+                clock(),
+              );
+              socket.send(serializeRelayReplicaHandoffResponseFrameV1(
+                createRelayReplicaHandoffResponseFrameV1(response),
+              ));
+            }).catch(() => {
+              if (socket.readyState === WebSocket.OPEN) {
+                socket.close(4000, 'replica_handoff_failed');
+              }
+            });
+          } catch {
+            socket.close(4000, 'invalid_replica_handoff_request');
+          }
           return;
         }
         if (candidate.type === RELAY_REPLICA_RECEIPT_FRAME_TYPE) {

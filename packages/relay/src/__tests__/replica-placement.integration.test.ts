@@ -13,7 +13,7 @@ import { createRelayServer, type RelayServer } from '../server.js';
 
 const BASE_PORT = 26_000 + Math.floor(Math.random() * 1_000);
 const SOURCE_PORT = BASE_PORT;
-const TARGET_PORTS = [1, 2, 3, 4, 5].map(offset => BASE_PORT + offset);
+const TARGET_PORTS = [1, 2, 3, 4, 5, 6].map(offset => BASE_PORT + offset);
 const RUN_ID = `${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
 const SOURCE_DIR = `/tmp/resonance-placement-source-${RUN_ID}`;
 const TARGET_DIRS = TARGET_PORTS.map(port => `/tmp/resonance-placement-target-${port}-${RUN_ID}`);
@@ -63,7 +63,7 @@ function createSource(): RelayServer {
     },
     relayLinks: {
       targets: TARGET_PORTS.map(port => createRelayContactHintV1('configured', targetEndpoint(port))),
-      maxConnections: 5,
+      maxConnections: 6,
       handshakeTimeoutMs: 1_000,
       heartbeatIntervalMs: 100,
       heartbeatTimeoutMs: 1_500,
@@ -105,8 +105,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  if (sourceStarted) await source.stop();
-  await Promise.all([...startedTargets].map(target => target.stop()));
+  if (sourceStarted) await source.stop({ graceful: false });
+  await Promise.all([...startedTargets].map(target => target.stop({ graceful: false })));
   rmSync(SOURCE_DIR, { recursive: true, force: true });
   for (const directory of TARGET_DIRS) rmSync(directory, { recursive: true, force: true });
 });
@@ -141,18 +141,26 @@ describe('durable replica placement', () => {
 
     await Promise.all(targets.slice(3).map(target => target.start()));
     for (const target of targets.slice(3)) startedTargets.add(target);
-    await waitFor(() => source.getRelayLinkStatus().connectedRelayIds.length === 5, 8_000);
-    await waitFor(() => source.getReplicaPlacementStatus(operation.publicationId)?.targetConfirmed === true, 8_000);
+    await waitFor(() => source.getRelayLinkStatus().connectedRelayIds.length === 6, 15_000);
+    await waitFor(() => source.getReplicaPlacementStatus(operation.publicationId)?.targetConfirmed === true, 15_000);
     const repaired = source.getReplicaPlacementStatus(operation.publicationId)!;
     expect(repaired.confirmedReplicaCount).toBe(5);
     expect(repaired.intent.targetRelayIds).toHaveLength(5);
-    await waitFor(() => targets.every(target => target.getStats().active_publications === 1));
+    await waitFor(() => {
+      const selected = new Set(
+        source.getReplicaPlacementStatus(operation.publicationId)?.intent.targetRelayIds ?? [],
+      );
+      return targets.every(target => !selected.has(target.getRelayDescriptor()!.relayId)
+        || target.getStats().active_publications === 1);
+    });
 
     const lostTarget = targets[0];
     const lostTargetId = lostTarget.getRelayDescriptor()!.relayId;
     const oldReceipt = source.getReplicaReceipts(operation.publicationId)
       .find(receipt => receipt.responderRelayId === lostTargetId)!;
-    await lostTarget.stop();
+    // Simulate an abrupt loss: a graceful stop intentionally asks the source
+    // to retire this relay from the exact placement generation.
+    await lostTarget.stop({ graceful: false });
     startedTargets.delete(lostTarget);
     rmSync(`${TARGET_DIRS[0]}/relay-operations.ndjson`, { force: true });
 
@@ -163,11 +171,11 @@ describe('durable replica placement', () => {
     expect(recoveredTarget.getRelayDescriptor()!.relayId).toBe(lostTargetId);
     expect(recoveredTarget.getStats().active_publications).toBe(0);
 
-    await waitFor(() => source.getRelayLinkStatus().connectedRelayIds.length === 5, 8_000);
-    await waitFor(() => recoveredTarget.getStats().active_publications === 1, 8_000);
+    await waitFor(() => source.getRelayLinkStatus().connectedRelayIds.length === 6, 15_000);
+    await waitFor(() => recoveredTarget.getStats().active_publications === 1, 15_000);
     await waitFor(() => source.getReplicaReceipts(operation.publicationId)
       .some(receipt => receipt.responderRelayId === lostTargetId
-        && receipt.requestId !== oldReceipt.requestId), 8_000);
+        && receipt.requestId !== oldReceipt.requestId), 15_000);
     expect(source.getReplicaPlacementStatus(operation.publicationId)).toMatchObject({
       confirmedReplicaCount: 5,
       inventoryMissingRelayIds: [],
@@ -183,10 +191,50 @@ describe('durable replica placement', () => {
       confirmedReplicaCount: 5,
     });
     expect(source.getReplicaReceipts(operation.publicationId)).toHaveLength(5);
-  }, 15_000);
+  }, 30_000);
+
+  it('replaces a receipt-confirmed relay after its signed graceful handoff', async () => {
+    await waitFor(() => source.getRelayLinkStatus().connectedRelayIds.length === 6, 15_000);
+    const now = Date.now();
+    const operation = createPublicationRecord({
+      groupId: 'public',
+      fingerprintEpoch: '2026-09',
+      fingerprint: new Uint8Array(64).fill(0x53),
+      itemType: 'offer',
+      createdAt: now,
+      expiresAt: now + 60_000,
+    }, generatePublicationKeyMaterial());
+
+    await submit(operation);
+    await waitFor(() => source.getReplicaPlacementStatus(operation.publicationId)?.targetConfirmed === true, 15_000);
+    const before = source.getReplicaPlacementStatus(operation.publicationId)!;
+    const selected = new Set(before.intent.targetRelayIds);
+    const retiringTarget = targets.find(target => (
+      selected.has(target.getRelayDescriptor()!.relayId)
+    ))!;
+    const retiringRelayId = retiringTarget.getRelayDescriptor()!.relayId;
+    const spareRelayId = targets.map(target => target.getRelayDescriptor()!.relayId)
+      .find(relayId => !selected.has(relayId))!;
+
+    await retiringTarget.stop();
+    startedTargets.delete(retiringTarget);
+
+    await waitFor(() => {
+      const status = source.getReplicaPlacementStatus(operation.publicationId);
+      return status?.targetConfirmed === true
+        && status.intent.targetRelayIds.includes(spareRelayId)
+        && !status.intent.targetRelayIds.includes(retiringRelayId);
+    }, 15_000);
+    expect(source.getReplicaPlacementStatus(operation.publicationId)).toMatchObject({
+      confirmedReplicaCount: 5,
+      minimumConfirmed: true,
+      targetConfirmed: true,
+      permanentlyRejectedRelayIds: [retiringRelayId],
+    });
+  }, 30_000);
 });
 
-async function waitFor(predicate: () => boolean, timeoutMs = 4_000): Promise<void> {
+async function waitFor(predicate: () => boolean, timeoutMs = 15_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (!predicate()) {
     if (Date.now() >= deadline) throw new Error('Timed out waiting for durable replica placement');
