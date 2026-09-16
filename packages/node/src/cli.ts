@@ -12,7 +12,9 @@ import { matchesCommand } from './commands/matches.js';
 import { connectCommand } from './commands/connect.js';
 import { channelCommand } from './commands/channel.js';
 import { statusCommand } from './commands/status.js';
-import { serveCommand } from './commands/serve.js';
+import { withdrawCommand } from './commands/withdraw.js';
+import { inboxCommand } from './commands/inbox.js';
+import { upgradeV2Command } from './commands/upgrade-v2.js';
 
 const program = new Command();
 
@@ -35,8 +37,33 @@ program
   .option('--privacy <level>', 'Privacy level: low, medium, or high', 'medium')
   .option('--password <password>', 'Password to unlock identity')
   .option('--relay <url>', 'Relay server URL', 'ws://localhost:9090')
+  .option('--group <id>', 'Matching group', 'public')
   .option('--local-only', 'Store locally without publishing to relay')
   .action(publishCommand);
+
+program
+  .command('withdraw')
+  .description('Withdraw a publication with its publication-scoped key')
+  .argument('<itemId>', 'Local item ID')
+  .option('--password <password>', 'Password to unlock identity')
+  .option('--relay <url>', 'Relay server URL', 'ws://localhost:9090')
+  .action(withdrawCommand);
+
+program
+  .command('upgrade-v2')
+  .description('Back up and upgrade v0.1 local items to fresh protocol v2 identities')
+  .option('--password <password>', 'Password to unlock identity')
+  .option('--relay <url>', 'Relay server URL', 'ws://localhost:9090')
+  .option('--group <id>', 'Matching group', 'public')
+  .option('--local-only', 'Create v2 records locally without publishing to relay')
+  .action(upgradeV2Command);
+
+program
+  .command('inbox')
+  .description('Process encrypted protocol v2 matches, consent, and channel messages')
+  .option('--password <password>', 'Password to unlock identity')
+  .option('--relay <url>', 'Relay server URL', 'ws://localhost:9090')
+  .action(inboxCommand);
 
 program
   .command('search')
@@ -45,15 +72,14 @@ program
   .option('--type <type>', 'Query type: need or offer (searches complementary)', 'need')
   .option('-k <number>', 'Max results', '5')
   .option('--threshold <number>', 'Min similarity', '0.50')
-  .option('--password <password>', 'Password to unlock identity')
   .option('--relay <url>', 'Relay server URL', 'ws://localhost:9090')
+  .option('--group <id>', 'Matching group', 'public')
   .action(searchCommand);
 
 program
   .command('matches')
   .description('List match notifications')
   .option('--password <password>', 'Password to unlock identity')
-  .option('--status <status>', 'Filter by status: pending, consented, confirmed, rejected, expired')
   .action(matchesCommand);
 
 program
@@ -77,12 +103,5 @@ program
   .description('Show node status: DID, items, matches, channels')
   .option('--password <password>', 'Password to unlock identity')
   .action(statusCommand);
-
-program
-  .command('serve')
-  .description('Run as a long-lived listener for match notifications')
-  .option('--password <password>', 'Password to unlock identity')
-  .option('--relay <url>', 'Relay server URL', 'ws://localhost:9090')
-  .action(serveCommand);
 
 program.parse();

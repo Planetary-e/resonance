@@ -26,15 +26,12 @@ export async function statusCommand(options: { password?: string }): Promise<voi
   const store = await openStoreAsync(getDbPath(), deriveStoreKey(identity));
 
   const items = store.listItems();
-  const matches = store.listMatches();
+  const matches = store.listMailboxMatches();
+  const channels = store.listPairwiseChannels();
 
   const localItems = items.filter(i => i.status === 'local').length;
   const publishedItems = items.filter(i => i.status === 'published').length;
   const withdrawnItems = items.filter(i => i.status === 'withdrawn').length;
-
-  const pendingMatches = matches.filter(m => m.status === 'pending').length;
-  const consentedMatches = matches.filter(m => m.status === 'consented').length;
-  const confirmedMatches = matches.filter(m => m.status === 'confirmed').length;
 
   store.close();
 
@@ -48,7 +45,5 @@ export async function statusCommand(options: { password?: string }): Promise<voi
     console.log(`              ${publishedItems} published, ${localItems} local, ${withdrawnItems} withdrawn`);
   }
   console.log(`  Matches:    ${matches.length} total`);
-  if (matches.length > 0) {
-    console.log(`              ${pendingMatches} pending, ${consentedMatches} consented, ${confirmedMatches} confirmed`);
-  }
+  console.log(`  Channels:   ${channels.length} total`);
 }

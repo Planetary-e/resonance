@@ -1,6 +1,6 @@
 /**
  * resonance connect <matchId> — Open a direct channel for a match.
- * Performs consent handshake, key exchange, and embedding confirmation.
+ * Performs the protocol v2 consent handshake and pairwise key exchange.
  */
 
 import { createInterface } from 'node:readline';
@@ -8,7 +8,7 @@ import { getDbPath, deriveStoreKey } from '../config.js';
 import { createIdentityManager } from '../identity.js';
 import { openStoreAsync } from '../store.js';
 import { createRelayClient } from '../relay-client.js';
-import { createChannelManager } from '../channel.js';
+import { createPairwiseChannelManagerV2 } from '../pairwise-channel-v2.js';
 
 async function promptPassword(prompt: string): Promise<string> {
   const rl = createInterface({ input: process.stdin, output: process.stderr });
@@ -32,9 +32,9 @@ export async function connectCommand(
   const identity = await mgr.load(password);
   const store = await openStoreAsync(getDbPath(), deriveStoreKey(identity));
 
-  const match = store.getMatch(matchId);
-  if (!match) {
-    console.error(`Match "${matchId}" not found.`);
+  const mailboxMatch = store.listMailboxMatches().find((candidate) => candidate.matchId === matchId);
+  if (!mailboxMatch) {
+    console.error(`Protocol v2 mailbox match "${matchId}" not found. Run "resonance inbox" first.`);
     store.close();
     process.exitCode = 1;
     return;
@@ -42,60 +42,17 @@ export async function connectCommand(
 
   const relayUrl = options.relay ?? 'ws://localhost:9090';
   const client = createRelayClient({ relayUrl, identity });
-  const channelMgr = createChannelManager({ identity, store, relayClient: client });
-
-  // Set up channel event handlers
-  let channelId: string | null = null;
-  const done = new Promise<void>((resolve) => {
-    channelMgr.on({
-      onChannelReady(id, mId) {
-        channelId = id;
-        console.log(`Channel ready: ${id}`);
-
-        // Auto-send confirm embedding
-        const item = store.getItem(match.itemId);
-        if (item) {
-          console.log('Sending true embedding for confirmation...');
-          channelMgr.sendConfirmEmbedding(id, item.embedding);
-        }
-      },
-      onConfirmResult(id, similarity, confirmed) {
-        if (confirmed) {
-          console.log(`\nMatch confirmed! True similarity: ${similarity.toFixed(3)}`);
-          console.log(`\nChannel active. Run: resonance channel ${id}`);
-        } else {
-          console.log(`\nMatch rejected. True similarity: ${similarity.toFixed(3)} (below ${0.55} threshold)`);
-        }
-        resolve();
-      },
-    });
-  });
-
-  // Wire relay events to channel manager
-  client.on({
-    onConsentForward: (payload) => channelMgr.handleConsentForward(payload),
-    onChannelForward: (payload) => channelMgr.handleChannelForward(payload),
-  });
 
   try {
-    await client.connect();
-    console.log(`Connected to relay: ${relayUrl}`);
-    console.log(`Initiating channel for match ${matchId}...`);
-
-    await channelMgr.initiateChannel(matchId, match.partnerDID);
-    console.log('Consent sent. Waiting for partner...');
-
-    // Wait for confirmation (with timeout)
-    const timeout = new Promise<void>((_, reject) =>
-      setTimeout(() => reject(new Error('Timeout waiting for partner')), 60_000),
-    );
-
-    await Promise.race([done, timeout]);
+    const pairwise = createPairwiseChannelManagerV2(store, client);
+    const channel = await pairwise.initiate(matchId);
+    console.log('Consent sent through the encrypted mailbox.');
+    console.log(`Channel: ${channel.channelId ?? channel.localKeys.relationshipId} (${channel.status})`);
+    console.log('Run "resonance inbox" to process the partner response.');
   } catch (err) {
-    console.error(`Error: ${err}`);
+    console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
     process.exitCode = 1;
   } finally {
-    client.disconnect();
     store.close();
   }
 }

@@ -1,42 +1,44 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { normalize } from '@resonance/core';
 import { MatchingEngine } from '../matching-engine.js';
 
-function randomUnitVector(dims = 768): Float32Array {
-  const v = new Float32Array(dims);
-  for (let i = 0; i < dims; i++) v[i] = Math.random() - 0.5;
-  return normalize(v);
+function randomHash(bytes = 64): Uint8Array {
+  const hash = new Uint8Array(bytes);
+  for (let i = 0; i < bytes; i++) hash[i] = Math.floor(Math.random() * 256);
+  return hash;
 }
 
-// Create a vector close to another (high similarity)
-function similarVector(base: Float32Array, noise = 0.1): Float32Array {
-  const v = new Float32Array(base.length);
-  for (let i = 0; i < base.length; i++) v[i] = base[i] + (Math.random() - 0.5) * noise;
-  return normalize(v);
+// Flip a small deterministic set of bits to keep Hamming similarity high.
+function similarHash(base: Uint8Array, bitFlips = 8): Uint8Array {
+  const hash = base.slice();
+  for (let i = 0; i < bitFlips; i++) {
+    const byte = i % hash.length;
+    hash[byte] ^= 1 << (i % 8);
+  }
+  return hash;
 }
 
 describe('MatchingEngine', () => {
   let engine: MatchingEngine;
 
   beforeEach(() => {
-    engine = new MatchingEngine({ maxElements: 1000 });
+    engine = new MatchingEngine();
     engine.initialize();
   });
 
   it('returns matches from complementary index', () => {
-    const baseVec = randomUnitVector();
+    const baseHash = randomHash();
 
     // Publish an offer
     engine.insertAndMatch(
-      Array.from(baseVec),
+      baseHash,
       { did: 'did:key:alice', itemType: 'offer', itemId: 'offer-1' },
       10, 0.3,
     );
 
     // Publish a similar need — should match the offer
-    const needVec = similarVector(baseVec, 0.05);
+    const needHash = similarHash(baseHash);
     const notifications = engine.insertAndMatch(
-      Array.from(needVec),
+      needHash,
       { did: 'did:key:bob', itemType: 'need', itemId: 'need-1' },
       10, 0.3,
     );
@@ -49,17 +51,17 @@ describe('MatchingEngine', () => {
   });
 
   it('deduplicates DID pairs', () => {
-    const baseVec = randomUnitVector();
+    const baseHash = randomHash();
 
     engine.insertAndMatch(
-      Array.from(baseVec),
+      baseHash,
       { did: 'did:key:alice', itemType: 'offer', itemId: 'offer-1' },
       10, 0.3,
     );
 
     // First need from Bob matches
     const need1 = engine.insertAndMatch(
-      Array.from(similarVector(baseVec, 0.05)),
+      similarHash(baseHash),
       { did: 'did:key:bob', itemType: 'need', itemId: 'need-1' },
       10, 0.3,
     );
@@ -67,7 +69,7 @@ describe('MatchingEngine', () => {
 
     // Second need from Bob — same DID pair, should be deduped
     const need2 = engine.insertAndMatch(
-      Array.from(similarVector(baseVec, 0.05)),
+      similarHash(baseHash),
       { did: 'did:key:bob', itemType: 'need', itemId: 'need-2' },
       10, 0.3,
     );
@@ -75,10 +77,10 @@ describe('MatchingEngine', () => {
   });
 
   it('filters withdrawn items', () => {
-    const baseVec = randomUnitVector();
+    const baseHash = randomHash();
 
     engine.insertAndMatch(
-      Array.from(baseVec),
+      baseHash,
       { did: 'did:key:alice', itemType: 'offer', itemId: 'offer-1' },
       10, 0.3,
     );
@@ -86,7 +88,7 @@ describe('MatchingEngine', () => {
     engine.withdraw('did:key:alice', 'offer-1');
 
     const notifications = engine.insertAndMatch(
-      Array.from(similarVector(baseVec, 0.05)),
+      similarHash(baseHash),
       { did: 'did:key:bob', itemType: 'need', itemId: 'need-1' },
       10, 0.3,
     );
@@ -94,15 +96,15 @@ describe('MatchingEngine', () => {
   });
 
   it('ephemeral search does not index the query', () => {
-    const baseVec = randomUnitVector();
+    const baseHash = randomHash();
 
     engine.insertAndMatch(
-      Array.from(baseVec),
+      baseHash,
       { did: 'did:key:alice', itemType: 'offer', itemId: 'offer-1' },
       10, 0.0,
     );
 
-    const results = engine.search(Array.from(similarVector(baseVec, 0.05)), 'need', 10, 0.3);
+    const results = engine.search(similarHash(baseHash), 'need', 10, 0.3);
     expect(results.length).toBe(1);
     expect(results[0].did).toBe('did:key:alice');
 
@@ -113,16 +115,16 @@ describe('MatchingEngine', () => {
   });
 
   it('tracks stats correctly', () => {
-    const baseVec = randomUnitVector();
+    const baseHash = randomHash();
 
     engine.insertAndMatch(
-      Array.from(baseVec),
+      baseHash,
       { did: 'did:key:alice', itemType: 'offer', itemId: 'offer-1' },
       10, 0.3,
     );
 
     engine.insertAndMatch(
-      Array.from(similarVector(baseVec, 0.05)),
+      similarHash(baseHash),
       { did: 'did:key:bob', itemType: 'need', itemId: 'need-1' },
       10, 0.3,
     );

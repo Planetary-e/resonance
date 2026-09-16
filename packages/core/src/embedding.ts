@@ -5,14 +5,23 @@
 
 import { EMBEDDING_CONFIG } from './types.js';
 import type { ItemType } from './types.js';
+import type { FeatureExtractionPipeline } from '@huggingface/transformers';
 
 // Dynamic import to avoid top-level await issues
-let transformersPipeline: typeof import('@huggingface/transformers').pipeline | null = null;
+type FeatureExtractionFactory = (
+  task: 'feature-extraction',
+  model?: string,
+  options?: { dtype?: 'fp32' },
+) => Promise<FeatureExtractionPipeline>;
+
+let transformersPipeline: FeatureExtractionFactory | null = null;
 
 async function getTransformers() {
   if (!transformersPipeline) {
     const mod = await import('@huggingface/transformers');
-    transformersPipeline = mod.pipeline;
+    // The library factory covers every supported ML task in one very large
+    // generic union. Resonance only constructs feature-extraction pipelines.
+    transformersPipeline = mod.pipeline as unknown as FeatureExtractionFactory;
   }
   return transformersPipeline;
 }
@@ -74,7 +83,7 @@ export function rewriteForMatching(text: string, itemType: ItemType): string {
 }
 
 export class EmbeddingEngine {
-  private pipe: Awaited<ReturnType<typeof import('@huggingface/transformers').pipeline>> | null = null;
+  private pipe: FeatureExtractionPipeline | null = null;
   private modelId: string;
 
   constructor(modelId?: string) {

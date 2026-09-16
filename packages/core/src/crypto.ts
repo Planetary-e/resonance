@@ -80,9 +80,26 @@ export interface Identity {
   did: string;
 }
 
+/** Raw Ed25519 keypair without a persistent protocol identifier. */
+export interface SigningKeyPair {
+  /** Ed25519 public key (32 bytes) */
+  publicKey: Uint8Array;
+  /** Ed25519 secret key (64 bytes — includes public key) */
+  secretKey: Uint8Array;
+}
+
+/** Generate an Ed25519 keypair for a scoped signing purpose. */
+export function generateSigningKeyPair(): SigningKeyPair {
+  const keyPair = nacl.sign.keyPair();
+  return {
+    publicKey: keyPair.publicKey,
+    secretKey: keyPair.secretKey,
+  };
+}
+
 /** Generate a new ed25519 identity (keypair + DID). */
 export function generateIdentity(): Identity {
-  const keyPair = nacl.sign.keyPair();
+  const keyPair = generateSigningKeyPair();
   const did = publicKeyToDid(keyPair.publicKey);
   return {
     publicKey: keyPair.publicKey,
@@ -122,6 +139,11 @@ export function sign(message: Uint8Array, secretKey: Uint8Array): Uint8Array {
 /** Verify an ed25519 signature. */
 export function verify(message: Uint8Array, signature: Uint8Array, publicKey: Uint8Array): boolean {
   return nacl.sign.detached.verify(message, signature, publicKey);
+}
+
+/** SHA-512 digest used for deterministic protocol identifiers. */
+export function sha512(message: Uint8Array): Uint8Array {
+  return nacl.hash(message);
 }
 
 // --- Box Encryption (asymmetric, for consent messages) ---

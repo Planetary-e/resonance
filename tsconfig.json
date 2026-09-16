@@ -13,11 +13,13 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true
   },
+  "files": [],
   "references": [
     { "path": "packages/core" },
     { "path": "packages/relay" },
-    { "path": "packages/eval" },
     { "path": "packages/node" },
+    { "path": "packages/eval" },
+    { "path": "packages/app/tsconfig.server.json" },
     { "path": "packages/app" }
   ]
 }

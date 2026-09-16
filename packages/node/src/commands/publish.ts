@@ -9,7 +9,8 @@ import {
   perturbWithLevel,
   hashEmbedding,
   getSharedProjectionMatrix,
-  encodeBase64,
+  createPublicationRecord,
+  generatePublicationKeyMaterial,
   type ItemType,
   type PrivacyLevel,
 } from '@resonance/core';
@@ -30,7 +31,14 @@ async function promptPassword(prompt: string): Promise<string> {
 
 export async function publishCommand(
   text: string,
-  options: { type?: string; privacy?: string; password?: string; relay?: string; localOnly?: boolean },
+  options: {
+    type?: string;
+    privacy?: string;
+    password?: string;
+    relay?: string;
+    group?: string;
+    localOnly?: boolean;
+  },
 ): Promise<void> {
   const itemType = (options.type ?? 'need') as ItemType;
   const privacyLevel = (options.privacy ?? 'medium') as PrivacyLevel;
@@ -79,6 +87,18 @@ export async function publishCommand(
     epsilon,
   });
 
+  const keys = generatePublicationKeyMaterial();
+  const now = Date.now();
+  const record = createPublicationRecord({
+    groupId: options.group ?? 'public',
+    fingerprintEpoch: 'pilot-static-v1',
+    fingerprint: hashEmbedding(embedding, getSharedProjectionMatrix()),
+    itemType,
+    createdAt: now,
+    expiresAt: now + 7 * 24 * 60 * 60 * 1000,
+  }, keys);
+  store.insertPublication(id, record, keys);
+
   console.log(`\nItem stored locally.`);
   console.log(`  ID:       ${id}`);
   console.log(`  Type:     ${itemType}`);
@@ -90,16 +110,9 @@ export async function publishCommand(
     const relayUrl = options.relay ?? 'ws://localhost:9090';
     try {
       const client = createRelayClient({ relayUrl, identity });
-      await client.connect();
-      const hash = hashEmbedding(embedding, getSharedProjectionMatrix());
-      await client.publish({
-        itemId: id,
-        hash: encodeBase64(hash),
-        itemType,
-        ttl: 604800,
-      });
+      const ack = await client.submitPublicationOperation(record);
+      if (ack.status !== 'ok') throw new Error(ack.message ?? 'Relay rejected publication');
       store.updateItemStatus(id, 'published');
-      client.disconnect();
       console.log(`  Status:   published (relay: ${relayUrl})`);
     } catch (err) {
       console.log(`  Status:   local (relay unavailable)`);

@@ -1,242 +1,372 @@
 # Planetary Resonance
 
-**Privacy-preserving decentralized matching. Find who you need. Keep what's yours.**
+**Private, decentralized discovery for complementary needs and offers.**
 
-Planetary Resonance is an open-source protocol that lets people discover each other based on complementary needs and offers — without surrendering their data to a platform.
+[Latest release](https://github.com/Planetary-e/resonance/releases/latest) · [Roadmap](ROADMAP.md) · [Protocol v2](docs/developers/protocol-v2.md) · [Open issues](https://github.com/Planetary-e/resonance/issues)
 
-You describe what you need or offer in natural language. The system embeds it locally on your device, adds calibrated noise for privacy, and sends only the noisy mathematical pattern to the network. When a complementary match is found, both parties open a direct encrypted channel to confirm and exchange details. No corporation sits in the middle reading your data.
+Planetary Resonance is an open-source protocol and application for helping people find one another without giving a central platform a permanent record of who they are, what they need, what they can offer, and whom they contact.
 
----
+A person writes a need or offer in natural language. Their device turns it into a compact matching fingerprint, publishes it under a key created for that one publication, and keeps the original text and root identity local. A relay compares complementary fingerprints. If two publications match, both people can consent to a fresh pairwise relationship and exchange end-to-end encrypted disclosures through asynchronous mailboxes.
 
-## Why
+Resonance is currently a **research prototype**, not a production network. The protocol v2 privacy and persistence foundation is implemented. Automatic replication, relay-to-relay query forwarding, private transport, and mobile participation are the next milestones.
 
-Centralized platforms — LinkedIn, Airbnb, Craigslist, dating apps — extract value from matching people. You surrender what you need, what you offer, where you are, and who you know. The platform monetizes it through ads, algorithmic manipulation, and data brokerage.
+## The goal
 
-There is no way today for two people to discover that they can help each other without a corporation in the middle, reading everything, and taking a cut.
+Most discovery systems require a platform to know the participants, their intent, their history, and the outcome of their conversations. Resonance explores a different model:
 
-AI will accelerate this unless a distributed alternative exists. Resonance is that alternative.
+- **People keep their private data.** Raw text, true embeddings, root keys, and conversation plaintext remain on user-controlled devices.
+- **The network matches intent.** Natural-language needs are compared with complementary offers rather than exact keywords.
+- **Activity has separate identities.** Publications, searches, relay installations, and accepted relationships use independent cryptographic keys.
+- **Infrastructure comes from participants.** The target network uses volunteer devices and remains useful through replication and repair when individual relays disappear.
+- **Privacy claims stay measurable.** Threat models, leakage boundaries, tests, and evaluation results live beside the implementation.
+- **No account or platform tax is required.** The protocol does not require an email address, phone number, central account, or proprietary service.
 
-## How It Works
+The long-term aim is a public protocol that communities can operate for mutual aid, work, services, collaboration, local exchange, and other forms of human coordination without creating another behavioral-data platform.
 
+## How it works
+
+```text
+1. Describe a need or offer
+        │
+        ▼
+2. Your device embeds the text locally
+        │
+        ▼
+3. Your device creates a 512-bit LSH fingerprint and a new publication key
+        │
+        ▼
+4. A relay stores the signed publication and compares only compatible
+   need/offer fingerprints
+        │
+        ▼
+5. A match becomes a relay-signed operation and two encrypted mailbox notices
+        │
+        ▼
+6. Each person decides whether to establish a new pairwise relationship
+        │
+        ▼
+7. Disclosures and channel-close operations travel as end-to-end encrypted,
+   signed, sequenced mailbox messages
 ```
-You write:        "I need a plumber in Barcelona who speaks Spanish"
-                          |
-Your device:      Embeds text into a 768-dim vector (locally, no cloud)
-                          |
-Privacy layer:    Converts to compact binary hash (locality-sensitive hashing)
-                          |
-Network:          Relay indexes the binary hash, finds complementary matches
-                          |
-Match found:      Both parties notified, open encrypted direct channel
-                          |
-You decide:       Confirm match, then progressively share details
-```
 
-The relay never sees your text, your name, or your location. It only sees compact binary hashes — enough to find matches, not enough to reconstruct what you wrote.
+Publications can be renewed or withdrawn with their own signing keys. Relay state is written to an append-only, fsynced journal before acknowledgement and is replayed after a restart. Searches use a new one-use identity, are never inserted into the index, and return publication identifiers rather than user accounts.
 
-## Key Properties
+## Privacy and trust boundaries
 
-- **Private by design** — Raw data never leaves your device. Embeddings are computed locally. Only compact binary hashes reach the network.
-- **Complementary matching** — Needs only match offers, never other needs. The system understands intent, not just keywords.
-- **No account required** — Your identity is a cryptographic keypair (`did:key`). No email, no phone number, no tracking.
-- **Runs on consumer hardware** — Embedding inference in 14ms on CPU. No GPU required. Relay runs on a 10/month VPS.
-- **Fully open source** — MIT licensed. No proprietary components, no vendor lock-in, no platform tax.
+Protocol v2 removes a stable user identifier from relay-visible application messages. That is an important boundary, but it does not make all network activity anonymous.
 
-## Current Status: Pilot Complete
+| Observer | What it can learn | What the protocol does not send it |
+| --- | --- | --- |
+| Personal node | The user's text, true embeddings, keys, publications, matches, and chosen disclosures | Other users' private local data |
+| Relay | Source network address, timing, message size, group, item type, scoped identifiers, fingerprints, similarity, expiry, and mailbox routing metadata | Root identity, raw text, true embeddings, channel plaintext, or private publication/relationship keys |
+| Matched peer | Information deliberately disclosed in that pairwise relationship | Unrelated publications, searches, matches, or relationships |
+| Network observer | Endpoints, timing, direction, and message sizes | End-to-end encrypted mailbox contents |
 
-All 5 phases are implemented. The protocol works end-to-end: publish, match, consent, confirm with true embeddings, progressive disclosure.
+Important limits in the current version:
 
-### Eval results (35/35 pass)
+- Similarity matching necessarily reveals that some fingerprints are close. A compact fingerprint reduces exposed data; it is not a proof that semantic membership cannot be inferred.
+- A relay or network observer can still correlate requests by IP address, timing, size, and repeated fingerprints. Two-hop private transport, padding, batching, and route rotation are planned work.
+- Current clients use one configured relay at a time. A relay that does not hold a record does **not** yet forward the query to another relay.
+- Records are not yet replicated automatically. If the only relay holding a record goes offline, that record is temporarily unavailable.
+- A desktop relay contributes only while its relay process is running. Independent background supervision and graceful multi-relay handoff belong to the volunteer-replication milestone.
+- The project does not operate a required fleet of permanent servers. The planned availability model depends on several independently operated volunteer devices.
 
-| Metric | Result |
-|--------|--------|
-| Embedding latency (p95) | **14ms** |
-| HNSW search latency (p95) | **1.5ms** |
-| Match recall (LSH 512-bit) | **93.3%** |
-| False positive rate | **<3%** |
-| Match notification latency | **19ms** |
-| Consent handshake latency | **16ms** |
-| Channel message round-trip | **9.5ms** |
-| Store encrypt/decrypt | **34us/op** |
+Read the full [protocol v2 threat model](docs/developers/protocol-v2.md) and [roadmap](ROADMAP.md) before relying on Resonance for sensitive activity.
 
-## Quick Start
+## Project status
+
+| Area | Status |
+| --- | --- |
+| Protocol v2 scoped publication, search, and relationship identities | Implemented |
+| Signed publication revisions, expiry, withdrawal, and terminal tombstones | Implemented |
+| Durable relay journal, restart replay, signed matches, encrypted mailboxes | Implemented |
+| Pairwise consent, encrypted disclosures, retries, and channel close | Implemented |
+| CLI and Tauri desktop flows | Implemented from current source |
+| v0.1 local-data backup and upgrade | Implemented |
+| Automatic multi-relay placement, repair, and query forwarding | Planned for v0.3 |
+| Private two-hop transport and anonymous abuse-control credentials | Planned for v0.4 |
+| iOS and Android clients | Planned for v0.5 |
+
+The current validation baseline is:
+
+- **198 automated tests** across core, node, relay, storage, migration, and integration flows
+- **44/44 evaluation gates passing**
+- **93.3% recall** for the evaluated 512-bit LSH configuration at a 0.7 Hamming-similarity threshold
+- **2.3 ms p95** for a 10,000-fingerprint Hamming scan on the recorded evaluation machine
+- **42.4 ms** relay publication round trip and **134.1 ms** publication-to-encrypted-match delivery in the recorded run
+
+These are development measurements, not service-level guarantees. See the [latest committed evaluation report](docs/evals/eval-2026-09-16-10-12-37.md) for the dataset, platform, thresholds, informational metrics, and complete results.
+
+## Use Resonance
+
+### Download a desktop build
+
+Installers are published on [GitHub Releases](https://github.com/Planetary-e/resonance/releases). The latest published release currently includes an Apple Silicon macOS DMG, a Windows x64 installer, and Linux Debian/RPM packages.
+
+Packaged releases may lag the protocol on `main`. Read the release notes and use the source workflow below when you want the newest protocol behavior.
+
+The release workflow runs when a version tag is pushed, or when a maintainer starts it manually. Merging source changes into `main` does not immediately replace the downloadable applications.
+
+### Run the current protocol from source
+
+Requirements:
+
+- Node.js 20 or newer
+- npm
+- Git
+
+Clone, install exactly the locked dependencies, and verify the checkout:
 
 ```bash
-# Clone and install
 git clone https://github.com/Planetary-e/resonance.git
 cd resonance
-npm install
-
-# Run tests (119 tests)
-npx vitest run
-
-# Run eval suite (downloads embedding model on first run, ~137MB)
-npm run eval:quick
+npm ci
+npm run build
+npm test
 ```
 
-### Desktop App
+The first embedding test, evaluation, or identity initialization downloads and caches the language model, so the first run takes longer.
 
-Download the desktop app from the [GitHub Releases](https://github.com/Planetary-e/resonance/releases) page. Available for macOS (`.dmg`), Windows (`.msi`), and Linux (`.AppImage`).
+### Start a local relay
 
-Or build from source:
+From the repository root:
+
 ```bash
-npm install && cd packages/app && npx tauri build
+RELAY_HOST=127.0.0.1 \
+RELAY_PORT=9090 \
+RELAY_DATA_DIR=.resonance/relay \
+npm run start --workspace=@resonance/relay
 ```
 
-### Run the protocol
+The relay writes its infrastructure identity and operation journal under `RELAY_DATA_DIR`. Stop it with `Ctrl+C`; accepted operations are replayed on the next start.
 
-**No centralized server needed.** Any user can act as a relay.
+The current transport is suitable for local development and controlled testing. It is not yet the private, authenticated Internet transport described in the roadmap.
 
-**User A — Start the app and enable relay mode:**
+### Use the CLI
+
+Open another terminal in the repository root. Initialize a personal node; omitting `--password` keeps the password out of shell history and prompts for it interactively.
+
 ```bash
-cd packages/app && npx tauri dev
-# Starts Vite + Tauri window + backend
-# In the app: toggle "Act as Relay" on the dashboard
-# Other users can now connect to your relay
+npm run resonance -- init
+
+# Publish an offer to the local relay
+npm run resonance -- publish \
+  --type offer \
+  --relay ws://127.0.0.1:9090 \
+  "Experienced bicycle mechanic available on weekends"
+
+# Search for complementary offers without creating an indexed publication
+npm run resonance -- search \
+  --type need \
+  --relay ws://127.0.0.1:9090 \
+  "I need help repairing a bicycle this weekend"
+
+# Fetch encrypted match, consent, and channel mailbox messages
+npm run resonance -- inbox --relay ws://127.0.0.1:9090
+
+# Inspect local state
+npm run resonance -- status
+npm run resonance -- matches
 ```
 
-**User B — Connect and publish:**
+A real match requires complementary publications from two personal nodes. To simulate two people on one computer, give each process a different data directory:
+
 ```bash
-cd packages/app && npx tauri dev
-# The app auto-discovers relays via the bootstrap list
-# Publish needs/offers, see matches, open channels
+RESONANCE_DATA_DIR=.resonance/alice npm run resonance -- init
+RESONANCE_DATA_DIR=.resonance/bob npm run resonance -- init
 ```
 
-**Or use the CLI:**
+Run subsequent commands with the same `RESONANCE_DATA_DIR` for that participant. After both sides run `inbox`, use the displayed `matchId` and `channelId`:
+
 ```bash
-resonance init --password alice
-resonance publish --type offer --password alice "Experienced Python developer available for Django projects"
-resonance serve --password alice
+RESONANCE_DATA_DIR=.resonance/alice \
+  npm run resonance -- connect <matchId> --relay ws://127.0.0.1:9090
+
+RESONANCE_DATA_DIR=.resonance/bob \
+  npm run resonance -- inbox --relay ws://127.0.0.1:9090
+
+RESONANCE_DATA_DIR=.resonance/alice \
+  npm run resonance -- inbox --relay ws://127.0.0.1:9090
+
+RESONANCE_DATA_DIR=.resonance/alice \
+  npm run resonance -- channel <channelId> --relay ws://127.0.0.1:9090
 ```
 
-Or run the automated demo:
+Inside a channel, use:
+
+```text
+/disclose general <text>
+/disclose specific <text>
+/disclose identifying <text>
+/sync
+/status
+/close
+```
+
+Run `npm run resonance -- --help` or append `--help` to a subcommand for the complete current interface.
+
+### Upgrade v0.1 local data
+
+The upgrade creates a timestamped backup of the encrypted identity and database before opening the old schema. It then gives every active legacy item fresh protocol v2 publication and mailbox keys.
+
 ```bash
-bash scripts/dev-cluster.sh
+npm run resonance -- upgrade-v2 --relay ws://127.0.0.1:9090
 ```
 
-### CLI Commands
+Use `--local-only` to prepare records without contacting a relay. Read the [v0.1 to v0.2 upgrade guide](docs/developers/v0.1-to-v0.2-upgrade.md) before upgrading important local data.
 
-| Command | Description |
-|---------|-------------|
-| `resonance init` | Create identity, download model, create local database |
-| `resonance publish <text>` | Embed text and publish to relay |
-| `resonance search <text>` | Live search across the relay (ephemeral, not indexed) |
-| `resonance matches` | List match notifications |
-| `resonance connect <matchId>` | Open a direct channel (consent + confirm) |
-| `resonance channel <channelId>` | Interactive encrypted session (/disclose, /accept, /reject, /close) |
-| `resonance status` | Show node status: DID, items, matches |
-| `resonance serve` | Long-running listener for match notifications |
+### Run the desktop application from source
 
-All commands accept `--password <pw>` and `--relay <url>` (default: `ws://localhost:9090`).
+Install the [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/) for your operating system, including Rust and the required system WebView libraries. Then, from the repository root:
+
+```bash
+# The development desktop backend currently expects its relay on port 9091
+RELAY_HOST=127.0.0.1 RELAY_PORT=9091 RELAY_DATA_DIR=.resonance/relay \
+  npm run start --workspace=@resonance/relay
+```
+
+In a second terminal:
+
+```bash
+cd packages/app
+npx tauri dev
+```
+
+The desktop app manages the same personal-node concepts as the CLI and can also start a local relay from the dashboard when its configured relay port is free. Closing the current application stops its supervised backend process.
+
+To create an installer for the current operating system:
+
+```bash
+cd packages/app
+npx tauri build
+```
+
+## CLI reference
+
+| Command | Purpose |
+| --- | --- |
+| `init` | Create the encrypted root identity, initialize the local database, and prepare the embedding model |
+| `publish <text>` | Store a need or offer locally and publish a scoped v2 record |
+| `withdraw <itemId>` | Sign and submit a terminal tombstone with the publication key |
+| `search <text>` | Run a one-use, non-indexed search for complementary publications |
+| `inbox` | Fetch, verify, persist, and acknowledge match, consent, and channel envelopes |
+| `matches` | List locally persisted protocol v2 matches |
+| `connect <matchId>` | Start the encrypted pairwise-consent exchange for a match |
+| `channel <channelId>` | Synchronize and interact with an active pairwise channel |
+| `status` | Show local items, matches, channels, identity, and data directory |
+| `upgrade-v2` | Back up and migrate legacy local items to unrelated v2 identities |
+
+Networked commands accept `--relay <ws-url>`. Publication and search commands accept `--group <id>` so independently governed communities can keep their matching domains separate.
 
 ## Architecture
 
-```
-+---------------+  +---------------+  +---------------+
-| Personal      |  | Personal      |  | Personal      |
-| Node A        |  | Node B        |  | Node C        |
-| (your data)   |  | (your data)   |  | (your data)   |
-+-------+-------+  +-------+-------+  +-------+-------+
-        | perturbed         | perturbed         |
-        | embeddings        | embeddings        |
-        v                   v                   v
-+-------------------------------------------------+
-|              Relay (HNSW Index)                  |
-|        Receives embeddings, finds matches,      |
-|        sends notifications. Sees NOTHING else.  |
-+------------------------+------------------------+
-                         | match notification
-                         v
-                +-----------------+
-                | Direct Channel  |
-                | A <-> B (E2E)   |
-                | Confirm + Share |
-                +-----------------+
-```
-
-The desktop app uses **Tauri** — a system WebView for the UI with a Node.js sidecar for the backend (embedding, relay client, local store). No bundled browser engine; lightweight and native on each platform.
-
-**Three tiers, three trust levels:**
-
-| Tier | Sees | Doesn't see |
-|------|------|-------------|
-| Personal Node | Everything (your raw text, true embeddings, keys) | Other nodes' data |
-| Relay | Perturbed vectors + DIDs | Raw text, true embeddings, channel contents |
-| Direct Channel | True embeddings + disclosures (between two parties only) | Other channels |
-
-## Project Structure
-
-```
-resonance/
-├── packages/
-│   ├── core/                  # Crypto, embedding, perturbation, wire protocol
-│   ├── relay/                 # WebSocket relay server, HNSW index, matching engine
-│   ├── node/                  # Personal node: CLI, local store, relay client, channels
-│   ├── app/                   # Tauri desktop app (React + Vite + Node.js sidecar)
-│   └── eval/                  # 14 benchmarks, 35 metrics
-├── scripts/
-│   └── dev-cluster.sh         # Local development cluster
-├── docs/                      # Documentation website
-└── PRD-resonance-pilot.md     # Full product requirements
+```text
+┌──────────────────────┐                         ┌──────────────────────┐
+│ Personal node A      │                         │ Personal node B      │
+│                      │                         │                      │
+│ raw text + embedding │                         │ raw text + embedding │
+│ root and scoped keys │                         │ root and scoped keys │
+│ encrypted local DB   │                         │ encrypted local DB   │
+└──────────┬───────────┘                         └──────────┬───────────┘
+           │ signed publication/search requests            │
+           │ 512-bit fingerprints                          │
+           ▼                                               ▼
+        ┌─────────────────────────────────────────────────────┐
+        │ Volunteer relay                                    │
+        │                                                     │
+        │ Hamming matcher · signed match operations           │
+        │ durable journal · encrypted asynchronous mailboxes  │
+        └──────────────────────────┬──────────────────────────┘
+                                   │ opaque encrypted envelopes
+                    ┌──────────────┴──────────────┐
+                    │ Fresh pairwise relationship │
+                    │ consent · disclosures · close│
+                    └─────────────────────────────┘
 ```
 
-## Key Design Decisions
+The desktop package contains a personal node and an optional relay role. Their identities, data stores, and lifecycle are separate even when they run on the same device.
 
-Validated empirically through the eval suite:
+## Repository map
 
-1. **Index-only perturbation** — Only published embeddings are perturbed. Ephemeral queries use true embeddings. Double perturbation reduced recall from 82% to 48%.
-2. **Relay threshold: 0.50** — True need/offer similarity averages 0.634. At the PRD's 0.72, recall was 4%.
-3. **Confirmation threshold: 0.55** — Lowered from 0.70. With average true similarity at 0.634, a 0.70 threshold rejected half of genuine matches.
-4. **MatchingIndex** — Separate HNSW indexes for needs and offers. Eliminated 65% same-type noise, brought FPR from 82% to 2%.
-5. **Query rewriting** — Strip demand framing ("I need", "Looking for") before embedding. +1.5pp similarity improvement.
-6. **LSH matching** — Relay sees only 64-byte binary hashes (512-bit LSH), not embedding vectors. Irreversible 96:1 compression. Benchmarked at 93.3% recall.
-7. **Relay-bridged channels** — Direct channel messages forwarded through relay, E2E encrypted with DH-derived shared secret. Avoids NAT traversal complexity for pilot.
+```text
+packages/
+  core/    Cryptography, embeddings, fingerprints, protocol objects, mailboxes
+  relay/   WebSocket relay, Hamming index, durable journal, matching and delivery
+  node/    CLI, encrypted local store, relay client, migration, pairwise channels
+  app/     Tauri desktop shell, React interface, and local Node.js backend
+  eval/    Quality, privacy, performance, storage, relay, and channel benchmarks
 
-## Tech Stack
+docs/
+  developers/   Protocol, architecture, API, migration, and contribution guides
+  evals/        Generated evaluation reports
 
-| Component | Technology |
-|-----------|-----------|
-| Language | TypeScript (Node.js 20+, ESM) |
-| Embedding | `@huggingface/transformers` (Nomic-embed-text, 768-dim) |
-| ANN Index | `hnswlib-node` (M=16, ef=200/100, cosine distance) |
-| Crypto | `tweetnacl` (Ed25519, X25519, XSalsa20-Poly1305) |
-| Local Store | `better-sqlite3` (field-level secretbox encryption) |
-| WebSocket | `ws` (relay server + node client) |
-| Desktop App | Tauri 2 (system WebView + Node.js sidecar), React, Vite |
-| CLI | `commander` |
-| Testing | Vitest (119 tests) |
-| Monorepo | npm workspaces |
+ROADMAP.md      Sequenced protocol and product milestones
+COMPLIANCE.md   Deployment-oriented EU legal and operational notes
+```
 
-## Contributing
+## Develop and validate changes
+
+From the repository root:
 
 ```bash
-git clone https://github.com/Planetary-e/resonance.git
-cd resonance
-npm install
-npx vitest run              # 119 tests
-npm run eval:quick          # Eval suite (35 metrics)
-bash scripts/dev-cluster.sh # Demo the full flow
+npm ci
+npm run build
+npm test
+npm run eval:quick
 ```
 
-See [docs/developers/contributing.html](docs/developers/contributing.html) for guidelines.
+Use the quick evaluation whenever a change affects embeddings, fingerprints, thresholds, matching quality, privacy behavior, storage, relay performance, or channel flow. It writes JSON output under `packages/eval/results/` and a Markdown report under `docs/evals/`.
+
+Useful targeted commands:
+
+```bash
+npm test --workspace=@resonance/core
+npm test --workspace=@resonance/relay
+npm test --workspace=@resonance/node
+npm run start --workspace=@resonance/relay
+```
+
+## Join the community
+
+The project currently collaborates in public through GitHub Issues and pull requests.
+
+- **Ask a question or propose a use case:** [open an issue](https://github.com/Planetary-e/resonance/issues/new) and explain the community, problem, and privacy or availability constraints involved.
+- **Report a bug:** include the operating system, Node version, commit or release, exact command, expected behavior, actual behavior, and a minimal log with secrets and personal data removed.
+- **Propose a protocol change:** start with an issue. Describe the threat model, relay failure behavior, compatibility impact, and how the change can be evaluated before writing a large implementation.
+- **Contribute code or documentation:** choose an open issue, comment that you intend to work on it, create a focused branch, add appropriate tests or evaluation evidence, and open a pull request.
+- **Find approachable work:** look for [`good first issue`](https://github.com/Planetary-e/resonance/labels/good%20first%20issue) and [`help wanted`](https://github.com/Planetary-e/resonance/labels/help%20wanted) labels when available.
+- **Help with the next network milestone:** relay discovery, multi-relay publication, replica repair, bounded query forwarding, churn testing, and resource controls are the main v0.3 priorities.
+
+Community norms:
+
+- Discuss ideas and evidence, and treat other participants with respect.
+- Never post private keys, identity files, real personal data, or unredacted databases.
+- Use synthetic fixtures unless participants have explicitly consented to another dataset.
+- State privacy and reliability limits plainly. Avoid presenting prototype behavior as a production guarantee.
+- Keep pull requests reviewable and include documentation when behavior or trust boundaries change.
+
+See the [contribution guide](docs/developers/contributing.html), [open issues](https://github.com/Planetary-e/resonance/issues), and [roadmap](ROADMAP.md) for more context.
 
 ## Documentation
 
-Open `docs/index.html` in a browser, or browse:
+- [Protocol v2 and threat model](docs/developers/protocol-v2.md)
+- [v0.1 to v0.2 upgrade guide](docs/developers/v0.1-to-v0.2-upgrade.md)
+- [Architecture](docs/developers/architecture.html)
+- [How Resonance works](docs/how-it-works.html)
+- [Privacy model](docs/privacy.html)
+- [Use cases](docs/use-cases.html)
+- [Evaluation report](docs/evals/eval-2026-09-16-10-12-37.md)
+- [Security audit](docs/security-audit-2026-03-26.md)
+- [EU compliance notes](COMPLIANCE.md)
 
-- [How It Works](docs/how-it-works.html) — Visual explanation
-- [Privacy Model](docs/privacy.html) — Three layers of privacy
-- [Architecture](docs/developers/architecture.html) — Three-tier design, data flow, trust boundaries
-- [Wire Protocol](docs/developers/protocol.html) — All message types with TypeScript interfaces
-- [Core Library API](docs/developers/core-library.html) — Complete API reference
-- [Eval Results](docs/developers/eval-results.html) — Benchmark results
+Some HTML documentation still describes the v0.1 pilot. The protocol v2 specification, upgrade guide, roadmap, tests, and current source are authoritative where they differ.
 
 ## License
 
-MIT — free to use, modify, and distribute. No proprietary components.
+[MIT](LICENSE). You may use, study, modify, and distribute the software under the license terms.
 
 ## About
 
-Planetary Resonance is part of the [Planetary Project](https://github.com/Planetary-e), building decentralized infrastructure that returns power to people.
+Planetary Resonance is part of the [Planetary Project](https://github.com/Planetary-e), an effort to build decentralized infrastructure that returns agency and data control to the people who use it.
 
-Created by Marcos Cuevas. Built in Barcelona.
+Created by Marcos Cuevas in Barcelona and developed in public with its contributors.

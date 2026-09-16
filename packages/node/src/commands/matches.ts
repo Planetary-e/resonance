@@ -14,7 +14,7 @@ async function promptPassword(prompt: string): Promise<string> {
   });
 }
 
-export async function matchesCommand(options: { password?: string; status?: string }): Promise<void> {
+export async function matchesCommand(options: { password?: string }): Promise<void> {
   const mgr = createIdentityManager();
   if (!mgr.exists()) {
     console.error('No identity found. Run "resonance init" first.');
@@ -26,7 +26,7 @@ export async function matchesCommand(options: { password?: string; status?: stri
   const identity = await mgr.load(password);
   const store = await openStoreAsync(getDbPath(), deriveStoreKey(identity));
 
-  const matches = store.listMatches(options.status ? { status: options.status } : undefined);
+  const matches = store.listMailboxMatches();
   store.close();
 
   if (matches.length === 0) {
@@ -36,10 +36,9 @@ export async function matchesCommand(options: { password?: string; status?: stri
 
   console.log(`\n${matches.length} match(es):\n`);
   for (const m of matches) {
-    console.log(`  ${m.id}`);
-    console.log(`    Partner:    ${m.partnerDID}`);
+    console.log(`  ${m.matchId}`);
+    console.log(`    Partner:    ${m.partnerPublicationId}`);
     console.log(`    Similarity: ${m.similarity.toFixed(3)}`);
-    console.log(`    Status:     ${m.status}`);
     console.log(`    Created:    ${m.createdAt}`);
     console.log('');
   }

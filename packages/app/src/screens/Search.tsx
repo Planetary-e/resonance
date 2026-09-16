@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { search, type SearchResult } from '../api.client';
 
-function truncateDID(did: string | null | undefined): string {
-  if (!did) return 'unknown';
-  if (did.length <= 24) return did;
-  return did.substring(0, 20) + '...';
+function truncatePublicationId(publicationId: string | null | undefined): string {
+  if (!publicationId) return 'unknown';
+  if (publicationId.length <= 24) return publicationId;
+  return publicationId.substring(0, 20) + '...';
 }
 
 function similarityColor(sim: number): string {
@@ -110,7 +110,7 @@ export default function Search({ onToast }: SearchProps) {
           return (
             <div className="search-result" key={i}>
               <div className="search-result-info">
-                <span className="search-result-did">{truncateDID(r.did)}</span>
+                <span className="search-result-did">{truncatePublicationId(r.publicationId)}</span>
                 <span className={`badge badge-${r.itemType || 'offer'}`}>
                   {r.itemType || 'unknown'}
                 </span>

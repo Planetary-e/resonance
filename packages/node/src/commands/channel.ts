@@ -1,6 +1,6 @@
 /**
  * resonance channel <channelId> — Interactive session on an active channel.
- * Supports: /disclose, /accept, /reject, /close, /status
+ * Supports protocol v2 disclosure, synchronization, close, and status.
  */
 
 import { createInterface } from 'node:readline';
@@ -8,7 +8,7 @@ import { getDbPath, deriveStoreKey } from '../config.js';
 import { createIdentityManager } from '../identity.js';
 import { openStoreAsync } from '../store.js';
 import { createRelayClient } from '../relay-client.js';
-import { createChannelManager } from '../channel.js';
+import { createPairwiseChannelManagerV2 } from '../pairwise-channel-v2.js';
 
 async function promptPassword(prompt: string): Promise<string> {
   const rl = createInterface({ input: process.stdin, output: process.stderr });
@@ -32,105 +32,66 @@ export async function channelCommand(
   const identity = await mgr.load(password);
   const store = await openStoreAsync(getDbPath(), deriveStoreKey(identity));
 
-  const storedChannel = store.getChannel(channelId);
-  if (!storedChannel) {
-    console.error(`Channel "${channelId}" not found.`);
-    store.close();
-    process.exitCode = 1;
-    return;
-  }
-
   const relayUrl = options.relay ?? 'ws://localhost:9090';
   const client = createRelayClient({ relayUrl, identity });
-  const channelMgr = createChannelManager({ identity, store, relayClient: client });
-
-  // Wire events
-  channelMgr.on({
-    onDisclosure(id, text, level) {
-      console.log(`\n  [${level}] ${text}`);
-      process.stdout.write('> ');
-    },
-    onAccept(id, message) {
-      console.log(`\n  Partner accepted${message ? ': ' + message : ''}`);
-      process.stdout.write('> ');
-    },
-    onReject(id, reason) {
-      console.log(`\n  Partner rejected${reason ? ': ' + reason : ''}`);
-      console.log('Channel closed.');
-      process.exit(0);
-    },
-    onClose(id) {
-      console.log('\n  Partner closed the channel.');
-      process.exit(0);
-    },
-  });
-
-  client.on({
-    onChannelForward: (payload) => channelMgr.handleChannelForward(payload),
-  });
-
-  try {
-    await client.connect();
-  } catch {
-    console.error('Could not connect to relay.');
+  const pairwise = createPairwiseChannelManagerV2(store, client);
+  const pairwiseChannel = pairwise.getByChannelId(channelId);
+  if (!pairwiseChannel) {
+    console.error(`Protocol v2 channel "${channelId}" not found.`);
     store.close();
     process.exitCode = 1;
     return;
   }
-
-  console.log(`Channel ${channelId} — interactive session`);
-  console.log('Commands: /disclose <level> <text>, /accept [msg], /reject [reason], /close, /status\n');
-
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  rl.setPrompt('> ');
-  rl.prompt();
-
-  rl.on('line', async (line: string) => {
-    const trimmed = line.trim();
-    if (!trimmed) { rl.prompt(); return; }
-
-    if (trimmed.startsWith('/disclose ')) {
-      const parts = trimmed.slice(10).split(' ');
-      const level = parts[0] as 'category' | 'detail' | 'contact';
-      const text = parts.slice(1).join(' ');
-      if (!['category', 'detail', 'contact'].includes(level) || !text) {
-        console.log('Usage: /disclose <category|detail|contact> <text>');
-      } else {
-        await channelMgr.sendDisclosure(channelId, text, level);
-        console.log(`  Sent [${level}]: ${text}`);
-      }
-    } else if (trimmed.startsWith('/accept')) {
-      const msg = trimmed.slice(7).trim() || undefined;
-      await channelMgr.sendAccept(channelId, msg);
-      console.log('  Accepted.');
-    } else if (trimmed.startsWith('/reject')) {
-      const reason = trimmed.slice(7).trim() || undefined;
-      await channelMgr.sendReject(channelId, reason);
-      console.log('  Rejected. Channel closed.');
-      rl.close();
-      client.disconnect();
-      store.close();
-      return;
-    } else if (trimmed === '/close') {
-      await channelMgr.sendClose(channelId);
-      console.log('  Channel closed.');
-      rl.close();
-      client.disconnect();
-      store.close();
-      return;
-    } else if (trimmed === '/status') {
-      const info = channelMgr.getChannel(channelId);
-      if (info) {
-        console.log(`  State: ${info.state}, Similarity: ${info.similarity?.toFixed(3) ?? 'n/a'}, Confirmed: ${info.confirmed ?? 'n/a'}`);
-      }
-    } else {
-      console.log('Unknown command. Use /disclose, /accept, /reject, /close, or /status');
+  {
+    try {
+      await pairwise.syncMailboxes();
+    } catch (error) {
+      console.error(`Mailbox sync failed: ${error instanceof Error ? error.message : String(error)}`);
     }
+    console.log(`Channel ${channelId} — protocol v2 encrypted mailbox`);
+    for (const message of pairwise.listMessages(channelId)) {
+      if (message.kind === 'close') {
+        console.log(`  ${message.direction === 'sent' ? 'You' : 'Partner'} closed the channel.`);
+      } else {
+        console.log(`  ${message.direction === 'sent' ? 'You' : 'Partner'} [${message.content!.level}]: ${message.content!.text}`);
+      }
+    }
+    console.log('Commands: /disclose <general|specific|identifying> <text>, /sync, /close, /status\n');
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    rl.setPrompt('> ');
     rl.prompt();
-  });
-
-  rl.on('close', () => {
-    client.disconnect();
-    store.close();
-  });
+    rl.on('line', async (line: string) => {
+      try {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('/disclose ')) {
+          const parts = trimmed.slice(10).split(' ');
+          const level = parts[0] as 'general' | 'specific' | 'identifying';
+          const text = parts.slice(1).join(' ');
+          if (!['general', 'specific', 'identifying'].includes(level) || !text) {
+            console.log('Usage: /disclose <general|specific|identifying> <text>');
+          } else {
+            await pairwise.sendDisclosure(channelId, text, level);
+            console.log(`  Sent [${level}]: ${text}`);
+          }
+        } else if (trimmed === '/sync') {
+          const result = await pairwise.syncMailboxes();
+          console.log(`  Processed ${result.channelOperationsProcessed} channel operation(s).`);
+        } else if (trimmed === '/close') {
+          await pairwise.close(channelId);
+          console.log('  Channel closed.');
+          rl.close();
+          return;
+        } else if (trimmed === '/status') {
+          console.log(`  State: ${pairwise.getByChannelId(channelId)?.status ?? 'unknown'}`);
+        } else if (trimmed) {
+          console.log('Unknown command. Use /disclose, /sync, /close, or /status');
+        }
+      } catch (error) {
+        console.error(`  Error: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      rl.prompt();
+    });
+    rl.on('close', () => store.close());
+    return;
+  }
 }

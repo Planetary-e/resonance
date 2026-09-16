@@ -17,6 +17,8 @@ import {
   stopRelayMode,
   getRelayStats,
   publishItem,
+  withdrawItem,
+  syncMatchMailboxes,
   searchRelay,
   initiateChannel,
 } from './session.js';
@@ -132,7 +134,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
       relayConnected: s?.relayClient.isConnected() ?? false,
       relayMode: isRelayMode(),
       items: s ? s.store.listItems().length : 0,
-      matches: s ? s.store.listMatches().length : 0,
+      matches: s ? s.store.listMailboxMatches().length : 0,
     });
     return true;
   }
@@ -205,12 +207,12 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
   if (url.startsWith('/api/items/') && method === 'DELETE') {
     if (!requireAuth(req, res)) return true;
     const id = url.slice('/api/items/'.length);
-    const s = getSession()!;
-    s.store.updateItemStatus(id, 'withdrawn');
-    if (s.relayClient.isConnected()) {
-      try { await s.relayClient.withdraw({ itemId: id }); } catch { /* ignore */ }
+    try {
+      await withdrawItem(id);
+      json(res, { withdrawn: true });
+    } catch (err) {
+      error(res, err instanceof Error ? err.message : 'Withdrawal failed', 503);
     }
-    json(res, { withdrawn: true });
     return true;
   }
 
@@ -218,8 +220,17 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
 
   if (url === '/api/matches' && method === 'GET') {
     if (!requireAuth(req, res)) return true;
-    const matches = getSession()!.store.listMatches();
-    json(res, matches);
+    await syncMatchMailboxes();
+    const s = getSession()!;
+    const mailboxMatches = s.store.listMailboxMatches().map(match => ({
+      id: match.matchId,
+      itemId: match.itemId,
+      partnerDID: match.partnerPublicationId,
+      similarity: match.similarity,
+      protocolVersion: 2,
+      channelStatus: s.pairwiseChannelMgr.getByMatchId(match.matchId)?.status ?? null,
+    }));
+    json(res, mailboxMatches);
     return true;
   }
 
@@ -244,8 +255,17 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
 
   if (url === '/api/channels' && method === 'GET') {
     if (!requireAuth(req, res)) return true;
-    const channels = getSession()!.channelMgr.listChannels();
-    json(res, channels);
+    await syncMatchMailboxes();
+    const s = getSession()!;
+    const pairwiseChannels = s.pairwiseChannelMgr.list().map(channel => ({
+      id: channel.channelId ?? channel.localKeys.relationshipId,
+      matchId: channel.matchId,
+      partnerDID: channel.partnerRelationshipId ?? channel.partnerPublicationId,
+      state: channel.status === 'active' ? 'open' : channel.status === 'closed' ? 'closed' : 'pending',
+      createdAt: channel.createdAt,
+      protocolVersion: 2,
+    }));
+    json(res, pairwiseChannels);
     return true;
   }
 
@@ -258,7 +278,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
       const result = await initiateChannel(matchId);
       json(res, result);
     } catch (err) {
-      error(res, 'Internal error', 500);
+      error(res, err instanceof Error ? err.message : 'Channel initiation failed', 503);
     }
     return true;
   }
@@ -271,47 +291,80 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
     const s = getSession()!;
     const body = await readBody(req);
 
-    try {
-      switch (action) {
-        case 'disclose':
-          await s.channelMgr.sendDisclosure(channelId, body.text as string, body.level as any);
-          json(res, { sent: true });
-          break;
-        case 'accept':
-          await s.channelMgr.sendAccept(channelId, body.message as string | undefined);
-          json(res, { accepted: true });
-          break;
-        case 'reject':
-          await s.channelMgr.sendReject(channelId, body.reason as string | undefined);
-          json(res, { rejected: true });
-          break;
-        default:
-          error(res, 'Unknown action', 404);
+    const pairwise = s.pairwiseChannelMgr.list().find(
+      (candidate) => (candidate.channelId ?? candidate.localKeys.relationshipId) === channelId,
+    );
+    if (pairwise) {
+      if (action !== 'disclose') {
+        error(res, 'Protocol v2 consent is completed during channel establishment.', 409);
+        return true;
       }
-    } catch (err) {
-      error(res, 'Internal error', 500);
+      try {
+        const level = body.level as 'general' | 'specific' | 'identifying';
+        if (!['general', 'specific', 'identifying'].includes(level)) {
+          error(res, 'Invalid disclosure level');
+          return true;
+        }
+        const message = await s.pairwiseChannelMgr.sendDisclosure(channelId, body.text as string, level);
+        json(res, { sent: true, messageId: message.messageId });
+      } catch (err) {
+        error(res, err instanceof Error ? err.message : 'Disclosure failed', 503);
+      }
+      return true;
     }
+
+    error(res, 'Protocol v2 channel not found', 404);
     return true;
   }
 
   if (url.match(/^\/api\/channels\/[^/]+$/) && method === 'DELETE') {
     if (!requireAuth(req, res)) return true;
     const channelId = url.slice('/api/channels/'.length);
-    try {
-      await getSession()!.channelMgr.sendClose(channelId);
-      json(res, { closed: true });
-    } catch (err) {
-      error(res, 'Internal error', 500);
+    const pairwise = getSession()!.pairwiseChannelMgr.list().find(
+      (candidate) => (candidate.channelId ?? candidate.localKeys.relationshipId) === channelId,
+    );
+    if (pairwise) {
+      try {
+        await getSession()!.pairwiseChannelMgr.close(channelId);
+        json(res, { closed: true });
+      } catch (err) {
+        error(res, err instanceof Error ? err.message : 'Channel close failed', 503);
+      }
+      return true;
     }
+    error(res, 'Protocol v2 channel not found', 404);
     return true;
   }
 
   if (url.match(/^\/api\/channels\/[^/]+$/) && method === 'GET') {
     if (!requireAuth(req, res)) return true;
+    await syncMatchMailboxes();
     const channelId = url.slice('/api/channels/'.length);
-    const channel = getSession()!.channelMgr.getChannel(channelId);
-    if (!channel) { error(res, 'Channel not found', 404); return true; }
-    json(res, channel);
+    const s = getSession()!;
+    const pairwise = s.pairwiseChannelMgr.list().find(
+      (candidate) => (candidate.channelId ?? candidate.localKeys.relationshipId) === channelId,
+    );
+    if (pairwise) {
+      json(res, {
+        id: pairwise.channelId ?? pairwise.localKeys.relationshipId,
+        matchId: pairwise.matchId,
+        partnerDID: pairwise.partnerRelationshipId ?? pairwise.partnerPublicationId,
+        state: pairwise.status === 'active' ? 'open' : pairwise.status === 'closed' ? 'closed' : 'pending',
+        createdAt: pairwise.createdAt,
+        protocolVersion: 2,
+        messages: pairwise.channelId ? s.pairwiseChannelMgr.listMessages(pairwise.channelId).map(message => ({
+          type: message.kind === 'disclosure' ? 'disclosure' : 'system',
+          text: message.content?.text ?? (message.direction === 'sent'
+            ? 'You closed the channel.'
+            : 'The partner closed the channel.'),
+          level: message.content?.level,
+          from: message.direction === 'sent' ? 'me' : 'partner',
+          time: message.createdAt,
+        })) : [],
+      });
+      return true;
+    }
+    error(res, 'Protocol v2 channel not found', 404);
     return true;
   }
 
@@ -319,7 +372,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
 
   if (url === '/api/relay/status' && method === 'GET') {
     const stats = getRelayStats();
-    json(res, { enabled: isRelayMode(), ...(stats ?? { port: null, stats: null }) });
+    json(res, stats ?? { enabled: false, port: null, stats: null });
     return true;
   }
 

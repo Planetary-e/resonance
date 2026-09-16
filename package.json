@@ -16,5 +16,8 @@
     "eval:quick": "npm run eval:quick --workspace=@resonance/eval",
     "resonance": "npm run resonance --workspace=@resonance/node --",
     "app": "npm run start --workspace=@resonance/app"
+  },
+  "devDependencies": {
+    "@types/sql.js": "^1.4.11"
   }
 }

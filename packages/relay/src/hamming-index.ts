@@ -14,6 +14,10 @@ export interface HashMetadata {
   did: string;
   itemType: ItemType;
   itemId: string;
+  /** Matching scope, normally group ID plus fingerprint epoch. */
+  scope?: string;
+  /** Signed publication expiry. Entries without it are legacy/test data. */
+  expiresAt?: number;
 }
 
 export interface HammingMatch {
@@ -38,10 +42,14 @@ export class HammingIndex {
     return id;
   }
 
-  search(query: Uint8Array, k: number, threshold: number): HammingMatch[] {
+  search(query: Uint8Array, k: number, threshold: number, scope?: string): HammingMatch[] {
     const results: HammingMatch[] = [];
+    const now = Date.now();
 
     for (let i = 0; i < this.hashes.length; i++) {
+      if (this.metadata[i].scope !== scope) continue;
+      const expiresAt = this.metadata[i].expiresAt;
+      if (expiresAt !== undefined && expiresAt <= now) continue;
       const sim = hammingSim(query, this.hashes[i]);
       if (sim >= threshold) {
         results.push({ id: i, similarity: sim, metadata: this.metadata[i] });
@@ -51,6 +59,18 @@ export class HammingIndex {
     // Sort by similarity descending, limit to k
     results.sort((a, b) => b.similarity - a.similarity);
     return results.slice(0, k);
+  }
+
+  removeByItemId(itemId: string): number {
+    let removed = 0;
+    for (let i = this.metadata.length - 1; i >= 0; i--) {
+      if (this.metadata[i].itemId !== itemId) continue;
+      this.hashes.splice(i, 1);
+      this.metadata.splice(i, 1);
+      this.createdAt.splice(i, 1);
+      removed++;
+    }
+    return removed;
   }
 
   getMetadata(id: number): HashMetadata | undefined {
@@ -68,6 +88,20 @@ export class HammingIndex {
         this.createdAt.splice(i, 1);
         removed++;
       }
+    }
+    return removed;
+  }
+
+  /** Remove publications at their individual signed expiry timestamp. */
+  expireAtOrBefore(now: number): number {
+    let removed = 0;
+    for (let i = this.hashes.length - 1; i >= 0; i--) {
+      const expiresAt = this.metadata[i].expiresAt;
+      if (expiresAt === undefined || expiresAt > now) continue;
+      this.hashes.splice(i, 1);
+      this.metadata.splice(i, 1);
+      this.createdAt.splice(i, 1);
+      removed++;
     }
     return removed;
   }
@@ -111,11 +145,11 @@ export class ComplementaryHammingIndex {
   ): { id: number; matches: HammingMatch[] } {
     if (meta.itemType === 'need') {
       const id = this.needsIndex.addHash(hash, meta);
-      const matches = this.offersIndex.search(hash, k, threshold);
+      const matches = this.offersIndex.search(hash, k, threshold, meta.scope);
       return { id, matches };
     } else {
       const id = this.offersIndex.addHash(hash, meta);
-      const matches = this.needsIndex.search(hash, k, threshold);
+      const matches = this.needsIndex.search(hash, k, threshold, meta.scope);
       return { id, matches };
     }
   }
@@ -128,12 +162,22 @@ export class ComplementaryHammingIndex {
     }
   }
 
-  search(query: Uint8Array, queryType: ItemType, k: number = 10, threshold: number = 0.70): HammingMatch[] {
+  search(
+    query: Uint8Array,
+    queryType: ItemType,
+    k: number = 10,
+    threshold: number = 0.70,
+    scope?: string,
+  ): HammingMatch[] {
     if (queryType === 'need') {
-      return this.offersIndex.search(query, k, threshold);
+      return this.offersIndex.search(query, k, threshold, scope);
     } else {
-      return this.needsIndex.search(query, k, threshold);
+      return this.needsIndex.search(query, k, threshold, scope);
     }
+  }
+
+  removeByItemId(itemId: string): number {
+    return this.needsIndex.removeByItemId(itemId) + this.offersIndex.removeByItemId(itemId);
   }
 
   getMetadata(id: number, itemType: ItemType): HashMetadata | undefined {
@@ -150,6 +194,10 @@ export class ComplementaryHammingIndex {
   /** Remove expired items from both indexes. */
   expireOlderThan(ttlMs: number): number {
     return this.needsIndex.expireOlderThan(ttlMs) + this.offersIndex.expireOlderThan(ttlMs);
+  }
+  /** Remove publications at their individual signed expiry timestamp. */
+  expireAtOrBefore(now: number): number {
+    return this.needsIndex.expireAtOrBefore(now) + this.offersIndex.expireAtOrBefore(now);
   }
 
   save(dir: string): void {
