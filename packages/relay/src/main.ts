@@ -10,7 +10,12 @@ import { createRelayServer } from './server.js';
 
 const publicEndpoints = parseList(process.env.RELAY_PUBLIC_ENDPOINTS);
 const configuredContacts = parseList(process.env.RELAY_CONTACTS);
-const discoveryEnabled = process.env.RELAY_DISCOVERY === 'true' || publicEndpoints.length > 0;
+const configuredHints = configuredContacts.map(endpoint => (
+  createRelayContactHintV1('configured', endpoint)
+));
+const discoveryEnabled = process.env.RELAY_DISCOVERY === 'true'
+  || publicEndpoints.length > 0
+  || configuredHints.length > 0;
 const storageCapacityBytes = parseNonNegativeInteger(
   process.env.RELAY_STORAGE_CAPACITY_BYTES,
   1024 * 1024 * 1024,
@@ -38,20 +43,21 @@ const server = createRelayServer({
       availableBytes: storageAvailableBytes,
     },
   } : undefined,
+  relayLinks: configuredHints.length > 0 ? { targets: configuredHints } : undefined,
 });
 
 await server.start();
 
-await Promise.all(configuredContacts.map(async (endpoint) => {
+await Promise.all(configuredHints.map(async (hint) => {
   try {
-    const result = await server.discoverRelay(createRelayContactHintV1('configured', endpoint));
+    const result = await server.discoverRelay(hint);
     log('info', 'relay_contact_discovered', {
       endpoint: result.hint.endpoint,
       responderId: result.responder.relayId,
       descriptors: result.descriptors.length,
     });
   } catch (error) {
-    log('warn', 'relay_contact_failed', { endpoint, error: String(error) });
+    log('warn', 'relay_contact_failed', { endpoint: hint.endpoint, error: String(error) });
   }
 }));
 

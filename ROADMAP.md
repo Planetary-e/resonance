@@ -92,6 +92,7 @@ The pilot uses one persistent DID per user and one relay-local index. The next m
 - [ ] Treat bootstrap contacts as discovery hints rather than trusted authorities
 - [ ] Run desktop relay mode as an independently supervised background service when the user enables persistent participation
 - [ ] Maintain several outbound peer connections so relays behind NAT and firewalls can participate without accepting unsolicited inbound connections
+  - [x] Establish mutually authenticated links to configured relays with heartbeats, descriptor renewal, bounded fanout, and reconnect backoff
 - [ ] Detect and advertise relay capabilities such as inbound reachability, storage capacity, supported groups, and forwarding availability
 - [ ] Publish to a remote placement set even when the personal node also operates a local relay
 - [ ] Replicate every active publication to a target of five relays with a minimum healthy set of three

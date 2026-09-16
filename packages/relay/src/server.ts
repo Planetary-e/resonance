@@ -4,7 +4,7 @@
  */
 
 import { createServer, type Server } from 'node:http';
-import { WebSocketServer, type WebSocket } from 'ws';
+import { WebSocket, WebSocketServer } from 'ws';
 import {
   MessageTypes,
   MAILBOX_DEPOSIT_FRAME_TYPE,
@@ -12,6 +12,7 @@ import {
   MAILBOX_RESPONSE_MESSAGE_TYPE,
   MAX_RELAY_DISCOVERY_FRAME_BYTES,
   PUBLICATION_OPERATION_FRAME_TYPE,
+  RELAY_LINK_OPEN_FRAME_TYPE,
   RELATIONSHIP_MAILBOX_DEPOSIT_FRAME_TYPE,
   RELATIONSHIP_MAILBOX_REQUEST_FRAME_TYPE,
   RELAY_PEER_REQUEST_FRAME_TYPE,
@@ -20,6 +21,8 @@ import {
   createAdmissionRequestBindingV2,
   createMatchOperationV2,
   createMatchNoticeMessage,
+  createRelayLinkAcceptFrameV1,
+  createRelayLinkAcceptV1,
   createRelayDescriptorV1,
   createRelayPeerResponseFrameV1,
   createRelayPeerResponseV1,
@@ -28,6 +31,7 @@ import {
   encryptMatchNotice,
   hammingSimilarity,
   isPublicationActive,
+  isRelayLinkOpenActiveV1,
   isRelayPeerRequestActiveV1,
   isSearchRequestActiveV2,
   parseMailboxDepositFrame,
@@ -35,12 +39,14 @@ import {
   parsePublicationOperationFrame,
   parseRelationshipMailboxDepositFrameV2,
   parseRelationshipMailboxRequestFrameV2,
+  parseRelayLinkOpenFrameV1,
   parseRelayPeerRequestFrameV1,
   parseSearchRequestFrameV2,
   parseMessage,
   verifyMessage,
   createMessage,
   serializeMessage,
+  serializeRelayLinkAcceptFrameV1,
   serializeRelayPeerResponseFrameV1,
   verifyMatchOperationAgainstPublicationsV2,
   type AckPayload,
@@ -74,6 +80,11 @@ import {
   type RelayContactDiscoveryOptions,
   type RelayContactDiscoveryResult,
 } from './relay-discovery-client.js';
+import {
+  RelayLinkManager,
+  type RelayLinkManagerOptions,
+  type RelayLinkManagerStatus,
+} from './relay-link-client.js';
 import type { AdmissionCapabilityVerifierV2 } from './admission.js';
 
 export interface RelayDiscoveryConfig {
@@ -101,8 +112,13 @@ export interface RelayConfig {
   adminApiKey: string | null;
   maxAuthAttemptsPerMin: number;
   maxPeerRequestsPerMin: number;
+  maxInboundRelayLinks: number;
+  relayLinkHeartbeatIntervalMs: number;
+  relayLinkHeartbeatTimeoutMs: number;
   /** Omit to disable public relay discovery on this server. */
   relayDiscovery?: RelayDiscoveryConfig;
+  /** Authenticated outbound relay links; requires relayDiscovery. */
+  relayLinks?: Omit<RelayLinkManagerOptions, 'onEvent'>;
   /** When set, every v2 operation must present an anonymous one-use capability. */
   admissionVerifier?: AdmissionCapabilityVerifierV2;
 }
@@ -118,6 +134,7 @@ export interface RelayStats {
   connected_nodes: number;
   matches_today: number;
   known_relays: number;
+  connected_relays: number;
   uptime: number;
 }
 
@@ -139,6 +156,7 @@ export interface RelayServer {
     hint: RelayContactHintV1,
     options?: RelayContactDiscoveryOptions,
   ): Promise<RelayDiscoveryIngestResult>;
+  getRelayLinkStatus(): RelayLinkManagerStatus & { inboundRelayIds: string[] };
 }
 
 const DEFAULT_CONFIG: RelayConfig = {
@@ -155,12 +173,28 @@ const DEFAULT_CONFIG: RelayConfig = {
   adminApiKey: null,
   maxAuthAttemptsPerMin: 5,
   maxPeerRequestsPerMin: 60,
+  maxInboundRelayLinks: 64,
+  relayLinkHeartbeatIntervalMs: 30_000,
+  relayLinkHeartbeatTimeoutMs: 90_000,
 };
 
 const MAX_TIMEOUT_DELAY_MS = 2_147_483_647;
 
 export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   const cfg = { ...DEFAULT_CONFIG, ...config };
+  if (!Number.isSafeInteger(cfg.maxInboundRelayLinks)
+    || cfg.maxInboundRelayLinks < 1
+    || cfg.maxInboundRelayLinks > 4_096) {
+    throw new Error('Inbound relay link limit must be between 1 and 4096');
+  }
+  if (!Number.isSafeInteger(cfg.relayLinkHeartbeatIntervalMs)
+    || cfg.relayLinkHeartbeatIntervalMs < 25
+    || cfg.relayLinkHeartbeatIntervalMs > MAX_TIMEOUT_DELAY_MS
+    || !Number.isSafeInteger(cfg.relayLinkHeartbeatTimeoutMs)
+    || cfg.relayLinkHeartbeatTimeoutMs <= cfg.relayLinkHeartbeatIntervalMs
+    || cfg.relayLinkHeartbeatTimeoutMs > MAX_TIMEOUT_DELAY_MS) {
+    throw new Error('Invalid inbound relay link heartbeat timing');
+  }
 
   const engine = new MatchingEngine({ matchExpiryMs: cfg.matchExpiryMs, matchThreshold: cfg.matchThreshold });
   engine.initialize();
@@ -183,6 +217,12 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
 
   const seenSearches = new Map<string, number>();
   const seenPeerRequests = new Map<string, number>();
+  const seenRelayLinks = new Map<string, number>();
+  const inboundRelayLinks = new Map<string, {
+    socket: WebSocket;
+    descriptor: RelayDescriptorV1;
+    lastPongAt: number;
+  }>();
   let relayDescriptor: RelayDescriptorV1 | null = null;
   let relayDescriptorSequence = Date.now();
 
@@ -190,6 +230,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   let wss: WebSocketServer;
   let publicationExpiryTimer: ReturnType<typeof setTimeout> | null = null;
   let cleanupTimer: ReturnType<typeof setInterval> | null = null;
+  let relayLinkHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
   const startTime = Date.now();
 
   function getOwnRelayDescriptor(now = Date.now()): RelayDescriptorV1 | null {
@@ -221,6 +262,31 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
 
   // Validate discovery configuration before the server can accept traffic.
   if (cfg.relayDiscovery) getOwnRelayDescriptor(startTime);
+  if (cfg.relayLinks && !cfg.relayDiscovery) {
+    throw new Error('Outbound relay links require relay discovery configuration');
+  }
+  const outboundRelayLinks = cfg.relayLinks
+    ? new RelayLinkManager(relayIdentity, () => {
+      const descriptor = getOwnRelayDescriptor();
+      if (!descriptor) throw new Error('Relay discovery is disabled');
+      return descriptor;
+    }, {
+      ...cfg.relayLinks,
+      onEvent(event) {
+        log(event.kind === 'failed' ? 'warn' : 'info', `relay_link_${event.kind}`, {
+          endpoint: event.endpoint,
+          relayId: event.relayId,
+          error: event.error,
+        });
+      },
+    })
+    : null;
+
+  function connectedRelayIds(): string[] {
+    const ids = new Set(inboundRelayLinks.keys());
+    for (const relayId of outboundRelayLinks?.status().connectedRelayIds ?? []) ids.add(relayId);
+    return [...ids].sort();
+  }
 
   function replayOperation(entry: RelayOperationLogEntry): void {
     if (entry.kind === 'publication') {
@@ -393,6 +459,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         connected_nodes: 0,
         matches_today: stats.matchesToday,
         known_relays: relayDirectory.size(),
+        connected_relays: connectedRelayIds().length,
         uptime: Math.floor((Date.now() - startTime) / 1000),
       }));
       return;
@@ -403,6 +470,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
 
   function handleConnection(ws: WebSocket, req: any): void {
     const ip = req?.socket?.remoteAddress ?? 'unknown';
+    let linkedRelayId: string | null = null;
 
     const authTimeout = setTimeout(() => {
       ws.close(4001, 'request_timeout');
@@ -416,11 +484,87 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         ws.close(4000, 'invalid_encoding');
         return;
       }
+      if (linkedRelayId) {
+        ws.close(4000, 'unexpected_link_message');
+        return;
+      }
 
       // Protocol v2 publication operations authenticate themselves. They use
       // a short connection and never send the user's root identity.
       let frameCandidate: unknown;
       try { frameCandidate = JSON.parse(raw); } catch { /* handled by v1 parser below */ }
+      if (isObject(frameCandidate) && frameCandidate.type === RELAY_LINK_OPEN_FRAME_TYPE) {
+        clearTimeout(authTimeout);
+        if (!cfg.relayDiscovery) {
+          ws.close(4004, 'relay_discovery_disabled');
+          return;
+        }
+        let frame: ReturnType<typeof parseRelayLinkOpenFrameV1>;
+        try {
+          frame = parseRelayLinkOpenFrameV1(raw);
+        } catch {
+          ws.close(4000, 'invalid_relay_link');
+          return;
+        }
+        const request = frame.request;
+        const now = Date.now();
+        if (!isRelayLinkOpenActiveV1(request, now)) {
+          ws.close(4003, 'expired_relay_link');
+          return;
+        }
+        if (seenRelayLinks.has(request.linkId)) {
+          ws.close(4003, 'replayed_relay_link');
+          return;
+        }
+        seenRelayLinks.set(request.linkId, request.expiresAt);
+        if (!rateLimiter.check(`transport:${ip}`, 'discovery')) {
+          ws.close(4008, 'rate_limited');
+          return;
+        }
+        const remoteRelayId = request.descriptor.relayId;
+        if (inboundRelayLinks.has(remoteRelayId)) {
+          ws.close(4009, 'relay_link_already_connected');
+          return;
+        }
+        if (inboundRelayLinks.size >= cfg.maxInboundRelayLinks) {
+          ws.close(4010, 'relay_link_capacity_reached');
+          return;
+        }
+        const observation = relayDirectory.observe(request.descriptor, now);
+        if (observation !== 'accepted' && observation !== 'updated' && observation !== 'unchanged') {
+          ws.close(4003, `relay_descriptor_${observation}`);
+          return;
+        }
+        const ownDescriptor = getOwnRelayDescriptor(now);
+        if (!ownDescriptor || ownDescriptor.reachability !== 'direct') {
+          ws.close(4004, 'relay_not_directly_reachable');
+          return;
+        }
+        const acceptance = createRelayLinkAcceptV1(
+          request,
+          ownDescriptor,
+          relayIdentity,
+          now,
+        );
+        const response = serializeRelayLinkAcceptFrameV1(
+          createRelayLinkAcceptFrameV1(acceptance),
+        );
+        linkedRelayId = remoteRelayId;
+        inboundRelayLinks.set(remoteRelayId, {
+          socket: ws,
+          descriptor: request.descriptor,
+          lastPongAt: now,
+        });
+        ws.on('pong', () => {
+          const link = inboundRelayLinks.get(remoteRelayId);
+          if (link?.socket === ws) link.lastPongAt = Date.now();
+        });
+        ws.send(response, error => {
+          if (error) ws.terminate();
+        });
+        log('info', 'relay_link_accepted', { relayId: remoteRelayId, reachability: request.descriptor.reachability });
+        return;
+      }
       if (isObject(frameCandidate) && frameCandidate.type === RELAY_PEER_REQUEST_FRAME_TYPE) {
         clearTimeout(authTimeout);
         if (!cfg.relayDiscovery) {
@@ -818,6 +962,10 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
 
     ws.on('close', () => {
       clearTimeout(authTimeout);
+      if (linkedRelayId) {
+        const link = inboundRelayLinks.get(linkedRelayId);
+        if (link?.socket === ws) inboundRelayLinks.delete(linkedRelayId);
+      }
     });
 
     ws.on('error', (err) => {
@@ -904,14 +1052,35 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         for (const [requestId, expiresAt] of seenPeerRequests) {
           if (expiresAt <= Date.now()) seenPeerRequests.delete(requestId);
         }
+        for (const [linkId, expiresAt] of seenRelayLinks) {
+          if (expiresAt <= Date.now()) seenRelayLinks.delete(linkId);
+        }
         relayDirectory.prune();
         enforcePublicationExpiries();
       }, 5 * 60_000);
+
+      relayLinkHeartbeatTimer = setInterval(() => {
+        const now = Date.now();
+        for (const link of inboundRelayLinks.values()) {
+          if (link.descriptor.expiresAt <= now
+            || now - link.lastPongAt > cfg.relayLinkHeartbeatTimeoutMs) {
+            link.socket.terminate();
+          } else if (link.socket.readyState === WebSocket.OPEN) {
+            link.socket.ping();
+          }
+        }
+      }, cfg.relayLinkHeartbeatIntervalMs);
+      relayLinkHeartbeatTimer.unref?.();
+      outboundRelayLinks?.start();
     },
 
     async stop(): Promise<void> {
       if (publicationExpiryTimer) clearTimeout(publicationExpiryTimer);
       if (cleanupTimer) clearInterval(cleanupTimer);
+      if (relayLinkHeartbeatTimer) clearInterval(relayLinkHeartbeatTimer);
+      outboundRelayLinks?.stop();
+      for (const link of inboundRelayLinks.values()) link.socket.close(1001, 'relay_stopping');
+      inboundRelayLinks.clear();
 
       wss?.close();
       await new Promise<void>((resolve) => {
@@ -935,6 +1104,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         connected_nodes: 0,
         matches_today: stats.matchesToday,
         known_relays: relayDirectory.size(),
+        connected_relays: connectedRelayIds().length,
         uptime: Math.floor((Date.now() - startTime) / 1000),
       };
     },
@@ -966,6 +1136,18 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         status: relayDirectory.observe(descriptor, now),
       }));
       return { ...result, observations };
+    },
+
+    getRelayLinkStatus(): RelayLinkManagerStatus & { inboundRelayIds: string[] } {
+      const outbound = outboundRelayLinks?.status() ?? {
+        running: false,
+        targetCount: 0,
+        connectedRelayIds: [],
+      };
+      return {
+        ...outbound,
+        inboundRelayIds: [...inboundRelayLinks.keys()].sort(),
+      };
     },
   };
 }

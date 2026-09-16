@@ -39,6 +39,16 @@ The outbound discovery client accepts configured, invitation, or local contact h
 
 `RELAY_CONTACTS` can provide a comma-separated set of configured contact endpoints to the standalone relay. They are queried in parallel after the relay starts. The contacts remain hints: they do not become authorities, and every descriptor they return must verify independently. Peer-exchange descriptors are cached but are not dialed automatically, preventing an untrusted relay from turning discovery into an unrestricted connection or local-network scanning mechanism.
 
+## Authenticated outbound links
+
+A discovery-enabled relay maintains authenticated WebSocket links to configured `RELAY_CONTACTS`. This lets an `outbound-only` volunteer establish a route through a directly reachable community relay without opening a listening port to the Internet.
+
+The initiator signs a short-lived, one-use link request with its relay infrastructure key and includes its current signed descriptor. The responder verifies both signatures, rejects replays and duplicate connections, applies per-address rate limits and a bounded inbound-link limit, and returns a signed acceptance bound to the request and initiator. Invitation pins and exact endpoint binding still apply on the outbound side. Personal-node identities are never part of the handshake.
+
+Both sides monitor the connection with WebSocket ping/pong frames. Missed heartbeats close the link, and the outbound manager reconnects with exponential backoff. Links also close and reauthenticate when either signed descriptor expires, so a live socket cannot extend stale reachability, group, capability, or capacity claims. `connected_relays` reports the union of authenticated inbound and outbound relay identities.
+
+The link currently provides authenticated reachability and lifecycle management. Replication, forwarded searches, and inventory repair will add explicitly typed messages over this channel in later v0.3 steps.
+
 ## Next integration step
 
-Connection management will refresh known contacts, add local discovery, and maintain several authenticated outbound peer links, including for relays that cannot accept unsolicited inbound connections. The long-lived link protocol must let an outbound-only relay announce its descriptor without exposing a personal-node identity.
+Connection management will refresh known contacts, add local discovery, and select link targets from independently observed peers under an explicit dialing policy. The next protocol step will carry replica placement and repair messages over authenticated links.

@@ -75,6 +75,31 @@ export {
 } from './relay-discovery.js';
 
 export {
+  RELAY_LINK_VERSION,
+  RELAY_LINK_OPEN_FRAME_TYPE,
+  RELAY_LINK_ACCEPT_FRAME_TYPE,
+  MAX_RELAY_LINK_HANDSHAKE_LIFETIME_MS,
+  type RelayLinkOpenBodyV1,
+  type RelayLinkOpenV1,
+  type RelayLinkAcceptBodyV1,
+  type RelayLinkAcceptV1,
+  type RelayLinkOpenFrameV1,
+  type RelayLinkAcceptFrameV1,
+  createRelayLinkOpenV1,
+  verifyRelayLinkOpenV1,
+  isRelayLinkOpenActiveV1,
+  createRelayLinkAcceptV1,
+  verifyRelayLinkAcceptV1,
+  isRelayLinkAcceptActiveV1,
+  createRelayLinkOpenFrameV1,
+  createRelayLinkAcceptFrameV1,
+  serializeRelayLinkOpenFrameV1,
+  serializeRelayLinkAcceptFrameV1,
+  parseRelayLinkOpenFrameV1,
+  parseRelayLinkAcceptFrameV1,
+} from './relay-link.js';
+
+export {
   generateProjectionMatrix,
   hashEmbedding,
   hammingDistance,

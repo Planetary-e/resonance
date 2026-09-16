@@ -20,6 +20,16 @@ export {
   type RelayContactDiscoveryResult,
 } from './relay-discovery-client.js';
 export {
+  connectRelayLinkV1,
+  RelayLinkManager,
+  type RelayLinkClientOptions,
+  type RelayLinkClose,
+  type RelayLinkConnection,
+  type RelayLinkManagerEvent,
+  type RelayLinkManagerOptions,
+  type RelayLinkManagerStatus,
+} from './relay-link-client.js';
+export {
   PublicationOperationStore,
   type PublicationApplyResult,
   type PublicationApplyStatus,
