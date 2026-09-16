@@ -4,22 +4,29 @@ import WebSocket, { type RawData } from 'ws';
 import {
   MAX_RELAY_DISCOVERY_FRAME_BYTES,
   RELAY_REPLICA_INVENTORY_RESPONSE_FRAME_TYPE,
+  RELAY_REPLICA_RECONCILIATION_RESPONSE_FRAME_TYPE,
   RELAY_REPLICA_RECEIPT_FRAME_TYPE,
   createRelayLinkOpenFrameV1,
   createRelayLinkOpenV1,
   createRelayReplicaInventoryRequestFrameV1,
   createRelayReplicaInventoryRequestV1,
+  createRelayReplicaReconciliationRequestFrameV1,
+  createRelayReplicaReconciliationRequestV1,
   createRelayReplicaPutFrameV1,
   createRelayReplicaPutV1,
   isDurabilityReceiptV1,
+  isRelayReplicaReconciliationReceiptV1,
   isRelayLinkAcceptActiveV1,
   parseRelayLinkAcceptFrameV1,
   parseRelayReplicaInventoryResponseFrameV1,
+  parseRelayReplicaReconciliationResponseFrameV1,
   parseRelayReplicaReceiptFrameV1,
   serializeRelayLinkOpenFrameV1,
   serializeRelayReplicaInventoryRequestFrameV1,
+  serializeRelayReplicaReconciliationRequestFrameV1,
   serializeRelayReplicaPutFrameV1,
   verifyRelayReplicaInventoryResponseV1,
+  verifyRelayReplicaReconciliationResponseV1,
   verifyRelayReplicaReceiptV1,
   verifyRelayContactHintV1,
   type Identity,
@@ -28,6 +35,8 @@ import {
   type RelayDescriptorV1,
   type RelayReplicaInventoryRequestV1,
   type RelayReplicaInventoryResponseV1,
+  type RelayReplicaReconciliationRequestV1,
+  type RelayReplicaReconciliationResponseV1,
   type RelayReplicaPutV1,
   type RelayReplicaReceiptV1,
 } from '@resonance/core';
@@ -59,6 +68,7 @@ export interface RelayLinkConnection {
   isOpen(): boolean;
   placeReplica(operation: PublicationOperation): Promise<RelayReplicaReceiptV1>;
   checkReplica(receipt: RelayReplicaReceiptV1): Promise<RelayReplicaInventoryResponseV1>;
+  reconcileReplica(receipt: RelayReplicaReceiptV1): Promise<RelayReplicaReconciliationResponseV1>;
   close(): void;
 }
 
@@ -146,6 +156,12 @@ export function connectRelayLinkV1(
       resolve: (response: RelayReplicaInventoryResponseV1) => void;
       reject: (error: Error) => void;
     }>();
+    const pendingReconciliations = new Map<string, {
+      request: RelayReplicaReconciliationRequestV1;
+      timer: ReturnType<typeof setTimeout>;
+      resolve: (response: RelayReplicaReconciliationResponseV1) => void;
+      reject: (error: Error) => void;
+    }>();
     let resolveClosed!: (value: RelayLinkClose) => void;
     const closed = new Promise<RelayLinkClose>(resolveClosedPromise => {
       resolveClosed = resolveClosedPromise;
@@ -226,6 +242,23 @@ export function connectRelayLinkV1(
           }
           return;
         }
+        if (candidate.type === RELAY_REPLICA_RECONCILIATION_RESPONSE_FRAME_TYPE) {
+          try {
+            const frame = parseRelayReplicaReconciliationResponseFrameV1(raw);
+            const pending = pendingReconciliations.get(frame.response.requestId);
+            if (!pending
+              || !verifyRelayReplicaReconciliationResponseV1(frame.response, pending.request)
+              || frame.response.responderRelayId !== acceptedRemoteDescriptor?.relayId) {
+              throw new Error('Replica reconciliation response is not bound to this relay request');
+            }
+            clearTimeout(pending.timer);
+            pendingReconciliations.delete(frame.response.requestId);
+            pending.resolve(frame.response);
+          } catch {
+            socket.close(4000, 'invalid_replica_reconciliation_response');
+          }
+          return;
+        }
         socket.close(4000, 'unexpected_link_message');
         return;
       }
@@ -285,7 +318,8 @@ export function connectRelayLinkV1(
             if (!remoteDescriptor.capabilities.replicaExchange) {
               return Promise.reject(new Error('Remote relay does not accept replica placement'));
             }
-            if (pendingReplicas.size + pendingInventories.size >= MAX_PENDING_REPLICA_REQUESTS) {
+            if (pendingReplicas.size + pendingInventories.size + pendingReconciliations.size
+              >= MAX_PENDING_REPLICA_REQUESTS) {
               return Promise.reject(new Error('Relay link replica request limit reached'));
             }
             const requestCreatedAt = clock();
@@ -332,7 +366,8 @@ export function connectRelayLinkV1(
               || receipt.responderRelayId !== remoteDescriptor.relayId) {
               return Promise.reject(new Error('Replica inventory check requires this link\'s durability receipt'));
             }
-            if (pendingReplicas.size + pendingInventories.size >= MAX_PENDING_REPLICA_REQUESTS) {
+            if (pendingReplicas.size + pendingInventories.size + pendingReconciliations.size
+              >= MAX_PENDING_REPLICA_REQUESTS) {
               return Promise.reject(new Error('Relay link replica request limit reached'));
             }
             const requestCreatedAt = clock();
@@ -367,6 +402,54 @@ export function connectRelayLinkV1(
               });
             });
           },
+          reconcileReplica: (receipt) => {
+            if (socket.readyState !== WebSocket.OPEN) {
+              return Promise.reject(new Error('Relay link is not open'));
+            }
+            if (!remoteDescriptor.capabilities.replicaExchange) {
+              return Promise.reject(new Error('Remote relay does not accept replica reconciliation'));
+            }
+            if (!isRelayReplicaReconciliationReceiptV1(receipt)
+              || receipt.senderRelayId !== localDescriptor.relayId
+              || receipt.responderRelayId !== remoteDescriptor.relayId) {
+              return Promise.reject(new Error('Replica reconciliation requires this link\'s signed state refusal'));
+            }
+            if (pendingReplicas.size + pendingInventories.size + pendingReconciliations.size
+              >= MAX_PENDING_REPLICA_REQUESTS) {
+              return Promise.reject(new Error('Relay link replica request limit reached'));
+            }
+            const requestCreatedAt = clock();
+            const reconciliationRequest = createRelayReplicaReconciliationRequestV1(
+              receipt,
+              identity,
+              requestCreatedAt,
+              requestCreatedAt + Math.min(60_000, replicaRequestTimeoutMs + 5_000),
+            );
+            const reconciliationFrame = serializeRelayReplicaReconciliationRequestFrameV1(
+              createRelayReplicaReconciliationRequestFrameV1(reconciliationRequest),
+            );
+            return new Promise<RelayReplicaReconciliationResponseV1>((resolveReconciliation, rejectReconciliation) => {
+              const timer = setTimeout(() => {
+                pendingReconciliations.delete(reconciliationRequest.requestId);
+                rejectReconciliation(new Error('Replica reconciliation timed out'));
+              }, replicaRequestTimeoutMs);
+              timer.unref?.();
+              pendingReconciliations.set(reconciliationRequest.requestId, {
+                request: reconciliationRequest,
+                timer,
+                resolve: resolveReconciliation,
+                reject: rejectReconciliation,
+              });
+              socket.send(reconciliationFrame, error => {
+                if (!error) return;
+                const pending = pendingReconciliations.get(reconciliationRequest.requestId);
+                if (!pending) return;
+                clearTimeout(pending.timer);
+                pendingReconciliations.delete(reconciliationRequest.requestId);
+                pending.reject(asError(error, 'Cannot send replica reconciliation request'));
+              });
+            });
+          },
           close: () => {
             if (socket.readyState === WebSocket.OPEN) socket.close(1000, 'relay_link_closed');
             else if (socket.readyState === WebSocket.CONNECTING) socket.terminate();
@@ -394,6 +477,11 @@ export function connectRelayLinkV1(
         pending.reject(new Error(`Relay link closed before replica inventory response (${code})`));
       }
       pendingInventories.clear();
+      for (const pending of pendingReconciliations.values()) {
+        clearTimeout(pending.timer);
+        pending.reject(new Error(`Relay link closed before replica reconciliation response (${code})`));
+      }
+      pendingReconciliations.clear();
       if (!accepted) {
         failHandshake(new Error(`Relay link closed before acceptance (${code})`));
         return;
@@ -526,6 +614,26 @@ export class RelayLinkManager {
       [...this.connections.values()].flatMap(connection => {
         const targetReceipts = byRelayId.get(connection.remoteDescriptor.relayId) ?? [];
         return targetReceipts.map(receipt => connection.checkReplica(receipt));
+      }),
+    );
+    return results.flatMap(result => result.status === 'fulfilled' ? [result.value] : []);
+  }
+
+  async reconcileReplicaReceipts(
+    receipts: Iterable<RelayReplicaReceiptV1>,
+  ): Promise<RelayReplicaReconciliationResponseV1[]> {
+    const byRelayId = new Map<string, RelayReplicaReceiptV1[]>();
+    for (const receipt of receipts) {
+      if (!isRelayReplicaReconciliationReceiptV1(receipt)
+        || receipt.senderRelayId !== this.identity.did) continue;
+      const existing = byRelayId.get(receipt.responderRelayId);
+      if (existing) existing.push(receipt);
+      else byRelayId.set(receipt.responderRelayId, [receipt]);
+    }
+    const results = await Promise.allSettled(
+      [...this.connections.values()].flatMap(connection => {
+        const targetReceipts = byRelayId.get(connection.remoteDescriptor.relayId) ?? [];
+        return targetReceipts.map(receipt => connection.reconcileReplica(receipt));
       }),
     );
     return results.flatMap(result => result.status === 'fulfilled' ? [result.value] : []);

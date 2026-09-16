@@ -42,8 +42,10 @@ export {
   verifyReplicaPlacementIntent,
   placementMatchesOperation,
   ReplicaPlacementTracker,
+  ReplicaReconciliationScheduler,
   type ReplicaPlacementPolicy,
   type ReplicaPlacementIntentV1,
+  type ReplicaReconciliationRequirementV1,
   type ReplicaPlacementStatus,
 } from './replica-placement.js';
 export {

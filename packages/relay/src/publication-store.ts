@@ -43,15 +43,19 @@ export class PublicationOperationStore {
       return { status: 'accepted', current: operation };
     }
 
-    if (current.sequence === operation.sequence) {
-      if (current.kind === operation.kind && current.signature === operation.signature) {
-        return { status: 'duplicate', current };
-      }
-      return { status: 'conflict', current };
+    if (current.kind === operation.kind && current.signature === operation.signature) {
+      return { status: 'duplicate', current };
     }
 
-    if (operation.sequence < current.sequence) return { status: 'stale', current };
+    // A signed withdrawal is irreversible for this publication identity. It
+    // must therefore dominate a live operation even if relays received those
+    // two valid owner-signed records in opposite sequence order.
     if (current.kind === 'publication-tombstone') return { status: 'terminal', current };
+    if (operation.kind === 'publication-tombstone') return { status: 'accepted', current };
+
+    if (current.sequence === operation.sequence) return { status: 'conflict', current };
+
+    if (operation.sequence < current.sequence) return { status: 'stale', current };
 
     return { status: 'accepted', current: operation };
   }

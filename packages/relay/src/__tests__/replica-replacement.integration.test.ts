@@ -211,7 +211,7 @@ describe('capacity replacement and reconciliation quarantine', () => {
     }
   }, 20_000);
 
-  it('quarantines an older operation after a signed stale refusal across restart and a late peer', async () => {
+  it('keeps a same-sequence owner conflict quarantined across restart and a late peer', async () => {
     const keys = generatePublicationKeyMaterial();
     const now = Date.now();
     const operation = createPublicationRecord({
@@ -222,12 +222,24 @@ describe('capacity replacement and reconciliation quarantine', () => {
       createdAt: now,
       expiresAt: now + 60_000,
     }, keys);
-    const tombstone = createPublicationTombstone(
-      operation,
-      'withdrawn',
-      keys.signingKeyPair,
-      now + 1,
-    );
+    const conflicting = createPublicationRecord({
+      groupId: 'public',
+      fingerprintEpoch: '2026-09',
+      fingerprint: new Uint8Array(64).fill(0x68),
+      itemType: 'need',
+      createdAt: now + 1,
+      expiresAt: now + 60_000,
+      sequence: operation.sequence,
+    }, keys);
+    const update = createPublicationRecord({
+      groupId: 'public',
+      fingerprintEpoch: '2026-09',
+      fingerprint: new Uint8Array(64).fill(0x69),
+      itemType: 'offer',
+      createdAt: now + 2,
+      expiresAt: now + 60_000,
+      sequence: operation.sequence + 1,
+    }, keys);
     const terminalTarget = createTarget(TERMINAL_PORT, TERMINAL_DIR);
     const lateTarget = createTarget(HEALTHY_PORT, HEALTHY_DIR);
     let source: RelayServer | undefined;
@@ -238,7 +250,7 @@ describe('capacity replacement and reconciliation quarantine', () => {
     try {
       await terminalTarget.start();
       terminalStarted = true;
-      await expect(submit(TERMINAL_PORT, tombstone)).resolves.toMatchObject({ status: 'ok' });
+      await expect(submit(TERMINAL_PORT, conflicting)).resolves.toMatchObject({ status: 'ok' });
       const terminalRelayId = terminalTarget.getRelayDescriptor()!.relayId;
       const lateRelayId = lateTarget.getRelayDescriptor()!.relayId;
 
@@ -282,9 +294,9 @@ describe('capacity replacement and reconciliation quarantine', () => {
         journal_entries: 0,
       });
 
-      // A newer owner-signed operation clears the exact-operation quarantine
-      // and can safely converge the withdrawal to the late volunteer.
-      await expect(submit(SOURCE_PORT, tombstone)).resolves.toMatchObject({ status: 'ok' });
+      // A newer owner-signed revision clears the exact-operation quarantine
+      // and can safely converge to the late volunteer.
+      await expect(submit(SOURCE_PORT, update)).resolves.toMatchObject({ status: 'ok' });
       await waitFor(() => {
         const status = source!.getReplicaPlacementStatus(operation.publicationId);
         return status?.reconciliationRequired === false
@@ -293,8 +305,71 @@ describe('capacity replacement and reconciliation quarantine', () => {
           && status.intent.targetRelayIds.includes(lateRelayId);
       }, 8_000);
       expect(lateTarget.getStats()).toMatchObject({
+        active_publications: 1,
+        retained_tombstones: 0,
+      });
+    } finally {
+      if (sourceStarted && source) await source.stop();
+      if (lateStarted) await lateTarget.stop();
+      if (terminalStarted) await terminalTarget.stop();
+    }
+  }, 20_000);
+
+  it('adopts a verified newer tombstone without fan-out and preserves it across restart', async () => {
+    const keys = generatePublicationKeyMaterial();
+    const now = Date.now();
+    const operation = createPublicationRecord({
+      groupId: 'public',
+      fingerprintEpoch: '2026-09',
+      fingerprint: new Uint8Array(64).fill(0x6a),
+      itemType: 'offer',
+      createdAt: now,
+      expiresAt: now + 60_000,
+    }, keys);
+    const tombstone = createPublicationTombstone(
+      operation,
+      'withdrawn',
+      keys.signingKeyPair,
+      now + 1,
+    );
+    const terminalTarget = createTarget(TERMINAL_PORT, TERMINAL_DIR);
+    const lateTarget = createTarget(HEALTHY_PORT, HEALTHY_DIR);
+    let source: RelayServer | undefined;
+    let terminalStarted = false;
+    let lateStarted = false;
+    let sourceStarted = false;
+
+    try {
+      await terminalTarget.start();
+      terminalStarted = true;
+      await expect(submit(TERMINAL_PORT, tombstone)).resolves.toMatchObject({ status: 'ok' });
+      source = createSource();
+      await source.start();
+      sourceStarted = true;
+      await waitFor(() => source!.getRelayLinkStatus().connectedRelayIds.length === 1);
+      await expect(submit(SOURCE_PORT, operation)).resolves.toMatchObject({ status: 'ok' });
+      await waitFor(() => (
+        source!.getStats().retained_tombstones === 1
+        && source!.getReplicaPlacementStatus(operation.publicationId) === undefined
+      ));
+
+      await source.stop();
+      sourceStarted = false;
+      source = createSource();
+      await source.start();
+      sourceStarted = true;
+      await waitFor(() => source!.getRelayLinkStatus().connectedRelayIds.length === 1);
+      expect(source.getStats().retained_tombstones).toBe(1);
+      expect(source.getReplicaPlacementStatus(operation.publicationId)).toBeUndefined();
+
+      await lateTarget.start();
+      lateStarted = true;
+      await waitFor(() => source!.getRelayLinkStatus().connectedRelayIds.length === 2, 8_000);
+      await pause(350);
+      expect(lateTarget.getStats()).toMatchObject({
         active_publications: 0,
-        retained_tombstones: 1,
+        retained_tombstones: 0,
+        journal_entries: 0,
       });
     } finally {
       if (sourceStarted && source) await source.stop();

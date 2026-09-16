@@ -15,6 +15,7 @@ import {
   PUBLICATION_OPERATION_FRAME_TYPE,
   RELAY_LINK_OPEN_FRAME_TYPE,
   RELAY_REPLICA_INVENTORY_REQUEST_FRAME_TYPE,
+  RELAY_REPLICA_RECONCILIATION_REQUEST_FRAME_TYPE,
   RELAY_REPLICA_PUT_FRAME_TYPE,
   RELATIONSHIP_MAILBOX_DEPOSIT_FRAME_TYPE,
   RELATIONSHIP_MAILBOX_REQUEST_FRAME_TYPE,
@@ -28,6 +29,8 @@ import {
   createRelayLinkAcceptV1,
   createRelayReplicaInventoryResponseFrameV1,
   createRelayReplicaInventoryResponseV1,
+  createRelayReplicaReconciliationResponseFrameV1,
+  createRelayReplicaReconciliationResponseV1,
   createRelayReplicaReceiptFrameV1,
   createRelayReplicaReceiptV1,
   createRelayDescriptorV1,
@@ -40,6 +43,8 @@ import {
   isPublicationActive,
   isRelayLinkOpenActiveV1,
   isRelayReplicaInventoryRequestActiveV1,
+  isRelayReplicaReconciliationReceiptV1,
+  isRelayReplicaReconciliationRequestActiveV1,
   isRelayReplicaPutActiveV1,
   isRelayPeerRequestActiveV1,
   isSearchRequestActiveV2,
@@ -50,6 +55,7 @@ import {
   parseRelationshipMailboxRequestFrameV2,
   parseRelayLinkOpenFrameV1,
   parseRelayReplicaInventoryRequestFrameV1,
+  parseRelayReplicaReconciliationRequestFrameV1,
   parseRelayReplicaPutFrameV1,
   parseRelayPeerRequestFrameV1,
   parseSearchRequestFrameV2,
@@ -59,6 +65,7 @@ import {
   serializeMessage,
   serializeRelayLinkAcceptFrameV1,
   serializeRelayReplicaInventoryResponseFrameV1,
+  serializeRelayReplicaReconciliationResponseFrameV1,
   serializeRelayReplicaReceiptFrameV1,
   serializeRelayPeerResponseFrameV1,
   verifyMatchOperationAgainstPublicationsV2,
@@ -77,6 +84,9 @@ import {
   type RelayStorageCapacityV1,
   type RelayReplicaInventoryRequestV1,
   type RelayReplicaInventoryRejectionReasonV1,
+  type RelayReplicaReconciliationRequestV1,
+  type RelayReplicaReconciliationResponseV1,
+  type RelayReplicaReconciliationRejectionReasonV1,
   type RelayReplicaPutV1,
   type RelayReplicaReceiptV1,
   type RelayReplicaRejectionReasonV1,
@@ -90,7 +100,9 @@ import { MatchOperationStore } from './match-operation-store.js';
 import {
   RelayOperationLog,
   type RelayOperationLogEntry,
+  type RelayReconciliationAdoptionLogEntry,
   type RelayPublicationOperationLogEntry,
+  type RelayPublicationStorageAllocationLog,
 } from './operation-log.js';
 import { loadOrCreateRelayIdentity } from './relay-identity-store.js';
 import {
@@ -112,9 +124,11 @@ import {
   DEFAULT_MINIMUM_HEALTHY_REPLICA_COUNT,
   ReplicaInventoryScheduler,
   ReplicaPlacementTracker,
+  ReplicaReconciliationScheduler,
   isPermanentReplicaRejection,
   placementMatchesOperation,
   type ReplicaPlacementIntentV1,
+  type ReplicaReconciliationRequirementV1,
   type ReplicaPlacementStatus,
 } from './replica-placement.js';
 import {
@@ -252,6 +266,7 @@ const MAX_TIMEOUT_DELAY_MS = 2_147_483_647;
 const MAX_SEEN_REPLICA_REQUESTS = 8_192;
 const MAX_SEEN_REPLICA_REQUESTS_PER_RELAY = 256;
 const MAX_REPLICA_INVENTORY_CHECKS_PER_REPAIR = 32;
+const MAX_REPLICA_RECONCILIATIONS_PER_REPAIR = 16;
 const DEFAULT_PUBLICATION_STORAGE_QUOTA_BYTES = 1024 * 1024 * 1024;
 const STORAGE_AVAILABILITY_GRANULARITY_BYTES = 64 * 1024;
 const STORAGE_AVAILABILITY_REFRESH_MS = 60_000;
@@ -370,6 +385,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   const startTime = Date.now();
   const placementTracker = new ReplicaPlacementTracker(relayIdentity.did);
   const inventoryScheduler = new ReplicaInventoryScheduler();
+  const reconciliationScheduler = new ReplicaReconciliationScheduler();
 
   function advertisedRelayStorage(): RelayStorageCapacityV1 {
     const discovery = cfg.relayDiscovery;
@@ -492,6 +508,38 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     return { kind: 'publication', operation, ...allocation };
   }
 
+  function allocationForReconciliationEntry(
+    entry: RelayReconciliationAdoptionLogEntry,
+  ): PublicationStorageAllocationPrincipal {
+    if (entry.allocation.allocationOrigin === 'legacy') return { allocationOrigin: 'legacy' };
+    return {
+      allocationOrigin: entry.allocation.allocationOrigin,
+      allocationRelayId: entry.allocation.allocationRelayId,
+    };
+  }
+
+  function journalAllocation(
+    allocation: PublicationStorageAllocationPrincipal,
+  ): RelayPublicationStorageAllocationLog {
+    if (allocation.allocationOrigin === 'legacy') return { allocationOrigin: 'legacy' };
+    return {
+      allocationOrigin: allocation.allocationOrigin,
+      allocationRelayId: allocation.allocationRelayId,
+    };
+  }
+
+  function retainedPublicationAllocation(
+    publicationId: string,
+  ): PublicationStorageAllocationPrincipal | undefined {
+    const allocation = replicaStorageLedger.allocationFor(publicationId);
+    if (!allocation) return undefined;
+    if (allocation.allocationOrigin === 'legacy') return { allocationOrigin: 'legacy' };
+    return {
+      allocationOrigin: allocation.allocationOrigin,
+      allocationRelayId: allocation.allocationRelayId,
+    };
+  }
+
   function replayOperation(entry: RelayOperationLogEntry): void {
     // Placement state is replayed after every publication operation. An intent
     // may be durably appended immediately before a new publication operation;
@@ -515,6 +563,27 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       }
       return;
     }
+    if (entry.kind === 'reconciliation-adoption') {
+      const operation = entry.response.operation;
+      if (!operation) throw new Error('Cannot replay empty reconciliation adoption');
+      const prior = publicationStore.get(entry.rejection.publicationId);
+      if (!prior || !operationMatchesReplicaReceipt(prior, entry.rejection)) {
+        throw new Error('Cannot replay reconciliation adoption without its quarantined predecessor');
+      }
+      const result = publicationStore.apply(operation);
+      if (result.status !== 'accepted') {
+        throw new Error(`Cannot replay reconciliation adoption: ${result.status}`);
+      }
+      replicaStorageLedger.record(
+        operation.publicationId,
+        publicationStorageReservationBytes(
+          operation,
+          publicationStore.getRecord(operation.publicationId),
+        ),
+        allocationForReconciliationEntry(entry),
+      );
+      return;
+    }
     if (entry.kind === 'match') {
       const [firstReference, secondReference] = entry.operation.publications;
       const first = publicationStore.getRecord(firstReference.publicationId);
@@ -533,7 +602,11 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       mailboxStore.enqueue(entry.request.envelope);
       return;
     }
-    mailboxStore.acknowledge(entry.request.mailboxId, entry.request.envelopeIds);
+    if (entry.kind === 'mailbox-ack') {
+      mailboxStore.acknowledge(entry.request.mailboxId, entry.request.envelopeIds);
+      return;
+    }
+    throw new Error('Cannot replay unknown operation log entry');
   }
 
   function replayPlacementOperation(entry: RelayOperationLogEntry): void {
@@ -733,10 +806,12 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     {
       additionallyRejectedRelayIds = [],
       additionallyReconciliationRequiredRelayIds = [],
+      additionallyReconciliationRequirements = [],
       allowExpansion = true,
     }: {
       additionallyRejectedRelayIds?: readonly string[];
       additionallyReconciliationRequiredRelayIds?: readonly string[];
+      additionallyReconciliationRequirements?: readonly ReplicaReconciliationRequirementV1[];
       allowExpansion?: boolean;
     } = {},
   ): ReplicaPlacementIntentV1 | undefined {
@@ -749,6 +824,9 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     const currentReconciliationRequired = currentMatchesOperation
       ? current.reconciliationRequiredRelayIds ?? []
       : [];
+    const currentReconciliationRequirements = currentMatchesOperation
+      ? current.reconciliationRequirements ?? []
+      : [];
     const permanentlyRejectedRelayIds = [...new Set([
       ...currentRejections,
       ...additionallyRejectedRelayIds,
@@ -756,7 +834,17 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     const reconciliationRequiredRelayIds = [...new Set([
       ...currentReconciliationRequired,
       ...additionallyReconciliationRequiredRelayIds,
+      ...additionallyReconciliationRequirements.map(requirement => requirement.relayId),
     ])].sort();
+    const requirementsByRelayId = new Map<string, ReplicaReconciliationRequirementV1>();
+    for (const requirement of [
+      ...currentReconciliationRequirements,
+      ...additionallyReconciliationRequirements,
+    ]) {
+      requirementsByRelayId.set(requirement.relayId, requirement);
+    }
+    const reconciliationRequirements = [...requirementsByRelayId.values()]
+      .sort((first, second) => first.relayId.localeCompare(second.relayId));
     const policy = replicaPlacementPolicy(current);
     // Once a target signals a divergent or incompatible state, preserve the
     // existing exact-operation set and stop all automatic expansion. A later
@@ -775,6 +863,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       Date.now(),
       permanentlyRejectedRelayIds,
       reconciliationRequiredRelayIds,
+      reconciliationRequirements,
     );
   }
 
@@ -809,6 +898,9 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     if (!operation) return false;
     const intent = nextReplicaPlacementIntent(operation, {
       additionallyReconciliationRequiredRelayIds: [receipt.responderRelayId],
+      additionallyReconciliationRequirements: isRelayReplicaReconciliationReceiptV1(receipt)
+        ? [{ relayId: receipt.responderRelayId, rejection: receipt }]
+        : [],
       allowExpansion: false,
     });
     if (!intent) return false;
@@ -863,6 +955,156 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     replicaRepairWakeupTimer.unref?.();
   }
 
+  function operationMatchesReplicaReceipt(
+    operation: PublicationOperation,
+    receipt: RelayReplicaReceiptV1,
+  ): boolean {
+    return operation.publicationId === receipt.publicationId
+      && operation.sequence === receipt.operationSequence
+      && operation.kind === receipt.operationKind
+      && operation.signature === receipt.operationSignature;
+  }
+
+  function reconciliationRequirementForResponse(
+    response: RelayReplicaReconciliationResponseV1,
+  ): ReplicaReconciliationRequirementV1 | undefined {
+    if (response.senderRelayId !== relayIdentity.did) return undefined;
+    const intent = placementTracker.getIntent(response.publicationId);
+    const operation = publicationStore.get(response.publicationId);
+    if (!intent || !operation || !placementMatchesOperation(intent, operation)) return undefined;
+    return (intent.reconciliationRequirements ?? []).find(requirement => (
+      requirement.relayId === response.responderRelayId
+      && requirement.rejection.senderRelayId === response.senderRelayId
+      && requirement.rejection.responderRelayId === response.responderRelayId
+      && requirement.rejection.requestId === response.rejectionRequestId
+      && requirement.rejection.signature === response.rejectionSignature
+      && operationMatchesReplicaReceipt(operation, requirement.rejection)
+    ));
+  }
+
+  function selectReconciledOperation(
+    candidates: Array<{
+      requirement: ReplicaReconciliationRequirementV1;
+      response: RelayReplicaReconciliationResponseV1;
+    }>,
+  ): {
+    requirement: ReplicaReconciliationRequirementV1;
+    response: RelayReplicaReconciliationResponseV1;
+  } | undefined {
+    const withOperation = candidates.filter((candidate): candidate is {
+      requirement: ReplicaReconciliationRequirementV1;
+      response: RelayReplicaReconciliationResponseV1 & { operation: PublicationOperation };
+    } => candidate.response.status === 'operation' && candidate.response.operation !== null);
+    if (withOperation.length === 0) return undefined;
+
+    // A valid owner-signed withdrawal is absorbing, so it wins over every
+    // live response without selecting a winner between live equivocations.
+    const tombstones = withOperation.filter(candidate => (
+      candidate.response.operation.kind === 'publication-tombstone'
+    ));
+    if (tombstones.length > 0) {
+      return tombstones.reduce((selected, candidate) => (
+        candidate.response.operation.sequence > selected.response.operation.sequence
+          ? candidate
+          : selected
+      ));
+    }
+
+    const highestSequence = Math.max(...withOperation.map(candidate => candidate.response.operation.sequence));
+    const highest = withOperation.filter(candidate => (
+      candidate.response.operation.sequence === highestSequence
+    ));
+    const signatures = new Set(highest.map(candidate => candidate.response.operation.signature));
+    if (signatures.size !== 1) return undefined;
+    return highest[0];
+  }
+
+  function commitReconciledPublicationOperation(
+    requirement: ReplicaReconciliationRequirementV1,
+    response: RelayReplicaReconciliationResponseV1,
+  ): boolean {
+    const operation = response.operation;
+    if (!operation || response.status !== 'operation') return false;
+    const current = publicationStore.get(response.publicationId);
+    const currentRequirement = reconciliationRequirementForResponse(response);
+    if (!current || !currentRequirement
+      || currentRequirement.relayId !== requirement.relayId
+      || currentRequirement.rejection.signature !== requirement.rejection.signature) return false;
+    if (operation.kind === 'publication' && !isPublicationActive(operation, Date.now())) return false;
+
+    const evaluation = publicationStore.evaluate(operation);
+    if (evaluation.status !== 'accepted') return false;
+    const allocation = retainedPublicationAllocation(operation.publicationId);
+    if (!allocation) return false;
+    const reservedBytes = publicationStorageReservationBytes(
+      operation,
+      publicationStore.getRecord(operation.publicationId),
+    );
+    if (!replicaStorageLedger.canReserve(
+      operation.publicationId,
+      reservedBytes,
+      allocation,
+      publicationStorageQuotaBytes,
+      maxReplicaStorageBytesPerRelay,
+      false,
+    )) return false;
+
+    const entry: RelayReconciliationAdoptionLogEntry = {
+      kind: 'reconciliation-adoption',
+      rejection: requirement.rejection,
+      response,
+      allocation: journalAllocation(allocation),
+    };
+    operationLog.append(entry);
+    const applied = publicationStore.apply(operation);
+    if (applied.status !== 'accepted') {
+      throw new Error(`Cannot apply reconciled publication: ${applied.status}`);
+    }
+    replicaStorageLedger.record(operation.publicationId, reservedBytes, allocation);
+    applyToMatchingIndex(operation);
+    enforcePublicationExpiries();
+    scheduleNextPublicationExpiry();
+    if (!placementTracker.retireIntentIfMatches(current)) {
+      throw new Error('Cannot retire reconciled replica placement intent');
+    }
+    replicaRefreshes.delete(operation.publicationId);
+    log('info', 'replica_reconciliation_adopted', {
+      publicationId: operation.publicationId,
+      relayId: response.responderRelayId,
+      kind: operation.kind,
+      sequence: operation.sequence,
+    });
+    return true;
+  }
+
+  function reconcileReplicaResponses(
+    responses: readonly RelayReplicaReconciliationResponseV1[],
+  ): void {
+    const candidatesByPublication = new Map<string, Array<{
+      requirement: ReplicaReconciliationRequirementV1;
+      response: RelayReplicaReconciliationResponseV1;
+    }>>();
+    for (const response of responses) {
+      const requirement = reconciliationRequirementForResponse(response);
+      if (!requirement) continue;
+      log(response.status === 'rejected' ? 'warn' : 'info', 'replica_reconciliation', {
+        publicationId: response.publicationId,
+        relayId: response.responderRelayId,
+        status: response.status,
+        reason: response.reason,
+      });
+      if (response.status !== 'operation' || response.operation === null) continue;
+      const candidates = candidatesByPublication.get(response.publicationId);
+      const candidate = { requirement, response };
+      if (candidates) candidates.push(candidate);
+      else candidatesByPublication.set(response.publicationId, [candidate]);
+    }
+    for (const candidates of candidatesByPublication.values()) {
+      const selected = selectReconciledOperation(candidates);
+      if (selected) commitReconciledPublicationOperation(selected.requirement, selected.response);
+    }
+  }
+
   async function repairReplicaPlacements(): Promise<void> {
     if (!outboundRelayLinks || replicaRepairRunning) return;
     replicaRepairRunning = true;
@@ -879,16 +1121,29 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   async function repairReplicaPlacementsOnce(): Promise<void> {
     if (!outboundRelayLinks) return;
     const repairOperations: PublicationOperation[] = [];
+    const reconciliationRequirements: ReplicaReconciliationRequirementV1[] = [];
     for (const persistedIntent of placementTracker.listIntents()) {
       const operation = publicationStore.get(persistedIntent.publicationId);
       if (!operation || !placementMatchesOperation(persistedIntent, operation)) continue;
       if (operation.kind === 'publication' && !isPublicationActive(operation, Date.now())) continue;
       if ((persistedIntent.reconciliationRequiredRelayIds ?? []).length > 0) {
         replicaRefreshes.delete(operation.publicationId);
+        reconciliationRequirements.push(
+          ...placementTracker.reconciliationRequirementsFor(operation.publicationId),
+        );
         continue;
       }
       repairOperations.push(operation);
     }
+
+    const reconciliationBatch = reconciliationScheduler.take(
+      reconciliationRequirements,
+      MAX_REPLICA_RECONCILIATIONS_PER_REPAIR,
+    );
+    const reconciliationResponses = await outboundRelayLinks.reconcileReplicaReceipts(
+      reconciliationBatch.map(requirement => requirement.rejection),
+    );
+    reconcileReplicaResponses(reconciliationResponses);
 
     const dueInventoryReceipts = repairOperations.flatMap(operation => (
       placementTracker.inventoryDueReceipts(operation.publicationId, cfg.replicaInventoryIntervalMs)
@@ -1141,7 +1396,10 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     return response;
   }
 
-  function replicaReplayKey(kind: 'placement' | 'inventory', requestId: string): string {
+  function replicaReplayKey(
+    kind: 'placement' | 'inventory' | 'reconciliation',
+    requestId: string,
+  ): string {
     return `${kind}:${requestId}`;
   }
 
@@ -1156,8 +1414,11 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   }
 
   function reserveSeenRelayReplicaRequest(
-    kind: 'placement' | 'inventory',
-    request: RelayReplicaPutV1 | RelayReplicaInventoryRequestV1,
+    kind: 'placement' | 'inventory' | 'reconciliation',
+    request:
+      | RelayReplicaPutV1
+      | RelayReplicaInventoryRequestV1
+      | RelayReplicaReconciliationRequestV1,
   ): {
     expiresAt: number;
     senderRelayId: string;
@@ -1385,6 +1646,123 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     });
   }
 
+  function createReplicaReconciliationResponse(
+    request: RelayReplicaReconciliationRequestV1,
+    result: {
+      status: 'operation' | 'missing' | 'rejected';
+      operation?: PublicationOperation;
+      reason?: RelayReplicaReconciliationRejectionReasonV1;
+    },
+  ): string | undefined {
+    try {
+      const response = createRelayReplicaReconciliationResponseV1(request, relayIdentity, result);
+      return serializeRelayReplicaReconciliationResponseFrameV1(
+        createRelayReplicaReconciliationResponseFrameV1(response),
+      );
+    } catch (error) {
+      log('warn', 'replica_reconciliation_response_failed', {
+        publicationId: request.receipt.publicationId,
+        error: String(error),
+      });
+      return undefined;
+    }
+  }
+
+  function sendReplicaReconciliationResponse(ws: WebSocket, response: string): void {
+    ws.send(response, error => {
+      if (error) ws.terminate();
+    });
+  }
+
+  function sendReplicaReconciliation(
+    ws: WebSocket,
+    request: RelayReplicaReconciliationRequestV1,
+    result: {
+      status: 'operation' | 'missing' | 'rejected';
+      operation?: PublicationOperation;
+      reason?: RelayReplicaReconciliationRejectionReasonV1;
+    },
+  ): string | undefined {
+    const response = createReplicaReconciliationResponse(request, result);
+    if (response) sendReplicaReconciliationResponse(ws, response);
+    else ws.terminate();
+    return response;
+  }
+
+  function handleReplicaReconciliation(
+    ws: WebSocket,
+    raw: string,
+    linkedRelayId: string,
+  ): void {
+    let frame: ReturnType<typeof parseRelayReplicaReconciliationRequestFrameV1>;
+    try {
+      frame = parseRelayReplicaReconciliationRequestFrameV1(raw);
+    } catch {
+      ws.close(4000, 'invalid_replica_reconciliation_request');
+      return;
+    }
+    const request = frame.request;
+    const now = Date.now();
+    if (request.senderRelayId !== linkedRelayId
+      || request.targetRelayId !== relayIdentity.did
+      || !isRelayReplicaReconciliationRequestActiveV1(request, now)) {
+      ws.close(4003, 'unauthenticated_replica_reconciliation_request');
+      return;
+    }
+    const link = inboundRelayLinks.get(linkedRelayId);
+    if (!link || link.socket !== ws || !link.descriptor.capabilities.replicaExchange) {
+      ws.close(4003, 'replica_exchange_not_advertised');
+      return;
+    }
+    pruneSeenRelayReplicaRequests(now);
+    const replay = seenRelayReplicaRequests.get(replicaReplayKey('reconciliation', request.requestId));
+    if (replay) {
+      if (replay.senderRelayId !== request.senderRelayId
+        || replay.requestSignature !== request.signature) {
+        ws.close(4003, 'replayed_replica_reconciliation_request');
+        return;
+      }
+      if (replay.response) sendReplicaReconciliationResponse(ws, replay.response);
+      else ws.close(4008, 'replica_response_unavailable');
+      return;
+    }
+
+    if (!rateLimiter.check(`relay:${linkedRelayId}`, 'replica')) {
+      sendReplicaReconciliation(ws, request, { status: 'rejected', reason: 'rate-limited' });
+      return;
+    }
+    const replayEntry = reserveSeenRelayReplicaRequest('reconciliation', request);
+    if (!replayEntry) {
+      sendReplicaReconciliation(ws, request, { status: 'rejected', reason: 'rate-limited' });
+      return;
+    }
+    const respond = (result: {
+      status: 'operation' | 'missing' | 'rejected';
+      operation?: PublicationOperation;
+      reason?: RelayReplicaReconciliationRejectionReasonV1;
+    }): void => {
+      const response = sendReplicaReconciliation(ws, request, result);
+      if (response) replayEntry.response = response;
+    };
+
+    const current = publicationStore.get(request.receipt.publicationId);
+    if (current && (current.kind === 'publication-tombstone' || isPublicationActive(current, now))) {
+      respond({ status: 'operation', operation: current });
+      log('info', 'replica_reconciliation', {
+        publicationId: request.receipt.publicationId,
+        relayId: linkedRelayId,
+        status: 'operation',
+      });
+      return;
+    }
+    respond({ status: 'missing' });
+    log('info', 'replica_reconciliation', {
+      publicationId: request.receipt.publicationId,
+      relayId: linkedRelayId,
+      status: 'missing',
+    });
+  }
+
   function handleConnection(ws: WebSocket, req: any): void {
     const ip = req?.socket?.remoteAddress ?? 'unknown';
     let linkedRelayId: string | null = null;
@@ -1415,6 +1793,9 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         } else if (isObject(frameCandidate)
           && frameCandidate.type === RELAY_REPLICA_INVENTORY_REQUEST_FRAME_TYPE) {
           handleReplicaInventory(ws, raw, linkedRelayId);
+        } else if (isObject(frameCandidate)
+          && frameCandidate.type === RELAY_REPLICA_RECONCILIATION_REQUEST_FRAME_TYPE) {
+          handleReplicaReconciliation(ws, raw, linkedRelayId);
         } else {
           ws.close(4000, 'unexpected_link_message');
         }

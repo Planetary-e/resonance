@@ -5,6 +5,7 @@ import {
   didToPublicKey,
   encodeBase64,
   isDurabilityReceiptV1,
+  isRelayReplicaReconciliationReceiptV1,
   publicKeyToDid,
   verifyRelayReplicaReceiptV1,
   verifyRelayReplicaInventoryResponseV1,
@@ -46,10 +47,21 @@ export interface ReplicaPlacementIntentV1 {
    * Omitted only by journals written before reconciliation quarantine existed.
    */
   reconciliationRequiredRelayIds?: string[];
+  /**
+   * Signed, target-scoped capabilities for the subset of quarantines that
+   * arise from a divergent owner state. Older ID-only quarantines stay safe
+   * but cannot make a later state request.
+   */
+  reconciliationRequirements?: ReplicaReconciliationRequirementV1[];
   desiredReplicaCount: number;
   minimumHealthyReplicaCount: number;
   revision: number;
   updatedAt: number;
+}
+
+export interface ReplicaReconciliationRequirementV1 {
+  relayId: string;
+  rejection: RelayReplicaReceiptV1;
 }
 
 export interface ReplicaPlacementStatus {
@@ -82,16 +94,23 @@ export function createReplicaPlacementIntent(
   updatedAt = Date.now(),
   permanentlyRejectedRelayIds: string[] = [],
   reconciliationRequiredRelayIds: string[] = [],
+  reconciliationRequirements: ReplicaReconciliationRequirementV1[] = [],
 ): ReplicaPlacementIntentV1 {
   if (!verifyPublicationOperation(operation)) throw new Error('Invalid placement operation');
   const targets = normalizeRelayIds(targetRelayIds);
   const rejections = normalizePermanentlyRejectedRelayIds(permanentlyRejectedRelayIds);
   const reconciliationRequired = normalizeReconciliationRequiredRelayIds(reconciliationRequiredRelayIds);
+  const requirements = normalizeReconciliationRequirements(reconciliationRequirements);
   if (targets.some(relayId => rejections.includes(relayId))) {
     throw new Error('A selected placement target cannot also be permanently rejected');
   }
   if (reconciliationRequired.some(relayId => !targets.includes(relayId))) {
     throw new Error('A reconciliation target must remain selected');
+  }
+  if (requirements.some(requirement => !reconciliationRequired.includes(requirement.relayId)
+    || !targets.includes(requirement.relayId)
+    || !receiptMatchesOperation(requirement.rejection, operation))) {
+    throw new Error('Invalid reconciliation requirement');
   }
   const intent: ReplicaPlacementIntentV1 = {
     version: REPLICA_PLACEMENT_VERSION,
@@ -102,6 +121,7 @@ export function createReplicaPlacementIntent(
     targetRelayIds: targets,
     permanentlyRejectedRelayIds: rejections,
     reconciliationRequiredRelayIds: reconciliationRequired,
+    reconciliationRequirements: requirements,
     desiredReplicaCount: policy.desiredReplicaCount,
     minimumHealthyReplicaCount: policy.minimumHealthyReplicaCount,
     revision,
@@ -127,6 +147,7 @@ export function verifyReplicaPlacementIntent(value: unknown): value is ReplicaPl
   if (!isObject(value) || !hasRequiredAndOptionalKeys(value, legacyKeys, [
     'permanentlyRejectedRelayIds',
     'reconciliationRequiredRelayIds',
+    'reconciliationRequirements',
   ])) return false;
   const desiredReplicaCount = value.desiredReplicaCount;
   const minimumHealthyReplicaCount = value.minimumHealthyReplicaCount;
@@ -135,6 +156,7 @@ export function verifyReplicaPlacementIntent(value: unknown): value is ReplicaPl
   const targetRelayIds = value.targetRelayIds;
   const permanentlyRejectedRelayIds = value.permanentlyRejectedRelayIds ?? [];
   const reconciliationRequiredRelayIds = value.reconciliationRequiredRelayIds ?? [];
+  const reconciliationRequirements = value.reconciliationRequirements ?? [];
   if (value.version !== REPLICA_PLACEMENT_VERSION
     || !isPublicationId(value.publicationId)
     || !isOperationSequence(value.operationSequence)
@@ -157,7 +179,24 @@ export function verifyReplicaPlacementIntent(value: unknown): value is ReplicaPl
     || reconciliationRequiredRelayIds.length > MAX_RECONCILIATION_REQUIRED_REPLICA_TARGETS
     || !isStrictlySorted(reconciliationRequiredRelayIds)
     || !reconciliationRequiredRelayIds.every(isRelayId)
-    || reconciliationRequiredRelayIds.some(relayId => !targetRelayIds.includes(relayId))) return false;
+    || reconciliationRequiredRelayIds.some(relayId => !targetRelayIds.includes(relayId))
+    || !Array.isArray(reconciliationRequirements)
+    || reconciliationRequirements.length > MAX_RECONCILIATION_REQUIRED_REPLICA_TARGETS
+    || !isStrictlySorted(reconciliationRequirements.map(requirement => (
+      isObject(requirement) && typeof requirement.relayId === 'string' ? requirement.relayId : ''
+    )))
+    || !reconciliationRequirements.every(isReplicaReconciliationRequirement)
+    || reconciliationRequirements.some(requirement => (
+      !reconciliationRequiredRelayIds.includes(requirement.relayId)
+      || !targetRelayIds.includes(requirement.relayId)
+      || !receiptMatchesReference(
+        requirement.rejection,
+        value.publicationId,
+        value.operationSequence,
+        value.operationKind,
+        value.operationSignature,
+      )
+    ))) return false;
   return true;
 }
 
@@ -198,6 +237,7 @@ export class ReplicaPlacementTracker {
     updatedAt = Date.now(),
     permanentlyRejectedRelayIds: string[] = [],
     reconciliationRequiredRelayIds: string[] = [],
+    reconciliationRequirements: ReplicaReconciliationRequirementV1[] = [],
   ): ReplicaPlacementIntentV1 | undefined {
     const current = this.intents.get(operation.publicationId);
     const normalizedTargets = normalizeRelayIds(targetRelayIds);
@@ -205,12 +245,17 @@ export class ReplicaPlacementTracker {
     const normalizedReconciliationRequired = normalizeReconciliationRequiredRelayIds(
       reconciliationRequiredRelayIds,
     );
+    const normalizedRequirements = normalizeReconciliationRequirements(reconciliationRequirements);
     if (current && placementMatchesOperation(current, operation)
       && sameTargets(current.targetRelayIds, normalizedTargets)
       && sameTargets(current.permanentlyRejectedRelayIds ?? [], normalizedRejections)
       && sameTargets(
         current.reconciliationRequiredRelayIds ?? [],
         normalizedReconciliationRequired,
+      )
+      && sameReconciliationRequirements(
+        current.reconciliationRequirements ?? [],
+        normalizedRequirements,
       )
       && current.desiredReplicaCount === policy.desiredReplicaCount
       && current.minimumHealthyReplicaCount === policy.minimumHealthyReplicaCount) {
@@ -227,11 +272,14 @@ export class ReplicaPlacementTracker {
       updatedAt,
       normalizedRejections,
       normalizedReconciliationRequired,
+      normalizedRequirements,
     );
   }
 
   applyIntent(intent: ReplicaPlacementIntentV1): boolean {
     if (!verifyReplicaPlacementIntent(intent)) return false;
+    if (this.localRelayId !== undefined && (intent.reconciliationRequirements ?? [])
+      .some(requirement => requirement.rejection.senderRelayId !== this.localRelayId)) return false;
     const normalizedIntent = copyIntent(intent);
     const current = this.intents.get(intent.publicationId);
     if (current) {
@@ -306,6 +354,21 @@ export class ReplicaPlacementTracker {
       || intent.operationSignature !== receipt.operationSignature
       || !intent.targetRelayIds.includes(receipt.responderRelayId)
       || (intent.reconciliationRequiredRelayIds ?? []).includes(receipt.responderRelayId)) return false;
+    return true;
+  }
+
+  reconciliationRequirementsFor(publicationId: string): ReplicaReconciliationRequirementV1[] {
+    return copyReconciliationRequirements(
+      this.intents.get(publicationId)?.reconciliationRequirements ?? [],
+    );
+  }
+
+  retireIntentIfMatches(operation: PublicationOperation): boolean {
+    const current = this.intents.get(operation.publicationId);
+    if (!current || !placementMatchesOperation(current, operation)) return false;
+    this.intents.delete(operation.publicationId);
+    this.receipts.delete(operation.publicationId);
+    this.inventory.delete(operation.publicationId);
     return true;
   }
 
@@ -499,10 +562,80 @@ export class ReplicaInventoryScheduler {
   }
 }
 
+/**
+ * Limits durable, target-authorized state reads without starving later
+ * quarantined publications when many volunteers are temporarily unavailable.
+ */
+export class ReplicaReconciliationScheduler {
+  private cursor: string | undefined;
+  private readonly attempts = new Map<string, {
+    attempts: number;
+    nextEligibleAt: number;
+  }>();
+
+  constructor(
+    private readonly initialRetryDelayMs = 1_000,
+    private readonly maximumRetryDelayMs = 5 * 60_000,
+  ) {
+    if (!Number.isSafeInteger(initialRetryDelayMs) || initialRetryDelayMs < 1
+      || !Number.isSafeInteger(maximumRetryDelayMs) || maximumRetryDelayMs < initialRetryDelayMs) {
+      throw new Error('Invalid replica reconciliation retry delays');
+    }
+  }
+
+  take(
+    requirements: readonly ReplicaReconciliationRequirementV1[],
+    limit: number,
+    now = Date.now(),
+  ): ReplicaReconciliationRequirementV1[] {
+    if (!Number.isSafeInteger(limit) || limit < 1) {
+      throw new Error('Replica reconciliation batch limit must be a positive integer');
+    }
+    if (!isTimestamp(now)) throw new Error('Invalid replica reconciliation time');
+    const copiedRequirements = copyReconciliationRequirements(requirements);
+    const activeAttemptKeys = new Set(copiedRequirements.map(reconciliationRequirementAttemptKey));
+    for (const key of this.attempts.keys()) {
+      if (!activeAttemptKeys.has(key)) this.attempts.delete(key);
+    }
+    const ordered = copiedRequirements.filter(requirement => {
+      const attempt = this.attempts.get(reconciliationRequirementAttemptKey(requirement));
+      return attempt === undefined || attempt.nextEligibleAt <= now;
+    }).sort((first, second) => (
+      reconciliationRequirementKey(first).localeCompare(reconciliationRequirementKey(second))
+    ));
+    if (ordered.length === 0) return [];
+    const cursor = this.cursor;
+    const firstAfterCursor = cursor === undefined
+      ? 0
+      : ordered.findIndex(requirement => reconciliationRequirementKey(requirement) > cursor);
+    const start = firstAfterCursor === -1 ? 0 : firstAfterCursor;
+    const count = Math.min(limit, ordered.length);
+    const selected = Array.from({ length: count }, (_, index) => (
+      ordered[(start + index) % ordered.length]
+    ));
+    this.cursor = reconciliationRequirementKey(selected[selected.length - 1]);
+    for (const requirement of selected) {
+      const key = reconciliationRequirementAttemptKey(requirement);
+      const previousAttempts = this.attempts.get(key)?.attempts ?? 0;
+      const attempts = previousAttempts + 1;
+      const delay = Math.min(
+        this.maximumRetryDelayMs,
+        this.initialRetryDelayMs * 2 ** Math.min(previousAttempts, 30),
+      );
+      this.attempts.set(key, { attempts, nextEligibleAt: now + delay });
+    }
+    return copyReconciliationRequirements(selected);
+  }
+}
+
 function compareOperationReference(
   first: ReplicaPlacementIntentV1,
   second: ReplicaPlacementIntentV1,
 ): number {
+  if (first.operationKind === 'publication-tombstone'
+    && second.operationKind !== 'publication-tombstone') return 1;
+  if (first.operationKind !== 'publication-tombstone'
+    && second.operationKind === 'publication-tombstone') return -1;
   if (first.operationSequence !== second.operationSequence) {
     return first.operationSequence < second.operationSequence ? -1 : 1;
   }
@@ -553,21 +686,104 @@ function normalizeReconciliationRequiredRelayIds(values: string[]): string[] {
   return normalized;
 }
 
+function normalizeReconciliationRequirements(
+  values: ReplicaReconciliationRequirementV1[],
+): ReplicaReconciliationRequirementV1[] {
+  if (!Array.isArray(values) || values.length > MAX_RECONCILIATION_REQUIRED_REPLICA_TARGETS) {
+    throw new Error('Invalid reconciliation requirements');
+  }
+  if (!values.every(isReplicaReconciliationRequirement)) {
+    throw new Error('Invalid reconciliation requirements');
+  }
+  const normalized = values.map(requirement => ({
+    relayId: requirement.relayId,
+    rejection: { ...requirement.rejection },
+  })).sort((first, second) => first.relayId.localeCompare(second.relayId));
+  if (!isStrictlySorted(normalized.map(requirement => requirement.relayId))) {
+    throw new Error('Invalid reconciliation requirements');
+  }
+  return normalized;
+}
+
+function isReplicaReconciliationRequirement(
+  value: unknown,
+): value is ReplicaReconciliationRequirementV1 {
+  return isObject(value)
+    && hasRequiredAndOptionalKeys(value, ['rejection', 'relayId'], [])
+    && isRelayId(value.relayId)
+    && isRelayReplicaReconciliationReceiptV1(value.rejection)
+    && value.relayId === value.rejection.responderRelayId;
+}
+
+function receiptMatchesOperation(
+  receipt: RelayReplicaReceiptV1,
+  operation: PublicationOperation,
+): boolean {
+  return receiptMatchesReference(
+    receipt,
+    operation.publicationId,
+    operation.sequence,
+    operation.kind,
+    operation.signature,
+  );
+}
+
+function receiptMatchesReference(
+  receipt: RelayReplicaReceiptV1,
+  publicationId: unknown,
+  sequence: unknown,
+  kind: unknown,
+  signature: unknown,
+): boolean {
+  return receipt.publicationId === publicationId
+    && receipt.operationSequence === sequence
+    && receipt.operationKind === kind
+    && receipt.operationSignature === signature;
+}
+
 function copyIntent(value: ReplicaPlacementIntentV1): ReplicaPlacementIntentV1 {
   return {
     ...value,
     targetRelayIds: [...value.targetRelayIds],
     permanentlyRejectedRelayIds: [...(value.permanentlyRejectedRelayIds ?? [])],
     reconciliationRequiredRelayIds: [...(value.reconciliationRequiredRelayIds ?? [])],
+    reconciliationRequirements: copyReconciliationRequirements(value.reconciliationRequirements ?? []),
   };
+}
+
+function copyReconciliationRequirements(
+  values: readonly ReplicaReconciliationRequirementV1[],
+): ReplicaReconciliationRequirementV1[] {
+  return values.map(requirement => ({
+    relayId: requirement.relayId,
+    rejection: { ...requirement.rejection },
+  }));
 }
 
 function sameTargets(first: string[], second: string[]): boolean {
   return first.length === second.length && first.every((value, index) => value === second[index]);
 }
 
+function sameReconciliationRequirements(
+  first: readonly ReplicaReconciliationRequirementV1[],
+  second: readonly ReplicaReconciliationRequirementV1[],
+): boolean {
+  return first.length === second.length && first.every((value, index) => (
+    value.relayId === second[index]?.relayId
+    && value.rejection.signature === second[index]?.rejection.signature
+  ));
+}
+
 function inventoryReceiptKey(receipt: RelayReplicaReceiptV1): string {
   return `${receipt.publicationId}\u0000${receipt.responderRelayId}`;
+}
+
+function reconciliationRequirementKey(requirement: ReplicaReconciliationRequirementV1): string {
+  return `${requirement.rejection.publicationId}\u0000${requirement.relayId}`;
+}
+
+function reconciliationRequirementAttemptKey(requirement: ReplicaReconciliationRequirementV1): string {
+  return `${reconciliationRequirementKey(requirement)}\u0000${requirement.rejection.signature}`;
 }
 
 function compareInventoryReceiptKeys(first: string, second: string): number {

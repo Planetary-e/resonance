@@ -22,12 +22,16 @@ export const RELAY_REPLICA_PUT_FRAME_TYPE = 'relay_replica_put' as const;
 export const RELAY_REPLICA_RECEIPT_FRAME_TYPE = 'relay_replica_receipt' as const;
 export const RELAY_REPLICA_INVENTORY_REQUEST_FRAME_TYPE = 'relay_replica_inventory_request' as const;
 export const RELAY_REPLICA_INVENTORY_RESPONSE_FRAME_TYPE = 'relay_replica_inventory_response' as const;
+export const RELAY_REPLICA_RECONCILIATION_REQUEST_FRAME_TYPE = 'relay_replica_reconciliation_request' as const;
+export const RELAY_REPLICA_RECONCILIATION_RESPONSE_FRAME_TYPE = 'relay_replica_reconciliation_response' as const;
 export const MAX_RELAY_REPLICA_REQUEST_LIFETIME_MS = 60_000;
 
 const PUT_DOMAIN = 'resonance:relay-replication:v1:put';
 const RECEIPT_DOMAIN = 'resonance:relay-replication:v1:receipt';
 const INVENTORY_REQUEST_DOMAIN = 'resonance:relay-replication:v1:inventory-request';
 const INVENTORY_RESPONSE_DOMAIN = 'resonance:relay-replication:v1:inventory-response';
+const RECONCILIATION_REQUEST_DOMAIN = 'resonance:relay-replication:v1:reconciliation-request';
+const RECONCILIATION_RESPONSE_DOMAIN = 'resonance:relay-replication:v1:reconciliation-response';
 const PUT_BODY_KEYS = [
   'createdAt',
   'expiresAt',
@@ -79,9 +83,36 @@ const INVENTORY_RESPONSE_BODY_KEYS = [
   'version',
 ] as const;
 const INVENTORY_RESPONSE_KEYS = [...INVENTORY_RESPONSE_BODY_KEYS, 'signature'] as const;
+const RECONCILIATION_REQUEST_BODY_KEYS = [
+  'createdAt',
+  'expiresAt',
+  'kind',
+  'receipt',
+  'requestId',
+  'senderRelayId',
+  'targetRelayId',
+  'version',
+] as const;
+const RECONCILIATION_REQUEST_KEYS = [...RECONCILIATION_REQUEST_BODY_KEYS, 'signature'] as const;
+const RECONCILIATION_RESPONSE_BODY_KEYS = [
+  'createdAt',
+  'kind',
+  'operation',
+  'publicationId',
+  'reason',
+  'rejectionRequestId',
+  'rejectionSignature',
+  'requestId',
+  'responderRelayId',
+  'senderRelayId',
+  'status',
+  'version',
+] as const;
+const RECONCILIATION_RESPONSE_KEYS = [...RECONCILIATION_RESPONSE_BODY_KEYS, 'signature'] as const;
 
 export type RelayReplicaReceiptStatusV1 = 'stored' | 'already-stored' | 'rejected';
 export type RelayReplicaInventoryStatusV1 = 'present' | 'missing' | 'rejected';
+export type RelayReplicaReconciliationStatusV1 = 'operation' | 'missing' | 'rejected';
 export type RelayReplicaRejectionReasonV1 =
   | 'expired'
   | 'unsupported-group'
@@ -93,6 +124,7 @@ export type RelayReplicaRejectionReasonV1 =
   | 'invalid'
   | 'persistence-failed';
 export type RelayReplicaInventoryRejectionReasonV1 = 'rate-limited';
+export type RelayReplicaReconciliationRejectionReasonV1 = 'rate-limited';
 
 export interface RelayReplicaPutBodyV1 {
   version: typeof RELAY_REPLICATION_VERSION;
@@ -166,6 +198,51 @@ export interface RelayReplicaInventoryResponseV1 extends RelayReplicaInventoryRe
   signature: string;
 }
 
+/**
+ * A state request is authorized by a target-signed rejection for the same
+ * exact operation. This keeps reconciliation from becoming a publication
+ * lookup API for authenticated relays.
+ */
+export interface RelayReplicaReconciliationRequestBodyV1 {
+  version: typeof RELAY_REPLICATION_VERSION;
+  kind: 'relay-replica-reconciliation-request';
+  requestId: string;
+  senderRelayId: string;
+  targetRelayId: string;
+  receipt: RelayReplicaReceiptV1;
+  createdAt: number;
+  expiresAt: number;
+}
+
+export interface RelayReplicaReconciliationRequestV1
+  extends RelayReplicaReconciliationRequestBodyV1 {
+  signature: string;
+}
+
+/**
+ * A target-signed answer for one prior reconciliation refusal. `operation`
+ * is the target's current owner-signed state, never an inferred summary.
+ */
+export interface RelayReplicaReconciliationResponseBodyV1 {
+  version: typeof RELAY_REPLICATION_VERSION;
+  kind: 'relay-replica-reconciliation-response';
+  requestId: string;
+  senderRelayId: string;
+  responderRelayId: string;
+  publicationId: string;
+  rejectionRequestId: string;
+  rejectionSignature: string;
+  status: RelayReplicaReconciliationStatusV1;
+  operation: PublicationOperation | null;
+  reason: RelayReplicaReconciliationRejectionReasonV1 | null;
+  createdAt: number;
+}
+
+export interface RelayReplicaReconciliationResponseV1
+  extends RelayReplicaReconciliationResponseBodyV1 {
+  signature: string;
+}
+
 export interface RelayReplicaPutFrameV1 {
   type: typeof RELAY_REPLICA_PUT_FRAME_TYPE;
   request: RelayReplicaPutV1;
@@ -184,6 +261,16 @@ export interface RelayReplicaInventoryRequestFrameV1 {
 export interface RelayReplicaInventoryResponseFrameV1 {
   type: typeof RELAY_REPLICA_INVENTORY_RESPONSE_FRAME_TYPE;
   response: RelayReplicaInventoryResponseV1;
+}
+
+export interface RelayReplicaReconciliationRequestFrameV1 {
+  type: typeof RELAY_REPLICA_RECONCILIATION_REQUEST_FRAME_TYPE;
+  request: RelayReplicaReconciliationRequestV1;
+}
+
+export interface RelayReplicaReconciliationResponseFrameV1 {
+  type: typeof RELAY_REPLICA_RECONCILIATION_RESPONSE_FRAME_TYPE;
+  response: RelayReplicaReconciliationResponseV1;
 }
 
 export function createRelayReplicaPutV1(
@@ -293,6 +380,18 @@ export function verifyRelayReplicaReceiptV1(
 export function isDurabilityReceiptV1(value: unknown): value is RelayReplicaReceiptV1 {
   return verifyRelayReplicaReceiptV1(value)
     && (value.status === 'stored' || value.status === 'already-stored');
+}
+
+/**
+ * Only these state-evaluation refusals authorize a target to disclose its
+ * current owner-signed operation. Capacity and admission failures do not.
+ */
+export function isRelayReplicaReconciliationReceiptV1(
+  value: unknown,
+): value is RelayReplicaReceiptV1 {
+  return verifyRelayReplicaReceiptV1(value)
+    && value.status === 'rejected'
+    && (value.reason === 'stale' || value.reason === 'conflict' || value.reason === 'terminal');
 }
 
 export function createRelayReplicaInventoryRequestV1(
@@ -411,6 +510,121 @@ export function verifyRelayReplicaInventoryResponseV1(
   }
 }
 
+export function createRelayReplicaReconciliationRequestV1(
+  receipt: RelayReplicaReceiptV1,
+  identity: Identity,
+  createdAt = Date.now(),
+  expiresAt = createdAt + 30_000,
+): RelayReplicaReconciliationRequestV1 {
+  const body: RelayReplicaReconciliationRequestBodyV1 = {
+    version: RELAY_REPLICATION_VERSION,
+    kind: 'relay-replica-reconciliation-request',
+    requestId: opaqueRequestId(generateSigningKeyPair().publicKey, 'rrc'),
+    senderRelayId: identity.did,
+    targetRelayId: receipt.responderRelayId,
+    receipt,
+    createdAt,
+    expiresAt,
+  };
+  if (!isRelayReplicaReconciliationRequestBody(body) || !identityMatches(identity)) {
+    throw new Error('Invalid replica reconciliation request input');
+  }
+  return {
+    ...body,
+    signature: encodeBase64(sign(signable(RECONCILIATION_REQUEST_DOMAIN, body), identity.secretKey)),
+  };
+}
+
+export function verifyRelayReplicaReconciliationRequestV1(
+  value: unknown,
+): value is RelayReplicaReconciliationRequestV1 {
+  if (!isObject(value) || !hasOnlyKeys(value, RECONCILIATION_REQUEST_KEYS)) return false;
+  const { signature, ...body } = value;
+  if (!isCanonicalBase64(signature, 64) || !isRelayReplicaReconciliationRequestBody(body)) return false;
+  try {
+    return verify(
+      signable(RECONCILIATION_REQUEST_DOMAIN, body),
+      decodeBase64(signature),
+      didToPublicKey(body.senderRelayId),
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function isRelayReplicaReconciliationRequestActiveV1(
+  value: unknown,
+  now: number,
+): value is RelayReplicaReconciliationRequestV1 {
+  return isTimestamp(now)
+    && verifyRelayReplicaReconciliationRequestV1(value)
+    && now >= value.createdAt
+    && now < value.expiresAt;
+}
+
+export function createRelayReplicaReconciliationResponseV1(
+  request: RelayReplicaReconciliationRequestV1,
+  identity: Identity,
+  result: {
+    status: RelayReplicaReconciliationStatusV1;
+    operation?: PublicationOperation;
+    reason?: RelayReplicaReconciliationRejectionReasonV1;
+  },
+  createdAt = Date.now(),
+): RelayReplicaReconciliationResponseV1 {
+  const body: RelayReplicaReconciliationResponseBodyV1 = {
+    version: RELAY_REPLICATION_VERSION,
+    kind: 'relay-replica-reconciliation-response',
+    requestId: request.requestId,
+    senderRelayId: request.senderRelayId,
+    responderRelayId: identity.did,
+    publicationId: request.receipt.publicationId,
+    rejectionRequestId: request.receipt.requestId,
+    rejectionSignature: request.receipt.signature,
+    status: result.status,
+    operation: result.operation ?? null,
+    reason: result.reason ?? null,
+    createdAt,
+  };
+  if (!isRelayReplicaReconciliationRequestActiveV1(request, createdAt)
+    || request.targetRelayId !== identity.did
+    || !isRelayReplicaReconciliationResponseBody(body)
+    || !identityMatches(identity)) {
+    throw new Error('Invalid replica reconciliation response input');
+  }
+  return {
+    ...body,
+    signature: encodeBase64(sign(signable(RECONCILIATION_RESPONSE_DOMAIN, body), identity.secretKey)),
+  };
+}
+
+export function verifyRelayReplicaReconciliationResponseV1(
+  value: unknown,
+  request?: RelayReplicaReconciliationRequestV1,
+): value is RelayReplicaReconciliationResponseV1 {
+  if (!isObject(value) || !hasOnlyKeys(value, RECONCILIATION_RESPONSE_KEYS)) return false;
+  const { signature, ...body } = value;
+  if (!isCanonicalBase64(signature, 64) || !isRelayReplicaReconciliationResponseBody(body)) return false;
+  if (request !== undefined && (!verifyRelayReplicaReconciliationRequestV1(request)
+    || body.requestId !== request.requestId
+    || body.senderRelayId !== request.senderRelayId
+    || body.responderRelayId !== request.targetRelayId
+    || body.publicationId !== request.receipt.publicationId
+    || body.rejectionRequestId !== request.receipt.requestId
+    || body.rejectionSignature !== request.receipt.signature
+    || body.createdAt < request.createdAt
+    || body.createdAt >= request.expiresAt)) return false;
+  try {
+    return verify(
+      signable(RECONCILIATION_RESPONSE_DOMAIN, body),
+      decodeBase64(signature),
+      didToPublicKey(body.responderRelayId),
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function createRelayReplicaPutFrameV1(request: RelayReplicaPutV1): RelayReplicaPutFrameV1 {
   if (!verifyRelayReplicaPutV1(request)) throw new Error('Cannot frame an invalid replica placement');
   return { type: RELAY_REPLICA_PUT_FRAME_TYPE, request };
@@ -439,6 +653,24 @@ export function createRelayReplicaInventoryResponseFrameV1(
     throw new Error('Cannot frame an invalid replica inventory response');
   }
   return { type: RELAY_REPLICA_INVENTORY_RESPONSE_FRAME_TYPE, response };
+}
+
+export function createRelayReplicaReconciliationRequestFrameV1(
+  request: RelayReplicaReconciliationRequestV1,
+): RelayReplicaReconciliationRequestFrameV1 {
+  if (!verifyRelayReplicaReconciliationRequestV1(request)) {
+    throw new Error('Cannot frame an invalid replica reconciliation request');
+  }
+  return { type: RELAY_REPLICA_RECONCILIATION_REQUEST_FRAME_TYPE, request };
+}
+
+export function createRelayReplicaReconciliationResponseFrameV1(
+  response: RelayReplicaReconciliationResponseV1,
+): RelayReplicaReconciliationResponseFrameV1 {
+  if (!verifyRelayReplicaReconciliationResponseV1(response)) {
+    throw new Error('Cannot frame an invalid replica reconciliation response');
+  }
+  return { type: RELAY_REPLICA_RECONCILIATION_RESPONSE_FRAME_TYPE, response };
 }
 
 export function serializeRelayReplicaPutFrameV1(frame: RelayReplicaPutFrameV1): string {
@@ -471,6 +703,26 @@ export function serializeRelayReplicaInventoryResponseFrameV1(
   if (frame.type !== RELAY_REPLICA_INVENTORY_RESPONSE_FRAME_TYPE
     || !verifyRelayReplicaInventoryResponseV1(frame.response)) {
     throw new Error('Invalid replica inventory response frame');
+  }
+  return serializeBounded(frame);
+}
+
+export function serializeRelayReplicaReconciliationRequestFrameV1(
+  frame: RelayReplicaReconciliationRequestFrameV1,
+): string {
+  if (frame.type !== RELAY_REPLICA_RECONCILIATION_REQUEST_FRAME_TYPE
+    || !verifyRelayReplicaReconciliationRequestV1(frame.request)) {
+    throw new Error('Invalid replica reconciliation request frame');
+  }
+  return serializeBounded(frame);
+}
+
+export function serializeRelayReplicaReconciliationResponseFrameV1(
+  frame: RelayReplicaReconciliationResponseFrameV1,
+): string {
+  if (frame.type !== RELAY_REPLICA_RECONCILIATION_RESPONSE_FRAME_TYPE
+    || !verifyRelayReplicaReconciliationResponseV1(frame.response)) {
+    throw new Error('Invalid replica reconciliation response frame');
   }
   return serializeBounded(frame);
 }
@@ -517,6 +769,32 @@ export function parseRelayReplicaInventoryResponseFrameV1(raw: string): RelayRep
     throw new Error('Invalid replica inventory response frame');
   }
   return parsed as unknown as RelayReplicaInventoryResponseFrameV1;
+}
+
+export function parseRelayReplicaReconciliationRequestFrameV1(
+  raw: string,
+): RelayReplicaReconciliationRequestFrameV1 {
+  const parsed = parseBounded(raw);
+  if (!isObject(parsed)
+    || !hasOnlyKeys(parsed, ['request', 'type'])
+    || parsed.type !== RELAY_REPLICA_RECONCILIATION_REQUEST_FRAME_TYPE
+    || !verifyRelayReplicaReconciliationRequestV1(parsed.request)) {
+    throw new Error('Invalid replica reconciliation request frame');
+  }
+  return parsed as unknown as RelayReplicaReconciliationRequestFrameV1;
+}
+
+export function parseRelayReplicaReconciliationResponseFrameV1(
+  raw: string,
+): RelayReplicaReconciliationResponseFrameV1 {
+  const parsed = parseBounded(raw);
+  if (!isObject(parsed)
+    || !hasOnlyKeys(parsed, ['response', 'type'])
+    || parsed.type !== RELAY_REPLICA_RECONCILIATION_RESPONSE_FRAME_TYPE
+    || !verifyRelayReplicaReconciliationResponseV1(parsed.response)) {
+    throw new Error('Invalid replica reconciliation response frame');
+  }
+  return parsed as unknown as RelayReplicaReconciliationResponseFrameV1;
 }
 
 function isRelayReplicaPutBody(value: unknown): value is RelayReplicaPutBodyV1 {
@@ -585,6 +863,49 @@ function isRelayReplicaInventoryResponseBody(
   return isTimestamp(value.createdAt);
 }
 
+function isRelayReplicaReconciliationRequestBody(
+  value: unknown,
+): value is RelayReplicaReconciliationRequestBodyV1 {
+  if (!isObject(value) || !hasOnlyKeys(value, RECONCILIATION_REQUEST_BODY_KEYS)) return false;
+  if (value.version !== RELAY_REPLICATION_VERSION
+    || value.kind !== 'relay-replica-reconciliation-request') return false;
+  if (!isOpaqueRequestId(value.requestId, 'rrc')
+    || !isRelayId(value.senderRelayId)
+    || !isRelayId(value.targetRelayId)
+    || !isRelayReplicaReconciliationReceiptV1(value.receipt)
+    || !isTimestamp(value.createdAt)
+    || !isTimestamp(value.expiresAt)) return false;
+  return value.receipt.senderRelayId === value.senderRelayId
+    && value.receipt.responderRelayId === value.targetRelayId
+    && value.expiresAt > value.createdAt
+    && value.expiresAt - value.createdAt <= MAX_RELAY_REPLICA_REQUEST_LIFETIME_MS;
+}
+
+function isRelayReplicaReconciliationResponseBody(
+  value: unknown,
+): value is RelayReplicaReconciliationResponseBodyV1 {
+  if (!isObject(value) || !hasOnlyKeys(value, RECONCILIATION_RESPONSE_BODY_KEYS)) return false;
+  if (value.version !== RELAY_REPLICATION_VERSION
+    || value.kind !== 'relay-replica-reconciliation-response') return false;
+  if (!isOpaqueRequestId(value.requestId, 'rrc')
+    || !isRelayId(value.senderRelayId)
+    || !isRelayId(value.responderRelayId)
+    || !isOpaqueRequestId(value.rejectionRequestId)
+    || !isCanonicalBase64(value.rejectionSignature, 64)
+    || typeof value.publicationId !== 'string'
+    || !/^pub_[A-Za-z0-9_-]{43}$/.test(value.publicationId)
+    || !isReconciliationStatus(value.status)
+    || !isTimestamp(value.createdAt)) return false;
+  if (value.status === 'operation') {
+    return value.reason === null
+      && verifyPublicationOperation(value.operation)
+      && value.operation.publicationId === value.publicationId;
+  }
+  if (value.operation !== null) return false;
+  if (value.status === 'rejected') return value.reason === 'rate-limited';
+  return value.reason === null;
+}
+
 function isRejectionReason(value: unknown): value is RelayReplicaRejectionReasonV1 {
   return value === 'expired'
     || value === 'unsupported-group'
@@ -599,6 +920,10 @@ function isRejectionReason(value: unknown): value is RelayReplicaRejectionReason
 
 function isInventoryStatus(value: unknown): value is RelayReplicaInventoryStatusV1 {
   return value === 'present' || value === 'missing' || value === 'rejected';
+}
+
+function isReconciliationStatus(value: unknown): value is RelayReplicaReconciliationStatusV1 {
+  return value === 'operation' || value === 'missing' || value === 'rejected';
 }
 
 function identityMatches(identity: Identity): boolean {
@@ -650,7 +975,9 @@ function serializeBounded(
     | RelayReplicaPutFrameV1
     | RelayReplicaReceiptFrameV1
     | RelayReplicaInventoryRequestFrameV1
-    | RelayReplicaInventoryResponseFrameV1,
+    | RelayReplicaInventoryResponseFrameV1
+    | RelayReplicaReconciliationRequestFrameV1
+    | RelayReplicaReconciliationResponseFrameV1,
 ): string {
   const raw = JSON.stringify(value);
   if (decodeUTF8(raw).length > MAX_RELAY_DISCOVERY_FRAME_BYTES) {

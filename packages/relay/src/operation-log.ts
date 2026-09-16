@@ -21,8 +21,10 @@ import {
   verifyRelationshipMailboxDepositV2,
   verifyRelationshipMailboxRequestV2,
   isDurabilityReceiptV1,
+  isRelayReplicaReconciliationReceiptV1,
   didToPublicKey,
   publicKeyToDid,
+  verifyRelayReplicaReconciliationResponseV1,
   type EncryptedMailboxEnvelope,
   type MailboxDepositRequest,
   type MailboxRequest,
@@ -31,6 +33,7 @@ import {
   type RelationshipMailboxDepositV2,
   type RelationshipMailboxRequestV2,
   type RelayReplicaReceiptV1,
+  type RelayReplicaReconciliationResponseV1,
 } from '@resonance/core';
 import {
   verifyReplicaPlacementIntent,
@@ -64,13 +67,30 @@ export type RelayPublicationOperationLogEntry =
     allocationRelayId?: never;
   };
 
+/** Explicit allocation provenance for new journal event types. */
+export type RelayPublicationStorageAllocationLog =
+  | { allocationOrigin: 'local' | 'replica'; allocationRelayId: string }
+  | { allocationOrigin: 'legacy' };
+
+/**
+ * A locally adopted remote state after a target proved a conflicting state
+ * through its signed rejection and a read-only reconciliation response.
+ */
+export interface RelayReconciliationAdoptionLogEntry {
+  kind: 'reconciliation-adoption';
+  rejection: RelayReplicaReceiptV1;
+  response: RelayReplicaReconciliationResponseV1;
+  allocation: RelayPublicationStorageAllocationLog;
+}
+
 export type RelayOperationLogEntry =
   | RelayPublicationOperationLogEntry
   | { kind: 'match'; operation: MatchOperationV2; envelopes: [EncryptedMailboxEnvelope, EncryptedMailboxEnvelope] }
   | { kind: 'mailbox-deposit'; request: MailboxDepositRequest | RelationshipMailboxDepositV2 }
   | { kind: 'mailbox-ack'; request: MailboxRequest | RelationshipMailboxRequestV2 }
   | { kind: 'placement-intent'; intent: ReplicaPlacementIntentV1 }
-  | { kind: 'placement-receipt'; receipt: RelayReplicaReceiptV1 };
+  | { kind: 'placement-receipt'; receipt: RelayReplicaReceiptV1 }
+  | RelayReconciliationAdoptionLogEntry;
 
 export interface RelayOperationLogRecord {
   version: 1;
@@ -222,7 +242,39 @@ function isLogEntry(value: unknown): value is RelayOperationLogEntry {
   if (value.kind === 'placement-receipt') {
     return hasOnlyKeys(value, ['kind', 'receipt']) && isDurabilityReceiptV1(value.receipt);
   }
+  if (value.kind === 'reconciliation-adoption') {
+    return hasOnlyKeys(value, ['allocation', 'kind', 'rejection', 'response'])
+      && isRelayReplicaReconciliationReceiptV1(value.rejection)
+      && verifyRelayReplicaReconciliationResponseV1(value.response)
+      && isPublicationStorageAllocationLog(value.allocation)
+      && reconciliationResponseMatchesRejection(value.response, value.rejection)
+      && value.response.status === 'operation'
+      && value.response.operation !== null
+      && (value.response.operation.kind === 'publication-tombstone'
+        || value.response.operation.sequence > value.rejection.operationSequence);
+  }
   return false;
+}
+
+function reconciliationResponseMatchesRejection(
+  response: RelayReplicaReconciliationResponseV1,
+  rejection: RelayReplicaReceiptV1,
+): boolean {
+  return response.senderRelayId === rejection.senderRelayId
+    && response.responderRelayId === rejection.responderRelayId
+    && response.publicationId === rejection.publicationId
+    && response.rejectionRequestId === rejection.requestId
+    && response.rejectionSignature === rejection.signature;
+}
+
+function isPublicationStorageAllocationLog(
+  value: unknown,
+): value is RelayPublicationStorageAllocationLog {
+  if (!isObject(value) || typeof value.allocationOrigin !== 'string') return false;
+  if (value.allocationOrigin === 'legacy') return hasOnlyKeys(value, ['allocationOrigin']);
+  return hasOnlyKeys(value, ['allocationOrigin', 'allocationRelayId'])
+    && (value.allocationOrigin === 'local' || value.allocationOrigin === 'replica')
+    && isRelayId(value.allocationRelayId);
 }
 
 function isRelayId(value: unknown): value is string {

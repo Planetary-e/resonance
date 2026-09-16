@@ -12,6 +12,7 @@ import {
 } from '@resonance/core';
 import {
   ReplicaInventoryScheduler,
+  ReplicaReconciliationScheduler,
   ReplicaPlacementTracker,
   MAX_PERMANENTLY_REJECTED_REPLICA_TARGETS,
   createReplicaPlacementIntent,
@@ -279,6 +280,37 @@ describe('ReplicaPlacementTracker', () => {
     expect(updateIntent.reconciliationRequiredRelayIds).toEqual([]);
   });
 
+  it('retains a signed state-refusal capability and retires it only with its exact operation', () => {
+    const local = generateIdentity();
+    const target = generateIdentity();
+    const { operation } = publication();
+    const tracker = new ReplicaPlacementTracker(local.did);
+    const request = createRelayReplicaPutV1(operation, local, NOW, NOW + 30_000);
+    const rejection = createRelayReplicaReceiptV1(
+      request,
+      target,
+      { status: 'rejected', reason: 'stale' },
+      NOW + 1,
+    );
+    const intent = createReplicaPlacementIntent(
+      operation,
+      [target.did],
+      POLICY,
+      1,
+      NOW + 2,
+      [],
+      [target.did],
+      [{ relayId: target.did, rejection }],
+    );
+
+    expect(tracker.applyIntent(intent)).toBe(true);
+    expect(tracker.reconciliationRequirementsFor(operation.publicationId)).toEqual([
+      { relayId: target.did, rejection },
+    ]);
+    expect(tracker.retireIntentIfMatches(structuredClone(operation))).toBe(true);
+    expect(tracker.statusFor(operation.publicationId)).toBeUndefined();
+  });
+
   it('stops automatic capacity replacement cleanly when refusal history reaches its bound', () => {
     const local = generateIdentity();
     const selectedTarget = generateIdentity();
@@ -422,5 +454,35 @@ describe('ReplicaPlacementTracker', () => {
 
     expect(Array.from({ length: receipts.length }, () => scheduler.take(receipts, 1)[0].publicationId))
       .toEqual(expected.map(receipt => receipt.publicationId));
+  });
+
+  it('backs off repeated reconciliation reads while allowing a new refusal immediately', () => {
+    const local = generateIdentity();
+    const target = generateIdentity();
+    const { operation } = publication();
+    const request = createRelayReplicaPutV1(operation, local, NOW, NOW + 30_000);
+    const firstRejection = createRelayReplicaReceiptV1(
+      request,
+      target,
+      { status: 'rejected', reason: 'stale' },
+      NOW + 1,
+    );
+    const scheduler = new ReplicaReconciliationScheduler(100, 400);
+    const firstRequirement = { relayId: target.did, rejection: firstRejection };
+
+    expect(scheduler.take([firstRequirement], 1, NOW)).toEqual([firstRequirement]);
+    expect(scheduler.take([firstRequirement], 1, NOW + 99)).toEqual([]);
+    expect(scheduler.take([firstRequirement], 1, NOW + 100)).toEqual([firstRequirement]);
+    expect(scheduler.take([firstRequirement], 1, NOW + 299)).toEqual([]);
+    expect(scheduler.take([firstRequirement], 1, NOW + 300)).toEqual([firstRequirement]);
+
+    const secondRejection = createRelayReplicaReceiptV1(
+      request,
+      target,
+      { status: 'rejected', reason: 'stale' },
+      NOW + 2,
+    );
+    const secondRequirement = { relayId: target.did, rejection: secondRejection };
+    expect(scheduler.take([secondRequirement], 1, NOW + 301)).toEqual([secondRequirement]);
   });
 });

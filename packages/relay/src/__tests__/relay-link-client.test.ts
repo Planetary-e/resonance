@@ -11,6 +11,7 @@ import {
   generatePublicationKeyMaterial,
   serializePublicationOperationFrame,
   verifyRelayReplicaInventoryResponseV1,
+  verifyRelayReplicaReconciliationResponseV1,
   verifyRelayReplicaReceiptV1,
   type PublicationOperation,
 } from '@resonance/core';
@@ -316,6 +317,14 @@ describe('authenticated outbound relay links', () => {
     const stale = await connection.placeReplica(operation);
     expect(stale.status).toBe('rejected');
     expect(['stale', 'terminal']).toContain(stale.reason);
+    const reconciled = await connection.reconcileReplica(stale);
+    expect(verifyRelayReplicaReconciliationResponseV1(reconciled)).toBe(true);
+    expect(reconciled).toMatchObject({
+      status: 'operation',
+      publicationId: operation.publicationId,
+      operation: tombstone,
+      rejectionSignature: stale.signature,
+    });
     connection.close();
     await connection.closed;
     await waitFor(() => !hub.getRelayLinkStatus().inboundRelayIds.includes(identity.did));
