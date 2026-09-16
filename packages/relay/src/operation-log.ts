@@ -111,10 +111,7 @@ export class RelayOperationLog {
     try {
       appendFileSync(descriptor, `${JSON.stringify(record)}\n`, 'utf8');
       fsyncSync(descriptor);
-      if (!existed) {
-        const directoryDescriptor = openSync(this.directory, 'r');
-        try { fsyncSync(directoryDescriptor); } finally { closeSync(directoryDescriptor); }
-      }
+      if (!existed) fsyncDirectory(this.directory);
     } catch (error) {
       this.failed = true;
       throw error;
@@ -132,6 +129,15 @@ export class RelayOperationLog {
   get length(): number {
     return this.records.length;
   }
+}
+
+function fsyncDirectory(directory: string): void {
+  // Windows supports flushing the journal file itself but rejects fsync on a
+  // directory handle with EPERM. The file fsync above remains the durability
+  // boundary available on that platform.
+  if (process.platform === 'win32') return;
+  const descriptor = openSync(directory, 'r');
+  try { fsyncSync(descriptor); } finally { closeSync(descriptor); }
 }
 
 function isLogRecord(value: unknown): value is RelayOperationLogRecord {
