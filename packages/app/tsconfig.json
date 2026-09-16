@@ -5,11 +5,22 @@
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
     "strict": true,
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "./dist-types",
+    "rootDir": "./src",
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true
   },
   "include": ["src/**/*"],
-  "exclude": ["src/server/**/*"]
+  "exclude": ["src/server/**/*"],
+  "references": [
+    { "path": "../core" },
+    { "path": "../node" },
+    { "path": "../relay" }
+  ]
 }

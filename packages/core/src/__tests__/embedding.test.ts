@@ -8,7 +8,7 @@ describe('EmbeddingEngine', () => {
 
   beforeAll(async () => {
     await engine.initialize();
-  }, 120_000); // Allow up to 2 min for model download
+  }, 300_000); // Allow a fresh CI runner up to 5 min for the first model download
 
   it('is initialized after init', () => {
     expect(engine.isInitialized()).toBe(true);

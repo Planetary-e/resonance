@@ -372,7 +372,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
 
   if (url === '/api/relay/status' && method === 'GET') {
     const stats = getRelayStats();
-    json(res, { enabled: isRelayMode(), ...(stats ?? { port: null, stats: null }) });
+    json(res, stats ?? { enabled: false, port: null, stats: null });
     return true;
   }
 

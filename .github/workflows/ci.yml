@@ -21,6 +21,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Build all TypeScript projects
+        run: npm run build
+
       - name: Run tests
         run: npx vitest run
 
