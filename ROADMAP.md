@@ -96,8 +96,14 @@ The pilot uses one persistent DID per user and one relay-local index. The next m
 - [ ] Detect and advertise relay capabilities such as inbound reachability, storage capacity, supported groups, and forwarding availability
 - [ ] Publish to a remote placement set even when the personal node also operates a local relay
   - [x] Carry relay-signed publication and tombstone placement requests over authenticated links, fsync accepted operations before replying, and retain signed durability receipts per relay
-- [ ] Replicate every active publication to a target of five relays with a minimum healthy set of three
-- [ ] Return signed durability receipts for accepted replicas and track whether the minimum healthy set has been reached
+  - [x] Persist placement intent before a local publication commit, retain prior targets for updates and tombstones, and replay intent plus receipts after a restart
+  - [x] Select from live, direct, configured or explicitly invited authenticated links only; peer-exchange observations never trigger an automatic connection
+- [ ] Replicate every active publication to a target of five relays with a minimum receipt-confirmed set of three
+  - [x] Grow a configured authenticated placement set toward five live eligible relays and retry unfinished placements on reconnect and on a bounded repair interval
+  - [x] Preserve the placement set and receipt-confirmed copies across restart; a five-relay integration test starts with three relays and repairs to five
+- [ ] Return signed durability receipts for accepted replicas and track whether the minimum receipt-confirmed set has been reached
+  - [x] Count only positive receipts bound to the current owner-signed operation, local sending relay, and selected target; expose per-publication placement status and aggregate metrics
+  - [x] Bound receiver replay state and resend the same signed receipt for an exact retry instead of treating a lost receipt as a protocol violation
 - [ ] Exchange compact inventories and continuously repair missing replicas
 - [ ] Select replicas across independently observed peers where possible
 - [ ] Attempt graceful handoff before a relay shuts down
@@ -110,6 +116,8 @@ The pilot uses one persistent DID per user and one relay-local index. The next m
 - [ ] Apply owner-configured storage, bandwidth, CPU, power, and schedule limits without violating already-issued durability promises
 - [ ] Expose local contribution and replica-health metrics without exposing peer activity
 - [ ] Add a five-relay churn and partition test harness
+
+**Current replication boundary:** a receipt proves that a named relay fsynced one exact operation at one point in time. It is not a current availability or independence proof. Inventory checks, actual storage quotas, peer-diversity evidence, and graceful handoff remain required before Resonance can claim replica health under churn.
 
 **Completion test:** Publish through one relay, collect at least three signed durability receipts, stop the publisher and two relays, search through a relay that did not originally receive the record, and retrieve one encrypted match notification. A desktop behind NAT contributes through outbound connections, and its enabled background relay continues while the graphical interface is closed. After reconnection, records and tombstones converge without duplicate notifications.
 

@@ -20,6 +20,7 @@ import {
   verifyPublicationOperation,
   verifyRelationshipMailboxDepositV2,
   verifyRelationshipMailboxRequestV2,
+  isDurabilityReceiptV1,
   type EncryptedMailboxEnvelope,
   type MailboxDepositRequest,
   type MailboxRequest,
@@ -27,7 +28,12 @@ import {
   type PublicationOperation,
   type RelationshipMailboxDepositV2,
   type RelationshipMailboxRequestV2,
+  type RelayReplicaReceiptV1,
 } from '@resonance/core';
+import {
+  verifyReplicaPlacementIntent,
+  type ReplicaPlacementIntentV1,
+} from './replica-placement.js';
 
 export const RELAY_OPERATION_LOG_FILENAME = 'relay-operations.ndjson';
 
@@ -35,7 +41,9 @@ export type RelayOperationLogEntry =
   | { kind: 'publication'; operation: PublicationOperation }
   | { kind: 'match'; operation: MatchOperationV2; envelopes: [EncryptedMailboxEnvelope, EncryptedMailboxEnvelope] }
   | { kind: 'mailbox-deposit'; request: MailboxDepositRequest | RelationshipMailboxDepositV2 }
-  | { kind: 'mailbox-ack'; request: MailboxRequest | RelationshipMailboxRequestV2 };
+  | { kind: 'mailbox-ack'; request: MailboxRequest | RelationshipMailboxRequestV2 }
+  | { kind: 'placement-intent'; intent: ReplicaPlacementIntentV1 }
+  | { kind: 'placement-receipt'; receipt: RelayReplicaReceiptV1 };
 
 export interface RelayOperationLogRecord {
   version: 1;
@@ -170,6 +178,12 @@ function isLogEntry(value: unknown): value is RelayOperationLogEntry {
     return hasOnlyKeys(value, ['kind', 'request'])
       && ((verifyMailboxRequest(value.request) && value.request.action === 'ack')
         || (verifyRelationshipMailboxRequestV2(value.request) && value.request.action === 'ack'));
+  }
+  if (value.kind === 'placement-intent') {
+    return hasOnlyKeys(value, ['intent', 'kind']) && verifyReplicaPlacementIntent(value.intent);
+  }
+  if (value.kind === 'placement-receipt') {
+    return hasOnlyKeys(value, ['kind', 'receipt']) && isDurabilityReceiptV1(value.receipt);
   }
   return false;
 }

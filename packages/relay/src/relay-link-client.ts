@@ -65,6 +65,13 @@ export interface RelayLinkManagerEvent {
   error?: string;
 }
 
+export interface ConnectedRelayPeer {
+  relayId: string;
+  endpoint: string;
+  source: RelayContactHintV1['source'];
+  descriptor: RelayDescriptorV1;
+}
+
 export interface RelayLinkManagerStatus {
   running: boolean;
   targetCount: number;
@@ -323,7 +330,7 @@ export class RelayLinkManager {
     this.targets = [...unique.values()].sort((first, second) => (
       first.endpoint < second.endpoint ? -1 : first.endpoint > second.endpoint ? 1 : 0
     ));
-    const maxConnections = options.maxConnections ?? 4;
+    const maxConnections = options.maxConnections ?? 5;
     const reconnectBaseMs = options.reconnectBaseMs ?? 1_000;
     const reconnectMaxMs = options.reconnectMaxMs ?? 60_000;
     if (!Number.isSafeInteger(maxConnections) || maxConnections < 1 || maxConnections > 32) {
@@ -363,6 +370,14 @@ export class RelayLinkManager {
   }
 
   async replicate(operation: PublicationOperation): Promise<RelayReplicaReceiptV1[]> {
+    return this.replicateTo(operation, this.connectedPeers().map(peer => peer.relayId));
+  }
+
+  async replicateTo(
+    operation: PublicationOperation,
+    relayIds: Iterable<string>,
+  ): Promise<RelayReplicaReceiptV1[]> {
+    const requested = new Set(relayIds);
     const existing = this.durabilityReceipts.get(operation.publicationId);
     if (existing) {
       for (const [relayId, receipt] of existing) {
@@ -375,7 +390,9 @@ export class RelayLinkManager {
       if (existing.size === 0) this.durabilityReceipts.delete(operation.publicationId);
     }
     const results = await Promise.allSettled(
-      [...this.connections.values()].map(connection => connection.placeReplica(operation)),
+      [...this.connections.values()]
+        .filter(connection => requested.has(connection.remoteDescriptor.relayId))
+        .map(connection => connection.placeReplica(operation)),
     );
     const receipts: RelayReplicaReceiptV1[] = [];
     for (const result of results) {
@@ -396,6 +413,23 @@ export class RelayLinkManager {
     return receipts;
   }
 
+  connectedPeers(): ConnectedRelayPeer[] {
+    const hintsByEndpoint = new Map(this.targets.map(hint => [hint.endpoint, hint]));
+    return [...this.connections.entries()]
+      .map(([endpoint, connection]) => {
+        const hint = hintsByEndpoint.get(endpoint);
+        if (!hint) return undefined;
+        return {
+          relayId: connection.remoteDescriptor.relayId,
+          endpoint,
+          source: hint.source,
+          descriptor: copyDescriptor(connection.remoteDescriptor),
+        };
+      })
+      .filter((peer): peer is ConnectedRelayPeer => peer !== undefined)
+      .sort((first, second) => first.relayId.localeCompare(second.relayId));
+  }
+
   receipts(publicationId: string): RelayReplicaReceiptV1[] {
     return [...(this.durabilityReceipts.get(publicationId)?.values() ?? [])]
       .sort((first, second) => first.responderRelayId.localeCompare(second.responderRelayId))
@@ -414,7 +448,7 @@ export class RelayLinkManager {
 
   private async connect(hint: RelayContactHintV1): Promise<void> {
     if (!this.running || this.connections.has(hint.endpoint)) return;
-    const maxConnections = this.options.maxConnections ?? 4;
+    const maxConnections = this.options.maxConnections ?? 5;
     if (this.connections.size >= maxConnections) {
       this.schedule(hint, this.options.reconnectBaseMs ?? 1_000);
       return;
@@ -486,4 +520,14 @@ function asError(value: unknown, fallback: string): Error {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function copyDescriptor(value: RelayDescriptorV1): RelayDescriptorV1 {
+  return {
+    ...value,
+    endpoints: [...value.endpoints],
+    capabilities: { ...value.capabilities },
+    supportedGroups: [...value.supportedGroups],
+    storage: { ...value.storage },
+  };
 }

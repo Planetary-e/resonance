@@ -6,11 +6,14 @@ import {
   createMatchNoticeMessage,
   createMatchOperationV2,
   createPublicationRecord,
+  createRelayReplicaPutV1,
+  createRelayReplicaReceiptV1,
   encryptMatchNotice,
   generateIdentity,
   generatePublicationKeyMaterial,
 } from '@resonance/core';
 import { RelayOperationLog, RELAY_OPERATION_LOG_FILENAME } from '../operation-log.js';
+import { createReplicaPlacementIntent } from '../replica-placement.js';
 
 const NOW = 1_800_000_000_000;
 const temporaryDirectories: string[] = [];
@@ -86,5 +89,31 @@ describe('RelayOperationLog', () => {
     expect(restored.load()).toHaveLength(1);
     restored.append({ kind: 'publication', operation: need }, NOW + 3);
     expect(new RelayOperationLog(dir).load().map(record => record.sequence)).toEqual([1, 2]);
+  });
+
+  it('persists replayable placement intent and positive durability receipt records', () => {
+    const dir = directory();
+    const { need } = fixture();
+    const sender = generateIdentity();
+    const target = generateIdentity();
+    const log = new RelayOperationLog(dir);
+    log.load();
+    const intent = createReplicaPlacementIntent(
+      need,
+      [target.did],
+      { desiredReplicaCount: 5, minimumHealthyReplicaCount: 3 },
+      1,
+      NOW + 1,
+    );
+    const request = createRelayReplicaPutV1(need, sender, NOW + 1, NOW + 30_000);
+    const receipt = createRelayReplicaReceiptV1(request, target, { status: 'stored' }, NOW + 2);
+
+    log.append({ kind: 'placement-intent', intent }, NOW + 2);
+    log.append({ kind: 'placement-receipt', receipt }, NOW + 3);
+
+    expect(new RelayOperationLog(dir).load().map(record => record.entry)).toEqual([
+      { kind: 'placement-intent', intent },
+      { kind: 'placement-receipt', receipt },
+    ]);
   });
 });

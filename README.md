@@ -8,7 +8,7 @@ Planetary Resonance is an open-source protocol and application for helping peopl
 
 A person writes a need or offer in natural language. Their device turns it into a compact matching fingerprint, publishes it under a key created for that one publication, and keeps the original text and root identity local. A relay compares complementary fingerprints. If two publications match, both people can consent to a fresh pairwise relationship and exchange end-to-end encrypted disclosures through asynchronous mailboxes.
 
-Resonance is currently a **research prototype**, not a production network. The protocol v2 privacy and persistence foundation is implemented. Automatic replication, relay-to-relay query forwarding, private transport, and mobile participation are the next milestones.
+Resonance is currently a **research prototype**, not a production network. The protocol v2 privacy and persistence foundation is implemented, along with initial replication across configured volunteer relays. Inventory-based repair, relay-to-relay query forwarding, private transport, and mobile participation remain future milestones.
 
 ## The goal
 
@@ -67,7 +67,8 @@ Important limits in the current version:
 - Similarity matching necessarily reveals that some fingerprints are close. A compact fingerprint reduces exposed data; it is not a proof that semantic membership cannot be inferred.
 - A relay or network observer can still correlate requests by IP address, timing, size, and repeated fingerprints. Two-hop private transport, padding, batching, and route rotation are planned work.
 - Current clients use one configured relay at a time. A relay that does not hold a record does **not** yet forward the query to another relay.
-- Records are not yet replicated automatically. If the only relay holding a record goes offline, that record is temporarily unavailable.
+- A relay with configured authenticated relay contacts automatically attempts to place each locally submitted publication or tombstone on up to five live eligible volunteer relays. It records positive signed receipts durably and retries pending configured targets after reconnect or restart. Until a record has enough receipts, the local relay may still be its only copy.
+- A signed receipt proves a relay fsynced one exact operation at one point in time. It does not prove that the relay is currently online, independently operated, or able to accept more data. Inventory checks, storage quotas, diversity evidence, and graceful handoff remain unfinished.
 - A desktop relay contributes only while its relay process is running. Independent background supervision and graceful multi-relay handoff belong to the volunteer-replication milestone.
 - The project does not operate a required fleet of permanent servers. The planned availability model depends on several independently operated volunteer devices.
 
@@ -83,13 +84,14 @@ Read the full [protocol v2 threat model](docs/developers/protocol-v2.md) and [ro
 | Pairwise consent, encrypted disclosures, retries, and channel close | Implemented |
 | CLI and Tauri desktop flows | Implemented from current source |
 | v0.1 local-data backup and upgrade | Implemented |
-| Automatic multi-relay placement, repair, and query forwarding | Planned for v0.3 |
+| Configured-relay placement, signed receipts, persistent repair state, and reconnect retry | Implemented v0.3 foundation |
+| Inventory reconciliation, peer diversity, graceful handoff, and query forwarding | Remaining v0.3 work |
 | Private two-hop transport and anonymous abuse-control credentials | Planned for v0.4 |
 | iOS and Android clients | Planned for v0.5 |
 
 The current validation baseline is:
 
-- **198 automated tests** across core, node, relay, storage, migration, and integration flows
+- **230 automated tests** across core, node, relay, storage, migration, and integration flows
 - **44/44 evaluation gates passing**
 - **93.3% recall** for the evaluated 512-bit LSH configuration at a 0.7 Hamming-similarity threshold
 - **2.3 ms p95** for a 10,000-fingerprint Hamming scan on the recorded evaluation machine
@@ -140,7 +142,7 @@ npm run start --workspace=@resonance/relay
 
 The relay writes its infrastructure identity and operation journal under `RELAY_DATA_DIR`. Stop it with `Ctrl+C`; accepted operations are replayed on the next start.
 
-To expose signed v0.3 discovery metadata, set `RELAY_PUBLIC_ENDPOINTS` to the relay's comma-separated public WebSocket endpoints. Use `RELAY_CONTACTS` for configured relay hints and authenticated outbound links; every contacted relay and every descriptor it returns is verified independently. A relay with contacts and no public endpoint advertises itself as `outbound-only`. Accepted publications and tombstones are placed on its currently connected contacts, which fsync them before returning signed durability receipts. See [Relay discovery for v0.3](docs/developers/relay-discovery-v0.3.md) for the protocol, current limits, and trust model.
+To expose signed v0.3 discovery metadata, set `RELAY_PUBLIC_ENDPOINTS` to the relay's comma-separated public WebSocket endpoints. Use `RELAY_CONTACTS` for configured relay hints and authenticated outbound links; every contacted relay and every descriptor it returns is verified independently. A relay with contacts and no public endpoint advertises itself as `outbound-only`. A local publication or tombstone creates a durable placement intent, selects live configured eligible contacts up to five targets, and records only positive signed fsync receipts. It retries missing configured targets on reconnect and after restart, while retaining prior targets for updates and tombstones. Peer-exchange results are never dialed automatically. See [Relay discovery for v0.3](docs/developers/relay-discovery-v0.3.md) for the protocol, current limits, and trust model.
 
 The current transport is suitable for local development and controlled testing. It is not yet the private, authenticated Internet transport described in the roadmap.
 

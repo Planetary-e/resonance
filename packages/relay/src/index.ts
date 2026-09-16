@@ -25,10 +25,23 @@ export {
   type RelayLinkClientOptions,
   type RelayLinkClose,
   type RelayLinkConnection,
+  type ConnectedRelayPeer,
   type RelayLinkManagerEvent,
   type RelayLinkManagerOptions,
   type RelayLinkManagerStatus,
 } from './relay-link-client.js';
+export {
+  DEFAULT_DESIRED_REPLICA_COUNT,
+  DEFAULT_MINIMUM_HEALTHY_REPLICA_COUNT,
+  MAX_REPLICA_TARGETS,
+  createReplicaPlacementIntent,
+  verifyReplicaPlacementIntent,
+  placementMatchesOperation,
+  ReplicaPlacementTracker,
+  type ReplicaPlacementPolicy,
+  type ReplicaPlacementIntentV1,
+  type ReplicaPlacementStatus,
+} from './replica-placement.js';
 export {
   PublicationOperationStore,
   type PublicationApplyResult,
