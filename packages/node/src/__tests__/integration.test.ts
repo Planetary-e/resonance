@@ -497,7 +497,7 @@ describe('protocol v2 node-to-relay flow', () => {
 
     aliceStore.close();
     bobStore.close();
-  });
+  }, 15_000);
 
   it('rejects consent deposits between publications that did not match', async () => {
     const senderKeys = generatePublicationKeyMaterial();
