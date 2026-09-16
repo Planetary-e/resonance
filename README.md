@@ -350,6 +350,7 @@ See the [contribution guide](docs/developers/contributing.html), [open issues](h
 ## Documentation
 
 - [Protocol v2 and threat model](docs/developers/protocol-v2.md)
+- [Relay discovery for v0.3](docs/developers/relay-discovery-v0.3.md)
 - [v0.1 to v0.2 upgrade guide](docs/developers/v0.1-to-v0.2-upgrade.md)
 - [Architecture](docs/developers/architecture.html)
 - [How Resonance works](docs/how-it-works.html)
