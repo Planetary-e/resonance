@@ -1,40 +1,59 @@
 /**
  * Relay server: WebSocket + HTTP admin API.
- * Accepts publish/search/consent/withdraw from authenticated nodes.
+ * Accepts self-authenticating protocol v2 operations over short connections.
  */
 
 import { createServer, type Server } from 'node:http';
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 import {
   MessageTypes,
+  MAILBOX_DEPOSIT_FRAME_TYPE,
+  MAILBOX_REQUEST_FRAME_TYPE,
+  MAILBOX_RESPONSE_MESSAGE_TYPE,
+  PUBLICATION_OPERATION_FRAME_TYPE,
+  RELATIONSHIP_MAILBOX_DEPOSIT_FRAME_TYPE,
+  RELATIONSHIP_MAILBOX_REQUEST_FRAME_TYPE,
+  SEARCH_REQUEST_FRAME_TYPE,
+  SEARCH_RESPONSE_MESSAGE_TYPE,
+  createAdmissionRequestBindingV2,
+  createMatchOperationV2,
+  createMatchNoticeMessage,
+  createSearchResponsePayloadV2,
+  decodeBase64,
+  encryptMatchNotice,
+  hammingSimilarity,
+  isPublicationActive,
+  isSearchRequestActiveV2,
+  parseMailboxDepositFrame,
+  parseMailboxRequestFrame,
+  parsePublicationOperationFrame,
+  parseRelationshipMailboxDepositFrameV2,
+  parseRelationshipMailboxRequestFrameV2,
+  parseSearchRequestFrameV2,
   parseMessage,
   verifyMessage,
   createMessage,
   serializeMessage,
-  generateIdentity,
+  verifyMatchOperationAgainstPublicationsV2,
   type AckPayload,
-  type MatchPayload,
-  type Identity,
-  type PublishPayload,
-  type SearchPayload,
-  type ConsentPayload,
-  type WithdrawPayload,
+  type AdmissionCapabilityV2,
+  type MailboxResponsePayload,
+  type MailboxDepositRequest,
+  type MailboxRequest,
+  type PublicationOperation,
+  type RelayAdmissionActionV2,
+  type RelationshipMailboxDepositV2,
+  type RelationshipMailboxRequestV2,
 } from '@resonance/core';
-import { HNSW_DEFAULTS, PROTOCOL_DEFAULTS } from '@resonance/core';
-import { MatchingEngine } from './matching-engine.js';
+import { MatchingEngine, type MatchNotification } from './matching-engine.js';
 import { RateLimiter } from './rate-limiter.js';
 import { log } from './logger.js';
-import {
-  handlePublish,
-  handleSearch,
-  handleConsent,
-  handleWithdraw,
-  handleChannelMessage,
-  type ClientState,
-  type HandlerContext,
-} from './handler.js';
+import { PublicationOperationStore } from './publication-store.js';
+import { MailboxStore } from './mailbox-store.js';
+import { MatchOperationStore } from './match-operation-store.js';
+import { RelayOperationLog, type RelayOperationLogEntry } from './operation-log.js';
+import { loadOrCreateRelayIdentity } from './relay-identity-store.js';
+import type { AdmissionCapabilityVerifierV2 } from './admission.js';
 
 export interface RelayConfig {
   port: number;
@@ -49,10 +68,18 @@ export interface RelayConfig {
   authWindowMs: number;
   adminApiKey: string | null;
   maxAuthAttemptsPerMin: number;
+  /** When set, every v2 operation must present an anonymous one-use capability. */
+  admissionVerifier?: AdmissionCapabilityVerifierV2;
 }
 
 export interface RelayStats {
   indexed_embeddings: number;
+  stored_publications: number;
+  active_publications: number;
+  retained_tombstones: number;
+  mailbox_envelopes: number;
+  stored_matches: number;
+  journal_entries: number;
   connected_nodes: number;
   matches_today: number;
   uptime: number;
@@ -79,67 +106,155 @@ const DEFAULT_CONFIG: RelayConfig = {
   maxAuthAttemptsPerMin: 5,
 };
 
+const MAX_TIMEOUT_DELAY_MS = 2_147_483_647;
+
 export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   const cfg = { ...DEFAULT_CONFIG, ...config };
 
   const engine = new MatchingEngine({ matchExpiryMs: cfg.matchExpiryMs, matchThreshold: cfg.matchThreshold });
   engine.initialize();
+  const publicationStore = new PublicationOperationStore();
+  const mailboxStore = new MailboxStore();
+  const matchStore = new MatchOperationStore();
+  const operationLog = new RelayOperationLog(cfg.persistDir);
 
   const rateLimiter = new RateLimiter({
     maxPublishesPerMin: cfg.maxPublishesPerMin,
     maxSearchesPerMin: cfg.maxSearchesPerMin,
   });
 
-  // VULN-12: Persist relay identity
-  const identityPath = join(cfg.persistDir, 'relay-identity.json');
-  let relayIdentity: Identity;
-  mkdirSync(cfg.persistDir, { recursive: true });
-  if (existsSync(identityPath)) {
-    const data = JSON.parse(readFileSync(identityPath, 'utf-8'));
-    relayIdentity = {
-      publicKey: Uint8Array.from(Object.values(data.publicKey)),
-      secretKey: Uint8Array.from(Object.values(data.secretKey)),
-      did: data.did,
-    };
-  } else {
-    relayIdentity = generateIdentity();
-    writeFileSync(identityPath, JSON.stringify({
-      publicKey: Array.from(relayIdentity.publicKey),
-      secretKey: Array.from(relayIdentity.secretKey),
-      did: relayIdentity.did,
-    }));
-  }
+  const relayIdentity = loadOrCreateRelayIdentity(cfg.persistDir);
 
-  const clients = new Map<string, ClientState>();
-  const matchRegistry = new Map<string, { publisherDID: string; matchedDID: string; createdAt: number }>();
-
-  // VULN-13: Auth attempt rate limiting by IP
-  const authAttempts = new Map<string, { count: number; start: number }>();
-
-  const ctx: HandlerContext = {
-    engine,
-    rateLimiter,
-    clients,
-    relayIdentity,
-    matchThreshold: cfg.matchThreshold,
-    matchK: cfg.matchK,
-    matchExpiryMs: cfg.matchExpiryMs,
-    matchRegistry,
-  };
+  const seenSearches = new Map<string, number>();
 
   let httpServer: Server;
   let wss: WebSocketServer;
-  let persistTimer: ReturnType<typeof setInterval> | null = null;
+  let publicationExpiryTimer: ReturnType<typeof setTimeout> | null = null;
   let cleanupTimer: ReturnType<typeof setInterval> | null = null;
   const startTime = Date.now();
 
-  function persist(): void {
-    try {
-      engine.save(cfg.persistDir);
-      log('info', 'persist', { dir: cfg.persistDir });
-    } catch (err) {
-      log('error', 'persist_failed', { error: String(err) });
+  function replayOperation(entry: RelayOperationLogEntry): void {
+    if (entry.kind === 'publication') {
+      const result = publicationStore.apply(entry.operation);
+      if (result.status !== 'accepted' && result.status !== 'duplicate') {
+        throw new Error(`Cannot replay publication operation: ${result.status}`);
+      }
+      return;
     }
+    if (entry.kind === 'match') {
+      const [firstReference, secondReference] = entry.operation.publications;
+      const first = publicationStore.getRecord(firstReference.publicationId);
+      const second = publicationStore.getRecord(secondReference.publicationId);
+      if (!first || !second || !verifyMatchOperationAgainstPublicationsV2(
+        entry.operation, first, second, cfg.matchThreshold,
+      )) throw new Error('Cannot replay unauditable match operation');
+      const result = matchStore.apply(entry.operation);
+      if (result.status !== 'accepted' && result.status !== 'attestation' && result.status !== 'duplicate') {
+        throw new Error(`Cannot replay match operation: ${result.status}`);
+      }
+      for (const envelope of entry.envelopes) mailboxStore.enqueue(envelope);
+      return;
+    }
+    if (entry.kind === 'mailbox-deposit') {
+      mailboxStore.enqueue(entry.request.envelope);
+      return;
+    }
+    mailboxStore.acknowledge(entry.request.mailboxId, entry.request.envelopeIds);
+  }
+
+  function commitMailboxDeposit(
+    request: MailboxDepositRequest | RelationshipMailboxDepositV2,
+  ): 'accepted' | 'duplicate' {
+    const envelope = request.envelope;
+    if (mailboxStore.hasEnvelope(envelope.mailboxId, envelope.envelopeId)) return 'duplicate';
+    operationLog.append({ kind: 'mailbox-deposit', request });
+    return mailboxStore.enqueue(envelope);
+  }
+
+  function commitMailboxAcknowledgement(
+    request: MailboxRequest | RelationshipMailboxRequestV2,
+  ): number {
+    const present = mailboxStore.presentEnvelopeIds(request.mailboxId, request.envelopeIds);
+    if (present.length === 0) return 0;
+    operationLog.append({ kind: 'mailbox-ack', request });
+    return mailboxStore.acknowledge(request.mailboxId, request.envelopeIds);
+  }
+
+  function commitMatch(notification: MatchNotification): void {
+    const publisher = publicationStore.getRecord(notification.publisherDID);
+    const matched = publicationStore.getRecord(notification.matchedDID);
+    if (!publisher || !matched) return;
+    const createdAt = Date.now();
+    const expiresAt = Math.min(publisher.expiresAt, matched.expiresAt, createdAt + cfg.matchExpiryMs);
+    if (expiresAt <= createdAt) return;
+    const operation = createMatchOperationV2(publisher, matched, relayIdentity, { createdAt, expiresAt });
+    if (!verifyMatchOperationAgainstPublicationsV2(operation, publisher, matched, cfg.matchThreshold)) {
+      throw new Error('Matching engine produced an invalid match decision');
+    }
+    if (matchStore.hasGeneration(operation)) return;
+
+    const publisherEnvelope = encryptMatchNotice(
+      createMatchNoticeMessage(publisher, matched, operation, relayIdentity),
+      publisher,
+    );
+    const matchedEnvelope = encryptMatchNotice(
+      createMatchNoticeMessage(matched, publisher, operation, relayIdentity),
+      matched,
+    );
+    const envelopes = [publisherEnvelope, matchedEnvelope] as const;
+
+    // The signed match and both recipient deliveries are one durable fact.
+    // Materialized views change only after the complete record reaches disk.
+    operationLog.append({ kind: 'match', operation, envelopes: [...envelopes] });
+    const result = matchStore.apply(operation);
+    if (result.status !== 'accepted') throw new Error(`Cannot apply committed match: ${result.status}`);
+    mailboxStore.enqueue(publisherEnvelope);
+    mailboxStore.enqueue(matchedEnvelope);
+    log('info', 'mailbox_match', { matchId: operation.matchId, operationId: operation.operationId });
+  }
+
+  function applyToMatchingIndex(operation: PublicationOperation, trackStats = true): void {
+    if (operation.kind === 'publication-tombstone') {
+      engine.withdraw(operation.publicationId, operation.publicationId);
+      return;
+    }
+    const notifications = engine.replaceAndMatch(
+      decodeBase64(operation.fingerprint.value),
+      {
+        did: operation.publicationId,
+        itemId: operation.publicationId,
+        itemType: operation.itemType,
+        scope: `${operation.groupId}\n${operation.fingerprint.algorithm}:${operation.fingerprint.bits}:${operation.fingerprint.epoch}`,
+        expiresAt: operation.expiresAt,
+      },
+      cfg.matchK,
+      cfg.matchThreshold,
+      false,
+      trackStats,
+    );
+    for (const notification of notifications) commitMatch(notification);
+  }
+
+  function enforcePublicationExpiries(now = Date.now()): number {
+    const removed = engine.expirePublications(now);
+    const removedEnvelopes = mailboxStore.purgeExpired(now);
+    if (removed > 0) log('info', 'publications_expired', { count: removed });
+    if (removedEnvelopes > 0) log('info', 'mailbox_envelopes_expired', { count: removedEnvelopes });
+    return removed;
+  }
+
+  function scheduleNextPublicationExpiry(now = Date.now()): void {
+    if (publicationExpiryTimer) clearTimeout(publicationExpiryTimer);
+    publicationExpiryTimer = null;
+    const expiresAt = publicationStore.nextExpiryAfter(now);
+    if (expiresAt === undefined) return;
+    const delay = Math.max(1, Math.min(expiresAt - now, MAX_TIMEOUT_DELAY_MS));
+    publicationExpiryTimer = setTimeout(() => {
+      publicationExpiryTimer = null;
+      enforcePublicationExpiries();
+      scheduleNextPublicationExpiry();
+    }, delay);
+    publicationExpiryTimer.unref?.();
   }
 
   function handleHttpRequest(req: { url?: string; method?: string }, res: {
@@ -161,11 +276,18 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           return;
         }
       }
+      enforcePublicationExpiries();
       const stats = engine.getStats();
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         indexed_embeddings: stats.total,
-        connected_nodes: clients.size,
+        stored_publications: publicationStore.size,
+        active_publications: publicationStore.activeRecords().length,
+        retained_tombstones: publicationStore.tombstoneCount,
+        mailbox_envelopes: mailboxStore.envelopeCount,
+        stored_matches: matchStore.size,
+        journal_entries: operationLog.length,
+        connected_nodes: 0,
         matches_today: stats.matchesToday,
         uptime: Math.floor((Date.now() - startTime) / 1000),
       }));
@@ -176,26 +298,10 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   }
 
   function handleConnection(ws: WebSocket, req: any): void {
-    let clientState: ClientState | null = null;
-
-    // VULN-13: Rate limit auth attempts by IP
     const ip = req?.socket?.remoteAddress ?? 'unknown';
-    const now = Date.now();
-    let attempts = authAttempts.get(ip);
-    if (!attempts || now - attempts.start > 60_000) {
-      attempts = { count: 0, start: now };
-      authAttempts.set(ip, attempts);
-    }
-    attempts.count++;
-    if (attempts.count > cfg.maxAuthAttemptsPerMin) {
-      ws.close(4029, 'too_many_auth_attempts');
-      return;
-    }
 
     const authTimeout = setTimeout(() => {
-      if (!clientState?.authenticated) {
-        ws.close(4001, 'auth_timeout');
-      }
+      ws.close(4001, 'request_timeout');
     }, 10_000);
 
     ws.on('message', (data: Buffer) => {
@@ -204,6 +310,332 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         raw = data.toString('utf-8');
       } catch {
         ws.close(4000, 'invalid_encoding');
+        return;
+      }
+
+      // Protocol v2 publication operations authenticate themselves. They use
+      // a short connection and never send the user's root identity.
+      let frameCandidate: unknown;
+      try { frameCandidate = JSON.parse(raw); } catch { /* handled by v1 parser below */ }
+      if (isObject(frameCandidate) && frameCandidate.type === SEARCH_REQUEST_FRAME_TYPE) {
+        clearTimeout(authTimeout);
+        let frame: ReturnType<typeof parseSearchRequestFrameV2>;
+        try {
+          frame = parseSearchRequestFrameV2(raw);
+        } catch {
+          ws.close(4000, 'invalid_search_request');
+          return;
+        }
+        const request = frame.request;
+        const now = Date.now();
+        if (!isSearchRequestActiveV2(request, now)
+          || Math.abs(now - request.createdAt) > cfg.authWindowMs) {
+          sendOperationAck(ws, request.searchId, 'error', 'expired_search');
+          return;
+        }
+        if (seenSearches.has(request.searchId)) {
+          sendOperationAck(ws, request.searchId, 'error', 'replayed_search');
+          return;
+        }
+        if (!authorizeAdmission(ws, request.searchId, frame.admission, 'search', request, now)) return;
+        if (!rateLimiter.check(`transport:${ip}`, 'search')) {
+          sendOperationAck(ws, request.searchId, 'error', 'rate_limited');
+          return;
+        }
+        seenSearches.set(request.searchId, request.expiresAt);
+
+        const scope = `${request.groupId}\n${request.fingerprint.algorithm}:${request.fingerprint.bits}:${request.fingerprint.epoch}`;
+        const matches = engine.search(
+          decodeBase64(request.fingerprint.value),
+          request.itemType,
+          request.k,
+          Math.max(request.threshold, cfg.matchThreshold),
+          scope,
+        );
+        const results = matches.flatMap((match) => {
+          const publication = publicationStore.get(match.did);
+          if (!publication || publication.kind !== 'publication' || !isPublicationActive(publication, now)) {
+            return [];
+          }
+          return [{
+            publicationId: publication.publicationId,
+            similarity: match.similarity,
+            itemType: publication.itemType,
+          }];
+        });
+        const response = createMessage(
+          SEARCH_RESPONSE_MESSAGE_TYPE,
+          createSearchResponsePayloadV2(request.searchId, results, now),
+          relayIdentity,
+        );
+        ws.send(serializeMessage(response), () => ws.close(1000, 'search_complete'));
+        log('info', 'search_v2', { resultCount: results.length });
+        return;
+      }
+
+      if (isObject(frameCandidate)
+        && frameCandidate.type === PUBLICATION_OPERATION_FRAME_TYPE) {
+        clearTimeout(authTimeout);
+        let frame: ReturnType<typeof parsePublicationOperationFrame>;
+        try {
+          frame = parsePublicationOperationFrame(raw);
+        } catch {
+          ws.close(4000, 'invalid_publication_operation');
+          return;
+        }
+        const operation: PublicationOperation = frame.operation;
+
+        if (operation.kind === 'publication' && !isPublicationActive(operation, Date.now())) {
+          sendOperationAck(ws, operation.publicationId, 'error', 'expired');
+          return;
+        }
+        if (!authorizeAdmission(
+          ws, operation.publicationId, frame.admission, 'publication-write', operation,
+        )) return;
+        if (!rateLimiter.check(`transport:${ip}`, 'publish')) {
+          sendOperationAck(ws, operation.publicationId, 'error', 'rate_limited');
+          return;
+        }
+
+        const result = publicationStore.evaluate(operation);
+        const accepted = result.status === 'accepted' || result.status === 'duplicate';
+        if (accepted) {
+          try {
+            if (result.status === 'accepted') {
+              operationLog.append({ kind: 'publication', operation });
+              const applied = publicationStore.apply(operation);
+              if (applied.status !== 'accepted') throw new Error(`Cannot apply committed publication: ${applied.status}`);
+            }
+            // Duplicate retries also repair a match whose atomic commit may
+            // have failed after the publication itself reached disk.
+            applyToMatchingIndex(operation);
+            enforcePublicationExpiries();
+            scheduleNextPublicationExpiry();
+          } catch (err) {
+            log('error', 'operation_commit_failed', { error: String(err) });
+            sendOperationAck(ws, operation.publicationId, 'error', 'persistence_failed');
+            return;
+          }
+        }
+        sendOperationAck(
+          ws,
+          operation.publicationId,
+          accepted ? 'ok' : 'error',
+          result.status,
+        );
+        log('info', 'publication_operation', {
+          publicationId: operation.publicationId,
+          kind: operation.kind,
+          result: result.status,
+        });
+        return;
+      }
+
+      if (isObject(frameCandidate) && frameCandidate.type === RELATIONSHIP_MAILBOX_REQUEST_FRAME_TYPE) {
+        clearTimeout(authTimeout);
+        let frame: ReturnType<typeof parseRelationshipMailboxRequestFrameV2>;
+        try {
+          frame = parseRelationshipMailboxRequestFrameV2(raw);
+        } catch {
+          ws.close(4000, 'invalid_relationship_mailbox_request');
+          return;
+        }
+        const request = frame.request;
+        if (Math.abs(Date.now() - request.timestamp) > cfg.authWindowMs) {
+          sendOperationAck(ws, request.requestId, 'error', 'stale_timestamp');
+          return;
+        }
+        if (!authorizeAdmission(
+          ws,
+          request.requestId,
+          frame.admission,
+          request.action === 'fetch' ? 'mailbox-fetch' : 'mailbox-acknowledge',
+          request,
+        )) return;
+        if (!rateLimiter.check(`transport:${ip}`, 'search')) {
+          sendOperationAck(ws, request.requestId, 'error', 'rate_limited');
+          return;
+        }
+        if (request.action === 'fetch') {
+          const response = createMessage<MailboxResponsePayload>(MAILBOX_RESPONSE_MESSAGE_TYPE, {
+            requestId: request.requestId,
+            mailboxId: request.mailboxId,
+            envelopes: mailboxStore.fetch(request.mailboxId),
+          }, relayIdentity);
+          ws.send(serializeMessage(response), () => ws.close(1000, 'relationship_mailbox_fetch_complete'));
+          return;
+        }
+        let acknowledged: number;
+        try {
+          acknowledged = commitMailboxAcknowledgement(request);
+        } catch (err) {
+          log('error', 'operation_commit_failed', { error: String(err) });
+          sendOperationAck(ws, request.requestId, 'error', 'persistence_failed');
+          return;
+        }
+        sendOperationAck(ws, request.requestId, 'ok', `acknowledged:${acknowledged}`);
+        return;
+      }
+
+      if (isObject(frameCandidate) && frameCandidate.type === RELATIONSHIP_MAILBOX_DEPOSIT_FRAME_TYPE) {
+        clearTimeout(authTimeout);
+        let frame: ReturnType<typeof parseRelationshipMailboxDepositFrameV2>;
+        try {
+          frame = parseRelationshipMailboxDepositFrameV2(raw);
+        } catch {
+          ws.close(4000, 'invalid_relationship_mailbox_deposit');
+          return;
+        }
+        const request = frame.request;
+        if (Math.abs(Date.now() - request.timestamp) > cfg.authWindowMs) {
+          sendOperationAck(ws, request.requestId, 'error', 'stale_timestamp');
+          return;
+        }
+        if (!authorizeAdmission(
+          ws, request.requestId, frame.admission, 'mailbox-deposit', request,
+        )) return;
+        if (!rateLimiter.check(`transport:${ip}`, 'publish')) {
+          sendOperationAck(ws, request.requestId, 'error', 'rate_limited');
+          return;
+        }
+        let result: 'accepted' | 'duplicate';
+        try {
+          result = commitMailboxDeposit(request);
+        } catch (err) {
+          log('error', 'operation_commit_failed', { error: String(err) });
+          sendOperationAck(ws, request.requestId, 'error', 'persistence_failed');
+          return;
+        }
+        sendOperationAck(ws, request.requestId, 'ok', result);
+        log('info', 'relationship_mailbox_deposit', {
+          senderRelationshipId: request.senderRelationshipId,
+          recipientRelationshipId: request.recipientRelationshipId,
+          result,
+        });
+        return;
+      }
+
+      if (isObject(frameCandidate) && frameCandidate.type === MAILBOX_REQUEST_FRAME_TYPE) {
+        clearTimeout(authTimeout);
+        let frame: ReturnType<typeof parseMailboxRequestFrame>;
+        try {
+          frame = parseMailboxRequestFrame(raw);
+        } catch {
+          ws.close(4000, 'invalid_mailbox_request');
+          return;
+        }
+        const request = frame.request;
+        if (Math.abs(Date.now() - request.timestamp) > cfg.authWindowMs) {
+          sendOperationAck(ws, request.requestId, 'error', 'stale_timestamp');
+          return;
+        }
+        if (!authorizeAdmission(
+          ws,
+          request.requestId,
+          frame.admission,
+          request.action === 'fetch' ? 'mailbox-fetch' : 'mailbox-acknowledge',
+          request,
+        )) return;
+        if (!rateLimiter.check(`transport:${ip}`, 'search')) {
+          sendOperationAck(ws, request.requestId, 'error', 'rate_limited');
+          return;
+        }
+
+        const record = publicationStore.getRecord(request.publicationId);
+        if (!record
+          || record.publicationKey !== request.publicationKey
+          || record.mailbox.id !== request.mailboxId) {
+          sendOperationAck(ws, request.requestId, 'error', 'unknown_mailbox');
+          return;
+        }
+
+        if (request.action === 'fetch') {
+          const response = createMessage<MailboxResponsePayload>(MAILBOX_RESPONSE_MESSAGE_TYPE, {
+            requestId: request.requestId,
+            mailboxId: request.mailboxId,
+            envelopes: mailboxStore.fetch(request.mailboxId),
+          }, relayIdentity);
+          ws.send(serializeMessage(response), () => ws.close(1000, 'mailbox_fetch_complete'));
+          return;
+        }
+
+        let acknowledged: number;
+        try {
+          acknowledged = commitMailboxAcknowledgement(request);
+        } catch (err) {
+          log('error', 'operation_commit_failed', { error: String(err) });
+          sendOperationAck(ws, request.requestId, 'error', 'persistence_failed');
+          return;
+        }
+        sendOperationAck(ws, request.requestId, 'ok', `acknowledged:${acknowledged}`);
+        return;
+      }
+
+      if (isObject(frameCandidate) && frameCandidate.type === MAILBOX_DEPOSIT_FRAME_TYPE) {
+        clearTimeout(authTimeout);
+        let frame: ReturnType<typeof parseMailboxDepositFrame>;
+        try {
+          frame = parseMailboxDepositFrame(raw);
+        } catch {
+          ws.close(4000, 'invalid_mailbox_deposit');
+          return;
+        }
+        const request = frame.request;
+        if (Math.abs(Date.now() - request.timestamp) > cfg.authWindowMs) {
+          sendOperationAck(ws, request.requestId, 'error', 'stale_timestamp');
+          return;
+        }
+        if (!authorizeAdmission(
+          ws, request.requestId, frame.admission, 'mailbox-deposit', request,
+        )) return;
+        if (!rateLimiter.check(`transport:${ip}`, 'publish')) {
+          sendOperationAck(ws, request.requestId, 'error', 'rate_limited');
+          return;
+        }
+
+        const sender = publicationStore.get(request.senderPublicationId);
+        const recipient = publicationStore.get(request.recipientPublicationId);
+        if (!sender || sender.kind !== 'publication' || !isPublicationActive(sender, Date.now())
+          || sender.publicationKey !== request.senderPublicationKey) {
+          sendOperationAck(ws, request.requestId, 'error', 'unknown_sender_publication');
+          return;
+        }
+        if (!recipient || recipient.kind !== 'publication' || !isPublicationActive(recipient, Date.now())
+          || recipient.mailbox.id !== request.recipientMailboxId) {
+          sendOperationAck(ws, request.requestId, 'error', 'unknown_recipient_mailbox');
+          return;
+        }
+        if (sender.itemType === recipient.itemType
+          || sender.groupId !== recipient.groupId
+          || sender.fingerprint.epoch !== recipient.fingerprint.epoch
+          || sender.fingerprint.bits !== recipient.fingerprint.bits
+          || hammingSimilarity(
+            decodeBase64(sender.fingerprint.value),
+            decodeBase64(recipient.fingerprint.value),
+          ) < cfg.matchThreshold) {
+          sendOperationAck(ws, request.requestId, 'error', 'match_not_authorized');
+          return;
+        }
+        if (request.envelope.payloadType !== 'relationship-message') {
+          sendOperationAck(ws, request.requestId, 'error', 'unsupported_deposit_payload');
+          return;
+        }
+
+        let result: 'accepted' | 'duplicate';
+        try {
+          result = commitMailboxDeposit(request);
+        } catch (err) {
+          log('error', 'operation_commit_failed', { error: String(err) });
+          sendOperationAck(ws, request.requestId, 'error', 'persistence_failed');
+          return;
+        }
+        sendOperationAck(ws, request.requestId, 'ok', result);
+        log('info', 'mailbox_deposit', {
+          matchId: request.matchId,
+          senderPublicationId: request.senderPublicationId,
+          recipientPublicationId: request.recipientPublicationId,
+          result,
+        });
         return;
       }
 
@@ -221,112 +653,82 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         return;
       }
 
-      // Handle auth
+      // Protocol v1 used a long-lived root-DID authenticated session. There is
+      // no deployed network to migrate, so accepting it would only recreate a
+      // stable cross-activity identifier.
       if (msg.type === MessageTypes.AUTH) {
         clearTimeout(authTimeout);
-
-        // Check timestamp freshness
-        const age = Math.abs(Date.now() - msg.timestamp);
-        if (age > cfg.authWindowMs) {
-          const ack = createMessage<AckPayload>(MessageTypes.ACK, {
-            ref: 'auth', status: 'error', message: 'stale_timestamp',
-          }, relayIdentity);
-          ws.send(serializeMessage(ack));
-          ws.close(4003, 'stale_timestamp');
-          return;
-        }
-
-        clientState = { did: msg.from, ws, authenticated: true };
-        clients.set(msg.from, clientState);
-
-        const ack = createMessage<AckPayload>(MessageTypes.ACK, {
-          ref: 'auth', status: 'ok',
-        }, relayIdentity);
-        ws.send(serializeMessage(ack));
-
-        // Deliver pending notifications for this DID
-        const pending = engine.getPendingForDID(msg.from);
-        for (const n of pending) {
-          const isPublisher = n.publisherDID === msg.from;
-          const matchMsg = createMessage<MatchPayload>(MessageTypes.MATCH, {
-            matchId: n.matchId,
-            partnerDID: isPublisher ? n.matchedDID : n.publisherDID,
-            similarity: n.similarity,
-            yourItemId: isPublisher ? n.publisherItemId : n.matchedItemId,
-            partnerItemType: isPublisher ? n.matchedItemType : n.publisherItemType,
-            expiry: n.expiry,
-          }, relayIdentity);
-          ws.send(serializeMessage(matchMsg));
-          engine.removeNotification(n.matchId, msg.from);
-        }
-        if (pending.length > 0) {
-          log('info', 'delivered_pending', { did: msg.from, count: pending.length });
-        }
-
-        log('info', 'auth', { did: msg.from });
+        sendOperationAck(ws, 'auth', 'error', 'legacy_auth_disabled');
         return;
       }
-
-      // All other messages require authentication
-      if (!clientState?.authenticated) {
-        ws.close(4001, 'not_authenticated');
-        return;
-      }
-
-      // Verify DID matches authenticated client
-      if (msg.from !== clientState.did) {
-        ws.close(4002, 'did_mismatch');
-        return;
-      }
-
-      // Route to handler
-      switch (msg.type) {
-        case MessageTypes.PUBLISH:
-          handlePublish(ctx, clientState, msg as any);
-          break;
-        case MessageTypes.SEARCH:
-          handleSearch(ctx, clientState, msg as any);
-          break;
-        case MessageTypes.CONSENT:
-          handleConsent(ctx, clientState, msg as any);
-          break;
-        case MessageTypes.WITHDRAW:
-          handleWithdraw(ctx, clientState, msg as any);
-          break;
-        case MessageTypes.CHANNEL_MESSAGE:
-          handleChannelMessage(ctx, clientState, msg as any);
-          break;
-        default: {
-          const ack = createMessage<AckPayload>(MessageTypes.ACK, {
-            ref: msg.type, status: 'error', message: 'unknown_message_type',
-          }, relayIdentity);
-          ws.send(serializeMessage(ack));
-        }
-      }
+      clearTimeout(authTimeout);
+      sendOperationAck(ws, msg.type, 'error', 'unknown_message_type');
     });
 
     ws.on('close', () => {
       clearTimeout(authTimeout);
-      if (clientState) {
-        clients.delete(clientState.did);
-        log('info', 'disconnect', { did: clientState.did });
-      }
     });
 
     ws.on('error', (err) => {
-      log('error', 'ws_error', { error: String(err), did: clientState?.did });
+      log('error', 'ws_error', { error: String(err) });
     });
+
+    function authorizeAdmission(
+      socket: WebSocket,
+      ref: string,
+      capability: AdmissionCapabilityV2 | undefined,
+      action: RelayAdmissionActionV2,
+      request: unknown,
+      now = Date.now(),
+    ): boolean {
+      if (!cfg.admissionVerifier) return true;
+      if (!capability) {
+        sendOperationAck(socket, ref, 'error', 'admission_required');
+        return false;
+      }
+      try {
+        const decision = cfg.admissionVerifier.verifyAndSpend(capability, {
+          action,
+          requestBinding: createAdmissionRequestBindingV2(action, request),
+          now,
+        });
+        if (decision.status === 'accepted' || decision.status === 'replay') return true;
+        log('warn', 'admission_rejected', { action, reason: decision.reason ?? 'rejected' });
+        sendOperationAck(socket, ref, 'error', 'admission_rejected');
+        return false;
+      } catch (error) {
+        log('error', 'admission_verifier_failed', { action, error: String(error) });
+        sendOperationAck(socket, ref, 'error', 'admission_unavailable');
+        return false;
+      }
+    }
+
+    function sendOperationAck(
+      socket: WebSocket,
+      ref: string,
+      status: 'ok' | 'error',
+      message: string,
+    ): void {
+      const ack = createMessage<AckPayload>(MessageTypes.ACK, { ref, status, message }, relayIdentity);
+      socket.send(serializeMessage(ack), () => socket.close(1000, 'operation_complete'));
+    }
+
   }
 
   return {
     async start(): Promise<void> {
-      // Try loading persisted state
-      try {
-        engine.load(cfg.persistDir);
-        log('info', 'loaded', { dir: cfg.persistDir });
-      } catch {
-        log('info', 'fresh_start', { dir: cfg.persistDir });
-      }
+      const records = operationLog.load();
+      for (const record of records) replayOperation(record.entry);
+      mailboxStore.purgeExpired();
+
+      // The search index is a derived cache. Rebuilding it from authoritative
+      // signed operations also repairs a publication whose match commit was
+      // interrupted after its own journal record reached disk.
+      const now = Date.now();
+      for (const operation of publicationStore.activeRecords(now)) applyToMatchingIndex(operation, false);
+      enforcePublicationExpiries();
+      scheduleNextPublicationExpiry(now);
+      log('info', 'journal_replayed', { dir: cfg.persistDir, entries: operationLog.length });
 
       httpServer = createServer(handleHttpRequest);
       wss = new WebSocketServer({ server: httpServer });
@@ -339,38 +741,19 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         });
       });
 
-      // Periodic persistence
-      persistTimer = setInterval(persist, cfg.persistIntervalMs);
       // Periodic cleanup
       cleanupTimer = setInterval(() => {
         rateLimiter.cleanup();
-        // Expire old matchRegistry entries
-        const cutoff = Date.now() - cfg.matchExpiryMs;
-        for (const [id, entry] of matchRegistry) {
-          if (entry.createdAt < cutoff) matchRegistry.delete(id);
+        for (const [searchId, expiresAt] of seenSearches) {
+          if (expiresAt <= Date.now()) seenSearches.delete(searchId);
         }
-        // Clean old auth attempt records
-        const authCutoff = Date.now() - 60_000;
-        for (const [ip, att] of authAttempts) {
-          if (att.start < authCutoff) authAttempts.delete(ip);
-        }
-        // TTL: expire old indexed hashes
-        engine.expireItems(cfg.matchExpiryMs);
+        enforcePublicationExpiries();
       }, 5 * 60_000);
     },
 
     async stop(): Promise<void> {
-      if (persistTimer) clearInterval(persistTimer);
+      if (publicationExpiryTimer) clearTimeout(publicationExpiryTimer);
       if (cleanupTimer) clearInterval(cleanupTimer);
-
-      // Final save
-      persist();
-
-      // Close all connections
-      for (const [, client] of clients) {
-        client.ws.close(1001, 'server_shutdown');
-      }
-      clients.clear();
 
       wss?.close();
       await new Promise<void>((resolve) => {
@@ -381,13 +764,24 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     },
 
     getStats(): RelayStats {
+      enforcePublicationExpiries();
       const stats = engine.getStats();
       return {
         indexed_embeddings: stats.total,
-        connected_nodes: clients.size,
+        stored_publications: publicationStore.size,
+        active_publications: publicationStore.activeRecords().length,
+        retained_tombstones: publicationStore.tombstoneCount,
+        mailbox_envelopes: mailboxStore.envelopeCount,
+        stored_matches: matchStore.size,
+        journal_entries: operationLog.length,
+        connected_nodes: 0,
         matches_today: stats.matchesToday,
         uptime: Math.floor((Date.now() - startTime) / 1000),
       };
     },
   };
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

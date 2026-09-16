@@ -8,13 +8,12 @@ import {
   perturbWithLevel,
   hashEmbedding,
   getSharedProjectionMatrix,
-  encodeBase64,
+  createPublicationRecord,
+  createPublicationTombstone,
+  generatePublicationKeyMaterial,
   DEFAULT_RELAY_PORT,
   BOOTSTRAP_RELAYS,
   type Identity,
-  type MatchPayload,
-  type ConsentForwardPayload,
-  type ChannelForwardPayload,
   type PrivacyLevel,
   type ItemType,
 } from '@resonance/core';
@@ -26,10 +25,10 @@ import {
   getDbPath,
   ensureDataDir,
   createRelayClient,
-  createChannelManager,
+  createPairwiseChannelManagerV2,
   type LocalStore,
   type RelayClient,
-  type ChannelManager,
+  type PairwiseChannelManagerV2,
   type IdentityManager,
 } from '@resonance/node';
 import { randomUUID } from 'node:crypto';
@@ -52,7 +51,7 @@ export interface Session {
   store: LocalStore;
   engine: EmbeddingEngine;
   relayClient: RelayClient;
-  channelMgr: ChannelManager;
+  pairwiseChannelMgr: PairwiseChannelManagerV2;
   identityMgr: IdentityManager;
 }
 
@@ -106,8 +105,8 @@ export async function startRelayMode(port?: number): Promise<{ port: number }> {
       fallbackUrls: BOOTSTRAP_RELAYS,
       autoReconnect: true,
     });
-    try { await localClient.connect(); } catch { /* will auto-reconnect */ }
     session.relayClient = localClient;
+    session.pairwiseChannelMgr = createPairwiseChannelManagerV2(session.store, localClient);
     wireEvents(session);
   }
 
@@ -150,52 +149,8 @@ export function setSessionEvents(events: SessionEvents): void {
 }
 
 function wireEvents(s: Session): void {
-  s.relayClient.on({
-    onMatch(payload: MatchPayload) {
-      s.store.insertMatch({
-        id: payload.matchId,
-        itemId: payload.yourItemId,
-        partnerDID: payload.partnerDID,
-        similarity: payload.similarity,
-      });
-      sessionEvents.onMatch?.(payload.matchId, payload.partnerDID, payload.similarity, payload.yourItemId);
-    },
-    onConsentForward(payload: ConsentForwardPayload) {
-      s.channelMgr.handleConsentForward(payload);
-    },
-    onChannelForward(payload: ChannelForwardPayload) {
-      s.channelMgr.handleChannelForward(payload);
-    },
-  });
-
-  s.channelMgr.on({
-    onChannelReady(channelId, matchId) {
-      // Auto-send confirm embedding
-      const match = s.store.getMatch(matchId);
-      if (match) {
-        const item = s.store.getItem(match.itemId);
-        if (item) {
-          s.channelMgr.sendConfirmEmbedding(channelId, item.embedding);
-        }
-      }
-      sessionEvents.onChannelReady?.(channelId, matchId);
-    },
-    onConfirmResult(channelId, similarity, confirmed) {
-      sessionEvents.onConfirmResult?.(channelId, similarity, confirmed);
-    },
-    onDisclosure(channelId, text, level) {
-      sessionEvents.onDisclosure?.(channelId, text, level);
-    },
-    onAccept(channelId, message) {
-      sessionEvents.onAccept?.(channelId, message);
-    },
-    onReject(channelId, reason) {
-      sessionEvents.onReject?.(channelId, reason);
-    },
-    onClose(channelId) {
-      sessionEvents.onClose?.(channelId);
-    },
-  });
+  // Protocol v2 uses pull-based encrypted mailboxes. UI events are emitted
+  // after a sync commits the corresponding local state.
 }
 
 export async function initSession(password: string): Promise<{ did: string }> {
@@ -241,16 +196,11 @@ export async function unlockSession(password: string, relayUrl: string): Promise
     fallbackUrls: urls.slice(1),
     autoReconnect: true,
   });
-  const channelMgr = createChannelManager({ identity, store, relayClient });
+  const pairwiseChannelMgr = createPairwiseChannelManagerV2(store, relayClient);
 
-  // Connect to relay (tries all URLs in order)
-  try {
-    await relayClient.connect();
-  } catch {
-    // No relay available — continue in local-only mode, will auto-reconnect
-  }
-
-  session = { identity, store, engine, relayClient, channelMgr, identityMgr: mgr };
+  // Protocol v2 operations use short, self-authenticating connections. Keeping
+  // the legacy root-authenticated socket closed prevents passive DID linkage.
+  session = { identity, store, engine, relayClient, pairwiseChannelMgr, identityMgr: mgr };
   wireEvents(session);
   resetInactivityTimer();
 
@@ -290,35 +240,88 @@ export async function publishItem(text: string, type: ItemType, privacy: Privacy
   // Still store perturbed locally for backward compat, but relay gets hash
   const { perturbed, epsilon } = perturbWithLevel(embedding, privacy);
   s.store.insertItem({ id, type, rawText: text, embedding, privacyLevel: privacy, perturbed, epsilon });
+  const keys = generatePublicationKeyMaterial();
+  const now = Date.now();
+  const record = createPublicationRecord({
+    groupId: 'public',
+    fingerprintEpoch: 'pilot-static-v1',
+    fingerprint: hash,
+    itemType: type,
+    createdAt: now,
+    expiresAt: now + 7 * 24 * 60 * 60 * 1000,
+  }, keys);
+  s.store.insertPublication(id, record, keys);
 
   let status = 'local';
-  if (s.relayClient.isConnected()) {
-    try {
-      await s.relayClient.publish({ itemId: id, hash: encodeBase64(hash), itemType: type, ttl: 604800 });
-      s.store.updateItemStatus(id, 'published');
-      status = 'published';
-    } catch { /* relay unavailable */ }
-  }
+  try {
+    const ack = await s.relayClient.submitPublicationOperation(record);
+    if (ack.status !== 'ok') throw new Error(ack.message ?? 'Relay rejected publication');
+    s.store.updateItemStatus(id, 'published');
+    status = 'published';
+  } catch { /* relay unavailable; signed operation remains available for retry */ }
 
   return { id, status, dims: embedding.length };
 }
 
+export async function withdrawItem(itemId: string): Promise<void> {
+  const s = session!;
+  const publication = s.store.getPublicationForItem(itemId);
+  if (!publication) throw new Error(`No protocol v2 publication found for item ${itemId}`);
+  const tombstone = publication.tombstone ?? createPublicationTombstone(
+    publication.record,
+    'withdrawn',
+    publication.keys.signingKeyPair,
+    Date.now(),
+  );
+  if (!publication.tombstone) s.store.setPublicationTombstone(itemId, tombstone);
+  s.store.updateItemStatus(itemId, 'withdrawn');
+  const ack = await s.relayClient.submitPublicationOperation(tombstone);
+  if (ack.status !== 'ok') throw new Error(ack.message ?? 'Relay rejected tombstone');
+}
+
+export async function syncMatchMailboxes(): Promise<number> {
+  const s = session!;
+  const activeBefore = new Set(
+    s.pairwiseChannelMgr.list().filter((channel) => channel.status === 'active').map((channel) => channel.matchId),
+  );
+  try {
+    const result = await s.pairwiseChannelMgr.syncMailboxes();
+    for (const channel of s.pairwiseChannelMgr.list()) {
+      if (channel.status === 'active' && !activeBefore.has(channel.matchId) && channel.channelId) {
+        sessionEvents.onChannelReady?.(channel.channelId, channel.matchId);
+      }
+    }
+    return result.matchesAdded;
+  } catch {
+    // Durable envelopes remain available and will be retried on the next sync.
+    return 0;
+  }
+}
+
 export async function searchRelay(text: string, type: ItemType): Promise<Array<{
-  did: string; similarity: number; itemType: string;
+  publicationId: string; similarity: number; itemType: string;
 }>> {
   const s = session!;
   const embedding = await s.engine.embedForMatching(text, type);
   // LSH: hash the query — relay sees only the binary hash, not the embedding
   const hash = hashEmbedding(embedding, getSharedProjectionMatrix());
-  if (!s.relayClient.isConnected()) return [];
-  const results = await s.relayClient.search({ hash: encodeBase64(hash), k: 10, threshold: 0.65 });
+  const results = await s.relayClient.searchV2({
+    groupId: 'public',
+    fingerprintEpoch: 'pilot-static-v1',
+    fingerprint: hash,
+    itemType: type,
+    k: 10,
+    threshold: 0.65,
+  });
   return results.results;
 }
 
 export async function initiateChannel(matchId: string): Promise<{ channelId: string }> {
   const s = session!;
-  const match = s.store.getMatch(matchId);
-  if (!match) throw new Error('Match not found');
-  const channelId = await s.channelMgr.initiateChannel(matchId, match.partnerDID);
-  return { channelId };
+  const mailboxMatch = s.store.listMailboxMatches().find((candidate) => candidate.matchId === matchId);
+  if (mailboxMatch) {
+    const channel = await s.pairwiseChannelMgr.initiate(matchId);
+    return { channelId: channel.channelId ?? channel.localKeys.relationshipId };
+  }
+  throw new Error('Protocol v2 mailbox match not found');
 }

@@ -3,21 +3,12 @@
  * Query is ephemeral (not indexed). Returns top matches.
  */
 
-import { createInterface } from 'node:readline';
-import { EmbeddingEngine, hashEmbedding, getSharedProjectionMatrix, encodeBase64, type ItemType } from '@resonance/core';
-import { createIdentityManager } from '../identity.js';
+import { EmbeddingEngine, hashEmbedding, getSharedProjectionMatrix, type ItemType } from '@resonance/core';
 import { createRelayClient } from '../relay-client.js';
-
-async function promptPassword(prompt: string): Promise<string> {
-  const rl = createInterface({ input: process.stdin, output: process.stderr });
-  return new Promise((resolve) => {
-    rl.question(prompt, (answer) => { rl.close(); resolve(answer); });
-  });
-}
 
 export async function searchCommand(
   text: string,
-  options: { type?: string; k?: string; threshold?: string; password?: string; relay?: string },
+  options: { type?: string; k?: string; threshold?: string; relay?: string; group?: string },
 ): Promise<void> {
   const queryType = (options.type ?? 'need') as ItemType;
   const k = parseInt(options.k ?? '5');
@@ -29,16 +20,6 @@ export async function searchCommand(
     return;
   }
 
-  const mgr = createIdentityManager();
-  if (!mgr.exists()) {
-    console.error('No identity found. Run "resonance init" first.');
-    process.exitCode = 1;
-    return;
-  }
-
-  const password = options.password ?? await promptPassword('Password: ');
-  const identity = await mgr.load(password);
-
   // Embed query and hash (relay only sees binary hash — not the embedding)
   const engine = new EmbeddingEngine();
   await engine.initialize();
@@ -46,12 +27,14 @@ export async function searchCommand(
   const hash = hashEmbedding(embedding, getSharedProjectionMatrix());
 
   const relayUrl = options.relay ?? 'ws://localhost:9090';
-  const client = createRelayClient({ relayUrl, identity });
+  const client = createRelayClient({ relayUrl });
 
   try {
-    await client.connect();
-    const results = await client.search({
-      hash: encodeBase64(hash),
+    const results = await client.searchV2({
+      groupId: options.group ?? 'public',
+      fingerprintEpoch: 'pilot-static-v1',
+      fingerprint: hash,
+      itemType: queryType,
       k,
       threshold: Math.max(threshold, 0.65), // Hamming similarity threshold
     });
@@ -61,7 +44,7 @@ export async function searchCommand(
     } else {
       console.log(`\n${results.results.length} result(s):\n`);
       for (const r of results.results) {
-        console.log(`  ${r.did}`);
+        console.log(`  ${r.publicationId}`);
         console.log(`    Type:       ${r.itemType}`);
         console.log(`    Similarity: ${r.similarity.toFixed(3)}`);
         console.log('');
@@ -70,7 +53,5 @@ export async function searchCommand(
   } catch (err) {
     console.error(`Search failed: ${err}`);
     process.exitCode = 1;
-  } finally {
-    client.disconnect();
-  }
+  } finally { client.disconnect(); }
 }

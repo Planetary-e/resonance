@@ -16,7 +16,7 @@ describe('createMessage', () => {
     const id = generateIdentity();
     const payload: PublishPayload = {
       itemId: 'test-123',
-      vector: [0.1, 0.2, 0.3],
+      hash: 'AQID',
       itemType: 'offer',
       ttl: 604800,
     };
@@ -41,7 +41,7 @@ describe('createMessage', () => {
 describe('verifyMessage', () => {
   it('verifies a valid message', () => {
     const id = generateIdentity();
-    const msg = createMessage(MessageTypes.SEARCH, { vector: [1, 2, 3], k: 5, threshold: 0.5 } satisfies SearchPayload, id);
+    const msg = createMessage(MessageTypes.SEARCH, { hash: 'AQID', k: 5, threshold: 0.5 } satisfies SearchPayload, id);
     expect(verifyMessage(msg)).toBe(true);
   });
 

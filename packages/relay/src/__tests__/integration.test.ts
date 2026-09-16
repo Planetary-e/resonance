@@ -1,100 +1,122 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { readFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 import WebSocket from 'ws';
 import {
-  generateIdentity,
-  createMessage,
-  serializeMessage,
-  parseMessage,
   MessageTypes,
-  normalize,
-  hashEmbedding,
-  getSharedProjectionMatrix,
-  encodeBase64,
-  type Identity,
-  type Message,
+  createAdmissionRequestBindingV2,
+  createMailboxRequest,
+  createMailboxRequestFrame,
+  createMessage,
+  createSearchRequestFrameV2,
+  createSearchRequestV2,
+  createPublicationOperationFrame,
+  createPublicationRecord,
+  createPublicationTombstone,
+  generateIdentity,
+  generatePublicationKeyMaterial,
+  parseMessage,
+  serializeMessage,
+  serializeMailboxRequestFrame,
+  serializePublicationOperationFrame,
+  serializeSearchRequestFrameV2,
+  verifyMessage,
+  verifyMatchOperationV2,
   type AckPayload,
-  type MatchPayload,
-  type PublishPayload,
-  type ConsentForwardPayload,
+  type AdmissionCapabilityV2,
+  type Message,
+  type PublicationOperation,
 } from '@resonance/core';
 import { createRelayServer, type RelayServer } from '../server.js';
+import type { AdmissionCapabilityVerifierV2 } from '../admission.js';
+import { RELAY_OPERATION_LOG_FILENAME } from '../operation-log.js';
 
 const PORT = 19090 + Math.floor(Math.random() * 1000);
+const PERSIST_DIR = `/tmp/resonance-integration-test-${Date.now()}`;
 let server: RelayServer;
 
-function randomUnitVector(dims = 768): number[] {
-  const v = new Float32Array(dims);
-  for (let i = 0; i < dims; i++) v[i] = Math.random() - 0.5;
-  const n = normalize(v);
-  return Array.from(n);
+function record(itemType: 'need' | 'offer', fill: number, groupId = 'public') {
+  const keys = generatePublicationKeyMaterial();
+  const now = Date.now();
+  return createPublicationRecord({
+    groupId,
+    fingerprintEpoch: 'pilot-static-v1',
+    fingerprint: new Uint8Array(64).fill(fill),
+    itemType,
+    createdAt: now,
+    expiresAt: now + 86_400_000,
+  }, keys);
 }
 
-// Create a vector close to another
-function similarVector(base: number[], noise = 0.05): number[] {
-  const v = new Float32Array(base.length);
-  for (let i = 0; i < base.length; i++) v[i] = base[i] + (Math.random() - 0.5) * noise;
-  const n = normalize(v);
-  return Array.from(n);
+function recordWithKeys(
+  itemType: 'need' | 'offer',
+  fill: number,
+  groupId: string,
+  lifetimeMs = 86_400_000,
+) {
+  const keys = generatePublicationKeyMaterial();
+  const now = Date.now();
+  return {
+    keys,
+    record: createPublicationRecord({
+      groupId,
+      fingerprintEpoch: 'pilot-static-v1',
+      fingerprint: new Uint8Array(64).fill(fill),
+      itemType,
+      createdAt: now,
+      expiresAt: now + lifetimeMs,
+    }, keys),
+  };
 }
 
-const matrix = getSharedProjectionMatrix();
-function toHash(vec: number[]): string {
-  return encodeBase64(hashEmbedding(new Float32Array(vec), matrix));
-}
-
-function connectAndAuth(identity: Identity): Promise<{ ws: WebSocket; messages: Message[] }> {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://localhost:${PORT}`);
-    const messages: Message[] = [];
-
-    ws.on('open', () => {
-      const authMsg = createMessage(MessageTypes.AUTH, {}, identity);
-      ws.send(serializeMessage(authMsg));
-    });
-
-    ws.on('message', (data: Buffer) => {
-      const msg = parseMessage(data.toString('utf-8'));
-      messages.push(msg);
-
-      // Resolve after auth ack
-      if (msg.type === MessageTypes.ACK && (msg.payload as AckPayload).ref === 'auth') {
-        resolve({ ws, messages });
-      }
-    });
-
-    ws.on('error', reject);
-    setTimeout(() => reject(new Error('connection timeout')), 5000);
+function createServer(): RelayServer {
+  return createRelayServer({
+    port: PORT,
+    host: '127.0.0.1',
+    maxAuthAttemptsPerMin: 100,
+    persistDir: PERSIST_DIR,
+    persistIntervalMs: 999_999,
   });
 }
 
-function waitForMessage(messages: Message[], type: string, timeout = 3000): Promise<Message> {
+function submit(operation: PublicationOperation): Promise<Message<AckPayload>> {
   return new Promise((resolve, reject) => {
-    // Check existing messages first
-    const existing = messages.find(m => m.type === type);
-    if (existing) return resolve(existing);
+    const ws = new WebSocket(`ws://localhost:${PORT}`);
+    const timeout = setTimeout(() => reject(new Error('submission timeout')), 5_000);
+    ws.on('open', () => {
+      ws.send(serializePublicationOperationFrame(createPublicationOperationFrame(operation)));
+    });
+    ws.on('message', (data: Buffer) => {
+      clearTimeout(timeout);
+      const message = parseMessage(data.toString('utf8')) as Message<AckPayload>;
+      ws.close();
+      resolve(message);
+    });
+    ws.on('error', reject);
+  });
+}
 
-    const start = Date.now();
-    const interval = setInterval(() => {
-      const found = messages.find(m => m.type === type);
-      if (found) {
-        clearInterval(interval);
-        resolve(found);
-      } else if (Date.now() - start > timeout) {
-        clearInterval(interval);
-        reject(new Error(`Timeout waiting for message type: ${type}`));
-      }
-    }, 10);
+function sendFrame(raw: string): Promise<Message> {
+  return sendFrameToPort(PORT, raw);
+}
+
+function sendFrameToPort(port: number, raw: string): Promise<Message> {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(`ws://localhost:${port}`);
+    const timeout = setTimeout(() => reject(new Error('frame response timeout')), 5_000);
+    ws.on('open', () => ws.send(raw));
+    ws.on('message', (data: Buffer) => {
+      clearTimeout(timeout);
+      const message = parseMessage(data.toString('utf8'));
+      ws.close();
+      resolve(message);
+    });
+    ws.on('error', reject);
   });
 }
 
 beforeAll(async () => {
-  server = createRelayServer({
-    port: PORT,
-    host: '127.0.0.1',
-    maxAuthAttemptsPerMin: 100, // High limit for tests
-    persistDir: `/tmp/resonance-integration-test-${Date.now()}`,
-    persistIntervalMs: 999_999, // Don't persist during tests
-  });
+  server = createServer();
   await server.start();
 });
 
@@ -102,170 +124,283 @@ afterAll(async () => {
   await server.stop();
 });
 
-describe('Relay integration', () => {
-  it('authenticates a client', async () => {
-    const identity = generateIdentity();
-    const { ws, messages } = await connectAndAuth(identity);
+describe('Relay protocol v2 integration', () => {
+  it('persists a self-authenticating publication before ACK without AUTH or a root DID', async () => {
+    const publication = record('offer', 0xa5);
+    const ack = await submit(publication);
 
-    const ack = messages.find(m => m.type === MessageTypes.ACK)!;
-    expect((ack.payload as AckPayload).status).toBe('ok');
-    expect((ack.payload as AckPayload).ref).toBe('auth');
-
-    ws.close();
-  });
-
-  it('rejects invalid signature', async () => {
-    const ws = new WebSocket(`ws://localhost:${PORT}`);
-    await new Promise<void>((resolve) => ws.on('open', resolve));
-
-    // Send a tampered auth message
-    const identity = generateIdentity();
-    const authMsg = createMessage(MessageTypes.AUTH, {}, identity);
-    (authMsg as any).signature = 'AAAA' + authMsg.signature.slice(4); // tamper
-    ws.send(serializeMessage(authMsg));
-
-    const code = await new Promise<number>((resolve) => {
-      ws.on('close', (code) => resolve(code));
+    expect(verifyMessage(ack)).toBe(true);
+    expect(ack.type).toBe(MessageTypes.ACK);
+    expect(ack.payload).toEqual({
+      ref: publication.publicationId,
+      status: 'ok',
+      message: 'accepted',
     });
-    expect(code).toBe(4002);
+    expect(server.getStats().stored_publications).toBe(1);
+    expect(server.getStats().connected_nodes).toBe(0);
   });
 
-  it('handles publish → match notification flow', async () => {
-    const alice = generateIdentity();
-    const bob = generateIdentity();
+  it('indexes complementary v2 records under independent publication identities', async () => {
+    const offer = record('offer', 0x3c);
+    const need = record('need', 0x3c);
 
-    const aliceConn = await connectAndAuth(alice);
-    const bobConn = await connectAndAuth(bob);
+    expect((await submit(offer)).payload.status).toBe('ok');
+    expect((await submit(need)).payload.status).toBe('ok');
+    expect(offer.publicationId).not.toBe(need.publicationId);
+    expect(server.getStats().stored_publications).toBe(3);
+    expect(server.getStats().indexed_embeddings).toBe(3);
+    expect(server.getStats().matches_today).toBeGreaterThan(0);
+    expect(server.getStats().mailbox_envelopes).toBe(2);
+    const records = readFileSync(join(PERSIST_DIR, RELAY_OPERATION_LOG_FILENAME), 'utf8')
+      .trim().split('\n').map(line => JSON.parse(line));
+    const matchRecords = records.filter(record => record.entry.kind === 'match');
+    expect(matchRecords).toHaveLength(1);
+    expect(verifyMatchOperationV2(matchRecords[0].entry.operation)).toBe(true);
+    expect(matchRecords[0].entry.envelopes).toHaveLength(2);
+    expect(server.getStats().stored_matches).toBe(1);
+  });
 
-    // Alice publishes an offer
-    const offerVec = randomUnitVector();
-    const publishOffer = createMessage<PublishPayload>(MessageTypes.PUBLISH, {
-      itemId: 'offer-1',
-      hash: toHash(offerVec),
-      itemType: 'offer',
-      ttl: 86400,
-    }, alice);
-    aliceConn.ws.send(serializeMessage(publishOffer));
+  it('does not compare fingerprints across groups', async () => {
+    const matchesBefore = server.getStats().matches_today;
+    await submit(record('offer', 0xf0, 'community:a'));
+    await submit(record('need', 0xf0, 'community:b'));
 
-    // Wait for Alice's ACK
-    await waitForMessage(aliceConn.messages, MessageTypes.ACK);
+    expect(server.getStats().matches_today).toBe(matchesBefore);
+  });
 
-    // Bob publishes a similar need
-    const needVec = similarVector(offerVec, 0.03);
-    const publishNeed = createMessage<PublishPayload>(MessageTypes.PUBLISH, {
-      itemId: 'need-1',
-      hash: toHash(needVec),
+  it('rejects replay of a one-use search identity', async () => {
+    const now = Date.now();
+    const request = createSearchRequestV2({
+      groupId: `search-replay-${now}`,
+      fingerprintEpoch: 'pilot-static-v1',
+      fingerprint: new Uint8Array(64).fill(0x77),
       itemType: 'need',
-      ttl: 86400,
-    }, bob);
-    bobConn.ws.send(serializeMessage(publishNeed));
+      k: 5,
+      threshold: 0.7,
+      createdAt: now,
+      expiresAt: now + 30_000,
+    });
+    const raw = serializeSearchRequestFrameV2(createSearchRequestFrameV2(request));
 
-    // Both should receive MATCH notifications
-    const bobMatch = await waitForMessage(bobConn.messages, MessageTypes.MATCH);
-    const aliceMatch = await waitForMessage(aliceConn.messages, MessageTypes.MATCH);
-
-    const bobPayload = bobMatch.payload as MatchPayload;
-    const alicePayload = aliceMatch.payload as MatchPayload;
-
-    expect(bobPayload.partnerDID).toBe(alice.did);
-    expect(alicePayload.partnerDID).toBe(bob.did);
-    expect(bobPayload.similarity).toBeGreaterThan(0.5);
-    expect(bobPayload.matchId).toBe(alicePayload.matchId);
-
-    aliceConn.ws.close();
-    bobConn.ws.close();
+    const first = await sendFrame(raw);
+    expect(first.type).toBe('search_response_v2');
+    const replay = await sendFrame(raw) as Message<AckPayload>;
+    expect(replay.payload).toEqual({
+      ref: request.searchId,
+      status: 'error',
+      message: 'replayed_search',
+    });
   });
 
-  it('forwards consent between parties', async () => {
-    const alice = generateIdentity();
-    const bob = generateIdentity();
+  it('enforces one-use admission while allowing an exact operation retry', async () => {
+    const admissionPort = PORT + 1100;
+    const admissionDir = `${PERSIST_DIR}-admission`;
+    const spent = new Map<string, string>();
+    const verifier: AdmissionCapabilityVerifierV2 = {
+      verifyAndSpend(capability, context) {
+        if (capability.requestProof !== context.requestBinding) {
+          return { status: 'rejected', reason: 'request_proof_mismatch' };
+        }
+        const spendKey = `${capability.issuer}\n${capability.token}`;
+        const use = `${context.action}\n${context.requestBinding}`;
+        const previous = spent.get(spendKey);
+        if (previous === undefined) {
+          spent.set(spendKey, use);
+          return { status: 'accepted' };
+        }
+        return previous === use ? { status: 'replay' } : { status: 'rejected', reason: 'double_spend' };
+      },
+    };
+    const admissionServer = createRelayServer({
+      port: admissionPort,
+      host: '127.0.0.1',
+      persistDir: admissionDir,
+      admissionVerifier: verifier,
+    });
+    await admissionServer.start();
+    try {
+      const first = record('offer', 0x31, `admission-${Date.now()}`);
+      const missing = await sendFrameToPort(
+        admissionPort,
+        serializePublicationOperationFrame(createPublicationOperationFrame(first)),
+      ) as Message<AckPayload>;
+      expect(missing.payload.message).toBe('admission_required');
 
-    const aliceConn = await connectAndAuth(alice);
-    const bobConn = await connectAndAuth(bob);
+      const capability: AdmissionCapabilityV2 = {
+        version: 2,
+        kind: 'admission-capability',
+        scheme: 'test-blind-token-v1',
+        issuer: 'community:test',
+        token: 'A'.repeat(43),
+        requestProof: createAdmissionRequestBindingV2('publication-write', first),
+      };
+      const admitted = serializePublicationOperationFrame(createPublicationOperationFrame(first, capability));
+      expect((await sendFrameToPort(admissionPort, admitted) as Message<AckPayload>).payload.message).toBe('accepted');
+      expect((await sendFrameToPort(admissionPort, admitted) as Message<AckPayload>).payload.message).toBe('duplicate');
 
-    // Publish complementary items
-    const vec = randomUnitVector();
-    aliceConn.ws.send(serializeMessage(createMessage<PublishPayload>(MessageTypes.PUBLISH, {
-      itemId: 'o2', hash: toHash(vec), itemType: 'offer', ttl: 86400,
-    }, alice)));
-
-    await waitForMessage(aliceConn.messages, MessageTypes.ACK);
-
-    bobConn.ws.send(serializeMessage(createMessage<PublishPayload>(MessageTypes.PUBLISH, {
-      itemId: 'n2', hash: toHash(similarVector(vec, 0.03)), itemType: 'need', ttl: 86400,
-    }, bob)));
-
-    const bobMatch = await waitForMessage(bobConn.messages, MessageTypes.MATCH);
-    const matchId = (bobMatch.payload as MatchPayload).matchId;
-
-    // Bob sends consent
-    const consentMsg = createMessage(MessageTypes.CONSENT, {
-      matchId,
-      accept: true,
-      encryptedForPartner: 'base64_encrypted_key_data',
-    }, bob);
-    bobConn.ws.send(serializeMessage(consentMsg));
-
-    // Alice should receive consent forward
-    const forward = await waitForMessage(aliceConn.messages, MessageTypes.CONSENT_FORWARD);
-    const fwdPayload = forward.payload as ConsentForwardPayload;
-    expect(fwdPayload.matchId).toBe(matchId);
-    expect(fwdPayload.fromDID).toBe(bob.did);
-    expect(fwdPayload.encrypted).toBe('base64_encrypted_key_data');
-
-    aliceConn.ws.close();
-    bobConn.ws.close();
+      const second = record('offer', 0x32, first.groupId);
+      const reusedCapability = {
+        ...capability,
+        requestProof: createAdmissionRequestBindingV2('publication-write', second),
+      };
+      const reused = await sendFrameToPort(
+        admissionPort,
+        serializePublicationOperationFrame(createPublicationOperationFrame(second, reusedCapability)),
+      ) as Message<AckPayload>;
+      expect(reused.payload.message).toBe('admission_rejected');
+      expect(admissionServer.getStats().stored_publications).toBe(1);
+    } finally {
+      await admissionServer.stop();
+      rmSync(admissionDir, { recursive: true, force: true });
+    }
   });
 
-  it('delivers pending notifications on reconnect', async () => {
-    const alice = generateIdentity();
-    const bob = generateIdentity();
+  it('rejects legacy root-DID authentication and discovery routes', async () => {
+    const identity = generateIdentity();
+    const auth = await sendFrame(serializeMessage(createMessage(MessageTypes.AUTH, {}, identity))) as Message<AckPayload>;
+    expect(auth.payload).toEqual({
+      ref: 'auth',
+      status: 'error',
+      message: 'legacy_auth_disabled',
+    });
 
-    // Alice publishes an offer and disconnects
-    const aliceConn1 = await connectAndAuth(alice);
-    const offerVec = randomUnitVector();
-    aliceConn1.ws.send(serializeMessage(createMessage<PublishPayload>(MessageTypes.PUBLISH, {
-      itemId: 'offline-offer', hash: toHash(offerVec), itemType: 'offer', ttl: 86400,
-    }, alice)));
-    await waitForMessage(aliceConn1.messages, MessageTypes.ACK);
-    aliceConn1.ws.close();
+    const publish = await sendFrame(serializeMessage(createMessage(MessageTypes.PUBLISH, {
+      itemId: 'legacy-item', hash: 'AA==', itemType: 'need', ttl: 60,
+    }, identity))) as Message<AckPayload>;
+    expect(publish.payload).toEqual({
+      ref: MessageTypes.PUBLISH,
+      status: 'error',
+      message: 'unknown_message_type',
+    });
 
-    // Wait for disconnect to register
-    await new Promise(r => setTimeout(r, 100));
-
-    // Bob publishes a complementary need — Alice is offline
-    const bobConn = await connectAndAuth(bob);
-    bobConn.ws.send(serializeMessage(createMessage<PublishPayload>(MessageTypes.PUBLISH, {
-      itemId: 'offline-need', hash: toHash(similarVector(offerVec, 0.03)), itemType: 'need', ttl: 86400,
-    }, bob)));
-    // Bob gets the match immediately
-    const bobMatch = await waitForMessage(bobConn.messages, MessageTypes.MATCH);
-    expect((bobMatch.payload as MatchPayload).partnerDID).toBe(alice.did);
-    bobConn.ws.close();
-
-    // Alice reconnects — should receive pending match notification
-    const aliceConn2 = await connectAndAuth(alice);
-    const aliceMatch = await waitForMessage(aliceConn2.messages, MessageTypes.MATCH, 5000);
-    expect((aliceMatch.payload as MatchPayload).partnerDID).toBe(bob.did);
-    expect((aliceMatch.payload as MatchPayload).matchId).toBe((bobMatch.payload as MatchPayload).matchId);
-
-    aliceConn2.ws.close();
+    const search = await sendFrame(serializeMessage(createMessage(MessageTypes.SEARCH, {
+      hash: 'AA==', k: 5, threshold: 0.7,
+    }, identity))) as Message<AckPayload>;
+    expect(search.payload).toEqual({
+      ref: MessageTypes.SEARCH,
+      status: 'error',
+      message: 'unknown_message_type',
+    });
   });
 
-  it('/health returns 200', async () => {
-    const res = await fetch(`http://localhost:${PORT}/health`);
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.status).toBe('ok');
+  it('/health and /stats report v2 state', async () => {
+    const health = await fetch(`http://localhost:${PORT}/health`);
+    expect(health.status).toBe(200);
+    expect(await health.json()).toEqual({ status: 'ok' });
+
+    const response = await fetch(`http://localhost:${PORT}/stats`);
+    const stats = await response.json() as Record<string, unknown>;
+    expect(response.status).toBe(200);
+    expect(stats).toHaveProperty('stored_publications');
+    expect(stats).toHaveProperty('active_publications');
+    expect(stats).toHaveProperty('retained_tombstones');
+    expect(stats).toHaveProperty('indexed_embeddings');
+    expect(stats).toHaveProperty('connected_nodes');
+    expect(stats).toHaveProperty('mailbox_envelopes');
+    expect(stats).toHaveProperty('stored_matches');
+    expect(stats).toHaveProperty('journal_entries');
   });
 
-  it('/stats returns correct shape', async () => {
-    const res = await fetch(`http://localhost:${PORT}/stats`);
-    expect(res.status).toBe(200);
-    const body = await res.json() as Record<string, unknown>;
-    expect(body).toHaveProperty('indexed_embeddings');
-    expect(body).toHaveProperty('connected_nodes');
-    expect(body).toHaveProperty('matches_today');
-    expect(body).toHaveProperty('uptime');
+  it('removes each publication at its signed expiry before further matching', async () => {
+    const groupId = `expiry-${Date.now()}`;
+    const activeBefore = server.getStats().active_publications;
+    const expiring = recordWithKeys('offer', 0x44, groupId, 300);
+    expect((await submit(expiring.record)).payload.status).toBe('ok');
+    expect(server.getStats().active_publications).toBe(activeBefore + 1);
+
+    await new Promise(resolve => setTimeout(resolve, 400));
+    expect(server.getStats().active_publications).toBe(activeBefore);
+    expect(server.getStats().indexed_embeddings).toBe(activeBefore);
+
+    const matchesBefore = server.getStats().matches_today;
+    expect((await submit(record('need', 0x44, groupId))).payload.status).toBe('ok');
+    expect(server.getStats().matches_today).toBe(matchesBefore);
+  });
+
+  it('replays publications, matches, deposits, and acknowledgements across restart', async () => {
+    const groupId = `restart-${Date.now()}`;
+    const offer = recordWithKeys('offer', 0x66, groupId);
+    const need = recordWithKeys('need', 0x66, groupId);
+    await submit(offer.record);
+    await submit(need.record);
+
+    const fetched = await sendFrame(serializeMailboxRequestFrame(createMailboxRequestFrame(
+      createMailboxRequest('fetch', offer.record, offer.keys, [], Date.now()),
+    ))) as Message<{ envelopes: Array<{ envelopeId: string }> }>;
+    expect(fetched.payload.envelopes).toHaveLength(1);
+    const envelopeId = fetched.payload.envelopes[0].envelopeId;
+    const acknowledged = await sendFrame(serializeMailboxRequestFrame(createMailboxRequestFrame(
+      createMailboxRequest('ack', offer.record, offer.keys, [envelopeId], Date.now()),
+    ))) as Message<AckPayload>;
+    expect(acknowledged.payload.message).toBe('acknowledged:1');
+
+    const statsBeforeRestart = server.getStats();
+    await server.stop();
+    server = createServer();
+    await server.start();
+
+    expect(server.getStats().stored_publications).toBe(statsBeforeRestart.stored_publications);
+    expect(server.getStats().stored_matches).toBe(statsBeforeRestart.stored_matches);
+    expect(server.getStats().mailbox_envelopes).toBe(statsBeforeRestart.mailbox_envelopes);
+    const afterRestart = await sendFrame(serializeMailboxRequestFrame(createMailboxRequestFrame(
+      createMailboxRequest('fetch', offer.record, offer.keys, [], Date.now()),
+    ))) as Message<{ envelopes: unknown[] }>;
+    expect(afterRestart.payload.envelopes).toEqual([]);
+
+    const surviving = await sendFrame(serializeMailboxRequestFrame(createMailboxRequestFrame(
+      createMailboxRequest('fetch', need.record, need.keys, [], Date.now()),
+    ))) as Message<{ envelopes: Array<{ envelopeId: string }> }>;
+    expect(surviving.payload.envelopes).toHaveLength(1);
+    const repeatedFetch = await sendFrame(serializeMailboxRequestFrame(createMailboxRequestFrame(
+      createMailboxRequest('fetch', need.record, need.keys, [], Date.now()),
+    ))) as Message<{ envelopes: Array<{ envelopeId: string }> }>;
+    expect(repeatedFetch.payload.envelopes.map(envelope => envelope.envelopeId))
+      .toEqual(surviving.payload.envelopes.map(envelope => envelope.envelopeId));
+
+    const survivingEnvelopeId = surviving.payload.envelopes[0].envelopeId;
+    const survivingAck = await sendFrame(serializeMailboxRequestFrame(createMailboxRequestFrame(
+      createMailboxRequest('ack', need.record, need.keys, [survivingEnvelopeId], Date.now()),
+    ))) as Message<AckPayload>;
+    expect(survivingAck.payload.message).toBe('acknowledged:1');
+    const emptyAfterAck = await sendFrame(serializeMailboxRequestFrame(createMailboxRequestFrame(
+      createMailboxRequest('fetch', need.record, need.keys, [], Date.now()),
+    ))) as Message<{ envelopes: unknown[] }>;
+    expect(emptyAfterAck.payload.envelopes).toEqual([]);
+  });
+
+  it('retains owner-signed tombstones across restart and prevents resurrection', async () => {
+    const retainedBefore = server.getStats().retained_tombstones;
+    const publication = recordWithKeys('offer', 0x27, `tombstone-${Date.now()}`);
+    expect((await submit(publication.record)).payload.status).toBe('ok');
+    const tombstone = createPublicationTombstone(
+      publication.record,
+      'withdrawn',
+      publication.keys.signingKeyPair,
+      Date.now(),
+    );
+    expect((await submit(tombstone)).payload.status).toBe('ok');
+    expect(server.getStats().retained_tombstones).toBe(retainedBefore + 1);
+
+    await server.stop();
+    server = createServer();
+    await server.start();
+
+    const now = Date.now();
+    const attemptedResurrection = createPublicationRecord({
+      groupId: publication.record.groupId,
+      fingerprintEpoch: publication.record.fingerprint.epoch,
+      fingerprint: new Uint8Array(64).fill(0x27),
+      itemType: publication.record.itemType,
+      sequence: tombstone.sequence + 1,
+      createdAt: now,
+      expiresAt: now + 86_400_000,
+    }, publication.keys);
+    const rejected = await submit(attemptedResurrection);
+    expect(rejected.payload).toEqual({
+      ref: publication.record.publicationId,
+      status: 'error',
+      message: 'terminal',
+    });
+    expect(server.getStats().retained_tombstones).toBe(retainedBefore + 1);
   });
 });

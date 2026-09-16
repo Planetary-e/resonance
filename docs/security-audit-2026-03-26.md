@@ -350,6 +350,8 @@ Each user has a single DID used for all published items, searches, consent excha
 
 #### VULN-12: Relay Identity Ephemeral on Restart
 
+**Status update (2026-09-15): Fixed and hardened on the v0.2 branch.** The relay now loads a dedicated installation identity from a versioned store. Creation is atomic and fsynced, the key file is restricted to mode `0600`, key/DID consistency is verified, and malformed state fails closed rather than silently rotating. The relay identity store has no dependency on the personal node identity or its root-derived encryption key. Client-side relay pinning remains future work.
+
 | Field | Value |
 |-------|-------|
 | **Severity** | MEDIUM |

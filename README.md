@@ -4,7 +4,7 @@
 
 Planetary Resonance is an open-source protocol that lets people discover each other based on complementary needs and offers — without surrendering their data to a platform.
 
-You describe what you need or offer in natural language. The system embeds it locally on your device, adds calibrated noise for privacy, and sends only the noisy mathematical pattern to the network. When a complementary match is found, both parties open a direct encrypted channel to confirm and exchange details. No corporation sits in the middle reading your data.
+You describe what you need or offer in natural language. The system embeds it locally and publishes only a compact locality-sensitive fingerprint under a fresh publication identity. When a complementary match is found, both parties establish a fresh pairwise identity and exchange end-to-end encrypted disclosures through asynchronous mailboxes. No corporation sits in the middle reading your data.
 
 ---
 
@@ -27,9 +27,9 @@ Privacy layer:    Converts to compact binary hash (locality-sensitive hashing)
                           |
 Network:          Relay indexes the binary hash, finds complementary matches
                           |
-Match found:      Both parties notified, open encrypted direct channel
+Match found:      Both parties receive encrypted mailbox notices
                           |
-You decide:       Confirm match, then progressively share details
+You decide:       Consent, then progressively share encrypted details
 ```
 
 The relay never sees your text, your name, or your location. It only sees compact binary hashes — enough to find matches, not enough to reconstruct what you wrote.
@@ -38,13 +38,13 @@ The relay never sees your text, your name, or your location. It only sees compac
 
 - **Private by design** — Raw data never leaves your device. Embeddings are computed locally. Only compact binary hashes reach the network.
 - **Complementary matching** — Needs only match offers, never other needs. The system understands intent, not just keywords.
-- **No account required** — Your identity is a cryptographic keypair (`did:key`). No email, no phone number, no tracking.
-- **Runs on consumer hardware** — Embedding inference in 14ms on CPU. No GPU required. Relay runs on a 10/month VPS.
+- **No account required** — Publications, searches, and relationships use independent cryptographic identities. No email or phone number is required.
+- **Runs on consumer hardware** — Personal nodes and volunteer relays run on ordinary desktop hardware. No GPU is required.
 - **Fully open source** — MIT licensed. No proprietary components, no vendor lock-in, no platform tax.
 
-## Current Status: Pilot Complete
+## Current Status: Protocol v2 foundation complete
 
-All 5 phases are implemented. The protocol works end-to-end: publish, match, consent, confirm with true embeddings, progressive disclosure.
+The v0.1 pilot is complete. The v0.2 branch implements scoped publication identities, one-use search identities, an anonymous admission capability boundary, a hardened relay infrastructure identity independent of the user's root key, relay-signed match operations, an fsynced append-only relay journal, exact per-publication expiry, retained terminal tombstones, encrypted publication and relationship mailboxes, pairwise consent, durable encrypted disclosures, channel close without root-DID relay authentication, and a backed-up local-data upgrade from v0.1. See [the roadmap](ROADMAP.md), [protocol v2 contract](docs/developers/protocol-v2.md), and [v0.1 to v0.2 upgrade guide](docs/developers/v0.1-to-v0.2-upgrade.md).
 
 ### Eval results (35/35 pass)
 
@@ -67,7 +67,7 @@ git clone https://github.com/Planetary-e/resonance.git
 cd resonance
 npm install
 
-# Run tests (119 tests)
+# Run tests
 npx vitest run
 
 # Run eval suite (downloads embedding model on first run, ~137MB)
@@ -106,7 +106,7 @@ cd packages/app && npx tauri dev
 ```bash
 resonance init --password alice
 resonance publish --type offer --password alice "Experienced Python developer available for Django projects"
-resonance serve --password alice
+resonance inbox --password alice
 ```
 
 Or run the automated demo:
@@ -120,14 +120,16 @@ bash scripts/dev-cluster.sh
 |---------|-------------|
 | `resonance init` | Create identity, download model, create local database |
 | `resonance publish <text>` | Embed text and publish to relay |
+| `resonance withdraw <itemId>` | Withdraw a publication with its publication key |
+| `resonance upgrade-v2` | Back up and upgrade v0.1 items to fresh v2 publication identities |
+| `resonance inbox` | Synchronize encrypted matches, consent, and channel messages |
 | `resonance search <text>` | Live search across the relay (ephemeral, not indexed) |
 | `resonance matches` | List match notifications |
-| `resonance connect <matchId>` | Open a direct channel (consent + confirm) |
-| `resonance channel <channelId>` | Interactive encrypted session (/disclose, /accept, /reject, /close) |
+| `resonance connect <matchId>` | Establish a pairwise channel through encrypted consent |
+| `resonance channel <channelId>` | Interactive encrypted session (`/disclose`, `/sync`, `/close`) |
 | `resonance status` | Show node status: DID, items, matches |
-| `resonance serve` | Long-running listener for match notifications |
 
-All commands accept `--password <pw>` and `--relay <url>` (default: `ws://localhost:9090`).
+Networked commands accept `--relay <url>` (default: `ws://localhost:9090`). Commands that unlock local state accept `--password <pw>`.
 
 ## Architecture
 
@@ -137,20 +139,20 @@ All commands accept `--password <pw>` and `--relay <url>` (default: `ws://localh
 | Node A        |  | Node B        |  | Node C        |
 | (your data)   |  | (your data)   |  | (your data)   |
 +-------+-------+  +-------+-------+  +-------+-------+
-        | perturbed         | perturbed         |
-        | embeddings        | embeddings        |
+        | signed scoped     | signed scoped     |
+        | fingerprints      | fingerprints      |
         v                   v                   v
 +-------------------------------------------------+
-|              Relay (HNSW Index)                  |
-|        Receives embeddings, finds matches,      |
-|        sends notifications. Sees NOTHING else.  |
+|             Volunteer Relay (Hamming Index)      |
+| Journals signed matches and opaque mailbox data. |
+| Never receives a user's root identity or text.   |
 +------------------------+------------------------+
-                         | match notification
+                         | encrypted mailbox envelopes
                          v
                 +-----------------+
-                | Direct Channel  |
+                | Pairwise Channel|
                 | A <-> B (E2E)   |
-                | Confirm + Share |
+                | Consent + Share |
                 +-----------------+
 ```
 
@@ -161,8 +163,8 @@ The desktop app uses **Tauri** — a system WebView for the UI with a Node.js si
 | Tier | Sees | Doesn't see |
 |------|------|-------------|
 | Personal Node | Everything (your raw text, true embeddings, keys) | Other nodes' data |
-| Relay | Perturbed vectors + DIDs | Raw text, true embeddings, channel contents |
-| Direct Channel | True embeddings + disclosures (between two parties only) | Other channels |
+| Relay | Fingerprints and scoped publication or relationship identifiers | Root identity, raw text, embeddings, channel contents |
+| Pairwise Channel | Disclosures chosen for that relationship | Publications and other relationships |
 
 ## Project Structure
 
@@ -190,7 +192,7 @@ Validated empirically through the eval suite:
 4. **MatchingIndex** — Separate HNSW indexes for needs and offers. Eliminated 65% same-type noise, brought FPR from 82% to 2%.
 5. **Query rewriting** — Strip demand framing ("I need", "Looking for") before embedding. +1.5pp similarity improvement.
 6. **LSH matching** — Relay sees only 64-byte binary hashes (512-bit LSH), not embedding vectors. Irreversible 96:1 compression. Benchmarked at 93.3% recall.
-7. **Relay-bridged channels** — Direct channel messages forwarded through relay, E2E encrypted with DH-derived shared secret. Avoids NAT traversal complexity for pilot.
+7. **Relationship mailboxes** — Signed, sequenced channel operations are encrypted with a DH-derived shared secret and delivered as opaque, independently acknowledged envelopes.
 
 ## Tech Stack
 
@@ -198,13 +200,13 @@ Validated empirically through the eval suite:
 |-----------|-----------|
 | Language | TypeScript (Node.js 20+, ESM) |
 | Embedding | `@huggingface/transformers` (Nomic-embed-text, 768-dim) |
-| ANN Index | `hnswlib-node` (M=16, ef=200/100, cosine distance) |
+| Relay Index | In-memory complementary Hamming index over 512-bit fingerprints |
 | Crypto | `tweetnacl` (Ed25519, X25519, XSalsa20-Poly1305) |
-| Local Store | `better-sqlite3` (field-level secretbox encryption) |
+| Local Store | `sql.js` SQLite (field-level secretbox encryption) |
 | WebSocket | `ws` (relay server + node client) |
 | Desktop App | Tauri 2 (system WebView + Node.js sidecar), React, Vite |
 | CLI | `commander` |
-| Testing | Vitest (119 tests) |
+| Testing | Vitest |
 | Monorepo | npm workspaces |
 
 ## Contributing
@@ -213,7 +215,7 @@ Validated empirically through the eval suite:
 git clone https://github.com/Planetary-e/resonance.git
 cd resonance
 npm install
-npx vitest run              # 119 tests
+npx vitest run
 npm run eval:quick          # Eval suite (35 metrics)
 bash scripts/dev-cluster.sh # Demo the full flow
 ```

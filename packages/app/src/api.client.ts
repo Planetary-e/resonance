@@ -50,6 +50,7 @@ export interface Match {
   itemId: string;
   partnerDID: string;
   similarity: number;
+  protocolVersion?: 1 | 2;
 }
 
 export interface Channel {
@@ -59,10 +60,18 @@ export interface Channel {
   state: 'pending' | 'open' | 'accepted' | 'rejected' | 'closed';
   similarity?: number;
   createdAt?: string;
+  protocolVersion?: 1 | 2;
+  messages?: Array<{
+    type: 'disclosure' | 'system';
+    text: string;
+    level?: string;
+    from: 'me' | 'partner';
+    time: string;
+  }>;
 }
 
 export interface SearchResult {
-  did: string;
+  publicationId: string;
   similarity: number;
   itemType: string;
 }

@@ -52,7 +52,7 @@ export default function MatchCard({ match, item, onConnect }: MatchCardProps) {
           className="btn btn-primary btn-sm"
           onClick={() => onConnect(match.id)}
         >
-          Open Channel
+          {match.protocolVersion === 2 ? 'Open Secure Channel' : 'Open Channel'}
         </button>
       </div>
     </div>

@@ -188,7 +188,11 @@ function ChannelView({
       <div className="channel-messages">
         {messages.length === 0 ? (
           <div className="message-system">
-            No messages yet. Start by sharing a disclosure.
+            {channel.protocolVersion === 2
+              ? channel.state === 'open'
+                ? 'Secure pairwise channel established. Disclosures are end-to-end encrypted.'
+                : 'Consent sent. The channel will open after the partner processes their mailbox.'
+              : 'No messages yet. Start by sharing a disclosure.'}
           </div>
         ) : (
           messages.map((m, i) => {
@@ -225,7 +229,7 @@ function ChannelView({
 
       {/* Actions */}
       <div className="channel-actions">
-        {isOpen && (
+        {isOpen && channel.protocolVersion !== 2 && (
           <form className="disclose-form" onSubmit={handleDisclose}>
             <select value={level} onChange={e => setLevel(e.target.value)}>
               <option value="general">General</option>

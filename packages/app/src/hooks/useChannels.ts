@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import {
   getChannels,
   getChannel,
@@ -36,6 +36,30 @@ export function useChannels(): UseChannels {
   const [messages, setMessages] = useState<ChannelMessage[]>([]);
   const [messagesByChannel, setMessagesByChannel] = useState<Record<string, ChannelMessage[]>>({});
 
+  useEffect(() => {
+    if (!activeChannel || activeChannel.state === 'closed') return;
+    const channelId = activeChannel.id;
+    let running = false;
+    const sync = async () => {
+      if (running) return;
+      running = true;
+      try {
+        const channel = await getChannel(channelId);
+        if (!channel.error) {
+          setActiveChannel(channel);
+          if (channel.messages) {
+            setMessages(channel.messages);
+            setMessagesByChannel(prev => ({ ...prev, [channelId]: channel.messages! }));
+          }
+        }
+      } finally {
+        running = false;
+      }
+    };
+    const timer = window.setInterval(sync, 5_000);
+    return () => window.clearInterval(timer);
+  }, [activeChannel?.id, activeChannel?.state]);
+
   const refresh = useCallback(async () => {
     const data = await getChannels();
     setChannels(data);
@@ -54,7 +78,9 @@ export function useChannels(): UseChannels {
       return;
     }
     setActiveChannel(ch);
-    setMessages(messagesByChannel[channelId] ?? []);
+    const persisted = ch.messages ?? messagesByChannel[channelId] ?? [];
+    setMessages(persisted);
+    if (ch.messages) setMessagesByChannel(prev => ({ ...prev, [channelId]: ch.messages! }));
   }, [messagesByChannel]);
 
   const addMessage = useCallback((msg: ChannelMessage) => {

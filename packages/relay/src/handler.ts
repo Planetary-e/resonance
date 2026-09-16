@@ -6,22 +6,18 @@ import type WebSocket from 'ws';
 import {
   MessageTypes,
   createMessage,
-  generateIdentity,
   serializeMessage,
   type Message,
-  type PublishPayload,
   type SearchPayload,
   type ConsentPayload,
-  type WithdrawPayload,
   type AckPayload,
-  type MatchPayload,
   type SearchResultsPayload,
   type ConsentForwardPayload,
   type ChannelMessagePayload,
   type ChannelForwardPayload,
   type Identity,
 } from '@resonance/core';
-import { MatchingEngine, type MatchNotification } from './matching-engine.js';
+import { MatchingEngine } from './matching-engine.js';
 import { RateLimiter } from './rate-limiter.js';
 import { log } from './logger.js';
 
@@ -53,56 +49,6 @@ function sendToClient(ctx: HandlerContext, did: string, msg: Message): void {
   if (client?.ws.readyState === 1 /* OPEN */) {
     client.ws.send(serializeMessage(msg));
   }
-}
-
-export function handlePublish(ctx: HandlerContext, client: ClientState, msg: Message<PublishPayload>): void {
-  const { payload } = msg;
-
-  if (!ctx.rateLimiter.check(client.did, 'publish')) {
-    sendAck(ctx, client.ws, payload.itemId, 'error', 'rate_limited');
-    return;
-  }
-
-  // Decode base64 hash from the client
-  const hash = Uint8Array.from(Buffer.from(payload.hash, 'base64'));
-  const notifications = ctx.engine.insertAndMatch(
-    hash,
-    { did: client.did, itemType: payload.itemType, itemId: payload.itemId },
-    ctx.matchK,
-    ctx.matchThreshold,
-  );
-
-  // Send match notifications to both parties
-  for (const n of notifications) {
-    ctx.matchRegistry.set(n.matchId, { publisherDID: n.publisherDID, matchedDID: n.matchedDID, createdAt: Date.now() });
-
-    // Notify the publisher (current client)
-    const publisherMatch = createMessage<MatchPayload>(MessageTypes.MATCH, {
-      matchId: n.matchId,
-      partnerDID: n.matchedDID,
-      similarity: n.similarity,
-      yourItemId: n.publisherItemId,
-      partnerItemType: n.matchedItemType,
-      expiry: n.expiry,
-    }, ctx.relayIdentity);
-    sendToClient(ctx, n.publisherDID, publisherMatch);
-
-    // Notify the matched partner
-    const partnerMatch = createMessage<MatchPayload>(MessageTypes.MATCH, {
-      matchId: n.matchId,
-      partnerDID: n.publisherDID,
-      similarity: n.similarity,
-      yourItemId: n.matchedItemId,
-      partnerItemType: n.publisherItemType,
-      expiry: n.expiry,
-    }, ctx.relayIdentity);
-    sendToClient(ctx, n.matchedDID, partnerMatch);
-
-    log('info', 'match', { matchId: n.matchId, similarity: n.similarity });
-  }
-
-  sendAck(ctx, client.ws, payload.itemId, 'ok');
-  log('info', 'publish', { did: client.did, itemType: payload.itemType, itemId: payload.itemId });
 }
 
 export function handleSearch(ctx: HandlerContext, client: ClientState, msg: Message<SearchPayload>): void {
@@ -148,13 +94,6 @@ export function handleConsent(ctx: HandlerContext, client: ClientState, msg: Mes
 
   sendAck(ctx, client.ws, payload.matchId, 'ok');
   log('info', 'consent', { matchId: payload.matchId, from: client.did, accept: payload.accept });
-}
-
-export function handleWithdraw(ctx: HandlerContext, client: ClientState, msg: Message<WithdrawPayload>): void {
-  const { payload } = msg;
-  ctx.engine.withdraw(client.did, payload.itemId);
-  sendAck(ctx, client.ws, payload.itemId, 'ok');
-  log('info', 'withdraw', { did: client.did, itemId: payload.itemId });
 }
 
 export function handleChannelMessage(ctx: HandlerContext, client: ClientState, msg: Message<ChannelMessagePayload>): void {

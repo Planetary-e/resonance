@@ -5,10 +5,9 @@
  * Uses LSH binary hashes instead of float vectors — the relay never sees embeddings.
  */
 
-import { randomUUID } from 'node:crypto';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import type { ItemType } from '@resonance/core';
+import { createDeterministicMatchId, type ItemType } from '@resonance/core';
 import { ComplementaryHammingIndex, type HashMetadata } from './hamming-index.js';
 
 export interface MatchNotification {
@@ -61,6 +60,8 @@ export class MatchingEngine {
     meta: HashMetadata,
     k: number = 10,
     threshold?: number,
+    queueNotifications = true,
+    trackStats = true,
   ): MatchNotification[] {
     const t = threshold ?? this.matchThreshold;
     const { matches } = this.index.addAndMatch(hash, meta, k, t);
@@ -75,11 +76,11 @@ export class MatchingEngine {
       if (this.withdrawnItems.has(matchedMeta.itemId)) continue;
 
       // Dedup: don't re-notify the same DID pair
-      const pairKey = [meta.did, matchedMeta.did].sort().join(':');
+      const pairKey = [meta.did, matchedMeta.did].sort().join('\n');
       if (this.notifiedPairs.has(pairKey)) continue;
       this.notifiedPairs.add(pairKey);
 
-      const matchId = randomUUID();
+      const matchId = createDeterministicMatchId(meta.itemId, matchedMeta.itemId);
       notifications.push({
         matchId,
         publisherDID: meta.did,
@@ -94,12 +95,29 @@ export class MatchingEngine {
     }
 
     // Track daily stats
-    this.updateDayCounter(notifications.length);
+    if (trackStats) this.updateDayCounter(notifications.length);
 
     // Queue for offline delivery
-    this.pendingNotifications.push(...notifications);
+    if (queueNotifications) this.pendingNotifications.push(...notifications);
 
     return notifications;
+  }
+
+  /** Replace an existing publication revision before matching the new value. */
+  replaceAndMatch(
+    hash: Uint8Array,
+    meta: HashMetadata,
+    k: number = 10,
+    threshold?: number,
+    queueNotifications = true,
+    trackStats = true,
+  ): MatchNotification[] {
+    this.index.removeByItemId(meta.itemId);
+    this.withdrawnItems.delete(meta.itemId);
+    for (const pairKey of this.notifiedPairs) {
+      if (pairKey.split('\n').includes(meta.did)) this.notifiedPairs.delete(pairKey);
+    }
+    return this.insertAndMatch(hash, meta, k, threshold, queueNotifications, trackStats);
   }
 
   /** Get pending notifications for a DID. */
@@ -123,9 +141,10 @@ export class MatchingEngine {
     queryType: ItemType,
     k: number = 10,
     threshold?: number,
+    scope?: string,
   ): SearchResult[] {
     const t = threshold ?? this.matchThreshold;
-    const matches = this.index.search(hash, queryType, k, t);
+    const matches = this.index.search(hash, queryType, k, t, scope);
     const results: SearchResult[] = [];
 
     for (const match of matches) {
@@ -145,9 +164,15 @@ export class MatchingEngine {
     return this.index.expireOlderThan(ttlMs);
   }
 
+  /** Remove v2 publications according to each record's signed expiry. */
+  expirePublications(now = Date.now()): number {
+    return this.index.expireAtOrBefore(now);
+  }
+
   /** Mark an item as withdrawn. */
   withdraw(did: string, itemId: string): boolean {
     this.withdrawnItems.add(itemId);
+    this.index.removeByItemId(itemId);
     return true;
   }
 
