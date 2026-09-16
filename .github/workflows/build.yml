@@ -18,9 +18,6 @@ jobs:
           - os: macos-latest
             rust-target: aarch64-apple-darwin
             artifact: Resonance-macos-arm64
-          - os: macos-latest
-            rust-target: x86_64-apple-darwin
-            artifact: Resonance-macos-x64
           - os: ubuntu-22.04
             rust-target: x86_64-unknown-linux-gnu
             artifact: Resonance-linux-x64
@@ -71,12 +68,13 @@ jobs:
         with:
           projectPath: packages/app
           tauriScript: npx tauri
+          args: --target ${{ matrix.rust-target }}
 
       - name: Find build output
         id: output
         shell: bash
         run: |
-          BUNDLE_DIR="packages/app/src-tauri/target/release/bundle"
+          BUNDLE_DIR="packages/app/src-tauri/target/${{ matrix.rust-target }}/release/bundle"
           echo "bundle_dir=$BUNDLE_DIR" >> "$GITHUB_OUTPUT"
           ls -lhR "$BUNDLE_DIR" || true
 
@@ -85,7 +83,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: packages/app/src-tauri/target/release/bundle/dmg/*.dmg
+          path: packages/app/src-tauri/target/${{ matrix.rust-target }}/release/bundle/dmg/*.dmg
 
       - name: Upload Linux deb + rpm
         if: runner.os == 'Linux'
@@ -93,8 +91,8 @@ jobs:
         with:
           name: ${{ matrix.artifact }}
           path: |
-            packages/app/src-tauri/target/release/bundle/deb/*.deb
-            packages/app/src-tauri/target/release/bundle/rpm/*.rpm
+            packages/app/src-tauri/target/${{ matrix.rust-target }}/release/bundle/deb/*.deb
+            packages/app/src-tauri/target/${{ matrix.rust-target }}/release/bundle/rpm/*.rpm
 
       - name: Upload Windows installer
         if: runner.os == 'Windows'
@@ -102,7 +100,7 @@ jobs:
         with:
           name: ${{ matrix.artifact }}
           path: |
-            packages/app/src-tauri/target/release/bundle/nsis/*.exe
+            packages/app/src-tauri/target/${{ matrix.rust-target }}/release/bundle/nsis/*.exe
 
   release:
     needs: build

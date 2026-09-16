@@ -21,7 +21,7 @@ const program = new Command();
 program
   .name('resonance')
   .description('Planetary Resonance — Privacy-preserving P2P matching')
-  .version('0.1.0');
+  .version('0.2.2');
 
 program
   .command('init')
