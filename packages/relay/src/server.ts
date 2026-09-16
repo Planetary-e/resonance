@@ -112,6 +112,7 @@ import {
   DEFAULT_MINIMUM_HEALTHY_REPLICA_COUNT,
   ReplicaInventoryScheduler,
   ReplicaPlacementTracker,
+  isPermanentReplicaRejection,
   placementMatchesOperation,
   type ReplicaPlacementIntentV1,
   type ReplicaPlacementStatus,
@@ -689,12 +690,19 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     return publicationStore.getRecord(operation.publicationId)?.groupId;
   }
 
-  function selectReplicaTargets(operation: PublicationOperation): string[] {
+  function selectReplicaTargets(
+    operation: PublicationOperation,
+    permanentlyRejectedRelayIds: readonly string[] = [],
+    allowExpansion = true,
+  ): string[] {
     const current = placementTracker.getIntent(operation.publicationId);
     const policy = replicaPlacementPolicy(current);
-    const selected = new Set(current?.targetRelayIds ?? []);
+    const permanentlyRejected = new Set(permanentlyRejectedRelayIds);
+    const selected = new Set((current?.targetRelayIds ?? []).filter(relayId => (
+      !permanentlyRejected.has(relayId)
+    )));
     const groupId = placementGroupId(operation);
-    if (!outboundRelayLinks || !groupId) return [...selected].sort();
+    if (!outboundRelayLinks || !groupId || !allowExpansion) return [...selected].sort();
 
     const candidates = outboundRelayLinks.connectedPeers()
       // RelayLinkManager only opens configured or otherwise explicit contacts.
@@ -705,6 +713,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         && peer.descriptor.capabilities.replicaExchange
         && peer.descriptor.storage.availableBytes > 0
         && peer.descriptor.supportedGroups.includes(groupId)
+        && !permanentlyRejected.has(peer.relayId)
         && !selected.has(peer.relayId))
       .sort((first, second) => {
         const firstScore = replicaTargetScore(operation.publicationId, first.relayId);
@@ -719,15 +728,100 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     return [...selected].sort();
   }
 
-  function nextReplicaPlacementIntent(operation: PublicationOperation): ReplicaPlacementIntentV1 | undefined {
+  function nextReplicaPlacementIntent(
+    operation: PublicationOperation,
+    {
+      additionallyRejectedRelayIds = [],
+      additionallyReconciliationRequiredRelayIds = [],
+      allowExpansion = true,
+    }: {
+      additionallyRejectedRelayIds?: readonly string[];
+      additionallyReconciliationRequiredRelayIds?: readonly string[];
+      allowExpansion?: boolean;
+    } = {},
+  ): ReplicaPlacementIntentV1 | undefined {
     if (!outboundRelayLinks) return undefined;
     const current = placementTracker.getIntent(operation.publicationId);
+    const currentMatchesOperation = current !== undefined && placementMatchesOperation(current, operation);
+    const currentRejections = currentMatchesOperation
+      ? current.permanentlyRejectedRelayIds ?? []
+      : [];
+    const currentReconciliationRequired = currentMatchesOperation
+      ? current.reconciliationRequiredRelayIds ?? []
+      : [];
+    const permanentlyRejectedRelayIds = [...new Set([
+      ...currentRejections,
+      ...additionallyRejectedRelayIds,
+    ])].sort();
+    const reconciliationRequiredRelayIds = [...new Set([
+      ...currentReconciliationRequired,
+      ...additionallyReconciliationRequiredRelayIds,
+    ])].sort();
     const policy = replicaPlacementPolicy(current);
+    // Once a target signals a divergent or incompatible state, preserve the
+    // existing exact-operation set and stop all automatic expansion. A later
+    // local update/tombstone starts a fresh intent and clears this fence.
+    const targetRelayIds = currentMatchesOperation && reconciliationRequiredRelayIds.length > 0
+      ? current.targetRelayIds
+      : selectReplicaTargets(
+        operation,
+        permanentlyRejectedRelayIds,
+        allowExpansion && reconciliationRequiredRelayIds.length === 0,
+      );
     return placementTracker.nextIntent(
       operation,
-      selectReplicaTargets(operation),
+      targetRelayIds,
       policy,
+      Date.now(),
+      permanentlyRejectedRelayIds,
+      reconciliationRequiredRelayIds,
     );
+  }
+
+  function replacePermanentlyRejectedReplicaTarget(receipt: RelayReplicaReceiptV1): boolean {
+    if (!isPermanentReplicaRejection(receipt)
+      || !placementTracker.canRecordPermanentRejection(receipt)) return false;
+    const operation = publicationStore.get(receipt.publicationId);
+    if (!operation) return false;
+    // Do not select a replacement until every pending existing target in this
+    // batch has answered. A later stale/terminal receipt must be able to fence
+    // this operation before a newly selected relay ever receives it.
+    const intent = nextReplicaPlacementIntent(operation, {
+      additionallyRejectedRelayIds: [receipt.responderRelayId],
+      allowExpansion: false,
+    });
+    if (!intent) return false;
+    operationLog.append({ kind: 'placement-intent', intent });
+    if (!placementTracker.applyIntent(intent)) {
+      throw new Error('Cannot apply permanent replica refusal placement intent');
+    }
+    log('warn', 'replica_target_rejected', {
+      publicationId: receipt.publicationId,
+      relayId: receipt.responderRelayId,
+      reason: receipt.reason,
+    });
+    return true;
+  }
+
+  function quarantineReplicaPlacement(receipt: RelayReplicaReceiptV1): boolean {
+    if (!placementTracker.canRecordReconciliationRequirement(receipt)) return false;
+    const operation = publicationStore.get(receipt.publicationId);
+    if (!operation) return false;
+    const intent = nextReplicaPlacementIntent(operation, {
+      additionallyReconciliationRequiredRelayIds: [receipt.responderRelayId],
+      allowExpansion: false,
+    });
+    if (!intent) return false;
+    operationLog.append({ kind: 'placement-intent', intent });
+    if (!placementTracker.applyIntent(intent)) {
+      throw new Error('Cannot apply reconciliation-required replica placement intent');
+    }
+    log('warn', 'replica_placement_quarantined', {
+      publicationId: receipt.publicationId,
+      relayId: receipt.responderRelayId,
+      reason: receipt.reason,
+    });
+    return true;
   }
 
   function commitLocalPublicationOperation(operation: PublicationOperation): PublicationCommitStatus {
@@ -789,15 +883,10 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       const operation = publicationStore.get(persistedIntent.publicationId);
       if (!operation || !placementMatchesOperation(persistedIntent, operation)) continue;
       if (operation.kind === 'publication' && !isPublicationActive(operation, Date.now())) continue;
-
-      const expandedIntent = nextReplicaPlacementIntent(operation);
-      if (expandedIntent) {
-        operationLog.append({ kind: 'placement-intent', intent: expandedIntent });
-        if (!placementTracker.applyIntent(expandedIntent)) {
-          throw new Error('Cannot apply expanded replica placement intent');
-        }
+      if ((persistedIntent.reconciliationRequiredRelayIds ?? []).length > 0) {
+        replicaRefreshes.delete(operation.publicationId);
+        continue;
       }
-
       repairOperations.push(operation);
     }
 
@@ -823,12 +912,21 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
 
     for (const operation of repairOperations) {
       const status = placementTracker.statusFor(operation.publicationId);
+      // Inventory checks await network I/O. A local update or tombstone may
+      // have committed while they were in flight; never send the older queued
+      // operation to targets chosen for that newer placement generation.
+      if (!status || !placementMatchesOperation(status.intent, operation)) continue;
+      if (status.reconciliationRequired) {
+        replicaRefreshes.delete(operation.publicationId);
+        continue;
+      }
       const refresh = replicaRefreshes.delete(operation.publicationId);
-      if (!status) continue;
       const targetRelayIds = refresh ? status.intent.targetRelayIds : status.pendingRelayIds;
       if (targetRelayIds.length === 0) continue;
       const receipts = await outboundRelayLinks.replicateTo(operation, targetRelayIds);
       for (const receipt of receipts) {
+        const quarantined = quarantineReplicaPlacement(receipt);
+        const replaced = quarantined ? false : replacePermanentlyRejectedReplicaTarget(receipt);
         if (placementTracker.canRecordReceipt(receipt)) {
           operationLog.append({ kind: 'placement-receipt', receipt });
           if (!placementTracker.recordReceipt(receipt)) {
@@ -841,7 +939,26 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           status: receipt.status,
           reason: receipt.reason,
         });
+        if (quarantined || replaced) queueReplicaRepair();
       }
+    }
+
+    // Process existing targets before expansion so a signed stale/terminal
+    // response in this pass can fence the operation before a fresh volunteer
+    // receives it. A missing response remains an availability failure rather
+    // than evidence of divergent state, so the existing target stays pending
+    // while another live volunteer can still fill an underfull placement.
+    for (const operation of repairOperations) {
+      const status = placementTracker.statusFor(operation.publicationId);
+      if (!status || !placementMatchesOperation(status.intent, operation)
+        || status.reconciliationRequired) continue;
+      const expandedIntent = nextReplicaPlacementIntent(operation);
+      if (!expandedIntent) continue;
+      operationLog.append({ kind: 'placement-intent', intent: expandedIntent });
+      if (!placementTracker.applyIntent(expandedIntent)) {
+        throw new Error('Cannot apply expanded replica placement intent');
+      }
+      queueReplicaRepair();
     }
   }
 

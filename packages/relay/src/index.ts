@@ -33,8 +33,12 @@ export {
 export {
   DEFAULT_DESIRED_REPLICA_COUNT,
   DEFAULT_MINIMUM_HEALTHY_REPLICA_COUNT,
+  MAX_PERMANENTLY_REJECTED_REPLICA_TARGETS,
+  MAX_RECONCILIATION_REQUIRED_REPLICA_TARGETS,
   MAX_REPLICA_TARGETS,
   createReplicaPlacementIntent,
+  isPermanentReplicaRejection,
+  isReconciliationRequiredReplicaRejection,
   verifyReplicaPlacementIntent,
   placementMatchesOperation,
   ReplicaPlacementTracker,

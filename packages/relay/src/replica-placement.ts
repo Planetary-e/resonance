@@ -6,6 +6,7 @@ import {
   encodeBase64,
   isDurabilityReceiptV1,
   publicKeyToDid,
+  verifyRelayReplicaReceiptV1,
   verifyRelayReplicaInventoryResponseV1,
   verifyPublicationOperation,
   type PublicationOperation,
@@ -17,6 +18,10 @@ export const REPLICA_PLACEMENT_VERSION = 1 as const;
 export const DEFAULT_DESIRED_REPLICA_COUNT = 5;
 export const DEFAULT_MINIMUM_HEALTHY_REPLICA_COUNT = 3;
 export const MAX_REPLICA_TARGETS = 5;
+/** Bounded, per-operation refusal history retained across restarts. */
+export const MAX_PERMANENTLY_REJECTED_REPLICA_TARGETS = 64;
+/** A reconciliation requirement can name only currently selected targets. */
+export const MAX_RECONCILIATION_REQUIRED_REPLICA_TARGETS = MAX_REPLICA_TARGETS;
 
 export interface ReplicaPlacementPolicy {
   desiredReplicaCount: number;
@@ -30,6 +35,17 @@ export interface ReplicaPlacementIntentV1 {
   operationKind: PublicationOperation['kind'];
   operationSignature: string;
   targetRelayIds: string[];
+  /**
+   * Targets removed after a signed capacity refusal for this exact operation.
+   * Omitted only by journals written before capacity replacement existed.
+   */
+  permanentlyRejectedRelayIds?: string[];
+  /**
+   * Selected targets that observed a state mismatch or incompatible operation.
+   * The presence of any entry quarantines automatic fan-out until reconciliation.
+   * Omitted only by journals written before reconciliation quarantine existed.
+   */
+  reconciliationRequiredRelayIds?: string[];
   desiredReplicaCount: number;
   minimumHealthyReplicaCount: number;
   revision: number;
@@ -40,6 +56,12 @@ export interface ReplicaPlacementStatus {
   intent: ReplicaPlacementIntentV1;
   confirmedRelayIds: string[];
   pendingRelayIds: string[];
+  /** Targets replaced after a signed capacity refusal for this operation. */
+  permanentlyRejectedRelayIds: string[];
+  /** Targets whose signed refusal requires state reconciliation before fan-out. */
+  reconciliationRequiredRelayIds: string[];
+  /** Automatic repair and expansion are paused for this exact operation. */
+  reconciliationRequired: boolean;
   /** Targets whose exact current operation was recently checked over a relay link. */
   inventoryPresentRelayIds: string[];
   /** Targets that signed a response saying the exact operation is no longer present. */
@@ -58,15 +80,28 @@ export function createReplicaPlacementIntent(
   policy: ReplicaPlacementPolicy,
   revision: number,
   updatedAt = Date.now(),
+  permanentlyRejectedRelayIds: string[] = [],
+  reconciliationRequiredRelayIds: string[] = [],
 ): ReplicaPlacementIntentV1 {
   if (!verifyPublicationOperation(operation)) throw new Error('Invalid placement operation');
+  const targets = normalizeRelayIds(targetRelayIds);
+  const rejections = normalizePermanentlyRejectedRelayIds(permanentlyRejectedRelayIds);
+  const reconciliationRequired = normalizeReconciliationRequiredRelayIds(reconciliationRequiredRelayIds);
+  if (targets.some(relayId => rejections.includes(relayId))) {
+    throw new Error('A selected placement target cannot also be permanently rejected');
+  }
+  if (reconciliationRequired.some(relayId => !targets.includes(relayId))) {
+    throw new Error('A reconciliation target must remain selected');
+  }
   const intent: ReplicaPlacementIntentV1 = {
     version: REPLICA_PLACEMENT_VERSION,
     publicationId: operation.publicationId,
     operationSequence: operation.sequence,
     operationKind: operation.kind,
     operationSignature: operation.signature,
-    targetRelayIds: normalizeRelayIds(targetRelayIds),
+    targetRelayIds: targets,
+    permanentlyRejectedRelayIds: rejections,
+    reconciliationRequiredRelayIds: reconciliationRequired,
     desiredReplicaCount: policy.desiredReplicaCount,
     minimumHealthyReplicaCount: policy.minimumHealthyReplicaCount,
     revision,
@@ -77,7 +112,7 @@ export function createReplicaPlacementIntent(
 }
 
 export function verifyReplicaPlacementIntent(value: unknown): value is ReplicaPlacementIntentV1 {
-  if (!isObject(value) || !hasOnlyKeys(value, [
+  const legacyKeys = [
     'desiredReplicaCount',
     'minimumHealthyReplicaCount',
     'operationKind',
@@ -88,24 +123,41 @@ export function verifyReplicaPlacementIntent(value: unknown): value is ReplicaPl
     'targetRelayIds',
     'updatedAt',
     'version',
+  ];
+  if (!isObject(value) || !hasRequiredAndOptionalKeys(value, legacyKeys, [
+    'permanentlyRejectedRelayIds',
+    'reconciliationRequiredRelayIds',
   ])) return false;
   const desiredReplicaCount = value.desiredReplicaCount;
   const minimumHealthyReplicaCount = value.minimumHealthyReplicaCount;
   const revision = value.revision;
+  if (!Array.isArray(value.targetRelayIds)) return false;
+  const targetRelayIds = value.targetRelayIds;
+  const permanentlyRejectedRelayIds = value.permanentlyRejectedRelayIds ?? [];
+  const reconciliationRequiredRelayIds = value.reconciliationRequiredRelayIds ?? [];
   if (value.version !== REPLICA_PLACEMENT_VERSION
     || !isPublicationId(value.publicationId)
     || !isOperationSequence(value.operationSequence)
     || (value.operationKind !== 'publication' && value.operationKind !== 'publication-tombstone')
     || !isCanonicalBase64(value.operationSignature, 64)
-    || !Array.isArray(value.targetRelayIds)
-    || value.targetRelayIds.length > MAX_REPLICA_TARGETS
-    || !isStrictlySorted(value.targetRelayIds)
-    || !value.targetRelayIds.every(isRelayId)
+    || targetRelayIds.length > MAX_REPLICA_TARGETS
+    || !isStrictlySorted(targetRelayIds)
+    || !targetRelayIds.every(isRelayId)
     || !isIntegerBetween(desiredReplicaCount, 1, MAX_REPLICA_TARGETS)
-    || value.targetRelayIds.length > desiredReplicaCount
+    || targetRelayIds.length > desiredReplicaCount
     || !isIntegerBetween(minimumHealthyReplicaCount, 1, desiredReplicaCount)
     || !isIntegerBetween(revision, 1, Number.MAX_SAFE_INTEGER)
-    || !isTimestamp(value.updatedAt)) return false;
+    || !isTimestamp(value.updatedAt)
+    || !Array.isArray(permanentlyRejectedRelayIds)
+    || permanentlyRejectedRelayIds.length > MAX_PERMANENTLY_REJECTED_REPLICA_TARGETS
+    || !isStrictlySorted(permanentlyRejectedRelayIds)
+    || !permanentlyRejectedRelayIds.every(isRelayId)
+    || targetRelayIds.some(relayId => permanentlyRejectedRelayIds.includes(relayId))
+    || !Array.isArray(reconciliationRequiredRelayIds)
+    || reconciliationRequiredRelayIds.length > MAX_RECONCILIATION_REQUIRED_REPLICA_TARGETS
+    || !isStrictlySorted(reconciliationRequiredRelayIds)
+    || !reconciliationRequiredRelayIds.every(isRelayId)
+    || reconciliationRequiredRelayIds.some(relayId => !targetRelayIds.includes(relayId))) return false;
   return true;
 }
 
@@ -144,11 +196,22 @@ export class ReplicaPlacementTracker {
     targetRelayIds: string[],
     policy: ReplicaPlacementPolicy,
     updatedAt = Date.now(),
+    permanentlyRejectedRelayIds: string[] = [],
+    reconciliationRequiredRelayIds: string[] = [],
   ): ReplicaPlacementIntentV1 | undefined {
     const current = this.intents.get(operation.publicationId);
     const normalizedTargets = normalizeRelayIds(targetRelayIds);
+    const normalizedRejections = normalizePermanentlyRejectedRelayIds(permanentlyRejectedRelayIds);
+    const normalizedReconciliationRequired = normalizeReconciliationRequiredRelayIds(
+      reconciliationRequiredRelayIds,
+    );
     if (current && placementMatchesOperation(current, operation)
       && sameTargets(current.targetRelayIds, normalizedTargets)
+      && sameTargets(current.permanentlyRejectedRelayIds ?? [], normalizedRejections)
+      && sameTargets(
+        current.reconciliationRequiredRelayIds ?? [],
+        normalizedReconciliationRequired,
+      )
       && current.desiredReplicaCount === policy.desiredReplicaCount
       && current.minimumHealthyReplicaCount === policy.minimumHealthyReplicaCount) {
       return undefined;
@@ -156,11 +219,20 @@ export class ReplicaPlacementTracker {
     const revision = current && placementMatchesOperation(current, operation)
       ? current.revision + 1
       : 1;
-    return createReplicaPlacementIntent(operation, normalizedTargets, policy, revision, updatedAt);
+    return createReplicaPlacementIntent(
+      operation,
+      normalizedTargets,
+      policy,
+      revision,
+      updatedAt,
+      normalizedRejections,
+      normalizedReconciliationRequired,
+    );
   }
 
   applyIntent(intent: ReplicaPlacementIntentV1): boolean {
     if (!verifyReplicaPlacementIntent(intent)) return false;
+    const normalizedIntent = copyIntent(intent);
     const current = this.intents.get(intent.publicationId);
     if (current) {
       const comparison = compareOperationReference(intent, current);
@@ -169,10 +241,12 @@ export class ReplicaPlacementTracker {
     }
     const changedOperation = !current
       || !sameOperationReference(intent, current);
-    this.intents.set(intent.publicationId, copyIntent(intent));
+    this.intents.set(intent.publicationId, normalizedIntent);
     if (changedOperation) {
       this.receipts.delete(intent.publicationId);
       this.inventory.delete(intent.publicationId);
+    } else {
+      this.pruneUnselectedEvidence(intent.publicationId, normalizedIntent.targetRelayIds);
     }
     return true;
   }
@@ -181,7 +255,7 @@ export class ReplicaPlacementTracker {
     if (!isDurabilityReceiptV1(receipt)) return false;
     // Only a positive fsync acknowledgement is durability evidence. Rejected
     // responses remain transport diagnostics and must leave the target pending
-    // for later retry or replacement policy.
+    // for later retry, capacity replacement, or reconciliation policy.
     if (receipt.status !== 'stored' && receipt.status !== 'already-stored') return false;
     if (this.localRelayId !== undefined && receipt.senderRelayId !== this.localRelayId) return false;
     const intent = this.intents.get(receipt.publicationId);
@@ -194,6 +268,45 @@ export class ReplicaPlacementTracker {
     return !current
       || receipt.createdAt > current.createdAt
       || receipt.signature !== current.signature;
+  }
+
+  /**
+   * Capacity replacement is safe only when a currently selected target signed
+   * an exact-operation capacity refusal.
+   */
+  canRecordPermanentRejection(receipt: unknown): receipt is RelayReplicaReceiptV1 {
+    if (!verifyRelayReplicaReceiptV1(receipt) || !isPermanentReplicaRejection(receipt)) return false;
+    if (this.localRelayId !== undefined && receipt.senderRelayId !== this.localRelayId) return false;
+    const intent = this.intents.get(receipt.publicationId);
+    if (!intent
+      || intent.operationSequence !== receipt.operationSequence
+      || intent.operationKind !== receipt.operationKind
+      || intent.operationSignature !== receipt.operationSignature
+      || !intent.targetRelayIds.includes(receipt.responderRelayId)
+      || (intent.permanentlyRejectedRelayIds ?? []).includes(receipt.responderRelayId)
+      || (intent.reconciliationRequiredRelayIds ?? []).length > 0
+      || (intent.permanentlyRejectedRelayIds ?? []).length
+        >= MAX_PERMANENTLY_REJECTED_REPLICA_TARGETS) return false;
+    return true;
+  }
+
+  /**
+   * A signed mismatch can prove that this relay has an older view of the
+   * owner's operation. Persist that evidence and pause all automatic fan-out
+   * for the exact operation rather than amplifying it to fresh volunteers.
+   */
+  canRecordReconciliationRequirement(receipt: unknown): receipt is RelayReplicaReceiptV1 {
+    if (!verifyRelayReplicaReceiptV1(receipt)
+      || !isReconciliationRequiredReplicaRejection(receipt)) return false;
+    if (this.localRelayId !== undefined && receipt.senderRelayId !== this.localRelayId) return false;
+    const intent = this.intents.get(receipt.publicationId);
+    if (!intent
+      || intent.operationSequence !== receipt.operationSequence
+      || intent.operationKind !== receipt.operationKind
+      || intent.operationSignature !== receipt.operationSignature
+      || !intent.targetRelayIds.includes(receipt.responderRelayId)
+      || (intent.reconciliationRequiredRelayIds ?? []).includes(receipt.responderRelayId)) return false;
+    return true;
   }
 
   recordReceipt(receipt: RelayReplicaReceiptV1): boolean {
@@ -216,6 +329,7 @@ export class ReplicaPlacementTracker {
     if (this.localRelayId !== undefined && response.senderRelayId !== this.localRelayId) return false;
     const intent = this.intents.get(response.publicationId);
     if (!intent
+      || (intent.reconciliationRequiredRelayIds ?? []).length > 0
       || intent.operationSequence !== response.operationSequence
       || intent.operationKind !== response.operationKind
       || intent.operationSignature !== response.operationSignature
@@ -257,6 +371,7 @@ export class ReplicaPlacementTracker {
   ): RelayReplicaReceiptV1[] {
     if (!Number.isSafeInteger(maximumAgeMs) || maximumAgeMs < 0
       || !Number.isSafeInteger(now) || now < 0) return [];
+    if ((this.intents.get(publicationId)?.reconciliationRequiredRelayIds ?? []).length > 0) return [];
     const observations = this.inventory.get(publicationId);
     return this.receiptsFor(publicationId).filter(receipt => {
       const observation = observations?.get(receipt.responderRelayId);
@@ -276,6 +391,8 @@ export class ReplicaPlacementTracker {
       .sort();
     const confirmed = new Set(confirmedRelayIds);
     const observations = this.inventory.get(publicationId);
+    const reconciliationRequiredRelayIds = [...(intent.reconciliationRequiredRelayIds ?? [])];
+    const reconciliationRequired = reconciliationRequiredRelayIds.length > 0;
     const inventoryPresentRelayIds = intent.targetRelayIds.filter(relayId => (
       observations?.get(relayId)?.status === 'present'
     ));
@@ -284,20 +401,70 @@ export class ReplicaPlacementTracker {
     ));
     const inventoryCheckedRelayIds = intent.targetRelayIds.filter(relayId => observations?.has(relayId));
     const missing = new Set(inventoryMissingRelayIds);
-    const pendingRelayIds = intent.targetRelayIds.filter(relayId => !confirmed.has(relayId) || missing.has(relayId));
+    const pendingRelayIds = reconciliationRequired
+      ? []
+      : intent.targetRelayIds.filter(relayId => !confirmed.has(relayId) || missing.has(relayId));
     return {
       intent: copyIntent(intent),
       confirmedRelayIds,
       pendingRelayIds,
+      permanentlyRejectedRelayIds: [...(intent.permanentlyRejectedRelayIds ?? [])],
+      reconciliationRequiredRelayIds,
+      reconciliationRequired,
       inventoryPresentRelayIds,
       inventoryMissingRelayIds,
       inventoryCheckedRelayIds,
       confirmedReplicaCount: confirmedRelayIds.length,
       inventoryPresentReplicaCount: inventoryPresentRelayIds.length,
-      minimumConfirmed: confirmedRelayIds.length >= intent.minimumHealthyReplicaCount,
-      targetConfirmed: confirmedRelayIds.length >= intent.desiredReplicaCount,
+      minimumConfirmed: !reconciliationRequired
+        && confirmedRelayIds.length >= intent.minimumHealthyReplicaCount,
+      targetConfirmed: !reconciliationRequired
+        && confirmedRelayIds.length >= intent.desiredReplicaCount,
     };
   }
+
+  private pruneUnselectedEvidence(publicationId: string, targetRelayIds: string[]): void {
+    const selected = new Set(targetRelayIds);
+    const receipts = this.receipts.get(publicationId);
+    if (receipts) {
+      for (const relayId of receipts.keys()) {
+        if (!selected.has(relayId)) receipts.delete(relayId);
+      }
+      if (receipts.size === 0) this.receipts.delete(publicationId);
+    }
+    const inventory = this.inventory.get(publicationId);
+    if (inventory) {
+      for (const relayId of inventory.keys()) {
+        if (!selected.has(relayId)) inventory.delete(relayId);
+      }
+      if (inventory.size === 0) this.inventory.delete(publicationId);
+    }
+  }
+}
+
+/**
+ * The receiver emits `capacity-exhausted` only after it has evaluated the
+ * operation against its current state. It therefore cannot mask a newer
+ * owner-signed operation and is the only rejection that may safely replace a
+ * target before reconciliation exists.
+ */
+export function isPermanentReplicaRejection(receipt: RelayReplicaReceiptV1): boolean {
+  return receipt.status === 'rejected' && receipt.reason === 'capacity-exhausted';
+}
+
+/**
+ * These refusals either prove a conflicting owner operation or occur before
+ * the receiver evaluates its state. The source must not fan out the older
+ * operation until a later local revision or explicit reconciliation resolves
+ * the discrepancy.
+ */
+export function isReconciliationRequiredReplicaRejection(receipt: RelayReplicaReceiptV1): boolean {
+  return receipt.status === 'rejected'
+    && (receipt.reason === 'unsupported-group'
+      || receipt.reason === 'stale'
+      || receipt.reason === 'conflict'
+      || receipt.reason === 'terminal'
+      || receipt.reason === 'invalid');
 }
 
 /**
@@ -364,8 +531,35 @@ function normalizeRelayIds(values: string[]): string[] {
   return normalized;
 }
 
+function normalizePermanentlyRejectedRelayIds(values: string[]): string[] {
+  if (!Array.isArray(values) || values.length > MAX_PERMANENTLY_REJECTED_REPLICA_TARGETS) {
+    throw new Error('Invalid permanently rejected placement targets');
+  }
+  const normalized = [...values].sort();
+  if (!normalized.every(isRelayId) || !isStrictlySorted(normalized)) {
+    throw new Error('Invalid permanently rejected placement targets');
+  }
+  return normalized;
+}
+
+function normalizeReconciliationRequiredRelayIds(values: string[]): string[] {
+  if (!Array.isArray(values) || values.length > MAX_RECONCILIATION_REQUIRED_REPLICA_TARGETS) {
+    throw new Error('Invalid reconciliation-required placement targets');
+  }
+  const normalized = [...values].sort();
+  if (!normalized.every(isRelayId) || !isStrictlySorted(normalized)) {
+    throw new Error('Invalid reconciliation-required placement targets');
+  }
+  return normalized;
+}
+
 function copyIntent(value: ReplicaPlacementIntentV1): ReplicaPlacementIntentV1 {
-  return { ...value, targetRelayIds: [...value.targetRelayIds] };
+  return {
+    ...value,
+    targetRelayIds: [...value.targetRelayIds],
+    permanentlyRejectedRelayIds: [...(value.permanentlyRejectedRelayIds ?? [])],
+    reconciliationRequiredRelayIds: [...(value.reconciliationRequiredRelayIds ?? [])],
+  };
 }
 
 function sameTargets(first: string[], second: string[]): boolean {
@@ -423,10 +617,15 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function hasOnlyKeys(value: Record<string, unknown>, expected: readonly string[]): boolean {
+function hasRequiredAndOptionalKeys(
+  value: Record<string, unknown>,
+  required: readonly string[],
+  optional: readonly string[],
+): boolean {
   const actual = Object.keys(value).sort();
-  const wanted = [...expected].sort();
-  return actual.length === wanted.length && actual.every((key, index) => key === wanted[index]);
+  const allowed = new Set([...required, ...optional]);
+  return required.every(key => Object.prototype.hasOwnProperty.call(value, key))
+    && actual.every(key => allowed.has(key));
 }
 
 function isStrictlySorted(values: string[]): boolean {

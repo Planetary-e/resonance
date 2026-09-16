@@ -13,7 +13,11 @@ import {
 import {
   ReplicaInventoryScheduler,
   ReplicaPlacementTracker,
+  MAX_PERMANENTLY_REJECTED_REPLICA_TARGETS,
   createReplicaPlacementIntent,
+  isPermanentReplicaRejection,
+  isReconciliationRequiredReplicaRejection,
+  verifyReplicaPlacementIntent,
 } from '../replica-placement.js';
 
 const NOW = 1_800_000_000_000;
@@ -140,6 +144,194 @@ describe('ReplicaPlacementTracker', () => {
     );
     expect(tracker.recordReceipt(tombstoneReceipt)).toBe(true);
     expect(tracker.statusFor(operation.publicationId)?.confirmedRelayIds).toEqual([target.did]);
+  });
+
+  it('replaces only capacity-constrained targets and clears that exclusion for an update', () => {
+    const local = generateIdentity();
+    const rejectedTarget = generateIdentity();
+    const replacementTarget = generateIdentity();
+    const { keys, operation } = publication();
+    const tracker = new ReplicaPlacementTracker(local.did);
+    expect(tracker.applyIntent(createReplicaPlacementIntent(
+      operation,
+      [rejectedTarget.did, replacementTarget.did],
+      POLICY,
+      1,
+      NOW,
+    ))).toBe(true);
+
+    const request = createRelayReplicaPutV1(operation, local, NOW, NOW + 30_000);
+    const capacityRefusal = createRelayReplicaReceiptV1(
+      request,
+      rejectedTarget,
+      { status: 'rejected', reason: 'capacity-exhausted' },
+      NOW + 1,
+    );
+    const temporaryRefusal = createRelayReplicaReceiptV1(
+      request,
+      replacementTarget,
+      { status: 'rejected', reason: 'rate-limited' },
+      NOW + 2,
+    );
+    const staleRefusal = createRelayReplicaReceiptV1(
+      request,
+      replacementTarget,
+      { status: 'rejected', reason: 'stale' },
+      NOW + 3,
+    );
+    expect(isPermanentReplicaRejection(capacityRefusal)).toBe(true);
+    expect(isPermanentReplicaRejection(temporaryRefusal)).toBe(false);
+    expect(isPermanentReplicaRejection(staleRefusal)).toBe(false);
+    expect(isReconciliationRequiredReplicaRejection(staleRefusal)).toBe(true);
+    expect(tracker.canRecordPermanentRejection(capacityRefusal)).toBe(true);
+    expect(tracker.canRecordPermanentRejection(temporaryRefusal)).toBe(false);
+    expect(tracker.canRecordPermanentRejection(staleRefusal)).toBe(false);
+
+    const replacement = tracker.nextIntent(
+      operation,
+      [replacementTarget.did],
+      POLICY,
+      NOW + 4,
+      [rejectedTarget.did],
+    )!;
+    expect(tracker.applyIntent(replacement)).toBe(true);
+    expect(tracker.statusFor(operation.publicationId)).toMatchObject({
+      permanentlyRejectedRelayIds: [rejectedTarget.did],
+      pendingRelayIds: [replacementTarget.did],
+      intent: {
+        targetRelayIds: [replacementTarget.did],
+        permanentlyRejectedRelayIds: [rejectedTarget.did],
+      },
+    });
+    expect(tracker.canRecordPermanentRejection(capacityRefusal)).toBe(false);
+
+    const update = createPublicationRecord({
+      groupId: operation.groupId,
+      fingerprintEpoch: operation.fingerprint.epoch,
+      fingerprint: new Uint8Array(64).fill(0x7b),
+      itemType: operation.itemType,
+      createdAt: operation.createdAt + 1,
+      expiresAt: operation.expiresAt,
+      sequence: operation.sequence + 1,
+    }, keys);
+    const updateIntent = tracker.nextIntent(
+      update,
+      [rejectedTarget.did, replacementTarget.did],
+      POLICY,
+    )!;
+    expect(updateIntent.permanentlyRejectedRelayIds).toEqual([]);
+  });
+
+  it('durably quarantines a divergent operation and resets only for a newer operation', () => {
+    const local = generateIdentity();
+    const staleTarget = generateIdentity();
+    const healthyTarget = generateIdentity();
+    const { keys, operation } = publication();
+    const tracker = new ReplicaPlacementTracker(local.did);
+    expect(tracker.applyIntent(createReplicaPlacementIntent(
+      operation,
+      [staleTarget.did, healthyTarget.did],
+      POLICY,
+      1,
+      NOW,
+    ))).toBe(true);
+
+    const request = createRelayReplicaPutV1(operation, local, NOW, NOW + 30_000);
+    const stale = createRelayReplicaReceiptV1(
+      request,
+      staleTarget,
+      { status: 'rejected', reason: 'stale' },
+      NOW + 1,
+    );
+    expect(tracker.canRecordReconciliationRequirement(stale)).toBe(true);
+    const quarantined = tracker.nextIntent(
+      operation,
+      [staleTarget.did, healthyTarget.did],
+      POLICY,
+      NOW + 2,
+      [],
+      [staleTarget.did],
+    )!;
+    expect(tracker.applyIntent(quarantined)).toBe(true);
+    expect(tracker.statusFor(operation.publicationId)).toMatchObject({
+      reconciliationRequired: true,
+      reconciliationRequiredRelayIds: [staleTarget.did],
+      pendingRelayIds: [],
+      minimumConfirmed: false,
+      targetConfirmed: false,
+    });
+    expect(tracker.canRecordReconciliationRequirement(stale)).toBe(false);
+
+    const update = createPublicationRecord({
+      groupId: operation.groupId,
+      fingerprintEpoch: operation.fingerprint.epoch,
+      fingerprint: new Uint8Array(64).fill(0x7c),
+      itemType: operation.itemType,
+      createdAt: operation.createdAt + 1,
+      expiresAt: operation.expiresAt,
+      sequence: operation.sequence + 1,
+    }, keys);
+    const updateIntent = tracker.nextIntent(
+      update,
+      [staleTarget.did, healthyTarget.did],
+      POLICY,
+    )!;
+    expect(updateIntent.reconciliationRequiredRelayIds).toEqual([]);
+  });
+
+  it('stops automatic capacity replacement cleanly when refusal history reaches its bound', () => {
+    const local = generateIdentity();
+    const selectedTarget = generateIdentity();
+    const { operation } = publication();
+    const priorCapacityTargets = Array.from(
+      { length: MAX_PERMANENTLY_REJECTED_REPLICA_TARGETS },
+      () => generateIdentity().did,
+    ).sort();
+    const tracker = new ReplicaPlacementTracker(local.did);
+    expect(tracker.applyIntent(createReplicaPlacementIntent(
+      operation,
+      [selectedTarget.did],
+      POLICY,
+      1,
+      NOW,
+      priorCapacityTargets,
+    ))).toBe(true);
+
+    const request = createRelayReplicaPutV1(operation, local, NOW, NOW + 30_000);
+    const capacity = createRelayReplicaReceiptV1(
+      request,
+      selectedTarget,
+      { status: 'rejected', reason: 'capacity-exhausted' },
+      NOW + 1,
+    );
+    expect(tracker.canRecordPermanentRejection(capacity)).toBe(false);
+    expect(tracker.nextIntent(
+      operation,
+      [selectedTarget.did],
+      POLICY,
+      NOW + 2,
+      priorCapacityTargets,
+    )).toBeUndefined();
+  });
+
+  it('accepts pre-refusal and pre-quarantine placement intents and normalizes them in memory', () => {
+    const { operation } = publication();
+    const target = generateIdentity();
+    const current = createReplicaPlacementIntent(operation, [target.did], POLICY, 1, NOW);
+    const {
+      permanentlyRejectedRelayIds: _ignoredRefusal,
+      reconciliationRequiredRelayIds: _ignoredReconciliation,
+      ...legacy
+    } = current;
+    const tracker = new ReplicaPlacementTracker();
+
+    expect(verifyReplicaPlacementIntent(legacy)).toBe(true);
+    expect(tracker.applyIntent(legacy)).toBe(true);
+    expect(tracker.getIntent(operation.publicationId)?.permanentlyRejectedRelayIds).toEqual([]);
+    expect(tracker.getIntent(operation.publicationId)?.reconciliationRequiredRelayIds).toEqual([]);
+
+    const { reconciliationRequiredRelayIds: _ignored, ...refusalOnly } = current;
+    expect(verifyReplicaPlacementIntent(refusalOnly)).toBe(true);
   });
 
   it('keeps durable receipt history while an absent inventory answer schedules repair', () => {
