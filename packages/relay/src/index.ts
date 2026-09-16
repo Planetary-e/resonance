@@ -49,6 +49,11 @@ export {
   type ReplicaPlacementStatus,
 } from './replica-placement.js';
 export {
+  observedReplicaFailureDomain,
+  prioritizeReplicaDiversity,
+  type ReplicaDiversityCandidate,
+} from './replica-diversity.js';
+export {
   PublicationOperationStore,
   type PublicationApplyResult,
   type PublicationApplyStatus,

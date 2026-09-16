@@ -138,6 +138,7 @@ import {
   type ReplicaReconciliationRequirementV1,
   type ReplicaPlacementStatus,
 } from './replica-placement.js';
+import { prioritizeReplicaDiversity } from './replica-diversity.js';
 import {
   FIRST_SEEN_TOMBSTONE_RESERVE_BYTES,
   ReplicaStorageLedger,
@@ -784,7 +785,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     const groupId = placementGroupId(operation);
     if (!outboundRelayLinks || !groupId || !allowExpansion) return [...selected].sort();
 
-    const candidates = outboundRelayLinks.connectedPeers()
+    const eligiblePeers = outboundRelayLinks.connectedPeers()
       // RelayLinkManager only opens configured or otherwise explicit contacts.
       // Discovery observations never cause a connection or a placement target.
       .filter(peer => peer.relayId !== relayIdentity.did
@@ -793,13 +794,17 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         && peer.descriptor.capabilities.replicaExchange
         && peer.descriptor.storage.availableBytes > 0
         && peer.descriptor.supportedGroups.includes(groupId)
-        && !permanentlyRejected.has(peer.relayId)
-        && !selected.has(peer.relayId))
-      .sort((first, second) => {
+        && !permanentlyRejected.has(peer.relayId));
+    const candidates = prioritizeReplicaDiversity(
+      eligiblePeers.sort((first, second) => {
         const firstScore = replicaTargetScore(operation.publicationId, first.relayId);
         const secondScore = replicaTargetScore(operation.publicationId, second.relayId);
-        return firstScore.localeCompare(secondScore) || first.relayId.localeCompare(second.relayId);
-      });
+        if (firstScore !== secondScore) return firstScore < secondScore ? -1 : 1;
+        if (first.relayId === second.relayId) return 0;
+        return first.relayId < second.relayId ? -1 : 1;
+      }),
+      selected,
+    );
 
     for (const candidate of candidates) {
       if (selected.size >= policy.desiredReplicaCount) break;
