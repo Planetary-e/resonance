@@ -61,6 +61,15 @@ describe('ReplicaPlacementTracker', () => {
     expect(tracker.canRecordReceipt(firstReceipt)).toBe(true);
     expect(tracker.recordReceipt(firstReceipt)).toBe(true);
 
+    const rejectedReceipt = createRelayReplicaReceiptV1(
+      request,
+      secondTarget,
+      { status: 'rejected', reason: 'capacity-exhausted' },
+      NOW + 2,
+    );
+    expect(tracker.canRecordReceipt(rejectedReceipt)).toBe(false);
+    expect(tracker.recordReceipt(rejectedReceipt)).toBe(false);
+
     const unexpectedReceipt = createRelayReplicaReceiptV1(
       request,
       unexpectedTarget,
@@ -189,10 +198,12 @@ describe('ReplicaPlacementTracker', () => {
       const request = createRelayReplicaPutV1(operation, local, NOW + index, NOW + 30_000);
       return createRelayReplicaReceiptV1(request, target, { status: 'stored' }, NOW + index + 1);
     });
-    const ordered = [...receipts].sort((first, second) => (
-      `${first.publicationId}\u0000${first.responderRelayId}`
-        .localeCompare(`${second.publicationId}\u0000${second.responderRelayId}`)
-    ));
+    const ordered = [...receipts].sort((first, second) => {
+      const firstKey = `${first.publicationId}\u0000${first.responderRelayId}`;
+      const secondKey = `${second.publicationId}\u0000${second.responderRelayId}`;
+      if (firstKey === secondKey) return 0;
+      return firstKey < secondKey ? -1 : 1;
+    });
     const scheduler = new ReplicaInventoryScheduler();
 
     expect(scheduler.take(receipts, 1).map(receipt => receipt.publicationId))

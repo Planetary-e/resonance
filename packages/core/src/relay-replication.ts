@@ -85,6 +85,7 @@ export type RelayReplicaInventoryStatusV1 = 'present' | 'missing' | 'rejected';
 export type RelayReplicaRejectionReasonV1 =
   | 'expired'
   | 'unsupported-group'
+  | 'capacity-exhausted'
   | 'rate-limited'
   | 'stale'
   | 'conflict'
@@ -587,6 +588,7 @@ function isRelayReplicaInventoryResponseBody(
 function isRejectionReason(value: unknown): value is RelayReplicaRejectionReasonV1 {
   return value === 'expired'
     || value === 'unsupported-group'
+    || value === 'capacity-exhausted'
     || value === 'rate-limited'
     || value === 'stale'
     || value === 'conflict'

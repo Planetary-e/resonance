@@ -389,6 +389,44 @@ describe('authenticated outbound relay links', () => {
     expect(spoke.getRelayLinkStatus().connectedRelayIds).toHaveLength(1);
     expect(hub.getRelayLinkStatus().inboundRelayIds).toEqual([spokeId]);
   });
+
+  it('re-authenticates an active link on its descriptor refresh interval', async () => {
+    const identity = generateIdentity();
+    const now = Date.now();
+    const descriptor = createRelayDescriptorV1({
+      sequence: 1,
+      endpoints: [],
+      reachability: 'outbound-only',
+      capabilities: {
+        storesPublications: true,
+        storesMailboxes: true,
+        answersQueries: true,
+        forwardsQueries: false,
+        replicaExchange: true,
+      },
+      supportedGroups: ['public'],
+      storage: { capacityBytes: 1_000_000, availableBytes: 800_000 },
+      issuedAt: now,
+      expiresAt: now + 30_000,
+    }, identity);
+    const connection = await connectRelayLinkV1(
+      createRelayContactHintV1('configured', HUB_ENDPOINT),
+      descriptor,
+      identity,
+      {
+        handshakeTimeoutMs: 1_000,
+        heartbeatIntervalMs: 100,
+        heartbeatTimeoutMs: 1_500,
+        descriptorRefreshIntervalMs: 100,
+      },
+    );
+
+    await expect(connection.closed).resolves.toEqual({
+      code: 1000,
+      reason: 'relay_descriptor_refresh',
+    });
+    await waitFor(() => !hub.getRelayLinkStatus().inboundRelayIds.includes(identity.did));
+  });
 });
 
 async function waitFor(predicate: () => boolean, timeoutMs = 3_000): Promise<void> {

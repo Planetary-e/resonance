@@ -12,7 +12,11 @@ import {
   generateIdentity,
   generatePublicationKeyMaterial,
 } from '@resonance/core';
-import { RelayOperationLog, RELAY_OPERATION_LOG_FILENAME } from '../operation-log.js';
+import {
+  RelayOperationLog,
+  RELAY_OPERATION_LOG_FILENAME,
+  type RelayOperationLogEntry,
+} from '../operation-log.js';
 import { createReplicaPlacementIntent } from '../replica-placement.js';
 
 const NOW = 1_800_000_000_000;
@@ -54,13 +58,25 @@ describe('RelayOperationLog', () => {
   it('fsyncs replayable publication and atomic match records', () => {
     const dir = directory();
     const { need, operation, envelopes } = fixture();
+    const sourceRelay = generateIdentity();
     const log = new RelayOperationLog(dir);
     log.load();
-    log.append({ kind: 'publication', operation: need }, NOW + 2);
+    log.append({
+      kind: 'publication',
+      operation: need,
+      allocationOrigin: 'replica',
+      allocationRelayId: sourceRelay.did,
+    }, NOW + 2);
     log.append({ kind: 'match', operation, envelopes: [...envelopes] }, NOW + 3);
 
     const restored = new RelayOperationLog(dir);
     expect(restored.load()).toHaveLength(2);
+    expect(restored.entries[0].entry).toEqual({
+      kind: 'publication',
+      operation: need,
+      allocationOrigin: 'replica',
+      allocationRelayId: sourceRelay.did,
+    });
     expect(restored.entries[1].entry).toEqual({ kind: 'match', operation, envelopes: [...envelopes] });
     expect(readFileSync(join(dir, RELAY_OPERATION_LOG_FILENAME), 'utf8').endsWith('\n')).toBe(true);
   });
@@ -89,6 +105,34 @@ describe('RelayOperationLog', () => {
     expect(restored.load()).toHaveLength(1);
     restored.append({ kind: 'publication', operation: need }, NOW + 3);
     expect(new RelayOperationLog(dir).load().map(record => record.sequence)).toEqual([1, 2]);
+  });
+
+  it('accepts an unmarked historic allocation ID without treating it as new provenance', () => {
+    const dir = directory();
+    const { need } = fixture();
+    const sourceRelay = generateIdentity();
+    const log = new RelayOperationLog(dir);
+    log.load();
+    log.append({ kind: 'publication', operation: need, allocationRelayId: sourceRelay.did });
+
+    expect(new RelayOperationLog(dir).load()[0]?.entry).toEqual({
+      kind: 'publication', operation: need, allocationRelayId: sourceRelay.did,
+    });
+  });
+
+  it('rejects a malformed legacy provenance row', () => {
+    const dir = directory();
+    const { need } = fixture();
+    const sourceRelay = generateIdentity();
+    const log = new RelayOperationLog(dir);
+    log.load();
+
+    expect(() => log.append({
+      kind: 'publication',
+      operation: need,
+      allocationOrigin: 'legacy',
+      allocationRelayId: sourceRelay.did,
+    } as unknown as RelayOperationLogEntry)).toThrow('Invalid relay operation log entry');
   });
 
   it('persists replayable placement intent and positive durability receipt records', () => {

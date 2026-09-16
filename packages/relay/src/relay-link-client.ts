@@ -34,12 +34,15 @@ import {
 
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
 const MAX_PENDING_REPLICA_REQUESTS = 128;
+const DEFAULT_DESCRIPTOR_REFRESH_INTERVAL_MS = 60_000;
 
 export interface RelayLinkClientOptions {
   handshakeTimeoutMs?: number;
   heartbeatIntervalMs?: number;
   heartbeatTimeoutMs?: number;
   replicaRequestTimeoutMs?: number;
+  /** Re-authenticate the link to refresh signed peer metadata. */
+  descriptorRefreshIntervalMs?: number;
   now?: () => number;
 }
 
@@ -99,11 +102,18 @@ export function connectRelayLinkV1(
   const heartbeatIntervalMs = options.heartbeatIntervalMs ?? 30_000;
   const heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? 90_000;
   const replicaRequestTimeoutMs = options.replicaRequestTimeoutMs ?? 10_000;
+  const descriptorRefreshIntervalMs = options.descriptorRefreshIntervalMs
+    ?? DEFAULT_DESCRIPTOR_REFRESH_INTERVAL_MS;
   validateTiming(handshakeTimeoutMs, heartbeatIntervalMs, heartbeatTimeoutMs);
   if (!Number.isSafeInteger(replicaRequestTimeoutMs)
     || replicaRequestTimeoutMs < 100
     || replicaRequestTimeoutMs > 60_000) {
     return Promise.reject(new Error('Replica request timeout must be between 100 and 60000 ms'));
+  }
+  if (!Number.isSafeInteger(descriptorRefreshIntervalMs)
+    || descriptorRefreshIntervalMs < 100
+    || descriptorRefreshIntervalMs > MAX_TIMER_DELAY_MS) {
+    return Promise.reject(new Error('Descriptor refresh interval must be between 100 ms and the maximum timer delay'));
   }
 
   const clock = options.now ?? Date.now;
@@ -257,6 +267,7 @@ export function connectRelayLinkV1(
         }, Math.max(1, Math.min(
           localDescriptor.expiresAt - receivedAt,
           remoteDescriptor.expiresAt - receivedAt,
+          descriptorRefreshIntervalMs,
           MAX_TIMER_DELAY_MS,
         )));
         descriptorExpiryTimer.unref?.();
@@ -585,6 +596,11 @@ export class RelayLinkManager {
         relayId: connection.remoteDescriptor.relayId,
         error: `${closed.code}:${closed.reason}`,
       });
+      if (closed.code === 1000 && closed.reason === 'relay_descriptor_refresh') {
+        this.attempts.set(hint.endpoint, 0);
+        if (this.running) this.schedule(hint, this.options.reconnectBaseMs ?? 1_000);
+        return;
+      }
     } catch (error) {
       this.options.onEvent?.({
         kind: 'failed',

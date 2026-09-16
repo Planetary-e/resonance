@@ -87,7 +87,11 @@ import { log } from './logger.js';
 import { PublicationOperationStore, type PublicationApplyStatus } from './publication-store.js';
 import { MailboxStore } from './mailbox-store.js';
 import { MatchOperationStore } from './match-operation-store.js';
-import { RelayOperationLog, type RelayOperationLogEntry } from './operation-log.js';
+import {
+  RelayOperationLog,
+  type RelayOperationLogEntry,
+  type RelayPublicationOperationLogEntry,
+} from './operation-log.js';
 import { loadOrCreateRelayIdentity } from './relay-identity-store.js';
 import {
   RelayDirectory,
@@ -112,6 +116,13 @@ import {
   type ReplicaPlacementIntentV1,
   type ReplicaPlacementStatus,
 } from './replica-placement.js';
+import {
+  FIRST_SEEN_TOMBSTONE_RESERVE_BYTES,
+  ReplicaStorageLedger,
+  publicationStorageAllocatableBytes,
+  publicationStorageReservationBytes,
+  type PublicationStorageAllocationPrincipal,
+} from './replica-storage-ledger.js';
 import type { AdmissionCapabilityVerifierV2 } from './admission.js';
 
 export interface RelayDiscoveryConfig {
@@ -136,6 +147,7 @@ export interface RelayConfig {
   maxPublishesPerMin: number;
   maxSearchesPerMin: number;
   authWindowMs: number;
+  /** Enables the exact operational /stats endpoint; null disables it. */
   adminApiKey: string | null;
   maxAuthAttemptsPerMin: number;
   maxPeerRequestsPerMin: number;
@@ -151,6 +163,10 @@ export interface RelayConfig {
   replicaRepairIntervalMs: number;
   /** Maximum age of a signed inventory answer before receipt-holders are checked again. */
   replicaInventoryIntervalMs: number;
+  /** Maximum retained publication-state allocation this relay will accept. */
+  publicationStorageQuotaBytes?: number;
+  /** Maximum retained replica allocation attributed to any one relay identity. */
+  maxReplicaStorageBytesPerRelay?: number;
   /** Omit to disable public relay discovery on this server. */
   relayDiscovery?: RelayDiscoveryConfig;
   /** Authenticated outbound relay links; requires relayDiscovery. */
@@ -164,6 +180,13 @@ export interface RelayStats {
   stored_publications: number;
   active_publications: number;
   retained_tombstones: number;
+  publication_storage_quota_bytes: number;
+  publication_storage_withdrawal_reserve_bytes: number;
+  publication_storage_reserved_bytes: number;
+  publication_storage_available_bytes: number;
+  replica_storage_reserved_bytes: number;
+  replica_storage_relays: number;
+  legacy_unattributed_storage_reserved_bytes: number;
   mailbox_envelopes: number;
   stored_matches: number;
   journal_entries: number;
@@ -228,9 +251,32 @@ const MAX_TIMEOUT_DELAY_MS = 2_147_483_647;
 const MAX_SEEN_REPLICA_REQUESTS = 8_192;
 const MAX_SEEN_REPLICA_REQUESTS_PER_RELAY = 256;
 const MAX_REPLICA_INVENTORY_CHECKS_PER_REPAIR = 32;
+const DEFAULT_PUBLICATION_STORAGE_QUOTA_BYTES = 1024 * 1024 * 1024;
+const STORAGE_AVAILABILITY_GRANULARITY_BYTES = 64 * 1024;
+const STORAGE_AVAILABILITY_REFRESH_MS = 60_000;
+type PublicationCommitStatus = PublicationApplyStatus | 'capacity-exhausted';
 
 export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   const cfg = { ...DEFAULT_CONFIG, ...config };
+  const publicationStorageQuotaBytes = config?.publicationStorageQuotaBytes
+    ?? cfg.relayDiscovery?.storage.availableBytes
+    ?? DEFAULT_PUBLICATION_STORAGE_QUOTA_BYTES;
+  const maxReplicaStorageBytesPerRelay = config?.maxReplicaStorageBytesPerRelay
+    ?? publicationStorageQuotaBytes;
+  if (!Number.isSafeInteger(publicationStorageQuotaBytes) || publicationStorageQuotaBytes < 0
+    || !Number.isSafeInteger(maxReplicaStorageBytesPerRelay)
+    || maxReplicaStorageBytesPerRelay < 0
+    || maxReplicaStorageBytesPerRelay > publicationStorageQuotaBytes) {
+    throw new Error('Invalid publication or per-relay replica storage quota');
+  }
+  if (cfg.relayDiscovery
+    && (publicationStorageQuotaBytes > cfg.relayDiscovery.storage.capacityBytes
+      || publicationStorageQuotaBytes > cfg.relayDiscovery.storage.availableBytes)) {
+    throw new Error('Publication storage quota cannot exceed advertised relay availability');
+  }
+  const allocatablePublicationStorageBytes = publicationStorageAllocatableBytes(
+    publicationStorageQuotaBytes,
+  );
   if (!Number.isSafeInteger(cfg.maxInboundRelayLinks)
     || cfg.maxInboundRelayLinks < 1
     || cfg.maxInboundRelayLinks > 4_096) {
@@ -276,6 +322,8 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   const mailboxStore = new MailboxStore();
   const matchStore = new MatchOperationStore();
   const operationLog = new RelayOperationLog(cfg.persistDir);
+  const relayIdentity = loadOrCreateRelayIdentity(cfg.persistDir);
+  const replicaStorageLedger = new ReplicaStorageLedger();
 
   const rateLimiter = new RateLimiter({
     maxPublishesPerMin: cfg.maxPublishesPerMin,
@@ -284,7 +332,6 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     maxReplicasPerMin: cfg.maxReplicaRequestsPerMin,
   });
 
-  const relayIdentity = loadOrCreateRelayIdentity(cfg.persistDir);
   const relayDirectory = new RelayDirectory(
     cfg.relayDiscovery?.maxKnownRelays ?? 256,
     relayIdentity.did,
@@ -307,6 +354,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   }>();
   let relayDescriptor: RelayDescriptorV1 | null = null;
   let relayDescriptorSequence = Date.now();
+  let relayDescriptorStorageUpdatedAt = 0;
 
   let httpServer: Server;
   let wss: WebSocketServer;
@@ -322,12 +370,41 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   const placementTracker = new ReplicaPlacementTracker(relayIdentity.did);
   const inventoryScheduler = new ReplicaInventoryScheduler();
 
+  function advertisedRelayStorage(): RelayStorageCapacityV1 {
+    const discovery = cfg.relayDiscovery;
+    if (!discovery) throw new Error('Relay discovery is disabled');
+    const exactAvailableBytes = Math.max(
+      0,
+      allocatablePublicationStorageBytes - replicaStorageLedger.reservedBytes,
+    );
+    return {
+      capacityBytes: discovery.storage.capacityBytes,
+      // A public descriptor is a placement hint, not an activity feed. Round
+      // downward so it never overclaims ordinary capacity while avoiding
+      // per-publication byte deltas visible to descriptor pollers.
+      availableBytes: Math.floor(exactAvailableBytes / STORAGE_AVAILABILITY_GRANULARITY_BYTES)
+        * STORAGE_AVAILABILITY_GRANULARITY_BYTES,
+    };
+  }
+
   function getOwnRelayDescriptor(now = Date.now()): RelayDescriptorV1 | null {
     const discovery = cfg.relayDiscovery;
     if (!discovery) return null;
     const lifetimeMs = discovery.descriptorLifetimeMs ?? 60 * 60_000;
     const refreshWindowMs = Math.min(60_000, Math.floor(lifetimeMs / 4));
-    if (!relayDescriptor || relayDescriptor.expiresAt - now <= refreshWindowMs) {
+    const previousDescriptor = relayDescriptor;
+    const currentStorage = advertisedRelayStorage();
+    const storageChanged = previousDescriptor === null
+      || previousDescriptor.storage.capacityBytes !== currentStorage.capacityBytes
+      || previousDescriptor.storage.availableBytes !== currentStorage.availableBytes;
+    const canRefreshStorage = previousDescriptor === null
+      || now - relayDescriptorStorageUpdatedAt >= STORAGE_AVAILABILITY_REFRESH_MS;
+    const storage = storageChanged && !canRefreshStorage
+      ? previousDescriptor.storage
+      : currentStorage;
+    if (!previousDescriptor
+      || (storageChanged && canRefreshStorage)
+      || previousDescriptor.expiresAt - now <= refreshWindowMs) {
       relayDescriptorSequence = Math.max(relayDescriptorSequence + 1, now);
       relayDescriptor = createRelayDescriptorV1({
         sequence: relayDescriptorSequence,
@@ -341,10 +418,13 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           replicaExchange: true,
         },
         supportedGroups: discovery.supportedGroups,
-        storage: discovery.storage,
+        storage,
         issuedAt: now,
         expiresAt: now + lifetimeMs,
       }, relayIdentity);
+      if (!previousDescriptor || (storageChanged && canRefreshStorage)) {
+        relayDescriptorStorageUpdatedAt = now;
+      }
     }
     return relayDescriptor;
   }
@@ -378,6 +458,39 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     return [...ids].sort();
   }
 
+  function localAllocation(): PublicationStorageAllocationPrincipal {
+    return { allocationOrigin: 'local', allocationRelayId: relayIdentity.did };
+  }
+
+  function replicaAllocation(relayId: string): PublicationStorageAllocationPrincipal {
+    return { allocationOrigin: 'replica', allocationRelayId: relayId };
+  }
+
+  function allocationForJournalEntry(
+    entry: RelayPublicationOperationLogEntry,
+  ): PublicationStorageAllocationPrincipal {
+    if (entry.allocationOrigin === 'local' || entry.allocationOrigin === 'replica') {
+      return {
+        allocationOrigin: entry.allocationOrigin,
+        allocationRelayId: entry.allocationRelayId,
+      };
+    }
+    // Never infer old provenance from an identity, signature, or timing. Both
+    // unmarked journal shapes and explicit legacy rows share one conservative
+    // virtual inbound allocation until an operator performs a future rewrite.
+    return { allocationOrigin: 'legacy' };
+  }
+
+  function publicationJournalEntry(
+    operation: PublicationOperation,
+    allocation: PublicationStorageAllocationPrincipal,
+  ): RelayPublicationOperationLogEntry {
+    if (allocation.allocationOrigin === 'legacy') {
+      return { kind: 'publication', operation, allocationOrigin: 'legacy' };
+    }
+    return { kind: 'publication', operation, ...allocation };
+  }
+
   function replayOperation(entry: RelayOperationLogEntry): void {
     // Placement state is replayed after every publication operation. An intent
     // may be durably appended immediately before a new publication operation;
@@ -388,6 +501,16 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       const result = publicationStore.apply(entry.operation);
       if (result.status !== 'accepted' && result.status !== 'duplicate') {
         throw new Error(`Cannot replay publication operation: ${result.status}`);
+      }
+      if (result.status === 'accepted') {
+        replicaStorageLedger.record(
+          entry.operation.publicationId,
+          publicationStorageReservationBytes(
+            entry.operation,
+            publicationStore.getRecord(entry.operation.publicationId),
+          ),
+          allocationForJournalEntry(entry),
+        );
       }
       return;
     }
@@ -476,15 +599,65 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     log('info', 'mailbox_match', { matchId: operation.matchId, operationId: operation.operationId });
   }
 
-  function commitPublicationOperation(operation: PublicationOperation): PublicationApplyStatus {
+  function canReservePublicationStorage(
+    operation: PublicationOperation,
+    allocation: PublicationStorageAllocationPrincipal,
+  ): boolean {
+    return replicaStorageLedger.canReserve(
+      operation.publicationId,
+      publicationStorageReservationBytes(
+        operation,
+        publicationStore.getRecord(operation.publicationId),
+      ),
+      allocation,
+      publicationStorageQuotaBytes,
+      maxReplicaStorageBytesPerRelay,
+      usesFirstSeenTombstoneReserve(operation),
+    );
+  }
+
+  function usesFirstSeenTombstoneReserve(operation: PublicationOperation): boolean {
+    return operation.kind === 'publication-tombstone'
+      && publicationStore.get(operation.publicationId) === undefined;
+  }
+
+  function commitPublicationOperation(
+    operation: PublicationOperation,
+    allocation: PublicationStorageAllocationPrincipal,
+  ): PublicationCommitStatus {
     const result = publicationStore.evaluate(operation);
     if (result.status !== 'accepted' && result.status !== 'duplicate') return result.status;
     if (result.status === 'accepted') {
-      operationLog.append({ kind: 'publication', operation });
+      const reservedBytes = publicationStorageReservationBytes(
+        operation,
+        publicationStore.getRecord(operation.publicationId),
+      );
+      if (!replicaStorageLedger.canReserve(
+        operation.publicationId,
+        reservedBytes,
+        allocation,
+        publicationStorageQuotaBytes,
+        maxReplicaStorageBytesPerRelay,
+        usesFirstSeenTombstoneReserve(operation),
+      )) return 'capacity-exhausted';
+      // Keep the original allocation principal durable. A later relay may
+      // carry an update or tombstone, but must not inherit the prior source's
+      // per-relay allocation when this journal is compacted.
+      const currentAllocation = replicaStorageLedger.allocationFor(operation.publicationId);
+      const effectiveAllocation = currentAllocation
+        ? {
+          allocationOrigin: currentAllocation.allocationOrigin,
+          ...(currentAllocation.allocationOrigin === 'legacy'
+            ? {}
+            : { allocationRelayId: currentAllocation.allocationRelayId }),
+        } as PublicationStorageAllocationPrincipal
+        : allocation;
+      operationLog.append(publicationJournalEntry(operation, effectiveAllocation));
       const applied = publicationStore.apply(operation);
       if (applied.status !== 'accepted') {
         throw new Error(`Cannot apply committed publication: ${applied.status}`);
       }
+      replicaStorageLedger.record(operation.publicationId, reservedBytes, effectiveAllocation);
     }
     // Duplicate retries also repair a match whose atomic commit may have
     // failed after the publication itself reached disk.
@@ -557,9 +730,12 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     );
   }
 
-  function commitLocalPublicationOperation(operation: PublicationOperation): PublicationApplyStatus {
+  function commitLocalPublicationOperation(operation: PublicationOperation): PublicationCommitStatus {
     const evaluation = publicationStore.evaluate(operation);
     if (evaluation.status !== 'accepted' && evaluation.status !== 'duplicate') return evaluation.status;
+    if (evaluation.status === 'accepted' && !canReservePublicationStorage(operation, localAllocation())) {
+      return 'capacity-exhausted';
+    }
 
     // Intent is journaled before a new operation. If the process dies between
     // these two writes, replay ignores the unmatched intent; if both succeed,
@@ -567,7 +743,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     const intent = nextReplicaPlacementIntent(operation);
     if (intent) operationLog.append({ kind: 'placement-intent', intent });
 
-    const status = commitPublicationOperation(operation);
+    const status = commitPublicationOperation(operation, localAllocation());
     if ((status === 'accepted' || status === 'duplicate') && intent
       && !placementTracker.applyIntent(intent)) {
       throw new Error('Cannot apply committed replica placement intent');
@@ -754,14 +930,19 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       return;
     }
     if (req.url?.startsWith('/stats') && req.method === 'GET') {
-      // VULN-07: Require API key if configured
-      if (cfg.adminApiKey) {
-        const url = new URL(req.url, 'http://localhost');
-        if (url.searchParams.get('key') !== cfg.adminApiKey) {
-          res.writeHead(401, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'unauthorized' }));
-          return;
-        }
+      // These metrics include exact publication and capacity activity. Keep
+      // the programmatic getStats() API for an embedding operator, but never
+      // expose this HTTP endpoint without an explicit administrator key.
+      if (!cfg.adminApiKey) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'stats_disabled' }));
+        return;
+      }
+      const url = new URL(req.url, 'http://localhost');
+      if (url.searchParams.get('key') !== cfg.adminApiKey) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'unauthorized' }));
+        return;
       }
       enforcePublicationExpiries();
       const stats = engine.getStats();
@@ -772,6 +953,20 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         stored_publications: publicationStore.size,
         active_publications: publicationStore.activeRecords().length,
         retained_tombstones: publicationStore.tombstoneCount,
+        publication_storage_quota_bytes: publicationStorageQuotaBytes,
+        publication_storage_withdrawal_reserve_bytes: Math.min(
+          FIRST_SEEN_TOMBSTONE_RESERVE_BYTES,
+          publicationStorageQuotaBytes,
+        ),
+        publication_storage_reserved_bytes: replicaStorageLedger.reservedBytes,
+        publication_storage_available_bytes: Math.max(
+          0,
+          allocatablePublicationStorageBytes - replicaStorageLedger.reservedBytes,
+        ),
+        replica_storage_reserved_bytes: replicaStorageLedger.replicaReservedBytes,
+        replica_storage_relays: replicaStorageLedger.replicaRelayCount,
+        legacy_unattributed_storage_reserved_bytes:
+          replicaStorageLedger.legacyUnattributedReservedBytes,
         mailbox_envelopes: mailboxStore.envelopeCount,
         stored_matches: matchStore.size,
         journal_entries: operationLog.length,
@@ -933,9 +1128,9 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       }
     }
 
-    let status: PublicationApplyStatus;
+    let status: PublicationCommitStatus;
     try {
-      status = commitPublicationOperation(operation);
+      status = commitPublicationOperation(operation, replicaAllocation(linkedRelayId));
     } catch (error) {
       log('error', 'replica_commit_failed', {
         publicationId: operation.publicationId,
@@ -1307,7 +1502,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           return;
         }
 
-        let result: PublicationApplyStatus;
+        let result: PublicationCommitStatus;
         try {
           result = commitLocalPublicationOperation(operation);
         } catch (err) {
@@ -1623,6 +1818,16 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       const records = operationLog.load();
       for (const record of records) replayOperation(record.entry);
       for (const record of records) replayPlacementOperation(record.entry);
+      if (replicaStorageLedger.legacyUnattributedReservedBytes > 0) {
+        log('warn', 'legacy_replica_storage_accounted', {
+          reservedBytes: replicaStorageLedger.legacyUnattributedReservedBytes,
+          message: 'Unmarked and legacy publication journal rows share one conservative per-relay allocation bucket',
+        });
+      }
+      // A descriptor may have been validated before journal replay while the
+      // ledger was empty. Reissue it with the rebuilt allocation before any
+      // socket or descriptor endpoint can expose a capacity claim.
+      relayDescriptor = null;
       mailboxStore.purgeExpired();
 
       // The search index is a derived cache. Rebuilding it from authoritative
@@ -1715,6 +1920,20 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         stored_publications: publicationStore.size,
         active_publications: publicationStore.activeRecords().length,
         retained_tombstones: publicationStore.tombstoneCount,
+        publication_storage_quota_bytes: publicationStorageQuotaBytes,
+        publication_storage_withdrawal_reserve_bytes: Math.min(
+          FIRST_SEEN_TOMBSTONE_RESERVE_BYTES,
+          publicationStorageQuotaBytes,
+        ),
+        publication_storage_reserved_bytes: replicaStorageLedger.reservedBytes,
+        publication_storage_available_bytes: Math.max(
+          0,
+          allocatablePublicationStorageBytes - replicaStorageLedger.reservedBytes,
+        ),
+        replica_storage_reserved_bytes: replicaStorageLedger.replicaReservedBytes,
+        replica_storage_relays: replicaStorageLedger.replicaRelayCount,
+        legacy_unattributed_storage_reserved_bytes:
+          replicaStorageLedger.legacyUnattributedReservedBytes,
         mailbox_envelopes: mailboxStore.envelopeCount,
         stored_matches: matchStore.size,
         journal_entries: operationLog.length,
@@ -1782,7 +2001,8 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   };
 }
 
-function replicaRejectionReason(status: PublicationApplyStatus): RelayReplicaRejectionReasonV1 {
+function replicaRejectionReason(status: PublicationCommitStatus): RelayReplicaRejectionReasonV1 {
+  if (status === 'capacity-exhausted') return status;
   if (status === 'stale' || status === 'conflict' || status === 'terminal' || status === 'invalid') {
     return status;
   }

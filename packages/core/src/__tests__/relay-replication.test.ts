@@ -66,7 +66,7 @@ describe('relay replica placement', () => {
     const request = createRelayReplicaPutV1(publication(), sender, NOW, NOW + 30_000);
     const receipt = createRelayReplicaReceiptV1(request, responder, {
       status: 'rejected',
-      reason: 'unsupported-group',
+      reason: 'capacity-exhausted',
     }, NOW + 1);
 
     const tampered = structuredClone(request);
@@ -77,6 +77,7 @@ describe('relay replica placement', () => {
 
     const otherRequest = createRelayReplicaPutV1(publication(), sender, NOW, NOW + 30_000);
     expect(verifyRelayReplicaReceiptV1(receipt, otherRequest)).toBe(false);
+    expect(receipt.reason).toBe('capacity-exhausted');
     expect(() => createRelayReplicaReceiptV1(request, responder, {
       status: 'stored',
       reason: 'invalid',

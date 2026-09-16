@@ -179,6 +179,10 @@ export class ReplicaPlacementTracker {
 
   canRecordReceipt(receipt: unknown): receipt is RelayReplicaReceiptV1 {
     if (!isDurabilityReceiptV1(receipt)) return false;
+    // Only a positive fsync acknowledgement is durability evidence. Rejected
+    // responses remain transport diagnostics and must leave the target pending
+    // for later retry or replacement policy.
+    if (receipt.status !== 'stored' && receipt.status !== 'already-stored') return false;
     if (this.localRelayId !== undefined && receipt.senderRelayId !== this.localRelayId) return false;
     const intent = this.intents.get(receipt.publicationId);
     if (!intent

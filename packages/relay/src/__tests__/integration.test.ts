@@ -40,6 +40,7 @@ import { RELAY_OPERATION_LOG_FILENAME } from '../operation-log.js';
 
 const PORT = 19090 + Math.floor(Math.random() * 1000);
 const PERSIST_DIR = `/tmp/resonance-integration-test-${Date.now()}`;
+const ADMIN_API_KEY = 'integration-admin-key';
 let server: RelayServer;
 
 function record(itemType: 'need' | 'offer', fill: number, groupId = 'public') {
@@ -81,6 +82,7 @@ function createServer(): RelayServer {
     port: PORT,
     host: '127.0.0.1',
     maxAuthAttemptsPerMin: 100,
+    adminApiKey: ADMIN_API_KEY,
     persistDir: PERSIST_DIR,
     persistIntervalMs: 999_999,
     relayDiscovery: {
@@ -316,7 +318,10 @@ describe('Relay protocol v2 integration', () => {
     expect(health.status).toBe(200);
     expect(await health.json()).toEqual({ status: 'ok' });
 
-    const response = await fetch(`http://localhost:${PORT}/stats`);
+    const denied = await fetch(`http://localhost:${PORT}/stats`);
+    expect(denied.status).toBe(401);
+
+    const response = await fetch(`http://localhost:${PORT}/stats?key=${ADMIN_API_KEY}`);
     const stats = await response.json() as Record<string, unknown>;
     expect(response.status).toBe(200);
     expect(stats).toHaveProperty('stored_publications');

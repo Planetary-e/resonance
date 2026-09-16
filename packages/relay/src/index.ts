@@ -47,6 +47,16 @@ export {
   type PublicationApplyResult,
   type PublicationApplyStatus,
 } from './publication-store.js';
+export {
+  FIRST_SEEN_TOMBSTONE_RESERVE_BYTES,
+  ReplicaStorageLedger,
+  TOMBSTONE_HEADROOM_BYTES,
+  publicationStorageAllocatableBytes,
+  publicationStorageReservationBytes,
+  type ReplicaStorageAllocation,
+  type PublicationStorageAllocationOrigin,
+  type PublicationStorageAllocationPrincipal,
+} from './replica-storage-ledger.js';
 export { MailboxStore } from './mailbox-store.js';
 export {
   MatchOperationStore,

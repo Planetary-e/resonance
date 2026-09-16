@@ -21,6 +21,8 @@ import {
   verifyRelationshipMailboxDepositV2,
   verifyRelationshipMailboxRequestV2,
   isDurabilityReceiptV1,
+  didToPublicKey,
+  publicKeyToDid,
   type EncryptedMailboxEnvelope,
   type MailboxDepositRequest,
   type MailboxRequest,
@@ -37,8 +39,33 @@ import {
 
 export const RELAY_OPERATION_LOG_FILENAME = 'relay-operations.ndjson';
 
+/**
+ * The unmarked shapes are accepted only for journals written before durable
+ * allocation provenance. New entries record whether the allocation was local,
+ * a named inbound replica, or the conservative legacy bucket.
+ */
+export type RelayPublicationOperationLogEntry =
+  | {
+    kind: 'publication';
+    operation: PublicationOperation;
+    allocationOrigin?: undefined;
+    allocationRelayId?: string;
+  }
+  | {
+    kind: 'publication';
+    operation: PublicationOperation;
+    allocationOrigin: 'local' | 'replica';
+    allocationRelayId: string;
+  }
+  | {
+    kind: 'publication';
+    operation: PublicationOperation;
+    allocationOrigin: 'legacy';
+    allocationRelayId?: never;
+  };
+
 export type RelayOperationLogEntry =
-  | { kind: 'publication'; operation: PublicationOperation }
+  | RelayPublicationOperationLogEntry
   | { kind: 'match'; operation: MatchOperationV2; envelopes: [EncryptedMailboxEnvelope, EncryptedMailboxEnvelope] }
   | { kind: 'mailbox-deposit'; request: MailboxDepositRequest | RelationshipMailboxDepositV2 }
   | { kind: 'mailbox-ack'; request: MailboxRequest | RelationshipMailboxRequestV2 }
@@ -159,7 +186,17 @@ function isLogRecord(value: unknown): value is RelayOperationLogRecord {
 function isLogEntry(value: unknown): value is RelayOperationLogEntry {
   if (!isObject(value) || typeof value.kind !== 'string') return false;
   if (value.kind === 'publication') {
-    return hasOnlyKeys(value, ['kind', 'operation']) && verifyPublicationOperation(value.operation);
+    if (!verifyPublicationOperation(value.operation)) return false;
+    if (hasOnlyKeys(value, ['kind', 'operation'])) return true;
+    if (hasOnlyKeys(value, ['allocationRelayId', 'kind', 'operation'])) {
+      return isRelayId(value.allocationRelayId);
+    }
+    if (hasOnlyKeys(value, ['allocationOrigin', 'kind', 'operation'])) {
+      return value.allocationOrigin === 'legacy';
+    }
+    return hasOnlyKeys(value, ['allocationOrigin', 'allocationRelayId', 'kind', 'operation'])
+      && (value.allocationOrigin === 'local' || value.allocationOrigin === 'replica')
+      && isRelayId(value.allocationRelayId);
   }
   if (value.kind === 'match') {
     if (!hasOnlyKeys(value, ['envelopes', 'kind', 'operation']) || !verifyMatchOperationV2(value.operation)) return false;
@@ -186,6 +223,16 @@ function isLogEntry(value: unknown): value is RelayOperationLogEntry {
     return hasOnlyKeys(value, ['kind', 'receipt']) && isDurabilityReceiptV1(value.receipt);
   }
   return false;
+}
+
+function isRelayId(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length > 256) return false;
+  try {
+    const key = didToPublicKey(value);
+    return key.length === 32 && publicKeyToDid(key) === value;
+  } catch {
+    return false;
+  }
 }
 
 function recordId(value: object): string {

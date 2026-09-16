@@ -26,14 +26,32 @@ const storageAvailableBytes = parseNonNegativeInteger(
   storageCapacityBytes,
   'RELAY_STORAGE_AVAILABLE_BYTES',
 );
+const publicationStorageQuotaBytes = parseNonNegativeInteger(
+  process.env.RELAY_PUBLICATION_STORAGE_QUOTA_BYTES,
+  storageAvailableBytes,
+  'RELAY_PUBLICATION_STORAGE_QUOTA_BYTES',
+);
+const maxReplicaStorageBytesPerRelay = parseNonNegativeInteger(
+  process.env.RELAY_REPLICA_STORAGE_PER_RELAY_BYTES,
+  publicationStorageQuotaBytes,
+  'RELAY_REPLICA_STORAGE_PER_RELAY_BYTES',
+);
 if (discoveryEnabled && (storageCapacityBytes === 0 || storageAvailableBytes > storageCapacityBytes)) {
   throw new Error('Relay discovery storage capacity must be positive and available bytes cannot exceed it');
+}
+if (publicationStorageQuotaBytes > storageCapacityBytes
+  || publicationStorageQuotaBytes > storageAvailableBytes
+  || maxReplicaStorageBytesPerRelay > publicationStorageQuotaBytes) {
+  throw new Error('Relay publication and per-relay storage quotas must fit within relay availability');
 }
 
 const server = createRelayServer({
   port: parseInt(process.env.RELAY_PORT ?? '9090'),
   host: process.env.RELAY_HOST ?? '0.0.0.0',
   persistDir: process.env.RELAY_DATA_DIR ?? './data',
+  adminApiKey: process.env.RELAY_ADMIN_API_KEY || null,
+  publicationStorageQuotaBytes,
+  maxReplicaStorageBytesPerRelay,
   relayDiscovery: discoveryEnabled ? {
     endpoints: publicEndpoints,
     reachability: publicEndpoints.length > 0 ? 'direct' : 'outbound-only',
