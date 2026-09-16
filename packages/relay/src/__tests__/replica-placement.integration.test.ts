@@ -53,6 +53,7 @@ function createSource(): RelayServer {
     desiredReplicaCount: 5,
     minimumHealthyReplicaCount: 3,
     replicaRepairIntervalMs: 100,
+    replicaInventoryIntervalMs: 100,
     relayDiscovery: {
       endpoints: [],
       reachability: 'outbound-only',
@@ -147,6 +148,31 @@ describe('durable replica placement', () => {
     expect(repaired.intent.targetRelayIds).toHaveLength(5);
     await waitFor(() => targets.every(target => target.getStats().active_publications === 1));
 
+    const lostTarget = targets[0];
+    const lostTargetId = lostTarget.getRelayDescriptor()!.relayId;
+    const oldReceipt = source.getReplicaReceipts(operation.publicationId)
+      .find(receipt => receipt.responderRelayId === lostTargetId)!;
+    await lostTarget.stop();
+    startedTargets.delete(lostTarget);
+    rmSync(`${TARGET_DIRS[0]}/relay-operations.ndjson`, { force: true });
+
+    const recoveredTarget = createTarget(0);
+    targets[0] = recoveredTarget;
+    await recoveredTarget.start();
+    startedTargets.add(recoveredTarget);
+    expect(recoveredTarget.getRelayDescriptor()!.relayId).toBe(lostTargetId);
+    expect(recoveredTarget.getStats().active_publications).toBe(0);
+
+    await waitFor(() => source.getRelayLinkStatus().connectedRelayIds.length === 5, 8_000);
+    await waitFor(() => recoveredTarget.getStats().active_publications === 1, 8_000);
+    await waitFor(() => source.getReplicaReceipts(operation.publicationId)
+      .some(receipt => receipt.responderRelayId === lostTargetId
+        && receipt.requestId !== oldReceipt.requestId), 8_000);
+    expect(source.getReplicaPlacementStatus(operation.publicationId)).toMatchObject({
+      confirmedReplicaCount: 5,
+      inventoryMissingRelayIds: [],
+    });
+
     await source.stop();
     source = createSource();
     await source.start();
@@ -157,7 +183,7 @@ describe('durable replica placement', () => {
       confirmedReplicaCount: 5,
     });
     expect(source.getReplicaReceipts(operation.publicationId)).toHaveLength(5);
-  });
+  }, 15_000);
 });
 
 async function waitFor(predicate: () => boolean, timeoutMs = 4_000): Promise<void> {

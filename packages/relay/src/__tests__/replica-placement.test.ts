@@ -2,12 +2,16 @@ import { describe, expect, it } from 'vitest';
 import {
   createPublicationRecord,
   createPublicationTombstone,
+  createRelayReplicaInventoryRequestV1,
+  createRelayReplicaInventoryResponseV1,
   createRelayReplicaPutV1,
   createRelayReplicaReceiptV1,
   generateIdentity,
   generatePublicationKeyMaterial,
+  type RelayReplicaReceiptV1,
 } from '@resonance/core';
 import {
+  ReplicaInventoryScheduler,
   ReplicaPlacementTracker,
   createReplicaPlacementIntent,
 } from '../replica-placement.js';
@@ -127,5 +131,93 @@ describe('ReplicaPlacementTracker', () => {
     );
     expect(tracker.recordReceipt(tombstoneReceipt)).toBe(true);
     expect(tracker.statusFor(operation.publicationId)?.confirmedRelayIds).toEqual([target.did]);
+  });
+
+  it('keeps durable receipt history while an absent inventory answer schedules repair', () => {
+    const local = generateIdentity();
+    const target = generateIdentity();
+    const { operation } = publication();
+    const tracker = new ReplicaPlacementTracker(local.did);
+    tracker.applyIntent(createReplicaPlacementIntent(operation, [target.did], POLICY, 1, NOW));
+
+    const placement = createRelayReplicaPutV1(operation, local, NOW, NOW + 30_000);
+    const receipt = createRelayReplicaReceiptV1(placement, target, { status: 'stored' }, NOW + 1);
+    expect(tracker.recordReceipt(receipt)).toBe(true);
+    expect(tracker.inventoryDueReceipts(operation.publicationId, 100, NOW + 50)).toEqual([receipt]);
+
+    const presentRequest = createRelayReplicaInventoryRequestV1(receipt, local, NOW + 101, NOW + 30_000);
+    const present = createRelayReplicaInventoryResponseV1(
+      presentRequest,
+      target,
+      { status: 'present' },
+      NOW + 102,
+    );
+    expect(tracker.recordInventoryResponse(present)).toBe(true);
+    expect(tracker.statusFor(operation.publicationId)).toMatchObject({
+      confirmedRelayIds: [target.did],
+      pendingRelayIds: [],
+      inventoryPresentRelayIds: [target.did],
+      inventoryMissingRelayIds: [],
+      confirmedReplicaCount: 1,
+      inventoryPresentReplicaCount: 1,
+    });
+
+    const missingRequest = createRelayReplicaInventoryRequestV1(receipt, local, NOW + 103, NOW + 30_000);
+    const missing = createRelayReplicaInventoryResponseV1(
+      missingRequest,
+      target,
+      { status: 'missing' },
+      NOW + 104,
+    );
+    expect(tracker.recordInventoryResponse(missing)).toBe(true);
+    expect(tracker.statusFor(operation.publicationId)).toMatchObject({
+      confirmedRelayIds: [target.did],
+      pendingRelayIds: [target.did],
+      inventoryPresentRelayIds: [],
+      inventoryMissingRelayIds: [target.did],
+      confirmedReplicaCount: 1,
+      inventoryPresentReplicaCount: 0,
+    });
+    expect(tracker.inventoryDueReceipts(operation.publicationId, 100, NOW + 204))
+      .toEqual([receipt]);
+  });
+
+  it('rotates bounded inventory batches without starving later receipt-holders', () => {
+    const local = generateIdentity();
+    const target = generateIdentity();
+    const receipts = [publication(), publication(), publication()].map(({ operation }, index) => {
+      const request = createRelayReplicaPutV1(operation, local, NOW + index, NOW + 30_000);
+      return createRelayReplicaReceiptV1(request, target, { status: 'stored' }, NOW + index + 1);
+    });
+    const ordered = [...receipts].sort((first, second) => (
+      `${first.publicationId}\u0000${first.responderRelayId}`
+        .localeCompare(`${second.publicationId}\u0000${second.responderRelayId}`)
+    ));
+    const scheduler = new ReplicaInventoryScheduler();
+
+    expect(scheduler.take(receipts, 1).map(receipt => receipt.publicationId))
+      .toEqual([ordered[0].publicationId]);
+    expect(scheduler.take(receipts.filter(receipt => receipt !== ordered[0]), 1)
+      .map(receipt => receipt.publicationId)).toEqual([ordered[1].publicationId]);
+    expect(scheduler.take(receipts.filter(receipt => receipt !== ordered[0] && receipt !== ordered[1]), 1)
+      .map(receipt => receipt.publicationId)).toEqual([ordered[2].publicationId]);
+  });
+
+  it('uses one deterministic order for base64url receipt keys', () => {
+    const target = generateIdentity();
+    const receipts = ['_', '-', '0', 'a', 'A'].map(marker => ({
+      publicationId: `pub_${marker}${'a'.repeat(42)}`,
+      responderRelayId: target.did,
+    }) as RelayReplicaReceiptV1);
+    const expected = [...receipts].sort((first, second) => {
+      const firstKey = `${first.publicationId}\u0000${first.responderRelayId}`;
+      const secondKey = `${second.publicationId}\u0000${second.responderRelayId}`;
+      if (firstKey === secondKey) return 0;
+      return firstKey < secondKey ? -1 : 1;
+    });
+    const scheduler = new ReplicaInventoryScheduler();
+
+    expect(Array.from({ length: receipts.length }, () => scheduler.take(receipts, 1)[0].publicationId))
+      .toEqual(expected.map(receipt => receipt.publicationId));
   });
 });

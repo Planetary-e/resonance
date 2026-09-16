@@ -105,6 +105,8 @@ The pilot uses one persistent DID per user and one relay-local index. The next m
   - [x] Count only positive receipts bound to the current owner-signed operation, local sending relay, and selected target; expose per-publication placement status and aggregate metrics
   - [x] Bound receiver replay state and resend the same signed receipt for an exact retry instead of treating a lost receipt as a protocol violation
 - [ ] Exchange compact inventories and continuously repair missing replicas
+  - [x] Exchange receipt-authorized signed point checks for an exact operation and repair a target that reports it missing
+  - [ ] Add compact set reconciliation for larger replica inventories without exposing a relay's full publication set
 - [ ] Select replicas across independently observed peers where possible
 - [ ] Attempt graceful handoff before a relay shuts down
 - [ ] Recover automatically from abrupt shutdowns, restarts, partitions, and stale peers
@@ -117,7 +119,7 @@ The pilot uses one persistent DID per user and one relay-local index. The next m
 - [ ] Expose local contribution and replica-health metrics without exposing peer activity
 - [ ] Add a five-relay churn and partition test harness
 
-**Current replication boundary:** a receipt proves that a named relay fsynced one exact operation at one point in time. It is not a current availability or independence proof. Inventory checks, actual storage quotas, peer-diversity evidence, and graceful handoff remain required before Resonance can claim replica health under churn.
+**Current replication boundary:** a receipt proves that a named relay fsynced one exact operation at one point in time. A receipt-authorized point check can add a recent signed `present` or `missing` answer for that exact operation and repairs a genuine loss when that relay returns with the same infrastructure identity. Neither is an independence or continuous-availability proof, and an identity reset is not yet a replacement signal. Compact inventory reconciliation, actual storage quotas, peer-diversity evidence, target replacement, and graceful handoff remain required before Resonance can claim replica health under churn.
 
 **Completion test:** Publish through one relay, collect at least three signed durability receipts, stop the publisher and two relays, search through a relay that did not originally receive the record, and retrieve one encrypted match notification. A desktop behind NAT contributes through outbound connections, and its enabled background relay continues while the graphical interface is closed. After reconnection, records and tombstones converge without duplicate notifications.
 

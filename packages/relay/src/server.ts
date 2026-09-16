@@ -14,6 +14,7 @@ import {
   MAX_RELAY_DISCOVERY_FRAME_BYTES,
   PUBLICATION_OPERATION_FRAME_TYPE,
   RELAY_LINK_OPEN_FRAME_TYPE,
+  RELAY_REPLICA_INVENTORY_REQUEST_FRAME_TYPE,
   RELAY_REPLICA_PUT_FRAME_TYPE,
   RELATIONSHIP_MAILBOX_DEPOSIT_FRAME_TYPE,
   RELATIONSHIP_MAILBOX_REQUEST_FRAME_TYPE,
@@ -25,6 +26,8 @@ import {
   createMatchNoticeMessage,
   createRelayLinkAcceptFrameV1,
   createRelayLinkAcceptV1,
+  createRelayReplicaInventoryResponseFrameV1,
+  createRelayReplicaInventoryResponseV1,
   createRelayReplicaReceiptFrameV1,
   createRelayReplicaReceiptV1,
   createRelayDescriptorV1,
@@ -36,6 +39,7 @@ import {
   hammingSimilarity,
   isPublicationActive,
   isRelayLinkOpenActiveV1,
+  isRelayReplicaInventoryRequestActiveV1,
   isRelayReplicaPutActiveV1,
   isRelayPeerRequestActiveV1,
   isSearchRequestActiveV2,
@@ -45,6 +49,7 @@ import {
   parseRelationshipMailboxDepositFrameV2,
   parseRelationshipMailboxRequestFrameV2,
   parseRelayLinkOpenFrameV1,
+  parseRelayReplicaInventoryRequestFrameV1,
   parseRelayReplicaPutFrameV1,
   parseRelayPeerRequestFrameV1,
   parseSearchRequestFrameV2,
@@ -53,6 +58,7 @@ import {
   createMessage,
   serializeMessage,
   serializeRelayLinkAcceptFrameV1,
+  serializeRelayReplicaInventoryResponseFrameV1,
   serializeRelayReplicaReceiptFrameV1,
   serializeRelayPeerResponseFrameV1,
   verifyMatchOperationAgainstPublicationsV2,
@@ -69,6 +75,8 @@ import {
   type RelayContactHintV1,
   type RelayReachability,
   type RelayStorageCapacityV1,
+  type RelayReplicaInventoryRequestV1,
+  type RelayReplicaInventoryRejectionReasonV1,
   type RelayReplicaPutV1,
   type RelayReplicaReceiptV1,
   type RelayReplicaRejectionReasonV1,
@@ -98,6 +106,7 @@ import {
 import {
   DEFAULT_DESIRED_REPLICA_COUNT,
   DEFAULT_MINIMUM_HEALTHY_REPLICA_COUNT,
+  ReplicaInventoryScheduler,
   ReplicaPlacementTracker,
   placementMatchesOperation,
   type ReplicaPlacementIntentV1,
@@ -140,6 +149,8 @@ export interface RelayConfig {
   minimumHealthyReplicaCount: number;
   /** How often unfinished placements are retried over live configured links. */
   replicaRepairIntervalMs: number;
+  /** Maximum age of a signed inventory answer before receipt-holders are checked again. */
+  replicaInventoryIntervalMs: number;
   /** Omit to disable public relay discovery on this server. */
   relayDiscovery?: RelayDiscoveryConfig;
   /** Authenticated outbound relay links; requires relayDiscovery. */
@@ -210,11 +221,13 @@ const DEFAULT_CONFIG: RelayConfig = {
   desiredReplicaCount: DEFAULT_DESIRED_REPLICA_COUNT,
   minimumHealthyReplicaCount: DEFAULT_MINIMUM_HEALTHY_REPLICA_COUNT,
   replicaRepairIntervalMs: 30_000,
+  replicaInventoryIntervalMs: 5 * 60_000,
 };
 
 const MAX_TIMEOUT_DELAY_MS = 2_147_483_647;
 const MAX_SEEN_REPLICA_REQUESTS = 8_192;
 const MAX_SEEN_REPLICA_REQUESTS_PER_RELAY = 256;
+const MAX_REPLICA_INVENTORY_CHECKS_PER_REPAIR = 32;
 
 export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   const cfg = { ...DEFAULT_CONFIG, ...config };
@@ -242,6 +255,11 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     || cfg.replicaRepairIntervalMs < 100
     || cfg.replicaRepairIntervalMs > MAX_TIMEOUT_DELAY_MS) {
     throw new Error('Replica repair interval must be between 100 ms and the maximum timer delay');
+  }
+  if (!Number.isSafeInteger(cfg.replicaInventoryIntervalMs)
+    || cfg.replicaInventoryIntervalMs < 100
+    || cfg.replicaInventoryIntervalMs > MAX_TIMEOUT_DELAY_MS) {
+    throw new Error('Replica inventory interval must be between 100 ms and the maximum timer delay');
   }
   if (!Number.isSafeInteger(cfg.relayLinkHeartbeatIntervalMs)
     || cfg.relayLinkHeartbeatIntervalMs < 25
@@ -275,13 +293,13 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   const seenSearches = new Map<string, number>();
   const seenPeerRequests = new Map<string, number>();
   const seenRelayLinks = new Map<string, number>();
-  const seenReplicaRequests = new Map<string, {
+  const seenRelayReplicaRequests = new Map<string, {
     expiresAt: number;
     senderRelayId: string;
     requestSignature: string;
     response?: string;
   }>();
-  const seenReplicaRequestCounts = new Map<string, number>();
+  const seenRelayReplicaRequestCounts = new Map<string, number>();
   const inboundRelayLinks = new Map<string, {
     socket: WebSocket;
     descriptor: RelayDescriptorV1;
@@ -302,6 +320,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   const replicaRefreshes = new Set<string>();
   const startTime = Date.now();
   const placementTracker = new ReplicaPlacementTracker(relayIdentity.did);
+  const inventoryScheduler = new ReplicaInventoryScheduler();
 
   function getOwnRelayDescriptor(now = Date.now()): RelayDescriptorV1 | null {
     const discovery = cfg.relayDiscovery;
@@ -589,6 +608,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
 
   async function repairReplicaPlacementsOnce(): Promise<void> {
     if (!outboundRelayLinks) return;
+    const repairOperations: PublicationOperation[] = [];
     for (const persistedIntent of placementTracker.listIntents()) {
       const operation = publicationStore.get(persistedIntent.publicationId);
       if (!operation || !placementMatchesOperation(persistedIntent, operation)) continue;
@@ -602,6 +622,30 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         }
       }
 
+      repairOperations.push(operation);
+    }
+
+    const dueInventoryReceipts = repairOperations.flatMap(operation => (
+      placementTracker.inventoryDueReceipts(operation.publicationId, cfg.replicaInventoryIntervalMs)
+    ));
+    const inventoryBatch = inventoryScheduler.take(
+      dueInventoryReceipts,
+      MAX_REPLICA_INVENTORY_CHECKS_PER_REPAIR,
+    );
+    const inventoryResponses = await outboundRelayLinks.checkReplicaReceipts(inventoryBatch);
+    for (const response of inventoryResponses) {
+      if (placementTracker.canRecordInventoryResponse(response)) {
+        placementTracker.recordInventoryResponse(response);
+      }
+      log(response.status === 'rejected' ? 'warn' : 'info', 'replica_inventory', {
+        publicationId: response.publicationId,
+        relayId: response.responderRelayId,
+        status: response.status,
+        reason: response.reason,
+      });
+    }
+
+    for (const operation of repairOperations) {
       const status = placementTracker.statusFor(operation.publicationId);
       const refresh = replicaRefreshes.delete(operation.publicationId);
       if (!status) continue;
@@ -785,34 +829,41 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     return response;
   }
 
-  function pruneSeenReplicaRequests(now = Date.now()): void {
-    for (const [requestId, request] of seenReplicaRequests) {
+  function replicaReplayKey(kind: 'placement' | 'inventory', requestId: string): string {
+    return `${kind}:${requestId}`;
+  }
+
+  function pruneSeenRelayReplicaRequests(now = Date.now()): void {
+    for (const [requestId, request] of seenRelayReplicaRequests) {
       if (request.expiresAt > now) continue;
-      seenReplicaRequests.delete(requestId);
-      const current = seenReplicaRequestCounts.get(request.senderRelayId) ?? 0;
-      if (current <= 1) seenReplicaRequestCounts.delete(request.senderRelayId);
-      else seenReplicaRequestCounts.set(request.senderRelayId, current - 1);
+      seenRelayReplicaRequests.delete(requestId);
+      const current = seenRelayReplicaRequestCounts.get(request.senderRelayId) ?? 0;
+      if (current <= 1) seenRelayReplicaRequestCounts.delete(request.senderRelayId);
+      else seenRelayReplicaRequestCounts.set(request.senderRelayId, current - 1);
     }
   }
 
-  function reserveSeenReplicaRequest(request: RelayReplicaPutV1): {
+  function reserveSeenRelayReplicaRequest(
+    kind: 'placement' | 'inventory',
+    request: RelayReplicaPutV1 | RelayReplicaInventoryRequestV1,
+  ): {
     expiresAt: number;
     senderRelayId: string;
     requestSignature: string;
     response?: string;
   } | undefined {
-    if (seenReplicaRequests.size >= MAX_SEEN_REPLICA_REQUESTS
-      || (seenReplicaRequestCounts.get(request.senderRelayId) ?? 0)
+    if (seenRelayReplicaRequests.size >= MAX_SEEN_REPLICA_REQUESTS
+      || (seenRelayReplicaRequestCounts.get(request.senderRelayId) ?? 0)
         >= MAX_SEEN_REPLICA_REQUESTS_PER_RELAY) return undefined;
     const entry = {
       expiresAt: request.expiresAt,
       senderRelayId: request.senderRelayId,
       requestSignature: request.signature,
     };
-    seenReplicaRequests.set(request.requestId, entry);
-    seenReplicaRequestCounts.set(
+    seenRelayReplicaRequests.set(replicaReplayKey(kind, request.requestId), entry);
+    seenRelayReplicaRequestCounts.set(
       request.senderRelayId,
-      (seenReplicaRequestCounts.get(request.senderRelayId) ?? 0) + 1,
+      (seenRelayReplicaRequestCounts.get(request.senderRelayId) ?? 0) + 1,
     );
     return entry;
   }
@@ -841,8 +892,8 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       ws.close(4003, 'replica_exchange_not_advertised');
       return;
     }
-    pruneSeenReplicaRequests(now);
-    const replay = seenReplicaRequests.get(request.requestId);
+    pruneSeenRelayReplicaRequests(now);
+    const replay = seenRelayReplicaRequests.get(replicaReplayKey('placement', request.requestId));
     if (replay) {
       if (replay.senderRelayId !== request.senderRelayId
         || replay.requestSignature !== request.signature) {
@@ -858,7 +909,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       sendReplicaReceipt(ws, request, { status: 'rejected', reason: 'rate-limited' });
       return;
     }
-    const replayEntry = reserveSeenReplicaRequest(request);
+    const replayEntry = reserveSeenRelayReplicaRequest('placement', request);
     if (!replayEntry) {
       sendReplicaReceipt(ws, request, { status: 'rejected', reason: 'rate-limited' });
       return;
@@ -913,6 +964,115 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     });
   }
 
+  function createReplicaInventoryResponse(
+    request: RelayReplicaInventoryRequestV1,
+    result: {
+      status: 'present' | 'missing' | 'rejected';
+      reason?: RelayReplicaInventoryRejectionReasonV1;
+    },
+  ): string | undefined {
+    try {
+      const response = createRelayReplicaInventoryResponseV1(request, relayIdentity, result);
+      return serializeRelayReplicaInventoryResponseFrameV1(
+        createRelayReplicaInventoryResponseFrameV1(response),
+      );
+    } catch (error) {
+      log('warn', 'replica_inventory_response_failed', {
+        publicationId: request.receipt.publicationId,
+        error: String(error),
+      });
+      return undefined;
+    }
+  }
+
+  function sendReplicaInventoryResponse(ws: WebSocket, response: string): void {
+    ws.send(response, error => {
+      if (error) ws.terminate();
+    });
+  }
+
+  function sendReplicaInventory(
+    ws: WebSocket,
+    request: RelayReplicaInventoryRequestV1,
+    result: {
+      status: 'present' | 'missing' | 'rejected';
+      reason?: RelayReplicaInventoryRejectionReasonV1;
+    },
+  ): string | undefined {
+    const response = createReplicaInventoryResponse(request, result);
+    if (response) sendReplicaInventoryResponse(ws, response);
+    else ws.terminate();
+    return response;
+  }
+
+  function handleReplicaInventory(
+    ws: WebSocket,
+    raw: string,
+    linkedRelayId: string,
+  ): void {
+    let frame: ReturnType<typeof parseRelayReplicaInventoryRequestFrameV1>;
+    try {
+      frame = parseRelayReplicaInventoryRequestFrameV1(raw);
+    } catch {
+      ws.close(4000, 'invalid_replica_inventory_request');
+      return;
+    }
+    const request = frame.request;
+    const now = Date.now();
+    if (request.senderRelayId !== linkedRelayId
+      || request.targetRelayId !== relayIdentity.did
+      || !isRelayReplicaInventoryRequestActiveV1(request, now)) {
+      ws.close(4003, 'unauthenticated_replica_inventory_request');
+      return;
+    }
+    const link = inboundRelayLinks.get(linkedRelayId);
+    if (!link || link.socket !== ws || !link.descriptor.capabilities.replicaExchange) {
+      ws.close(4003, 'replica_exchange_not_advertised');
+      return;
+    }
+    pruneSeenRelayReplicaRequests(now);
+    const replay = seenRelayReplicaRequests.get(replicaReplayKey('inventory', request.requestId));
+    if (replay) {
+      if (replay.senderRelayId !== request.senderRelayId
+        || replay.requestSignature !== request.signature) {
+        ws.close(4003, 'replayed_replica_inventory_request');
+        return;
+      }
+      if (replay.response) sendReplicaInventoryResponse(ws, replay.response);
+      else ws.close(4008, 'replica_response_unavailable');
+      return;
+    }
+
+    if (!rateLimiter.check(`relay:${linkedRelayId}`, 'replica')) {
+      sendReplicaInventory(ws, request, { status: 'rejected', reason: 'rate-limited' });
+      return;
+    }
+    const replayEntry = reserveSeenRelayReplicaRequest('inventory', request);
+    if (!replayEntry) {
+      sendReplicaInventory(ws, request, { status: 'rejected', reason: 'rate-limited' });
+      return;
+    }
+    const respond = (result: {
+      status: 'present' | 'missing' | 'rejected';
+      reason?: RelayReplicaInventoryRejectionReasonV1;
+    }): void => {
+      const response = sendReplicaInventory(ws, request, result);
+      if (response) replayEntry.response = response;
+    };
+    const current = publicationStore.get(request.receipt.publicationId);
+    const exact = current !== undefined
+      && current.sequence === request.receipt.operationSequence
+      && current.kind === request.receipt.operationKind
+      && current.signature === request.receipt.operationSignature
+      && (current.kind === 'publication-tombstone' || isPublicationActive(current, now));
+    respond({ status: exact ? 'present' : 'missing' });
+    log('info', 'replica_inventory', {
+      publicationId: request.receipt.publicationId,
+      relayId: linkedRelayId,
+      status: exact ? 'present' : 'missing',
+    });
+  }
+
   function handleConnection(ws: WebSocket, req: any): void {
     const ip = req?.socket?.remoteAddress ?? 'unknown';
     let linkedRelayId: string | null = null;
@@ -940,6 +1100,9 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         }
         if (isObject(frameCandidate) && frameCandidate.type === RELAY_REPLICA_PUT_FRAME_TYPE) {
           handleReplicaPlacement(ws, raw, linkedRelayId);
+        } else if (isObject(frameCandidate)
+          && frameCandidate.type === RELAY_REPLICA_INVENTORY_REQUEST_FRAME_TYPE) {
+          handleReplicaInventory(ws, raw, linkedRelayId);
         } else {
           ws.close(4000, 'unexpected_link_message');
         }
@@ -1497,7 +1660,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         for (const [linkId, expiresAt] of seenRelayLinks) {
           if (expiresAt <= Date.now()) seenRelayLinks.delete(linkId);
         }
-        pruneSeenReplicaRequests();
+        pruneSeenRelayReplicaRequests();
         relayDirectory.prune();
         enforcePublicationExpiries();
       }, 5 * 60_000);

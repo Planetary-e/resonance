@@ -10,10 +10,11 @@ import {
   generateIdentity,
   generatePublicationKeyMaterial,
   serializePublicationOperationFrame,
+  verifyRelayReplicaInventoryResponseV1,
   verifyRelayReplicaReceiptV1,
   type PublicationOperation,
 } from '@resonance/core';
-import { connectRelayLinkV1 } from '../relay-link-client.js';
+import { RelayLinkManager, connectRelayLinkV1 } from '../relay-link-client.js';
 import { createRelayServer, type RelayServer } from '../server.js';
 
 const HUB_PORT = 24_500 + Math.floor(Math.random() * 500);
@@ -254,6 +255,122 @@ describe('authenticated outbound relay links', () => {
     expect(hub.getRelayDescriptor()!.relayId).toBe(hubId);
     expect(hub.getRelayLinkStatus().inboundRelayIds).toEqual([spokeId]);
     expect(hub.getStats().retained_tombstones).toBe(1);
+  });
+
+  it('checks an exact replica with its prior target-signed receipt', async () => {
+    const identity = generateIdentity();
+    const now = Date.now();
+    const descriptor = createRelayDescriptorV1({
+      sequence: 1,
+      endpoints: [],
+      reachability: 'outbound-only',
+      capabilities: {
+        storesPublications: true,
+        storesMailboxes: true,
+        answersQueries: true,
+        forwardsQueries: false,
+        replicaExchange: true,
+      },
+      supportedGroups: ['public'],
+      storage: { capacityBytes: 1_000_000, availableBytes: 800_000 },
+      issuedAt: now,
+      expiresAt: now + 30_000,
+    }, identity);
+    const connection = await connectRelayLinkV1(
+      createRelayContactHintV1('configured', HUB_ENDPOINT),
+      descriptor,
+      identity,
+      {
+        handshakeTimeoutMs: 1_000,
+        heartbeatIntervalMs: 100,
+        heartbeatTimeoutMs: 1_500,
+        replicaRequestTimeoutMs: 1_000,
+      },
+    );
+    const keys = generatePublicationKeyMaterial();
+    const operation = createPublicationRecord({
+      groupId: 'public',
+      fingerprintEpoch: '2026-09',
+      fingerprint: new Uint8Array(64).fill(0x69),
+      itemType: 'offer',
+      createdAt: now,
+      expiresAt: now + 60_000,
+    }, keys);
+
+    const receipt = await connection.placeReplica(operation);
+    expect(receipt.status).toBe('stored');
+    const present = await connection.checkReplica(receipt);
+    expect(verifyRelayReplicaInventoryResponseV1(present)).toBe(true);
+    expect(present.status).toBe('present');
+
+    const tombstone = createPublicationTombstone(
+      operation,
+      'withdrawn',
+      keys.signingKeyPair,
+      Date.now(),
+    );
+    expect((await connection.placeReplica(tombstone)).status).toBe('stored');
+    const missing = await connection.checkReplica(receipt);
+    expect(missing.status).toBe('missing');
+
+    const stale = await connection.placeReplica(operation);
+    expect(stale.status).toBe('rejected');
+    expect(['stale', 'terminal']).toContain(stale.reason);
+    connection.close();
+    await connection.closed;
+    await waitFor(() => !hub.getRelayLinkStatus().inboundRelayIds.includes(identity.did));
+  });
+
+  it('checks multiple receipt-holders on one target without dropping any request', async () => {
+    const identity = generateIdentity();
+    const now = Date.now();
+    const descriptor = createRelayDescriptorV1({
+      sequence: 1,
+      endpoints: [],
+      reachability: 'outbound-only',
+      capabilities: {
+        storesPublications: true,
+        storesMailboxes: true,
+        answersQueries: true,
+        forwardsQueries: false,
+        replicaExchange: true,
+      },
+      supportedGroups: ['public'],
+      storage: { capacityBytes: 1_000_000, availableBytes: 800_000 },
+      issuedAt: now,
+      expiresAt: now + 30_000,
+    }, identity);
+    const manager = new RelayLinkManager(identity, () => descriptor, {
+      targets: [createRelayContactHintV1('configured', HUB_ENDPOINT)],
+      maxConnections: 1,
+      handshakeTimeoutMs: 1_000,
+      heartbeatIntervalMs: 100,
+      heartbeatTimeoutMs: 1_500,
+      replicaRequestTimeoutMs: 1_000,
+      reconnectBaseMs: 50,
+      reconnectMaxMs: 200,
+    });
+    manager.start();
+    await waitFor(() => manager.status().connectedRelayIds.length === 1);
+    const targetId = manager.status().connectedRelayIds[0];
+    const operations = [0x70, 0x71].map(byte => createPublicationRecord({
+      groupId: 'public',
+      fingerprintEpoch: '2026-09',
+      fingerprint: new Uint8Array(64).fill(byte),
+      itemType: 'offer',
+      createdAt: now,
+      expiresAt: now + 60_000,
+    }, generatePublicationKeyMaterial()));
+    const receipts = (await Promise.all(operations.map(operation => (
+      manager.replicateTo(operation, [targetId])
+    )))).flat();
+    expect(receipts).toHaveLength(2);
+
+    const responses = await manager.checkReplicaReceipts(receipts);
+    expect(responses).toHaveLength(2);
+    expect(responses.map(response => response.status)).toEqual(['present', 'present']);
+    manager.stop();
+    await waitFor(() => !hub.getRelayLinkStatus().inboundRelayIds.includes(identity.did));
   });
 
   it('renews the link before continuing with expired descriptors', async () => {

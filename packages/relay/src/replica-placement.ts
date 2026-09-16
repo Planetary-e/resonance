@@ -6,8 +6,10 @@ import {
   encodeBase64,
   isDurabilityReceiptV1,
   publicKeyToDid,
+  verifyRelayReplicaInventoryResponseV1,
   verifyPublicationOperation,
   type PublicationOperation,
+  type RelayReplicaInventoryResponseV1,
   type RelayReplicaReceiptV1,
 } from '@resonance/core';
 
@@ -38,7 +40,14 @@ export interface ReplicaPlacementStatus {
   intent: ReplicaPlacementIntentV1;
   confirmedRelayIds: string[];
   pendingRelayIds: string[];
+  /** Targets whose exact current operation was recently checked over a relay link. */
+  inventoryPresentRelayIds: string[];
+  /** Targets that signed a response saying the exact operation is no longer present. */
+  inventoryMissingRelayIds: string[];
+  /** Targets that answered a current inventory request, including rate limits. */
+  inventoryCheckedRelayIds: string[];
   confirmedReplicaCount: number;
+  inventoryPresentReplicaCount: number;
   minimumConfirmed: boolean;
   targetConfirmed: boolean;
 }
@@ -115,6 +124,7 @@ export function placementMatchesOperation(
 export class ReplicaPlacementTracker {
   private readonly intents = new Map<string, ReplicaPlacementIntentV1>();
   private readonly receipts = new Map<string, Map<string, RelayReplicaReceiptV1>>();
+  private readonly inventory = new Map<string, Map<string, RelayReplicaInventoryResponseV1>>();
 
   constructor(private readonly localRelayId?: string) {}
 
@@ -160,7 +170,10 @@ export class ReplicaPlacementTracker {
     const changedOperation = !current
       || !sameOperationReference(intent, current);
     this.intents.set(intent.publicationId, copyIntent(intent));
-    if (changedOperation) this.receipts.delete(intent.publicationId);
+    if (changedOperation) {
+      this.receipts.delete(intent.publicationId);
+      this.inventory.delete(intent.publicationId);
+    }
     return true;
   }
 
@@ -187,6 +200,43 @@ export class ReplicaPlacementTracker {
       this.receipts.set(receipt.publicationId, byRelay);
     }
     byRelay.set(receipt.responderRelayId, { ...receipt });
+    // A fresh durable write supersedes any older missing/current observation.
+    const observations = this.inventory.get(receipt.publicationId);
+    observations?.delete(receipt.responderRelayId);
+    if (observations?.size === 0) this.inventory.delete(receipt.publicationId);
+    return true;
+  }
+
+  canRecordInventoryResponse(response: unknown): response is RelayReplicaInventoryResponseV1 {
+    if (!verifyRelayReplicaInventoryResponseV1(response)) return false;
+    if (this.localRelayId !== undefined && response.senderRelayId !== this.localRelayId) return false;
+    const intent = this.intents.get(response.publicationId);
+    if (!intent
+      || intent.operationSequence !== response.operationSequence
+      || intent.operationKind !== response.operationKind
+      || intent.operationSignature !== response.operationSignature
+      || !intent.targetRelayIds.includes(response.responderRelayId)) return false;
+    const receipt = this.receipts.get(response.publicationId)?.get(response.responderRelayId);
+    if (!receipt
+      || receipt.senderRelayId !== response.senderRelayId
+      || receipt.operationSequence !== response.operationSequence
+      || receipt.operationKind !== response.operationKind
+      || receipt.operationSignature !== response.operationSignature
+      || response.createdAt < receipt.createdAt) return false;
+    const current = this.inventory.get(response.publicationId)?.get(response.responderRelayId);
+    return !current
+      || response.createdAt > current.createdAt
+      || response.signature !== current.signature;
+  }
+
+  recordInventoryResponse(response: RelayReplicaInventoryResponseV1): boolean {
+    if (!this.canRecordInventoryResponse(response)) return false;
+    let byRelay = this.inventory.get(response.publicationId);
+    if (!byRelay) {
+      byRelay = new Map();
+      this.inventory.set(response.publicationId, byRelay);
+    }
+    byRelay.set(response.responderRelayId, { ...response });
     return true;
   }
 
@@ -194,6 +244,23 @@ export class ReplicaPlacementTracker {
     return [...(this.receipts.get(publicationId)?.values() ?? [])]
       .sort((first, second) => first.responderRelayId.localeCompare(second.responderRelayId))
       .map(receipt => ({ ...receipt }));
+  }
+
+  inventoryDueReceipts(
+    publicationId: string,
+    maximumAgeMs: number,
+    now = Date.now(),
+  ): RelayReplicaReceiptV1[] {
+    if (!Number.isSafeInteger(maximumAgeMs) || maximumAgeMs < 0
+      || !Number.isSafeInteger(now) || now < 0) return [];
+    const observations = this.inventory.get(publicationId);
+    return this.receiptsFor(publicationId).filter(receipt => {
+      const observation = observations?.get(receipt.responderRelayId);
+      // Observations are deliberately memory-only. Without one, including
+      // after a restart, the target is unknown and should be checked on the
+      // next repair pass instead of treating the old receipt as current.
+      return observation === undefined || now - observation.createdAt >= maximumAgeMs;
+    });
   }
 
   statusFor(publicationId: string): ReplicaPlacementStatus | undefined {
@@ -204,15 +271,60 @@ export class ReplicaPlacementTracker {
       .map(receipt => receipt.responderRelayId)
       .sort();
     const confirmed = new Set(confirmedRelayIds);
-    const pendingRelayIds = intent.targetRelayIds.filter(relayId => !confirmed.has(relayId));
+    const observations = this.inventory.get(publicationId);
+    const inventoryPresentRelayIds = intent.targetRelayIds.filter(relayId => (
+      observations?.get(relayId)?.status === 'present'
+    ));
+    const inventoryMissingRelayIds = intent.targetRelayIds.filter(relayId => (
+      observations?.get(relayId)?.status === 'missing'
+    ));
+    const inventoryCheckedRelayIds = intent.targetRelayIds.filter(relayId => observations?.has(relayId));
+    const missing = new Set(inventoryMissingRelayIds);
+    const pendingRelayIds = intent.targetRelayIds.filter(relayId => !confirmed.has(relayId) || missing.has(relayId));
     return {
       intent: copyIntent(intent),
       confirmedRelayIds,
       pendingRelayIds,
+      inventoryPresentRelayIds,
+      inventoryMissingRelayIds,
+      inventoryCheckedRelayIds,
       confirmedReplicaCount: confirmedRelayIds.length,
+      inventoryPresentReplicaCount: inventoryPresentRelayIds.length,
       minimumConfirmed: confirmedRelayIds.length >= intent.minimumHealthyReplicaCount,
       targetConfirmed: confirmedRelayIds.length >= intent.desiredReplicaCount,
     };
+  }
+}
+
+/**
+ * Selects a bounded, fair batch of receipt-authorized point checks. The cursor
+ * is keyed by the stable publication/relay pair instead of a numeric offset so
+ * completed checks dropping out of the next batch cannot starve later records.
+ */
+export class ReplicaInventoryScheduler {
+  private cursor: string | undefined;
+
+  take(receipts: readonly RelayReplicaReceiptV1[], limit: number): RelayReplicaReceiptV1[] {
+    if (!Number.isSafeInteger(limit) || limit < 1) {
+      throw new Error('Replica inventory batch limit must be a positive integer');
+    }
+    const ordered = [...receipts].sort((first, second) => (
+      compareInventoryReceiptKeys(inventoryReceiptKey(first), inventoryReceiptKey(second))
+    ));
+    if (ordered.length === 0) return [];
+    const cursor = this.cursor;
+    const firstAfterCursor = cursor === undefined
+      ? 0
+      : ordered.findIndex(receipt => (
+        compareInventoryReceiptKeys(inventoryReceiptKey(receipt), cursor) > 0
+      ));
+    const start = firstAfterCursor === -1 ? 0 : firstAfterCursor;
+    const count = Math.min(limit, ordered.length);
+    const selected = Array.from({ length: count }, (_, index) => (
+      ordered[(start + index) % ordered.length]
+    ));
+    this.cursor = inventoryReceiptKey(selected[selected.length - 1]);
+    return selected.map(receipt => ({ ...receipt }));
   }
 }
 
@@ -254,6 +366,15 @@ function copyIntent(value: ReplicaPlacementIntentV1): ReplicaPlacementIntentV1 {
 
 function sameTargets(first: string[], second: string[]): boolean {
   return first.length === second.length && first.every((value, index) => value === second[index]);
+}
+
+function inventoryReceiptKey(receipt: RelayReplicaReceiptV1): string {
+  return `${receipt.publicationId}\u0000${receipt.responderRelayId}`;
+}
+
+function compareInventoryReceiptKeys(first: string, second: string): number {
+  if (first === second) return 0;
+  return first < second ? -1 : 1;
 }
 
 function isPublicationId(value: unknown): value is string {

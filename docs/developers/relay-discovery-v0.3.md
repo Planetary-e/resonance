@@ -57,10 +57,20 @@ The placement controller journals an intent before a locally submitted publicati
 
 Only live, direct, authenticated links that were explicitly configured or invited are eligible in this first version. The controller checks the relay's advertised publication-storage, replica-exchange, group, and nonzero-capacity claims, then chooses a stable subset using the publication ID. It starts with fewer targets when fewer configured volunteers are online, grows toward five when they reconnect, retries pending targets on reconnect and at a bounded interval, and preserves previous targets when publishing an update or tombstone. Peer-exchange descriptors are still never auto-dialed.
 
-`RelayServer.getReplicaPlacementStatus(publicationId)` returns the current intent, selected targets, receipt-confirmed targets, pending targets, and quorum state. `/stats` exposes `durability_receipts`, `placement_intents`, and `minimum_confirmed_placements`. A receipt is evidence of a past fsync, not proof that a relay is currently reachable or independently operated. The status deliberately calls this **receipt-confirmed**, rather than healthy.
+`RelayServer.getReplicaPlacementStatus(publicationId)` returns the current intent, selected targets, receipt-confirmed targets, pending targets, recent inventory-present and inventory-missing targets, and quorum state. `/stats` exposes `durability_receipts`, `placement_intents`, and `minimum_confirmed_placements`. A receipt is evidence of a past fsync, not proof that a relay is currently reachable or independently operated. The status deliberately calls this **receipt-confirmed**, rather than healthy.
+
+## Receipt-authorized point checks
+
+After a relay has a positive durability receipt for a target, it can send a signed `relay_replica_inventory_request` over the existing authenticated link. The request includes that target-signed receipt and a fresh, short-lived request ID. This is authorization for one exact operation: a link peer cannot use the mechanism to ask whether arbitrary publication IDs are present.
+
+The target validates the requester, its own relay ID, the embedded durable receipt, link capability, freshness, rate limit, and replay state. It replies with a signed `relay_replica_inventory_response` bound to the request and to the receipt's publication ID, sequence, kind, and owner signature. The result is `present`, `missing`, or a rate-limit rejection. `present` means the target's current operation exactly matches; a different revision, tombstone, expired record, conflict, or absent record is reported only as `missing`, so the target does not disclose what it stores instead.
+
+Inventory answers are deliberately memory-only. A new write receipt clears an older observation, and a relay restart treats targets as unchecked and asks again on the next repair pass. A `missing` answer puts that target back into the repair set even though its old receipt remains durable historical evidence. If a target already holds a newer owner-signed operation, the normal replica-put rules reject the older repair request; point checks never permit rollback.
+
+Repair can resume only when the target reconnects under the relay identity named in its receipt. A volunteer that loses both its stored data and its relay identity is a new target; automatic replacement and safe handoff are later work.
 
 Storage capacity in a descriptor is still an unverified claim; this version does not enforce a relay-local quota. A receiver may be full despite a positive capacity claim. Operators must not use the five-target count as a Sybil-resistance or availability guarantee.
 
 ## Next integration step
 
-Next work adds compact inventory exchange, actual byte and per-peer storage budgets, retry classification and backoff, diversity evidence, graceful handoff, and query forwarding. Those pieces are needed to turn past receipt evidence into a measured availability claim under churn.
+Next work adds compact set reconciliation, actual byte and per-peer storage budgets, retry classification and backoff, diversity evidence, graceful handoff, and query forwarding. Those pieces are needed to turn receipt and point-check evidence into a measured availability claim under churn.

@@ -3,23 +3,31 @@
 import WebSocket, { type RawData } from 'ws';
 import {
   MAX_RELAY_DISCOVERY_FRAME_BYTES,
+  RELAY_REPLICA_INVENTORY_RESPONSE_FRAME_TYPE,
   RELAY_REPLICA_RECEIPT_FRAME_TYPE,
   createRelayLinkOpenFrameV1,
   createRelayLinkOpenV1,
+  createRelayReplicaInventoryRequestFrameV1,
+  createRelayReplicaInventoryRequestV1,
   createRelayReplicaPutFrameV1,
   createRelayReplicaPutV1,
   isDurabilityReceiptV1,
   isRelayLinkAcceptActiveV1,
   parseRelayLinkAcceptFrameV1,
+  parseRelayReplicaInventoryResponseFrameV1,
   parseRelayReplicaReceiptFrameV1,
   serializeRelayLinkOpenFrameV1,
+  serializeRelayReplicaInventoryRequestFrameV1,
   serializeRelayReplicaPutFrameV1,
+  verifyRelayReplicaInventoryResponseV1,
   verifyRelayReplicaReceiptV1,
   verifyRelayContactHintV1,
   type Identity,
   type PublicationOperation,
   type RelayContactHintV1,
   type RelayDescriptorV1,
+  type RelayReplicaInventoryRequestV1,
+  type RelayReplicaInventoryResponseV1,
   type RelayReplicaPutV1,
   type RelayReplicaReceiptV1,
 } from '@resonance/core';
@@ -47,6 +55,7 @@ export interface RelayLinkConnection {
   readonly closed: Promise<RelayLinkClose>;
   isOpen(): boolean;
   placeReplica(operation: PublicationOperation): Promise<RelayReplicaReceiptV1>;
+  checkReplica(receipt: RelayReplicaReceiptV1): Promise<RelayReplicaInventoryResponseV1>;
   close(): void;
 }
 
@@ -121,6 +130,12 @@ export function connectRelayLinkV1(
       resolve: (receipt: RelayReplicaReceiptV1) => void;
       reject: (error: Error) => void;
     }>();
+    const pendingInventories = new Map<string, {
+      request: RelayReplicaInventoryRequestV1;
+      timer: ReturnType<typeof setTimeout>;
+      resolve: (response: RelayReplicaInventoryResponseV1) => void;
+      reject: (error: Error) => void;
+    }>();
     let resolveClosed!: (value: RelayLinkClose) => void;
     const closed = new Promise<RelayLinkClose>(resolveClosedPromise => {
       resolveClosed = resolveClosedPromise;
@@ -163,24 +178,45 @@ export function connectRelayLinkV1(
           socket.close(4000, 'invalid_relay_message');
           return;
         }
-        if (!isObject(candidate) || candidate.type !== RELAY_REPLICA_RECEIPT_FRAME_TYPE) {
+        if (!isObject(candidate)) {
           socket.close(4000, 'unexpected_link_message');
           return;
         }
-        try {
-          const frame = parseRelayReplicaReceiptFrameV1(raw);
-          const pending = pendingReplicas.get(frame.receipt.requestId);
-          if (!pending
-            || !verifyRelayReplicaReceiptV1(frame.receipt, pending.request)
-            || frame.receipt.responderRelayId !== acceptedRemoteDescriptor?.relayId) {
-            throw new Error('Replica receipt is not bound to this relay request');
+        if (candidate.type === RELAY_REPLICA_RECEIPT_FRAME_TYPE) {
+          try {
+            const frame = parseRelayReplicaReceiptFrameV1(raw);
+            const pending = pendingReplicas.get(frame.receipt.requestId);
+            if (!pending
+              || !verifyRelayReplicaReceiptV1(frame.receipt, pending.request)
+              || frame.receipt.responderRelayId !== acceptedRemoteDescriptor?.relayId) {
+              throw new Error('Replica receipt is not bound to this relay request');
+            }
+            clearTimeout(pending.timer);
+            pendingReplicas.delete(frame.receipt.requestId);
+            pending.resolve(frame.receipt);
+          } catch {
+            socket.close(4000, 'invalid_replica_receipt');
           }
-          clearTimeout(pending.timer);
-          pendingReplicas.delete(frame.receipt.requestId);
-          pending.resolve(frame.receipt);
-        } catch {
-          socket.close(4000, 'invalid_replica_receipt');
+          return;
         }
+        if (candidate.type === RELAY_REPLICA_INVENTORY_RESPONSE_FRAME_TYPE) {
+          try {
+            const frame = parseRelayReplicaInventoryResponseFrameV1(raw);
+            const pending = pendingInventories.get(frame.response.requestId);
+            if (!pending
+              || !verifyRelayReplicaInventoryResponseV1(frame.response, pending.request)
+              || frame.response.responderRelayId !== acceptedRemoteDescriptor?.relayId) {
+              throw new Error('Replica inventory response is not bound to this relay request');
+            }
+            clearTimeout(pending.timer);
+            pendingInventories.delete(frame.response.requestId);
+            pending.resolve(frame.response);
+          } catch {
+            socket.close(4000, 'invalid_replica_inventory_response');
+          }
+          return;
+        }
+        socket.close(4000, 'unexpected_link_message');
         return;
       }
       if (isBinary) {
@@ -238,7 +274,7 @@ export function connectRelayLinkV1(
             if (!remoteDescriptor.capabilities.replicaExchange) {
               return Promise.reject(new Error('Remote relay does not accept replica placement'));
             }
-            if (pendingReplicas.size >= MAX_PENDING_REPLICA_REQUESTS) {
+            if (pendingReplicas.size + pendingInventories.size >= MAX_PENDING_REPLICA_REQUESTS) {
               return Promise.reject(new Error('Relay link replica request limit reached'));
             }
             const requestCreatedAt = clock();
@@ -273,6 +309,53 @@ export function connectRelayLinkV1(
               });
             });
           },
+          checkReplica: (receipt) => {
+            if (socket.readyState !== WebSocket.OPEN) {
+              return Promise.reject(new Error('Relay link is not open'));
+            }
+            if (!remoteDescriptor.capabilities.replicaExchange) {
+              return Promise.reject(new Error('Remote relay does not accept replica inventory checks'));
+            }
+            if (!isDurabilityReceiptV1(receipt)
+              || receipt.senderRelayId !== localDescriptor.relayId
+              || receipt.responderRelayId !== remoteDescriptor.relayId) {
+              return Promise.reject(new Error('Replica inventory check requires this link\'s durability receipt'));
+            }
+            if (pendingReplicas.size + pendingInventories.size >= MAX_PENDING_REPLICA_REQUESTS) {
+              return Promise.reject(new Error('Relay link replica request limit reached'));
+            }
+            const requestCreatedAt = clock();
+            const inventoryRequest = createRelayReplicaInventoryRequestV1(
+              receipt,
+              identity,
+              requestCreatedAt,
+              requestCreatedAt + Math.min(60_000, replicaRequestTimeoutMs + 5_000),
+            );
+            const inventoryFrame = serializeRelayReplicaInventoryRequestFrameV1(
+              createRelayReplicaInventoryRequestFrameV1(inventoryRequest),
+            );
+            return new Promise<RelayReplicaInventoryResponseV1>((resolveInventory, rejectInventory) => {
+              const timer = setTimeout(() => {
+                pendingInventories.delete(inventoryRequest.requestId);
+                rejectInventory(new Error('Replica inventory check timed out'));
+              }, replicaRequestTimeoutMs);
+              timer.unref?.();
+              pendingInventories.set(inventoryRequest.requestId, {
+                request: inventoryRequest,
+                timer,
+                resolve: resolveInventory,
+                reject: rejectInventory,
+              });
+              socket.send(inventoryFrame, error => {
+                if (!error) return;
+                const pending = pendingInventories.get(inventoryRequest.requestId);
+                if (!pending) return;
+                clearTimeout(pending.timer);
+                pendingInventories.delete(inventoryRequest.requestId);
+                pending.reject(asError(error, 'Cannot send replica inventory check'));
+              });
+            });
+          },
           close: () => {
             if (socket.readyState === WebSocket.OPEN) socket.close(1000, 'relay_link_closed');
             else if (socket.readyState === WebSocket.CONNECTING) socket.terminate();
@@ -295,6 +378,11 @@ export function connectRelayLinkV1(
         pending.reject(new Error(`Relay link closed before replica receipt (${code})`));
       }
       pendingReplicas.clear();
+      for (const pending of pendingInventories.values()) {
+        clearTimeout(pending.timer);
+        pending.reject(new Error(`Relay link closed before replica inventory response (${code})`));
+      }
+      pendingInventories.clear();
       if (!accepted) {
         failHandshake(new Error(`Relay link closed before acceptance (${code})`));
         return;
@@ -411,6 +499,25 @@ export class RelayLinkManager {
       }
     }
     return receipts;
+  }
+
+  async checkReplicaReceipts(
+    receipts: Iterable<RelayReplicaReceiptV1>,
+  ): Promise<RelayReplicaInventoryResponseV1[]> {
+    const byRelayId = new Map<string, RelayReplicaReceiptV1[]>();
+    for (const receipt of receipts) {
+      if (!isDurabilityReceiptV1(receipt) || receipt.senderRelayId !== this.identity.did) continue;
+      const existing = byRelayId.get(receipt.responderRelayId);
+      if (existing) existing.push(receipt);
+      else byRelayId.set(receipt.responderRelayId, [receipt]);
+    }
+    const results = await Promise.allSettled(
+      [...this.connections.values()].flatMap(connection => {
+        const targetReceipts = byRelayId.get(connection.remoteDescriptor.relayId) ?? [];
+        return targetReceipts.map(receipt => connection.checkReplica(receipt));
+      }),
+    );
+    return results.flatMap(result => result.status === 'fulfilled' ? [result.value] : []);
   }
 
   connectedPeers(): ConnectedRelayPeer[] {
