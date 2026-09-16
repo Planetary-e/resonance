@@ -13,27 +13,34 @@ import {
   PUBLICATION_OPERATION_FRAME_TYPE,
   RELATIONSHIP_MAILBOX_DEPOSIT_FRAME_TYPE,
   RELATIONSHIP_MAILBOX_REQUEST_FRAME_TYPE,
+  RELAY_PEER_REQUEST_FRAME_TYPE,
   SEARCH_REQUEST_FRAME_TYPE,
   SEARCH_RESPONSE_MESSAGE_TYPE,
   createAdmissionRequestBindingV2,
   createMatchOperationV2,
   createMatchNoticeMessage,
+  createRelayDescriptorV1,
+  createRelayPeerResponseFrameV1,
+  createRelayPeerResponseV1,
   createSearchResponsePayloadV2,
   decodeBase64,
   encryptMatchNotice,
   hammingSimilarity,
   isPublicationActive,
+  isRelayPeerRequestActiveV1,
   isSearchRequestActiveV2,
   parseMailboxDepositFrame,
   parseMailboxRequestFrame,
   parsePublicationOperationFrame,
   parseRelationshipMailboxDepositFrameV2,
   parseRelationshipMailboxRequestFrameV2,
+  parseRelayPeerRequestFrameV1,
   parseSearchRequestFrameV2,
   parseMessage,
   verifyMessage,
   createMessage,
   serializeMessage,
+  serializeRelayPeerResponseFrameV1,
   verifyMatchOperationAgainstPublicationsV2,
   type AckPayload,
   type AdmissionCapabilityV2,
@@ -44,6 +51,9 @@ import {
   type RelayAdmissionActionV2,
   type RelationshipMailboxDepositV2,
   type RelationshipMailboxRequestV2,
+  type RelayDescriptorV1,
+  type RelayReachability,
+  type RelayStorageCapacityV1,
 } from '@resonance/core';
 import { MatchingEngine, type MatchNotification } from './matching-engine.js';
 import { RateLimiter } from './rate-limiter.js';
@@ -53,7 +63,22 @@ import { MailboxStore } from './mailbox-store.js';
 import { MatchOperationStore } from './match-operation-store.js';
 import { RelayOperationLog, type RelayOperationLogEntry } from './operation-log.js';
 import { loadOrCreateRelayIdentity } from './relay-identity-store.js';
+import {
+  RelayDirectory,
+  type RelayDescriptorObservation,
+} from './relay-directory.js';
 import type { AdmissionCapabilityVerifierV2 } from './admission.js';
+
+export interface RelayDiscoveryConfig {
+  endpoints: string[];
+  reachability: RelayReachability;
+  supportedGroups: string[];
+  storage: RelayStorageCapacityV1;
+  /** Maximum independently verified remote descriptors retained in memory. */
+  maxKnownRelays?: number;
+  /** Descriptor lifetime; capped by the core protocol at 24 hours. */
+  descriptorLifetimeMs?: number;
+}
 
 export interface RelayConfig {
   port: number;
@@ -68,6 +93,9 @@ export interface RelayConfig {
   authWindowMs: number;
   adminApiKey: string | null;
   maxAuthAttemptsPerMin: number;
+  maxPeerRequestsPerMin: number;
+  /** Omit to disable public relay discovery on this server. */
+  relayDiscovery?: RelayDiscoveryConfig;
   /** When set, every v2 operation must present an anonymous one-use capability. */
   admissionVerifier?: AdmissionCapabilityVerifierV2;
 }
@@ -82,6 +110,7 @@ export interface RelayStats {
   journal_entries: number;
   connected_nodes: number;
   matches_today: number;
+  known_relays: number;
   uptime: number;
 }
 
@@ -89,6 +118,9 @@ export interface RelayServer {
   start(): Promise<void>;
   stop(): Promise<void>;
   getStats(): RelayStats;
+  getRelayDescriptor(now?: number): RelayDescriptorV1 | null;
+  observeRelayDescriptor(value: unknown, now?: number): RelayDescriptorObservation;
+  getKnownRelayDescriptors(now?: number): RelayDescriptorV1[];
 }
 
 const DEFAULT_CONFIG: RelayConfig = {
@@ -104,6 +136,7 @@ const DEFAULT_CONFIG: RelayConfig = {
   authWindowMs: 30_000,
   adminApiKey: null,
   maxAuthAttemptsPerMin: 5,
+  maxPeerRequestsPerMin: 60,
 };
 
 const MAX_TIMEOUT_DELAY_MS = 2_147_483_647;
@@ -121,17 +154,55 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   const rateLimiter = new RateLimiter({
     maxPublishesPerMin: cfg.maxPublishesPerMin,
     maxSearchesPerMin: cfg.maxSearchesPerMin,
+    maxDiscoveriesPerMin: cfg.maxPeerRequestsPerMin,
   });
 
   const relayIdentity = loadOrCreateRelayIdentity(cfg.persistDir);
+  const relayDirectory = new RelayDirectory(
+    cfg.relayDiscovery?.maxKnownRelays ?? 256,
+    relayIdentity.did,
+  );
 
   const seenSearches = new Map<string, number>();
+  const seenPeerRequests = new Map<string, number>();
+  let relayDescriptor: RelayDescriptorV1 | null = null;
+  let relayDescriptorSequence = Date.now();
 
   let httpServer: Server;
   let wss: WebSocketServer;
   let publicationExpiryTimer: ReturnType<typeof setTimeout> | null = null;
   let cleanupTimer: ReturnType<typeof setInterval> | null = null;
   const startTime = Date.now();
+
+  function getOwnRelayDescriptor(now = Date.now()): RelayDescriptorV1 | null {
+    const discovery = cfg.relayDiscovery;
+    if (!discovery) return null;
+    const lifetimeMs = discovery.descriptorLifetimeMs ?? 60 * 60_000;
+    const refreshWindowMs = Math.min(60_000, Math.floor(lifetimeMs / 4));
+    if (!relayDescriptor || relayDescriptor.expiresAt - now <= refreshWindowMs) {
+      relayDescriptorSequence = Math.max(relayDescriptorSequence + 1, now);
+      relayDescriptor = createRelayDescriptorV1({
+        sequence: relayDescriptorSequence,
+        endpoints: discovery.endpoints,
+        reachability: discovery.reachability,
+        capabilities: {
+          storesPublications: true,
+          storesMailboxes: true,
+          answersQueries: true,
+          forwardsQueries: false,
+          replicaExchange: false,
+        },
+        supportedGroups: discovery.supportedGroups,
+        storage: discovery.storage,
+        issuedAt: now,
+        expiresAt: now + lifetimeMs,
+      }, relayIdentity);
+    }
+    return relayDescriptor;
+  }
+
+  // Validate discovery configuration before the server can accept traffic.
+  if (cfg.relayDiscovery) getOwnRelayDescriptor(startTime);
 
   function replayOperation(entry: RelayOperationLogEntry): void {
     if (entry.kind === 'publication') {
@@ -266,6 +337,20 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       res.end(JSON.stringify({ status: 'ok' }));
       return;
     }
+    if (req.url === '/relay-descriptor' && req.method === 'GET') {
+      const descriptor = getOwnRelayDescriptor();
+      if (!descriptor) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'relay_discovery_disabled' }));
+        return;
+      }
+      res.writeHead(200, {
+        'Cache-Control': 'no-store',
+        'Content-Type': 'application/json',
+      });
+      res.end(JSON.stringify(descriptor));
+      return;
+    }
     if (req.url?.startsWith('/stats') && req.method === 'GET') {
       // VULN-07: Require API key if configured
       if (cfg.adminApiKey) {
@@ -289,6 +374,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         journal_entries: operationLog.length,
         connected_nodes: 0,
         matches_today: stats.matchesToday,
+        known_relays: relayDirectory.size(),
         uptime: Math.floor((Date.now() - startTime) / 1000),
       }));
       return;
@@ -317,6 +403,53 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       // a short connection and never send the user's root identity.
       let frameCandidate: unknown;
       try { frameCandidate = JSON.parse(raw); } catch { /* handled by v1 parser below */ }
+      if (isObject(frameCandidate) && frameCandidate.type === RELAY_PEER_REQUEST_FRAME_TYPE) {
+        clearTimeout(authTimeout);
+        if (!cfg.relayDiscovery) {
+          ws.close(4004, 'relay_discovery_disabled');
+          return;
+        }
+        let frame: ReturnType<typeof parseRelayPeerRequestFrameV1>;
+        try {
+          frame = parseRelayPeerRequestFrameV1(raw);
+        } catch {
+          ws.close(4000, 'invalid_peer_request');
+          return;
+        }
+        const request = frame.request;
+        const now = Date.now();
+        if (!isRelayPeerRequestActiveV1(request, now)) {
+          ws.close(4003, 'expired_peer_request');
+          return;
+        }
+        if (seenPeerRequests.has(request.requestId)) {
+          ws.close(4003, 'replayed_peer_request');
+          return;
+        }
+        if (!rateLimiter.check(`transport:${ip}`, 'discovery')) {
+          ws.close(4008, 'rate_limited');
+          return;
+        }
+        seenPeerRequests.set(request.requestId, request.expiresAt);
+
+        const descriptors: RelayDescriptorV1[] = [];
+        const ownDescriptor = getOwnRelayDescriptor(now);
+        if (ownDescriptor && supportsAnyGroup(ownDescriptor, request.supportedGroups)) {
+          descriptors.push(ownDescriptor);
+        }
+        descriptors.push(...relayDirectory.select({
+          supportedGroups: request.supportedGroups,
+          limit: request.maxPeers - descriptors.length,
+          now,
+        }));
+        const response = createRelayPeerResponseV1(request, descriptors, relayIdentity, now);
+        const responseFrame = createRelayPeerResponseFrameV1(response);
+        ws.send(serializeRelayPeerResponseFrameV1(responseFrame), () => {
+          ws.close(1000, 'peer_exchange_complete');
+        });
+        log('info', 'relay_peer_exchange', { resultCount: descriptors.length });
+        return;
+      }
       if (isObject(frameCandidate) && frameCandidate.type === SEARCH_REQUEST_FRAME_TYPE) {
         clearTimeout(authTimeout);
         let frame: ReturnType<typeof parseSearchRequestFrameV2>;
@@ -747,6 +880,10 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         for (const [searchId, expiresAt] of seenSearches) {
           if (expiresAt <= Date.now()) seenSearches.delete(searchId);
         }
+        for (const [requestId, expiresAt] of seenPeerRequests) {
+          if (expiresAt <= Date.now()) seenPeerRequests.delete(requestId);
+        }
+        relayDirectory.prune();
         enforcePublicationExpiries();
       }, 5 * 60_000);
     },
@@ -776,9 +913,37 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         journal_entries: operationLog.length,
         connected_nodes: 0,
         matches_today: stats.matchesToday,
+        known_relays: relayDirectory.size(),
         uptime: Math.floor((Date.now() - startTime) / 1000),
       };
     },
+
+    getRelayDescriptor(now = Date.now()): RelayDescriptorV1 | null {
+      const descriptor = getOwnRelayDescriptor(now);
+      return descriptor ? copyRelayDescriptor(descriptor) : null;
+    },
+
+    observeRelayDescriptor(value: unknown, now = Date.now()): RelayDescriptorObservation {
+      return relayDirectory.observe(value, now);
+    },
+
+    getKnownRelayDescriptors(now = Date.now()): RelayDescriptorV1[] {
+      return relayDirectory.select({ limit: cfg.relayDiscovery?.maxKnownRelays ?? 256, now });
+    },
+  };
+}
+
+function supportsAnyGroup(descriptor: RelayDescriptorV1, groups: string[]): boolean {
+  return groups.length === 0 || groups.some(group => descriptor.supportedGroups.includes(group));
+}
+
+function copyRelayDescriptor(value: RelayDescriptorV1): RelayDescriptorV1 {
+  return {
+    ...value,
+    endpoints: [...value.endpoints],
+    capabilities: { ...value.capabilities },
+    supportedGroups: [...value.supportedGroups],
+    storage: { ...value.storage },
   };
 }
 

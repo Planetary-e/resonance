@@ -25,6 +25,14 @@ The responding relay signs the complete response, including the request ID and d
 
 This exchange provides discovery, not consensus. A malicious relay can still advertise Sybil identities that it controls. Replica placement therefore must use independently observed peers and diversity signals, and must treat signed durability receipts and subsequent repair checks as stronger evidence than a peer recommendation.
 
+## Relay-server integration
+
+When discovery is enabled, a relay exposes its current signed descriptor at `GET /relay-descriptor` and answers `relay_peer_request` WebSocket frames with a signed, bounded `relay_peer_response`. Requests are one-use, short-lived, replay-protected, and rate-limited by transport address.
+
+The relay directory accepts only active, independently verifiable descriptors. A higher signed sequence replaces an older descriptor for the same relay. Same-sequence conflicts and lower sequences are rejected. The directory is bounded, does not evict established entries merely to accept a new identity, and removes expired descriptors. These controls limit memory use and make simple cache-filling attacks less effective; they do not solve Sybil discovery.
+
+The standalone relay enables discovery when `RELAY_DISCOVERY=true` or `RELAY_PUBLIC_ENDPOINTS` contains a comma-separated list of public `ws://` or `wss://` endpoints. `RELAY_SUPPORTED_GROUPS` defaults to `public`. `RELAY_STORAGE_CAPACITY_BYTES` and `RELAY_STORAGE_AVAILABLE_BYTES` control the signed capacity claim and default to 1 GiB when discovery is enabled. A relay with discovery enabled and no public endpoint advertises itself as `outbound-only`.
+
 ## Next integration step
 
-Relays will expose the request/response frames on their WebSocket endpoint, maintain a bounded descriptor cache, and merge configured, invitation, local, and exchanged hints by relay ID and descriptor sequence. Connection management will then maintain several outbound peer links, including for relays that cannot accept unsolicited inbound connections.
+Connection management will resolve configured, invitation, and local hints; verify the contacted relay's descriptor; exchange peers; and feed verified observations into the bounded directory. It will then maintain several outbound peer links, including for relays that cannot accept unsolicited inbound connections.

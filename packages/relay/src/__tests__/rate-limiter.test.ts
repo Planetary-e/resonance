@@ -18,11 +18,15 @@ describe('RateLimiter', () => {
   });
 
   it('tracks publish and search independently', () => {
-    const limiter = new RateLimiter({ maxPublishesPerMin: 1, maxSearchesPerMin: 1 });
+    const limiter = new RateLimiter({
+      maxPublishesPerMin: 1, maxSearchesPerMin: 1, maxDiscoveriesPerMin: 1,
+    });
     expect(limiter.check('did:a', 'publish')).toBe(true);
     expect(limiter.check('did:a', 'search')).toBe(true);
+    expect(limiter.check('did:a', 'discovery')).toBe(true);
     expect(limiter.check('did:a', 'publish')).toBe(false);
     expect(limiter.check('did:a', 'search')).toBe(false);
+    expect(limiter.check('did:a', 'discovery')).toBe(false);
   });
 
   it('tracks different DIDs independently', () => {

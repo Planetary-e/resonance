@@ -6,10 +6,35 @@
 
 import { createRelayServer } from './server.js';
 
+const publicEndpoints = parseList(process.env.RELAY_PUBLIC_ENDPOINTS);
+const discoveryEnabled = process.env.RELAY_DISCOVERY === 'true' || publicEndpoints.length > 0;
+const storageCapacityBytes = parseNonNegativeInteger(
+  process.env.RELAY_STORAGE_CAPACITY_BYTES,
+  1024 * 1024 * 1024,
+  'RELAY_STORAGE_CAPACITY_BYTES',
+);
+const storageAvailableBytes = parseNonNegativeInteger(
+  process.env.RELAY_STORAGE_AVAILABLE_BYTES,
+  storageCapacityBytes,
+  'RELAY_STORAGE_AVAILABLE_BYTES',
+);
+if (discoveryEnabled && (storageCapacityBytes === 0 || storageAvailableBytes > storageCapacityBytes)) {
+  throw new Error('Relay discovery storage capacity must be positive and available bytes cannot exceed it');
+}
+
 const server = createRelayServer({
   port: parseInt(process.env.RELAY_PORT ?? '9090'),
   host: process.env.RELAY_HOST ?? '0.0.0.0',
   persistDir: process.env.RELAY_DATA_DIR ?? './data',
+  relayDiscovery: discoveryEnabled ? {
+    endpoints: publicEndpoints,
+    reachability: publicEndpoints.length > 0 ? 'direct' : 'outbound-only',
+    supportedGroups: parseList(process.env.RELAY_SUPPORTED_GROUPS, ['public']),
+    storage: {
+      capacityBytes: storageCapacityBytes,
+      availableBytes: storageAvailableBytes,
+    },
+  } : undefined,
 });
 
 await server.start();
@@ -20,4 +45,16 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
     await server.stop();
     process.exit(0);
   });
+}
+
+function parseList(value: string | undefined, fallback: string[] = []): string[] {
+  if (value === undefined) return fallback;
+  return value.split(',').map(item => item.trim()).filter(item => item.length > 0);
+}
+
+function parseNonNegativeInteger(value: string | undefined, fallback: number, name: string): number {
+  if (value === undefined) return fallback;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) throw new Error(`${name} must be a non-negative integer`);
+  return parsed;
 }

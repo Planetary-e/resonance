@@ -8,6 +8,9 @@ import {
   createMailboxRequest,
   createMailboxRequestFrame,
   createMessage,
+  createRelayDescriptorV1,
+  createRelayPeerRequestFrameV1,
+  createRelayPeerRequestV1,
   createSearchRequestFrameV2,
   createSearchRequestV2,
   createPublicationOperationFrame,
@@ -16,12 +19,16 @@ import {
   generateIdentity,
   generatePublicationKeyMaterial,
   parseMessage,
+  parseRelayPeerResponseFrameV1,
   serializeMessage,
   serializeMailboxRequestFrame,
   serializePublicationOperationFrame,
+  serializeRelayPeerRequestFrameV1,
   serializeSearchRequestFrameV2,
   verifyMessage,
   verifyMatchOperationV2,
+  verifyRelayDescriptorV1,
+  verifyRelayPeerResponseV1,
   type AckPayload,
   type AdmissionCapabilityV2,
   type Message,
@@ -76,6 +83,13 @@ function createServer(): RelayServer {
     maxAuthAttemptsPerMin: 100,
     persistDir: PERSIST_DIR,
     persistIntervalMs: 999_999,
+    relayDiscovery: {
+      endpoints: [`ws://127.0.0.1:${PORT}`],
+      reachability: 'direct',
+      supportedGroups: ['public'],
+      storage: { capacityBytes: 1_000_000, availableBytes: 900_000 },
+      maxKnownRelays: 8,
+    },
   });
 }
 
@@ -110,6 +124,20 @@ function sendFrameToPort(port: number, raw: string): Promise<Message> {
       const message = parseMessage(data.toString('utf8'));
       ws.close();
       resolve(message);
+    });
+    ws.on('error', reject);
+  });
+}
+
+function sendRawFrame(raw: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(`ws://localhost:${PORT}`);
+    const timeout = setTimeout(() => reject(new Error('raw frame response timeout')), 5_000);
+    ws.on('open', () => ws.send(raw));
+    ws.on('message', (data: Buffer) => {
+      clearTimeout(timeout);
+      ws.close();
+      resolve(data.toString('utf8'));
     });
     ws.on('error', reject);
   });
@@ -299,6 +327,51 @@ describe('Relay protocol v2 integration', () => {
     expect(stats).toHaveProperty('mailbox_envelopes');
     expect(stats).toHaveProperty('stored_matches');
     expect(stats).toHaveProperty('journal_entries');
+    expect(stats).toHaveProperty('known_relays');
+  });
+
+  it('publishes its signed descriptor and answers bounded signed peer exchange', async () => {
+    const descriptorResponse = await fetch(`http://localhost:${PORT}/relay-descriptor`);
+    const ownDescriptor = await descriptorResponse.json();
+    expect(descriptorResponse.status).toBe(200);
+    expect(verifyRelayDescriptorV1(ownDescriptor)).toBe(true);
+
+    const peerIdentity = generateIdentity();
+    const now = Date.now();
+    const peerDescriptor = createRelayDescriptorV1({
+      sequence: 1,
+      endpoints: ['wss://community-relay.example.net'],
+      reachability: 'direct',
+      capabilities: {
+        storesPublications: true,
+        storesMailboxes: true,
+        answersQueries: true,
+        forwardsQueries: false,
+        replicaExchange: false,
+      },
+      supportedGroups: ['public'],
+      storage: { capacityBytes: 2_000_000, availableBytes: 1_500_000 },
+      issuedAt: now,
+      expiresAt: now + 60_000,
+    }, peerIdentity);
+    expect(server.observeRelayDescriptor(peerDescriptor, now)).toBe('accepted');
+
+    const request = createRelayPeerRequestV1({
+      supportedGroups: ['public'],
+      maxPeers: 2,
+      createdAt: now,
+      expiresAt: now + 30_000,
+    });
+    const rawResponse = await sendRawFrame(serializeRelayPeerRequestFrameV1(
+      createRelayPeerRequestFrameV1(request),
+    ));
+    const frame = parseRelayPeerResponseFrameV1(rawResponse);
+
+    expect(verifyRelayPeerResponseV1(frame.response, request)).toBe(true);
+    expect(frame.response.descriptors).toHaveLength(2);
+    expect(frame.response.descriptors.map(value => value.relayId)).toContain(peerIdentity.did);
+    expect(frame.response.descriptors.map(value => value.relayId)).toContain((ownDescriptor as { relayId: string }).relayId);
+    expect(server.getStats().known_relays).toBe(1);
   });
 
   it('removes each publication at its signed expiry before further matching', async () => {

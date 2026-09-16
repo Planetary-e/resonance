@@ -1,7 +1,18 @@
 export { HammingIndex, ComplementaryHammingIndex, type HashMetadata, type HammingMatch } from './hamming-index.js';
 export { MatchingEngine, type MatchNotification, type SearchResult, type MatchingEngineConfig } from './matching-engine.js';
 export { RateLimiter, type RateLimiterConfig } from './rate-limiter.js';
-export { createRelayServer, type RelayConfig, type RelayServer, type RelayStats } from './server.js';
+export {
+  createRelayServer,
+  type RelayConfig,
+  type RelayDiscoveryConfig,
+  type RelayServer,
+  type RelayStats,
+} from './server.js';
+export {
+  RelayDirectory,
+  type RelayDescriptorObservation,
+  type RelayDirectorySelection,
+} from './relay-directory.js';
 export {
   PublicationOperationStore,
   type PublicationApplyResult,

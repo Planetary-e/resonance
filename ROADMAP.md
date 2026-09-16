@@ -87,6 +87,7 @@ The pilot uses one persistent DID per user and one relay-local index. The next m
 
 - [ ] Discover relays through configured contacts, invitations, local discovery, and signed peer exchange
   - [x] Define signed relay descriptors, untrusted contact hints, and bounded signed peer-exchange frames
+  - [x] Serve signed descriptors and peer exchange from relays with replay protection, rate limits, and a bounded verified cache
 - [ ] Treat bootstrap contacts as discovery hints rather than trusted authorities
 - [ ] Run desktop relay mode as an independently supervised background service when the user enables persistent participation
 - [ ] Maintain several outbound peer connections so relays behind NAT and firewalls can participate without accepting unsolicited inbound connections
