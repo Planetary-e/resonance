@@ -22,14 +22,19 @@ export const RELAY_REPLICA_PUT_FRAME_TYPE = 'relay_replica_put' as const;
 export const RELAY_REPLICA_RECEIPT_FRAME_TYPE = 'relay_replica_receipt' as const;
 export const RELAY_REPLICA_INVENTORY_REQUEST_FRAME_TYPE = 'relay_replica_inventory_request' as const;
 export const RELAY_REPLICA_INVENTORY_RESPONSE_FRAME_TYPE = 'relay_replica_inventory_response' as const;
+export const RELAY_REPLICA_INVENTORY_BATCH_REQUEST_FRAME_TYPE = 'relay_replica_inventory_batch_request' as const;
+export const RELAY_REPLICA_INVENTORY_BATCH_RESPONSE_FRAME_TYPE = 'relay_replica_inventory_batch_response' as const;
 export const RELAY_REPLICA_RECONCILIATION_REQUEST_FRAME_TYPE = 'relay_replica_reconciliation_request' as const;
 export const RELAY_REPLICA_RECONCILIATION_RESPONSE_FRAME_TYPE = 'relay_replica_reconciliation_response' as const;
 export const MAX_RELAY_REPLICA_REQUEST_LIFETIME_MS = 60_000;
+export const MAX_RELAY_REPLICA_INVENTORY_BATCH_RECEIPTS = 64;
 
 const PUT_DOMAIN = 'resonance:relay-replication:v1:put';
 const RECEIPT_DOMAIN = 'resonance:relay-replication:v1:receipt';
 const INVENTORY_REQUEST_DOMAIN = 'resonance:relay-replication:v1:inventory-request';
 const INVENTORY_RESPONSE_DOMAIN = 'resonance:relay-replication:v1:inventory-response';
+const INVENTORY_BATCH_REQUEST_DOMAIN = 'resonance:relay-replication:v1:inventory-batch-request';
+const INVENTORY_BATCH_RESPONSE_DOMAIN = 'resonance:relay-replication:v1:inventory-batch-response';
 const RECONCILIATION_REQUEST_DOMAIN = 'resonance:relay-replication:v1:reconciliation-request';
 const RECONCILIATION_RESPONSE_DOMAIN = 'resonance:relay-replication:v1:reconciliation-response';
 const PUT_BODY_KEYS = [
@@ -83,6 +88,31 @@ const INVENTORY_RESPONSE_BODY_KEYS = [
   'version',
 ] as const;
 const INVENTORY_RESPONSE_KEYS = [...INVENTORY_RESPONSE_BODY_KEYS, 'signature'] as const;
+const INVENTORY_BATCH_REQUEST_BODY_KEYS = [
+  'createdAt',
+  'expiresAt',
+  'kind',
+  'receipts',
+  'requestId',
+  'senderRelayId',
+  'targetRelayId',
+  'version',
+] as const;
+const INVENTORY_BATCH_REQUEST_KEYS = [...INVENTORY_BATCH_REQUEST_BODY_KEYS, 'signature'] as const;
+const INVENTORY_BATCH_RESPONSE_BODY_KEYS = [
+  'createdAt',
+  'kind',
+  'presentBitmap',
+  'reason',
+  'receiptSignatures',
+  'requestId',
+  'requestSignature',
+  'responderRelayId',
+  'senderRelayId',
+  'status',
+  'version',
+] as const;
+const INVENTORY_BATCH_RESPONSE_KEYS = [...INVENTORY_BATCH_RESPONSE_BODY_KEYS, 'signature'] as const;
 const RECONCILIATION_REQUEST_BODY_KEYS = [
   'createdAt',
   'expiresAt',
@@ -112,6 +142,7 @@ const RECONCILIATION_RESPONSE_KEYS = [...RECONCILIATION_RESPONSE_BODY_KEYS, 'sig
 
 export type RelayReplicaReceiptStatusV1 = 'stored' | 'already-stored' | 'rejected';
 export type RelayReplicaInventoryStatusV1 = 'present' | 'missing' | 'rejected';
+export type RelayReplicaInventoryBatchStatusV1 = 'inventory' | 'rejected';
 export type RelayReplicaReconciliationStatusV1 = 'operation' | 'missing' | 'rejected';
 export type RelayReplicaRejectionReasonV1 =
   | 'expired'
@@ -198,6 +229,43 @@ export interface RelayReplicaInventoryResponseV1 extends RelayReplicaInventoryRe
   signature: string;
 }
 
+/** A bounded set of exact checks, each authorized by the target's own receipt. */
+export interface RelayReplicaInventoryBatchRequestBodyV1 {
+  version: typeof RELAY_REPLICATION_VERSION;
+  kind: 'relay-replica-inventory-batch-request';
+  requestId: string;
+  senderRelayId: string;
+  targetRelayId: string;
+  receipts: RelayReplicaReceiptV1[];
+  createdAt: number;
+  expiresAt: number;
+}
+
+export interface RelayReplicaInventoryBatchRequestV1
+  extends RelayReplicaInventoryBatchRequestBodyV1 {
+  signature: string;
+}
+
+/** The bitmap uses one little-endian bit per receipt in canonical request order. */
+export interface RelayReplicaInventoryBatchResponseBodyV1 {
+  version: typeof RELAY_REPLICATION_VERSION;
+  kind: 'relay-replica-inventory-batch-response';
+  requestId: string;
+  requestSignature: string;
+  senderRelayId: string;
+  responderRelayId: string;
+  receiptSignatures: string[];
+  presentBitmap: string;
+  status: RelayReplicaInventoryBatchStatusV1;
+  reason: RelayReplicaInventoryRejectionReasonV1 | null;
+  createdAt: number;
+}
+
+export interface RelayReplicaInventoryBatchResponseV1
+  extends RelayReplicaInventoryBatchResponseBodyV1 {
+  signature: string;
+}
+
 /**
  * A state request is authorized by a target-signed rejection for the same
  * exact operation. This keeps reconciliation from becoming a publication
@@ -261,6 +329,16 @@ export interface RelayReplicaInventoryRequestFrameV1 {
 export interface RelayReplicaInventoryResponseFrameV1 {
   type: typeof RELAY_REPLICA_INVENTORY_RESPONSE_FRAME_TYPE;
   response: RelayReplicaInventoryResponseV1;
+}
+
+export interface RelayReplicaInventoryBatchRequestFrameV1 {
+  type: typeof RELAY_REPLICA_INVENTORY_BATCH_REQUEST_FRAME_TYPE;
+  request: RelayReplicaInventoryBatchRequestV1;
+}
+
+export interface RelayReplicaInventoryBatchResponseFrameV1 {
+  type: typeof RELAY_REPLICA_INVENTORY_BATCH_RESPONSE_FRAME_TYPE;
+  response: RelayReplicaInventoryBatchResponseV1;
 }
 
 export interface RelayReplicaReconciliationRequestFrameV1 {
@@ -510,6 +588,142 @@ export function verifyRelayReplicaInventoryResponseV1(
   }
 }
 
+export function createRelayReplicaInventoryBatchRequestV1(
+  receipts: readonly RelayReplicaReceiptV1[],
+  identity: Identity,
+  createdAt = Date.now(),
+  expiresAt = createdAt + 30_000,
+): RelayReplicaInventoryBatchRequestV1 {
+  const orderedReceipts = [...receipts]
+    .map(receipt => ({ ...receipt }))
+    .sort((first, second) => {
+      const firstReference = inventoryReceiptReference(first);
+      const secondReference = inventoryReceiptReference(second);
+      if (firstReference === secondReference) return 0;
+      return firstReference < secondReference ? -1 : 1;
+    });
+  const body: RelayReplicaInventoryBatchRequestBodyV1 = {
+    version: RELAY_REPLICATION_VERSION,
+    kind: 'relay-replica-inventory-batch-request',
+    requestId: opaqueRequestId(generateSigningKeyPair().publicKey, 'rrb'),
+    senderRelayId: identity.did,
+    targetRelayId: orderedReceipts[0]?.responderRelayId ?? '',
+    receipts: orderedReceipts,
+    createdAt,
+    expiresAt,
+  };
+  if (!isRelayReplicaInventoryBatchRequestBody(body) || !identityMatches(identity)) {
+    throw new Error('Invalid replica inventory batch request input');
+  }
+  return {
+    ...body,
+    signature: encodeBase64(sign(signable(INVENTORY_BATCH_REQUEST_DOMAIN, body), identity.secretKey)),
+  };
+}
+
+export function verifyRelayReplicaInventoryBatchRequestV1(
+  value: unknown,
+): value is RelayReplicaInventoryBatchRequestV1 {
+  if (!isObject(value) || !hasOnlyKeys(value, INVENTORY_BATCH_REQUEST_KEYS)) return false;
+  const { signature, ...body } = value;
+  if (!isCanonicalBase64(signature, 64)
+    || !isRelayReplicaInventoryBatchRequestBody(body)) return false;
+  try {
+    return verify(
+      signable(INVENTORY_BATCH_REQUEST_DOMAIN, body),
+      decodeBase64(signature),
+      didToPublicKey(body.senderRelayId),
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function isRelayReplicaInventoryBatchRequestActiveV1(
+  value: unknown,
+  now: number,
+): value is RelayReplicaInventoryBatchRequestV1 {
+  return isTimestamp(now)
+    && verifyRelayReplicaInventoryBatchRequestV1(value)
+    && now >= value.createdAt
+    && now < value.expiresAt;
+}
+
+export function createRelayReplicaInventoryBatchResponseV1(
+  request: RelayReplicaInventoryBatchRequestV1,
+  identity: Identity,
+  result: { status: 'inventory'; present: readonly boolean[] }
+    | { status: 'rejected'; reason: RelayReplicaInventoryRejectionReasonV1 },
+  createdAt = Date.now(),
+): RelayReplicaInventoryBatchResponseV1 {
+  const present = result.status === 'inventory'
+    ? [...result.present]
+    : request.receipts.map(() => false);
+  const body: RelayReplicaInventoryBatchResponseBodyV1 = {
+    version: RELAY_REPLICATION_VERSION,
+    kind: 'relay-replica-inventory-batch-response',
+    requestId: request.requestId,
+    requestSignature: request.signature,
+    senderRelayId: request.senderRelayId,
+    responderRelayId: identity.did,
+    receiptSignatures: request.receipts.map(receipt => receipt.signature),
+    presentBitmap: encodePresenceBitmap(present),
+    status: result.status,
+    reason: result.status === 'rejected' ? result.reason : null,
+    createdAt,
+  };
+  if (!isRelayReplicaInventoryBatchRequestActiveV1(request, createdAt)
+    || request.targetRelayId !== identity.did
+    || present.length !== request.receipts.length
+    || !isRelayReplicaInventoryBatchResponseBody(body)
+    || !identityMatches(identity)) {
+    throw new Error('Invalid replica inventory batch response input');
+  }
+  return {
+    ...body,
+    signature: encodeBase64(sign(signable(INVENTORY_BATCH_RESPONSE_DOMAIN, body), identity.secretKey)),
+  };
+}
+
+export function verifyRelayReplicaInventoryBatchResponseV1(
+  value: unknown,
+  request?: RelayReplicaInventoryBatchRequestV1,
+): value is RelayReplicaInventoryBatchResponseV1 {
+  if (!isObject(value) || !hasOnlyKeys(value, INVENTORY_BATCH_RESPONSE_KEYS)) return false;
+  const { signature, ...body } = value;
+  if (!isCanonicalBase64(signature, 64)
+    || !isRelayReplicaInventoryBatchResponseBody(body)) return false;
+  if (request !== undefined && (!verifyRelayReplicaInventoryBatchRequestV1(request)
+    || body.requestId !== request.requestId
+    || body.requestSignature !== request.signature
+    || body.senderRelayId !== request.senderRelayId
+    || body.responderRelayId !== request.targetRelayId
+    || body.receiptSignatures.length !== request.receipts.length
+    || body.receiptSignatures.some((signatureValue, index) => (
+      signatureValue !== request.receipts[index]?.signature
+    ))
+    || body.createdAt < request.createdAt
+    || body.createdAt >= request.expiresAt)) return false;
+  try {
+    return verify(
+      signable(INVENTORY_BATCH_RESPONSE_DOMAIN, body),
+      decodeBase64(signature),
+      didToPublicKey(body.responderRelayId),
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function decodeRelayReplicaInventoryBatchPresenceV1(
+  response: RelayReplicaInventoryBatchResponseV1,
+): boolean[] {
+  if (!verifyRelayReplicaInventoryBatchResponseV1(response)) {
+    throw new Error('Invalid replica inventory batch response');
+  }
+  return decodePresenceBitmap(response.presentBitmap, response.receiptSignatures.length);
+}
+
 export function createRelayReplicaReconciliationRequestV1(
   receipt: RelayReplicaReceiptV1,
   identity: Identity,
@@ -655,6 +869,24 @@ export function createRelayReplicaInventoryResponseFrameV1(
   return { type: RELAY_REPLICA_INVENTORY_RESPONSE_FRAME_TYPE, response };
 }
 
+export function createRelayReplicaInventoryBatchRequestFrameV1(
+  request: RelayReplicaInventoryBatchRequestV1,
+): RelayReplicaInventoryBatchRequestFrameV1 {
+  if (!verifyRelayReplicaInventoryBatchRequestV1(request)) {
+    throw new Error('Cannot frame an invalid replica inventory batch request');
+  }
+  return { type: RELAY_REPLICA_INVENTORY_BATCH_REQUEST_FRAME_TYPE, request };
+}
+
+export function createRelayReplicaInventoryBatchResponseFrameV1(
+  response: RelayReplicaInventoryBatchResponseV1,
+): RelayReplicaInventoryBatchResponseFrameV1 {
+  if (!verifyRelayReplicaInventoryBatchResponseV1(response)) {
+    throw new Error('Cannot frame an invalid replica inventory batch response');
+  }
+  return { type: RELAY_REPLICA_INVENTORY_BATCH_RESPONSE_FRAME_TYPE, response };
+}
+
 export function createRelayReplicaReconciliationRequestFrameV1(
   request: RelayReplicaReconciliationRequestV1,
 ): RelayReplicaReconciliationRequestFrameV1 {
@@ -703,6 +935,26 @@ export function serializeRelayReplicaInventoryResponseFrameV1(
   if (frame.type !== RELAY_REPLICA_INVENTORY_RESPONSE_FRAME_TYPE
     || !verifyRelayReplicaInventoryResponseV1(frame.response)) {
     throw new Error('Invalid replica inventory response frame');
+  }
+  return serializeBounded(frame);
+}
+
+export function serializeRelayReplicaInventoryBatchRequestFrameV1(
+  frame: RelayReplicaInventoryBatchRequestFrameV1,
+): string {
+  if (frame.type !== RELAY_REPLICA_INVENTORY_BATCH_REQUEST_FRAME_TYPE
+    || !verifyRelayReplicaInventoryBatchRequestV1(frame.request)) {
+    throw new Error('Invalid replica inventory batch request frame');
+  }
+  return serializeBounded(frame);
+}
+
+export function serializeRelayReplicaInventoryBatchResponseFrameV1(
+  frame: RelayReplicaInventoryBatchResponseFrameV1,
+): string {
+  if (frame.type !== RELAY_REPLICA_INVENTORY_BATCH_RESPONSE_FRAME_TYPE
+    || !verifyRelayReplicaInventoryBatchResponseV1(frame.response)) {
+    throw new Error('Invalid replica inventory batch response frame');
   }
   return serializeBounded(frame);
 }
@@ -769,6 +1021,32 @@ export function parseRelayReplicaInventoryResponseFrameV1(raw: string): RelayRep
     throw new Error('Invalid replica inventory response frame');
   }
   return parsed as unknown as RelayReplicaInventoryResponseFrameV1;
+}
+
+export function parseRelayReplicaInventoryBatchRequestFrameV1(
+  raw: string,
+): RelayReplicaInventoryBatchRequestFrameV1 {
+  const parsed = parseBounded(raw);
+  if (!isObject(parsed)
+    || !hasOnlyKeys(parsed, ['request', 'type'])
+    || parsed.type !== RELAY_REPLICA_INVENTORY_BATCH_REQUEST_FRAME_TYPE
+    || !verifyRelayReplicaInventoryBatchRequestV1(parsed.request)) {
+    throw new Error('Invalid replica inventory batch request frame');
+  }
+  return parsed as unknown as RelayReplicaInventoryBatchRequestFrameV1;
+}
+
+export function parseRelayReplicaInventoryBatchResponseFrameV1(
+  raw: string,
+): RelayReplicaInventoryBatchResponseFrameV1 {
+  const parsed = parseBounded(raw);
+  if (!isObject(parsed)
+    || !hasOnlyKeys(parsed, ['response', 'type'])
+    || parsed.type !== RELAY_REPLICA_INVENTORY_BATCH_RESPONSE_FRAME_TYPE
+    || !verifyRelayReplicaInventoryBatchResponseV1(parsed.response)) {
+    throw new Error('Invalid replica inventory batch response frame');
+  }
+  return parsed as unknown as RelayReplicaInventoryBatchResponseFrameV1;
 }
 
 export function parseRelayReplicaReconciliationRequestFrameV1(
@@ -861,6 +1139,55 @@ function isRelayReplicaInventoryResponseBody(
     if (value.reason !== 'rate-limited') return false;
   } else if (value.reason !== null) return false;
   return isTimestamp(value.createdAt);
+}
+
+function isRelayReplicaInventoryBatchRequestBody(
+  value: unknown,
+): value is RelayReplicaInventoryBatchRequestBodyV1 {
+  if (!isObject(value) || !hasOnlyKeys(value, INVENTORY_BATCH_REQUEST_BODY_KEYS)) return false;
+  if (value.version !== RELAY_REPLICATION_VERSION
+    || value.kind !== 'relay-replica-inventory-batch-request') return false;
+  if (!isOpaqueRequestId(value.requestId, 'rrb')
+    || !isRelayId(value.senderRelayId)
+    || !isRelayId(value.targetRelayId)
+    || !Array.isArray(value.receipts)
+    || value.receipts.length < 1
+    || value.receipts.length > MAX_RELAY_REPLICA_INVENTORY_BATCH_RECEIPTS
+    || !value.receipts.every(isDurabilityReceiptV1)
+    || !isTimestamp(value.createdAt)
+    || !isTimestamp(value.expiresAt)) return false;
+  const references = value.receipts.map(inventoryReceiptReference);
+  return value.receipts.every(receipt => (
+    receipt.senderRelayId === value.senderRelayId
+      && receipt.responderRelayId === value.targetRelayId
+  ))
+    && isStrictlySorted(references)
+    && value.expiresAt > value.createdAt
+    && value.expiresAt - value.createdAt <= MAX_RELAY_REPLICA_REQUEST_LIFETIME_MS;
+}
+
+function isRelayReplicaInventoryBatchResponseBody(
+  value: unknown,
+): value is RelayReplicaInventoryBatchResponseBodyV1 {
+  if (!isObject(value) || !hasOnlyKeys(value, INVENTORY_BATCH_RESPONSE_BODY_KEYS)) return false;
+  if (value.version !== RELAY_REPLICATION_VERSION
+    || value.kind !== 'relay-replica-inventory-batch-response') return false;
+  if (!isOpaqueRequestId(value.requestId, 'rrb')
+    || !isCanonicalBase64(value.requestSignature, 64)
+    || !isRelayId(value.senderRelayId)
+    || !isRelayId(value.responderRelayId)
+    || !Array.isArray(value.receiptSignatures)
+    || value.receiptSignatures.length < 1
+    || value.receiptSignatures.length > MAX_RELAY_REPLICA_INVENTORY_BATCH_RECEIPTS
+    || !value.receiptSignatures.every(signature => isCanonicalBase64(signature, 64))
+    || !isTimestamp(value.createdAt)) return false;
+  try {
+    decodePresenceBitmap(value.presentBitmap, value.receiptSignatures.length);
+  } catch {
+    return false;
+  }
+  if (value.status === 'inventory') return value.reason === null;
+  return value.status === 'rejected' && value.reason === 'rate-limited';
 }
 
 function isRelayReplicaReconciliationRequestBody(
@@ -976,6 +1303,8 @@ function serializeBounded(
     | RelayReplicaReceiptFrameV1
     | RelayReplicaInventoryRequestFrameV1
     | RelayReplicaInventoryResponseFrameV1
+    | RelayReplicaInventoryBatchRequestFrameV1
+    | RelayReplicaInventoryBatchResponseFrameV1
     | RelayReplicaReconciliationRequestFrameV1
     | RelayReplicaReconciliationResponseFrameV1,
 ): string {
@@ -984,6 +1313,41 @@ function serializeBounded(
     throw new Error('Relay replication frame exceeds the maximum size');
   }
   return raw;
+}
+
+function inventoryReceiptReference(receipt: RelayReplicaReceiptV1): string {
+  return `${receipt.publicationId}\u0000${receipt.operationSequence.toString().padStart(16, '0')}\u0000${receipt.operationKind}\u0000${receipt.operationSignature}`;
+}
+
+function isStrictlySorted(values: readonly string[]): boolean {
+  return values.every((value, index) => index === 0 || values[index - 1] < value);
+}
+
+function encodePresenceBitmap(present: readonly boolean[]): string {
+  const bytes = new Uint8Array(Math.ceil(present.length / 8));
+  present.forEach((value, index) => {
+    if (value) bytes[Math.floor(index / 8)] |= 1 << (index % 8);
+  });
+  return encodeBase64(bytes);
+}
+
+function decodePresenceBitmap(value: unknown, count: number): boolean[] {
+  if (typeof value !== 'string' || !Number.isSafeInteger(count) || count < 1
+    || count > MAX_RELAY_REPLICA_INVENTORY_BATCH_RECEIPTS) {
+    throw new Error('Invalid replica inventory bitmap');
+  }
+  const bytes = decodeBase64(value);
+  const expectedLength = Math.ceil(count / 8);
+  if (bytes.length !== expectedLength || encodeBase64(bytes) !== value) {
+    throw new Error('Invalid replica inventory bitmap');
+  }
+  const usedBits = count % 8;
+  if (usedBits !== 0 && (bytes[bytes.length - 1] >> usedBits) !== 0) {
+    throw new Error('Invalid replica inventory bitmap padding');
+  }
+  return Array.from({ length: count }, (_, index) => (
+    (bytes[Math.floor(index / 8)] & (1 << (index % 8))) !== 0
+  ));
 }
 
 function parseBounded(raw: string): unknown {

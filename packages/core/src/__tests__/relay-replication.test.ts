@@ -9,6 +9,10 @@ import {
   createRelayReplicaPutV1,
   createRelayReplicaInventoryRequestFrameV1,
   createRelayReplicaInventoryRequestV1,
+  createRelayReplicaInventoryBatchRequestFrameV1,
+  createRelayReplicaInventoryBatchRequestV1,
+  createRelayReplicaInventoryBatchResponseFrameV1,
+  createRelayReplicaInventoryBatchResponseV1,
   createRelayReplicaInventoryResponseFrameV1,
   createRelayReplicaInventoryResponseV1,
   createRelayReplicaReconciliationRequestFrameV1,
@@ -17,25 +21,33 @@ import {
   createRelayReplicaReconciliationResponseV1,
   createRelayReplicaReceiptFrameV1,
   createRelayReplicaReceiptV1,
+  decodeRelayReplicaInventoryBatchPresenceV1,
   isDurabilityReceiptV1,
   isRelayReplicaInventoryRequestActiveV1,
+  isRelayReplicaInventoryBatchRequestActiveV1,
   isRelayReplicaReconciliationReceiptV1,
   isRelayReplicaReconciliationRequestActiveV1,
   isRelayReplicaPutActiveV1,
   parseRelayReplicaInventoryRequestFrameV1,
   parseRelayReplicaInventoryResponseFrameV1,
+  parseRelayReplicaInventoryBatchRequestFrameV1,
+  parseRelayReplicaInventoryBatchResponseFrameV1,
   parseRelayReplicaReconciliationRequestFrameV1,
   parseRelayReplicaReconciliationResponseFrameV1,
   parseRelayReplicaPutFrameV1,
   parseRelayReplicaReceiptFrameV1,
   serializeRelayReplicaInventoryRequestFrameV1,
   serializeRelayReplicaInventoryResponseFrameV1,
+  serializeRelayReplicaInventoryBatchRequestFrameV1,
+  serializeRelayReplicaInventoryBatchResponseFrameV1,
   serializeRelayReplicaReconciliationRequestFrameV1,
   serializeRelayReplicaReconciliationResponseFrameV1,
   serializeRelayReplicaPutFrameV1,
   serializeRelayReplicaReceiptFrameV1,
   verifyRelayReplicaInventoryRequestV1,
   verifyRelayReplicaInventoryResponseV1,
+  verifyRelayReplicaInventoryBatchRequestV1,
+  verifyRelayReplicaInventoryBatchResponseV1,
   verifyRelayReplicaReconciliationRequestV1,
   verifyRelayReplicaReconciliationResponseV1,
   verifyRelayReplicaPutV1,
@@ -137,6 +149,58 @@ describe('relay replica placement', () => {
       { status: 'missing' },
       NOW + 3,
     )).toThrow('Invalid replica inventory response input');
+  });
+
+  it('checks a bounded receipt-authorized batch with one signed presence bitmap', () => {
+    const sender = generateIdentity();
+    const responder = generateIdentity();
+    const receipts = [publication(), publication()].map((operation, index) => {
+      const placement = createRelayReplicaPutV1(operation, sender, NOW + index, NOW + 30_000);
+      return createRelayReplicaReceiptV1(
+        placement,
+        responder,
+        { status: 'stored' },
+        NOW + index + 1,
+      );
+    });
+    const request = createRelayReplicaInventoryBatchRequestV1(
+      [...receipts].reverse(),
+      sender,
+      NOW + 3,
+      NOW + 30_000,
+    );
+    const response = createRelayReplicaInventoryBatchResponseV1(
+      request,
+      responder,
+      { status: 'inventory', present: [true, false] },
+      NOW + 4,
+    );
+
+    expect(verifyRelayReplicaInventoryBatchRequestV1(request)).toBe(true);
+    expect(isRelayReplicaInventoryBatchRequestActiveV1(request, NOW + 4)).toBe(true);
+    expect(request.receipts.map(receipt => receipt.publicationId))
+      .toEqual([...request.receipts].map(receipt => receipt.publicationId).sort());
+    expect(verifyRelayReplicaInventoryBatchResponseV1(response, request)).toBe(true);
+    expect(decodeRelayReplicaInventoryBatchPresenceV1(response)).toEqual([true, false]);
+
+    const requestFrame = createRelayReplicaInventoryBatchRequestFrameV1(request);
+    const responseFrame = createRelayReplicaInventoryBatchResponseFrameV1(response);
+    expect(parseRelayReplicaInventoryBatchRequestFrameV1(
+      serializeRelayReplicaInventoryBatchRequestFrameV1(requestFrame),
+    )).toEqual(requestFrame);
+    expect(parseRelayReplicaInventoryBatchResponseFrameV1(
+      serializeRelayReplicaInventoryBatchResponseFrameV1(responseFrame),
+    )).toEqual(responseFrame);
+
+    const tampered = structuredClone(response);
+    tampered.presentBitmap = 'Aw';
+    expect(verifyRelayReplicaInventoryBatchResponseV1(tampered, request)).toBe(false);
+    expect(() => createRelayReplicaInventoryBatchRequestV1(
+      Array.from({ length: 65 }, () => receipts[0]),
+      sender,
+      NOW + 3,
+      NOW + 30_000,
+    )).toThrow('Invalid replica inventory batch request input');
   });
 
   it('authorizes a read-only current-state response only with a signed state refusal', () => {

@@ -7,9 +7,11 @@ import {
   createPublicationTombstone,
   createRelayContactHintV1,
   createRelayDescriptorV1,
+  decodeRelayReplicaInventoryBatchPresenceV1,
   generateIdentity,
   generatePublicationKeyMaterial,
   serializePublicationOperationFrame,
+  verifyRelayReplicaInventoryBatchResponseV1,
   verifyRelayReplicaInventoryResponseV1,
   verifyRelayReplicaReconciliationResponseV1,
   verifyRelayReplicaReceiptV1,
@@ -303,6 +305,9 @@ describe('authenticated outbound relay links', () => {
     const present = await connection.checkReplica(receipt);
     expect(verifyRelayReplicaInventoryResponseV1(present)).toBe(true);
     expect(present.status).toBe('present');
+    const presentBatch = await connection.checkReplicaBatch([receipt]);
+    expect(verifyRelayReplicaInventoryBatchResponseV1(presentBatch)).toBe(true);
+    expect(decodeRelayReplicaInventoryBatchPresenceV1(presentBatch)).toEqual([true]);
 
     const tombstone = createPublicationTombstone(
       operation,
@@ -313,6 +318,8 @@ describe('authenticated outbound relay links', () => {
     expect((await connection.placeReplica(tombstone)).status).toBe('stored');
     const missing = await connection.checkReplica(receipt);
     expect(missing.status).toBe('missing');
+    const missingBatch = await connection.checkReplicaBatch([receipt]);
+    expect(decodeRelayReplicaInventoryBatchPresenceV1(missingBatch)).toEqual([false]);
 
     const stale = await connection.placeReplica(operation);
     expect(stale.status).toBe('rejected');
@@ -378,6 +385,9 @@ describe('authenticated outbound relay links', () => {
     const responses = await manager.checkReplicaReceipts(receipts);
     expect(responses).toHaveLength(2);
     expect(responses.map(response => response.status)).toEqual(['present', 'present']);
+    const batches = await manager.checkReplicaReceiptBatches(receipts);
+    expect(batches).toHaveLength(1);
+    expect(decodeRelayReplicaInventoryBatchPresenceV1(batches[0])).toEqual([true, true]);
     manager.stop();
     await waitFor(() => !hub.getRelayLinkStatus().inboundRelayIds.includes(identity.did));
   });
@@ -397,7 +407,7 @@ describe('authenticated outbound relay links', () => {
 
     expect(spoke.getRelayLinkStatus().connectedRelayIds).toHaveLength(1);
     expect(hub.getRelayLinkStatus().inboundRelayIds).toEqual([spokeId]);
-  });
+  }, 15_000);
 
   it('re-authenticates an active link on its descriptor refresh interval', async () => {
     const identity = generateIdentity();

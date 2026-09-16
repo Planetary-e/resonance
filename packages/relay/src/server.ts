@@ -14,6 +14,7 @@ import {
   MAX_RELAY_DISCOVERY_FRAME_BYTES,
   PUBLICATION_OPERATION_FRAME_TYPE,
   RELAY_LINK_OPEN_FRAME_TYPE,
+  RELAY_REPLICA_INVENTORY_BATCH_REQUEST_FRAME_TYPE,
   RELAY_REPLICA_INVENTORY_REQUEST_FRAME_TYPE,
   RELAY_REPLICA_RECONCILIATION_REQUEST_FRAME_TYPE,
   RELAY_REPLICA_PUT_FRAME_TYPE,
@@ -27,6 +28,8 @@ import {
   createMatchNoticeMessage,
   createRelayLinkAcceptFrameV1,
   createRelayLinkAcceptV1,
+  createRelayReplicaInventoryBatchResponseFrameV1,
+  createRelayReplicaInventoryBatchResponseV1,
   createRelayReplicaInventoryResponseFrameV1,
   createRelayReplicaInventoryResponseV1,
   createRelayReplicaReconciliationResponseFrameV1,
@@ -42,6 +45,7 @@ import {
   hammingSimilarity,
   isPublicationActive,
   isRelayLinkOpenActiveV1,
+  isRelayReplicaInventoryBatchRequestActiveV1,
   isRelayReplicaInventoryRequestActiveV1,
   isRelayReplicaReconciliationReceiptV1,
   isRelayReplicaReconciliationRequestActiveV1,
@@ -54,6 +58,7 @@ import {
   parseRelationshipMailboxDepositFrameV2,
   parseRelationshipMailboxRequestFrameV2,
   parseRelayLinkOpenFrameV1,
+  parseRelayReplicaInventoryBatchRequestFrameV1,
   parseRelayReplicaInventoryRequestFrameV1,
   parseRelayReplicaReconciliationRequestFrameV1,
   parseRelayReplicaPutFrameV1,
@@ -64,6 +69,7 @@ import {
   createMessage,
   serializeMessage,
   serializeRelayLinkAcceptFrameV1,
+  serializeRelayReplicaInventoryBatchResponseFrameV1,
   serializeRelayReplicaInventoryResponseFrameV1,
   serializeRelayReplicaReconciliationResponseFrameV1,
   serializeRelayReplicaReceiptFrameV1,
@@ -82,6 +88,7 @@ import {
   type RelayContactHintV1,
   type RelayReachability,
   type RelayStorageCapacityV1,
+  type RelayReplicaInventoryBatchRequestV1,
   type RelayReplicaInventoryRequestV1,
   type RelayReplicaInventoryRejectionReasonV1,
   type RelayReplicaReconciliationRequestV1,
@@ -1152,16 +1159,15 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       dueInventoryReceipts,
       MAX_REPLICA_INVENTORY_CHECKS_PER_REPAIR,
     );
-    const inventoryResponses = await outboundRelayLinks.checkReplicaReceipts(inventoryBatch);
+    const inventoryResponses = await outboundRelayLinks.checkReplicaReceiptBatches(inventoryBatch);
     for (const response of inventoryResponses) {
-      if (placementTracker.canRecordInventoryResponse(response)) {
-        placementTracker.recordInventoryResponse(response);
-      }
-      log(response.status === 'rejected' ? 'warn' : 'info', 'replica_inventory', {
-        publicationId: response.publicationId,
+      const recordedCount = placementTracker.recordInventoryBatchResponse(response);
+      log(response.status === 'rejected' ? 'warn' : 'info', 'replica_inventory_batch', {
         relayId: response.responderRelayId,
         status: response.status,
         reason: response.reason,
+        receiptCount: response.receiptSignatures.length,
+        recordedCount,
       });
     }
 
@@ -1397,7 +1403,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   }
 
   function replicaReplayKey(
-    kind: 'placement' | 'inventory' | 'reconciliation',
+    kind: 'placement' | 'inventory' | 'inventory-batch' | 'reconciliation',
     requestId: string,
   ): string {
     return `${kind}:${requestId}`;
@@ -1414,10 +1420,11 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   }
 
   function reserveSeenRelayReplicaRequest(
-    kind: 'placement' | 'inventory' | 'reconciliation',
+    kind: 'placement' | 'inventory' | 'inventory-batch' | 'reconciliation',
     request:
       | RelayReplicaPutV1
       | RelayReplicaInventoryRequestV1
+      | RelayReplicaInventoryBatchRequestV1
       | RelayReplicaReconciliationRequestV1,
   ): {
     expiresAt: number;
@@ -1646,6 +1653,111 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     });
   }
 
+  function createReplicaInventoryBatchResponse(
+    request: RelayReplicaInventoryBatchRequestV1,
+    result: { status: 'inventory'; present: readonly boolean[] }
+      | { status: 'rejected'; reason: RelayReplicaInventoryRejectionReasonV1 },
+  ): string | undefined {
+    try {
+      const response = createRelayReplicaInventoryBatchResponseV1(request, relayIdentity, result);
+      return serializeRelayReplicaInventoryBatchResponseFrameV1(
+        createRelayReplicaInventoryBatchResponseFrameV1(response),
+      );
+    } catch (error) {
+      log('warn', 'replica_inventory_batch_response_failed', {
+        receiptCount: request.receipts.length,
+        error: String(error),
+      });
+      return undefined;
+    }
+  }
+
+  function sendReplicaInventoryBatchResponse(ws: WebSocket, response: string): void {
+    ws.send(response, error => {
+      if (error) ws.terminate();
+    });
+  }
+
+  function sendReplicaInventoryBatch(
+    ws: WebSocket,
+    request: RelayReplicaInventoryBatchRequestV1,
+    result: { status: 'inventory'; present: readonly boolean[] }
+      | { status: 'rejected'; reason: RelayReplicaInventoryRejectionReasonV1 },
+  ): string | undefined {
+    const response = createReplicaInventoryBatchResponse(request, result);
+    if (response) sendReplicaInventoryBatchResponse(ws, response);
+    else ws.terminate();
+    return response;
+  }
+
+  function handleReplicaInventoryBatch(
+    ws: WebSocket,
+    raw: string,
+    linkedRelayId: string,
+  ): void {
+    let frame: ReturnType<typeof parseRelayReplicaInventoryBatchRequestFrameV1>;
+    try {
+      frame = parseRelayReplicaInventoryBatchRequestFrameV1(raw);
+    } catch {
+      ws.close(4000, 'invalid_replica_inventory_batch_request');
+      return;
+    }
+    const request = frame.request;
+    const now = Date.now();
+    if (request.senderRelayId !== linkedRelayId
+      || request.targetRelayId !== relayIdentity.did
+      || !isRelayReplicaInventoryBatchRequestActiveV1(request, now)) {
+      ws.close(4003, 'unauthenticated_replica_inventory_batch_request');
+      return;
+    }
+    const link = inboundRelayLinks.get(linkedRelayId);
+    if (!link || link.socket !== ws || !link.descriptor.capabilities.replicaExchange) {
+      ws.close(4003, 'replica_exchange_not_advertised');
+      return;
+    }
+    pruneSeenRelayReplicaRequests(now);
+    const replay = seenRelayReplicaRequests.get(
+      replicaReplayKey('inventory-batch', request.requestId),
+    );
+    if (replay) {
+      if (replay.senderRelayId !== request.senderRelayId
+        || replay.requestSignature !== request.signature) {
+        ws.close(4003, 'replayed_replica_inventory_batch_request');
+        return;
+      }
+      if (replay.response) sendReplicaInventoryBatchResponse(ws, replay.response);
+      else ws.close(4008, 'replica_response_unavailable');
+      return;
+    }
+
+    if (!rateLimiter.checkMany(`relay:${linkedRelayId}`, 'replica', request.receipts.length)) {
+      sendReplicaInventoryBatch(ws, request, { status: 'rejected', reason: 'rate-limited' });
+      return;
+    }
+    const replayEntry = reserveSeenRelayReplicaRequest('inventory-batch', request);
+    if (!replayEntry) {
+      sendReplicaInventoryBatch(ws, request, { status: 'rejected', reason: 'rate-limited' });
+      return;
+    }
+    const present = request.receipts.map(receipt => {
+      const current = publicationStore.get(receipt.publicationId);
+      return current !== undefined
+        && current.sequence === receipt.operationSequence
+        && current.kind === receipt.operationKind
+        && current.signature === receipt.operationSignature
+        && (current.kind === 'publication-tombstone' || isPublicationActive(current, now));
+    });
+    const response = sendReplicaInventoryBatch(ws, request, { status: 'inventory', present });
+    if (response) replayEntry.response = response;
+    const presentCount = present.filter(Boolean).length;
+    log('info', 'replica_inventory_batch', {
+      relayId: linkedRelayId,
+      receiptCount: request.receipts.length,
+      presentCount,
+      missingCount: request.receipts.length - presentCount,
+    });
+  }
+
   function createReplicaReconciliationResponse(
     request: RelayReplicaReconciliationRequestV1,
     result: {
@@ -1790,6 +1902,9 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         }
         if (isObject(frameCandidate) && frameCandidate.type === RELAY_REPLICA_PUT_FRAME_TYPE) {
           handleReplicaPlacement(ws, raw, linkedRelayId);
+        } else if (isObject(frameCandidate)
+          && frameCandidate.type === RELAY_REPLICA_INVENTORY_BATCH_REQUEST_FRAME_TYPE) {
+          handleReplicaInventoryBatch(ws, raw, linkedRelayId);
         } else if (isObject(frameCandidate)
           && frameCandidate.type === RELAY_REPLICA_INVENTORY_REQUEST_FRAME_TYPE) {
           handleReplicaInventory(ws, raw, linkedRelayId);

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   createPublicationRecord,
   createPublicationTombstone,
+  createRelayReplicaInventoryBatchRequestV1,
+  createRelayReplicaInventoryBatchResponseV1,
   createRelayReplicaInventoryRequestV1,
   createRelayReplicaInventoryResponseV1,
   createRelayReplicaPutV1,
@@ -436,6 +438,71 @@ describe('ReplicaPlacementTracker', () => {
       .map(receipt => receipt.publicationId)).toEqual([ordered[1].publicationId]);
     expect(scheduler.take(receipts.filter(receipt => receipt !== ordered[0] && receipt !== ordered[1]), 1)
       .map(receipt => receipt.publicationId)).toEqual([ordered[2].publicationId]);
+  });
+
+  it('applies each bit in a signed inventory batch to its current receipt', () => {
+    const local = generateIdentity();
+    const target = generateIdentity();
+    const operations = [publication().operation, publication().operation];
+    const tracker = new ReplicaPlacementTracker(local.did);
+    const receipts = operations.map((operation, index) => {
+      expect(tracker.applyIntent(createReplicaPlacementIntent(
+        operation,
+        [target.did],
+        POLICY,
+        1,
+        NOW + index,
+      ))).toBe(true);
+      const placement = createRelayReplicaPutV1(operation, local, NOW + index, NOW + 30_000);
+      const receipt = createRelayReplicaReceiptV1(
+        placement,
+        target,
+        { status: 'stored' },
+        NOW + index + 1,
+      );
+      expect(tracker.recordReceipt(receipt)).toBe(true);
+      return receipt;
+    });
+    const request = createRelayReplicaInventoryBatchRequestV1(
+      receipts,
+      local,
+      NOW + 3,
+      NOW + 30_000,
+    );
+    const response = createRelayReplicaInventoryBatchResponseV1(
+      request,
+      target,
+      { status: 'inventory', present: [true, false] },
+      NOW + 4,
+    );
+
+    expect(tracker.recordInventoryBatchResponse(response)).toBe(2);
+    expect(tracker.statusFor(request.receipts[0].publicationId)).toMatchObject({
+      inventoryPresentRelayIds: [target.did],
+      inventoryMissingRelayIds: [],
+      pendingRelayIds: [],
+    });
+    expect(tracker.statusFor(request.receipts[1].publicationId)).toMatchObject({
+      inventoryPresentRelayIds: [],
+      inventoryMissingRelayIds: [target.did],
+      pendingRelayIds: [target.did],
+    });
+    const newerRequest = createRelayReplicaInventoryBatchRequestV1(
+      receipts,
+      local,
+      NOW + 5,
+      NOW + 30_000,
+    );
+    const newerResponse = createRelayReplicaInventoryBatchResponseV1(
+      newerRequest,
+      target,
+      { status: 'inventory', present: [false, false] },
+      NOW + 6,
+    );
+    expect(tracker.recordInventoryBatchResponse(newerResponse)).toBe(2);
+    expect(tracker.recordInventoryBatchResponse(response)).toBe(0);
+    expect(tracker.statusFor(request.receipts[0].publicationId)?.inventoryMissingRelayIds)
+      .toEqual([target.did]);
   });
 
   it('uses one deterministic order for base64url receipt keys', () => {

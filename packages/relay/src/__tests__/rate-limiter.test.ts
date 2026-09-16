@@ -42,6 +42,14 @@ describe('RateLimiter', () => {
     expect(limiter.check('did:b', 'publish')).toBe(false);
   });
 
+  it('charges batches atomically', () => {
+    const limiter = new RateLimiter({ maxReplicasPerMin: 3 });
+    expect(limiter.checkMany('relay', 'replica', 2)).toBe(true);
+    expect(limiter.checkMany('relay', 'replica', 2)).toBe(false);
+    expect(limiter.check('relay', 'replica')).toBe(true);
+    expect(limiter.check('relay', 'replica')).toBe(false);
+  });
+
   it('resets after window expires', () => {
     const limiter = new RateLimiter({ maxPublishesPerMin: 1, windowMs: 10 });
     expect(limiter.check('did:a', 'publish')).toBe(true);

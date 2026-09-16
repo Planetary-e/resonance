@@ -1,6 +1,7 @@
 /** Durable local state for selecting, tracking, and repairing relay replicas. */
 
 import {
+  decodeRelayReplicaInventoryBatchPresenceV1,
   decodeBase64,
   didToPublicKey,
   encodeBase64,
@@ -8,12 +9,20 @@ import {
   isRelayReplicaReconciliationReceiptV1,
   publicKeyToDid,
   verifyRelayReplicaReceiptV1,
+  verifyRelayReplicaInventoryBatchResponseV1,
   verifyRelayReplicaInventoryResponseV1,
   verifyPublicationOperation,
   type PublicationOperation,
+  type RelayReplicaInventoryBatchResponseV1,
   type RelayReplicaInventoryResponseV1,
   type RelayReplicaReceiptV1,
 } from '@resonance/core';
+
+interface ReplicaInventoryObservation {
+  status: 'present' | 'missing' | 'rejected';
+  createdAt: number;
+  evidenceSignature: string;
+}
 
 export const REPLICA_PLACEMENT_VERSION = 1 as const;
 export const DEFAULT_DESIRED_REPLICA_COUNT = 5;
@@ -215,7 +224,7 @@ export function placementMatchesOperation(
 export class ReplicaPlacementTracker {
   private readonly intents = new Map<string, ReplicaPlacementIntentV1>();
   private readonly receipts = new Map<string, Map<string, RelayReplicaReceiptV1>>();
-  private readonly inventory = new Map<string, Map<string, RelayReplicaInventoryResponseV1>>();
+  private readonly inventory = new Map<string, Map<string, ReplicaInventoryObservation>>();
 
   constructor(private readonly localRelayId?: string) {}
 
@@ -407,7 +416,8 @@ export class ReplicaPlacementTracker {
     const current = this.inventory.get(response.publicationId)?.get(response.responderRelayId);
     return !current
       || response.createdAt > current.createdAt
-      || response.signature !== current.signature;
+      || (response.createdAt === current.createdAt
+        && response.signature !== current.evidenceSignature);
   }
 
   recordInventoryResponse(response: RelayReplicaInventoryResponseV1): boolean {
@@ -417,8 +427,66 @@ export class ReplicaPlacementTracker {
       byRelay = new Map();
       this.inventory.set(response.publicationId, byRelay);
     }
-    byRelay.set(response.responderRelayId, { ...response });
+    byRelay.set(response.responderRelayId, {
+      status: response.status,
+      createdAt: response.createdAt,
+      evidenceSignature: response.signature,
+    });
     return true;
+  }
+
+  /**
+   * Records a target-signed bitmap only for durability receipts that still
+   * belong to the current local placement generation. The batch cannot create
+   * evidence for an arbitrary publication because every bit is bound to a
+   * receipt previously signed by the responding target.
+   */
+  recordInventoryBatchResponse(response: RelayReplicaInventoryBatchResponseV1): number {
+    if (!verifyRelayReplicaInventoryBatchResponseV1(response)
+      || response.status !== 'inventory'
+      || (this.localRelayId !== undefined && response.senderRelayId !== this.localRelayId)) {
+      return 0;
+    }
+    const presence = decodeRelayReplicaInventoryBatchPresenceV1(response);
+    const receiptsBySignature = new Map<string, RelayReplicaReceiptV1>();
+    for (const receipts of this.receipts.values()) {
+      for (const receipt of receipts.values()) {
+        if (receipt.senderRelayId === response.senderRelayId
+          && receipt.responderRelayId === response.responderRelayId) {
+          receiptsBySignature.set(receipt.signature, receipt);
+        }
+      }
+    }
+
+    let recorded = 0;
+    for (const [index, receiptSignature] of response.receiptSignatures.entries()) {
+      const receipt = receiptsBySignature.get(receiptSignature);
+      if (!receipt || response.createdAt < receipt.createdAt) continue;
+      const intent = this.intents.get(receipt.publicationId);
+      if (!intent
+        || (intent.reconciliationRequiredRelayIds ?? []).length > 0
+        || intent.operationSequence !== receipt.operationSequence
+        || intent.operationKind !== receipt.operationKind
+        || intent.operationSignature !== receipt.operationSignature
+        || !intent.targetRelayIds.includes(response.responderRelayId)) continue;
+      const current = this.inventory.get(receipt.publicationId)?.get(response.responderRelayId);
+      if (current
+        && (response.createdAt < current.createdAt
+          || (response.createdAt === current.createdAt
+            && response.signature === current.evidenceSignature))) continue;
+      let byRelay = this.inventory.get(receipt.publicationId);
+      if (!byRelay) {
+        byRelay = new Map();
+        this.inventory.set(receipt.publicationId, byRelay);
+      }
+      byRelay.set(response.responderRelayId, {
+        status: presence[index] ? 'present' : 'missing',
+        createdAt: response.createdAt,
+        evidenceSignature: response.signature,
+      });
+      recorded++;
+    }
+    return recorded;
   }
 
   receiptsFor(publicationId: string): RelayReplicaReceiptV1[] {

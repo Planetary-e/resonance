@@ -35,6 +35,16 @@ export class RateLimiter {
 
   /** Returns true if the action is allowed, false if rate limited. */
   check(did: string, action: 'publish' | 'search' | 'discovery' | 'replica'): boolean {
+    return this.checkMany(did, action, 1);
+  }
+
+  /** Atomically charges a bounded batch against one fixed-window allowance. */
+  checkMany(
+    did: string,
+    action: 'publish' | 'search' | 'discovery' | 'replica',
+    count: number,
+  ): boolean {
+    if (!Number.isSafeInteger(count) || count < 1) return false;
     const now = Date.now();
     let window = this.windows.get(did);
 
@@ -51,8 +61,8 @@ export class RateLimiter {
           ? this.config.maxDiscoveriesPerMin
           : this.config.maxReplicasPerMin;
 
-    if (window[action] >= limit) return false;
-    window[action]++;
+    if (window[action] + count > limit) return false;
+    window[action] += count;
     return true;
   }
 
