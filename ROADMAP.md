@@ -95,6 +95,7 @@ The pilot uses one persistent DID per user and one relay-local index. The next m
   - [x] Establish mutually authenticated links to configured relays with heartbeats, descriptor renewal, bounded fanout, and reconnect backoff
 - [ ] Detect and advertise relay capabilities such as inbound reachability, storage capacity, supported groups, and forwarding availability
 - [ ] Publish to a remote placement set even when the personal node also operates a local relay
+  - [x] Carry relay-signed publication and tombstone placement requests over authenticated links, fsync accepted operations before replying, and retain signed durability receipts per relay
 - [ ] Replicate every active publication to a target of five relays with a minimum healthy set of three
 - [ ] Return signed durability receipts for accepted replicas and track whether the minimum healthy set has been reached
 - [ ] Exchange compact inventories and continuously repair missing replicas

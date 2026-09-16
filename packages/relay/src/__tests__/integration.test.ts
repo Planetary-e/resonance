@@ -329,6 +329,7 @@ describe('Relay protocol v2 integration', () => {
     expect(stats).toHaveProperty('journal_entries');
     expect(stats).toHaveProperty('known_relays');
     expect(stats).toHaveProperty('connected_relays');
+    expect(stats).toHaveProperty('durability_receipts');
   });
 
   it('publishes its signed descriptor and answers bounded signed peer exchange', async () => {

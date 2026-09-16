@@ -100,6 +100,33 @@ export {
 } from './relay-link.js';
 
 export {
+  RELAY_REPLICATION_VERSION,
+  RELAY_REPLICA_PUT_FRAME_TYPE,
+  RELAY_REPLICA_RECEIPT_FRAME_TYPE,
+  MAX_RELAY_REPLICA_REQUEST_LIFETIME_MS,
+  type RelayReplicaReceiptStatusV1,
+  type RelayReplicaRejectionReasonV1,
+  type RelayReplicaPutBodyV1,
+  type RelayReplicaPutV1,
+  type RelayReplicaReceiptBodyV1,
+  type RelayReplicaReceiptV1,
+  type RelayReplicaPutFrameV1,
+  type RelayReplicaReceiptFrameV1,
+  createRelayReplicaPutV1,
+  verifyRelayReplicaPutV1,
+  isRelayReplicaPutActiveV1,
+  createRelayReplicaReceiptV1,
+  verifyRelayReplicaReceiptV1,
+  isDurabilityReceiptV1,
+  createRelayReplicaPutFrameV1,
+  createRelayReplicaReceiptFrameV1,
+  serializeRelayReplicaPutFrameV1,
+  serializeRelayReplicaReceiptFrameV1,
+  parseRelayReplicaPutFrameV1,
+  parseRelayReplicaReceiptFrameV1,
+} from './relay-replication.js';
+
+export {
   generateProjectionMatrix,
   hashEmbedding,
   hammingDistance,

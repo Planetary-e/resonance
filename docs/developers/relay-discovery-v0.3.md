@@ -47,8 +47,14 @@ The initiator signs a short-lived, one-use link request with its relay infrastru
 
 Both sides monitor the connection with WebSocket ping/pong frames. Missed heartbeats close the link, and the outbound manager reconnects with exponential backoff. Links also close and reauthenticate when either signed descriptor expires, so a live socket cannot extend stale reachability, group, capability, or capacity claims. `connected_relays` reports the union of authenticated inbound and outbound relay identities.
 
-The link currently provides authenticated reachability and lifecycle management. Replication, forwarded searches, and inventory repair will add explicitly typed messages over this channel in later v0.3 steps.
+## Replica placement and receipts
+
+An authenticated link can carry `relay_replica_put` requests for owner-signed publication records and tombstones. The sending relay signs the complete request with its infrastructure identity, including a one-use request ID and short validity window. The receiver requires that identity to match the authenticated link, verifies the nested publication-owner signature, rejects request replays, applies a separate per-relay rate limit, and enforces its advertised matching groups.
+
+An accepted operation passes through the same append-only journal and materialized publication store as a direct client submission. The receiver fsyncs a new journal record before returning a `relay_replica_receipt`. The receipt is signed by the receiving relay and binds the sender, request, publication ID, operation kind, sequence, and owner signature. Exact retries receive an `already-stored` receipt; stale, conflicting, terminal, expired, unsupported, or failed writes receive a signed rejection and do not count as durable copies.
+
+The outbound manager retains the latest verified durability receipt per publication and receiving relay. The `/stats` response exposes the aggregate as `durability_receipts`. Receipts are currently memory-resident placement evidence; persistent receipt state, target selection, quorum policy, retry queues, and inventory repair remain later v0.3 work.
 
 ## Next integration step
 
-Connection management will refresh known contacts, add local discovery, and select link targets from independently observed peers under an explicit dialing policy. The next protocol step will carry replica placement and repair messages over authenticated links.
+Connection management will refresh known contacts, add local discovery, and select link targets from independently observed peers under an explicit dialing policy. The next replication step will persist placement intent and receipt state, choose a five-relay target set, and retry until at least three independently verified copies are healthy.

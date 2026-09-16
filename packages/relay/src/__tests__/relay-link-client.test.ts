@@ -1,9 +1,17 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { rmSync } from 'node:fs';
+import WebSocket from 'ws';
 import {
+  createPublicationOperationFrame,
+  createPublicationRecord,
+  createPublicationTombstone,
   createRelayContactHintV1,
   createRelayDescriptorV1,
   generateIdentity,
+  generatePublicationKeyMaterial,
+  serializePublicationOperationFrame,
+  verifyRelayReplicaReceiptV1,
+  type PublicationOperation,
 } from '@resonance/core';
 import { connectRelayLinkV1 } from '../relay-link-client.js';
 import { createRelayServer, type RelayServer } from '../server.js';
@@ -27,10 +35,29 @@ function createHub(): RelayServer {
       reachability: 'direct',
       supportedGroups: ['public'],
       storage: { capacityBytes: 1_000_000, availableBytes: 800_000 },
-      descriptorLifetimeMs: 2_000,
+      descriptorLifetimeMs: 5_000,
     },
-    relayLinkHeartbeatIntervalMs: 50,
-    relayLinkHeartbeatTimeoutMs: 250,
+    relayLinkHeartbeatIntervalMs: 100,
+    relayLinkHeartbeatTimeoutMs: 1_500,
+  });
+}
+
+function submitToSpoke(operation: PublicationOperation): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${SPOKE_PORT}/`);
+    const timeout = setTimeout(() => reject(new Error('publication submission timed out')), 3_000);
+    ws.on('open', () => {
+      ws.send(serializePublicationOperationFrame(createPublicationOperationFrame(operation)));
+    });
+    ws.on('message', () => {
+      clearTimeout(timeout);
+      ws.close();
+      resolve();
+    });
+    ws.on('error', error => {
+      clearTimeout(timeout);
+      reject(error);
+    });
   });
 }
 
@@ -45,19 +72,19 @@ beforeAll(async () => {
       reachability: 'outbound-only',
       supportedGroups: ['public'],
       storage: { capacityBytes: 1_000_000, availableBytes: 800_000 },
-      descriptorLifetimeMs: 2_000,
+      descriptorLifetimeMs: 5_000,
     },
     relayLinks: {
       targets: [createRelayContactHintV1('configured', HUB_ENDPOINT)],
       maxConnections: 2,
       handshakeTimeoutMs: 1_000,
-      heartbeatIntervalMs: 50,
-      heartbeatTimeoutMs: 250,
+      heartbeatIntervalMs: 100,
+      heartbeatTimeoutMs: 1_500,
       reconnectBaseMs: 50,
       reconnectMaxMs: 200,
     },
-    relayLinkHeartbeatIntervalMs: 50,
-    relayLinkHeartbeatTimeoutMs: 250,
+    relayLinkHeartbeatIntervalMs: 100,
+    relayLinkHeartbeatTimeoutMs: 1_500,
   });
   await hub.start();
   await spoke.start();
@@ -101,6 +128,56 @@ describe('authenticated outbound relay links', () => {
     await waitFor(() => !hub.getRelayLinkStatus().inboundRelayIds.includes(initiator.did));
   });
 
+  it('returns a signed rejection for a replica outside its advertised groups', async () => {
+    const storedBefore = hub.getStats().stored_publications;
+    const identity = generateIdentity();
+    const now = Date.now();
+    const descriptor = createRelayDescriptorV1({
+      sequence: 1,
+      endpoints: [],
+      reachability: 'outbound-only',
+      capabilities: {
+        storesPublications: true,
+        storesMailboxes: true,
+        answersQueries: true,
+        forwardsQueries: false,
+        replicaExchange: true,
+      },
+      supportedGroups: ['private'],
+      storage: { capacityBytes: 1_000_000, availableBytes: 800_000 },
+      issuedAt: now,
+      expiresAt: now + 30_000,
+    }, identity);
+    const connection = await connectRelayLinkV1(
+      createRelayContactHintV1('configured', HUB_ENDPOINT),
+      descriptor,
+      identity,
+      {
+        handshakeTimeoutMs: 1_000,
+        heartbeatIntervalMs: 100,
+        heartbeatTimeoutMs: 1_500,
+        replicaRequestTimeoutMs: 1_000,
+      },
+    );
+    const operation = createPublicationRecord({
+      groupId: 'private',
+      fingerprintEpoch: '2026-09',
+      fingerprint: new Uint8Array(64).fill(0x3c),
+      itemType: 'need',
+      createdAt: now,
+      expiresAt: now + 60_000,
+    }, generatePublicationKeyMaterial());
+
+    const receipt = await connection.placeReplica(operation);
+    expect(verifyRelayReplicaReceiptV1(receipt)).toBe(true);
+    expect(receipt.status).toBe('rejected');
+    expect(receipt.reason).toBe('unsupported-group');
+    expect(hub.getStats().stored_publications).toBe(storedBefore);
+    connection.close();
+    await connection.closed;
+    await waitFor(() => !hub.getRelayLinkStatus().inboundRelayIds.includes(identity.did));
+  });
+
   it('keeps an outbound-only relay reachable through a direct relay', async () => {
     await waitFor(() => spoke.getRelayLinkStatus().connectedRelayIds.length === 1);
 
@@ -120,7 +197,51 @@ describe('authenticated outbound relay links', () => {
     expect(hub.getRelayLinkStatus().inboundRelayIds).toEqual([spokeId]);
   });
 
-  it('reconnects after the directly reachable relay restarts', async () => {
+  it('places publications and tombstones durably and collects signed receipts', async () => {
+    await waitFor(() => spoke.getRelayLinkStatus().connectedRelayIds.length === 1);
+    const keys = generatePublicationKeyMaterial();
+    const now = Date.now();
+    const publication = createPublicationRecord({
+      groupId: 'public',
+      fingerprintEpoch: '2026-09',
+      fingerprint: new Uint8Array(64).fill(0x5a),
+      itemType: 'offer',
+      createdAt: now,
+      expiresAt: now + 60_000,
+    }, keys);
+
+    await submitToSpoke(publication);
+    await waitFor(() => hub.getStats().active_publications === 1
+      && spoke.getReplicaReceipts(publication.publicationId).length === 1);
+    const publicationReceipt = spoke.getReplicaReceipts(publication.publicationId)[0];
+    expect(publicationReceipt.status).toBe('stored');
+    expect(publicationReceipt.operationSignature).toBe(publication.signature);
+    expect(publicationReceipt.responderRelayId).toBe(hub.getRelayDescriptor()!.relayId);
+    expect(spoke.getStats().durability_receipts).toBe(1);
+
+    await submitToSpoke(publication);
+    await waitFor(() => spoke.getReplicaReceipts(publication.publicationId)[0]?.status
+      === 'already-stored');
+
+    const tombstone = createPublicationTombstone(
+      publication,
+      'withdrawn',
+      keys.signingKeyPair,
+      Date.now(),
+    );
+    await submitToSpoke(tombstone);
+    await waitFor(() => hub.getStats().retained_tombstones === 1
+      && spoke.getReplicaReceipts(publication.publicationId)[0]?.operationSequence
+        === tombstone.sequence);
+
+    const tombstoneReceipt = spoke.getReplicaReceipts(publication.publicationId)[0];
+    expect(tombstoneReceipt.status).toBe('stored');
+    expect(tombstoneReceipt.operationKind).toBe('publication-tombstone');
+    expect(tombstoneReceipt.operationSignature).toBe(tombstone.signature);
+    expect(hub.getStats().active_publications).toBe(0);
+  });
+
+  it('reconnects after the directly reachable relay restarts and replays its durable replicas', async () => {
     const hubId = hub.getRelayDescriptor()!.relayId;
     const spokeId = spoke.getRelayDescriptor()!.relayId;
     await hub.stop();
@@ -132,6 +253,7 @@ describe('authenticated outbound relay links', () => {
 
     expect(hub.getRelayDescriptor()!.relayId).toBe(hubId);
     expect(hub.getRelayLinkStatus().inboundRelayIds).toEqual([spokeId]);
+    expect(hub.getStats().retained_tombstones).toBe(1);
   });
 
   it('renews the link before continuing with expired descriptors', async () => {
@@ -145,7 +267,7 @@ describe('authenticated outbound relay links', () => {
         && observed.sequence > initialSequence
         && spoke.getRelayLinkStatus().connectedRelayIds.length === 1
         && hub.getRelayLinkStatus().inboundRelayIds.includes(spokeId);
-    }, 6_000);
+    }, 12_000);
 
     expect(spoke.getRelayLinkStatus().connectedRelayIds).toHaveLength(1);
     expect(hub.getRelayLinkStatus().inboundRelayIds).toEqual([spokeId]);

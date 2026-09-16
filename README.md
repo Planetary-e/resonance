@@ -140,7 +140,7 @@ npm run start --workspace=@resonance/relay
 
 The relay writes its infrastructure identity and operation journal under `RELAY_DATA_DIR`. Stop it with `Ctrl+C`; accepted operations are replayed on the next start.
 
-To expose signed v0.3 discovery metadata, set `RELAY_PUBLIC_ENDPOINTS` to the relay's comma-separated public WebSocket endpoints. Use `RELAY_CONTACTS` for configured relay hints and authenticated outbound links; every contacted relay and every descriptor it returns is verified independently. A relay with contacts and no public endpoint advertises itself as `outbound-only`. See [Relay discovery for v0.3](docs/developers/relay-discovery-v0.3.md) for all discovery settings and their trust model.
+To expose signed v0.3 discovery metadata, set `RELAY_PUBLIC_ENDPOINTS` to the relay's comma-separated public WebSocket endpoints. Use `RELAY_CONTACTS` for configured relay hints and authenticated outbound links; every contacted relay and every descriptor it returns is verified independently. A relay with contacts and no public endpoint advertises itself as `outbound-only`. Accepted publications and tombstones are placed on its currently connected contacts, which fsync them before returning signed durability receipts. See [Relay discovery for v0.3](docs/developers/relay-discovery-v0.3.md) for the protocol, current limits, and trust model.
 
 The current transport is suitable for local development and controlled testing. It is not yet the private, authenticated Internet transport described in the roadmap.
 

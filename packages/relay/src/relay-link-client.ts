@@ -3,23 +3,35 @@
 import WebSocket, { type RawData } from 'ws';
 import {
   MAX_RELAY_DISCOVERY_FRAME_BYTES,
+  RELAY_REPLICA_RECEIPT_FRAME_TYPE,
   createRelayLinkOpenFrameV1,
   createRelayLinkOpenV1,
+  createRelayReplicaPutFrameV1,
+  createRelayReplicaPutV1,
+  isDurabilityReceiptV1,
   isRelayLinkAcceptActiveV1,
   parseRelayLinkAcceptFrameV1,
+  parseRelayReplicaReceiptFrameV1,
   serializeRelayLinkOpenFrameV1,
+  serializeRelayReplicaPutFrameV1,
+  verifyRelayReplicaReceiptV1,
   verifyRelayContactHintV1,
   type Identity,
+  type PublicationOperation,
   type RelayContactHintV1,
   type RelayDescriptorV1,
+  type RelayReplicaPutV1,
+  type RelayReplicaReceiptV1,
 } from '@resonance/core';
 
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
+const MAX_PENDING_REPLICA_REQUESTS = 128;
 
 export interface RelayLinkClientOptions {
   handshakeTimeoutMs?: number;
   heartbeatIntervalMs?: number;
   heartbeatTimeoutMs?: number;
+  replicaRequestTimeoutMs?: number;
   now?: () => number;
 }
 
@@ -34,6 +46,7 @@ export interface RelayLinkConnection {
   readonly openedAt: number;
   readonly closed: Promise<RelayLinkClose>;
   isOpen(): boolean;
+  placeReplica(operation: PublicationOperation): Promise<RelayReplicaReceiptV1>;
   close(): void;
 }
 
@@ -56,6 +69,7 @@ export interface RelayLinkManagerStatus {
   running: boolean;
   targetCount: number;
   connectedRelayIds: string[];
+  durabilityReceiptCount: number;
 }
 
 export function connectRelayLinkV1(
@@ -68,7 +82,13 @@ export function connectRelayLinkV1(
   const handshakeTimeoutMs = options.handshakeTimeoutMs ?? 5_000;
   const heartbeatIntervalMs = options.heartbeatIntervalMs ?? 30_000;
   const heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? 90_000;
+  const replicaRequestTimeoutMs = options.replicaRequestTimeoutMs ?? 10_000;
   validateTiming(handshakeTimeoutMs, heartbeatIntervalMs, heartbeatTimeoutMs);
+  if (!Number.isSafeInteger(replicaRequestTimeoutMs)
+    || replicaRequestTimeoutMs < 100
+    || replicaRequestTimeoutMs > 60_000) {
+    return Promise.reject(new Error('Replica request timeout must be between 100 and 60000 ms'));
+  }
 
   const clock = options.now ?? Date.now;
   const createdAt = clock();
@@ -83,10 +103,17 @@ export function connectRelayLinkV1(
   return new Promise((resolve, reject) => {
     let socket: WebSocket;
     let accepted = false;
+    let acceptedRemoteDescriptor: RelayDescriptorV1 | null = null;
     let settled = false;
     let heartbeat: ReturnType<typeof setInterval> | null = null;
     let descriptorExpiryTimer: ReturnType<typeof setTimeout> | null = null;
     let lastPongAt = createdAt;
+    const pendingReplicas = new Map<string, {
+      request: RelayReplicaPutV1;
+      timer: ReturnType<typeof setTimeout>;
+      resolve: (receipt: RelayReplicaReceiptV1) => void;
+      reject: (error: Error) => void;
+    }>();
     let resolveClosed!: (value: RelayLinkClose) => void;
     const closed = new Promise<RelayLinkClose>(resolveClosedPromise => {
       resolveClosed = resolveClosedPromise;
@@ -119,7 +146,34 @@ export function connectRelayLinkV1(
     socket.on('open', () => socket.send(serialized));
     socket.on('message', (data: RawData, isBinary: boolean) => {
       if (accepted) {
-        socket.close(4000, 'unexpected_link_message');
+        if (isBinary) {
+          socket.close(4000, 'relay_message_must_be_json');
+          return;
+        }
+        let candidate: unknown;
+        const raw = rawDataToString(data);
+        try { candidate = JSON.parse(raw); } catch {
+          socket.close(4000, 'invalid_relay_message');
+          return;
+        }
+        if (!isObject(candidate) || candidate.type !== RELAY_REPLICA_RECEIPT_FRAME_TYPE) {
+          socket.close(4000, 'unexpected_link_message');
+          return;
+        }
+        try {
+          const frame = parseRelayReplicaReceiptFrameV1(raw);
+          const pending = pendingReplicas.get(frame.receipt.requestId);
+          if (!pending
+            || !verifyRelayReplicaReceiptV1(frame.receipt, pending.request)
+            || frame.receipt.responderRelayId !== acceptedRemoteDescriptor?.relayId) {
+            throw new Error('Replica receipt is not bound to this relay request');
+          }
+          clearTimeout(pending.timer);
+          pendingReplicas.delete(frame.receipt.requestId);
+          pending.resolve(frame.receipt);
+        } catch {
+          socket.close(4000, 'invalid_replica_receipt');
+        }
         return;
       }
       if (isBinary) {
@@ -142,6 +196,7 @@ export function connectRelayLinkV1(
         }
 
         accepted = true;
+        acceptedRemoteDescriptor = remoteDescriptor;
         settled = true;
         clearTimeout(handshakeTimer);
         lastPongAt = receivedAt;
@@ -169,6 +224,48 @@ export function connectRelayLinkV1(
           openedAt: receivedAt,
           closed,
           isOpen: () => socket.readyState === WebSocket.OPEN,
+          placeReplica: (operation) => {
+            if (socket.readyState !== WebSocket.OPEN) {
+              return Promise.reject(new Error('Relay link is not open'));
+            }
+            if (!remoteDescriptor.capabilities.replicaExchange) {
+              return Promise.reject(new Error('Remote relay does not accept replica placement'));
+            }
+            if (pendingReplicas.size >= MAX_PENDING_REPLICA_REQUESTS) {
+              return Promise.reject(new Error('Relay link replica request limit reached'));
+            }
+            const requestCreatedAt = clock();
+            const replicaRequest = createRelayReplicaPutV1(
+              operation,
+              identity,
+              requestCreatedAt,
+              requestCreatedAt + Math.min(60_000, replicaRequestTimeoutMs + 5_000),
+            );
+            const replicaFrame = serializeRelayReplicaPutFrameV1(
+              createRelayReplicaPutFrameV1(replicaRequest),
+            );
+            return new Promise<RelayReplicaReceiptV1>((resolveReplica, rejectReplica) => {
+              const timer = setTimeout(() => {
+                pendingReplicas.delete(replicaRequest.requestId);
+                rejectReplica(new Error('Replica placement timed out'));
+              }, replicaRequestTimeoutMs);
+              timer.unref?.();
+              pendingReplicas.set(replicaRequest.requestId, {
+                request: replicaRequest,
+                timer,
+                resolve: resolveReplica,
+                reject: rejectReplica,
+              });
+              socket.send(replicaFrame, error => {
+                if (!error) return;
+                const pending = pendingReplicas.get(replicaRequest.requestId);
+                if (!pending) return;
+                clearTimeout(pending.timer);
+                pendingReplicas.delete(replicaRequest.requestId);
+                pending.reject(asError(error, 'Cannot send replica placement'));
+              });
+            });
+          },
           close: () => {
             if (socket.readyState === WebSocket.OPEN) socket.close(1000, 'relay_link_closed');
             else if (socket.readyState === WebSocket.CONNECTING) socket.terminate();
@@ -186,6 +283,11 @@ export function connectRelayLinkV1(
       clearTimeout(handshakeTimer);
       if (heartbeat) clearInterval(heartbeat);
       if (descriptorExpiryTimer) clearTimeout(descriptorExpiryTimer);
+      for (const pending of pendingReplicas.values()) {
+        clearTimeout(pending.timer);
+        pending.reject(new Error(`Relay link closed before replica receipt (${code})`));
+      }
+      pendingReplicas.clear();
       if (!accepted) {
         failHandshake(new Error(`Relay link closed before acceptance (${code})`));
         return;
@@ -201,6 +303,7 @@ export class RelayLinkManager {
   private readonly relayEndpoints = new Map<string, string>();
   private readonly attempts = new Map<string, number>();
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly durabilityReceipts = new Map<string, Map<string, RelayReplicaReceiptV1>>();
   private running = false;
 
   constructor(
@@ -254,7 +357,49 @@ export class RelayLinkManager {
       running: this.running,
       targetCount: this.targets.length,
       connectedRelayIds: [...this.relayEndpoints.keys()].sort(),
+      durabilityReceiptCount: [...this.durabilityReceipts.values()]
+        .reduce((total, receipts) => total + receipts.size, 0),
     };
+  }
+
+  async replicate(operation: PublicationOperation): Promise<RelayReplicaReceiptV1[]> {
+    const existing = this.durabilityReceipts.get(operation.publicationId);
+    if (existing) {
+      for (const [relayId, receipt] of existing) {
+        if (receipt.operationSequence < operation.sequence
+          || (receipt.operationSequence === operation.sequence
+            && receipt.operationSignature !== operation.signature)) {
+          existing.delete(relayId);
+        }
+      }
+      if (existing.size === 0) this.durabilityReceipts.delete(operation.publicationId);
+    }
+    const results = await Promise.allSettled(
+      [...this.connections.values()].map(connection => connection.placeReplica(operation)),
+    );
+    const receipts: RelayReplicaReceiptV1[] = [];
+    for (const result of results) {
+      if (result.status !== 'fulfilled') continue;
+      const receipt = result.value;
+      receipts.push(receipt);
+      if (!isDurabilityReceiptV1(receipt)) continue;
+      let byRelay = this.durabilityReceipts.get(receipt.publicationId);
+      if (!byRelay) {
+        byRelay = new Map();
+        this.durabilityReceipts.set(receipt.publicationId, byRelay);
+      }
+      const current = byRelay.get(receipt.responderRelayId);
+      if (!current || receipt.operationSequence >= current.operationSequence) {
+        byRelay.set(receipt.responderRelayId, receipt);
+      }
+    }
+    return receipts;
+  }
+
+  receipts(publicationId: string): RelayReplicaReceiptV1[] {
+    return [...(this.durabilityReceipts.get(publicationId)?.values() ?? [])]
+      .sort((first, second) => first.responderRelayId.localeCompare(second.responderRelayId))
+      .map(receipt => ({ ...receipt }));
   }
 
   private schedule(hint: RelayContactHintV1, delayMs: number): void {
@@ -337,4 +482,8 @@ function rawDataToString(data: RawData): string {
 
 function asError(value: unknown, fallback: string): Error {
   return value instanceof Error ? value : new Error(fallback, { cause: value });
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

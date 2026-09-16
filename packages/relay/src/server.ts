@@ -13,6 +13,7 @@ import {
   MAX_RELAY_DISCOVERY_FRAME_BYTES,
   PUBLICATION_OPERATION_FRAME_TYPE,
   RELAY_LINK_OPEN_FRAME_TYPE,
+  RELAY_REPLICA_PUT_FRAME_TYPE,
   RELATIONSHIP_MAILBOX_DEPOSIT_FRAME_TYPE,
   RELATIONSHIP_MAILBOX_REQUEST_FRAME_TYPE,
   RELAY_PEER_REQUEST_FRAME_TYPE,
@@ -23,6 +24,8 @@ import {
   createMatchNoticeMessage,
   createRelayLinkAcceptFrameV1,
   createRelayLinkAcceptV1,
+  createRelayReplicaReceiptFrameV1,
+  createRelayReplicaReceiptV1,
   createRelayDescriptorV1,
   createRelayPeerResponseFrameV1,
   createRelayPeerResponseV1,
@@ -32,6 +35,7 @@ import {
   hammingSimilarity,
   isPublicationActive,
   isRelayLinkOpenActiveV1,
+  isRelayReplicaPutActiveV1,
   isRelayPeerRequestActiveV1,
   isSearchRequestActiveV2,
   parseMailboxDepositFrame,
@@ -40,6 +44,7 @@ import {
   parseRelationshipMailboxDepositFrameV2,
   parseRelationshipMailboxRequestFrameV2,
   parseRelayLinkOpenFrameV1,
+  parseRelayReplicaPutFrameV1,
   parseRelayPeerRequestFrameV1,
   parseSearchRequestFrameV2,
   parseMessage,
@@ -47,6 +52,7 @@ import {
   createMessage,
   serializeMessage,
   serializeRelayLinkAcceptFrameV1,
+  serializeRelayReplicaReceiptFrameV1,
   serializeRelayPeerResponseFrameV1,
   verifyMatchOperationAgainstPublicationsV2,
   type AckPayload,
@@ -62,11 +68,14 @@ import {
   type RelayContactHintV1,
   type RelayReachability,
   type RelayStorageCapacityV1,
+  type RelayReplicaPutV1,
+  type RelayReplicaReceiptV1,
+  type RelayReplicaRejectionReasonV1,
 } from '@resonance/core';
 import { MatchingEngine, type MatchNotification } from './matching-engine.js';
 import { RateLimiter } from './rate-limiter.js';
 import { log } from './logger.js';
-import { PublicationOperationStore } from './publication-store.js';
+import { PublicationOperationStore, type PublicationApplyStatus } from './publication-store.js';
 import { MailboxStore } from './mailbox-store.js';
 import { MatchOperationStore } from './match-operation-store.js';
 import { RelayOperationLog, type RelayOperationLogEntry } from './operation-log.js';
@@ -112,6 +121,7 @@ export interface RelayConfig {
   adminApiKey: string | null;
   maxAuthAttemptsPerMin: number;
   maxPeerRequestsPerMin: number;
+  maxReplicaRequestsPerMin: number;
   maxInboundRelayLinks: number;
   relayLinkHeartbeatIntervalMs: number;
   relayLinkHeartbeatTimeoutMs: number;
@@ -135,6 +145,7 @@ export interface RelayStats {
   matches_today: number;
   known_relays: number;
   connected_relays: number;
+  durability_receipts: number;
   uptime: number;
 }
 
@@ -157,6 +168,7 @@ export interface RelayServer {
     options?: RelayContactDiscoveryOptions,
   ): Promise<RelayDiscoveryIngestResult>;
   getRelayLinkStatus(): RelayLinkManagerStatus & { inboundRelayIds: string[] };
+  getReplicaReceipts(publicationId: string): RelayReplicaReceiptV1[];
 }
 
 const DEFAULT_CONFIG: RelayConfig = {
@@ -173,6 +185,7 @@ const DEFAULT_CONFIG: RelayConfig = {
   adminApiKey: null,
   maxAuthAttemptsPerMin: 5,
   maxPeerRequestsPerMin: 60,
+  maxReplicaRequestsPerMin: 120,
   maxInboundRelayLinks: 64,
   relayLinkHeartbeatIntervalMs: 30_000,
   relayLinkHeartbeatTimeoutMs: 90_000,
@@ -186,6 +199,11 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     || cfg.maxInboundRelayLinks < 1
     || cfg.maxInboundRelayLinks > 4_096) {
     throw new Error('Inbound relay link limit must be between 1 and 4096');
+  }
+  if (!Number.isSafeInteger(cfg.maxReplicaRequestsPerMin)
+    || cfg.maxReplicaRequestsPerMin < 1
+    || cfg.maxReplicaRequestsPerMin > 1_000_000) {
+    throw new Error('Replica request rate limit must be between 1 and 1000000');
   }
   if (!Number.isSafeInteger(cfg.relayLinkHeartbeatIntervalMs)
     || cfg.relayLinkHeartbeatIntervalMs < 25
@@ -207,6 +225,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     maxPublishesPerMin: cfg.maxPublishesPerMin,
     maxSearchesPerMin: cfg.maxSearchesPerMin,
     maxDiscoveriesPerMin: cfg.maxPeerRequestsPerMin,
+    maxReplicasPerMin: cfg.maxReplicaRequestsPerMin,
   });
 
   const relayIdentity = loadOrCreateRelayIdentity(cfg.persistDir);
@@ -218,6 +237,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   const seenSearches = new Map<string, number>();
   const seenPeerRequests = new Map<string, number>();
   const seenRelayLinks = new Map<string, number>();
+  const seenReplicaRequests = new Map<string, number>();
   const inboundRelayLinks = new Map<string, {
     socket: WebSocket;
     descriptor: RelayDescriptorV1;
@@ -249,7 +269,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           storesMailboxes: true,
           answersQueries: true,
           forwardsQueries: false,
-          replicaExchange: false,
+          replicaExchange: true,
         },
         supportedGroups: discovery.supportedGroups,
         storage: discovery.storage,
@@ -368,6 +388,43 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     log('info', 'mailbox_match', { matchId: operation.matchId, operationId: operation.operationId });
   }
 
+  function commitPublicationOperation(operation: PublicationOperation): PublicationApplyStatus {
+    const result = publicationStore.evaluate(operation);
+    if (result.status !== 'accepted' && result.status !== 'duplicate') return result.status;
+    if (result.status === 'accepted') {
+      operationLog.append({ kind: 'publication', operation });
+      const applied = publicationStore.apply(operation);
+      if (applied.status !== 'accepted') {
+        throw new Error(`Cannot apply committed publication: ${applied.status}`);
+      }
+    }
+    // Duplicate retries also repair a match whose atomic commit may have
+    // failed after the publication itself reached disk.
+    applyToMatchingIndex(operation);
+    enforcePublicationExpiries();
+    scheduleNextPublicationExpiry();
+    return result.status;
+  }
+
+  function replicatePublicationOperation(operation: PublicationOperation): void {
+    if (!outboundRelayLinks) return;
+    void outboundRelayLinks.replicate(operation).then(receipts => {
+      for (const receipt of receipts) {
+        log(receipt.status === 'rejected' ? 'warn' : 'info', 'replica_receipt', {
+          publicationId: receipt.publicationId,
+          relayId: receipt.responderRelayId,
+          status: receipt.status,
+          reason: receipt.reason,
+        });
+      }
+    }).catch(error => {
+      log('warn', 'replica_placement_failed', {
+        publicationId: operation.publicationId,
+        error: String(error),
+      });
+    });
+  }
+
   function applyToMatchingIndex(operation: PublicationOperation, trackStats = true): void {
     if (operation.kind === 'publication-tombstone') {
       engine.withdraw(operation.publicationId, operation.publicationId);
@@ -460,12 +517,115 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         matches_today: stats.matchesToday,
         known_relays: relayDirectory.size(),
         connected_relays: connectedRelayIds().length,
+        durability_receipts: outboundRelayLinks?.status().durabilityReceiptCount ?? 0,
         uptime: Math.floor((Date.now() - startTime) / 1000),
       }));
       return;
     }
     res.writeHead(404);
     res.end();
+  }
+
+  function sendReplicaReceipt(
+    ws: WebSocket,
+    request: RelayReplicaPutV1,
+    result: {
+      status: 'stored' | 'already-stored' | 'rejected';
+      reason?: RelayReplicaRejectionReasonV1;
+    },
+  ): void {
+    try {
+      const receipt = createRelayReplicaReceiptV1(request, relayIdentity, result);
+      ws.send(serializeRelayReplicaReceiptFrameV1(
+        createRelayReplicaReceiptFrameV1(receipt),
+      ), error => {
+        if (error) ws.terminate();
+      });
+    } catch (error) {
+      log('warn', 'replica_receipt_failed', {
+        publicationId: request.operation.publicationId,
+        error: String(error),
+      });
+      ws.terminate();
+    }
+  }
+
+  function handleReplicaPlacement(
+    ws: WebSocket,
+    raw: string,
+    linkedRelayId: string,
+  ): void {
+    let frame: ReturnType<typeof parseRelayReplicaPutFrameV1>;
+    try {
+      frame = parseRelayReplicaPutFrameV1(raw);
+    } catch {
+      ws.close(4000, 'invalid_replica_placement');
+      return;
+    }
+    const request = frame.request;
+    const now = Date.now();
+    if (request.senderRelayId !== linkedRelayId
+      || !isRelayReplicaPutActiveV1(request, now)) {
+      ws.close(4003, 'unauthenticated_replica_placement');
+      return;
+    }
+    if (seenReplicaRequests.has(request.requestId)) {
+      ws.close(4003, 'replayed_replica_placement');
+      return;
+    }
+    seenReplicaRequests.set(request.requestId, request.expiresAt);
+
+    const link = inboundRelayLinks.get(linkedRelayId);
+    if (!link || link.socket !== ws || !link.descriptor.capabilities.replicaExchange) {
+      ws.close(4003, 'replica_exchange_not_advertised');
+      return;
+    }
+    if (!rateLimiter.check(`relay:${linkedRelayId}`, 'replica')) {
+      sendReplicaReceipt(ws, request, { status: 'rejected', reason: 'rate-limited' });
+      return;
+    }
+
+    const operation = request.operation;
+    if (operation.kind === 'publication') {
+      if (!isPublicationActive(operation, now)) {
+        sendReplicaReceipt(ws, request, { status: 'rejected', reason: 'expired' });
+        return;
+      }
+      if (!cfg.relayDiscovery?.supportedGroups.includes(operation.groupId)) {
+        sendReplicaReceipt(ws, request, { status: 'rejected', reason: 'unsupported-group' });
+        return;
+      }
+    }
+
+    let status: PublicationApplyStatus;
+    try {
+      status = commitPublicationOperation(operation);
+    } catch (error) {
+      log('error', 'replica_commit_failed', {
+        publicationId: operation.publicationId,
+        senderRelayId: linkedRelayId,
+        error: String(error),
+      });
+      sendReplicaReceipt(ws, request, { status: 'rejected', reason: 'persistence-failed' });
+      return;
+    }
+
+    if (status === 'accepted' || status === 'duplicate') {
+      sendReplicaReceipt(ws, request, {
+        status: status === 'accepted' ? 'stored' : 'already-stored',
+      });
+    } else {
+      sendReplicaReceipt(ws, request, {
+        status: 'rejected',
+        reason: replicaRejectionReason(status),
+      });
+    }
+    log('info', 'replica_operation', {
+      publicationId: operation.publicationId,
+      kind: operation.kind,
+      senderRelayId: linkedRelayId,
+      result: status,
+    });
   }
 
   function handleConnection(ws: WebSocket, req: any): void {
@@ -476,7 +636,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       ws.close(4001, 'request_timeout');
     }, 10_000);
 
-    ws.on('message', (data: Buffer) => {
+    ws.on('message', (data: Buffer, isBinary: boolean) => {
       let raw: string;
       try {
         raw = data.toString('utf-8');
@@ -484,15 +644,22 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         ws.close(4000, 'invalid_encoding');
         return;
       }
-      if (linkedRelayId) {
-        ws.close(4000, 'unexpected_link_message');
-        return;
-      }
-
       // Protocol v2 publication operations authenticate themselves. They use
       // a short connection and never send the user's root identity.
       let frameCandidate: unknown;
       try { frameCandidate = JSON.parse(raw); } catch { /* handled by v1 parser below */ }
+      if (linkedRelayId) {
+        if (isBinary) {
+          ws.close(4000, 'relay_message_must_be_json');
+          return;
+        }
+        if (isObject(frameCandidate) && frameCandidate.type === RELAY_REPLICA_PUT_FRAME_TYPE) {
+          handleReplicaPlacement(ws, raw, linkedRelayId);
+        } else {
+          ws.close(4000, 'unexpected_link_message');
+        }
+        return;
+      }
       if (isObject(frameCandidate) && frameCandidate.type === RELAY_LINK_OPEN_FRAME_TYPE) {
         clearTimeout(authTimeout);
         if (!cfg.relayDiscovery) {
@@ -692,37 +859,27 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           return;
         }
 
-        const result = publicationStore.evaluate(operation);
-        const accepted = result.status === 'accepted' || result.status === 'duplicate';
-        if (accepted) {
-          try {
-            if (result.status === 'accepted') {
-              operationLog.append({ kind: 'publication', operation });
-              const applied = publicationStore.apply(operation);
-              if (applied.status !== 'accepted') throw new Error(`Cannot apply committed publication: ${applied.status}`);
-            }
-            // Duplicate retries also repair a match whose atomic commit may
-            // have failed after the publication itself reached disk.
-            applyToMatchingIndex(operation);
-            enforcePublicationExpiries();
-            scheduleNextPublicationExpiry();
-          } catch (err) {
-            log('error', 'operation_commit_failed', { error: String(err) });
-            sendOperationAck(ws, operation.publicationId, 'error', 'persistence_failed');
-            return;
-          }
+        let result: PublicationApplyStatus;
+        try {
+          result = commitPublicationOperation(operation);
+        } catch (err) {
+          log('error', 'operation_commit_failed', { error: String(err) });
+          sendOperationAck(ws, operation.publicationId, 'error', 'persistence_failed');
+          return;
         }
+        const accepted = result === 'accepted' || result === 'duplicate';
         sendOperationAck(
           ws,
           operation.publicationId,
           accepted ? 'ok' : 'error',
-          result.status,
+          result,
         );
         log('info', 'publication_operation', {
           publicationId: operation.publicationId,
           kind: operation.kind,
-          result: result.status,
+          result,
         });
+        if (accepted) replicatePublicationOperation(operation);
         return;
       }
 
@@ -1055,6 +1212,9 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         for (const [linkId, expiresAt] of seenRelayLinks) {
           if (expiresAt <= Date.now()) seenRelayLinks.delete(linkId);
         }
+        for (const [requestId, expiresAt] of seenReplicaRequests) {
+          if (expiresAt <= Date.now()) seenReplicaRequests.delete(requestId);
+        }
         relayDirectory.prune();
         enforcePublicationExpiries();
       }, 5 * 60_000);
@@ -1105,6 +1265,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         matches_today: stats.matchesToday,
         known_relays: relayDirectory.size(),
         connected_relays: connectedRelayIds().length,
+        durability_receipts: outboundRelayLinks?.status().durabilityReceiptCount ?? 0,
         uptime: Math.floor((Date.now() - startTime) / 1000),
       };
     },
@@ -1143,13 +1304,25 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         running: false,
         targetCount: 0,
         connectedRelayIds: [],
+        durabilityReceiptCount: 0,
       };
       return {
         ...outbound,
         inboundRelayIds: [...inboundRelayLinks.keys()].sort(),
       };
     },
+
+    getReplicaReceipts(publicationId: string): RelayReplicaReceiptV1[] {
+      return outboundRelayLinks?.receipts(publicationId) ?? [];
+    },
   };
+}
+
+function replicaRejectionReason(status: PublicationApplyStatus): RelayReplicaRejectionReasonV1 {
+  if (status === 'stale' || status === 'conflict' || status === 'terminal' || status === 'invalid') {
+    return status;
+  }
+  return 'invalid';
 }
 
 function supportsAnyGroup(descriptor: RelayDescriptorV1, groups: string[]): boolean {
