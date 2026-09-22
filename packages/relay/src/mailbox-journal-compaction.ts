@@ -10,8 +10,17 @@ export function compactMailboxHistory(
 ): Pick<RelayOperationLogRecord, 'committedAt' | 'entry'>[] {
   const acknowledged = mailboxes.acknowledgedEnvelopeIds(now);
   const retainedDeposits = new Set<string>();
-  const retainedReplicaAcks = new Set<string>();
-  return records.filter(({ entry }) => {
+  const latestReplicaAck = new Map<string, { index: number; expiresAt: number }>();
+  records.forEach(({ entry }, index) => {
+    if (entry.kind !== 'mailbox-replica-event' || entry.event.kind !== 'ack') return;
+    const { mailboxId, envelopeId, expiresAt } = entry.event;
+    const key = `${mailboxId}:${envelopeId}`;
+    if (!acknowledged.has(key)) return;
+    if (expiresAt > (latestReplicaAck.get(key)?.expiresAt ?? 0)) {
+      latestReplicaAck.set(key, { index, expiresAt });
+    }
+  });
+  return records.filter(({ entry }, index) => {
     if (entry.kind === 'mailbox-ack') {
       return entry.request.envelopeIds.some(id => acknowledged.has(`${entry.request.mailboxId}:${id}`));
     }
@@ -19,9 +28,8 @@ export function compactMailboxHistory(
       const event = entry.event;
       if (event.kind === 'ack') {
         const key = `${event.mailboxId}:${event.envelopeId}`;
-        if (!acknowledged.has(key) || retainedReplicaAcks.has(key)) return false;
-        retainedReplicaAcks.add(key);
-        return true;
+        // One maximum-expiry event restores every extension on replay.
+        return latestReplicaAck.get(key)?.index === index;
       }
       const envelope = event.envelope;
       const key = `${envelope.mailboxId}:${envelope.envelopeId}`;

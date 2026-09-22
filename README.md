@@ -87,14 +87,14 @@ Read the full [protocol v2 threat model](docs/developers/protocol-v2.md) and [ro
 | v0.1 local-data backup and upgrade | Implemented |
 | Configured-relay placement, failure-domain preference, signed receipts, persistent repair state, reconnect retry, offline-target replacement, receipt-scoped batch checks, and publication-state quotas | Implemented v0.3 foundation |
 | Signed graceful replica handoff | Implemented v0.3 foundation |
-| Journal compaction, bounded query forwarding, and publication-mailbox replication | Implemented v0.3 foundation |
+| Journal compaction, bounded query forwarding, publication-mailbox replication, and match-notice deduplication | Implemented v0.3 foundation |
 | Pairwise relationship-mailbox placement, desktop background service, and churn validation | Remaining v0.3 work |
 | Private two-hop transport and anonymous abuse-control credentials | Planned for v0.4 |
 | iOS and Android clients | Planned for v0.5 |
 
 The current validation baseline is:
 
-- **298 automated tests** across core, node, relay, storage, migration, and integration flows
+- **301 automated tests** across core, node, relay, storage, migration, and integration flows
 - **44/44 evaluation gates passing**
 - **93.3% recall** for the evaluated 512-bit LSH configuration at a 0.7 Hamming-similarity threshold
 - **2.3 ms p95** for a 10,000-fingerprint Hamming scan on the recorded evaluation machine

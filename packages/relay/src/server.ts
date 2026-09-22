@@ -1086,13 +1086,21 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       const envelope = event.envelope;
       if (envelope.expiresAt <= now
         || envelope.expiresAt - envelope.createdAt > MAX_MAILBOX_ENVELOPE_LIFETIME_MS) return false;
-      if (mailboxStore.hasEnvelope(mailboxId, envelope.envelopeId)
-        || mailboxStore.hasAcknowledgedEnvelope(mailboxId, envelope.envelopeId)) return true;
+      if (mailboxStore.hasEnvelope(mailboxId, envelope.envelopeId)) return true;
+      if (mailboxStore.hasAcknowledgedEnvelope(mailboxId, envelope.envelopeId)) {
+        if ((mailboxStore.acknowledgementExpiry(mailboxId, envelope.envelopeId) ?? 0)
+          >= envelope.expiresAt) return true;
+        return commitMailboxReplicaEvent(publicationId, {
+          kind: 'ack', mailboxId, envelopeId: envelope.envelopeId,
+          expiresAt: envelope.expiresAt,
+        });
+      }
       if (!mailboxStore.canEnqueue([envelope], maxMailboxStorageBytes)) return false;
     } else {
       if (event.expiresAt <= now
         || event.expiresAt - now > MAX_MAILBOX_ENVELOPE_LIFETIME_MS) return false;
-      if (mailboxStore.hasAcknowledgedEnvelope(mailboxId, event.envelopeId)) return true;
+      if ((mailboxStore.acknowledgementExpiry(mailboxId, event.envelopeId) ?? 0)
+        >= event.expiresAt && !mailboxStore.hasEnvelope(mailboxId, event.envelopeId)) return true;
       if (!mailboxStore.canApplyReplicatedAcknowledgement(
         mailboxId, event.envelopeId, event.expiresAt, maxMailboxStorageBytes,
       )) return false;

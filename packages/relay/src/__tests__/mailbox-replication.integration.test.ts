@@ -144,6 +144,10 @@ describe('publication mailbox anti-entropy', () => {
     expect(needNoticeId).toBeDefined();
     await waitFor(async () => (await fetch(TARGET_PORTS[0], offer.record, offer.keys)).includes(offerNoticeId)
       && (await fetch(TARGET_PORTS[1], need.record, need.keys)).includes(needNoticeId));
+    for (const port of [SOURCE_PORT, ...TARGET_PORTS]) {
+      expect(await fetch(port, offer.record, offer.keys)).toEqual([offerNoticeId]);
+      expect(await fetch(port, need.record, need.keys)).toEqual([needNoticeId]);
+    }
 
     await source.stop({ graceful: false });
     sourceStarted = false;

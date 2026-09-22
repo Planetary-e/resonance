@@ -123,8 +123,9 @@ The pilot uses one persistent DID per user and one relay-local index. The next m
 - [x] Forward searches when the local relay lacks sufficient index coverage through authenticated outbound or inbound relay links
 - [x] Bound forwarding by signed request ID, a two-link hop limit, a three-second deadline, five peers per hop, replay suppression, and result deduplication
 - [x] Generate deterministic match IDs so different relays converge on one result
-- [ ] Merge duplicate replies and prevent duplicate notifications
+- [x] Merge duplicate replies and prevent duplicate match notifications
   - [x] Merge signed relay replies by publication ID and retain at most the requester's top-k results
+  - [x] Derive each recipient's match-notice envelope ID from the stable publication-pair match ID; converge acknowledgement tombstones across relays with differing notice expiries, and persist one visible match per recipient publication on the personal node
 - [ ] Apply owner-configured storage, bandwidth, CPU, power, and schedule limits without violating already-issued durability promises
 - [ ] Expose local contribution and replica-health metrics without exposing peer activity
 - [ ] Add a five-relay churn and partition test harness

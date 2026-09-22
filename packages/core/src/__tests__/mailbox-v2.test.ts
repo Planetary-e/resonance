@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   createDeterministicMatchId,
+  createMailboxEnvelopeId,
   createMailboxRequest,
   createMailboxRequestFrame,
   createMatchOperationV2,
@@ -68,6 +69,40 @@ describe('protocol v2 match mailboxes', () => {
     expect(serialized).not.toContain(notice.payload.matchId);
     expect(decryptMatchNotice(envelope, recipient.keys)).toEqual(notice);
     expect(() => decryptMatchNotice(envelope, partner.keys)).toThrow('does not belong');
+  });
+
+  it('uses one delivery ID for independent relay attestations of the same pair', () => {
+    const recipient = publication('need', 1);
+    const partner = publication('offer', 2);
+    const firstRelay = generateIdentity();
+    const secondRelay = generateIdentity();
+    const firstOperation = createMatchOperationV2(
+      recipient.record, partner.record, firstRelay,
+      { createdAt: NOW + 1, expiresAt: NOW + 60_000 },
+    );
+    const secondOperation = createMatchOperationV2(
+      recipient.record, partner.record, secondRelay,
+      { createdAt: NOW + 2, expiresAt: NOW + 59_000 },
+    );
+    const first = encryptMatchNotice(
+      createMatchNoticeMessage(recipient.record, partner.record, firstOperation, firstRelay),
+      recipient.record,
+    );
+    const second = encryptMatchNotice(
+      createMatchNoticeMessage(recipient.record, partner.record, secondOperation, secondRelay),
+      recipient.record,
+    );
+
+    expect(firstOperation.operationId).not.toBe(secondOperation.operationId);
+    expect(first.envelopeId).toBe(second.envelopeId);
+    expect(decryptMatchNotice(first, recipient.keys).payload.matchId)
+      .toBe(decryptMatchNotice(second, recipient.keys).payload.matchId);
+    const legacy = {
+      ...first,
+      envelopeId: createMailboxEnvelopeId(firstOperation.operationId, recipient.record.mailbox.id),
+    };
+    expect(decryptMatchNotice(legacy, recipient.keys).payload.matchId)
+      .toBe(firstOperation.matchId);
   });
 
   it('rejects modified ciphertext', () => {

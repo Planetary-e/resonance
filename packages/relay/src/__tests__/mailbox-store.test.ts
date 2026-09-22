@@ -127,6 +127,27 @@ describe('MailboxStore', () => {
     )).toBe(false);
   });
 
+  it('removes a same-ID notice from another relay with a later expiry', () => {
+    const first = envelope();
+    const later = { ...first, expiresAt: first.expiresAt + 1_000 };
+    const store = new MailboxStore();
+    store.enqueue(later);
+    expect(store.canApplyReplicatedAcknowledgement(
+      first.mailboxId, first.envelopeId, first.expiresAt, 1_000,
+    )).toBe(true);
+    expect(store.applyReplicatedAcknowledgement(
+      first.mailboxId, first.envelopeId, first.expiresAt,
+    )).toBe(true);
+    expect(store.fetch(first.mailboxId, NOW + 2)).toEqual([]);
+    expect(store.acknowledgementExpiry(first.mailboxId, first.envelopeId))
+      .toBe(later.expiresAt);
+    expect(store.applyReplicatedAcknowledgement(
+      first.mailboxId, first.envelopeId, later.expiresAt + 1_000,
+    )).toBe(true);
+    expect(store.acknowledgementExpiry(first.mailboxId, first.envelopeId))
+      .toBe(later.expiresAt + 1_000);
+  });
+
   it('bounds one fetch so the result can be acknowledged in one request', () => {
     const store = new MailboxStore();
     const base = envelope();

@@ -94,4 +94,38 @@ describe('mailbox journal compaction', () => {
     expect(compactMailboxHistory(log.entries, store, NOW + 60_000).map(record => record.entry.kind))
       .toEqual(['match']);
   });
+
+  it('keeps the longest replicated acknowledgement after journal compaction', () => {
+    const { alice, bob } = fixture();
+    const { log, store } = logAndStore();
+    const relay = generateIdentity();
+    const operation = createMatchOperationV2(alice, bob, relay, {
+      createdAt: NOW + 1, expiresAt: NOW + 60_000,
+    });
+    const envelope = encryptMatchNotice(
+      createMatchNoticeMessage(alice, bob, operation, relay), alice,
+    );
+    const expiries = [NOW + 60_000, NOW + 70_000, NOW + 65_000];
+    for (const expiresAt of expiries) {
+      const event = {
+        kind: 'ack' as const, mailboxId: envelope.mailboxId,
+        envelopeId: envelope.envelopeId, expiresAt,
+      };
+      log.append({ kind: 'mailbox-replica-event', publicationId: alice.publicationId, event });
+      store.applyReplicatedAcknowledgement(event.mailboxId, event.envelopeId, event.expiresAt);
+    }
+
+    const compacted = compactMailboxHistory(log.entries, store, NOW + 2);
+    expect(compacted).toHaveLength(1);
+    const restored = new MailboxStore();
+    for (const { entry } of compacted) {
+      if (entry.kind === 'mailbox-replica-event' && entry.event.kind === 'ack') {
+        restored.applyReplicatedAcknowledgement(
+          entry.event.mailboxId, entry.event.envelopeId, entry.event.expiresAt,
+        );
+      }
+    }
+    expect(restored.acknowledgementExpiry(envelope.mailboxId, envelope.envelopeId))
+      .toBe(NOW + 70_000);
+  });
 });
