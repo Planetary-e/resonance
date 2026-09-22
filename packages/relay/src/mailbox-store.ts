@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import {
   verifyMailboxEnvelope,
   type EncryptedMailboxEnvelope,
+  type RelayMailboxEventV1,
 } from '@resonance/core';
 
 const STORE_FILENAME = 'mailboxes.json';
@@ -33,6 +34,22 @@ export class MailboxStore {
       }
     }
     return result;
+  }
+
+  /** A stable page source for bounded anti-entropy with publication replicas. */
+  events(mailboxId: string, now = Date.now()): RelayMailboxEventV1[] {
+    const events: RelayMailboxEventV1[] = [];
+    for (const envelope of this.mailboxes.get(mailboxId)?.values() ?? []) {
+      if (envelope.expiresAt > now) events.push({ kind: 'envelope', envelope });
+    }
+    for (const [envelopeId, expiresAt] of this.acknowledged.get(mailboxId) ?? []) {
+      if (expiresAt > now) events.push({ kind: 'ack', mailboxId, envelopeId, expiresAt });
+    }
+    return events.sort((a, b) => {
+      const first = a.kind === 'envelope' ? a.envelope.envelopeId : a.envelopeId;
+      const second = b.kind === 'envelope' ? b.envelope.envelopeId : b.envelopeId;
+      return first.localeCompare(second);
+    });
   }
 
   /** Retained envelope and acknowledgement bytes, excluding historical journal rows. */
@@ -133,6 +150,45 @@ export class MailboxStore {
     }
     if (mailbox.size === 0) this.mailboxes.delete(mailboxId);
     return removed;
+  }
+
+  canApplyReplicatedAcknowledgement(
+    mailboxId: string, envelopeId: string, expiresAt: number, quotaBytes: number,
+  ): boolean {
+    const existing = this.mailboxes.get(mailboxId)?.get(envelopeId);
+    if (existing && existing.expiresAt !== expiresAt) return false;
+    const previousExpiry = this.acknowledged.get(mailboxId)?.get(envelopeId);
+    if (previousExpiry !== undefined && previousExpiry !== expiresAt) return false;
+    const additional = previousExpiry !== undefined ? 0
+      : acknowledgementBytes(mailboxId, envelopeId, expiresAt)
+        - (existing ? envelopeBytes(existing) : 0);
+    return this.retainedByteCount + additional <= quotaBytes;
+  }
+
+  /** An acknowledgement is an observed-remove tombstone even if its envelope is absent here. */
+  applyReplicatedAcknowledgement(mailboxId: string, envelopeId: string, expiresAt: number): boolean {
+    const envelope = this.mailboxes.get(mailboxId)?.get(envelopeId);
+    if (envelope && envelope.expiresAt !== expiresAt) throw new Error('Conflicting mailbox acknowledgement');
+    const previousExpiry = this.acknowledged.get(mailboxId)?.get(envelopeId);
+    if (previousExpiry !== undefined) {
+      if (previousExpiry !== expiresAt) throw new Error('Conflicting mailbox acknowledgement');
+      return false;
+    }
+    if (envelope) {
+      const mailbox = this.mailboxes.get(mailboxId)!;
+      mailbox.delete(envelopeId);
+      if (mailbox.size === 0) this.mailboxes.delete(mailboxId);
+      this.retainedByteCount -= envelopeBytes(envelope);
+      this.activeEnvelopeCount--;
+    }
+    let ids = this.acknowledged.get(mailboxId);
+    if (!ids) {
+      ids = new Map();
+      this.acknowledged.set(mailboxId, ids);
+    }
+    ids.set(envelopeId, expiresAt);
+    this.retainedByteCount += acknowledgementBytes(mailboxId, envelopeId, expiresAt);
+    return true;
   }
 
   get envelopeCount(): number {

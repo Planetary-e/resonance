@@ -27,6 +27,8 @@ import {
   SEARCH_RESPONSE_MESSAGE_TYPE,
   RELAY_QUERY_REQUEST_FRAME_TYPE,
   RELAY_QUERY_RESPONSE_FRAME_TYPE,
+  RELAY_MAILBOX_SYNC_REQUEST_FRAME_TYPE,
+  MAX_RELAY_MAILBOX_SYNC_EVENTS,
   MAX_RELAY_QUERY_HOPS,
   createAdmissionRequestBindingV2,
   createMatchOperationV2,
@@ -52,6 +54,7 @@ import {
   createRelayQueryRequestFrameV1,
   createRelayQueryResponseV1,
   createRelayQueryResponseFrameV1,
+  createRelayMailboxSyncResponseV1,
   decodeBase64,
   encryptMatchNotice,
   hammingSimilarity,
@@ -65,6 +68,7 @@ import {
   isRelayPeerRequestActiveV1,
   isSearchRequestActiveV2,
   isRelayQueryRequestActiveV1,
+  verifyRelayMailboxSyncRequestV1,
   parseMailboxDepositFrame,
   parseMailboxRequestFrame,
   parsePublicationOperationFrame,
@@ -80,6 +84,7 @@ import {
   parseSearchRequestFrameV2,
   parseRelayQueryRequestFrameV1,
   parseRelayQueryResponseFrameV1,
+  parseRelayMailboxSyncRequestFrameV1,
   parseMessage,
   verifyMessage,
   verifyRelayReplicaHandoffResponseV1,
@@ -94,6 +99,7 @@ import {
   serializeRelayPeerResponseFrameV1,
   serializeRelayQueryRequestFrameV1,
   serializeRelayQueryResponseFrameV1,
+  serializeRelayMailboxSyncResponseFrameV1,
   verifyMatchOperationAgainstPublicationsV2,
   verifyRelayQueryResponseV1,
   type AckPayload,
@@ -125,6 +131,8 @@ import {
   type RelayQueryStatusV1,
   type SearchRequestV2,
   type SearchResultV2,
+  type RelayMailboxEventV1,
+  type RelayMailboxSyncRequestV1,
 } from '@resonance/core';
 import { MatchingEngine, type MatchNotification } from './matching-engine.js';
 import { RateLimiter } from './rate-limiter.js';
@@ -335,6 +343,8 @@ const MAX_QUERY_FANOUT = 5;
 const MAX_QUERY_WAIT_MS = 3_000;
 const MAX_SEEN_SEARCHES = 8_192;
 const MAX_PENDING_INBOUND_QUERIES = 64;
+const MAX_MAILBOX_SYNCS_PER_REPAIR = 16;
+const MIN_MAILBOX_SYNC_INTERVAL_MS = 5_000;
 type PublicationCommitStatus = PublicationApplyStatus | 'capacity-exhausted';
 
 export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
@@ -440,6 +450,11 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       pendingEnvelopes -= mailboxStore.presentEnvelopeIds(
         entry.request.mailboxId, entry.request.envelopeIds,
       ).length;
+    } else if (entry.kind === 'mailbox-replica-event') {
+      if (entry.event.kind === 'envelope') pendingEnvelopes++;
+      else pendingEnvelopes -= mailboxStore.hasEnvelope(
+        entry.event.mailboxId, entry.event.envelopeId,
+      ) ? 1 : 0;
     }
     const firstSeenTombstone = entry.kind === 'publication'
       && entry.operation.kind === 'publication-tombstone'
@@ -475,6 +490,9 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     resolve: (response: RelayQueryResponseV1) => void;
     reject: (error: Error) => void;
   }>();
+  const mailboxSyncCursors = new Map<string, { send: number; receive: number }>();
+  const mailboxSyncNextAt = new Map<string, number>();
+  let mailboxSyncOffset = 0;
   const seenPeerRequests = new Map<string, number>();
   const seenRelayLinks = new Map<string, number>();
   const seenRelayReplicaRequests = new Map<string, {
@@ -936,6 +954,19 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       mailboxStore.acknowledge(entry.request.mailboxId, entry.request.envelopeIds);
       return;
     }
+    if (entry.kind === 'mailbox-replica-event') {
+      const record = publicationStore.getRecord(entry.publicationId);
+      const mailboxId = entry.event.kind === 'envelope'
+        ? entry.event.envelope.mailboxId : entry.event.mailboxId;
+      if (!record || record.mailbox.id !== mailboxId) {
+        throw new Error('Cannot replay mailbox event without its publication');
+      }
+      if (entry.event.kind === 'envelope') mailboxStore.enqueue(entry.event.envelope);
+      else mailboxStore.applyReplicatedAcknowledgement(
+        mailboxId, entry.event.envelopeId, entry.event.expiresAt,
+      );
+      return;
+    }
     throw new Error('Cannot replay unknown operation log entry');
   }
 
@@ -1024,7 +1055,12 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       if (error instanceof RelayJournalCapacityError) return 'capacity-exhausted';
       throw error;
     }
-    return mailboxStore.enqueue(envelope);
+    const result = mailboxStore.enqueue(envelope);
+    if (result === 'accepted') {
+      mailboxSyncNextAt.clear();
+      queueReplicaRepair();
+    }
+    return result;
   }
 
   function commitMailboxAcknowledgement(
@@ -1033,7 +1069,47 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     const present = mailboxStore.presentEnvelopeIds(request.mailboxId, request.envelopeIds);
     if (present.length === 0) return 0;
     appendOperation({ kind: 'mailbox-ack', request });
-    return mailboxStore.acknowledge(request.mailboxId, request.envelopeIds);
+    const acknowledged = mailboxStore.acknowledge(request.mailboxId, request.envelopeIds);
+    if (acknowledged > 0) {
+      mailboxSyncNextAt.clear();
+      queueReplicaRepair();
+    }
+    return acknowledged;
+  }
+
+  function commitMailboxReplicaEvent(publicationId: string, event: RelayMailboxEventV1): boolean {
+    const record = publicationStore.getRecord(publicationId);
+    const mailboxId = event.kind === 'envelope' ? event.envelope.mailboxId : event.mailboxId;
+    const now = Date.now();
+    if (!record || record.mailbox.id !== mailboxId) return false;
+    if (event.kind === 'envelope') {
+      const envelope = event.envelope;
+      if (envelope.expiresAt <= now
+        || envelope.expiresAt - envelope.createdAt > MAX_MAILBOX_ENVELOPE_LIFETIME_MS) return false;
+      if (mailboxStore.hasEnvelope(mailboxId, envelope.envelopeId)
+        || mailboxStore.hasAcknowledgedEnvelope(mailboxId, envelope.envelopeId)) return true;
+      if (!mailboxStore.canEnqueue([envelope], maxMailboxStorageBytes)) return false;
+    } else {
+      if (event.expiresAt <= now
+        || event.expiresAt - now > MAX_MAILBOX_ENVELOPE_LIFETIME_MS) return false;
+      if (mailboxStore.hasAcknowledgedEnvelope(mailboxId, event.envelopeId)) return true;
+      if (!mailboxStore.canApplyReplicatedAcknowledgement(
+        mailboxId, event.envelopeId, event.expiresAt, maxMailboxStorageBytes,
+      )) return false;
+    }
+    try {
+      appendOperation({ kind: 'mailbox-replica-event', publicationId, event });
+    } catch (error) {
+      if (error instanceof RelayJournalCapacityError) return false;
+      throw error;
+    }
+    if (event.kind === 'envelope') mailboxStore.enqueue(event.envelope);
+    else mailboxStore.applyReplicatedAcknowledgement(
+      mailboxId, event.envelopeId, event.expiresAt,
+    );
+    mailboxSyncNextAt.clear();
+    queueReplicaRepair();
+    return true;
   }
 
   function commitMatch(notification: MatchNotification): void {
@@ -1081,6 +1157,8 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     if (result.status !== 'accepted') throw new Error(`Cannot apply committed match: ${result.status}`);
     mailboxStore.enqueue(publisherEnvelope);
     mailboxStore.enqueue(matchedEnvelope);
+    mailboxSyncNextAt.clear();
+    queueReplicaRepair();
     log('info', 'mailbox_match', { matchId: operation.matchId, operationId: operation.operationId });
   }
 
@@ -1745,6 +1823,77 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       }
       queueReplicaRepair();
     }
+    await syncReplicaMailboxes();
+  }
+
+  async function syncReplicaMailboxes(): Promise<void> {
+    if (!outboundRelayLinks) return;
+    const connected = new Set(outboundRelayLinks.status().connectedRelayIds);
+    const candidates: Array<{ publicationId: string; relayId: string; receipt: RelayReplicaReceiptV1 }> = [];
+    for (const intent of placementTracker.listIntents()) {
+      const operation = publicationStore.get(intent.publicationId);
+      const record = publicationStore.getRecord(intent.publicationId);
+      const status = placementTracker.statusFor(intent.publicationId);
+      if (!operation || !record || !status || !placementMatchesOperation(intent, operation)) continue;
+      for (const relayId of status.confirmedRelayIds) {
+        if (!connected.has(relayId)) continue;
+        const receipt = placementTracker.receiptsFor(intent.publicationId)
+          .find(candidate => candidate.responderRelayId === relayId
+            && operationMatchesReplicaReceipt(operation, candidate));
+        if (receipt) candidates.push({ publicationId: intent.publicationId, relayId, receipt });
+      }
+    }
+    if (candidates.length === 0) {
+      mailboxSyncCursors.clear();
+      mailboxSyncNextAt.clear();
+      return;
+    }
+    const activeKeys = new Set(candidates.map(candidate => (
+      `${candidate.publicationId}:${candidate.relayId}`
+    )));
+    for (const key of mailboxSyncCursors.keys()) {
+      if (!activeKeys.has(key)) mailboxSyncCursors.delete(key);
+    }
+    for (const key of mailboxSyncNextAt.keys()) {
+      if (!activeKeys.has(key)) mailboxSyncNextAt.delete(key);
+    }
+    candidates.sort((a, b) => a.publicationId.localeCompare(b.publicationId)
+      || a.relayId.localeCompare(b.relayId));
+    const start = mailboxSyncOffset % candidates.length;
+    const selected = [...candidates.slice(start), ...candidates.slice(0, start)]
+      .slice(0, MAX_MAILBOX_SYNCS_PER_REPAIR);
+    mailboxSyncOffset = (start + selected.length) % candidates.length;
+    await Promise.all(selected.map(async ({ publicationId, relayId, receipt }) => {
+      const key = `${publicationId}:${relayId}`;
+      if ((mailboxSyncNextAt.get(key) ?? 0) > Date.now()) return;
+      mailboxSyncNextAt.set(key, Date.now() + MIN_MAILBOX_SYNC_INTERVAL_MS);
+      const record = publicationStore.getRecord(publicationId);
+      if (!record) return;
+      const localEvents = mailboxStore.events(record.mailbox.id);
+      const cursors = mailboxSyncCursors.get(key) ?? { send: 0, receive: 0 };
+      const sendCursor = cursors.send < localEvents.length ? cursors.send : 0;
+      const page = localEvents.slice(sendCursor, sendCursor + MAX_RELAY_MAILBOX_SYNC_EVENTS);
+      try {
+        const response = await outboundRelayLinks!.syncMailbox(relayId, receipt, cursors.receive, page);
+        const current = publicationStore.get(publicationId);
+        const intent = placementTracker.getIntent(publicationId);
+        if (response.status !== 'ok' || !current || !intent
+          || !operationMatchesReplicaReceipt(current, receipt)
+          || !intent.targetRelayIds.includes(relayId)) return;
+        for (const event of response.events) {
+          if (!commitMailboxReplicaEvent(publicationId, event)) {
+            log('warn', 'mailbox_sync_receive_rejected', { publicationId, relayId });
+            return;
+          }
+        }
+        mailboxSyncCursors.set(key, {
+          send: sendCursor + page.length < localEvents.length ? sendCursor + page.length : 0,
+          receive: response.nextCursor,
+        });
+      } catch (error) {
+        log('warn', 'mailbox_sync_failed', { publicationId, relayId, error: String(error) });
+      }
+    }));
   }
 
   function applyToMatchingIndex(operation: PublicationOperation, trackStats = true): void {
@@ -2536,6 +2685,65 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     }
   }
 
+  function handleRelayMailboxSyncRequest(raw: string, linkedRelayId: string, ws: WebSocket): void {
+    let request: RelayMailboxSyncRequestV1;
+    try {
+      request = parseRelayMailboxSyncRequestFrameV1(raw);
+      if (inboundRelayLinks.get(linkedRelayId)?.socket !== ws
+        || !verifyRelayMailboxSyncRequestV1(request, Date.now())
+        || request.senderRelayId !== linkedRelayId
+        || request.targetRelayId !== relayIdentity.did) {
+        throw new Error('Mailbox sync is not bound to this relay link');
+      }
+    } catch {
+      ws.close(4000, 'invalid_mailbox_sync_request');
+      return;
+    }
+    const receipt = request.receipt;
+    const operation = publicationStore.get(receipt.publicationId);
+    const record = publicationStore.getRecord(receipt.publicationId);
+    const exact = operation && record
+      && operation.sequence === receipt.operationSequence
+      && operation.kind === receipt.operationKind
+      && operation.signature === receipt.operationSignature;
+    let status: 'ok' | 'rejected' = 'ok';
+    let events: RelayMailboxEventV1[] = [];
+    let nextCursor = 0;
+    if (!exact || !rateLimiter.checkMany(
+      `mailbox-sync:${linkedRelayId}`, 'replica', Math.max(1, request.events.length),
+    )) {
+      status = 'rejected';
+    } else {
+      const available = mailboxStore.events(record.mailbox.id);
+      const start = request.cursor < available.length ? request.cursor : 0;
+      events = available.slice(start, start + MAX_RELAY_MAILBOX_SYNC_EVENTS);
+      nextCursor = start + events.length < available.length ? start + events.length : 0;
+      try {
+        for (const event of request.events) {
+          if (!commitMailboxReplicaEvent(receipt.publicationId, event)) {
+            status = 'rejected';
+            events = [];
+            nextCursor = 0;
+            break;
+          }
+        }
+      } catch (error) {
+        log('warn', 'mailbox_replica_commit_failed', { error: String(error) });
+        status = 'rejected';
+        events = [];
+        nextCursor = 0;
+      }
+    }
+    try {
+      const response = createRelayMailboxSyncResponseV1(
+        request, status, events, nextCursor, relayIdentity,
+      );
+      ws.send(serializeRelayMailboxSyncResponseFrameV1(response));
+    } catch {
+      ws.close(4000, 'mailbox_sync_response_failed');
+    }
+  }
+
   function handleRelayQueryRequest(raw: string, linkedRelayId: string, ws: WebSocket): void {
     let request: RelayQueryRequestV1;
     try {
@@ -2597,6 +2805,8 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           handleRelayQueryRequest(raw, linkedRelayId, ws);
         } else if (isObject(frameCandidate) && frameCandidate.type === RELAY_QUERY_RESPONSE_FRAME_TYPE) {
           handleRelayQueryResponse(raw, linkedRelayId, ws);
+        } else if (isObject(frameCandidate) && frameCandidate.type === RELAY_MAILBOX_SYNC_REQUEST_FRAME_TYPE) {
+          handleRelayMailboxSyncRequest(raw, linkedRelayId, ws);
         } else if (isObject(frameCandidate) && frameCandidate.type === RELAY_REPLICA_PUT_FRAME_TYPE) {
           handleReplicaPlacement(ws, raw, linkedRelayId);
         } else if (isObject(frameCandidate)

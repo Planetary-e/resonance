@@ -8,7 +8,7 @@ Planetary Resonance is an open-source protocol and application for helping peopl
 
 A person writes a need or offer in natural language. Their device turns it into a compact matching fingerprint, publishes it under a key created for that one publication, and keeps the original text and root identity local. A relay compares complementary fingerprints. If two publications match, both people can consent to a fresh pairwise relationship and exchange end-to-end encrypted disclosures through asynchronous mailboxes.
 
-Resonance is currently a **research prototype**, not a production network. The protocol v2 privacy and persistence foundation is implemented, along with configured volunteer-relay replication, receipt-authorized batch checks that repair replicas after storage loss, narrow signed state reconciliation for a quarantined replica, and enforced publication-state quotas for volunteer relays. Relay-to-relay query forwarding, private transport, and mobile participation remain future milestones.
+Resonance is currently a **research prototype**, not a production network. The protocol v2 privacy and persistence foundation is implemented, along with configured volunteer-relay replication, bounded relay-to-relay search forwarding, publication-mailbox repair, receipt-authorized batch checks after storage loss, narrow signed state reconciliation, and enforced storage quotas. Private transport, pairwise relationship-mailbox replication, and mobile participation remain future milestones.
 
 ## The goal
 
@@ -87,13 +87,14 @@ Read the full [protocol v2 threat model](docs/developers/protocol-v2.md) and [ro
 | v0.1 local-data backup and upgrade | Implemented |
 | Configured-relay placement, failure-domain preference, signed receipts, persistent repair state, reconnect retry, offline-target replacement, receipt-scoped batch checks, and publication-state quotas | Implemented v0.3 foundation |
 | Signed graceful replica handoff | Implemented v0.3 foundation |
-| Journal compaction and query forwarding | Remaining v0.3 work |
+| Journal compaction, bounded query forwarding, and publication-mailbox replication | Implemented v0.3 foundation |
+| Pairwise relationship-mailbox placement, desktop background service, and churn validation | Remaining v0.3 work |
 | Private two-hop transport and anonymous abuse-control credentials | Planned for v0.4 |
 | iOS and Android clients | Planned for v0.5 |
 
 The current validation baseline is:
 
-- **273 automated tests** across core, node, relay, storage, migration, and integration flows
+- **298 automated tests** across core, node, relay, storage, migration, and integration flows
 - **44/44 evaluation gates passing**
 - **93.3% recall** for the evaluated 512-bit LSH configuration at a 0.7 Hamming-similarity threshold
 - **2.3 ms p95** for a 10,000-fingerprint Hamming scan on the recorded evaluation machine
@@ -343,7 +344,7 @@ The project currently collaborates in public through GitHub Issues and pull requ
 - **Propose a protocol change:** start with an issue. Describe the threat model, relay failure behavior, compatibility impact, and how the change can be evaluated before writing a large implementation.
 - **Contribute code or documentation:** choose an open issue, comment that you intend to work on it, create a focused branch, add appropriate tests or evaluation evidence, and open a pull request.
 - **Find approachable work:** look for [`good first issue`](https://github.com/Planetary-e/resonance/labels/good%20first%20issue) and [`help wanted`](https://github.com/Planetary-e/resonance/labels/help%20wanted) labels when available.
-- **Help with the next network milestone:** relay discovery, multi-relay publication, replica repair, bounded query forwarding, churn testing, and resource controls are the main v0.3 priorities.
+- **Help with the next network milestone:** desktop background operation, relationship-mailbox placement, churn testing, and resource controls are the main remaining v0.3 priorities.
 
 Community norms:
 

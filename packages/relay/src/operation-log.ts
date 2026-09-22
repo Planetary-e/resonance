@@ -27,6 +27,7 @@ import {
   verifyRelationshipMailboxRequestV2,
   isDurabilityReceiptV1,
   isRelayReplicaReconciliationReceiptV1,
+  verifyRelayMailboxEventV1,
   didToPublicKey,
   publicKeyToDid,
   verifyRelayReplicaReconciliationResponseV1,
@@ -39,6 +40,7 @@ import {
   type RelationshipMailboxRequestV2,
   type RelayReplicaReceiptV1,
   type RelayReplicaReconciliationResponseV1,
+  type RelayMailboxEventV1,
 } from '@resonance/core';
 import {
   verifyReplicaPlacementIntent,
@@ -95,6 +97,7 @@ export type RelayOperationLogEntry =
   | { kind: 'match-checkpoint'; operation: MatchOperationV2 }
   | { kind: 'mailbox-deposit'; request: MailboxDepositRequest | RelationshipMailboxDepositV2 }
   | { kind: 'mailbox-ack'; request: MailboxRequest | RelationshipMailboxRequestV2 }
+  | { kind: 'mailbox-replica-event'; publicationId: string; event: RelayMailboxEventV1 }
   | { kind: 'placement-intent'; intent: ReplicaPlacementIntentV1 }
   | { kind: 'placement-receipt'; receipt: RelayReplicaReceiptV1 }
   | RelayReconciliationAdoptionLogEntry;
@@ -329,6 +332,11 @@ function isLogEntry(value: unknown): value is RelayOperationLogEntry {
       && ((verifyMailboxRequest(value.request) && value.request.action === 'ack')
         || (verifyRelationshipMailboxRequestV2(value.request) && value.request.action === 'ack'));
   }
+  if (value.kind === 'mailbox-replica-event') {
+    return hasOnlyKeys(value, ['event', 'kind', 'publicationId'])
+      && isOpaqueId(value.publicationId, 'pub')
+      && verifyRelayMailboxEventV1(value.event);
+  }
   if (value.kind === 'placement-intent') {
     return hasOnlyKeys(value, ['intent', 'kind']) && verifyReplicaPlacementIntent(value.intent);
   }
@@ -385,7 +393,7 @@ function recordId(value: object): string {
   return `jrn_${digest}`;
 }
 
-function isOpaqueId(value: unknown, prefix: 'jrn'): value is string {
+function isOpaqueId(value: unknown, prefix: 'jrn' | 'pub'): value is string {
   return typeof value === 'string' && new RegExp(`^${prefix}_[A-Za-z0-9_-]{43}$`).test(value);
 }
 

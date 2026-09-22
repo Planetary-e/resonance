@@ -429,6 +429,24 @@ export {
 } from './relay-query.js';
 
 export {
+  RELAY_MAILBOX_SYNC_REQUEST_FRAME_TYPE,
+  RELAY_MAILBOX_SYNC_RESPONSE_FRAME_TYPE,
+  MAX_RELAY_MAILBOX_SYNC_EVENTS,
+  type RelayMailboxEventV1,
+  type RelayMailboxSyncRequestV1,
+  type RelayMailboxSyncResponseV1,
+  verifyRelayMailboxEventV1,
+  createRelayMailboxSyncRequestV1,
+  verifyRelayMailboxSyncRequestV1,
+  createRelayMailboxSyncResponseV1,
+  verifyRelayMailboxSyncResponseV1,
+  serializeRelayMailboxSyncRequestFrameV1,
+  serializeRelayMailboxSyncResponseFrameV1,
+  parseRelayMailboxSyncRequestFrameV1,
+  parseRelayMailboxSyncResponseFrameV1,
+} from './relay-mailbox-sync.js';
+
+export {
   type Message,
   type PublishPayload,
   type SearchPayload,

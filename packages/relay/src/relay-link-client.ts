@@ -11,6 +11,7 @@ import {
   RELAY_REPLICA_RECEIPT_FRAME_TYPE,
   RELAY_QUERY_REQUEST_FRAME_TYPE,
   RELAY_QUERY_RESPONSE_FRAME_TYPE,
+  RELAY_MAILBOX_SYNC_RESPONSE_FRAME_TYPE,
   createRelayLinkOpenFrameV1,
   createRelayLinkOpenV1,
   createRelayReplicaInventoryRequestFrameV1,
@@ -27,6 +28,7 @@ import {
   createRelayQueryRequestFrameV1,
   createRelayQueryResponseV1,
   createRelayQueryResponseFrameV1,
+  createRelayMailboxSyncRequestV1,
   isDurabilityReceiptV1,
   isRelayReplicaReconciliationReceiptV1,
   isRelayLinkAcceptActiveV1,
@@ -40,6 +42,7 @@ import {
   parseRelayReplicaReceiptFrameV1,
   parseRelayQueryRequestFrameV1,
   parseRelayQueryResponseFrameV1,
+  parseRelayMailboxSyncResponseFrameV1,
   serializeRelayLinkOpenFrameV1,
   serializeRelayReplicaInventoryRequestFrameV1,
   serializeRelayReplicaInventoryBatchRequestFrameV1,
@@ -48,11 +51,13 @@ import {
   serializeRelayReplicaHandoffResponseFrameV1,
   serializeRelayQueryRequestFrameV1,
   serializeRelayQueryResponseFrameV1,
+  serializeRelayMailboxSyncRequestFrameV1,
   verifyRelayReplicaInventoryResponseV1,
   verifyRelayReplicaInventoryBatchResponseV1,
   verifyRelayReplicaReconciliationResponseV1,
   verifyRelayReplicaReceiptV1,
   verifyRelayQueryResponseV1,
+  verifyRelayMailboxSyncResponseV1,
   verifyRelayContactHintV1,
   type Identity,
   type PublicationOperation,
@@ -73,11 +78,15 @@ import {
   type SearchRequestV2,
   type SearchResultV2,
   type AdmissionCapabilityV2,
+  type RelayMailboxEventV1,
+  type RelayMailboxSyncRequestV1,
+  type RelayMailboxSyncResponseV1,
 } from '@resonance/core';
 
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
 const MAX_PENDING_REPLICA_REQUESTS = 128;
 const MAX_PENDING_QUERY_REQUESTS = 64;
+const MAX_PENDING_MAILBOX_SYNCS = 32;
 const DEFAULT_DESCRIPTOR_REFRESH_INTERVAL_MS = 60_000;
 
 export interface RelayLinkClientOptions {
@@ -120,6 +129,11 @@ export interface RelayLinkConnection {
     remainingHops: number,
     timeoutMs: number,
   ): Promise<RelayQueryResponseV1>;
+  syncMailbox(
+    receipt: RelayReplicaReceiptV1,
+    cursor: number,
+    events: RelayMailboxEventV1[],
+  ): Promise<RelayMailboxSyncResponseV1>;
   close(): void;
 }
 
@@ -225,6 +239,12 @@ export function connectRelayLinkV1(
       resolve: (response: RelayQueryResponseV1) => void;
       reject: (error: Error) => void;
     }>();
+    const pendingMailboxSyncs = new Map<string, {
+      request: RelayMailboxSyncRequestV1;
+      timer: ReturnType<typeof setTimeout>;
+      resolve: (response: RelayMailboxSyncResponseV1) => void;
+      reject: (error: Error) => void;
+    }>();
     let resolveClosed!: (value: RelayLinkClose) => void;
     const closed = new Promise<RelayLinkClose>(resolveClosedPromise => {
       resolveClosed = resolveClosedPromise;
@@ -319,6 +339,24 @@ export function connectRelayLinkV1(
             pending.resolve(response);
           } catch {
             socket.close(4000, 'invalid_relay_query_response');
+          }
+          return;
+        }
+        if (candidate.type === RELAY_MAILBOX_SYNC_RESPONSE_FRAME_TYPE) {
+          try {
+            const response = parseRelayMailboxSyncResponseFrameV1(raw);
+            const pending = pendingMailboxSyncs.get(response.requestId);
+            if (!pending) return; // A reply may arrive just after a timeout.
+            if (!verifyRelayMailboxSyncResponseV1(response, pending.request)
+              || response.senderRelayId !== acceptedRemoteDescriptor?.relayId) {
+              throw new Error('Mailbox sync response is not bound to this relay link');
+            }
+            if (clock() > pending.request.expiresAt) return;
+            clearTimeout(pending.timer);
+            pendingMailboxSyncs.delete(response.requestId);
+            pending.resolve(response);
+          } catch {
+            socket.close(4000, 'invalid_mailbox_sync_response');
           }
           return;
         }
@@ -705,6 +743,34 @@ export function connectRelayLinkV1(
               });
             });
           },
+          syncMailbox: (receipt, cursor, events) => {
+            if (socket.readyState !== WebSocket.OPEN
+              || !remoteDescriptor.capabilities.storesMailboxes
+              || !remoteDescriptor.capabilities.replicaExchange
+              || pendingMailboxSyncs.size >= MAX_PENDING_MAILBOX_SYNCS) {
+              return Promise.reject(new Error('Mailbox replica link unavailable'));
+            }
+            const request = createRelayMailboxSyncRequestV1(receipt, cursor, events, identity, clock());
+            const serialized = serializeRelayMailboxSyncRequestFrameV1(request);
+            return new Promise<RelayMailboxSyncResponseV1>((resolveSync, rejectSync) => {
+              const timer = setTimeout(() => {
+                pendingMailboxSyncs.delete(request.requestId);
+                rejectSync(new Error('Mailbox sync timed out'));
+              }, Math.min(replicaRequestTimeoutMs, request.expiresAt - clock()));
+              timer.unref?.();
+              pendingMailboxSyncs.set(request.requestId, {
+                request, timer, resolve: resolveSync, reject: rejectSync,
+              });
+              socket.send(serialized, error => {
+                if (!error) return;
+                const pending = pendingMailboxSyncs.get(request.requestId);
+                if (!pending) return;
+                clearTimeout(pending.timer);
+                pendingMailboxSyncs.delete(request.requestId);
+                pending.reject(asError(error, 'Cannot send mailbox sync'));
+              });
+            });
+          },
           close: () => {
             if (socket.readyState === WebSocket.OPEN) socket.close(1000, 'relay_link_closed');
             else if (socket.readyState === WebSocket.CONNECTING) socket.terminate();
@@ -747,6 +813,11 @@ export function connectRelayLinkV1(
         pending.reject(new Error(`Relay link closed before query response (${code})`));
       }
       pendingQueries.clear();
+      for (const pending of pendingMailboxSyncs.values()) {
+        clearTimeout(pending.timer);
+        pending.reject(new Error(`Relay link closed before mailbox sync response (${code})`));
+      }
+      pendingMailboxSyncs.clear();
       if (!accepted) {
         failHandshake(new Error(`Relay link closed before acceptance (${code})`));
         return;
@@ -955,6 +1026,18 @@ export class RelayLinkManager {
     const connection = endpoint ? this.connections.get(endpoint) : undefined;
     if (!connection) return Promise.reject(new Error('Relay query target is not connected'));
     return connection.querySearch(search, admission, remainingHops, timeoutMs);
+  }
+
+  syncMailbox(
+    relayId: string,
+    receipt: RelayReplicaReceiptV1,
+    cursor: number,
+    events: RelayMailboxEventV1[],
+  ): Promise<RelayMailboxSyncResponseV1> {
+    const endpoint = this.relayEndpoints.get(relayId);
+    const connection = endpoint ? this.connections.get(endpoint) : undefined;
+    if (!connection) return Promise.reject(new Error('Mailbox replica target is not connected'));
+    return connection.syncMailbox(receipt, cursor, events);
   }
 
   receipts(publicationId: string): RelayReplicaReceiptV1[] {

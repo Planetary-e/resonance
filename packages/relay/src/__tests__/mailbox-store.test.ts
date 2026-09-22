@@ -107,6 +107,26 @@ describe('MailboxStore', () => {
     expect(restored.fetch(value.mailboxId, NOW + 2)).toEqual([]);
   });
 
+  it('keeps a replicated acknowledgement that arrives before its encrypted envelope', () => {
+    const value = envelope();
+    const store = new MailboxStore();
+    expect(store.canApplyReplicatedAcknowledgement(
+      value.mailboxId, value.envelopeId, value.expiresAt, 1_000,
+    )).toBe(true);
+    expect(store.applyReplicatedAcknowledgement(
+      value.mailboxId, value.envelopeId, value.expiresAt,
+    )).toBe(true);
+    expect(store.events(value.mailboxId, NOW + 2)).toEqual([{
+      kind: 'ack', mailboxId: value.mailboxId,
+      envelopeId: value.envelopeId, expiresAt: value.expiresAt,
+    }]);
+    expect(store.enqueue(value)).toBe('duplicate');
+    expect(store.fetch(value.mailboxId, NOW + 2)).toEqual([]);
+    expect(store.applyReplicatedAcknowledgement(
+      value.mailboxId, value.envelopeId, value.expiresAt,
+    )).toBe(false);
+  });
+
   it('bounds one fetch so the result can be acknowledged in one request', () => {
     const store = new MailboxStore();
     const base = envelope();
