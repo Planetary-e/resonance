@@ -343,6 +343,21 @@ describe('replica storage quotas', () => {
     });
     if (!latest) throw new Error('Expected compactable publication entry');
 
+    // Startup rewrites the superseded row while retaining A as the durable
+    // allocation owner. The compacted journal must replay identically again.
+    const restarted = createTarget(port, directory, quotaBytes, perRelayQuotaBytes);
+    await restarted.start();
+    try {
+      expect(new RelayOperationLog(directory).load().map(record => record.entry)).toEqual([latest]);
+      expect(restarted.getStats()).toMatchObject({
+        journal_entries: 1,
+        replica_storage_reserved_bytes: forwardedBytes,
+        replica_storage_relays: 1,
+      });
+    } finally {
+      await restarted.stop();
+    }
+
     // A compactor may retain only the current operation. Its durable owner
     // must still be A, leaving B's per-relay budget available after restart.
     const compactedLog = new RelayOperationLog(compactedDirectory);
@@ -572,10 +587,8 @@ describe('replica storage quotas', () => {
         allocationOrigin: 'legacy',
       });
 
-      // New journal rows explicitly preserve legacy provenance, so a full
-      // historical replay keeps the same virtual owner. A future compactor
-      // must retain the last live state needed by a tombstone rather than
-      // write a tombstone alone.
+      // New journal rows explicitly preserve legacy provenance. A compacted
+      // tombstone must still retain this last live state for accounting.
       expect((await link.placeReplica(tombstone)).status).toBe('stored');
       const publications = new RelayOperationLog(directory).load()
         .map(record => record.entry)
@@ -601,12 +614,38 @@ describe('replica storage quotas', () => {
     target = createTarget(port, directory, quotaBytes, perRelayQuotaBytes);
     await target.start();
     try {
+      expect(new RelayOperationLog(directory).load().map(record => record.entry)).toEqual([
+        { kind: 'publication', operation: compatibleUpdate, allocationOrigin: 'legacy' },
+        { kind: 'publication', operation: tombstone, allocationOrigin: 'legacy' },
+      ]);
       expect(target.getStats()).toMatchObject({
+        journal_entries: 2,
+        retained_tombstones: 1,
         legacy_unattributed_storage_reserved_bytes: tombstoneBytes,
         replica_storage_reserved_bytes: 0,
         replica_storage_relays: 0,
       });
     } finally {
+      await target.stop();
+    }
+
+    // Replay the rewritten file itself, then verify a stale live copy cannot
+    // revive the withdrawal after both the first row and its history are gone.
+    target = createTarget(port, directory, quotaBytes, perRelayQuotaBytes);
+    await target.start();
+    const staleLink = await connectSource(port, source);
+    try {
+      expect(target.getStats()).toMatchObject({
+        journal_entries: 2,
+        retained_tombstones: 1,
+        legacy_unattributed_storage_reserved_bytes: tombstoneBytes,
+      });
+      expect(await staleLink.placeReplica(first)).toMatchObject({
+        status: 'rejected', reason: 'terminal',
+      });
+    } finally {
+      staleLink.close();
+      await staleLink.closed;
       await target.stop();
     }
 

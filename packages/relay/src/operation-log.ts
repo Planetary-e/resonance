@@ -8,9 +8,12 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  renameSync,
+  rmSync,
   truncateSync,
+  writeFileSync,
 } from 'node:fs';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import {
   verifyMailboxEnvelope,
@@ -175,6 +178,39 @@ export class RelayOperationLog {
     }
     this.records.push(record);
     return record;
+  }
+
+  /** Replace a replayed journal with an atomically installed, fsynced snapshot of its retained events. */
+  compact(retained: readonly Pick<RelayOperationLogRecord, 'committedAt' | 'entry'>[]): void {
+    if (this.failed) throw new Error('Relay operation log requires restart after an append failure');
+    const compacted = retained.map(({ committedAt, entry }, index) => {
+      if (!isLogEntry(entry) || !isTimestamp(committedAt)) {
+        throw new Error('Invalid relay operation log compaction entry');
+      }
+      const base = { version: 1 as const, sequence: index + 1, committedAt, entry };
+      return { ...base, recordId: recordId(base) };
+    });
+    const temporaryPath = `${this.path}.compact-${randomUUID()}`;
+    let renamed = false;
+    try {
+      const descriptor = openSync(temporaryPath, 'wx', 0o600);
+      try {
+        for (const record of compacted) writeFileSync(descriptor, `${JSON.stringify(record)}\n`, 'utf8');
+        fsyncSync(descriptor);
+      } finally {
+        closeSync(descriptor);
+      }
+      renameSync(temporaryPath, this.path);
+      renamed = true;
+      fsyncDirectory(this.directory);
+      this.records = compacted;
+    } catch (error) {
+      // Before rename the original remains authoritative. After rename, the
+      // disk state is uncertain until restart, so do not allow another append.
+      if (renamed) this.failed = true;
+      else rmSync(temporaryPath, { force: true });
+      throw error;
+    }
   }
 
   get entries(): readonly RelayOperationLogRecord[] {

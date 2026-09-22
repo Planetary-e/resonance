@@ -2,9 +2,9 @@
  * Reservation accounting for the publication state a relay agrees to retain.
  *
  * The append-only operation journal is deliberately not used as the quota
- * unit: it contains historical operations, matches, mailboxes, and placement
- * evidence and is not compacted yet. This ledger instead measures the current
- * authoritative publication state, rebuilt from that journal on every start.
+ * unit: it contains matches, mailboxes, placement evidence, and publication
+ * history that cannot yet be compacted safely. This ledger instead measures
+ * the current authoritative publication state, rebuilt on every start.
  */
 
 import { Buffer } from 'node:buffer';

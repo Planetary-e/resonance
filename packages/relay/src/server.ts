@@ -113,6 +113,7 @@ import { log } from './logger.js';
 import { PublicationOperationStore, type PublicationApplyStatus } from './publication-store.js';
 import { MailboxStore } from './mailbox-store.js';
 import { MatchOperationStore } from './match-operation-store.js';
+import { compactPublicationHistory } from './journal-compaction.js';
 import {
   RelayOperationLog,
   type RelayOperationLogEntry,
@@ -410,6 +411,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   let wss: WebSocketServer;
   let publicationExpiryTimer: ReturnType<typeof setTimeout> | null = null;
   let cleanupTimer: ReturnType<typeof setInterval> | null = null;
+  let lastJournalCompactionCheckLength = 0;
   let relayLinkHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let replicaRepairTimer: ReturnType<typeof setInterval> | null = null;
   let replicaRepairWakeupTimer: ReturnType<typeof setTimeout> | null = null;
@@ -663,6 +665,20 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     if (entry.kind === 'placement-receipt' && placementTracker.canRecordReceipt(entry.receipt)) {
       placementTracker.recordReceipt(entry.receipt);
     }
+  }
+
+  function maybeCompactJournal(minimumRedundantRecords: number): void {
+    const before = operationLog.length;
+    if (before - lastJournalCompactionCheckLength < minimumRedundantRecords) return;
+    const retained = compactPublicationHistory(operationLog.entries, publicationStore, replicaStorageLedger);
+    lastJournalCompactionCheckLength = before;
+    const removed = before - retained.length;
+    if (removed < minimumRedundantRecords) return;
+    // Avoid rewriting a large mixed journal for a tiny publication saving.
+    if (minimumRedundantRecords > 1 && removed < 4096 && removed * 10 < before) return;
+    operationLog.compact(retained);
+    lastJournalCompactionCheckLength = operationLog.length;
+    log('info', 'journal_compacted', { before, after: operationLog.length, removed });
   }
 
   function commitMailboxDeposit(
@@ -2697,6 +2713,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       const records = operationLog.load();
       for (const record of records) replayOperation(record.entry);
       for (const record of records) replayPlacementOperation(record.entry);
+      maybeCompactJournal(1);
       if (replicaStorageLedger.legacyUnattributedReservedBytes > 0) {
         log('warn', 'legacy_replica_storage_accounted', {
           reservedBytes: replicaStorageLedger.legacyUnattributedReservedBytes,
@@ -2747,6 +2764,11 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         pruneSeenRelayReplicaRequests();
         relayDirectory.prune();
         enforcePublicationExpiries();
+        try {
+          maybeCompactJournal(128);
+        } catch (error) {
+          log('error', 'journal_compaction_failed', { error: String(error) });
+        }
       }, 5 * 60_000);
 
       relayLinkHeartbeatTimer = setInterval(() => {
