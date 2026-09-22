@@ -91,6 +91,8 @@ export interface RelayReconciliationAdoptionLogEntry {
 export type RelayOperationLogEntry =
   | RelayPublicationOperationLogEntry
   | { kind: 'match'; operation: MatchOperationV2; envelopes: [EncryptedMailboxEnvelope, EncryptedMailboxEnvelope] }
+  /** A match whose delivery window ended; retains only its signed deduplication decision. */
+  | { kind: 'match-checkpoint'; operation: MatchOperationV2 }
   | { kind: 'mailbox-deposit'; request: MailboxDepositRequest | RelationshipMailboxDepositV2 }
   | { kind: 'mailbox-ack'; request: MailboxRequest | RelationshipMailboxRequestV2 }
   | { kind: 'placement-intent'; intent: ReplicaPlacementIntentV1 }
@@ -313,6 +315,9 @@ function isLogEntry(value: unknown): value is RelayOperationLogEntry {
     return value.envelopes.every(envelope => envelope.payloadType === 'match-notice')
       && value.envelopes[0].mailboxId !== value.envelopes[1].mailboxId
       && value.envelopes[0].envelopeId !== value.envelopes[1].envelopeId;
+  }
+  if (value.kind === 'match-checkpoint') {
+    return hasOnlyKeys(value, ['kind', 'operation']) && verifyMatchOperationV2(value.operation);
   }
   if (value.kind === 'mailbox-deposit') {
     return hasOnlyKeys(value, ['kind', 'request'])

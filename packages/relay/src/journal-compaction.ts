@@ -5,30 +5,44 @@ import type { PublicationOperationStore } from './publication-store.js';
 import type { ReplicaStorageLedger } from './replica-storage-ledger.js';
 
 /**
- * Match verification depends on publication state at the match's position in
- * the journal. Reconciliation adoption depends on its exact predecessor.
- * Keep the full publication history for either dependency until those event
- * families have their own snapshot format.
+ * Match verification depends on the exact signed publication revisions at the
+ * match's position in the journal. Keep those revisions, plus the current
+ * record and the live predecessor of a tombstone. Raw reconciliation adoption
+ * still protects its entire predecessor history; the server first rewrites
+ * adopted operations into ordinary owner-signed publication rows.
  */
 export function compactPublicationHistory(
-  records: readonly RelayOperationLogRecord[],
+  records: readonly Pick<RelayOperationLogRecord, 'committedAt' | 'entry'>[],
   publications: PublicationOperationStore,
   allocations: ReplicaStorageLedger,
 ): Pick<RelayOperationLogRecord, 'committedAt' | 'entry'>[] {
   const protectedIds = new Set<string>();
+  const matchReferences = new Map<string, Set<string>>();
   for (const { entry } of records) {
-    if (entry.kind === 'match') {
-      for (const reference of entry.operation.publications) protectedIds.add(reference.publicationId);
+    if (entry.kind === 'match' || entry.kind === 'match-checkpoint') {
+      for (const reference of entry.operation.publications) {
+        const signatures = matchReferences.get(reference.publicationId) ?? new Set<string>();
+        signatures.add(reference.publicationSignature);
+        matchReferences.set(reference.publicationId, signatures);
+      }
     } else if (entry.kind === 'reconciliation-adoption') {
       protectedIds.add(entry.rejection.publicationId);
     }
   }
 
   const histories = new Map<string, { latestLive?: number; firstTombstone?: number }>();
+  const retainedIndices = new Set<number>();
+  const foundReferences = new Map<string, Set<string>>();
   for (let index = 0; index < records.length; index++) {
     const entry = records[index].entry;
     if (entry.kind !== 'publication' || protectedIds.has(entry.operation.publicationId)) continue;
     const id = entry.operation.publicationId;
+    if (matchReferences.get(id)?.has(entry.operation.signature)) {
+      retainedIndices.add(index);
+      const signatures = foundReferences.get(id) ?? new Set<string>();
+      signatures.add(entry.operation.signature);
+      foundReferences.set(id, signatures);
+    }
     const history = histories.get(id) ?? {};
     if (entry.operation.kind === 'publication') {
       if (history.firstTombstone === undefined) history.latestLive = index;
@@ -38,7 +52,14 @@ export function compactPublicationHistory(
     histories.set(id, history);
   }
 
-  const retainedIndices = new Set<number>();
+  for (const [id, signatures] of matchReferences) {
+    if (protectedIds.has(id)) continue;
+    for (const signature of signatures) {
+      if (!foundReferences.get(id)?.has(signature)) {
+        throw new Error(`Missing match publication history for ${id}`);
+      }
+    }
+  }
   const compactableIds = new Set<string>();
   for (const [id, history] of histories) {
     const current = publications.get(id);

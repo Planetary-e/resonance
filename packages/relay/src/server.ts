@@ -3,6 +3,7 @@
  * Accepts self-authenticating protocol v2 operations over short connections.
  */
 
+import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import { WebSocket, WebSocketServer } from 'ws';
@@ -115,6 +116,11 @@ import { MailboxStore } from './mailbox-store.js';
 import { MatchOperationStore } from './match-operation-store.js';
 import { compactPublicationHistory } from './journal-compaction.js';
 import { compactMailboxHistory } from './mailbox-journal-compaction.js';
+import {
+  compactMatchHistory,
+  compactPlacementHistory,
+  compactReconciliationHistory,
+} from './evidence-journal-compaction.js';
 import {
   RelayOperationLog,
   RelayJournalCapacityError,
@@ -692,7 +698,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       );
       return;
     }
-    if (entry.kind === 'match') {
+    if (entry.kind === 'match' || entry.kind === 'match-checkpoint') {
       const [firstReference, secondReference] = entry.operation.publications;
       const first = publicationStore.getRecord(firstReference.publicationId);
       const second = publicationStore.getRecord(secondReference.publicationId);
@@ -703,7 +709,9 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       if (result.status !== 'accepted' && result.status !== 'attestation' && result.status !== 'duplicate') {
         throw new Error(`Cannot replay match operation: ${result.status}`);
       }
-      for (const envelope of entry.envelopes) mailboxStore.enqueue(envelope);
+      if (entry.kind === 'match') {
+        for (const envelope of entry.envelopes) mailboxStore.enqueue(envelope);
+      }
       return;
     }
     if (entry.kind === 'mailbox-deposit') {
@@ -736,13 +744,22 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       || (before < 128 && mailboxExpiredSinceCompaction > 0);
     if (!aggressive && before - lastJournalCompactionCheckLength < minimumRedundantRecords
       && !enoughExpiredMail) return;
+    const matchesRetained = compactMatchHistory(operationLog.entries, matchStore, publicationStore);
+    const adoptedRetained = compactReconciliationHistory(matchesRetained);
     const publicationsRetained = compactPublicationHistory(
-      operationLog.entries, publicationStore, replicaStorageLedger,
+      adoptedRetained, publicationStore, replicaStorageLedger,
     );
-    const retained = compactMailboxHistory(publicationsRetained, mailboxStore);
+    const mailboxesRetained = compactMailboxHistory(publicationsRetained, mailboxStore);
+    const retained = compactPlacementHistory(mailboxesRetained, placementTracker, publicationStore);
     lastJournalCompactionCheckLength = before;
     const removed = before - retained.length;
-    if (removed < (enoughExpiredMail ? 1 : minimumRedundantRecords)) return;
+    const compressedEntryBytes = operationLog.entries.reduce(
+      (sum, record) => sum + Buffer.byteLength(JSON.stringify(record.entry), 'utf8'), 0,
+    ) - retained.reduce(
+      (sum, record) => sum + Buffer.byteLength(JSON.stringify(record.entry), 'utf8'), 0,
+    );
+    if (removed < (enoughExpiredMail ? 1 : minimumRedundantRecords)
+      && (!aggressive || compressedEntryBytes <= 0)) return;
     // Avoid rewriting a large mixed journal for a tiny publication saving.
     if (!aggressive && minimumRedundantRecords > 1 && before >= 128
       && removed < 4096 && removed * 10 < before) return;
