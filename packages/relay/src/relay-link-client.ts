@@ -9,6 +9,8 @@ import {
   RELAY_REPLICA_INVENTORY_RESPONSE_FRAME_TYPE,
   RELAY_REPLICA_RECONCILIATION_RESPONSE_FRAME_TYPE,
   RELAY_REPLICA_RECEIPT_FRAME_TYPE,
+  RELAY_QUERY_REQUEST_FRAME_TYPE,
+  RELAY_QUERY_RESPONSE_FRAME_TYPE,
   createRelayLinkOpenFrameV1,
   createRelayLinkOpenV1,
   createRelayReplicaInventoryRequestFrameV1,
@@ -21,26 +23,36 @@ import {
   createRelayReplicaPutV1,
   createRelayReplicaHandoffResponseFrameV1,
   createRelayReplicaHandoffResponseV1,
+  createRelayQueryRequestV1,
+  createRelayQueryRequestFrameV1,
+  createRelayQueryResponseV1,
+  createRelayQueryResponseFrameV1,
   isDurabilityReceiptV1,
   isRelayReplicaReconciliationReceiptV1,
   isRelayLinkAcceptActiveV1,
   isRelayReplicaHandoffRequestActiveV1,
+  isRelayQueryRequestActiveV1,
   parseRelayLinkAcceptFrameV1,
   parseRelayReplicaInventoryResponseFrameV1,
   parseRelayReplicaHandoffRequestFrameV1,
   parseRelayReplicaInventoryBatchResponseFrameV1,
   parseRelayReplicaReconciliationResponseFrameV1,
   parseRelayReplicaReceiptFrameV1,
+  parseRelayQueryRequestFrameV1,
+  parseRelayQueryResponseFrameV1,
   serializeRelayLinkOpenFrameV1,
   serializeRelayReplicaInventoryRequestFrameV1,
   serializeRelayReplicaInventoryBatchRequestFrameV1,
   serializeRelayReplicaReconciliationRequestFrameV1,
   serializeRelayReplicaPutFrameV1,
   serializeRelayReplicaHandoffResponseFrameV1,
+  serializeRelayQueryRequestFrameV1,
+  serializeRelayQueryResponseFrameV1,
   verifyRelayReplicaInventoryResponseV1,
   verifyRelayReplicaInventoryBatchResponseV1,
   verifyRelayReplicaReconciliationResponseV1,
   verifyRelayReplicaReceiptV1,
+  verifyRelayQueryResponseV1,
   verifyRelayContactHintV1,
   type Identity,
   type PublicationOperation,
@@ -55,10 +67,17 @@ import {
   type RelayReplicaPutV1,
   type RelayReplicaReceiptV1,
   type RelayReplicaHandoffRequestV1,
+  type RelayQueryRequestV1,
+  type RelayQueryResponseV1,
+  type RelayQueryStatusV1,
+  type SearchRequestV2,
+  type SearchResultV2,
+  type AdmissionCapabilityV2,
 } from '@resonance/core';
 
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
 const MAX_PENDING_REPLICA_REQUESTS = 128;
+const MAX_PENDING_QUERY_REQUESTS = 64;
 const DEFAULT_DESCRIPTOR_REFRESH_INTERVAL_MS = 60_000;
 
 export interface RelayLinkClientOptions {
@@ -73,6 +92,11 @@ export interface RelayLinkClientOptions {
   onReplicaHandoffRequest?: (
     request: RelayReplicaHandoffRequestV1,
   ) => Promise<{ accepted: boolean[]; safeElsewhere: boolean[] }>;
+  /** Serve a signed search received from this link's authenticated target. */
+  onQueryRequest?: (request: RelayQueryRequestV1) => Promise<{
+    status: RelayQueryStatusV1;
+    results: SearchResultV2[];
+  }>;
 }
 
 export interface RelayLinkClose {
@@ -90,6 +114,12 @@ export interface RelayLinkConnection {
   checkReplica(receipt: RelayReplicaReceiptV1): Promise<RelayReplicaInventoryResponseV1>;
   checkReplicaBatch(receipts: readonly RelayReplicaReceiptV1[]): Promise<RelayReplicaInventoryBatchResponseV1>;
   reconcileReplica(receipt: RelayReplicaReceiptV1): Promise<RelayReplicaReconciliationResponseV1>;
+  querySearch(
+    search: SearchRequestV2,
+    admission: AdmissionCapabilityV2 | undefined,
+    remainingHops: number,
+    timeoutMs: number,
+  ): Promise<RelayQueryResponseV1>;
   close(): void;
 }
 
@@ -189,6 +219,12 @@ export function connectRelayLinkV1(
       resolve: (response: RelayReplicaReconciliationResponseV1) => void;
       reject: (error: Error) => void;
     }>();
+    const pendingQueries = new Map<string, {
+      request: RelayQueryRequestV1;
+      timer: ReturnType<typeof setTimeout>;
+      resolve: (response: RelayQueryResponseV1) => void;
+      reject: (error: Error) => void;
+    }>();
     let resolveClosed!: (value: RelayLinkClose) => void;
     const closed = new Promise<RelayLinkClose>(resolveClosedPromise => {
       resolveClosed = resolveClosedPromise;
@@ -233,6 +269,57 @@ export function connectRelayLinkV1(
         }
         if (!isObject(candidate)) {
           socket.close(4000, 'unexpected_link_message');
+          return;
+        }
+        if (candidate.type === RELAY_QUERY_REQUEST_FRAME_TYPE) {
+          try {
+            const { request: query } = parseRelayQueryRequestFrameV1(raw);
+            if (!isRelayQueryRequestActiveV1(query, clock())
+              || query.senderRelayId !== acceptedRemoteDescriptor?.relayId
+              || query.targetRelayId !== localDescriptor.relayId
+              || !options.onQueryRequest) {
+              throw new Error('Relay query request is not bound to this relay link');
+            }
+            void options.onQueryRequest(query).then(result => {
+              if (socket.readyState !== WebSocket.OPEN) return;
+              const response = createRelayQueryResponseV1(
+                query, identity, result.status, result.results, clock(),
+              );
+              socket.send(serializeRelayQueryResponseFrameV1(
+                createRelayQueryResponseFrameV1(response),
+              ));
+            }).catch(() => {
+              if (socket.readyState !== WebSocket.OPEN) return;
+              try {
+                const response = createRelayQueryResponseV1(query, identity, 'unavailable', [], clock());
+                socket.send(serializeRelayQueryResponseFrameV1(
+                  createRelayQueryResponseFrameV1(response),
+                ));
+              } catch { /* The request deadline has passed. */ }
+            });
+          } catch {
+            socket.close(4000, 'invalid_relay_query_request');
+          }
+          return;
+        }
+        if (candidate.type === RELAY_QUERY_RESPONSE_FRAME_TYPE) {
+          try {
+            const { response } = parseRelayQueryResponseFrameV1(raw);
+            const pending = pendingQueries.get(response.requestId);
+            // An honest peer can answer just after our deadline. Ignore that
+            // signed late reply instead of tearing down the shared link.
+            if (!pending) return;
+            if (!verifyRelayQueryResponseV1(response, pending.request)
+              || response.senderRelayId !== acceptedRemoteDescriptor?.relayId) {
+              throw new Error('Relay query response is not bound to this request');
+            }
+            if (clock() > pending.request.expiresAt) return;
+            clearTimeout(pending.timer);
+            pendingQueries.delete(response.requestId);
+            pending.resolve(response);
+          } catch {
+            socket.close(4000, 'invalid_relay_query_response');
+          }
           return;
         }
         if (candidate.type === RELAY_REPLICA_HANDOFF_REQUEST_FRAME_TYPE) {
@@ -578,6 +665,46 @@ export function connectRelayLinkV1(
               });
             });
           },
+          querySearch: (search, admission, remainingHops, timeoutMs) => {
+            if (socket.readyState !== WebSocket.OPEN) {
+              return Promise.reject(new Error('Relay link is not open'));
+            }
+            if (!remoteDescriptor.capabilities.answersQueries
+              || !remoteDescriptor.capabilities.forwardsQueries
+              || !remoteDescriptor.supportedGroups.includes(search.groupId)) {
+              return Promise.reject(new Error('Remote relay does not advertise query routing'));
+            }
+            if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 5_000
+              || pendingQueries.size >= MAX_PENDING_QUERY_REQUESTS) {
+              return Promise.reject(new Error('Relay query request limit reached'));
+            }
+            const createdAt = clock();
+            const queryRequest = createRelayQueryRequestV1(
+              search, remoteDescriptor.relayId, identity, remainingHops,
+              admission, createdAt, Math.min(search.expiresAt, createdAt + timeoutMs),
+            );
+            const serializedQuery = serializeRelayQueryRequestFrameV1(
+              createRelayQueryRequestFrameV1(queryRequest),
+            );
+            return new Promise<RelayQueryResponseV1>((resolveQuery, rejectQuery) => {
+              const timer = setTimeout(() => {
+                pendingQueries.delete(queryRequest.requestId);
+                rejectQuery(new Error('Relay query timed out'));
+              }, timeoutMs);
+              timer.unref?.();
+              pendingQueries.set(queryRequest.requestId, {
+                request: queryRequest, timer, resolve: resolveQuery, reject: rejectQuery,
+              });
+              socket.send(serializedQuery, error => {
+                if (!error) return;
+                const pending = pendingQueries.get(queryRequest.requestId);
+                if (!pending) return;
+                clearTimeout(pending.timer);
+                pendingQueries.delete(queryRequest.requestId);
+                pending.reject(asError(error, 'Cannot send relay query'));
+              });
+            });
+          },
           close: () => {
             if (socket.readyState === WebSocket.OPEN) socket.close(1000, 'relay_link_closed');
             else if (socket.readyState === WebSocket.CONNECTING) socket.terminate();
@@ -615,6 +742,11 @@ export function connectRelayLinkV1(
         pending.reject(new Error(`Relay link closed before replica reconciliation response (${code})`));
       }
       pendingReconciliations.clear();
+      for (const pending of pendingQueries.values()) {
+        clearTimeout(pending.timer);
+        pending.reject(new Error(`Relay link closed before query response (${code})`));
+      }
+      pendingQueries.clear();
       if (!accepted) {
         failHandshake(new Error(`Relay link closed before acceptance (${code})`));
         return;
@@ -810,6 +942,19 @@ export class RelayLinkManager {
       })
       .filter((peer): peer is ConnectedRelayPeer => peer !== undefined)
       .sort((first, second) => first.relayId.localeCompare(second.relayId));
+  }
+
+  queryRelay(
+    relayId: string,
+    search: SearchRequestV2,
+    admission: AdmissionCapabilityV2 | undefined,
+    remainingHops: number,
+    timeoutMs: number,
+  ): Promise<RelayQueryResponseV1> {
+    const endpoint = this.relayEndpoints.get(relayId);
+    const connection = endpoint ? this.connections.get(endpoint) : undefined;
+    if (!connection) return Promise.reject(new Error('Relay query target is not connected'));
+    return connection.querySearch(search, admission, remainingHops, timeoutMs);
   }
 
   receipts(publicationId: string): RelayReplicaReceiptV1[] {

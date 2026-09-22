@@ -25,6 +25,9 @@ import {
   RELAY_PEER_REQUEST_FRAME_TYPE,
   SEARCH_REQUEST_FRAME_TYPE,
   SEARCH_RESPONSE_MESSAGE_TYPE,
+  RELAY_QUERY_REQUEST_FRAME_TYPE,
+  RELAY_QUERY_RESPONSE_FRAME_TYPE,
+  MAX_RELAY_QUERY_HOPS,
   createAdmissionRequestBindingV2,
   createMatchOperationV2,
   createMatchNoticeMessage,
@@ -45,6 +48,10 @@ import {
   createRelayPeerResponseFrameV1,
   createRelayPeerResponseV1,
   createSearchResponsePayloadV2,
+  createRelayQueryRequestV1,
+  createRelayQueryRequestFrameV1,
+  createRelayQueryResponseV1,
+  createRelayQueryResponseFrameV1,
   decodeBase64,
   encryptMatchNotice,
   hammingSimilarity,
@@ -57,6 +64,7 @@ import {
   isRelayReplicaPutActiveV1,
   isRelayPeerRequestActiveV1,
   isSearchRequestActiveV2,
+  isRelayQueryRequestActiveV1,
   parseMailboxDepositFrame,
   parseMailboxRequestFrame,
   parsePublicationOperationFrame,
@@ -70,6 +78,8 @@ import {
   parseRelayReplicaHandoffResponseFrameV1,
   parseRelayPeerRequestFrameV1,
   parseSearchRequestFrameV2,
+  parseRelayQueryRequestFrameV1,
+  parseRelayQueryResponseFrameV1,
   parseMessage,
   verifyMessage,
   verifyRelayReplicaHandoffResponseV1,
@@ -82,7 +92,10 @@ import {
   serializeRelayReplicaReceiptFrameV1,
   serializeRelayReplicaHandoffRequestFrameV1,
   serializeRelayPeerResponseFrameV1,
+  serializeRelayQueryRequestFrameV1,
+  serializeRelayQueryResponseFrameV1,
   verifyMatchOperationAgainstPublicationsV2,
+  verifyRelayQueryResponseV1,
   type AckPayload,
   type AdmissionCapabilityV2,
   type MailboxResponsePayload,
@@ -107,6 +120,11 @@ import {
   type RelayReplicaHandoffRequestV1,
   type RelayReplicaHandoffResponseV1,
   type RelayReplicaRejectionReasonV1,
+  type RelayQueryRequestV1,
+  type RelayQueryResponseV1,
+  type RelayQueryStatusV1,
+  type SearchRequestV2,
+  type SearchResultV2,
 } from '@resonance/core';
 import { MatchingEngine, type MatchNotification } from './matching-engine.js';
 import { RateLimiter } from './rate-limiter.js';
@@ -313,6 +331,10 @@ const STORAGE_AVAILABILITY_REFRESH_MS = 60_000;
 const MAX_MAILBOX_ENVELOPE_LIFETIME_MS = 30 * 24 * 60 * 60_000;
 const JOURNAL_TERMINAL_RESERVE_BYTES = 1024;
 const JOURNAL_ACK_RESERVE_BYTES = 2048;
+const MAX_QUERY_FANOUT = 5;
+const MAX_QUERY_WAIT_MS = 3_000;
+const MAX_SEEN_SEARCHES = 8_192;
+const MAX_PENDING_INBOUND_QUERIES = 64;
 type PublicationCommitStatus = PublicationApplyStatus | 'capacity-exhausted';
 
 export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
@@ -445,6 +467,14 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   );
 
   const seenSearches = new Map<string, number>();
+  const pendingInboundQueries = new Map<string, {
+    request: RelayQueryRequestV1;
+    targetRelayId: string;
+    socket: WebSocket;
+    timer: ReturnType<typeof setTimeout>;
+    resolve: (response: RelayQueryResponseV1) => void;
+    reject: (error: Error) => void;
+  }>();
   const seenPeerRequests = new Map<string, number>();
   const seenRelayLinks = new Map<string, number>();
   const seenRelayReplicaRequests = new Map<string, {
@@ -538,7 +568,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           storesPublications: true,
           storesMailboxes: true,
           answersQueries: true,
-          forwardsQueries: false,
+          forwardsQueries: true,
           replicaExchange: true,
         },
         supportedGroups: discovery.supportedGroups,
@@ -566,6 +596,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     }, {
       ...cfg.relayLinks,
       onReplicaHandoffRequest: acceptReplicaHandoffRequest,
+      onQueryRequest: request => processForwardedSearch(request, request.senderRelayId),
       onEvent(event) {
         log(event.kind === 'failed' ? 'warn' : 'info', `relay_link_${event.kind}`, {
           endpoint: event.endpoint,
@@ -587,6 +618,189 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     const ids = new Set(inboundRelayLinks.keys());
     for (const relayId of outboundRelayLinks?.status().connectedRelayIds ?? []) ids.add(relayId);
     return [...ids].sort();
+  }
+
+  function localSearchResults(search: SearchRequestV2, now: number): SearchResultV2[] {
+    const scope = `${search.groupId}\n${search.fingerprint.algorithm}:${search.fingerprint.bits}:${search.fingerprint.epoch}`;
+    return engine.search(
+      decodeBase64(search.fingerprint.value),
+      search.itemType,
+      search.k,
+      Math.max(search.threshold, cfg.matchThreshold),
+      scope,
+    ).flatMap(match => {
+      const publication = publicationStore.get(match.did);
+      if (!publication || publication.kind !== 'publication' || !isPublicationActive(publication, now)) {
+        return [];
+      }
+      return [{
+        publicationId: publication.publicationId,
+        similarity: match.similarity,
+        itemType: publication.itemType,
+      }];
+    });
+  }
+
+  function rememberSearch(searchId: string, expiresAt: number, now: number): boolean {
+    if (seenSearches.has(searchId)) return false;
+    if (seenSearches.size >= MAX_SEEN_SEARCHES) {
+      for (const [id, expiry] of seenSearches) {
+        if (expiry <= now) seenSearches.delete(id);
+      }
+    }
+    if (seenSearches.size >= MAX_SEEN_SEARCHES) return false;
+    seenSearches.set(searchId, expiresAt);
+    return true;
+  }
+
+  function mergeSearchResults(
+    search: SearchRequestV2,
+    batches: readonly (readonly SearchResultV2[])[],
+  ): SearchResultV2[] {
+    const byPublication = new Map<string, SearchResultV2>();
+    const localIds = new Set((batches[0] ?? []).map(result => result.publicationId));
+    for (const batch of batches) {
+      for (const result of batch) {
+        if (result.itemType === search.itemType || result.similarity < search.threshold) continue;
+        const previous = byPublication.get(result.publicationId);
+        if (!previous || (!localIds.has(result.publicationId)
+          && result.similarity > previous.similarity)) {
+          byPublication.set(result.publicationId, result);
+        }
+      }
+    }
+    return [...byPublication.values()]
+      .sort((first, second) => second.similarity - first.similarity
+        || first.publicationId.localeCompare(second.publicationId))
+      .slice(0, search.k);
+  }
+
+  function queryInboundRelay(
+    targetRelayId: string,
+    search: SearchRequestV2,
+    admission: AdmissionCapabilityV2 | undefined,
+    remainingHops: number,
+    timeoutMs: number,
+  ): Promise<RelayQueryResponseV1> {
+    const link = inboundRelayLinks.get(targetRelayId);
+    if (!link || link.socket.readyState !== WebSocket.OPEN) {
+      return Promise.reject(new Error('Inbound relay query target is unavailable'));
+    }
+    if (pendingInboundQueries.size >= MAX_PENDING_INBOUND_QUERIES) {
+      return Promise.reject(new Error('Inbound relay query limit reached'));
+    }
+    const createdAt = Date.now();
+    const request = createRelayQueryRequestV1(
+      search, targetRelayId, relayIdentity, remainingHops,
+      admission, createdAt, Math.min(search.expiresAt, createdAt + timeoutMs),
+    );
+    const serialized = serializeRelayQueryRequestFrameV1(createRelayQueryRequestFrameV1(request));
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        pendingInboundQueries.delete(request.requestId);
+        reject(new Error('Inbound relay query timed out'));
+      }, timeoutMs);
+      timer.unref?.();
+      pendingInboundQueries.set(request.requestId, {
+        request, targetRelayId, socket: link.socket, timer, resolve, reject,
+      });
+      link.socket.send(serialized, error => {
+        if (!error) return;
+        const pending = pendingInboundQueries.get(request.requestId);
+        if (!pending) return;
+        clearTimeout(pending.timer);
+        pendingInboundQueries.delete(request.requestId);
+        pending.reject(error);
+      });
+    });
+  }
+
+  async function routeSearch(
+    search: SearchRequestV2,
+    admission: AdmissionCapabilityV2 | undefined,
+    remainingHops: number,
+    excludeRelayId: string | undefined,
+    deadline: number,
+  ): Promise<SearchResultV2[]> {
+    const local = localSearchResults(search, Date.now());
+    if (remainingHops <= 0 || local.length >= search.k || Date.now() + 100 >= deadline) return local;
+    const peers = new Map<string, { relayId: string; outbound: boolean }>();
+    for (const peer of outboundRelayLinks?.connectedPeers() ?? []) {
+      if (peer.relayId === excludeRelayId
+        || !peer.descriptor.capabilities.answersQueries
+        || !peer.descriptor.capabilities.forwardsQueries
+        || !peer.descriptor.supportedGroups.includes(search.groupId)) continue;
+      peers.set(peer.relayId, { relayId: peer.relayId, outbound: true });
+    }
+    for (const [relayId, link] of inboundRelayLinks) {
+      if (relayId === excludeRelayId || peers.has(relayId)
+        || link.socket.readyState !== WebSocket.OPEN
+        || !link.descriptor.capabilities.answersQueries
+        || !link.descriptor.capabilities.forwardsQueries
+        || !link.descriptor.supportedGroups.includes(search.groupId)) continue;
+      peers.set(relayId, { relayId, outbound: false });
+    }
+    const eligible = [...peers.values()].sort((a, b) => a.relayId.localeCompare(b.relayId));
+    if (eligible.length === 0) return local;
+    // Rotate the bounded fanout by one-use search ID so the same first peers
+    // do not receive every query when a volunteer has more than five links.
+    const offset = createHash('sha256').update(search.searchId).digest()[0] % eligible.length;
+    const selected = [...eligible.slice(offset), ...eligible.slice(0, offset)].slice(0, MAX_QUERY_FANOUT);
+    const remote = await Promise.all(selected.map(async peer => {
+      const timeoutMs = Math.min(MAX_QUERY_WAIT_MS, deadline - Date.now());
+      if (timeoutMs < 100) return [];
+      try {
+        const response = peer.outbound
+          ? await outboundRelayLinks!.queryRelay(
+            peer.relayId, search, admission, remainingHops - 1, timeoutMs,
+          )
+          : await queryInboundRelay(
+            peer.relayId, search, admission, remainingHops - 1, timeoutMs,
+          );
+        return response.status === 'ok' ? response.results : [];
+      } catch (error) {
+        log('warn', 'relay_query_failed', { relayId: peer.relayId, error: String(error) });
+        return [];
+      }
+    }));
+    return mergeSearchResults(search, [local, ...remote]);
+  }
+
+  async function processForwardedSearch(
+    request: RelayQueryRequestV1,
+    linkedRelayId: string,
+  ): Promise<{ status: RelayQueryStatusV1; results: SearchResultV2[] }> {
+    const now = Date.now();
+    if (stopping || !isRelayQueryRequestActiveV1(request, now)
+      || request.senderRelayId !== linkedRelayId
+      || request.targetRelayId !== relayIdentity.did) {
+      return { status: 'unavailable', results: [] };
+    }
+    if (seenSearches.has(request.search.searchId)) return { status: 'duplicate', results: [] };
+    if (cfg.admissionVerifier) {
+      if (!request.admission) return { status: 'admission-required', results: [] };
+      try {
+        const decision = cfg.admissionVerifier.verifyAndSpend(request.admission, {
+          action: 'search',
+          requestBinding: createAdmissionRequestBindingV2('search', request.search),
+          now,
+        });
+        if (decision.status !== 'accepted' && decision.status !== 'replay') {
+          return { status: 'admission-rejected', results: [] };
+        }
+      } catch {
+        return { status: 'unavailable', results: [] };
+      }
+    }
+    if (!rateLimiter.check(`relay:${linkedRelayId}`, 'search')
+      || !rememberSearch(request.search.searchId, request.search.expiresAt, now)) {
+      return { status: 'rate-limited', results: [] };
+    }
+    const deadline = Math.min(request.expiresAt, now + MAX_QUERY_WAIT_MS);
+    const results = await routeSearch(
+      request.search, request.admission, request.remainingHops, linkedRelayId, deadline,
+    );
+    return { status: 'ok', results };
   }
 
   function localAllocation(): PublicationStorageAllocationPrincipal {
@@ -2303,6 +2517,57 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     }
   }
 
+  function handleRelayQueryResponse(raw: string, linkedRelayId: string, ws: WebSocket): void {
+    try {
+      const { response } = parseRelayQueryResponseFrameV1(raw);
+      const pending = pendingInboundQueries.get(response.requestId);
+      if (!pending) return;
+      if (pending.targetRelayId !== linkedRelayId
+        || pending.socket !== ws
+        || !verifyRelayQueryResponseV1(response, pending.request)) {
+        throw new Error('Relay query response is not bound to this link and request');
+      }
+      if (Date.now() > pending.request.expiresAt) return;
+      clearTimeout(pending.timer);
+      pendingInboundQueries.delete(response.requestId);
+      pending.resolve(response);
+    } catch {
+      ws.close(4000, 'invalid_relay_query_response');
+    }
+  }
+
+  function handleRelayQueryRequest(raw: string, linkedRelayId: string, ws: WebSocket): void {
+    let request: RelayQueryRequestV1;
+    try {
+      request = parseRelayQueryRequestFrameV1(raw).request;
+      if (inboundRelayLinks.get(linkedRelayId)?.socket !== ws
+        || request.senderRelayId !== linkedRelayId
+        || request.targetRelayId !== relayIdentity.did
+        || !isRelayQueryRequestActiveV1(request, Date.now())) {
+        throw new Error('Relay query request is not bound to this link');
+      }
+    } catch {
+      ws.close(4000, 'invalid_relay_query_request');
+      return;
+    }
+    void processForwardedSearch(request, linkedRelayId).then(result => {
+      if (ws.readyState !== WebSocket.OPEN) return;
+      const response = createRelayQueryResponseV1(
+        request, relayIdentity, result.status, result.results,
+      );
+      ws.send(serializeRelayQueryResponseFrameV1(
+        createRelayQueryResponseFrameV1(response),
+      ), error => { if (error) ws.terminate(); });
+    }).catch(error => {
+      log('warn', 'relay_query_response_failed', { relayId: linkedRelayId, error: String(error) });
+      if (ws.readyState !== WebSocket.OPEN) return;
+      try {
+        const response = createRelayQueryResponseV1(request, relayIdentity, 'unavailable');
+        ws.send(serializeRelayQueryResponseFrameV1(createRelayQueryResponseFrameV1(response)));
+      } catch { /* The signed request expired before the fallback response. */ }
+    });
+  }
+
   function handleConnection(ws: WebSocket, req: any): void {
     const ip = req?.socket?.remoteAddress ?? 'unknown';
     let linkedRelayId: string | null = null;
@@ -2328,7 +2593,11 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           ws.close(4000, 'relay_message_must_be_json');
           return;
         }
-        if (isObject(frameCandidate) && frameCandidate.type === RELAY_REPLICA_PUT_FRAME_TYPE) {
+        if (isObject(frameCandidate) && frameCandidate.type === RELAY_QUERY_REQUEST_FRAME_TYPE) {
+          handleRelayQueryRequest(raw, linkedRelayId, ws);
+        } else if (isObject(frameCandidate) && frameCandidate.type === RELAY_QUERY_RESPONSE_FRAME_TYPE) {
+          handleRelayQueryResponse(raw, linkedRelayId, ws);
+        } else if (isObject(frameCandidate) && frameCandidate.type === RELAY_REPLICA_PUT_FRAME_TYPE) {
           handleReplicaPlacement(ws, raw, linkedRelayId);
         } else if (isObject(frameCandidate)
           && frameCandidate.type === RELAY_REPLICA_HANDOFF_RESPONSE_FRAME_TYPE) {
@@ -2491,34 +2760,28 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           sendOperationAck(ws, request.searchId, 'error', 'rate_limited');
           return;
         }
-        seenSearches.set(request.searchId, request.expiresAt);
-
-        const scope = `${request.groupId}\n${request.fingerprint.algorithm}:${request.fingerprint.bits}:${request.fingerprint.epoch}`;
-        const matches = engine.search(
-          decodeBase64(request.fingerprint.value),
-          request.itemType,
-          request.k,
-          Math.max(request.threshold, cfg.matchThreshold),
-          scope,
-        );
-        const results = matches.flatMap((match) => {
-          const publication = publicationStore.get(match.did);
-          if (!publication || publication.kind !== 'publication' || !isPublicationActive(publication, now)) {
-            return [];
+        if (!rememberSearch(request.searchId, request.expiresAt, now)) {
+          sendOperationAck(ws, request.searchId, 'error', 'rate_limited');
+          return;
+        }
+        void routeSearch(
+          request, frame.admission, MAX_RELAY_QUERY_HOPS, undefined,
+          Math.min(request.expiresAt, now + MAX_QUERY_WAIT_MS),
+        ).then(results => {
+          if (ws.readyState !== WebSocket.OPEN) return;
+          const response = createMessage(
+            SEARCH_RESPONSE_MESSAGE_TYPE,
+            createSearchResponsePayloadV2(request.searchId, results),
+            relayIdentity,
+          );
+          ws.send(serializeMessage(response), () => ws.close(1000, 'search_complete'));
+          log('info', 'search_v2', { resultCount: results.length });
+        }).catch(error => {
+          log('error', 'search_v2_failed', { error: String(error) });
+          if (ws.readyState === WebSocket.OPEN) {
+            sendOperationAck(ws, request.searchId, 'error', 'search_unavailable');
           }
-          return [{
-            publicationId: publication.publicationId,
-            similarity: match.similarity,
-            itemType: publication.itemType,
-          }];
         });
-        const response = createMessage(
-          SEARCH_RESPONSE_MESSAGE_TYPE,
-          createSearchResponsePayloadV2(request.searchId, results, now),
-          relayIdentity,
-        );
-        ws.send(serializeMessage(response), () => ws.close(1000, 'search_complete'));
-        log('info', 'search_v2', { resultCount: results.length });
         return;
       }
 
@@ -2814,6 +3077,12 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       if (linkedRelayId) {
         const link = inboundRelayLinks.get(linkedRelayId);
         if (link?.socket === ws) inboundRelayLinks.delete(linkedRelayId);
+        for (const [requestId, pending] of pendingInboundQueries) {
+          if (pending.socket !== ws) continue;
+          clearTimeout(pending.timer);
+          pendingInboundQueries.delete(requestId);
+          pending.reject(new Error('Inbound relay link closed before query response'));
+        }
       }
     });
 
@@ -2963,6 +3232,11 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         pending.reject(new Error('Relay stopped before replica handoff completed'));
       }
       pendingReplicaHandoffs.clear();
+      for (const pending of pendingInboundQueries.values()) {
+        clearTimeout(pending.timer);
+        pending.reject(new Error('Relay stopped before query response'));
+      }
+      pendingInboundQueries.clear();
       outboundRelayLinks?.stop();
       for (const link of inboundRelayLinks.values()) link.socket.close(1001, 'relay_stopping');
       inboundRelayLinks.clear();

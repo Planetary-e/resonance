@@ -405,6 +405,30 @@ export {
 } from './search-v2.js';
 
 export {
+  RELAY_QUERY_VERSION,
+  RELAY_QUERY_REQUEST_FRAME_TYPE,
+  RELAY_QUERY_RESPONSE_FRAME_TYPE,
+  MAX_RELAY_QUERY_HOPS,
+  MAX_RELAY_QUERY_LIFETIME_MS,
+  type RelayQueryRequestV1,
+  type RelayQueryResponseV1,
+  type RelayQueryStatusV1,
+  type RelayQueryRequestFrameV1,
+  type RelayQueryResponseFrameV1,
+  createRelayQueryRequestV1,
+  verifyRelayQueryRequestV1,
+  isRelayQueryRequestActiveV1,
+  createRelayQueryResponseV1,
+  verifyRelayQueryResponseV1,
+  createRelayQueryRequestFrameV1,
+  createRelayQueryResponseFrameV1,
+  serializeRelayQueryRequestFrameV1,
+  serializeRelayQueryResponseFrameV1,
+  parseRelayQueryRequestFrameV1,
+  parseRelayQueryResponseFrameV1,
+} from './relay-query.js';
+
+export {
   type Message,
   type PublishPayload,
   type SearchPayload,
