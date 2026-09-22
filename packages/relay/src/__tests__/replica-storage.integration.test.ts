@@ -465,6 +465,59 @@ describe('replica storage quotas', () => {
     }
   });
 
+  it('rejects a publication before acknowledgement when the journal disk budget is full', async () => {
+    const port = BASE_PORT + 35;
+    const directory = `/tmp/resonance-journal-budget-${Date.now()}`;
+    temporaryDirectories.push(directory);
+    const target = createRelayServer({
+      port, host: '127.0.0.1', persistDir: directory,
+      maxJournalStorageBytes: 2_048,
+    });
+    await target.start();
+    try {
+      await expect(submitLocalPublication(port, publication(0x5a))).resolves.toMatchObject({
+        status: 'error', message: 'capacity-exhausted',
+      });
+      expect(target.getStats()).toMatchObject({
+        journal_entries: 0,
+        journal_bytes: 0,
+        journal_storage_quota_bytes: 2_048,
+      });
+    } finally {
+      await target.stop();
+    }
+  });
+
+  it('keeps journal headroom for a previously accepted publication withdrawal', async () => {
+    const port = BASE_PORT + 36;
+    const directory = `/tmp/resonance-journal-withdrawal-${Date.now()}`;
+    temporaryDirectories.push(directory);
+    const { keys, operation: first } = publicationWithKeys(0x5b);
+    let target = createRelayServer({ port, host: '127.0.0.1', persistDir: directory });
+    await target.start();
+    expect((await submitLocalPublication(port, first)).status).toBe('ok');
+    const firstJournalBytes = target.getStats().journal_bytes;
+    await target.stop();
+
+    target = createRelayServer({
+      port, host: '127.0.0.1', persistDir: directory,
+      maxJournalStorageBytes: 2 * (firstJournalBytes + 2_048),
+    });
+    await target.start();
+    try {
+      expect((await submitLocalPublication(port, publication(0x5c)))).toMatchObject({
+        status: 'error', message: 'capacity-exhausted',
+      });
+      const tombstone = createPublicationTombstone(
+        first, 'withdrawn', keys.signingKeyPair, Date.now(),
+      );
+      expect((await submitLocalPublication(port, tombstone)).status).toBe('ok');
+      expect(target.getStats().retained_tombstones).toBe(1);
+    } finally {
+      await target.stop();
+    }
+  });
+
   it('records new local allocations without consuming an inbound relay budget', async () => {
     const port = BASE_PORT + 40;
     const directory = `/tmp/resonance-replica-storage-${Date.now()}-local-owner`;

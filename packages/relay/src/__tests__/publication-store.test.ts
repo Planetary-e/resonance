@@ -36,9 +36,13 @@ describe('PublicationOperationStore', () => {
     const { record } = fixture();
     const store = new PublicationOperationStore();
 
+    expect(store.evaluate(record).status).toBe('accepted');
+    expect(store.liveRecordCount).toBe(0);
     expect(store.apply(record).status).toBe('accepted');
+    expect(store.liveRecordCount).toBe(1);
     expect(store.apply(structuredClone(record)).status).toBe('duplicate');
     expect(store.size).toBe(1);
+    expect(store.liveRecordCount).toBe(1);
   });
 
   it('rejects stale and conflicting signed revisions', () => {
@@ -87,6 +91,7 @@ describe('PublicationOperationStore', () => {
     expect(store.apply(future).status).toBe('terminal');
     expect(store.get(record.publicationId)).toEqual(tombstone);
     expect(store.getRecord(record.publicationId)).toEqual(record);
+    expect(store.liveRecordCount).toBe(0);
   });
 
   it('lets a valid tombstone absorb a higher live revision received first', () => {

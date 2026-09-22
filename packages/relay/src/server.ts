@@ -114,8 +114,10 @@ import { PublicationOperationStore, type PublicationApplyStatus } from './public
 import { MailboxStore } from './mailbox-store.js';
 import { MatchOperationStore } from './match-operation-store.js';
 import { compactPublicationHistory } from './journal-compaction.js';
+import { compactMailboxHistory } from './mailbox-journal-compaction.js';
 import {
   RelayOperationLog,
+  RelayJournalCapacityError,
   type RelayOperationLogEntry,
   type RelayReconciliationAdoptionLogEntry,
   type RelayPublicationOperationLogEntry,
@@ -202,6 +204,10 @@ export interface RelayConfig {
   publicationStorageQuotaBytes?: number;
   /** Maximum retained replica allocation attributed to any one relay identity. */
   maxReplicaStorageBytesPerRelay?: number;
+  /** Retained encrypted envelopes and acknowledgement IDs this relay will hold. */
+  maxMailboxStorageBytes?: number;
+  /** Disk budget for the journal plus its temporary compaction copy. */
+  maxJournalStorageBytes?: number;
   /** Omit to disable public relay discovery on this server. */
   relayDiscovery?: RelayDiscoveryConfig;
   /** Authenticated outbound relay links; requires relayDiscovery. */
@@ -223,6 +229,10 @@ export interface RelayStats {
   replica_storage_relays: number;
   legacy_unattributed_storage_reserved_bytes: number;
   mailbox_envelopes: number;
+  mailbox_storage_quota_bytes: number;
+  mailbox_storage_reserved_bytes: number;
+  journal_storage_quota_bytes: number;
+  journal_bytes: number;
   stored_matches: number;
   journal_entries: number;
   connected_nodes: number;
@@ -281,6 +291,7 @@ const DEFAULT_CONFIG: RelayConfig = {
   replicaRepairIntervalMs: 30_000,
   replicaInventoryIntervalMs: 5 * 60_000,
   replicaOfflineReplacementDelayMs: 5 * 60_000,
+  maxMailboxStorageBytes: 128 * 1024 * 1024,
 };
 
 const MAX_TIMEOUT_DELAY_MS = 2_147_483_647;
@@ -293,6 +304,9 @@ const REPLICA_HANDOFF_TIMEOUT_MS = 2_000;
 const DEFAULT_PUBLICATION_STORAGE_QUOTA_BYTES = 1024 * 1024 * 1024;
 const STORAGE_AVAILABILITY_GRANULARITY_BYTES = 64 * 1024;
 const STORAGE_AVAILABILITY_REFRESH_MS = 60_000;
+const MAX_MAILBOX_ENVELOPE_LIFETIME_MS = 30 * 24 * 60 * 60_000;
+const JOURNAL_TERMINAL_RESERVE_BYTES = 1024;
+const JOURNAL_ACK_RESERVE_BYTES = 2048;
 type PublicationCommitStatus = PublicationApplyStatus | 'capacity-exhausted';
 
 export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
@@ -302,11 +316,20 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     ?? DEFAULT_PUBLICATION_STORAGE_QUOTA_BYTES;
   const maxReplicaStorageBytesPerRelay = config?.maxReplicaStorageBytesPerRelay
     ?? publicationStorageQuotaBytes;
+  const maxMailboxStorageBytes = cfg.maxMailboxStorageBytes ?? 128 * 1024 * 1024;
+  const maxJournalStorageBytes = config?.maxJournalStorageBytes ?? 1024 * 1024 * 1024;
+  const maxJournalFileBytes = Math.floor(maxJournalStorageBytes / 2);
   if (!Number.isSafeInteger(publicationStorageQuotaBytes) || publicationStorageQuotaBytes < 0
     || !Number.isSafeInteger(maxReplicaStorageBytesPerRelay)
     || maxReplicaStorageBytesPerRelay < 0
     || maxReplicaStorageBytesPerRelay > publicationStorageQuotaBytes) {
     throw new Error('Invalid publication or per-relay replica storage quota');
+  }
+  if (!Number.isSafeInteger(maxMailboxStorageBytes) || maxMailboxStorageBytes < 0) {
+    throw new Error('Invalid mailbox storage quota');
+  }
+  if (!Number.isSafeInteger(maxJournalStorageBytes) || maxJournalStorageBytes < 0) {
+    throw new Error('Invalid journal storage quota');
   }
   if (cfg.relayDiscovery
     && (publicationStorageQuotaBytes > cfg.relayDiscovery.storage.capacityBytes
@@ -365,7 +388,41 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   const publicationStore = new PublicationOperationStore();
   const mailboxStore = new MailboxStore();
   const matchStore = new MatchOperationStore();
-  const operationLog = new RelayOperationLog(cfg.persistDir);
+  function journalReserveAfter(entry: RelayOperationLogEntry): number {
+    let livePublications = publicationStore.liveRecordCount;
+    let pendingEnvelopes = mailboxStore.envelopeCount;
+    if (entry.kind === 'publication') {
+      const previous = publicationStore.get(entry.operation.publicationId);
+      if (entry.operation.kind === 'publication' && !previous) livePublications++;
+      if (entry.operation.kind === 'publication-tombstone' && previous?.kind === 'publication') {
+        livePublications--;
+      }
+    } else if (entry.kind === 'reconciliation-adoption') {
+      const previous = publicationStore.get(entry.rejection.publicationId);
+      if (entry.response.operation?.kind === 'publication-tombstone'
+        && previous?.kind === 'publication') livePublications--;
+    } else if (entry.kind === 'match') {
+      pendingEnvelopes += entry.envelopes.filter(envelope => (
+        !mailboxStore.hasEnvelope(envelope.mailboxId, envelope.envelopeId)
+        && !mailboxStore.hasAcknowledgedEnvelope(envelope.mailboxId, envelope.envelopeId)
+      )).length;
+    } else if (entry.kind === 'mailbox-deposit') {
+      pendingEnvelopes++;
+    } else if (entry.kind === 'mailbox-ack') {
+      pendingEnvelopes -= mailboxStore.presentEnvelopeIds(
+        entry.request.mailboxId, entry.request.envelopeIds,
+      ).length;
+    }
+    const firstSeenTombstone = entry.kind === 'publication'
+      && entry.operation.kind === 'publication-tombstone'
+      && !publicationStore.get(entry.operation.publicationId);
+    const reserveFirstSeen = publicationStore.firstSeenTombstoneCount === 0 && !firstSeenTombstone;
+    return JOURNAL_TERMINAL_RESERVE_BYTES * (livePublications + (reserveFirstSeen ? 1 : 0))
+      + JOURNAL_ACK_RESERVE_BYTES * pendingEnvelopes;
+  }
+  const operationLog = new RelayOperationLog(
+    cfg.persistDir, maxJournalFileBytes, journalReserveAfter,
+  );
   const relayIdentity = loadOrCreateRelayIdentity(cfg.persistDir);
   const replicaStorageLedger = new ReplicaStorageLedger();
 
@@ -412,6 +469,9 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   let publicationExpiryTimer: ReturnType<typeof setTimeout> | null = null;
   let cleanupTimer: ReturnType<typeof setInterval> | null = null;
   let lastJournalCompactionCheckLength = 0;
+  let mailboxExpiredSinceCompaction = 0;
+  let lastCapacityCompactionLength = -1;
+  let lastCapacityCompactionExpiryCount = -1;
   let relayLinkHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let replicaRepairTimer: ReturnType<typeof setInterval> | null = null;
   let replicaRepairWakeupTimer: ReturnType<typeof setTimeout> | null = null;
@@ -428,10 +488,13 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   function advertisedRelayStorage(): RelayStorageCapacityV1 {
     const discovery = cfg.relayDiscovery;
     if (!discovery) throw new Error('Relay discovery is disabled');
-    const exactAvailableBytes = Math.max(
-      0,
+    const journalReservedBytes = JOURNAL_TERMINAL_RESERVE_BYTES
+      * (publicationStore.liveRecordCount + (publicationStore.firstSeenTombstoneCount === 0 ? 1 : 0))
+      + JOURNAL_ACK_RESERVE_BYTES * mailboxStore.envelopeCount;
+    const exactAvailableBytes = Math.max(0, Math.min(
       allocatablePublicationStorageBytes - replicaStorageLedger.reservedBytes,
-    );
+      maxJournalFileBytes - operationLog.byteLength - journalReservedBytes,
+    ));
     return {
       capacityBytes: discovery.storage.capacityBytes,
       // A public descriptor is a placement hint, not an activity feed. Round
@@ -667,26 +730,69 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     }
   }
 
-  function maybeCompactJournal(minimumRedundantRecords: number): void {
+  function maybeCompactJournal(minimumRedundantRecords: number, aggressive = false): void {
     const before = operationLog.length;
-    if (before - lastJournalCompactionCheckLength < minimumRedundantRecords) return;
-    const retained = compactPublicationHistory(operationLog.entries, publicationStore, replicaStorageLedger);
+    const enoughExpiredMail = mailboxExpiredSinceCompaction >= 128
+      || (before < 128 && mailboxExpiredSinceCompaction > 0);
+    if (!aggressive && before - lastJournalCompactionCheckLength < minimumRedundantRecords
+      && !enoughExpiredMail) return;
+    const publicationsRetained = compactPublicationHistory(
+      operationLog.entries, publicationStore, replicaStorageLedger,
+    );
+    const retained = compactMailboxHistory(publicationsRetained, mailboxStore);
     lastJournalCompactionCheckLength = before;
     const removed = before - retained.length;
-    if (removed < minimumRedundantRecords) return;
+    if (removed < (enoughExpiredMail ? 1 : minimumRedundantRecords)) return;
     // Avoid rewriting a large mixed journal for a tiny publication saving.
-    if (minimumRedundantRecords > 1 && removed < 4096 && removed * 10 < before) return;
-    operationLog.compact(retained);
+    if (!aggressive && minimumRedundantRecords > 1 && before >= 128
+      && removed < 4096 && removed * 10 < before) return;
+    try {
+      operationLog.compact(retained);
+    } catch (error) {
+      if (error instanceof RelayJournalCapacityError) {
+        log('warn', 'journal_compaction_deferred_for_capacity', { before, retained: retained.length });
+        return;
+      }
+      throw error;
+    }
     lastJournalCompactionCheckLength = operationLog.length;
+    mailboxExpiredSinceCompaction = 0;
     log('info', 'journal_compacted', { before, after: operationLog.length, removed });
+  }
+
+  function appendOperation(entry: RelayOperationLogEntry): void {
+    try {
+      operationLog.append(entry);
+    } catch (error) {
+      if (!(error instanceof RelayJournalCapacityError)) throw error;
+      if (operationLog.length !== lastCapacityCompactionLength
+        || mailboxExpiredSinceCompaction !== lastCapacityCompactionExpiryCount) {
+        try {
+          maybeCompactJournal(1, true);
+        } finally {
+          lastCapacityCompactionLength = operationLog.length;
+          lastCapacityCompactionExpiryCount = mailboxExpiredSinceCompaction;
+        }
+      }
+      operationLog.append(entry);
+    }
   }
 
   function commitMailboxDeposit(
     request: MailboxDepositRequest | RelationshipMailboxDepositV2,
-  ): 'accepted' | 'duplicate' {
+  ): 'accepted' | 'duplicate' | 'expired' | 'capacity-exhausted' {
     const envelope = request.envelope;
-    if (mailboxStore.hasEnvelope(envelope.mailboxId, envelope.envelopeId)) return 'duplicate';
-    operationLog.append({ kind: 'mailbox-deposit', request });
+    if (envelope.expiresAt <= Date.now()
+      || envelope.expiresAt - envelope.createdAt > MAX_MAILBOX_ENVELOPE_LIFETIME_MS) return 'expired';
+    if (mailboxStore.hasEnvelope(envelope.mailboxId, envelope.envelopeId)
+      || mailboxStore.hasAcknowledgedEnvelope(envelope.mailboxId, envelope.envelopeId)) return 'duplicate';
+    if (!mailboxStore.canEnqueue([envelope], maxMailboxStorageBytes)) return 'capacity-exhausted';
+    try {
+      appendOperation({ kind: 'mailbox-deposit', request });
+    } catch (error) {
+      if (error instanceof RelayJournalCapacityError) return 'capacity-exhausted';
+      throw error;
+    }
     return mailboxStore.enqueue(envelope);
   }
 
@@ -695,7 +801,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   ): number {
     const present = mailboxStore.presentEnvelopeIds(request.mailboxId, request.envelopeIds);
     if (present.length === 0) return 0;
-    operationLog.append({ kind: 'mailbox-ack', request });
+    appendOperation({ kind: 'mailbox-ack', request });
     return mailboxStore.acknowledge(request.mailboxId, request.envelopeIds);
   }
 
@@ -704,7 +810,10 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     const matched = publicationStore.getRecord(notification.matchedDID);
     if (!publisher || !matched) return;
     const createdAt = Date.now();
-    const expiresAt = Math.min(publisher.expiresAt, matched.expiresAt, createdAt + cfg.matchExpiryMs);
+    const expiresAt = Math.min(
+      publisher.expiresAt, matched.expiresAt,
+      createdAt + cfg.matchExpiryMs, createdAt + MAX_MAILBOX_ENVELOPE_LIFETIME_MS,
+    );
     if (expiresAt <= createdAt) return;
     const operation = createMatchOperationV2(publisher, matched, relayIdentity, { createdAt, expiresAt });
     if (!verifyMatchOperationAgainstPublicationsV2(operation, publisher, matched, cfg.matchThreshold)) {
@@ -721,10 +830,22 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       matched,
     );
     const envelopes = [publisherEnvelope, matchedEnvelope] as const;
+    if (!mailboxStore.canEnqueue(envelopes, maxMailboxStorageBytes)) {
+      log('warn', 'mailbox_capacity_exhausted', { matchId: operation.matchId });
+      return;
+    }
 
     // The signed match and both recipient deliveries are one durable fact.
     // Materialized views change only after the complete record reaches disk.
-    operationLog.append({ kind: 'match', operation, envelopes: [...envelopes] });
+    try {
+      appendOperation({ kind: 'match', operation, envelopes: [...envelopes] });
+    } catch (error) {
+      if (error instanceof RelayJournalCapacityError) {
+        log('warn', 'journal_capacity_exhausted_for_match', { matchId: operation.matchId });
+        return;
+      }
+      throw error;
+    }
     const result = matchStore.apply(operation);
     if (result.status !== 'accepted') throw new Error(`Cannot apply committed match: ${result.status}`);
     mailboxStore.enqueue(publisherEnvelope);
@@ -785,7 +906,12 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
             : { allocationRelayId: currentAllocation.allocationRelayId }),
         } as PublicationStorageAllocationPrincipal
         : allocation;
-      operationLog.append(publicationJournalEntry(operation, effectiveAllocation));
+      try {
+        appendOperation(publicationJournalEntry(operation, effectiveAllocation));
+      } catch (error) {
+        if (error instanceof RelayJournalCapacityError) return 'capacity-exhausted';
+        throw error;
+      }
       const applied = publicationStore.apply(operation);
       if (applied.status !== 'accepted') {
         throw new Error(`Cannot apply committed publication: ${applied.status}`);
@@ -949,7 +1075,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       allowExpansion: false,
     });
     if (!intent) return false;
-    operationLog.append({ kind: 'placement-intent', intent });
+    appendOperation({ kind: 'placement-intent', intent });
     if (!placementTracker.applyIntent(intent)) {
       throw new Error('Cannot apply permanent replica refusal placement intent');
     }
@@ -982,7 +1108,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       if (!next
         || next.targetRelayIds.includes(relayId)
         || next.targetRelayIds.length < current.targetRelayIds.length) continue;
-      operationLog.append({ kind: 'placement-intent', intent: next });
+      appendOperation({ kind: 'placement-intent', intent: next });
       if (!placementTracker.applyIntent(next)) {
         throw new Error('Cannot apply offline replica replacement intent');
       }
@@ -1047,7 +1173,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         safeElsewhere.push(false);
         continue;
       }
-      operationLog.append({ kind: 'placement-intent', intent: next });
+      appendOperation({ kind: 'placement-intent', intent: next });
       if (!placementTracker.applyIntent(next)) {
         throw new Error('Cannot apply graceful replica handoff placement intent');
       }
@@ -1075,7 +1201,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       allowExpansion: false,
     });
     if (!intent) return false;
-    operationLog.append({ kind: 'placement-intent', intent });
+    appendOperation({ kind: 'placement-intent', intent });
     if (!placementTracker.applyIntent(intent)) {
       throw new Error('Cannot apply reconciliation-required replica placement intent');
     }
@@ -1098,7 +1224,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     // these two writes, replay ignores the unmatched intent; if both succeed,
     // repair can resume after restart without a client resubmission.
     const intent = nextReplicaPlacementIntent(operation);
-    if (intent) operationLog.append({ kind: 'placement-intent', intent });
+    if (intent) appendOperation({ kind: 'placement-intent', intent });
 
     const status = commitPublicationOperation(operation, localAllocation());
     if ((status === 'accepted' || status === 'duplicate') && intent
@@ -1226,7 +1352,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       response,
       allocation: journalAllocation(allocation),
     };
-    operationLog.append(entry);
+    appendOperation(entry);
     const applied = publicationStore.apply(operation);
     if (applied.status !== 'accepted') {
       throw new Error(`Cannot apply reconciled publication: ${applied.status}`);
@@ -1356,7 +1482,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         const quarantined = quarantineReplicaPlacement(receipt);
         const replaced = quarantined ? false : replacePermanentlyRejectedReplicaTarget(receipt);
         if (placementTracker.canRecordReceipt(receipt)) {
-          operationLog.append({ kind: 'placement-receipt', receipt });
+          appendOperation({ kind: 'placement-receipt', receipt });
           if (!placementTracker.recordReceipt(receipt)) {
             throw new Error('Cannot apply committed replica durability receipt');
           }
@@ -1382,7 +1508,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         || status.reconciliationRequired) continue;
       const expandedIntent = nextReplicaPlacementIntent(operation);
       if (!expandedIntent) continue;
-      operationLog.append({ kind: 'placement-intent', intent: expandedIntent });
+      appendOperation({ kind: 'placement-intent', intent: expandedIntent });
       if (!placementTracker.applyIntent(expandedIntent)) {
         throw new Error('Cannot apply expanded replica placement intent');
       }
@@ -1416,7 +1542,10 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     const removed = engine.expirePublications(now);
     const removedEnvelopes = mailboxStore.purgeExpired(now);
     if (removed > 0) log('info', 'publications_expired', { count: removed });
-    if (removedEnvelopes > 0) log('info', 'mailbox_envelopes_expired', { count: removedEnvelopes });
+    if (removedEnvelopes > 0) {
+      mailboxExpiredSinceCompaction += removedEnvelopes;
+      log('info', 'mailbox_entries_expired', { count: removedEnvelopes });
+    }
     return removed;
   }
 
@@ -1513,6 +1642,10 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         legacy_unattributed_storage_reserved_bytes:
           replicaStorageLedger.legacyUnattributedReservedBytes,
         mailbox_envelopes: mailboxStore.envelopeCount,
+        mailbox_storage_quota_bytes: maxMailboxStorageBytes,
+        mailbox_storage_reserved_bytes: mailboxStore.retainedBytes,
+        journal_storage_quota_bytes: maxJournalStorageBytes,
+        journal_bytes: operationLog.byteLength,
         stored_matches: matchStore.size,
         journal_entries: operationLog.length,
         connected_nodes: 0,
@@ -2486,7 +2619,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           sendOperationAck(ws, request.requestId, 'error', 'rate_limited');
           return;
         }
-        let result: 'accepted' | 'duplicate';
+        let result: 'accepted' | 'duplicate' | 'expired' | 'capacity-exhausted';
         try {
           result = commitMailboxDeposit(request);
         } catch (err) {
@@ -2494,7 +2627,10 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           sendOperationAck(ws, request.requestId, 'error', 'persistence_failed');
           return;
         }
-        sendOperationAck(ws, request.requestId, 'ok', result);
+        sendOperationAck(
+          ws, request.requestId,
+          result === 'accepted' || result === 'duplicate' ? 'ok' : 'error', result,
+        );
         log('info', 'relationship_mailbox_deposit', {
           senderRelationshipId: request.senderRelationshipId,
           recipientRelationshipId: request.recipientRelationshipId,
@@ -2609,7 +2745,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           return;
         }
 
-        let result: 'accepted' | 'duplicate';
+        let result: 'accepted' | 'duplicate' | 'expired' | 'capacity-exhausted';
         try {
           result = commitMailboxDeposit(request);
         } catch (err) {
@@ -2617,7 +2753,10 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           sendOperationAck(ws, request.requestId, 'error', 'persistence_failed');
           return;
         }
-        sendOperationAck(ws, request.requestId, 'ok', result);
+        sendOperationAck(
+          ws, request.requestId,
+          result === 'accepted' || result === 'duplicate' ? 'ok' : 'error', result,
+        );
         log('info', 'mailbox_deposit', {
           matchId: request.matchId,
           senderPublicationId: request.senderPublicationId,
@@ -2713,6 +2852,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       const records = operationLog.load();
       for (const record of records) replayOperation(record.entry);
       for (const record of records) replayPlacementOperation(record.entry);
+      mailboxStore.purgeExpired();
       maybeCompactJournal(1);
       if (replicaStorageLedger.legacyUnattributedReservedBytes > 0) {
         log('warn', 'legacy_replica_storage_accounted', {
@@ -2724,7 +2864,6 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       // ledger was empty. Reissue it with the rebuilt allocation before any
       // socket or descriptor endpoint can expose a capacity claim.
       relayDescriptor = null;
-      mailboxStore.purgeExpired();
 
       // The search index is a derived cache. Rebuilding it from authoritative
       // signed operations also repairs a publication whose match commit was
@@ -2843,6 +2982,10 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         legacy_unattributed_storage_reserved_bytes:
           replicaStorageLedger.legacyUnattributedReservedBytes,
         mailbox_envelopes: mailboxStore.envelopeCount,
+        mailbox_storage_quota_bytes: maxMailboxStorageBytes,
+        mailbox_storage_reserved_bytes: mailboxStore.retainedBytes,
+        journal_storage_quota_bytes: maxJournalStorageBytes,
+        journal_bytes: operationLog.byteLength,
         stored_matches: matchStore.size,
         journal_entries: operationLog.length,
         connected_nodes: 0,

@@ -36,6 +36,16 @@ const maxReplicaStorageBytesPerRelay = parseNonNegativeInteger(
   publicationStorageQuotaBytes,
   'RELAY_REPLICA_STORAGE_PER_RELAY_BYTES',
 );
+const maxMailboxStorageBytes = parseNonNegativeInteger(
+  process.env.RELAY_MAILBOX_STORAGE_QUOTA_BYTES,
+  128 * 1024 * 1024,
+  'RELAY_MAILBOX_STORAGE_QUOTA_BYTES',
+);
+const maxJournalStorageBytes = parseNonNegativeInteger(
+  process.env.RELAY_JOURNAL_STORAGE_QUOTA_BYTES,
+  storageAvailableBytes,
+  'RELAY_JOURNAL_STORAGE_QUOTA_BYTES',
+);
 if (discoveryEnabled && (storageCapacityBytes === 0 || storageAvailableBytes > storageCapacityBytes)) {
   throw new Error('Relay discovery storage capacity must be positive and available bytes cannot exceed it');
 }
@@ -52,6 +62,8 @@ const server = createRelayServer({
   adminApiKey: process.env.RELAY_ADMIN_API_KEY || null,
   publicationStorageQuotaBytes,
   maxReplicaStorageBytesPerRelay,
+  maxMailboxStorageBytes,
+  maxJournalStorageBytes,
   replicaOfflineReplacementDelayMs: parseNonNegativeInteger(
     process.env.RELAY_REPLICA_OFFLINE_REPLACEMENT_MS,
     5 * 60_000,

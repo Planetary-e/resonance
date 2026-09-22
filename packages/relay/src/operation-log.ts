@@ -1,5 +1,6 @@
 /** Fsynced append-only authority for relay protocol state. */
 
+import { Buffer } from 'node:buffer';
 import {
   appendFileSync,
   closeSync,
@@ -7,6 +8,7 @@ import {
   fsyncSync,
   mkdirSync,
   openSync,
+  readdirSync,
   readFileSync,
   renameSync,
   rmSync,
@@ -103,13 +105,26 @@ export interface RelayOperationLogRecord {
   recordId: string;
 }
 
+export class RelayJournalCapacityError extends Error {
+  constructor() { super('Relay journal storage quota exhausted'); }
+}
+
 export class RelayOperationLog {
   private readonly directory: string;
   private readonly path: string;
   private records: RelayOperationLogRecord[] = [];
   private failed = false;
+  private currentBytes = 0;
 
-  constructor(directory: string) {
+  constructor(
+    directory: string,
+    private readonly maxFileBytes = Number.POSITIVE_INFINITY,
+    private readonly reservedBytesAfterAppend: (entry: RelayOperationLogEntry) => number = () => 0,
+  ) {
+    if ((maxFileBytes !== Number.POSITIVE_INFINITY
+      && (!Number.isSafeInteger(maxFileBytes) || maxFileBytes < 0))) {
+      throw new Error('Invalid relay journal file quota');
+    }
     mkdirSync(directory, { recursive: true });
     this.directory = directory;
     this.path = join(directory, RELAY_OPERATION_LOG_FILENAME);
@@ -117,13 +132,23 @@ export class RelayOperationLog {
 
   load(): readonly RelayOperationLogRecord[] {
     this.failed = false;
+    // A crash before rename leaves only an abandoned candidate; the primary
+    // journal remains authoritative and the candidate must not consume the
+    // volunteer's disk budget indefinitely.
+    for (const name of readdirSync(this.directory)) {
+      if (/^relay-operations\.ndjson\.compact-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(name)) {
+        rmSync(join(this.directory, name), { force: true });
+      }
+    }
     if (!existsSync(this.path)) {
       this.records = [];
+      this.currentBytes = 0;
       return this.records;
     }
     const data = readFileSync(this.path);
     if (data.length === 0) {
       this.records = [];
+      this.currentBytes = 0;
       return this.records;
     }
 
@@ -132,6 +157,7 @@ export class RelayOperationLog {
     if (completeLength !== data.length) truncateSync(this.path, completeLength);
     if (completeLength === 0) {
       this.records = [];
+      this.currentBytes = 0;
       return this.records;
     }
 
@@ -151,6 +177,7 @@ export class RelayOperationLog {
       restored.push(parsed);
     }
     this.records = restored;
+    this.currentBytes = completeLength;
     return this.records;
   }
 
@@ -164,10 +191,19 @@ export class RelayOperationLog {
       entry,
     };
     const record: RelayOperationLogRecord = { ...base, recordId: recordId(base) };
+    const serialized = `${JSON.stringify(record)}\n`;
+    const writtenBytes = Buffer.byteLength(serialized, 'utf8');
+    const reservedBytes = this.reservedBytesAfterAppend(entry);
+    if (!Number.isSafeInteger(reservedBytes) || reservedBytes < 0) {
+      throw new Error('Invalid relay journal reserve');
+    }
+    if (this.currentBytes + writtenBytes + reservedBytes > this.maxFileBytes) {
+      throw new RelayJournalCapacityError();
+    }
     const existed = existsSync(this.path);
     const descriptor = openSync(this.path, 'a', 0o600);
     try {
-      appendFileSync(descriptor, `${JSON.stringify(record)}\n`, 'utf8');
+      appendFileSync(descriptor, serialized, 'utf8');
       fsyncSync(descriptor);
       if (!existed) fsyncDirectory(this.directory);
     } catch (error) {
@@ -177,6 +213,7 @@ export class RelayOperationLog {
       closeSync(descriptor);
     }
     this.records.push(record);
+    this.currentBytes += writtenBytes;
     return record;
   }
 
@@ -190,6 +227,16 @@ export class RelayOperationLog {
       const base = { version: 1 as const, sequence: index + 1, committedAt, entry };
       return { ...base, recordId: recordId(base) };
     });
+    const compactedBytes = compacted.reduce(
+      (sum, record) => sum + Buffer.byteLength(JSON.stringify(record), 'utf8') + 1, 0,
+    );
+    // Old and replacement files coexist until the atomic rename. The server
+    // gives this log half of its disk budget so both files fit during rewrite.
+    if (compactedBytes > this.maxFileBytes
+      || (Number.isFinite(this.maxFileBytes)
+        && this.currentBytes + compactedBytes > 2 * this.maxFileBytes)) {
+      throw new RelayJournalCapacityError();
+    }
     const temporaryPath = `${this.path}.compact-${randomUUID()}`;
     let renamed = false;
     try {
@@ -204,6 +251,7 @@ export class RelayOperationLog {
       renamed = true;
       fsyncDirectory(this.directory);
       this.records = compacted;
+      this.currentBytes = compactedBytes;
     } catch (error) {
       // Before rename the original remains authoritative. After rename, the
       // disk state is uncertain until restart, so do not allow another append.
@@ -219,6 +267,10 @@ export class RelayOperationLog {
 
   get length(): number {
     return this.records.length;
+  }
+
+  get byteLength(): number {
+    return this.currentBytes;
   }
 }
 

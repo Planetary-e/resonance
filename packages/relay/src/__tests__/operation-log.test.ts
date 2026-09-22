@@ -14,6 +14,7 @@ import {
 } from '@resonance/core';
 import {
   RelayOperationLog,
+  RelayJournalCapacityError,
   RELAY_OPERATION_LOG_FILENAME,
   type RelayOperationLogEntry,
 } from '../operation-log.js';
@@ -132,17 +133,50 @@ describe('RelayOperationLog', () => {
     expect(new RelayOperationLog(dir).load().map(record => record.sequence)).toEqual([1, 2, 3]);
   });
 
+  it('rejects an append before disk write when its journal file quota is full', () => {
+    const dir = directory();
+    const { need } = fixture();
+    const original = new RelayOperationLog(dir);
+    original.load();
+    original.append({ kind: 'publication', operation: need });
+    const fileBytes = original.byteLength;
+    const limited = new RelayOperationLog(dir, fileBytes);
+    limited.load();
+
+    expect(() => limited.append({ kind: 'publication', operation: need }))
+      .toThrow(RelayJournalCapacityError);
+    expect(limited.byteLength).toBe(fileBytes);
+    expect(new RelayOperationLog(dir).load()).toHaveLength(1);
+  });
+
+  it('leaves the original journal intact when a compaction copy exceeds its disk budget', () => {
+    const dir = directory();
+    const { need } = fixture();
+    const original = new RelayOperationLog(dir);
+    original.load();
+    const retained = original.append({ kind: 'publication', operation: need });
+    const limited = new RelayOperationLog(dir, Math.floor(original.byteLength / 2));
+    limited.load();
+
+    expect(() => limited.compact([retained])).toThrow(RelayJournalCapacityError);
+    expect(new RelayOperationLog(dir).load().map(record => record.entry)).toEqual([retained.entry]);
+  });
+
   it('ignores an interrupted temporary compaction and replays the original journal', () => {
     const dir = directory();
     const { need } = fixture();
     const log = new RelayOperationLog(dir);
     log.load();
     log.append({ kind: 'publication', operation: need }, NOW + 1);
-    writeFileSync(join(dir, `${RELAY_OPERATION_LOG_FILENAME}.compact-interrupted`), '{"version":1');
+    const abandoned = join(
+      dir, `${RELAY_OPERATION_LOG_FILENAME}.compact-00000000-0000-0000-0000-000000000000`,
+    );
+    writeFileSync(abandoned, '{"version":1');
 
     expect(new RelayOperationLog(dir).load().map(record => record.entry)).toEqual([
       { kind: 'publication', operation: need },
     ]);
+    expect(() => readFileSync(abandoned)).toThrow();
   });
 
   it('preserves match-dependent publication history while compacting unrelated updates', () => {

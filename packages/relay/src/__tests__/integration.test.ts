@@ -7,6 +7,10 @@ import {
   createAdmissionRequestBindingV2,
   createMailboxRequest,
   createMailboxRequestFrame,
+  createMailboxDepositRequest,
+  createMailboxDepositFrame,
+  createConsentOfferV2,
+  createDeterministicMatchId,
   createMessage,
   createRelayDescriptorV1,
   createRelayPeerRequestFrameV1,
@@ -18,10 +22,13 @@ import {
   createPublicationTombstone,
   generateIdentity,
   generatePublicationKeyMaterial,
+  generateRelationshipKeyMaterial,
+  encryptRelationshipMessage,
   parseMessage,
   parseRelayPeerResponseFrameV1,
   serializeMessage,
   serializeMailboxRequestFrame,
+  serializeMailboxDepositFrame,
   serializePublicationOperationFrame,
   serializeRelayPeerRequestFrameV1,
   serializeSearchRequestFrameV2,
@@ -77,7 +84,7 @@ function recordWithKeys(
   };
 }
 
-function createServer(): RelayServer {
+function createServer(maxMailboxStorageBytes?: number): RelayServer {
   return createRelayServer({
     port: PORT,
     host: '127.0.0.1',
@@ -85,6 +92,7 @@ function createServer(): RelayServer {
     adminApiKey: ADMIN_API_KEY,
     persistDir: PERSIST_DIR,
     persistIntervalMs: 999_999,
+    maxMailboxStorageBytes,
     relayDiscovery: {
       endpoints: [`ws://127.0.0.1:${PORT}`],
       reachability: 'direct',
@@ -446,6 +454,58 @@ describe('Relay protocol v2 integration', () => {
       createMailboxRequest('fetch', need.record, need.keys, [], Date.now()),
     ))) as Message<{ envelopes: unknown[] }>;
     expect(emptyAfterAck.payload.envelopes).toEqual([]);
+  });
+
+  it('rejects over-quota deposits and never redelivers an acknowledged retry after restart', async () => {
+    const groupId = `mailbox-budget-${Date.now()}`;
+    const alice = recordWithKeys('offer', 0x73, groupId);
+    const bob = recordWithKeys('need', 0x73, groupId);
+    expect((await submit(alice.record)).payload.status).toBe('ok');
+    expect((await submit(bob.record)).payload.status).toBe('ok');
+    const occupiedBytes = server.getStats().mailbox_storage_reserved_bytes;
+    expect(occupiedBytes).toBeGreaterThan(0);
+
+    const matchId = createDeterministicMatchId(alice.record.publicationId, bob.record.publicationId);
+    const offer = createConsentOfferV2(
+      matchId, alice.record, bob.record, alice.keys, generateRelationshipKeyMaterial(),
+      Date.now(), Date.now() + 60_000,
+    );
+    const envelope = encryptRelationshipMessage(offer, bob.record);
+    const deposit = createMailboxDepositRequest(
+      matchId, alice.record, bob.record, alice.keys, envelope, Date.now(),
+    );
+    const frame = serializeMailboxDepositFrame(createMailboxDepositFrame(deposit));
+
+    await server.stop();
+    server = createServer(occupiedBytes);
+    await server.start();
+    const before = server.getStats().journal_entries;
+    const rejected = await sendFrame(frame) as Message<AckPayload>;
+    expect(rejected.payload).toMatchObject({ status: 'error', message: 'capacity-exhausted' });
+    expect(server.getStats().journal_entries).toBe(before);
+
+    await server.stop();
+    server = createServer();
+    await server.start();
+    const accepted = await sendFrame(frame) as Message<AckPayload>;
+    expect(accepted.payload).toMatchObject({ status: 'ok', message: 'accepted' });
+    const acknowledgement = createMailboxRequest(
+      'ack', bob.record, bob.keys, [envelope.envelopeId], Date.now(),
+    );
+    const acknowledged = await sendFrame(serializeMailboxRequestFrame(
+      createMailboxRequestFrame(acknowledgement),
+    )) as Message<AckPayload>;
+    expect(acknowledged.payload.message).toBe('acknowledged:1');
+
+    await server.stop();
+    server = createServer();
+    await server.start();
+    const repeated = await sendFrame(frame) as Message<AckPayload>;
+    expect(repeated.payload).toMatchObject({ status: 'ok', message: 'duplicate' });
+    const fetched = await sendFrame(serializeMailboxRequestFrame(createMailboxRequestFrame(
+      createMailboxRequest('fetch', bob.record, bob.keys, [], Date.now()),
+    ))) as Message<{ envelopes: Array<{ envelopeId: string }> }>;
+    expect(fetched.payload.envelopes.map(value => value.envelopeId)).not.toContain(envelope.envelopeId);
   });
 
   it('retains owner-signed tombstones across restart and prevents resurrection', async () => {

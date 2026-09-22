@@ -33,6 +33,8 @@ interface PublicationState {
 
 export class PublicationOperationStore {
   private publications = new Map<string, PublicationState>();
+  private liveRecords = 0;
+  private firstSeenTombstones = 0;
 
   evaluate(operation: unknown): PublicationApplyResult {
     if (!verifyPublicationOperation(operation)) return { status: 'invalid' };
@@ -65,6 +67,9 @@ export class PublicationOperationStore {
     if (result.status !== 'accepted' || !verifyPublicationOperation(operation)) return result;
 
     const state = this.publications.get(operation.publicationId);
+    if (state?.current.kind !== 'publication' && operation.kind === 'publication') this.liveRecords++;
+    if (state?.current.kind === 'publication' && operation.kind === 'publication-tombstone') this.liveRecords--;
+    if (!state && operation.kind === 'publication-tombstone') this.firstSeenTombstones++;
 
     this.publications.set(operation.publicationId, {
       current: operation,
@@ -122,6 +127,14 @@ export class PublicationOperationStore {
     return this.publications.size;
   }
 
+  get liveRecordCount(): number {
+    return this.liveRecords;
+  }
+
+  get firstSeenTombstoneCount(): number {
+    return this.firstSeenTombstones;
+  }
+
   save(dir: string): void {
     mkdirSync(dir, { recursive: true });
     const publications = Array.from(this.publications.values())
@@ -144,6 +157,10 @@ export class PublicationOperationStore {
       restored.set(state.current.publicationId, state);
     }
     this.publications = restored;
+    this.liveRecords = Array.from(restored.values())
+      .filter(state => state.current.kind === 'publication').length;
+    this.firstSeenTombstones = Array.from(restored.values())
+      .filter(state => state.current.kind === 'publication-tombstone' && !state.record).length;
   }
 }
 
