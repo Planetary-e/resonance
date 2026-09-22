@@ -45,7 +45,7 @@ function createTarget(index: number): RelayServer {
   });
 }
 
-function createSource(): RelayServer {
+function createSource(replicaInventoryIntervalMs = 500): RelayServer {
   return createRelayServer({
     port: SOURCE_PORT,
     host: '127.0.0.1',
@@ -53,7 +53,8 @@ function createSource(): RelayServer {
     desiredReplicaCount: 5,
     minimumHealthyReplicaCount: 3,
     replicaRepairIntervalMs: 100,
-    replicaInventoryIntervalMs: 100,
+    replicaInventoryIntervalMs,
+    replicaOfflineReplacementDelayMs: 2_000,
     relayDiscovery: {
       endpoints: [],
       reachability: 'outbound-only',
@@ -64,7 +65,7 @@ function createSource(): RelayServer {
     relayLinks: {
       targets: TARGET_PORTS.map(port => createRelayContactHintV1('configured', targetEndpoint(port))),
       maxConnections: 6,
-      handshakeTimeoutMs: 1_000,
+      handshakeTimeoutMs: 2_000,
       heartbeatIntervalMs: 100,
       heartbeatTimeoutMs: 1_500,
       replicaRequestTimeoutMs: 1_000,
@@ -182,7 +183,7 @@ describe('durable replica placement', () => {
     });
 
     await source.stop();
-    source = createSource();
+    source = createSource(5 * 60_000);
     await source.start();
     await waitFor(() => source.getReplicaPlacementStatus(operation.publicationId)?.confirmedReplicaCount === 5);
     expect(source.getReplicaPlacementStatus(operation.publicationId)).toMatchObject({
@@ -212,6 +213,7 @@ describe('durable replica placement', () => {
     const retiringTarget = targets.find(target => (
       selected.has(target.getRelayDescriptor()!.relayId)
     ))!;
+    const retiringTargetIndex = targets.indexOf(retiringTarget);
     const retiringRelayId = retiringTarget.getRelayDescriptor()!.relayId;
     const spareRelayId = targets.map(target => target.getRelayDescriptor()!.relayId)
       .find(relayId => !selected.has(relayId))!;
@@ -231,6 +233,50 @@ describe('durable replica placement', () => {
       targetConfirmed: true,
       permanentlyRejectedRelayIds: [retiringRelayId],
     });
+
+    const restartedTarget = createTarget(retiringTargetIndex);
+    targets[retiringTargetIndex] = restartedTarget;
+    await restartedTarget.start();
+    startedTargets.add(restartedTarget);
+    await waitFor(() => source.getRelayLinkStatus().connectedRelayIds.length === 6);
+  }, 30_000);
+
+  it('replaces an abruptly lost target after the outage grace period', async () => {
+    const now = Date.now();
+    const operation = createPublicationRecord({
+      groupId: 'public',
+      fingerprintEpoch: '2026-09',
+      fingerprint: new Uint8Array(64).fill(0x64),
+      itemType: 'need',
+      createdAt: now,
+      expiresAt: now + 60_000,
+    }, generatePublicationKeyMaterial());
+
+    await submit(operation);
+    await waitFor(() => source.getReplicaPlacementStatus(operation.publicationId)?.targetConfirmed === true);
+    const before = source.getReplicaPlacementStatus(operation.publicationId)!;
+    const selected = new Set(before.intent.targetRelayIds);
+    const lostTarget = targets.find(target => selected.has(target.getRelayDescriptor()!.relayId))!;
+    const lostRelayId = lostTarget.getRelayDescriptor()!.relayId;
+    const spareRelayId = targets.map(target => target.getRelayDescriptor()!.relayId)
+      .find(relayId => !selected.has(relayId))!;
+
+    await lostTarget.stop({ graceful: false });
+    startedTargets.delete(lostTarget);
+
+    await waitFor(() => {
+      const status = source.getReplicaPlacementStatus(operation.publicationId);
+      return status?.targetConfirmed === true
+        && status.intent.targetRelayIds.includes(spareRelayId)
+        && !status.intent.targetRelayIds.includes(lostRelayId);
+    });
+    const repaired = source.getReplicaPlacementStatus(operation.publicationId)!;
+    expect(repaired).toMatchObject({
+      confirmedReplicaCount: 5,
+      minimumConfirmed: true,
+      targetConfirmed: true,
+    });
+    expect(repaired.permanentlyRejectedRelayIds).not.toContain(lostRelayId);
   }, 30_000);
 });
 

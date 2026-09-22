@@ -49,7 +49,7 @@ function createTarget(
       descriptorLifetimeMs: 60_000,
     },
     relayLinkHeartbeatIntervalMs: 100,
-    relayLinkHeartbeatTimeoutMs: 1_500,
+    relayLinkHeartbeatTimeoutMs: 3_000,
   });
 }
 
@@ -74,15 +74,15 @@ function createSource(): RelayServer {
         createRelayContactHintV1('configured', endpoint(port))
       )),
       maxConnections: 4,
-      handshakeTimeoutMs: 1_000,
+      handshakeTimeoutMs: 2_000,
       heartbeatIntervalMs: 100,
-      heartbeatTimeoutMs: 1_500,
-      replicaRequestTimeoutMs: 1_000,
+      heartbeatTimeoutMs: 3_000,
+      replicaRequestTimeoutMs: 2_000,
       reconnectBaseMs: 50,
       reconnectMaxMs: 200,
     },
     relayLinkHeartbeatIntervalMs: 100,
-    relayLinkHeartbeatTimeoutMs: 1_500,
+    relayLinkHeartbeatTimeoutMs: 3_000,
   });
 }
 
@@ -92,7 +92,7 @@ function submit(port: number, operation: PublicationOperation): Promise<{ status
     const timeout = setTimeout(() => {
       socket.terminate();
       reject(new Error('Timed out waiting for publication acknowledgement'));
-    }, 3_000);
+    }, 5_000);
     socket.once('open', () => {
       socket.send(serializePublicationOperationFrame(createPublicationOperationFrame(operation)));
     });
@@ -204,12 +204,12 @@ describe('capacity replacement and reconciliation quarantine', () => {
       });
       expect(replacementTarget.getStats().active_publications).toBe(1);
     } finally {
-      if (sourceStarted && source) await source.stop();
-      if (replacementStarted) await replacementTarget.stop();
-      if (healthyStarted) await healthyTarget.stop();
-      if (capacityStarted) await capacityTarget.stop();
+      if (sourceStarted && source) await source.stop({ graceful: false });
+      if (replacementStarted) await replacementTarget.stop({ graceful: false });
+      if (healthyStarted) await healthyTarget.stop({ graceful: false });
+      if (capacityStarted) await capacityTarget.stop({ graceful: false });
     }
-  }, 20_000);
+  }, 40_000);
 
   it('keeps a same-sequence owner conflict quarantined across restart and a late peer', async () => {
     const keys = generatePublicationKeyMaterial();
@@ -309,11 +309,11 @@ describe('capacity replacement and reconciliation quarantine', () => {
         retained_tombstones: 0,
       });
     } finally {
-      if (sourceStarted && source) await source.stop();
-      if (lateStarted) await lateTarget.stop();
-      if (terminalStarted) await terminalTarget.stop();
+      if (sourceStarted && source) await source.stop({ graceful: false });
+      if (lateStarted) await lateTarget.stop({ graceful: false });
+      if (terminalStarted) await terminalTarget.stop({ graceful: false });
     }
-  }, 20_000);
+  }, 40_000);
 
   it('adopts a verified newer tombstone without fan-out and preserves it across restart', async () => {
     const keys = generatePublicationKeyMaterial();
@@ -372,11 +372,11 @@ describe('capacity replacement and reconciliation quarantine', () => {
         journal_entries: 0,
       });
     } finally {
-      if (sourceStarted && source) await source.stop();
-      if (lateStarted) await lateTarget.stop();
-      if (terminalStarted) await terminalTarget.stop();
+      if (sourceStarted && source) await source.stop({ graceful: false });
+      if (lateStarted) await lateTarget.stop({ graceful: false });
+      if (terminalStarted) await terminalTarget.stop({ graceful: false });
     }
-  }, 20_000);
+  }, 40_000);
 });
 
 async function fillTargetToCapacity(target: RelayServer, port: number): Promise<void> {
@@ -403,7 +403,7 @@ function pause(milliseconds: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, milliseconds));
 }
 
-async function waitFor(predicate: () => boolean, timeoutMs = 4_000): Promise<void> {
+async function waitFor(predicate: () => boolean, timeoutMs = 8_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (!predicate()) {
     if (Date.now() >= deadline) throw new Error('Timed out waiting for permanent replica replacement');

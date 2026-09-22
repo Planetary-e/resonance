@@ -195,6 +195,8 @@ export interface RelayConfig {
   replicaRepairIntervalMs: number;
   /** Maximum age of a signed inventory answer before receipt-holders are checked again. */
   replicaInventoryIntervalMs: number;
+  /** Offline grace period before a selected target may be replaced by a live spare. */
+  replicaOfflineReplacementDelayMs: number;
   /** Maximum retained publication-state allocation this relay will accept. */
   publicationStorageQuotaBytes?: number;
   /** Maximum retained replica allocation attributed to any one relay identity. */
@@ -277,6 +279,7 @@ const DEFAULT_CONFIG: RelayConfig = {
   minimumHealthyReplicaCount: DEFAULT_MINIMUM_HEALTHY_REPLICA_COUNT,
   replicaRepairIntervalMs: 30_000,
   replicaInventoryIntervalMs: 5 * 60_000,
+  replicaOfflineReplacementDelayMs: 5 * 60_000,
 };
 
 const MAX_TIMEOUT_DELAY_MS = 2_147_483_647;
@@ -341,6 +344,11 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     || cfg.replicaInventoryIntervalMs < 100
     || cfg.replicaInventoryIntervalMs > MAX_TIMEOUT_DELAY_MS) {
     throw new Error('Replica inventory interval must be between 100 ms and the maximum timer delay');
+  }
+  if (!Number.isSafeInteger(cfg.replicaOfflineReplacementDelayMs)
+    || cfg.replicaOfflineReplacementDelayMs < 100
+    || cfg.replicaOfflineReplacementDelayMs > MAX_TIMEOUT_DELAY_MS) {
+    throw new Error('Replica offline replacement delay must be between 100 ms and the maximum timer delay');
   }
   if (!Number.isSafeInteger(cfg.relayLinkHeartbeatIntervalMs)
     || cfg.relayLinkHeartbeatIntervalMs < 25
@@ -413,6 +421,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   const placementTracker = new ReplicaPlacementTracker(relayIdentity.did);
   const inventoryScheduler = new ReplicaInventoryScheduler();
   const reconciliationScheduler = new ReplicaReconciliationScheduler();
+  const replicaTargetOfflineSince = new Map<string, number>();
 
   function advertisedRelayStorage(): RelayStorageCapacityV1 {
     const discovery = cfg.relayDiscovery;
@@ -492,7 +501,13 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           relayId: event.relayId,
           error: event.error,
         });
-        if (event.kind === 'connected') queueReplicaRepair();
+        if (event.relayId) {
+          if (event.kind === 'connected') replicaTargetOfflineSince.delete(event.relayId);
+          else if (event.kind === 'disconnected' && !replicaTargetOfflineSince.has(event.relayId)) {
+            replicaTargetOfflineSince.set(event.relayId, Date.now());
+          }
+        }
+        if (event.kind === 'connected' || event.kind === 'disconnected') queueReplicaRepair();
       },
     })
     : null;
@@ -795,12 +810,14 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     operation: PublicationOperation,
     permanentlyRejectedRelayIds: readonly string[] = [],
     allowExpansion = true,
+    additionallyRemovedRelayIds: readonly string[] = [],
   ): string[] {
     const current = placementTracker.getIntent(operation.publicationId);
     const policy = replicaPlacementPolicy(current);
     const permanentlyRejected = new Set(permanentlyRejectedRelayIds);
+    const additionallyRemoved = new Set(additionallyRemovedRelayIds);
     const selected = new Set((current?.targetRelayIds ?? []).filter(relayId => (
-      !permanentlyRejected.has(relayId)
+      !permanentlyRejected.has(relayId) && !additionallyRemoved.has(relayId)
     )));
     const groupId = placementGroupId(operation);
     if (!outboundRelayLinks || !groupId || !allowExpansion) return [...selected].sort();
@@ -814,7 +831,8 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         && peer.descriptor.capabilities.replicaExchange
         && peer.descriptor.storage.availableBytes > 0
         && peer.descriptor.supportedGroups.includes(groupId)
-        && !permanentlyRejected.has(peer.relayId));
+        && !permanentlyRejected.has(peer.relayId)
+        && !additionallyRemoved.has(peer.relayId));
     const candidates = prioritizeReplicaDiversity(
       eligiblePeers.sort((first, second) => {
         const firstScore = replicaTargetScore(operation.publicationId, first.relayId);
@@ -839,11 +857,13 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       additionallyRejectedRelayIds = [],
       additionallyReconciliationRequiredRelayIds = [],
       additionallyReconciliationRequirements = [],
+      additionallyRemovedRelayIds = [],
       allowExpansion = true,
     }: {
       additionallyRejectedRelayIds?: readonly string[];
       additionallyReconciliationRequiredRelayIds?: readonly string[];
       additionallyReconciliationRequirements?: readonly ReplicaReconciliationRequirementV1[];
+      additionallyRemovedRelayIds?: readonly string[];
       allowExpansion?: boolean;
     } = {},
   ): ReplicaPlacementIntentV1 | undefined {
@@ -887,6 +907,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         operation,
         permanentlyRejectedRelayIds,
         allowExpansion && reconciliationRequiredRelayIds.length === 0,
+        additionallyRemovedRelayIds,
       );
     return placementTracker.nextIntent(
       operation,
@@ -922,6 +943,42 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       reason: receipt.reason,
     });
     return true;
+  }
+
+  function replaceStaleOfflineReplicaTarget(
+    operation: PublicationOperation,
+    now = Date.now(),
+  ): boolean {
+    const current = placementTracker.getIntent(operation.publicationId);
+    if (!current || !placementMatchesOperation(current, operation)
+      || (current.reconciliationRequiredRelayIds ?? []).length > 0) return false;
+    const connected = new Set(outboundRelayLinks?.status().connectedRelayIds ?? []);
+    for (const relayId of current.targetRelayIds) {
+      if (connected.has(relayId)) continue;
+      const offlineSince = replicaTargetOfflineSince.get(relayId) ?? startTime;
+      if (now - offlineSince < cfg.replicaOfflineReplacementDelayMs) continue;
+      const next = nextReplicaPlacementIntent(operation, {
+        additionallyRemovedRelayIds: [relayId],
+        allowExpansion: true,
+      });
+      // Do not discard durable evidence merely because a target is offline.
+      // Rotate only when live eligible spares keep the placement at least as large.
+      if (!next
+        || next.targetRelayIds.includes(relayId)
+        || next.targetRelayIds.length < current.targetRelayIds.length) continue;
+      operationLog.append({ kind: 'placement-intent', intent: next });
+      if (!placementTracker.applyIntent(next)) {
+        throw new Error('Cannot apply offline replica replacement intent');
+      }
+      log('warn', 'replica_offline_target_replaced', {
+        publicationId: operation.publicationId,
+        relayId,
+        offlineMs: now - offlineSince,
+      });
+      queueReplicaRepair();
+      return true;
+    }
+    return false;
   }
 
   async function acceptReplicaHandoffRequest(
@@ -1224,7 +1281,10 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       const operation = publicationStore.get(persistedIntent.publicationId);
       if (!operation || !placementMatchesOperation(persistedIntent, operation)) continue;
       if (operation.kind === 'publication' && !isPublicationActive(operation, Date.now())) continue;
-      if ((persistedIntent.reconciliationRequiredRelayIds ?? []).length > 0) {
+      replaceStaleOfflineReplicaTarget(operation);
+      const currentIntent = placementTracker.getIntent(operation.publicationId);
+      if (!currentIntent || !placementMatchesOperation(currentIntent, operation)) continue;
+      if ((currentIntent.reconciliationRequiredRelayIds ?? []).length > 0) {
         replicaRefreshes.delete(operation.publicationId);
         reconciliationRequirements.push(
           ...placementTracker.reconciliationRequirementsFor(operation.publicationId),

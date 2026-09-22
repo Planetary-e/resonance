@@ -52,6 +52,11 @@ const server = createRelayServer({
   adminApiKey: process.env.RELAY_ADMIN_API_KEY || null,
   publicationStorageQuotaBytes,
   maxReplicaStorageBytesPerRelay,
+  replicaOfflineReplacementDelayMs: parseNonNegativeInteger(
+    process.env.RELAY_REPLICA_OFFLINE_REPLACEMENT_MS,
+    5 * 60_000,
+    'RELAY_REPLICA_OFFLINE_REPLACEMENT_MS',
+  ),
   relayDiscovery: discoveryEnabled ? {
     endpoints: publicEndpoints,
     reachability: publicEndpoints.length > 0 ? 'direct' : 'outbound-only',
