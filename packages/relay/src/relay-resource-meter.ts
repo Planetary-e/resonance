@@ -88,6 +88,8 @@ export class RelayTrafficMeter {
       closeSync(fd);
     }
     renameSync(temporary, path);
+    // Windows flushes the file above but rejects fsync on directory handles.
+    if (process.platform === 'win32') return;
     const directoryFd = openSync(this.directory, 'r');
     try { fsyncSync(directoryFd); } finally { closeSync(directoryFd); }
   }
