@@ -12,6 +12,7 @@
   "scripts": {
     "build": "tsc -b",
     "test": "vitest run",
+    "test:churn": "vitest run --maxWorkers=1 volunteer-churn.integration reverse-replica-placement.integration replica-replacement.integration",
     "eval": "npm run eval --workspace=@resonance/eval",
     "eval:quick": "npm run eval:quick --workspace=@resonance/eval",
     "resonance": "npm run resonance --workspace=@resonance/node --",

@@ -34,9 +34,14 @@ function makeTarget(index: number): RelayServer {
   return createRelayServer({
     port: TARGET_PORTS[index], host: '127.0.0.1', persistDir: TARGET_DIRS[index],
     relayDiscovery: {
-      endpoints: [endpoint(index === 0 ? PARTITION_PORT : TARGET_PORTS[index])],
-      reachability: 'direct', supportedGroups: ['public'],
+      endpoints: [], reachability: 'outbound-only', supportedGroups: ['public'],
       storage: { capacityBytes: 4_000_000, availableBytes: 3_000_000 },
+    },
+    relayLinks: {
+      targets: [createRelayContactHintV1('configured',
+        endpoint(index === 0 ? PARTITION_PORT : SOURCE_PORT))],
+      handshakeTimeoutMs: 2_000, heartbeatIntervalMs: 100,
+      heartbeatTimeoutMs: 1_500, reconnectBaseMs: 50, reconnectMaxMs: 200,
     },
     relayLinkHeartbeatIntervalMs: 100, relayLinkHeartbeatTimeoutMs: 1_500,
   });
@@ -48,20 +53,18 @@ function makeSource(): RelayServer {
     desiredReplicaCount: 5, minimumHealthyReplicaCount: 3,
     replicaRepairIntervalMs: 100, replicaInventoryIntervalMs: 300,
     replicaOfflineReplacementDelayMs: 20_000,
+    inboundReplicaTargetIds: targets.map(target => target.getRelayDescriptor()!.relayId),
     relayDiscovery: {
-      endpoints: [], reachability: 'outbound-only', supportedGroups: ['public'],
+      endpoints: [endpoint(SOURCE_PORT), endpoint(PARTITION_PORT)],
+      reachability: 'direct', supportedGroups: ['public'],
       storage: { capacityBytes: 4_000_000, availableBytes: 3_000_000 },
-    },
-    relayLinks: {
-      targets: TARGET_PORTS.map((port, index) => createRelayContactHintV1(
-        'configured', endpoint(index === 0 ? PARTITION_PORT : port),
-      )),
-      maxConnections: 5, handshakeTimeoutMs: 2_000,
-      heartbeatIntervalMs: 100, heartbeatTimeoutMs: 1_500,
-      replicaRequestTimeoutMs: 1_000, reconnectBaseMs: 50, reconnectMaxMs: 200,
     },
     relayLinkHeartbeatIntervalMs: 100, relayLinkHeartbeatTimeoutMs: 1_500,
   });
+}
+
+function connectedVolunteers(): number {
+  return source.getRelayLinkStatus().inboundRelayIds.length;
 }
 
 async function connectProxy(): Promise<void> {
@@ -75,7 +78,7 @@ async function connectProxy(): Promise<void> {
       client.destroy();
       return;
     }
-    const upstream = connect(TARGET_PORTS[0], '127.0.0.1');
+    const upstream = connect(SOURCE_PORT, '127.0.0.1');
     proxySockets.add(client);
     proxySockets.add(upstream);
     client.pipe(upstream);
@@ -170,24 +173,25 @@ beforeAll(async () => {
   for (let index = 0; index < TARGET_PORTS.length; index++) {
     targets.push(makeTarget(index));
   }
-  await Promise.all(targets.map(target => target.start()));
-  TARGET_PORTS.forEach((_, index) => runningTargets.add(index));
   await connectProxy();
   source = makeSource();
   await source.start();
+  await Promise.all(targets.map(target => target.start()));
+  TARGET_PORTS.forEach((_, index) => runningTargets.add(index));
 });
 
 afterAll(async () => {
-  if (source) await source.stop({ graceful: false });
-  await stopProxy();
   await Promise.all([...runningTargets].map(index => targets[index].stop({ graceful: false })));
+  await stopProxy();
+  if (source) await source.stop({ graceful: false });
   rmSync(SOURCE_DIR, { recursive: true, force: true });
   TARGET_DIRS.forEach(directory => rmSync(directory, { recursive: true, force: true }));
 });
 
 describe('five-relay volunteer churn and partition', () => {
   it('keeps delivery available during link isolation and relay loss, then repairs state and acknowledgements', async () => {
-    await waitFor(() => source.getRelayLinkStatus().connectedRelayIds.length === 5);
+    await waitFor(() => connectedVolunteers() === 5);
+    expect(source.getRelayLinkStatus().connectedRelayIds).toHaveLength(0);
     const offer = publication('offer');
     const need = publication('need');
     await publish(offer.record);
@@ -200,14 +204,16 @@ describe('five-relay volunteer churn and partition', () => {
       .every(ids => ids.length === 1 && ids[0] === noticeId));
 
     // The relay stays online for clients while its controller link is partitioned.
+    const partitionStarted = Date.now();
     await disconnectProxy();
-    await waitFor(() => source.getRelayLinkStatus().connectedRelayIds.length === 4);
+    await waitFor(() => connectedVolunteers() === 4);
+    const partitionDetectionMs = Date.now() - partitionStarted;
     expect(await fetch(TARGET_PORTS[0], offer.record, offer.keys)).toEqual([noticeId]);
 
     // A second volunteer disappears abruptly. Three selected replicas remain connected.
     await targets[1].stop({ graceful: false });
     runningTargets.delete(1);
-    await waitFor(() => source.getRelayLinkStatus().connectedRelayIds.length === 3);
+    await waitFor(() => connectedVolunteers() === 3);
     expect(source.getReplicaPlacementStatus(offer.record.publicationId)?.intent.targetRelayIds)
       .toHaveLength(5);
     expect(await fetch(TARGET_PORTS[2], offer.record, offer.keys)).toEqual([noticeId]);
@@ -216,6 +222,9 @@ describe('five-relay volunteer churn and partition', () => {
     await publish(later.record);
     await waitFor(() => source.getReplicaPlacementStatus(later.record.publicationId)
       ?.confirmedReplicaCount === 3);
+    const minimumReceiptsDuringOutage = source.getReplicaPlacementStatus(
+      later.record.publicationId,
+    )!.confirmedReplicaCount;
     const isolatedSearchStarted = Date.now();
     expect(await search(TARGET_PORTS[0], later.record.groupId, 0x6a)).toEqual([]);
     const isolatedSearchMs = Date.now() - isolatedSearchStarted;
@@ -230,15 +239,17 @@ describe('five-relay volunteer churn and partition', () => {
     // The failed relay returns with its journal lost; the controller restores its publication.
     rmSync(`${TARGET_DIRS[1]}/relay-operations.ndjson`, { force: true });
     targets[1] = makeTarget(1);
+    const emptyJournalRestartStarted = Date.now();
     await targets[1].start();
     runningTargets.add(1);
     await waitFor(() => targets[1].getStats().active_publications === 2);
     await waitFor(async () => (await fetch(TARGET_PORTS[1], offer.record, offer.keys)).includes(noticeId));
+    const emptyJournalRepairMs = Date.now() - emptyJournalRestartStarted;
 
     // Healing the link spreads the tombstone, including to the recovered relay.
     const repairStarted = Date.now();
     await connectProxy();
-    await waitFor(() => source.getRelayLinkStatus().connectedRelayIds.length === 5);
+    await waitFor(() => connectedVolunteers() === 5);
     await waitFor(async () => (await Promise.all([SOURCE_PORT, ...TARGET_PORTS]
       .map(port => fetch(port, offer.record, offer.keys)))).every(ids => ids.length === 0));
     await waitFor(() => source.getReplicaPlacementStatus(later.record.publicationId)
@@ -249,11 +260,33 @@ describe('five-relay volunteer churn and partition', () => {
       .toContain(later.record.publicationId);
     const healedSearchMs = Date.now() - healedSearchStarted;
     expect(healedSearchMs).toBeLessThan(5_000);
+
+    // The publisher/controller can crash while volunteers retain the copies.
+    const controllerRestartStarted = Date.now();
+    await source.stop({ graceful: false });
+    const controllerOfflineSearchStarted = Date.now();
+    expect(await search(TARGET_PORTS[0], later.record.groupId, 0x6a))
+      .toContain(later.record.publicationId);
+    const controllerOfflineSearchMs = Date.now() - controllerOfflineSearchStarted;
+    expect(await fetch(TARGET_PORTS[0], offer.record, offer.keys)).toEqual([]);
+    source = makeSource();
+    await source.start();
+    await waitFor(() => connectedVolunteers() === 5);
+    await waitFor(() => source.getReplicaPlacementStatus(later.record.publicationId)
+      ?.confirmedReplicaCount === 5);
+    const controllerRestartMs = Date.now() - controllerRestartStarted;
+    const postRestartSearchStarted = Date.now();
+    expect(await search(TARGET_PORTS[0], later.record.groupId, 0x6a))
+      .toContain(later.record.publicationId);
+    const postRestartSearchMs = Date.now() - postRestartSearchStarted;
+    expect(await fetch(TARGET_PORTS[0], offer.record, offer.keys)).toEqual([]);
     log('info', 'volunteer_churn_measurement', {
-      isolatedSearchMs, repairMs, healedSearchMs,
+      partitionDetectionMs, minimumReceiptsDuringOutage,
+      isolatedSearchMs, emptyJournalRepairMs, repairMs, healedSearchMs,
+      controllerOfflineSearchMs, controllerRestartMs, postRestartSearchMs,
     });
     expect(source.getReplicaPlacementStatus(offer.record.publicationId)).toMatchObject({
       minimumConfirmed: true, targetConfirmed: true, confirmedReplicaCount: 5,
     });
-  }, 60_000);
+  }, 90_000);
 });

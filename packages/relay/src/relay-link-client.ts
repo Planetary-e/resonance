@@ -844,7 +844,7 @@ export function connectRelayLinkV1(
       }
       pendingMailboxSyncs.clear();
       if (!accepted) {
-        failHandshake(new Error(`Relay link closed before acceptance (${code})`));
+        failHandshake(new Error(`Relay link closed before acceptance (${code}:${reason.toString('utf8')})`));
         return;
       }
       resolveClosed({ code, reason: reason.toString('utf8') });
