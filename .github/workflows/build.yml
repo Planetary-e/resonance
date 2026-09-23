@@ -59,7 +59,7 @@ jobs:
         run: npm ci
 
       - name: Run tests (skip embedding-heavy tests in CI)
-        run: npx vitest run --exclude '**/embedding.test.ts' --exclude '**/integration.test.ts' --exclude '**/hnsw*'
+        run: npx vitest run --maxWorkers=1 --exclude '**/embedding.test.ts' --exclude '**/integration.test.ts' --exclude '**/hnsw*'
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0

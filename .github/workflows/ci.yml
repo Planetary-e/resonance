@@ -28,7 +28,7 @@ jobs:
         run: npm run build
 
       - name: Run tests
-        run: npx vitest run
+        run: npx vitest run --maxWorkers=1
 
       - name: Run eval suite (quick)
         run: npm run eval:quick
