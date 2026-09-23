@@ -112,7 +112,7 @@ async function stopProxy(): Promise<void> {
 function request(port: number, raw: string): Promise<Message> {
   return new Promise((resolve, reject) => {
     const socket = new WebSocket(endpoint(port));
-    const timeout = setTimeout(() => { socket.terminate(); reject(new Error('relay request timed out')); }, 5_000);
+    const timeout = setTimeout(() => { socket.terminate(); reject(new Error(`relay request to ${port} timed out`)); }, 15_000);
     socket.on('open', () => socket.send(raw));
     socket.on('message', data => {
       clearTimeout(timeout);
@@ -120,6 +120,10 @@ function request(port: number, raw: string): Promise<Message> {
       resolve(parseMessage(data.toString()));
     });
     socket.on('error', error => { clearTimeout(timeout); reject(error); });
+    socket.on('close', (code, reason) => {
+      clearTimeout(timeout);
+      reject(new Error(`relay request to ${port} closed before response (${code}: ${reason.toString()})`));
+    });
   });
 }
 

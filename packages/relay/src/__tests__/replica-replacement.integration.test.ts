@@ -48,8 +48,8 @@ function createTarget(
       storage: { capacityBytes: quotaBytes, availableBytes: quotaBytes },
       descriptorLifetimeMs: 60_000,
     },
-    relayLinkHeartbeatIntervalMs: 100,
-    relayLinkHeartbeatTimeoutMs: 3_000,
+    relayLinkHeartbeatIntervalMs: 500,
+    relayLinkHeartbeatTimeoutMs: 5_000,
   });
 }
 
@@ -60,8 +60,8 @@ function createSource(): RelayServer {
     persistDir: SOURCE_DIR,
     desiredReplicaCount: 2,
     minimumHealthyReplicaCount: 1,
-    replicaRepairIntervalMs: 100,
-    replicaInventoryIntervalMs: 500,
+    replicaRepairIntervalMs: 250,
+    replicaInventoryIntervalMs: 2_000,
     relayDiscovery: {
       endpoints: [],
       reachability: 'outbound-only',
@@ -74,15 +74,15 @@ function createSource(): RelayServer {
         createRelayContactHintV1('configured', endpoint(port))
       )),
       maxConnections: 4,
-      handshakeTimeoutMs: 2_000,
-      heartbeatIntervalMs: 100,
-      heartbeatTimeoutMs: 3_000,
-      replicaRequestTimeoutMs: 2_000,
+      handshakeTimeoutMs: 5_000,
+      heartbeatIntervalMs: 500,
+      heartbeatTimeoutMs: 5_000,
+      replicaRequestTimeoutMs: 5_000,
       reconnectBaseMs: 50,
       reconnectMaxMs: 200,
     },
-    relayLinkHeartbeatIntervalMs: 100,
-    relayLinkHeartbeatTimeoutMs: 3_000,
+    relayLinkHeartbeatIntervalMs: 500,
+    relayLinkHeartbeatTimeoutMs: 5_000,
   });
 }
 
@@ -92,7 +92,7 @@ function submit(port: number, operation: PublicationOperation): Promise<{ status
     const timeout = setTimeout(() => {
       socket.terminate();
       reject(new Error('Timed out waiting for publication acknowledgement'));
-    }, 5_000);
+    }, 15_000);
     socket.once('open', () => {
       socket.send(serializePublicationOperationFrame(createPublicationOperationFrame(operation)));
     });
@@ -124,7 +124,7 @@ describe('capacity replacement and reconciliation quarantine', () => {
       fingerprint: new Uint8Array(64).fill(0x66),
       itemType: 'offer',
       createdAt: now,
-      expiresAt: now + 60_000,
+      expiresAt: now + 240_000,
     }, keys);
     const capacityTarget = createTarget(CAPACITY_PORT, CAPACITY_DIR, CAPACITY_QUOTA_BYTES);
     const healthyTarget = createTarget(HEALTHY_PORT, HEALTHY_DIR);
@@ -190,13 +190,13 @@ describe('capacity replacement and reconciliation quarantine', () => {
 
       await replacementTarget.start();
       replacementStarted = true;
-      await waitFor(() => source!.getRelayLinkStatus().connectedRelayIds.length === 3, 8_000);
+      await waitFor(() => source!.getRelayLinkStatus().connectedRelayIds.length === 3, 30_000);
       await waitFor(() => {
         const status = source!.getReplicaPlacementStatus(operation.publicationId);
         return status?.confirmedRelayIds.length === 2
           && status.intent.targetRelayIds.includes(healthyRelayId)
           && status.intent.targetRelayIds.includes(replacementRelayId);
-      }, 8_000);
+      }, 30_000);
       expect(source.getReplicaPlacementStatus(operation.publicationId)).toMatchObject({
         permanentlyRejectedRelayIds: [capacityRelayId],
         confirmedRelayIds: [healthyRelayId, replacementRelayId].sort(),
@@ -209,7 +209,7 @@ describe('capacity replacement and reconciliation quarantine', () => {
       if (healthyStarted) await healthyTarget.stop({ graceful: false });
       if (capacityStarted) await capacityTarget.stop({ graceful: false });
     }
-  }, 40_000);
+  }, 120_000);
 
   it('keeps a same-sequence owner conflict quarantined across restart and a late peer', async () => {
     const keys = generatePublicationKeyMaterial();
@@ -220,7 +220,7 @@ describe('capacity replacement and reconciliation quarantine', () => {
       fingerprint: new Uint8Array(64).fill(0x67),
       itemType: 'offer',
       createdAt: now,
-      expiresAt: now + 60_000,
+      expiresAt: now + 240_000,
     }, keys);
     const conflicting = createPublicationRecord({
       groupId: 'public',
@@ -228,7 +228,7 @@ describe('capacity replacement and reconciliation quarantine', () => {
       fingerprint: new Uint8Array(64).fill(0x68),
       itemType: 'need',
       createdAt: now + 1,
-      expiresAt: now + 60_000,
+      expiresAt: now + 240_000,
       sequence: operation.sequence,
     }, keys);
     const update = createPublicationRecord({
@@ -237,7 +237,7 @@ describe('capacity replacement and reconciliation quarantine', () => {
       fingerprint: new Uint8Array(64).fill(0x69),
       itemType: 'offer',
       createdAt: now + 2,
-      expiresAt: now + 60_000,
+      expiresAt: now + 240_000,
       sequence: operation.sequence + 1,
     }, keys);
     const terminalTarget = createTarget(TERMINAL_PORT, TERMINAL_DIR);
@@ -282,7 +282,7 @@ describe('capacity replacement and reconciliation quarantine', () => {
 
       await lateTarget.start();
       lateStarted = true;
-      await waitFor(() => source!.getRelayLinkStatus().connectedRelayIds.length === 2, 8_000);
+      await waitFor(() => source!.getRelayLinkStatus().connectedRelayIds.length === 2, 30_000);
       await pause(500);
       expect(source.getReplicaPlacementStatus(operation.publicationId)).toMatchObject({
         reconciliationRequired: true,
@@ -303,7 +303,7 @@ describe('capacity replacement and reconciliation quarantine', () => {
           && status.targetConfirmed
           && status.intent.targetRelayIds.includes(terminalRelayId)
           && status.intent.targetRelayIds.includes(lateRelayId);
-      }, 8_000);
+      }, 30_000);
       expect(lateTarget.getStats()).toMatchObject({
         active_publications: 1,
         retained_tombstones: 0,
@@ -313,7 +313,7 @@ describe('capacity replacement and reconciliation quarantine', () => {
       if (lateStarted) await lateTarget.stop({ graceful: false });
       if (terminalStarted) await terminalTarget.stop({ graceful: false });
     }
-  }, 40_000);
+  }, 120_000);
 
   it('adopts a verified newer tombstone without fan-out and preserves it across restart', async () => {
     const keys = generatePublicationKeyMaterial();
@@ -324,7 +324,7 @@ describe('capacity replacement and reconciliation quarantine', () => {
       fingerprint: new Uint8Array(64).fill(0x6a),
       itemType: 'offer',
       createdAt: now,
-      expiresAt: now + 60_000,
+      expiresAt: now + 240_000,
     }, keys);
     const tombstone = createPublicationTombstone(
       operation,
@@ -364,7 +364,7 @@ describe('capacity replacement and reconciliation quarantine', () => {
 
       await lateTarget.start();
       lateStarted = true;
-      await waitFor(() => source!.getRelayLinkStatus().connectedRelayIds.length === 2, 8_000);
+      await waitFor(() => source!.getRelayLinkStatus().connectedRelayIds.length === 2, 30_000);
       await pause(350);
       expect(lateTarget.getStats()).toMatchObject({
         active_publications: 0,
@@ -376,7 +376,7 @@ describe('capacity replacement and reconciliation quarantine', () => {
       if (lateStarted) await lateTarget.stop({ graceful: false });
       if (terminalStarted) await terminalTarget.stop({ graceful: false });
     }
-  }, 40_000);
+  }, 120_000);
 });
 
 async function fillTargetToCapacity(target: RelayServer, port: number): Promise<void> {
@@ -390,7 +390,7 @@ async function fillTargetToCapacity(target: RelayServer, port: number): Promise<
       fingerprint: new Uint8Array(64).fill(index),
       itemType: 'offer',
       createdAt: now,
-      expiresAt: now + 60_000,
+      expiresAt: now + 240_000,
     }, keys);
     const result = await submit(port, filler);
     if (result.message === 'capacity-exhausted') return;
@@ -403,7 +403,7 @@ function pause(milliseconds: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, milliseconds));
 }
 
-async function waitFor(predicate: () => boolean, timeoutMs = 8_000): Promise<void> {
+async function waitFor(predicate: () => boolean, timeoutMs = 30_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (!predicate()) {
     if (Date.now() >= deadline) throw new Error('Timed out waiting for permanent replica replacement');

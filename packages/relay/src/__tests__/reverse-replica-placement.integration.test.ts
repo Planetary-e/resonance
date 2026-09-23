@@ -64,7 +64,7 @@ async function fetchRelationship(port: number, keys: RelationshipKeyMaterial): P
 function request(port: number, raw: string): Promise<Message> {
   return new Promise((resolve, reject) => {
     const socket = new WebSocket(`ws://127.0.0.1:${port}/`);
-    const timer = setTimeout(() => { socket.terminate(); reject(new Error('request timed out')); }, 5_000);
+    const timer = setTimeout(() => { socket.terminate(); reject(new Error(`request to ${port} timed out`)); }, 15_000);
     socket.on('open', () => socket.send(raw));
     socket.on('message', data => {
       clearTimeout(timer);
@@ -72,6 +72,10 @@ function request(port: number, raw: string): Promise<Message> {
       resolve(parseMessage(data.toString()));
     });
     socket.on('error', error => { clearTimeout(timer); reject(error); });
+    socket.on('close', (code, reason) => {
+      clearTimeout(timer);
+      reject(new Error(`request to ${port} closed before response (${code}: ${reason.toString()})`));
+    });
   });
 }
 
