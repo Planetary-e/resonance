@@ -3,6 +3,7 @@
 import WebSocket, { type RawData } from 'ws';
 import type { Socket } from 'node:net';
 import {
+  assertSecureRelayTransportEndpoint,
   MAX_RELAY_DISCOVERY_FRAME_BYTES,
   MAX_RELAY_PEERS_PER_RESPONSE,
   createRelayPeerRequestFrameV1,
@@ -42,6 +43,8 @@ export function discoverRelayContactV1(
   if (!verifyRelayContactHintV1(hint)) {
     return Promise.reject(new Error('Invalid relay contact hint'));
   }
+  try { assertSecureRelayTransportEndpoint(hint.endpoint); }
+  catch (error) { return Promise.reject(error); }
   const timeoutMs = options.timeoutMs ?? 5_000;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 30_000) {
     return Promise.reject(new Error('Relay discovery timeout must be between 100 and 30000 ms'));
