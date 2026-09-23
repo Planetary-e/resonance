@@ -90,10 +90,13 @@ pub fn run() {
                     .to_path_buf();
                 let node_bin = find_sidecar(&app_dir, "node");
 
-                let child = Command::new(node_bin)
+                let child = Command::new(&node_bin)
                     .arg(&server_mjs)
                     .env("RESONANCE_PORT", "3000")
                     .env("RESONANCE_RELAY", "ws://localhost:9091")
+                    .env("RESONANCE_RELAY_NODE", &node_bin)
+                    .env("RESONANCE_RELAY_ENTRY", resource_dir.join("server").join("relay.mjs"))
+                    .env("RESONANCE_RELAY_CWD", &resource_dir)
                     .env("NODE_PATH", &node_modules)
                     .stdout(Stdio::piped())
                     .spawn()

@@ -31,10 +31,13 @@ import {
   type PairwiseChannelManagerV2,
   type IdentityManager,
 } from '@resonance/node';
-import { randomUUID } from 'node:crypto';
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { chmodSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { createRelayServer, type RelayServer } from '@resonance/relay';
+import {
+  installRelayService, relayServiceRuntime, relayServiceStats, uninstallRelayService,
+  type RelayOwnerControls,
+} from './relay-supervisor.js';
 
 export interface SessionEvents {
   onMatch?: (matchId: string, partnerDID: string, similarity: number, yourItemId: string) => void;
@@ -53,15 +56,21 @@ export interface Session {
   relayClient: RelayClient;
   pairwiseChannelMgr: PairwiseChannelManagerV2;
   identityMgr: IdentityManager;
+  remoteRelayUrls: string[];
 }
 
 let session: Session | null = null;
 let sessionEvents: SessionEvents = {};
-let relayServer: RelayServer | null = null;
-
 // --- Relay config persistence ---
 
-interface RelayConfig { enabled: boolean; port: number; }
+interface RelayConfig {
+  enabled: boolean;
+  port: number;
+  adminKey?: string;
+  contacts?: string[];
+  controls?: RelayOwnerControls;
+  runtime?: { nodePath: string; entryPath: string };
+}
 
 function getRelayConfigPath(): string {
   return join(getDataDir(), 'relay-config.json');
@@ -77,32 +86,96 @@ export function loadRelayConfig(): RelayConfig {
 
 function saveRelayConfig(config: RelayConfig): void {
   ensureDataDir();
-  writeFileSync(getRelayConfigPath(), JSON.stringify(config));
+  const path = getRelayConfigPath();
+  writeFileSync(path, JSON.stringify(config), { mode: 0o600 });
+  chmodSync(path, 0o600);
+}
+
+function validateOwnerControls(input: RelayOwnerControls): RelayOwnerControls {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new Error('Owner controls must be an object');
+  }
+  const integer = (value: unknown, name: string, max: number): number | undefined => {
+    if (value === undefined) return undefined;
+    if (!Number.isSafeInteger(value) || (value as number) < 0 || (value as number) > max) {
+      throw new Error(`${name} must be a non-negative integer within its limit`);
+    }
+    return value as number;
+  };
+  const publicationStorageMiB = integer(input.publicationStorageMiB, 'Publication storage', 1_048_576);
+  const newWorkIngressMiBPerHour = integer(input.newWorkIngressMiBPerHour, 'New-work bandwidth', 1_048_576);
+  const cpuMillisecondsPerMinute = integer(input.cpuMillisecondsPerMinute, 'CPU budget', 60_000);
+  if (publicationStorageMiB !== undefined && publicationStorageMiB < 1) {
+    throw new Error('Publication storage must be at least 1 MiB');
+  }
+  if (input.activeHours !== undefined && typeof input.activeHours !== 'string') {
+    throw new Error('Active hours must be text');
+  }
+  const activeHours = input.activeHours?.trim();
+  if (activeHours && (!/^(?:[01]\d|2[0-3]):[0-5]\d-(?:[01]\d|2[0-3]):[0-5]\d$/.test(activeHours))) {
+    throw new Error('Active hours must use HH:MM-HH:MM');
+  }
+  if (input.onlyWhenCharging !== undefined && typeof input.onlyWhenCharging !== 'boolean') {
+    throw new Error('Only-when-charging must be true or false');
+  }
+  return {
+    ...(publicationStorageMiB === undefined ? {} : { publicationStorageMiB }),
+    ...(newWorkIngressMiBPerHour === undefined ? {} : { newWorkIngressMiBPerHour }),
+    ...(cpuMillisecondsPerMinute === undefined ? {} : { cpuMillisecondsPerMinute }),
+    ...(activeHours ? { activeHours } : {}),
+    ...(input.onlyWhenCharging ? { onlyWhenCharging: true } : {}),
+  };
 }
 
 // --- Relay mode ---
 
-export async function startRelayMode(port?: number): Promise<{ port: number }> {
-  const p = port ?? DEFAULT_RELAY_PORT;
-  if (relayServer) return { port: p };
-
-  const persistDir = join(getDataDir(), 'relay-data');
-  relayServer = createRelayServer({
-    port: p,
-    host: '0.0.0.0', // Accept connections from other machines
-    persistDir,
-    maxAuthAttemptsPerMin: 20,
+export async function startRelayMode(
+  port?: number, requestedContacts?: string[], requestedControls?: RelayOwnerControls,
+): Promise<{ port: number }> {
+  const previous = loadRelayConfig();
+  const p = port ?? previous.port ?? DEFAULT_RELAY_PORT;
+  const adminKey = previous.adminKey ?? randomBytes(32).toString('base64url');
+  const contacts = requestedContacts ?? previous.contacts ??
+    (process.env.RESONANCE_RELAY_CONTACTS ?? process.env.RELAY_CONTACTS ?? '')
+      .split(',').map(value => value.trim()).filter(Boolean);
+  if (contacts.length > 16 || new Set(contacts).size !== contacts.length
+    || contacts.some(value => {
+      try {
+        const url = new URL(value);
+        return !['ws:', 'wss:'].includes(url.protocol) || Boolean(url.username || url.password)
+          || Boolean(url.search || url.hash);
+      } catch { return true; }
+    })) throw new Error('Relay contacts must be up to 16 distinct ws:// or wss:// endpoints');
+  const controls = validateOwnerControls(requestedControls ?? previous.controls ?? {});
+  const runtime = relayServiceRuntime();
+  if (previous.enabled && previous.port === p
+    && previous.runtime?.nodePath === runtime.nodePath
+    && previous.runtime?.entryPath === runtime.entryPath
+    && JSON.stringify(previous.contacts) === JSON.stringify(contacts)
+    && JSON.stringify(previous.controls ?? {}) === JSON.stringify(controls)
+    && await relayServiceStats(p, adminKey)) return { port: p };
+  installRelayService({
+    port: p, dataDir: getDataDir(), adminKey, contacts, controls, ...runtime,
   });
-  await relayServer.start();
-  saveRelayConfig({ enabled: true, port: p });
+  let running = false;
+  for (let attempt = 0; attempt < 40; attempt++) {
+    if (await relayServiceStats(p, adminKey)) { running = true; break; }
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
+  if (!running) throw new Error('The supervised relay did not become ready');
+  saveRelayConfig({
+    enabled: true, port: p, adminKey, contacts, controls,
+    runtime: { nodePath: runtime.nodePath, entryPath: runtime.entryPath },
+  });
 
   // If session is active, reconnect client to local relay
   if (session) {
     session.relayClient.disconnect();
+    session.remoteRelayUrls = [...new Set([...contacts, ...session.remoteRelayUrls])];
     const localClient = createRelayClient({
       relayUrl: `ws://localhost:${p}`,
       identity: session.identity,
-      fallbackUrls: BOOTSTRAP_RELAYS,
+      fallbackUrls: session.remoteRelayUrls,
       autoReconnect: true,
     });
     session.relayClient = localClient;
@@ -114,20 +187,57 @@ export async function startRelayMode(port?: number): Promise<{ port: number }> {
 }
 
 export async function stopRelayMode(): Promise<void> {
-  if (!relayServer) return;
-  await relayServer.stop();
-  relayServer = null;
-  saveRelayConfig({ enabled: false, port: DEFAULT_RELAY_PORT });
+  uninstallRelayService();
+  saveRelayConfig({ ...loadRelayConfig(), enabled: false });
+  if (session) {
+    session.relayClient.disconnect();
+    const urls = session.remoteRelayUrls;
+    const remoteClient = createRelayClient({
+      relayUrl: urls[0] ?? 'ws://localhost:9090',
+      identity: session.identity,
+      fallbackUrls: urls.slice(1),
+      autoReconnect: true,
+    });
+    session.relayClient = remoteClient;
+    session.pairwiseChannelMgr = createPairwiseChannelManagerV2(session.store, remoteClient);
+    wireEvents(session);
+  }
 }
 
 export function isRelayMode(): boolean {
-  return relayServer !== null;
+  return loadRelayConfig().enabled;
 }
 
-export function getRelayStats(): { enabled: boolean; port: number; stats: any } | null {
-  if (!relayServer) return null;
+export async function getRelayStats(): Promise<{
+  enabled: boolean; running: boolean; port: number; contacts: string[];
+  controls: RelayOwnerControls;
+  stats: {
+    connected_relays: number;
+    active_publications: number;
+    placement_intents: number;
+    minimum_confirmed_placements: number;
+    publication_storage_reserved_bytes: number;
+    publication_storage_quota_bytes: number;
+  } | null;
+} | null> {
   const config = loadRelayConfig();
-  return { enabled: true, port: config.port, stats: relayServer.getStats() };
+  if (!config.enabled || !config.adminKey) return {
+    enabled: false, running: false, port: config.port,
+    contacts: config.contacts ?? [], controls: config.controls ?? {}, stats: null,
+  };
+  const stats = await relayServiceStats(config.port, config.adminKey);
+  return {
+    enabled: true, running: stats !== null, port: config.port,
+    contacts: config.contacts ?? [], controls: config.controls ?? {},
+    stats: stats ? {
+      connected_relays: Number(stats.connected_relays) || 0,
+      active_publications: Number(stats.active_publications) || 0,
+      placement_intents: Number(stats.placement_intents) || 0,
+      minimum_confirmed_placements: Number(stats.minimum_confirmed_placements) || 0,
+      publication_storage_reserved_bytes: Number(stats.publication_storage_reserved_bytes) || 0,
+      publication_storage_quota_bytes: Number(stats.publication_storage_quota_bytes) || 0,
+    } : null,
+  };
 }
 
 export function getSession(): Session | null {
@@ -179,15 +289,22 @@ export async function unlockSession(password: string, relayUrl: string): Promise
 
   // Auto-start relay if config says enabled
   const relayConfig = loadRelayConfig();
-  if (relayConfig.enabled && !relayServer) {
+  if (relayConfig.enabled) {
     try { await startRelayMode(relayConfig.port); } catch { /* port busy? */ }
   }
 
   // Build relay URL list: local relay first (if running), then configured, then bootstrap
+  const remoteUrls: string[] = [];
+  remoteUrls.push(...(relayConfig.contacts ?? []));
+  if (relayUrl && relayUrl !== 'ws://localhost:9090') remoteUrls.push(relayUrl);
+  remoteUrls.push(...BOOTSTRAP_RELAYS);
+  const uniqueRemoteUrls = [...new Set(remoteUrls)];
   const urls: string[] = [];
-  if (relayServer) urls.push(`ws://localhost:${relayConfig.port}`);
-  if (relayUrl && relayUrl !== 'ws://localhost:9090') urls.push(relayUrl);
-  urls.push(...BOOTSTRAP_RELAYS.filter(u => !urls.includes(u)));
+  if (relayConfig.enabled && relayConfig.adminKey
+    && await relayServiceStats(relayConfig.port, relayConfig.adminKey)) {
+    urls.push(`ws://localhost:${relayConfig.port}`);
+  }
+  urls.push(...uniqueRemoteUrls.filter(u => !urls.includes(u)));
   if (urls.length === 0) urls.push(relayUrl); // fallback to whatever was passed
 
   const relayClient = createRelayClient({
@@ -200,7 +317,10 @@ export async function unlockSession(password: string, relayUrl: string): Promise
 
   // Protocol v2 operations use short, self-authenticating connections. Keeping
   // the legacy root-authenticated socket closed prevents passive DID linkage.
-  session = { identity, store, engine, relayClient, pairwiseChannelMgr, identityMgr: mgr };
+  session = {
+    identity, store, engine, relayClient, pairwiseChannelMgr,
+    identityMgr: mgr, remoteRelayUrls: uniqueRemoteUrls,
+  };
   wireEvents(session);
   resetInactivityTimer();
 

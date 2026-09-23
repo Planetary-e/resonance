@@ -6,10 +6,12 @@ import {
   createMailboxRequest, createMailboxRequestFrame,
   createPublicationOperationFrame, createPublicationRecord,
   createRelayContactHintV1, generatePublicationKeyMaterial,
+  createSearchRequestFrameV2, createSearchRequestV2, serializeSearchRequestFrameV2,
   parseMessage, serializeMailboxRequestFrame, serializePublicationOperationFrame,
   type Message, type PublicationKeyMaterial, type PublicationRecord,
 } from '@resonance/core';
 import { createRelayServer, type RelayServer } from '../server.js';
+import { log } from '../logger.js';
 
 const BASE_PORT = 33_000 + Math.floor(Math.random() * 1_000);
 const SOURCE_PORT = BASE_PORT;
@@ -101,14 +103,14 @@ function request(port: number, raw: string): Promise<Message> {
   });
 }
 
-function publication(itemType: 'need' | 'offer') {
+function publication(itemType: 'need' | 'offer', groupId = 'public', fill = 0x39) {
   const keys = generatePublicationKeyMaterial();
   const now = Date.now();
   return {
     keys,
     record: createPublicationRecord({
-      groupId: 'public', fingerprintEpoch: 'volunteer-churn',
-      fingerprint: new Uint8Array(64).fill(0x39), itemType,
+      groupId, fingerprintEpoch: 'volunteer-churn',
+      fingerprint: new Uint8Array(64).fill(fill), itemType,
       createdAt: now, expiresAt: now + 120_000,
     }, keys),
   };
@@ -126,6 +128,18 @@ async function fetch(port: number, record: PublicationRecord, keys: PublicationK
     createMailboxRequest('fetch', record, keys, [], Date.now()),
   ))) as Message<{ envelopes: Array<{ envelopeId: string }> }>;
   return response.payload.envelopes.map(envelope => envelope.envelopeId);
+}
+
+async function search(port: number, groupId: string, fill: number): Promise<string[]> {
+  const requestFrame = createSearchRequestFrameV2(createSearchRequestV2({
+    groupId, fingerprintEpoch: 'volunteer-churn',
+    fingerprint: new Uint8Array(64).fill(fill), itemType: 'need',
+    k: 5, threshold: 0.9,
+  }));
+  const response = await request(port, serializeSearchRequestFrameV2(requestFrame)) as Message<{
+    results: Array<{ publicationId: string }>;
+  }>;
+  return response.payload.results.map(result => result.publicationId);
 }
 
 async function waitFor(check: () => Promise<boolean> | boolean, timeoutMs = 20_000): Promise<void> {
@@ -183,6 +197,14 @@ describe('five-relay volunteer churn and partition', () => {
       .toHaveLength(5);
     expect(await fetch(TARGET_PORTS[2], offer.record, offer.keys)).toEqual([noticeId]);
 
+    const later = publication('offer', 'public', 0x6a);
+    await publish(later.record);
+    await waitFor(() => source.getReplicaPlacementStatus(later.record.publicationId)
+      ?.confirmedReplicaCount === 3);
+    const isolatedSearchStarted = Date.now();
+    expect(await search(TARGET_PORTS[0], later.record.groupId, 0x6a)).toEqual([]);
+    const isolatedSearchMs = Date.now() - isolatedSearchStarted;
+
     // Acknowledgement on the isolated relay cannot yet reach the controller.
     const ack = await request(TARGET_PORTS[0], serializeMailboxRequestFrame(createMailboxRequestFrame(
       createMailboxRequest('ack', offer.record, offer.keys, [noticeId], Date.now()),
@@ -199,10 +221,22 @@ describe('five-relay volunteer churn and partition', () => {
     await waitFor(async () => (await fetch(TARGET_PORTS[1], offer.record, offer.keys)).includes(noticeId));
 
     // Healing the link spreads the tombstone, including to the recovered relay.
+    const repairStarted = Date.now();
     await connectProxy();
     await waitFor(() => source.getRelayLinkStatus().connectedRelayIds.length === 5);
     await waitFor(async () => (await Promise.all([SOURCE_PORT, ...TARGET_PORTS]
       .map(port => fetch(port, offer.record, offer.keys)))).every(ids => ids.length === 0));
+    await waitFor(() => source.getReplicaPlacementStatus(later.record.publicationId)
+      ?.confirmedReplicaCount === 5);
+    const repairMs = Date.now() - repairStarted;
+    const healedSearchStarted = Date.now();
+    expect(await search(TARGET_PORTS[0], later.record.groupId, 0x6a))
+      .toContain(later.record.publicationId);
+    const healedSearchMs = Date.now() - healedSearchStarted;
+    expect(healedSearchMs).toBeLessThan(5_000);
+    log('info', 'volunteer_churn_measurement', {
+      isolatedSearchMs, repairMs, healedSearchMs,
+    });
     expect(source.getReplicaPlacementStatus(offer.record.publicationId)).toMatchObject({
       minimumConfirmed: true, targetConfirmed: true, confirmedReplicaCount: 5,
     });

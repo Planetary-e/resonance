@@ -83,7 +83,7 @@ const PEER_RESPONSE_BODY_KEYS = [
 const PEER_RESPONSE_KEYS = [...PEER_RESPONSE_BODY_KEYS, 'signature'] as const;
 
 export type RelayReachability = 'direct' | 'outbound-only';
-export type RelayContactHintSource = 'configured' | 'invitation' | 'local' | 'peer-exchange';
+export type RelayContactHintSource = 'configured' | 'invitation' | 'local' | 'bootstrap' | 'peer-exchange';
 
 export interface RelayCapabilitiesV1 {
   storesPublications: boolean;
@@ -257,7 +257,8 @@ export function verifyRelayContactHintV1(value: unknown): value is RelayContactH
     ? ['endpoint', 'expectedRelayId', 'source']
     : ['endpoint', 'source'])) return false;
   if (value.source !== 'configured' && value.source !== 'invitation'
-    && value.source !== 'local' && value.source !== 'peer-exchange') return false;
+    && value.source !== 'local' && value.source !== 'bootstrap'
+    && value.source !== 'peer-exchange') return false;
   if (typeof value.endpoint !== 'string' || !isCanonicalEndpoint(value.endpoint)) return false;
   return !('expectedRelayId' in value) || isRelayId(value.expectedRelayId);
 }

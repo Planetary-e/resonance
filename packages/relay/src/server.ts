@@ -246,6 +246,8 @@ export interface RelayConfig {
   relayLinks?: Omit<RelayLinkManagerOptions, 'onEvent'>;
   /** When set, every v2 operation must present an anonymous one-use capability. */
   admissionVerifier?: AdmissionCapabilityVerifierV2;
+  /** Decline discretionary first admissions while retaining existing obligations. */
+  acceptNewWork?: (ingressBytes: number) => boolean;
 }
 
 export interface RelayStats {
@@ -809,6 +811,9 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       } catch {
         return { status: 'unavailable', results: [] };
       }
+    }
+    if (cfg.acceptNewWork?.(Buffer.byteLength(JSON.stringify(request), 'utf8')) === false) {
+      return { status: 'rate-limited', results: [] };
     }
     if (!rateLimiter.check(`relay:${linkedRelayId}`, 'search')
       || !rememberSearch(request.search.searchId, request.search.expiresAt, now)) {
@@ -2190,6 +2195,12 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       if (response) replayEntry.response = response;
     };
     const operation = request.operation;
+    if (operation.kind === 'publication'
+      && !publicationStore.get(operation.publicationId)
+      && cfg.acceptNewWork?.(Buffer.byteLength(raw, 'utf8')) === false) {
+      respond({ status: 'rejected', reason: 'rate-limited' });
+      return;
+    }
     if (operation.kind === 'publication') {
       if (!isPublicationActive(operation, now)) {
         respond({ status: 'rejected', reason: 'expired' });
@@ -2974,6 +2985,10 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           return;
         }
         if (!authorizeAdmission(ws, request.searchId, frame.admission, 'search', request, now)) return;
+        if (cfg.acceptNewWork?.(Buffer.byteLength(raw, 'utf8')) === false) {
+          sendOperationAck(ws, request.searchId, 'error', 'owner_limited');
+          return;
+        }
         if (!rateLimiter.check(`transport:${ip}`, 'search')) {
           sendOperationAck(ws, request.searchId, 'error', 'rate_limited');
           return;
@@ -3022,6 +3037,12 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         if (!authorizeAdmission(
           ws, operation.publicationId, frame.admission, 'publication-write', operation,
         )) return;
+        if (operation.kind === 'publication'
+          && !publicationStore.get(operation.publicationId)
+          && cfg.acceptNewWork?.(Buffer.byteLength(raw, 'utf8')) === false) {
+          sendOperationAck(ws, operation.publicationId, 'error', 'owner_limited');
+          return;
+        }
         if (!rateLimiter.check(`transport:${ip}`, 'publish')) {
           sendOperationAck(ws, operation.publicationId, 'error', 'rate_limited');
           return;

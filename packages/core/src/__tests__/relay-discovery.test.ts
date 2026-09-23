@@ -120,11 +120,14 @@ describe('relay contact hints', () => {
     const identity = generateIdentity();
     const unpinned = createRelayContactHintV1('configured', 'ws://localhost:9090');
     const pinned = createRelayContactHintV1('invitation', 'wss://relay.example.net', identity.did);
+    const bootstrap = createRelayContactHintV1('bootstrap', 'wss://bootstrap.example.net');
 
     expect(unpinned).toEqual({ source: 'configured', endpoint: 'ws://localhost:9090/' });
     expect(pinned.expectedRelayId).toBe(identity.did);
     expect(verifyRelayContactHintV1(unpinned)).toBe(true);
     expect(verifyRelayContactHintV1(pinned)).toBe(true);
+    expect(verifyRelayContactHintV1(bootstrap)).toBe(true);
+    expect(bootstrap.source).toBe('bootstrap');
     expect(() => createRelayContactHintV1('configured', 'https://relay.example.net')).toThrow();
   });
 });

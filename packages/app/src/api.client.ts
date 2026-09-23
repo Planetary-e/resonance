@@ -84,11 +84,26 @@ export interface PublishResult {
 
 export interface RelayStatus {
   enabled: boolean;
+  running: boolean;
   port: number | null;
+  contacts: string[];
+  controls: RelayOwnerControls;
   stats: {
-    connectedNodes?: number;
-    indexedItems?: number;
+    connected_relays?: number;
+    active_publications?: number;
+    placement_intents?: number;
+    minimum_confirmed_placements?: number;
+    publication_storage_reserved_bytes?: number;
+    publication_storage_quota_bytes?: number;
   } | null;
+}
+
+export interface RelayOwnerControls {
+  publicationStorageMiB?: number;
+  newWorkIngressMiBPerHour?: number;
+  cpuMillisecondsPerMinute?: number;
+  activeHours?: string;
+  onlyWhenCharging?: boolean;
 }
 
 export interface AppEvent {
@@ -242,8 +257,10 @@ export async function getRelayStatus(): Promise<RelayStatus & { error?: string }
   return api<RelayStatus>('GET', '/api/relay/status');
 }
 
-export async function startRelay(port?: number): Promise<{ port: number; error?: string }> {
-  return api('POST', '/api/relay/start', port ? { port } : {});
+export async function startRelay(
+  contacts: string[], controls: RelayOwnerControls, port?: number,
+): Promise<{ port: number; error?: string }> {
+  return api('POST', '/api/relay/start', { contacts, controls, ...(port ? { port } : {}) });
 }
 
 export async function stopRelay(): Promise<{ stopped: boolean; error?: string }> {
