@@ -155,7 +155,7 @@ The authenticated stats report transport ingress and egress, process CPU time, r
 
 To allow a directly reachable relay to place copies onto volunteers that connected to it from behind NAT, set `RELAY_INBOUND_REPLICA_TARGET_IDS` on that relay to a comma-separated list of approved relay IDs. Each volunteer can read its own infrastructure ID from the desktop relay status or its local authenticated `/stats` response and share it with the contact it trusts. The direct relay verifies the signed link descriptor and selects only approved, currently connected IDs with the required storage and group capabilities. A successful placement still requires a signed fsync receipt; merely knowing or advertising an ID grants no storage placement.
 
-Run `npm run test:churn` to exercise five outbound-only volunteers through link isolation, abrupt loss, empty-journal repair, controller outage, and reconnection. The [churn harness guide](docs/developers/churn-harness-v0.3.md) explains the logged measurements and the limits of this local test.
+Run `npm run test:churn` to exercise five outbound-only volunteers through link isolation, abrupt loss, empty-journal repair, controller outage, and reconnection. The command also tests search from an unseeded relay and encrypted notice delivery after the controller and two volunteers stop. The [churn harness guide](docs/developers/churn-harness-v0.3.md) explains the logged measurements and the limits of these local tests.
 
 The current transport is suitable for local development and controlled testing. It is not yet the private, authenticated Internet transport described in the roadmap.
 

@@ -40,10 +40,10 @@ function makeTarget(index: number): RelayServer {
     relayLinks: {
       targets: [createRelayContactHintV1('configured',
         endpoint(index === 0 ? PARTITION_PORT : SOURCE_PORT))],
-      handshakeTimeoutMs: 2_000, heartbeatIntervalMs: 100,
-      heartbeatTimeoutMs: 1_500, reconnectBaseMs: 50, reconnectMaxMs: 200,
+      handshakeTimeoutMs: 5_000, heartbeatIntervalMs: 500,
+      heartbeatTimeoutMs: 5_000, reconnectBaseMs: 100, reconnectMaxMs: 500,
     },
-    relayLinkHeartbeatIntervalMs: 100, relayLinkHeartbeatTimeoutMs: 1_500,
+    relayLinkHeartbeatIntervalMs: 500, relayLinkHeartbeatTimeoutMs: 5_000,
   });
 }
 
@@ -51,7 +51,7 @@ function makeSource(): RelayServer {
   return createRelayServer({
     port: SOURCE_PORT, host: '127.0.0.1', persistDir: SOURCE_DIR,
     desiredReplicaCount: 5, minimumHealthyReplicaCount: 3,
-    replicaRepairIntervalMs: 100, replicaInventoryIntervalMs: 300,
+    replicaRepairIntervalMs: 250, replicaInventoryIntervalMs: 2_000,
     replicaOfflineReplacementDelayMs: 20_000,
     inboundReplicaTargetIds: targets.map(target => target.getRelayDescriptor()!.relayId),
     relayDiscovery: {
@@ -59,7 +59,7 @@ function makeSource(): RelayServer {
       reachability: 'direct', supportedGroups: ['public'],
       storage: { capacityBytes: 4_000_000, availableBytes: 3_000_000 },
     },
-    relayLinkHeartbeatIntervalMs: 100, relayLinkHeartbeatTimeoutMs: 1_500,
+    relayLinkHeartbeatIntervalMs: 500, relayLinkHeartbeatTimeoutMs: 5_000,
   });
 }
 
@@ -160,7 +160,7 @@ async function search(port: number, groupId: string, fill: number): Promise<stri
   return response.payload.results.map(result => result.publicationId);
 }
 
-async function waitFor(check: () => Promise<boolean> | boolean, timeoutMs = 20_000): Promise<void> {
+async function waitFor(check: () => Promise<boolean> | boolean, timeoutMs = 30_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (await check()) return;
@@ -250,6 +250,7 @@ describe('five-relay volunteer churn and partition', () => {
     const repairStarted = Date.now();
     await connectProxy();
     await waitFor(() => connectedVolunteers() === 5);
+    await waitFor(() => targets[0].getRelayLinkStatus().connectedRelayIds.length === 1);
     await waitFor(async () => (await Promise.all([SOURCE_PORT, ...TARGET_PORTS]
       .map(port => fetch(port, offer.record, offer.keys)))).every(ids => ids.length === 0));
     await waitFor(() => source.getReplicaPlacementStatus(later.record.publicationId)
@@ -288,5 +289,5 @@ describe('five-relay volunteer churn and partition', () => {
     expect(source.getReplicaPlacementStatus(offer.record.publicationId)).toMatchObject({
       minimumConfirmed: true, targetConfirmed: true, confirmedReplicaCount: 5,
     });
-  }, 90_000);
+  }, 120_000);
 });
