@@ -36,7 +36,7 @@ describe('desktop relay service definitions', () => {
 
       const windows = windowsServiceTask(options);
       const script = readFileSync(join(dataDir, 'relay-service.ps1'), 'utf8');
-      expect(windows).toContain('<RestartOnFailure>');
+      expect(windows).toContain('<RestartOnFailure><Interval>PT1M</Interval><Count>255</Count>');
       expect(windows).toContain('<LogonTrigger>');
       expect(script).toContain("$env:RELAY_ADMIN_API_KEY='private<&\"key';");
       expect(script).toContain("& '/opt/Resonance/node' '/opt/Resonance/relay.mjs'");

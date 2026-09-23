@@ -133,7 +133,7 @@ export function windowsServiceTask(options: RelayServiceOptions): string {
     `<RunLevel>LeastPrivilege</RunLevel></Principal></Principals>`+
     `<Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>`+
     `<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>`+
-    `<RestartOnFailure><Interval>PT1M</Interval><Count>999</Count></RestartOnFailure>`+
+    `<RestartOnFailure><Interval>PT1M</Interval><Count>255</Count></RestartOnFailure>`+
     `</Settings><Actions Context="Author"><Exec>`+
     `<Command>powershell.exe</Command>`+
     `<Arguments>${xml(`-NoProfile -NonInteractive -ExecutionPolicy Bypass -File ${windowsArg(script)}`)}</Arguments>`+
