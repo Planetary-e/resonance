@@ -144,6 +144,10 @@ export default function Dashboard({
 
         {relayStatus?.enabled && relayStatus.stats && (
           <div className="relay-stats">
+            <div className="stat-item relay-own-id">
+              <span className="label">Relay ID to share with a trusted contact</span>
+              <span className="value">{relayStatus.stats.relay_id}</span>
+            </div>
             <div className="stat-item">
               <span className="label">Port</span>
               <span className="value">{relayStatus.port ?? '-'}</span>

@@ -13,6 +13,7 @@ import {
   MAILBOX_REQUEST_FRAME_TYPE,
   MAILBOX_RESPONSE_MESSAGE_TYPE,
   MAX_RELAY_DISCOVERY_FRAME_BYTES,
+  MAX_RELAY_REPLICA_INVENTORY_BATCH_RECEIPTS,
   PUBLICATION_OPERATION_FRAME_TYPE,
   RELAY_LINK_OPEN_FRAME_TYPE,
   RELAY_REPLICA_INVENTORY_BATCH_REQUEST_FRAME_TYPE,
@@ -183,6 +184,7 @@ import {
   type ReplicaPlacementStatus,
 } from './replica-placement.js';
 import { prioritizeReplicaDiversity } from './replica-diversity.js';
+import { ReverseReplicaRequests } from './reverse-replica-link.js';
 import {
   FIRST_SEEN_TOMBSTONE_RESERVE_BYTES,
   ReplicaStorageLedger,
@@ -244,6 +246,8 @@ export interface RelayConfig {
   relayDiscovery?: RelayDiscoveryConfig;
   /** Authenticated outbound relay links; requires relayDiscovery. */
   relayLinks?: Omit<RelayLinkManagerOptions, 'onEvent'>;
+  /** Explicitly approved inbound-link identities eligible for replica placement. */
+  inboundReplicaTargetIds?: string[];
   /** When set, every v2 operation must present an anonymous one-use capability. */
   admissionVerifier?: AdmissionCapabilityVerifierV2;
   /** Decline discretionary first admissions while retaining existing obligations. */
@@ -251,6 +255,7 @@ export interface RelayConfig {
 }
 
 export interface RelayStats {
+  relay_id: string;
   indexed_embeddings: number;
   stored_publications: number;
   active_publications: number;
@@ -507,8 +512,13 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   const inboundRelayLinks = new Map<string, {
     socket: WebSocket;
     descriptor: RelayDescriptorV1;
+    observedEndpoint: string;
     lastPongAt: number;
   }>();
+  const approvedInboundTargets = new Set(cfg.inboundReplicaTargetIds ?? []);
+  const reverseReplicaRequests = new ReverseReplicaRequests(
+    relayIdentity, relayId => inboundRelayLinks.get(relayId),
+  );
   const pendingReplicaHandoffs = new Map<string, {
     request: RelayReplicaHandoffRequestV1;
     controllerRelayId: string;
@@ -617,6 +627,20 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       ...cfg.relayLinks,
       onReplicaHandoffRequest: acceptReplicaHandoffRequest,
       onQueryRequest: request => processForwardedSearch(request, request.senderRelayId),
+      onReplicaRequestFrame(raw, remote, socket) {
+        const frame = JSON.parse(raw) as { type?: string };
+        if (frame.type === RELAY_REPLICA_PUT_FRAME_TYPE) {
+          handleReplicaPlacement(socket, raw, remote.relayId, remote);
+        } else if (frame.type === RELAY_REPLICA_INVENTORY_REQUEST_FRAME_TYPE) {
+          handleReplicaInventory(socket, raw, remote.relayId, remote);
+        } else if (frame.type === RELAY_REPLICA_INVENTORY_BATCH_REQUEST_FRAME_TYPE) {
+          handleReplicaInventoryBatch(socket, raw, remote.relayId, remote);
+        } else if (frame.type === RELAY_REPLICA_RECONCILIATION_REQUEST_FRAME_TYPE) {
+          handleReplicaReconciliation(socket, raw, remote.relayId, remote);
+        } else if (frame.type === RELAY_MAILBOX_SYNC_REQUEST_FRAME_TYPE) {
+          handleRelayMailboxSyncRequest(raw, remote.relayId, socket, remote);
+        }
+      },
       onEvent(event) {
         log(event.kind === 'failed' ? 'warn' : 'info', `relay_link_${event.kind}`, {
           endpoint: event.endpoint,
@@ -638,6 +662,17 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     const ids = new Set(inboundRelayLinks.keys());
     for (const relayId of outboundRelayLinks?.status().connectedRelayIds ?? []) ids.add(relayId);
     return [...ids].sort();
+  }
+
+  function authorizedReplicaPeer(
+    ws: WebSocket, relayId: string, outboundDescriptor?: RelayDescriptorV1,
+  ): boolean {
+    if (outboundDescriptor) {
+      return outboundDescriptor.relayId === relayId
+        && outboundDescriptor.capabilities.replicaExchange;
+    }
+    const inbound = inboundRelayLinks.get(relayId);
+    return inbound?.socket === ws && inbound.descriptor.capabilities.replicaExchange;
   }
 
   function localSearchResults(search: SearchRequestV2, now: number): SearchResultV2[] {
@@ -1284,13 +1319,24 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       !permanentlyRejected.has(relayId) && !additionallyRemoved.has(relayId)
     )));
     const groupId = placementGroupId(operation);
-    if (!outboundRelayLinks || !groupId || !allowExpansion) return [...selected].sort();
+    if (!groupId || !allowExpansion) return [...selected].sort();
 
-    const eligiblePeers = outboundRelayLinks.connectedPeers()
+    const eligiblePeers = [
+      ...(outboundRelayLinks?.connectedPeers() ?? []),
+      ...[...inboundRelayLinks]
+        .filter(([relayId]) => approvedInboundTargets.has(relayId))
+        .map(([relayId, link]) => ({
+        relayId,
+        endpoint: link.observedEndpoint,
+        descriptor: link.descriptor,
+        })),
+    ]
       // RelayLinkManager only opens configured or otherwise explicit contacts.
       // Discovery observations never cause a connection or a placement target.
       .filter(peer => peer.relayId !== relayIdentity.did
-        && peer.descriptor.reachability === 'direct'
+        && (peer.descriptor.reachability === 'direct'
+          || (inboundRelayLinks.has(peer.relayId)
+            && approvedInboundTargets.has(peer.relayId)))
         && peer.descriptor.capabilities.storesPublications
         && peer.descriptor.capabilities.replicaExchange
         && peer.descriptor.storage.availableBytes > 0
@@ -1331,7 +1377,9 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       allowExpansion?: boolean;
     } = {},
   ): ReplicaPlacementIntentV1 | undefined {
-    if (!outboundRelayLinks) return undefined;
+    if (!cfg.relayDiscovery || (!outboundRelayLinks && approvedInboundTargets.size === 0)) {
+      return undefined;
+    }
     const current = placementTracker.getIntent(operation.publicationId);
     const currentMatchesOperation = current !== undefined && placementMatchesOperation(current, operation);
     const currentRejections = currentMatchesOperation
@@ -1416,7 +1464,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     const current = placementTracker.getIntent(operation.publicationId);
     if (!current || !placementMatchesOperation(current, operation)
       || (current.reconciliationRequiredRelayIds ?? []).length > 0) return false;
-    const connected = new Set(outboundRelayLinks?.status().connectedRelayIds ?? []);
+    const connected = new Set(connectedRelayIds());
     for (const relayId of current.targetRelayIds) {
       if (connected.has(relayId)) continue;
       const offlineSince = replicaTargetOfflineSince.get(relayId) ?? startTime;
@@ -1562,7 +1610,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   }
 
   function queueReplicaRepair(): void {
-    if (!outboundRelayLinks) return;
+    if (!outboundRelayLinks && approvedInboundTargets.size === 0) return;
     replicaRepairQueued = true;
     if (replicaRepairRunning || replicaRepairWakeupTimer) return;
     replicaRepairWakeupTimer = setTimeout(() => {
@@ -1725,7 +1773,8 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   }
 
   async function repairReplicaPlacements(): Promise<void> {
-    if (!outboundRelayLinks || replicaRepairRunning) return;
+    if ((!outboundRelayLinks && approvedInboundTargets.size === 0)
+      || replicaRepairRunning) return;
     replicaRepairRunning = true;
     try {
       while (replicaRepairQueued) {
@@ -1738,7 +1787,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   }
 
   async function repairReplicaPlacementsOnce(): Promise<void> {
-    if (!outboundRelayLinks) return;
+    if (!outboundRelayLinks && approvedInboundTargets.size === 0) return;
     const repairOperations: PublicationOperation[] = [];
     const reconciliationRequirements: ReplicaReconciliationRequirementV1[] = [];
     for (const persistedIntent of placementTracker.listIntents()) {
@@ -1762,9 +1811,19 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       reconciliationRequirements,
       MAX_REPLICA_RECONCILIATIONS_PER_REPAIR,
     );
-    const reconciliationResponses = await outboundRelayLinks.reconcileReplicaReceipts(
-      reconciliationBatch.map(requirement => requirement.rejection),
-    );
+    const outboundIds = new Set(outboundRelayLinks?.status().connectedRelayIds ?? []);
+    const reconciliationReceipts = reconciliationBatch.map(requirement => requirement.rejection);
+    const reconciliationResponses = [
+      ...(outboundRelayLinks
+        ? await outboundRelayLinks.reconcileReplicaReceipts(reconciliationReceipts)
+        : []),
+      ...(await Promise.allSettled(reconciliationReceipts
+        .filter(receipt => !outboundIds.has(receipt.responderRelayId)
+          && inboundRelayLinks.has(receipt.responderRelayId))
+        .map(receipt => reverseReplicaRequests.reconcileReplica(
+          receipt.responderRelayId, receipt,
+        )))).flatMap(result => result.status === 'fulfilled' ? [result.value] : []),
+    ];
     reconcileReplicaResponses(reconciliationResponses);
 
     const dueInventoryReceipts = repairOperations.flatMap(operation => (
@@ -1774,7 +1833,29 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       dueInventoryReceipts,
       MAX_REPLICA_INVENTORY_CHECKS_PER_REPAIR,
     );
-    const inventoryResponses = await outboundRelayLinks.checkReplicaReceiptBatches(inventoryBatch);
+    const reverseInventoryBatches = new Map<string, RelayReplicaReceiptV1[]>();
+    for (const receipt of inventoryBatch) {
+      if (outboundIds.has(receipt.responderRelayId)
+        || !inboundRelayLinks.has(receipt.responderRelayId)) continue;
+      const batch = reverseInventoryBatches.get(receipt.responderRelayId) ?? [];
+      batch.push(receipt);
+      reverseInventoryBatches.set(receipt.responderRelayId, batch);
+    }
+    const inventoryResponses = [
+      ...(outboundRelayLinks
+        ? await outboundRelayLinks.checkReplicaReceiptBatches(inventoryBatch)
+        : []),
+      ...(await Promise.allSettled([...reverseInventoryBatches].flatMap(([relayId, receipts]) => {
+        const requests = [];
+        for (let index = 0; index < receipts.length;
+          index += MAX_RELAY_REPLICA_INVENTORY_BATCH_RECEIPTS) {
+          requests.push(reverseReplicaRequests.checkReplicaBatch(
+            relayId, receipts.slice(index, index + MAX_RELAY_REPLICA_INVENTORY_BATCH_RECEIPTS),
+          ));
+        }
+        return requests;
+      }))).flatMap(result => result.status === 'fulfilled' ? [result.value] : []),
+    ];
     for (const response of inventoryResponses) {
       const recordedCount = placementTracker.recordInventoryBatchResponse(response);
       log(response.status === 'rejected' ? 'warn' : 'info', 'replica_inventory_batch', {
@@ -1799,7 +1880,15 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       const refresh = replicaRefreshes.delete(operation.publicationId);
       const targetRelayIds = refresh ? status.intent.targetRelayIds : status.pendingRelayIds;
       if (targetRelayIds.length === 0) continue;
-      const receipts = await outboundRelayLinks.replicateTo(operation, targetRelayIds);
+      const receipts = [
+        ...(outboundRelayLinks
+          ? await outboundRelayLinks.replicateTo(operation, targetRelayIds)
+          : []),
+        ...(await Promise.allSettled(targetRelayIds
+          .filter(relayId => !outboundIds.has(relayId) && inboundRelayLinks.has(relayId))
+          .map(relayId => reverseReplicaRequests.placeReplica(relayId, operation))))
+          .flatMap(result => result.status === 'fulfilled' ? [result.value] : []),
+      ];
       for (const receipt of receipts) {
         const quarantined = quarantineReplicaPlacement(receipt);
         const replaced = quarantined ? false : replacePermanentlyRejectedReplicaTarget(receipt);
@@ -1840,8 +1929,8 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   }
 
   async function syncReplicaMailboxes(): Promise<void> {
-    if (!outboundRelayLinks) return;
-    const connected = new Set(outboundRelayLinks.status().connectedRelayIds);
+    if (!outboundRelayLinks && approvedInboundTargets.size === 0) return;
+    const connected = new Set(connectedRelayIds());
     const candidates: Array<{ publicationId: string; relayId: string; receipt: RelayReplicaReceiptV1 }> = [];
     for (const intent of placementTracker.listIntents()) {
       const operation = publicationStore.get(intent.publicationId);
@@ -1887,7 +1976,9 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       const sendCursor = cursors.send < localEvents.length ? cursors.send : 0;
       const page = localEvents.slice(sendCursor, sendCursor + MAX_RELAY_MAILBOX_SYNC_EVENTS);
       try {
-        const response = await outboundRelayLinks!.syncMailbox(relayId, receipt, cursors.receive, page);
+        const response = outboundRelayLinks?.status().connectedRelayIds.includes(relayId)
+          ? await outboundRelayLinks.syncMailbox(relayId, receipt, cursors.receive, page)
+          : await reverseReplicaRequests.syncMailbox(relayId, receipt, cursors.receive, page);
         const current = publicationStore.get(publicationId);
         const intent = placementTracker.getIntent(publicationId);
         if (response.status !== 'ok' || !current || !intent
@@ -2016,6 +2107,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       const placement = replicaPlacementMetrics();
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
+        relay_id: relayIdentity.did,
         indexed_embeddings: stats.total,
         stored_publications: publicationStore.size,
         active_publications: publicationStore.activeRecords().length,
@@ -2145,6 +2237,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     ws: WebSocket,
     raw: string,
     linkedRelayId: string,
+    outboundDescriptor?: RelayDescriptorV1,
   ): void {
     let frame: ReturnType<typeof parseRelayReplicaPutFrameV1>;
     try {
@@ -2160,8 +2253,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       ws.close(4003, 'unauthenticated_replica_placement');
       return;
     }
-    const link = inboundRelayLinks.get(linkedRelayId);
-    if (!link || link.socket !== ws || !link.descriptor.capabilities.replicaExchange) {
+    if (!authorizedReplicaPeer(ws, linkedRelayId, outboundDescriptor)) {
       ws.close(4003, 'replica_exchange_not_advertised');
       return;
     }
@@ -2288,6 +2380,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     ws: WebSocket,
     raw: string,
     linkedRelayId: string,
+    outboundDescriptor?: RelayDescriptorV1,
   ): void {
     let frame: ReturnType<typeof parseRelayReplicaInventoryRequestFrameV1>;
     try {
@@ -2304,8 +2397,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       ws.close(4003, 'unauthenticated_replica_inventory_request');
       return;
     }
-    const link = inboundRelayLinks.get(linkedRelayId);
-    if (!link || link.socket !== ws || !link.descriptor.capabilities.replicaExchange) {
+    if (!authorizedReplicaPeer(ws, linkedRelayId, outboundDescriptor)) {
       ws.close(4003, 'replica_exchange_not_advertised');
       return;
     }
@@ -2393,6 +2485,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     ws: WebSocket,
     raw: string,
     linkedRelayId: string,
+    outboundDescriptor?: RelayDescriptorV1,
   ): void {
     let frame: ReturnType<typeof parseRelayReplicaInventoryBatchRequestFrameV1>;
     try {
@@ -2409,8 +2502,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       ws.close(4003, 'unauthenticated_replica_inventory_batch_request');
       return;
     }
-    const link = inboundRelayLinks.get(linkedRelayId);
-    if (!link || link.socket !== ws || !link.descriptor.capabilities.replicaExchange) {
+    if (!authorizedReplicaPeer(ws, linkedRelayId, outboundDescriptor)) {
       ws.close(4003, 'replica_exchange_not_advertised');
       return;
     }
@@ -2504,6 +2596,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     ws: WebSocket,
     raw: string,
     linkedRelayId: string,
+    outboundDescriptor?: RelayDescriptorV1,
   ): void {
     let frame: ReturnType<typeof parseRelayReplicaReconciliationRequestFrameV1>;
     try {
@@ -2520,8 +2613,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       ws.close(4003, 'unauthenticated_replica_reconciliation_request');
       return;
     }
-    const link = inboundRelayLinks.get(linkedRelayId);
-    if (!link || link.socket !== ws || !link.descriptor.capabilities.replicaExchange) {
+    if (!authorizedReplicaPeer(ws, linkedRelayId, outboundDescriptor)) {
       ws.close(4003, 'replica_exchange_not_advertised');
       return;
     }
@@ -2704,11 +2796,14 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     }
   }
 
-  function handleRelayMailboxSyncRequest(raw: string, linkedRelayId: string, ws: WebSocket): void {
+  function handleRelayMailboxSyncRequest(
+    raw: string, linkedRelayId: string, ws: WebSocket,
+    outboundDescriptor?: RelayDescriptorV1,
+  ): void {
     let request: RelayMailboxSyncRequestV1;
     try {
       request = parseRelayMailboxSyncRequestFrameV1(raw);
-      if (inboundRelayLinks.get(linkedRelayId)?.socket !== ws
+      if (!authorizedReplicaPeer(ws, linkedRelayId, outboundDescriptor)
         || !verifyRelayMailboxSyncRequestV1(request, Date.now())
         || request.senderRelayId !== linkedRelayId
         || request.targetRelayId !== relayIdentity.did) {
@@ -2820,6 +2915,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           ws.close(4000, 'relay_message_must_be_json');
           return;
         }
+        if (reverseReplicaRequests.handleResponse(raw, linkedRelayId, ws)) return;
         if (isObject(frameCandidate) && frameCandidate.type === RELAY_QUERY_REQUEST_FRAME_TYPE) {
           handleRelayQueryRequest(raw, linkedRelayId, ws);
         } else if (isObject(frameCandidate) && frameCandidate.type === RELAY_QUERY_RESPONSE_FRAME_TYPE) {
@@ -2905,6 +3001,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         inboundRelayLinks.set(remoteRelayId, {
           socket: ws,
           descriptor: request.descriptor,
+          observedEndpoint: `ws://${ip.includes(':') ? `[${ip}]` : ip}/`,
           lastPongAt: now,
         });
         ws.on('pong', () => {
@@ -2915,6 +3012,8 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           if (error) ws.terminate();
         });
         log('info', 'relay_link_accepted', { relayId: remoteRelayId, reachability: request.descriptor.reachability });
+        replicaTargetOfflineSince.delete(remoteRelayId);
+        queueReplicaRepair();
         return;
       }
       if (isObject(frameCandidate) && frameCandidate.type === RELAY_PEER_REQUEST_FRAME_TYPE) {
@@ -3316,6 +3415,11 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       if (linkedRelayId) {
         const link = inboundRelayLinks.get(linkedRelayId);
         if (link?.socket === ws) inboundRelayLinks.delete(linkedRelayId);
+        reverseReplicaRequests.failSocket(ws);
+        if (!replicaTargetOfflineSince.has(linkedRelayId)) {
+          replicaTargetOfflineSince.set(linkedRelayId, Date.now());
+        }
+        queueReplicaRepair();
         for (const [requestId, pending] of pendingInboundQueries) {
           if (pending.socket !== ws) continue;
           clearTimeout(pending.timer);
@@ -3448,7 +3552,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       }, cfg.relayLinkHeartbeatIntervalMs);
       relayLinkHeartbeatTimer.unref?.();
       outboundRelayLinks?.start();
-      if (outboundRelayLinks) {
+      if (outboundRelayLinks || approvedInboundTargets.size > 0) {
         replicaRepairTimer = setInterval(queueReplicaRepair, cfg.replicaRepairIntervalMs);
         replicaRepairTimer.unref?.();
         queueReplicaRepair();
@@ -3493,6 +3597,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       const stats = engine.getStats();
       const placement = replicaPlacementMetrics();
       return {
+        relay_id: relayIdentity.did,
         indexed_embeddings: stats.total,
         stored_publications: publicationStore.size,
         active_publications: publicationStore.activeRecords().length,

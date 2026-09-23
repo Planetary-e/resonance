@@ -122,6 +122,7 @@ const server = createRelayServer({
     },
   } : undefined,
   relayLinks: configuredHints.length > 0 ? { targets: configuredHints } : undefined,
+  inboundReplicaTargetIds: parseList(process.env.RELAY_INBOUND_REPLICA_TARGET_IDS),
 });
 
 await server.start();

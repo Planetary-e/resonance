@@ -212,6 +212,7 @@ export async function getRelayStats(): Promise<{
   enabled: boolean; running: boolean; port: number; contacts: string[];
   controls: RelayOwnerControls;
   stats: {
+    relay_id: string;
     connected_relays: number;
     active_publications: number;
     placement_intents: number;
@@ -230,6 +231,7 @@ export async function getRelayStats(): Promise<{
     enabled: true, running: stats !== null, port: config.port,
     contacts: config.contacts ?? [], controls: config.controls ?? {},
     stats: stats ? {
+      relay_id: String(stats.relay_id ?? ''),
       connected_relays: Number(stats.connected_relays) || 0,
       active_publications: Number(stats.active_publications) || 0,
       placement_intents: Number(stats.placement_intents) || 0,

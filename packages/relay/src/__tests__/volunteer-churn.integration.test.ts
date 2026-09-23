@@ -26,6 +26,7 @@ const runningTargets = new Set<number>();
 let source: RelayServer;
 let proxy: Server | undefined;
 const proxySockets = new Set<Socket>();
+let proxyPartitioned = false;
 
 function endpoint(port: number): string { return `ws://127.0.0.1:${port}/`; }
 
@@ -64,7 +65,16 @@ function makeSource(): RelayServer {
 }
 
 async function connectProxy(): Promise<void> {
+  if (proxy) {
+    proxyPartitioned = false;
+    return;
+  }
+  proxyPartitioned = false;
   proxy = createServer(client => {
+    if (proxyPartitioned) {
+      client.destroy();
+      return;
+    }
     const upstream = connect(TARGET_PORTS[0], '127.0.0.1');
     proxySockets.add(client);
     proxySockets.add(upstream);
@@ -82,8 +92,13 @@ async function connectProxy(): Promise<void> {
 }
 
 async function disconnectProxy(): Promise<void> {
-  if (!proxy) return;
+  proxyPartitioned = true;
   for (const socket of proxySockets) socket.destroy();
+}
+
+async function stopProxy(): Promise<void> {
+  await disconnectProxy();
+  if (!proxy) return;
   const server = proxy;
   proxy = undefined;
   await new Promise<void>(resolve => server.close(() => resolve()));
@@ -164,7 +179,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (source) await source.stop({ graceful: false });
-  await disconnectProxy();
+  await stopProxy();
   await Promise.all([...runningTargets].map(index => targets[index].stop({ graceful: false })));
   rmSync(SOURCE_DIR, { recursive: true, force: true });
   TARGET_DIRS.forEach(directory => rmSync(directory, { recursive: true, force: true }));

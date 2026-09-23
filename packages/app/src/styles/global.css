@@ -362,3 +362,5 @@ input[type="range"]::-moz-range-thumb { width: 18px; height: 18px; border-radius
   .tab-nav { padding: 0 0.75rem; }
   .topbar-did { display: none; }
 }
+.relay-own-id { grid-column: 1 / -1; }
+.relay-own-id .value { overflow-wrap: anywhere; font-size: 0.8rem; user-select: text; }

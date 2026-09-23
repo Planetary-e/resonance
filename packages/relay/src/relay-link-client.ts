@@ -5,6 +5,10 @@ import {
   MAX_RELAY_DISCOVERY_FRAME_BYTES,
   MAX_RELAY_REPLICA_INVENTORY_BATCH_RECEIPTS,
   RELAY_REPLICA_INVENTORY_BATCH_RESPONSE_FRAME_TYPE,
+  RELAY_REPLICA_INVENTORY_BATCH_REQUEST_FRAME_TYPE,
+  RELAY_REPLICA_INVENTORY_REQUEST_FRAME_TYPE,
+  RELAY_REPLICA_RECONCILIATION_REQUEST_FRAME_TYPE,
+  RELAY_REPLICA_PUT_FRAME_TYPE,
   RELAY_REPLICA_HANDOFF_REQUEST_FRAME_TYPE,
   RELAY_REPLICA_INVENTORY_RESPONSE_FRAME_TYPE,
   RELAY_REPLICA_RECONCILIATION_RESPONSE_FRAME_TYPE,
@@ -12,6 +16,7 @@ import {
   RELAY_QUERY_REQUEST_FRAME_TYPE,
   RELAY_QUERY_RESPONSE_FRAME_TYPE,
   RELAY_MAILBOX_SYNC_RESPONSE_FRAME_TYPE,
+  RELAY_MAILBOX_SYNC_REQUEST_FRAME_TYPE,
   createRelayLinkOpenFrameV1,
   createRelayLinkOpenV1,
   createRelayReplicaInventoryRequestFrameV1,
@@ -106,6 +111,10 @@ export interface RelayLinkClientOptions {
     status: RelayQueryStatusV1;
     results: SearchResultV2[];
   }>;
+  /** Receive replica protocol requests over a link initiated by this relay. */
+  onReplicaRequestFrame?: (
+    raw: string, remoteDescriptor: RelayDescriptorV1, socket: WebSocket,
+  ) => void;
 }
 
 export interface RelayLinkClose {
@@ -289,6 +298,19 @@ export function connectRelayLinkV1(
         }
         if (!isObject(candidate)) {
           socket.close(4000, 'unexpected_link_message');
+          return;
+        }
+        if (candidate.type === RELAY_REPLICA_PUT_FRAME_TYPE
+          || candidate.type === RELAY_REPLICA_INVENTORY_REQUEST_FRAME_TYPE
+          || candidate.type === RELAY_REPLICA_INVENTORY_BATCH_REQUEST_FRAME_TYPE
+          || candidate.type === RELAY_REPLICA_RECONCILIATION_REQUEST_FRAME_TYPE
+          || candidate.type === RELAY_MAILBOX_SYNC_REQUEST_FRAME_TYPE) {
+          if (!acceptedRemoteDescriptor || !options.onReplicaRequestFrame) {
+            socket.close(4000, 'unexpected_replica_request');
+            return;
+          }
+          try { options.onReplicaRequestFrame(raw, acceptedRemoteDescriptor, socket); }
+          catch { socket.close(4000, 'invalid_replica_request'); }
           return;
         }
         if (candidate.type === RELAY_QUERY_REQUEST_FRAME_TYPE) {

@@ -89,6 +89,7 @@ export interface RelayStatus {
   contacts: string[];
   controls: RelayOwnerControls;
   stats: {
+    relay_id?: string;
     connected_relays?: number;
     active_publications?: number;
     placement_intents?: number;
