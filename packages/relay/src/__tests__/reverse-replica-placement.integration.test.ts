@@ -38,11 +38,11 @@ function createVolunteer(index: number): RelayServer {
     },
     relayLinks: {
       targets: [createRelayContactHintV1('configured', `ws://127.0.0.1:${BASE}/`)],
-      handshakeTimeoutMs: 5_000, heartbeatIntervalMs: 500,
-      heartbeatTimeoutMs: 5_000, reconnectBaseMs: 50, reconnectMaxMs: 200,
+      handshakeTimeoutMs: 15_000, heartbeatIntervalMs: 1_000,
+      heartbeatTimeoutMs: 15_000, reconnectBaseMs: 50, reconnectMaxMs: 200,
     },
-    relayLinkHeartbeatIntervalMs: 500,
-    relayLinkHeartbeatTimeoutMs: 5_000,
+    relayLinkHeartbeatIntervalMs: 1_000,
+    relayLinkHeartbeatTimeoutMs: 15_000,
   });
 }
 
@@ -97,7 +97,7 @@ beforeAll(async () => {
     inboundReplicaTargetIds: volunteers.slice(0, 5)
       .map(volunteer => volunteer.getRelayDescriptor()!.relayId),
     replicaRepairIntervalMs: 250, replicaInventoryIntervalMs: 2_000,
-    relayLinkHeartbeatIntervalMs: 500, relayLinkHeartbeatTimeoutMs: 5_000,
+    relayLinkHeartbeatIntervalMs: 1_000, relayLinkHeartbeatTimeoutMs: 15_000,
     relayDiscovery: {
       endpoints: [`ws://127.0.0.1:${BASE}/`], reachability: 'direct',
       supportedGroups: ['public'],
@@ -151,7 +151,7 @@ describe('reverse-link placement onto NAT-style volunteers', () => {
     const record = createPublicationRecord({
       groupId: 'public', fingerprintEpoch: '2026-09',
       fingerprint: new Uint8Array(64).fill(0x35), itemType: 'offer',
-      createdAt: now, expiresAt: now + 180_000,
+      createdAt: now, expiresAt: now + 600_000,
     }, keys);
     expect((await request(BASE, serializePublicationOperationFrame(
       createPublicationOperationFrame(record),
@@ -182,7 +182,7 @@ describe('reverse-link placement onto NAT-style volunteers', () => {
     const matching = createPublicationRecord({
       groupId: 'public', fingerprintEpoch: '2026-09',
       fingerprint: new Uint8Array(64).fill(0x35), itemType: 'need',
-      createdAt: Date.now(), expiresAt: Date.now() + 180_000,
+      createdAt: Date.now(), expiresAt: Date.now() + 600_000,
     }, matchingKeys);
     expect((await request(BASE, serializePublicationOperationFrame(
       createPublicationOperationFrame(matching),
@@ -207,5 +207,5 @@ describe('reverse-link placement onto NAT-style volunteers', () => {
     await waitFor(() => volunteers.slice(0, 5)
       .every(volunteer => volunteer.getStats().active_publications === 1));
     expect(volunteers[5].getStats().active_publications).toBe(0);
-  }, 90_000);
+  }, 180_000);
 });

@@ -196,7 +196,7 @@ export function connectRelayLinkV1(
   options: RelayLinkClientOptions = {},
 ): Promise<RelayLinkConnection> {
   if (!verifyRelayContactHintV1(hint)) return Promise.reject(new Error('Invalid relay contact hint'));
-  const handshakeTimeoutMs = options.handshakeTimeoutMs ?? 5_000;
+  const handshakeTimeoutMs = options.handshakeTimeoutMs ?? 15_000;
   const heartbeatIntervalMs = options.heartbeatIntervalMs ?? 30_000;
   const heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? 90_000;
   const replicaRequestTimeoutMs = options.replicaRequestTimeoutMs ?? 10_000;

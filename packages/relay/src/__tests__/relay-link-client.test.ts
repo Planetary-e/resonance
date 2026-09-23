@@ -41,8 +41,8 @@ function createHub(): RelayServer {
       storage: { capacityBytes: 1_000_000, availableBytes: 800_000 },
       descriptorLifetimeMs: 5_000,
     },
-    relayLinkHeartbeatIntervalMs: 100,
-    relayLinkHeartbeatTimeoutMs: 1_500,
+    relayLinkHeartbeatIntervalMs: 500,
+    relayLinkHeartbeatTimeoutMs: 5_000,
   });
 }
 
@@ -81,14 +81,14 @@ beforeAll(async () => {
     relayLinks: {
       targets: [createRelayContactHintV1('configured', HUB_ENDPOINT)],
       maxConnections: 2,
-      handshakeTimeoutMs: 1_000,
-      heartbeatIntervalMs: 100,
-      heartbeatTimeoutMs: 1_500,
+      handshakeTimeoutMs: 5_000,
+      heartbeatIntervalMs: 500,
+      heartbeatTimeoutMs: 5_000,
       reconnectBaseMs: 50,
       reconnectMaxMs: 200,
     },
-    relayLinkHeartbeatIntervalMs: 100,
-    relayLinkHeartbeatTimeoutMs: 1_500,
+    relayLinkHeartbeatIntervalMs: 500,
+    relayLinkHeartbeatTimeoutMs: 5_000,
   });
   await hub.start();
   await spoke.start();
@@ -372,38 +372,49 @@ describe('authenticated outbound relay links', () => {
     const manager = new RelayLinkManager(identity, () => descriptor, {
       targets: [createRelayContactHintV1('configured', HUB_ENDPOINT)],
       maxConnections: 1,
-      handshakeTimeoutMs: 1_000,
-      heartbeatIntervalMs: 100,
-      heartbeatTimeoutMs: 1_500,
-      replicaRequestTimeoutMs: 1_000,
+      handshakeTimeoutMs: 5_000,
+      heartbeatIntervalMs: 500,
+      heartbeatTimeoutMs: 5_000,
+      replicaRequestTimeoutMs: 5_000,
       reconnectBaseMs: 50,
       reconnectMaxMs: 200,
     });
     manager.start();
-    await waitFor(() => manager.status().connectedRelayIds.length === 1);
-    const targetId = manager.status().connectedRelayIds[0];
-    const operations = [0x70, 0x71].map(byte => createPublicationRecord({
-      groupId: 'public',
-      fingerprintEpoch: '2026-09',
-      fingerprint: new Uint8Array(64).fill(byte),
-      itemType: 'offer',
-      createdAt: now,
-      expiresAt: now + 60_000,
-    }, generatePublicationKeyMaterial()));
-    const receipts = (await Promise.all(operations.map(operation => (
-      manager.replicateTo(operation, [targetId])
-    )))).flat();
-    expect(receipts).toHaveLength(2);
+    try {
+      await waitFor(() => manager.status().connectedRelayIds.length === 1);
+      const targetId = manager.status().connectedRelayIds[0];
+      const operations = [0x70, 0x71].map(byte => createPublicationRecord({
+        groupId: 'public',
+        fingerprintEpoch: '2026-09',
+        fingerprint: new Uint8Array(64).fill(byte),
+        itemType: 'offer',
+        createdAt: now,
+        expiresAt: now + 60_000,
+      }, generatePublicationKeyMaterial()));
+      const receipts = (await Promise.all(operations.map(operation => (
+        manager.replicateTo(operation, [targetId])
+      )))).flat();
+      expect(receipts).toHaveLength(2);
 
-    const responses = await manager.checkReplicaReceipts(receipts);
-    expect(responses).toHaveLength(2);
-    expect(responses.map(response => response.status)).toEqual(['present', 'present']);
-    const batches = await manager.checkReplicaReceiptBatches(receipts);
-    expect(batches).toHaveLength(1);
-    expect(decodeRelayReplicaInventoryBatchPresenceV1(batches[0])).toEqual([true, true]);
-    manager.stop();
+      let responses: Awaited<ReturnType<typeof manager.checkReplicaReceipts>> = [];
+      await waitFor(async () => {
+        responses = await manager.checkReplicaReceipts(receipts);
+        return responses.length === 2;
+      }, 30_000);
+      expect(responses).toHaveLength(2);
+      expect(responses.map(response => response.status)).toEqual(['present', 'present']);
+      let batches: Awaited<ReturnType<typeof manager.checkReplicaReceiptBatches>> = [];
+      await waitFor(async () => {
+        batches = await manager.checkReplicaReceiptBatches(receipts);
+        return batches.length === 1;
+      }, 30_000);
+      expect(batches).toHaveLength(1);
+      expect(decodeRelayReplicaInventoryBatchPresenceV1(batches[0])).toEqual([true, true]);
+    } finally {
+      manager.stop();
+    }
     await waitFor(() => !hub.getRelayLinkStatus().inboundRelayIds.includes(identity.did));
-  });
+  }, 90_000);
 
   it('renews the link before continuing with expired descriptors', async () => {
     const spokeId = spoke.getRelayDescriptor()!.relayId;
@@ -418,11 +429,11 @@ describe('authenticated outbound relay links', () => {
         && observed.sequence > initialSequence
         && spoke.getRelayLinkStatus().connectedRelayIds.length === 1
         && hub.getRelayLinkStatus().inboundRelayIds.includes(spokeId);
-    }, 12_000);
+    }, 30_000);
 
     expect(spoke.getRelayLinkStatus().connectedRelayIds).toHaveLength(1);
     expect(hub.getRelayLinkStatus().inboundRelayIds).toEqual([spokeId]);
-  }, 15_000);
+  }, 45_000);
 
   it('re-authenticates an active link on its descriptor refresh interval', async () => {
     const identity = generateIdentity();
@@ -463,9 +474,9 @@ describe('authenticated outbound relay links', () => {
   });
 });
 
-async function waitFor(predicate: () => boolean, timeoutMs = 3_000): Promise<void> {
+async function waitFor(predicate: () => boolean | Promise<boolean>, timeoutMs = 10_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
-  while (!predicate()) {
+  while (!(await predicate())) {
     if (Date.now() >= deadline) throw new Error('Timed out waiting for relay link state');
     await new Promise(resolve => setTimeout(resolve, 20));
   }

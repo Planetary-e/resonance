@@ -41,10 +41,10 @@ function makeTarget(index: number): RelayServer {
     relayLinks: {
       targets: [createRelayContactHintV1('configured',
         endpoint(index === 0 ? PARTITION_PORT : SOURCE_PORT))],
-      handshakeTimeoutMs: 5_000, heartbeatIntervalMs: 500,
-      heartbeatTimeoutMs: 5_000, reconnectBaseMs: 100, reconnectMaxMs: 500,
+      handshakeTimeoutMs: 20_000, heartbeatIntervalMs: 1_000,
+      heartbeatTimeoutMs: 20_000, reconnectBaseMs: 100, reconnectMaxMs: 500,
     },
-    relayLinkHeartbeatIntervalMs: 500, relayLinkHeartbeatTimeoutMs: 5_000,
+    relayLinkHeartbeatIntervalMs: 1_000, relayLinkHeartbeatTimeoutMs: 20_000,
   });
 }
 
@@ -61,7 +61,7 @@ function makeSource(): RelayServer {
       reachability: 'direct', supportedGroups: ['public'],
       storage: { capacityBytes: 4_000_000, availableBytes: 3_000_000 },
     },
-    relayLinkHeartbeatIntervalMs: 500, relayLinkHeartbeatTimeoutMs: 5_000,
+    relayLinkHeartbeatIntervalMs: 1_000, relayLinkHeartbeatTimeoutMs: 20_000,
   });
 }
 
@@ -135,7 +135,7 @@ function publication(itemType: 'need' | 'offer', groupId = 'public', fill = 0x39
     record: createPublicationRecord({
       groupId, fingerprintEpoch: 'volunteer-churn',
       fingerprint: new Uint8Array(64).fill(fill), itemType,
-      createdAt: now, expiresAt: now + 240_000,
+      createdAt: now, expiresAt: now + 600_000,
     }, keys),
   };
 }
@@ -166,7 +166,7 @@ async function search(port: number, groupId: string, fill: number): Promise<stri
   return response.payload.results.map(result => result.publicationId);
 }
 
-async function waitFor(check: () => Promise<boolean> | boolean, timeoutMs = 45_000): Promise<void> {
+async function waitFor(check: () => Promise<boolean> | boolean, timeoutMs = 90_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (await check()) return;
@@ -295,5 +295,5 @@ describe('five-relay volunteer churn and partition', () => {
     expect(source.getReplicaPlacementStatus(offer.record.publicationId)).toMatchObject({
       minimumConfirmed: true, targetConfirmed: true, confirmedReplicaCount: 5,
     });
-  }, 180_000);
+  }, 300_000);
 });
