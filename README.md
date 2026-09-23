@@ -94,7 +94,7 @@ Read the full [protocol v2 threat model](docs/developers/protocol-v2.md) and [ro
 
 The current validation baseline is:
 
-- **310 automated tests** across core, node, relay, storage, migration, and integration flows
+- **More than 300 automated tests** across core, node, relay, storage, migration, and integration flows
 - **44/44 evaluation gates passing**
 - **93.3% recall** for the evaluated 512-bit LSH configuration at a 0.7 Hamming-similarity threshold
 - **2.3 ms p95** for a 10,000-fingerprint Hamming scan on the recorded evaluation machine
@@ -106,9 +106,11 @@ These are development measurements, not service-level guarantees. See the [lates
 
 ### Download a desktop build
 
-Installers are published on [GitHub Releases](https://github.com/Planetary-e/resonance/releases). The latest published release currently includes an Apple Silicon macOS DMG, a Windows x64 installer, and Linux Debian/RPM packages.
+Installers are published on [GitHub Releases](https://github.com/Planetary-e/resonance/releases). Check each release's tag and notes before installing; available packages include an Apple Silicon macOS DMG, a Windows x64 installer, and Linux Debian/RPM packages.
 
 Packaged releases may lag the protocol on `main`. Read the release notes and use the source workflow below when you want the newest protocol behavior.
+
+Friends testing a v0.3 beta should follow the [volunteer test guide](docs/testing/v0.3-beta-pilot.md). Use invented data: network metadata and fingerprints are not yet protected by the planned private transport. A cross-household test needs at least one trusted volunteer with a reachable relay endpoint; the desktop app itself connects outbound only.
 
 The release workflow runs when a version tag is pushed, or when a maintainer starts it manually. Merging source changes into `main` does not immediately replace the downloadable applications.
 
@@ -352,7 +354,7 @@ The project currently collaborates in public through GitHub Issues and pull requ
 - **Propose a protocol change:** start with an issue. Describe the threat model, relay failure behavior, compatibility impact, and how the change can be evaluated before writing a large implementation.
 - **Contribute code or documentation:** choose an open issue, comment that you intend to work on it, create a focused branch, add appropriate tests or evaluation evidence, and open a pull request.
 - **Find approachable work:** look for [`good first issue`](https://github.com/Planetary-e/resonance/labels/good%20first%20issue) and [`help wanted`](https://github.com/Planetary-e/resonance/labels/help%20wanted) labels when available.
-- **Help with the next network milestone:** desktop background operation, relationship-mailbox placement, churn testing, and resource controls are the main remaining v0.3 priorities.
+- **Help with the next network milestone:** test volunteer links and repair across independent networks, plus background-service installation in Windows and Linux packages.
 
 Community norms:
 
