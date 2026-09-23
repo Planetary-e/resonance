@@ -30,6 +30,7 @@ import {
   RELAY_QUERY_REQUEST_FRAME_TYPE,
   RELAY_QUERY_RESPONSE_FRAME_TYPE,
   RELAY_MAILBOX_SYNC_REQUEST_FRAME_TYPE,
+  RELAY_RELATIONSHIP_MAILBOX_SYNC_REQUEST_FRAME_TYPE,
   MAX_RELAY_MAILBOX_SYNC_EVENTS,
   MAX_RELAY_QUERY_HOPS,
   createAdmissionRequestBindingV2,
@@ -57,6 +58,7 @@ import {
   createRelayQueryResponseV1,
   createRelayQueryResponseFrameV1,
   createRelayMailboxSyncResponseV1,
+  createRelayRelationshipMailboxSyncResponseV1,
   decodeBase64,
   encryptMatchNotice,
   hammingSimilarity,
@@ -71,6 +73,7 @@ import {
   isSearchRequestActiveV2,
   isRelayQueryRequestActiveV1,
   verifyRelayMailboxSyncRequestV1,
+  verifyRelayRelationshipMailboxSyncRequestV1,
   parseMailboxDepositFrame,
   parseMailboxRequestFrame,
   parsePublicationOperationFrame,
@@ -87,6 +90,7 @@ import {
   parseRelayQueryRequestFrameV1,
   parseRelayQueryResponseFrameV1,
   parseRelayMailboxSyncRequestFrameV1,
+  parseRelayRelationshipMailboxSyncRequestFrameV1,
   parseMessage,
   verifyMessage,
   verifyRelayReplicaHandoffResponseV1,
@@ -102,6 +106,7 @@ import {
   serializeRelayQueryRequestFrameV1,
   serializeRelayQueryResponseFrameV1,
   serializeRelayMailboxSyncResponseFrameV1,
+  serializeRelayRelationshipMailboxSyncResponseFrameV1,
   verifyMatchOperationAgainstPublicationsV2,
   verifyRelayQueryResponseV1,
   type AckPayload,
@@ -135,6 +140,8 @@ import {
   type SearchResultV2,
   type RelayMailboxEventV1,
   type RelayMailboxSyncRequestV1,
+  type RelayRelationshipMailboxEventV1,
+  type RelayRelationshipMailboxSyncRequestV1,
 } from '@resonance/core';
 import { MatchingEngine, type MatchNotification } from './matching-engine.js';
 import { RateLimiter } from './rate-limiter.js';
@@ -510,6 +517,9 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   const mailboxSyncCursors = new Map<string, { send: number; receive: number }>();
   const mailboxSyncNextAt = new Map<string, number>();
   let mailboxSyncOffset = 0;
+  const relationshipMailboxSyncCursors = new Map<string, { send: number; receive: number }>();
+  const relationshipMailboxSyncNextAt = new Map<string, number>();
+  let relationshipMailboxSyncOffset = 0;
   const seenPeerRequests = new Map<string, number>();
   const seenRelayLinks = new Map<string, number>();
   const seenRelayReplicaRequests = new Map<string, {
@@ -650,6 +660,8 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           handleReplicaReconciliation(socket, raw, remote.relayId, remote);
         } else if (frame.type === RELAY_MAILBOX_SYNC_REQUEST_FRAME_TYPE) {
           handleRelayMailboxSyncRequest(raw, remote.relayId, socket, remote);
+        } else if (frame.type === RELAY_RELATIONSHIP_MAILBOX_SYNC_REQUEST_FRAME_TYPE) {
+          handleRelayRelationshipMailboxSyncRequest(raw, remote.relayId, socket, remote);
         }
       },
       onEvent(event) {
@@ -1109,6 +1121,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     const result = mailboxStore.enqueue(envelope);
     if (result === 'accepted') {
       mailboxSyncNextAt.clear();
+      relationshipMailboxSyncNextAt.clear();
       queueReplicaRepair();
     }
     return result;
@@ -1123,6 +1136,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     const acknowledged = mailboxStore.acknowledge(request.mailboxId, request.envelopeIds);
     if (acknowledged > 0) {
       mailboxSyncNextAt.clear();
+      relationshipMailboxSyncNextAt.clear();
       queueReplicaRepair();
     }
     return acknowledged;
@@ -1937,6 +1951,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       queueReplicaRepair();
     }
     await syncReplicaMailboxes();
+    await syncRelationshipMailboxes();
   }
 
   async function syncReplicaMailboxes(): Promise<void> {
@@ -2009,6 +2024,110 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         log('warn', 'mailbox_sync_failed', { publicationId, relayId, error: String(error) });
       }
     }));
+  }
+
+  /** Relationship mailboxes have no publication receipt; retain their signed client operations as repair proofs. */
+  function relationshipMailboxEvents(now = Date.now()): Map<string, RelayRelationshipMailboxEventV1[]> {
+    const mailboxes = new Map<string, RelayRelationshipMailboxEventV1[]>();
+    for (const { entry } of operationLog.entries) {
+      let mailboxId: string;
+      let event: RelayRelationshipMailboxEventV1;
+      if (entry.kind === 'mailbox-deposit' && entry.request.kind === 'relationship-mailbox-deposit') {
+        const envelope = entry.request.envelope;
+        if (envelope.expiresAt <= now || (!mailboxStore.hasEnvelope(envelope.mailboxId, envelope.envelopeId)
+          && !mailboxStore.hasAcknowledgedEnvelope(envelope.mailboxId, envelope.envelopeId, now))) continue;
+        mailboxId = envelope.mailboxId;
+        event = { kind: 'deposit', request: entry.request };
+      } else if (entry.kind === 'mailbox-ack'
+        && entry.request.kind === 'relationship-mailbox-request') {
+        if (!entry.request.envelopeIds.some(id => mailboxStore.hasAcknowledgedEnvelope(
+          entry.request.mailboxId, id, now,
+        ))) continue;
+        mailboxId = entry.request.mailboxId;
+        event = { kind: 'ack', request: entry.request };
+      } else continue;
+      const events = mailboxes.get(mailboxId) ?? [];
+      events.push(event);
+      mailboxes.set(mailboxId, events);
+    }
+    return mailboxes;
+  }
+
+  async function syncRelationshipMailboxes(): Promise<void> {
+    if (!outboundRelayLinks && approvedInboundTargets.size === 0) return;
+    const byMailbox = relationshipMailboxEvents();
+    const peers = [
+      ...(outboundRelayLinks?.connectedPeers() ?? []),
+      ...[...inboundRelayLinks]
+        .filter(([relayId]) => approvedInboundTargets.has(relayId))
+        .map(([relayId, link]) => ({
+          relayId, endpoint: link.observedEndpoint, descriptor: link.descriptor,
+        })),
+    ].filter(peer => peer.relayId !== relayIdentity.did
+      && peer.descriptor.capabilities.storesMailboxes
+      && peer.descriptor.capabilities.replicaExchange);
+    const candidates: Array<{ mailboxId: string; relayId: string }> = [];
+    for (const mailboxId of byMailbox.keys()) {
+      const ordered = prioritizeReplicaDiversity([...peers].sort((a, b) =>
+        replicaTargetScore(mailboxId, a.relayId).localeCompare(replicaTargetScore(mailboxId, b.relayId))));
+      for (const peer of ordered.slice(0, cfg.desiredReplicaCount)) {
+        candidates.push({ mailboxId, relayId: peer.relayId });
+      }
+    }
+    const activeKeys = new Set(candidates.map(({ mailboxId, relayId }) => `${mailboxId}:${relayId}`));
+    for (const key of relationshipMailboxSyncCursors.keys()) {
+      if (!activeKeys.has(key)) relationshipMailboxSyncCursors.delete(key);
+    }
+    for (const key of relationshipMailboxSyncNextAt.keys()) {
+      if (!activeKeys.has(key)) relationshipMailboxSyncNextAt.delete(key);
+    }
+    if (candidates.length === 0) return;
+    candidates.sort((a, b) => a.mailboxId.localeCompare(b.mailboxId) || a.relayId.localeCompare(b.relayId));
+    const start = relationshipMailboxSyncOffset % candidates.length;
+    const selected = [...candidates.slice(start), ...candidates.slice(0, start)]
+      .slice(0, MAX_MAILBOX_SYNCS_PER_REPAIR);
+    relationshipMailboxSyncOffset = (start + selected.length) % candidates.length;
+    const outboundIds = new Set(outboundRelayLinks?.status().connectedRelayIds ?? []);
+    await Promise.all(selected.map(async ({ mailboxId, relayId }) => {
+      const key = `${mailboxId}:${relayId}`;
+      if ((relationshipMailboxSyncNextAt.get(key) ?? 0) > Date.now()) return;
+      relationshipMailboxSyncNextAt.set(key, Date.now() + MIN_MAILBOX_SYNC_INTERVAL_MS);
+      const events = byMailbox.get(mailboxId) ?? [];
+      const cursors = relationshipMailboxSyncCursors.get(key) ?? { send: 0, receive: 0 };
+      const sendCursor = cursors.send < events.length ? cursors.send : 0;
+      const page = events.slice(sendCursor, sendCursor + MAX_RELAY_MAILBOX_SYNC_EVENTS);
+      try {
+        const response = outboundIds.has(relayId)
+          ? await outboundRelayLinks!.syncRelationshipMailbox(relayId, mailboxId, cursors.receive, page)
+          : await reverseReplicaRequests.syncRelationshipMailbox(relayId, mailboxId, cursors.receive, page);
+        if (response.status !== 'ok') return;
+        for (const event of response.events) {
+          if (!commitRelationshipMailboxReplicaEvent(mailboxId, event)) {
+            log('warn', 'relationship_mailbox_sync_receive_rejected', { mailboxId, relayId });
+            return;
+          }
+        }
+        relationshipMailboxSyncCursors.set(key, {
+          send: sendCursor + page.length < events.length ? sendCursor + page.length : 0,
+          receive: response.nextCursor,
+        });
+      } catch (error) {
+        log('warn', 'relationship_mailbox_sync_failed', { mailboxId, relayId, error: String(error) });
+      }
+    }));
+  }
+
+  function commitRelationshipMailboxReplicaEvent(
+    mailboxId: string, event: RelayRelationshipMailboxEventV1,
+  ): boolean {
+    if (event.kind === 'deposit') {
+      if (event.request.recipientMailboxId !== mailboxId) return false;
+      const result = commitMailboxDeposit(event.request);
+      return result === 'accepted' || result === 'duplicate' || result === 'expired';
+    }
+    if (event.request.mailboxId !== mailboxId || event.request.action !== 'ack') return false;
+    commitMailboxAcknowledgement(event.request);
+    return true;
   }
 
   function applyToMatchingIndex(operation: PublicationOperation, trackStats = true): void {
@@ -2893,6 +3012,60 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     }
   }
 
+  function handleRelayRelationshipMailboxSyncRequest(
+    raw: string, linkedRelayId: string, ws: WebSocket,
+    outboundDescriptor?: RelayDescriptorV1,
+  ): void {
+    let request: RelayRelationshipMailboxSyncRequestV1;
+    try {
+      request = parseRelayRelationshipMailboxSyncRequestFrameV1(raw);
+      if (!authorizedReplicaPeer(ws, linkedRelayId, outboundDescriptor)
+        || !verifyRelayRelationshipMailboxSyncRequestV1(request, Date.now())
+        || request.senderRelayId !== linkedRelayId
+        || request.targetRelayId !== relayIdentity.did) {
+        throw new Error('Relationship mailbox sync is not bound to this relay link');
+      }
+    } catch {
+      ws.close(4000, 'invalid_relationship_mailbox_sync_request');
+      return;
+    }
+    let status: 'ok' | 'rejected' = 'ok';
+    let events: RelayRelationshipMailboxEventV1[] = [];
+    let nextCursor = 0;
+    if (!rateLimiter.checkMany(
+      `relationship-mailbox-sync:${linkedRelayId}`, 'replica', Math.max(1, request.events.length),
+    )) status = 'rejected';
+    else {
+      const available = relationshipMailboxEvents().get(request.mailboxId) ?? [];
+      const start = request.cursor < available.length ? request.cursor : 0;
+      events = available.slice(start, start + MAX_RELAY_MAILBOX_SYNC_EVENTS);
+      nextCursor = start + events.length < available.length ? start + events.length : 0;
+      try {
+        for (const event of request.events) {
+          if (!commitRelationshipMailboxReplicaEvent(request.mailboxId, event)) {
+            status = 'rejected';
+            events = [];
+            nextCursor = 0;
+            break;
+          }
+        }
+      } catch (error) {
+        log('warn', 'relationship_mailbox_replica_commit_failed', { error: String(error) });
+        status = 'rejected';
+        events = [];
+        nextCursor = 0;
+      }
+    }
+    try {
+      const response = createRelayRelationshipMailboxSyncResponseV1(
+        request, status, events, nextCursor, relayIdentity,
+      );
+      ws.send(serializeRelayRelationshipMailboxSyncResponseFrameV1(response));
+    } catch {
+      ws.close(4000, 'relationship_mailbox_sync_response_failed');
+    }
+  }
+
   function handleRelayQueryRequest(raw: string, linkedRelayId: string, ws: WebSocket): void {
     let request: RelayQueryRequestV1;
     try {
@@ -2957,6 +3130,9 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           handleRelayQueryResponse(raw, linkedRelayId, ws);
         } else if (isObject(frameCandidate) && frameCandidate.type === RELAY_MAILBOX_SYNC_REQUEST_FRAME_TYPE) {
           handleRelayMailboxSyncRequest(raw, linkedRelayId, ws);
+        } else if (isObject(frameCandidate)
+          && frameCandidate.type === RELAY_RELATIONSHIP_MAILBOX_SYNC_REQUEST_FRAME_TYPE) {
+          handleRelayRelationshipMailboxSyncRequest(raw, linkedRelayId, ws);
         } else if (isObject(frameCandidate) && frameCandidate.type === RELAY_REPLICA_PUT_FRAME_TYPE) {
           handleReplicaPlacement(ws, raw, linkedRelayId);
         } else if (isObject(frameCandidate)

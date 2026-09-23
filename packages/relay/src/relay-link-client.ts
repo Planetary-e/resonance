@@ -18,6 +18,8 @@ import {
   RELAY_QUERY_RESPONSE_FRAME_TYPE,
   RELAY_MAILBOX_SYNC_RESPONSE_FRAME_TYPE,
   RELAY_MAILBOX_SYNC_REQUEST_FRAME_TYPE,
+  RELAY_RELATIONSHIP_MAILBOX_SYNC_RESPONSE_FRAME_TYPE,
+  RELAY_RELATIONSHIP_MAILBOX_SYNC_REQUEST_FRAME_TYPE,
   createRelayLinkOpenFrameV1,
   createRelayLinkOpenV1,
   createRelayReplicaInventoryRequestFrameV1,
@@ -35,6 +37,7 @@ import {
   createRelayQueryResponseV1,
   createRelayQueryResponseFrameV1,
   createRelayMailboxSyncRequestV1,
+  createRelayRelationshipMailboxSyncRequestV1,
   isDurabilityReceiptV1,
   isRelayReplicaReconciliationReceiptV1,
   isRelayLinkAcceptActiveV1,
@@ -49,6 +52,7 @@ import {
   parseRelayQueryRequestFrameV1,
   parseRelayQueryResponseFrameV1,
   parseRelayMailboxSyncResponseFrameV1,
+  parseRelayRelationshipMailboxSyncResponseFrameV1,
   serializeRelayLinkOpenFrameV1,
   serializeRelayReplicaInventoryRequestFrameV1,
   serializeRelayReplicaInventoryBatchRequestFrameV1,
@@ -58,12 +62,14 @@ import {
   serializeRelayQueryRequestFrameV1,
   serializeRelayQueryResponseFrameV1,
   serializeRelayMailboxSyncRequestFrameV1,
+  serializeRelayRelationshipMailboxSyncRequestFrameV1,
   verifyRelayReplicaInventoryResponseV1,
   verifyRelayReplicaInventoryBatchResponseV1,
   verifyRelayReplicaReconciliationResponseV1,
   verifyRelayReplicaReceiptV1,
   verifyRelayQueryResponseV1,
   verifyRelayMailboxSyncResponseV1,
+  verifyRelayRelationshipMailboxSyncResponseV1,
   verifyRelayContactHintV1,
   type Identity,
   type PublicationOperation,
@@ -87,6 +93,9 @@ import {
   type RelayMailboxEventV1,
   type RelayMailboxSyncRequestV1,
   type RelayMailboxSyncResponseV1,
+  type RelayRelationshipMailboxEventV1,
+  type RelayRelationshipMailboxSyncRequestV1,
+  type RelayRelationshipMailboxSyncResponseV1,
 } from '@resonance/core';
 
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
@@ -145,6 +154,9 @@ export interface RelayLinkConnection {
     cursor: number,
     events: RelayMailboxEventV1[],
   ): Promise<RelayMailboxSyncResponseV1>;
+  syncRelationshipMailbox(
+    mailboxId: string, cursor: number, events: RelayRelationshipMailboxEventV1[],
+  ): Promise<RelayRelationshipMailboxSyncResponseV1>;
   close(): void;
 }
 
@@ -256,6 +268,12 @@ export function connectRelayLinkV1(
       resolve: (response: RelayMailboxSyncResponseV1) => void;
       reject: (error: Error) => void;
     }>();
+    const pendingRelationshipMailboxSyncs = new Map<string, {
+      request: RelayRelationshipMailboxSyncRequestV1;
+      timer: ReturnType<typeof setTimeout>;
+      resolve: (response: RelayRelationshipMailboxSyncResponseV1) => void;
+      reject: (error: Error) => void;
+    }>();
     let resolveClosed!: (value: RelayLinkClose) => void;
     const closed = new Promise<RelayLinkClose>(resolveClosedPromise => {
       resolveClosed = resolveClosedPromise;
@@ -307,7 +325,8 @@ export function connectRelayLinkV1(
           || candidate.type === RELAY_REPLICA_INVENTORY_REQUEST_FRAME_TYPE
           || candidate.type === RELAY_REPLICA_INVENTORY_BATCH_REQUEST_FRAME_TYPE
           || candidate.type === RELAY_REPLICA_RECONCILIATION_REQUEST_FRAME_TYPE
-          || candidate.type === RELAY_MAILBOX_SYNC_REQUEST_FRAME_TYPE) {
+          || candidate.type === RELAY_MAILBOX_SYNC_REQUEST_FRAME_TYPE
+          || candidate.type === RELAY_RELATIONSHIP_MAILBOX_SYNC_REQUEST_FRAME_TYPE) {
           if (!acceptedRemoteDescriptor || !options.onReplicaRequestFrame) {
             socket.close(4000, 'unexpected_replica_request');
             return;
@@ -382,6 +401,24 @@ export function connectRelayLinkV1(
             pending.resolve(response);
           } catch {
             socket.close(4000, 'invalid_mailbox_sync_response');
+          }
+          return;
+        }
+        if (candidate.type === RELAY_RELATIONSHIP_MAILBOX_SYNC_RESPONSE_FRAME_TYPE) {
+          try {
+            const response = parseRelayRelationshipMailboxSyncResponseFrameV1(raw);
+            const pending = pendingRelationshipMailboxSyncs.get(response.requestId);
+            if (!pending) return;
+            if (!verifyRelayRelationshipMailboxSyncResponseV1(response, pending.request)
+              || response.senderRelayId !== acceptedRemoteDescriptor?.relayId) {
+              throw new Error('Relationship mailbox sync response is not bound to this relay link');
+            }
+            if (clock() > pending.request.expiresAt) return;
+            clearTimeout(pending.timer);
+            pendingRelationshipMailboxSyncs.delete(response.requestId);
+            pending.resolve(response);
+          } catch {
+            socket.close(4000, 'invalid_relationship_mailbox_sync_response');
           }
           return;
         }
@@ -796,6 +833,36 @@ export function connectRelayLinkV1(
               });
             });
           },
+          syncRelationshipMailbox: (mailboxId, cursor, events) => {
+            if (socket.readyState !== WebSocket.OPEN
+              || !remoteDescriptor.capabilities.storesMailboxes
+              || !remoteDescriptor.capabilities.replicaExchange
+              || pendingRelationshipMailboxSyncs.size >= MAX_PENDING_MAILBOX_SYNCS) {
+              return Promise.reject(new Error('Relationship mailbox replica link unavailable'));
+            }
+            const request = createRelayRelationshipMailboxSyncRequestV1(
+              remoteDescriptor.relayId, mailboxId, cursor, events, identity, clock(),
+            );
+            const serialized = serializeRelayRelationshipMailboxSyncRequestFrameV1(request);
+            return new Promise<RelayRelationshipMailboxSyncResponseV1>((resolveSync, rejectSync) => {
+              const timer = setTimeout(() => {
+                pendingRelationshipMailboxSyncs.delete(request.requestId);
+                rejectSync(new Error('Relationship mailbox sync timed out'));
+              }, Math.min(replicaRequestTimeoutMs, request.expiresAt - clock()));
+              timer.unref?.();
+              pendingRelationshipMailboxSyncs.set(request.requestId, {
+                request, timer, resolve: resolveSync, reject: rejectSync,
+              });
+              socket.send(serialized, error => {
+                if (!error) return;
+                const pending = pendingRelationshipMailboxSyncs.get(request.requestId);
+                if (!pending) return;
+                clearTimeout(pending.timer);
+                pendingRelationshipMailboxSyncs.delete(request.requestId);
+                pending.reject(asError(error, 'Cannot send relationship mailbox sync'));
+              });
+            });
+          },
           close: () => {
             if (socket.readyState === WebSocket.OPEN) socket.close(1000, 'relay_link_closed');
             else if (socket.readyState === WebSocket.CONNECTING) socket.terminate();
@@ -843,6 +910,11 @@ export function connectRelayLinkV1(
         pending.reject(new Error(`Relay link closed before mailbox sync response (${code})`));
       }
       pendingMailboxSyncs.clear();
+      for (const pending of pendingRelationshipMailboxSyncs.values()) {
+        clearTimeout(pending.timer);
+        pending.reject(new Error(`Relay link closed before relationship mailbox sync response (${code})`));
+      }
+      pendingRelationshipMailboxSyncs.clear();
       if (!accepted) {
         failHandshake(new Error(`Relay link closed before acceptance (${code}:${reason.toString('utf8')})`));
         return;
@@ -1063,6 +1135,16 @@ export class RelayLinkManager {
     const connection = endpoint ? this.connections.get(endpoint) : undefined;
     if (!connection) return Promise.reject(new Error('Mailbox replica target is not connected'));
     return connection.syncMailbox(receipt, cursor, events);
+  }
+
+  syncRelationshipMailbox(
+    relayId: string, mailboxId: string, cursor: number,
+    events: RelayRelationshipMailboxEventV1[],
+  ): Promise<RelayRelationshipMailboxSyncResponseV1> {
+    const endpoint = this.relayEndpoints.get(relayId);
+    const connection = endpoint ? this.connections.get(endpoint) : undefined;
+    if (!connection) return Promise.reject(new Error('Relationship mailbox target is not connected'));
+    return connection.syncRelationshipMailbox(mailboxId, cursor, events);
   }
 
   receipts(publicationId: string): RelayReplicaReceiptV1[] {

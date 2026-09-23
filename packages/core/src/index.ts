@@ -444,6 +444,20 @@ export {
   serializeRelayMailboxSyncResponseFrameV1,
   parseRelayMailboxSyncRequestFrameV1,
   parseRelayMailboxSyncResponseFrameV1,
+  RELAY_RELATIONSHIP_MAILBOX_SYNC_REQUEST_FRAME_TYPE,
+  RELAY_RELATIONSHIP_MAILBOX_SYNC_RESPONSE_FRAME_TYPE,
+  type RelayRelationshipMailboxEventV1,
+  type RelayRelationshipMailboxSyncRequestV1,
+  type RelayRelationshipMailboxSyncResponseV1,
+  verifyRelayRelationshipMailboxEventV1,
+  createRelayRelationshipMailboxSyncRequestV1,
+  verifyRelayRelationshipMailboxSyncRequestV1,
+  createRelayRelationshipMailboxSyncResponseV1,
+  verifyRelayRelationshipMailboxSyncResponseV1,
+  serializeRelayRelationshipMailboxSyncRequestFrameV1,
+  serializeRelayRelationshipMailboxSyncResponseFrameV1,
+  parseRelayRelationshipMailboxSyncRequestFrameV1,
+  parseRelayRelationshipMailboxSyncResponseFrameV1,
 } from './relay-mailbox-sync.js';
 
 export {

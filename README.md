@@ -8,7 +8,7 @@ Planetary Resonance is an open-source protocol and application for helping peopl
 
 A person writes a need or offer in natural language. Their device turns it into a compact matching fingerprint, publishes it under a key created for that one publication, and keeps the original text and root identity local. A relay compares complementary fingerprints. If two publications match, both people can consent to a fresh pairwise relationship and exchange end-to-end encrypted disclosures through asynchronous mailboxes.
 
-Resonance is currently a **research prototype**, not a production network. The protocol v2 privacy and persistence foundation is implemented, along with configured volunteer-relay replication, bounded relay-to-relay search forwarding, publication-mailbox repair, receipt-authorized batch checks after storage loss, narrow signed state reconciliation, and enforced storage quotas. Private transport, pairwise relationship-mailbox replication, and mobile participation remain future milestones.
+Resonance is currently a **research prototype**, not a production network. The protocol v2 privacy and persistence foundation is implemented, along with configured volunteer-relay replication, bounded relay-to-relay search forwarding, publication and relationship mailbox repair, receipt-authorized batch checks after storage loss, narrow signed state reconciliation, and enforced storage quotas. Private transport and mobile participation remain future milestones. Relationship mailbox replication currently requires connected volunteer links and explicitly configured client fallback URLs for retrieval after an original relay disappears; it does not yet provide a durable receipt minimum.
 
 ## The goal
 

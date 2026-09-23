@@ -1,12 +1,18 @@
 import { rmSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import WebSocket from 'ws';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   createMailboxRequest, createMailboxRequestFrame,
   createPublicationOperationFrame, createPublicationRecord, createPublicationTombstone,
   createRelayContactHintV1, generatePublicationKeyMaterial,
+  createChannelMessageOperationV2, createPairwiseChannelId,
+  createRelationshipMailboxDepositFrameV2, createRelationshipMailboxDepositV2,
+  createRelationshipMailboxRequestFrameV2, createRelationshipMailboxRequestV2,
+  encryptChannelOperationV2, generateRelationshipKeyMaterial,
   parseMessage, serializeMailboxRequestFrame, serializePublicationOperationFrame,
-  type Message, type PublicationKeyMaterial, type PublicationRecord,
+  serializeRelationshipMailboxDepositFrameV2, serializeRelationshipMailboxRequestFrameV2,
+  type Message, type PublicationKeyMaterial, type PublicationRecord, type RelationshipKeyMaterial,
 } from '@resonance/core';
 import { createRelayServer, type RelayServer } from '../server.js';
 
@@ -39,12 +45,19 @@ function createVolunteer(index: number): RelayServer {
   });
 }
 
-async function waitFor(predicate: () => boolean, timeoutMs = 15_000): Promise<void> {
+async function waitFor(predicate: () => boolean | Promise<boolean>, timeoutMs = 15_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
-  while (!predicate()) {
+  while (!(await predicate())) {
     if (Date.now() >= deadline) throw new Error('Timed out waiting for reverse-link placement');
     await new Promise(resolve => setTimeout(resolve, 25));
   }
+}
+
+async function fetchRelationship(port: number, keys: RelationshipKeyMaterial): Promise<string[]> {
+  const response = await request(port, serializeRelationshipMailboxRequestFrameV2(
+    createRelationshipMailboxRequestFrameV2(createRelationshipMailboxRequestV2('fetch', keys)),
+  )) as Message<{ envelopes: Array<{ envelopeId: string }> }>;
+  return response.payload.envelopes.map(envelope => envelope.envelopeId);
 }
 
 function request(port: number, raw: string): Promise<Message> {
@@ -98,6 +111,32 @@ afterAll(async () => {
 });
 
 describe('reverse-link placement onto NAT-style volunteers', () => {
+  it('places a relationship mailbox through approved volunteers’ outbound links', async () => {
+    await waitFor(() => controller.getRelayLinkStatus().inboundRelayIds.length === 6);
+    const sender = generateRelationshipKeyMaterial();
+    const recipient = generateRelationshipKeyMaterial();
+    const operation = createChannelMessageOperationV2(
+      createPairwiseChannelId('match_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        sender.relationshipId, recipient.relationshipId),
+      recipient.relationshipId, 1,
+      { kind: 'disclosure', text: 'reverse link', level: 'general', createdAt: Date.now() },
+      randomBytes(32), sender,
+    );
+    const envelope = encryptChannelOperationV2(operation, {
+      id: recipient.mailboxId,
+      encryptionKey: Buffer.from(recipient.mailboxKeyPair.publicKey).toString('base64'),
+    });
+    expect((await request(BASE, serializeRelationshipMailboxDepositFrameV2(
+      createRelationshipMailboxDepositFrameV2(createRelationshipMailboxDepositV2(
+        recipient.relationshipId, sender, envelope,
+      )),
+    ))).payload).toMatchObject({ status: 'ok' });
+    await waitFor(async () => (await Promise.all(
+      [0, 1, 2, 3, 4].map(index => fetchRelationship(BASE + index + 1, recipient)),
+    )).every(ids => ids.includes(envelope.envelopeId)));
+    expect(await fetchRelationship(BASE + 6, recipient)).toEqual([]);
+  }, 20_000);
+
   it('reaches five signed receipts and repairs a lost volunteer over its outbound link', async () => {
     await waitFor(() => controller.getRelayLinkStatus().inboundRelayIds.length === 6);
     expect(controller.getRelayLinkStatus().connectedRelayIds).toHaveLength(0);

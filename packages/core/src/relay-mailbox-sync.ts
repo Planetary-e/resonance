@@ -5,15 +5,200 @@ import {
   generateSigningKeyPair, publicKeyToDid, sign, verify, type Identity,
 } from './crypto.js';
 import { verifyMailboxEnvelope, type EncryptedMailboxEnvelope } from './mailbox-v2.js';
+import {
+  verifyRelationshipMailboxDepositV2, verifyRelationshipMailboxRequestV2,
+  type RelationshipMailboxDepositV2, type RelationshipMailboxRequestV2,
+} from './channel-v2.js';
 import { MAX_RELAY_DISCOVERY_FRAME_BYTES } from './relay-discovery.js';
 import { isDurabilityReceiptV1, type RelayReplicaReceiptV1 } from './relay-replication.js';
 
 export const RELAY_MAILBOX_SYNC_REQUEST_FRAME_TYPE = 'relay_mailbox_sync_request' as const;
 export const RELAY_MAILBOX_SYNC_RESPONSE_FRAME_TYPE = 'relay_mailbox_sync_response' as const;
 export const MAX_RELAY_MAILBOX_SYNC_EVENTS = 8;
+export const RELAY_RELATIONSHIP_MAILBOX_SYNC_REQUEST_FRAME_TYPE = 'relay_relationship_mailbox_sync_request' as const;
+export const RELAY_RELATIONSHIP_MAILBOX_SYNC_RESPONSE_FRAME_TYPE = 'relay_relationship_mailbox_sync_response' as const;
 const LIFETIME_MS = 15_000;
 const REQUEST_DOMAIN = 'resonance:relay-mailbox-sync:v1:request';
 const RESPONSE_DOMAIN = 'resonance:relay-mailbox-sync:v1:response';
+const RELATIONSHIP_REQUEST_DOMAIN = 'resonance:relay-relationship-mailbox-sync:v1:request';
+const RELATIONSHIP_RESPONSE_DOMAIN = 'resonance:relay-relationship-mailbox-sync:v1:response';
+
+/** Original relationship signatures travel with the opaque event; a relay cannot forge an acknowledgement. */
+export type RelayRelationshipMailboxEventV1 =
+  | { kind: 'deposit'; request: RelationshipMailboxDepositV2 }
+  | { kind: 'ack'; request: RelationshipMailboxRequestV2 };
+
+export interface RelayRelationshipMailboxSyncRequestV1 {
+  version: 1;
+  kind: 'relay-relationship-mailbox-sync-request';
+  requestId: string;
+  senderRelayId: string;
+  targetRelayId: string;
+  mailboxId: string;
+  cursor: number;
+  events: RelayRelationshipMailboxEventV1[];
+  createdAt: number;
+  expiresAt: number;
+  signature: string;
+}
+
+export interface RelayRelationshipMailboxSyncResponseV1 {
+  version: 1;
+  kind: 'relay-relationship-mailbox-sync-response';
+  requestId: string;
+  requestSignature: string;
+  senderRelayId: string;
+  targetRelayId: string;
+  status: 'ok' | 'rejected';
+  events: RelayRelationshipMailboxEventV1[];
+  nextCursor: number;
+  createdAt: number;
+  signature: string;
+}
+
+export function verifyRelayRelationshipMailboxEventV1(
+  value: unknown, mailboxId?: string,
+): value is RelayRelationshipMailboxEventV1 {
+  if (!isObject(value) || !hasKeys(value, ['kind', 'request'])) return false;
+  if (value.kind === 'deposit') return verifyRelationshipMailboxDepositV2(value.request)
+    && (mailboxId === undefined || value.request.recipientMailboxId === mailboxId);
+  return value.kind === 'ack' && verifyRelationshipMailboxRequestV2(value.request)
+    && value.request.action === 'ack'
+    && (mailboxId === undefined || value.request.mailboxId === mailboxId);
+}
+
+export function createRelayRelationshipMailboxSyncRequestV1(
+  targetRelayId: string, mailboxId: string, cursor: number,
+  events: RelayRelationshipMailboxEventV1[], identity: Identity, now = Date.now(),
+): RelayRelationshipMailboxSyncRequestV1 {
+  const body = {
+    version: 1 as const, kind: 'relay-relationship-mailbox-sync-request' as const,
+    requestId: requestId(), senderRelayId: identity.did, targetRelayId,
+    mailboxId, cursor, events, createdAt: now, expiresAt: now + LIFETIME_MS,
+  };
+  if (!isRelationshipRequestBody(body) || publicKeyToDid(identity.publicKey) !== identity.did) {
+    throw new Error('Invalid relationship mailbox sync request');
+  }
+  return { ...body, signature: encodeBase64(sign(signable(RELATIONSHIP_REQUEST_DOMAIN, body), identity.secretKey)) };
+}
+
+export function verifyRelayRelationshipMailboxSyncRequestV1(
+  value: unknown, now?: number,
+): value is RelayRelationshipMailboxSyncRequestV1 {
+  if (!isObject(value) || !hasKeys(value, [
+    'createdAt', 'cursor', 'events', 'expiresAt', 'kind', 'mailboxId', 'requestId',
+    'senderRelayId', 'signature', 'targetRelayId', 'version',
+  ])) return false;
+  const { signature, ...body } = value;
+  if (!isSignature(signature) || !isRelationshipRequestBody(body)
+    || (now !== undefined && (now < body.createdAt || now >= body.expiresAt))) return false;
+  try { return verify(signable(RELATIONSHIP_REQUEST_DOMAIN, body), decodeBase64(signature), didToPublicKey(body.senderRelayId)); }
+  catch { return false; }
+}
+
+export function createRelayRelationshipMailboxSyncResponseV1(
+  request: RelayRelationshipMailboxSyncRequestV1, status: 'ok' | 'rejected',
+  events: RelayRelationshipMailboxEventV1[], nextCursor: number,
+  identity: Identity, now = Date.now(),
+): RelayRelationshipMailboxSyncResponseV1 {
+  const body = {
+    version: 1 as const, kind: 'relay-relationship-mailbox-sync-response' as const,
+    requestId: request.requestId, requestSignature: request.signature,
+    senderRelayId: identity.did, targetRelayId: request.senderRelayId,
+    status, events, nextCursor, createdAt: now,
+  };
+  if (!verifyRelayRelationshipMailboxSyncRequestV1(request)
+    || !isRelationshipResponseBody(body, request.mailboxId)
+    || !relationshipResponseMatchesRequest(body, request)
+    || publicKeyToDid(identity.publicKey) !== identity.did) {
+    throw new Error('Invalid relationship mailbox sync response');
+  }
+  return { ...body, signature: encodeBase64(sign(signable(RELATIONSHIP_RESPONSE_DOMAIN, body), identity.secretKey)) };
+}
+
+export function verifyRelayRelationshipMailboxSyncResponseV1(
+  value: unknown, request?: RelayRelationshipMailboxSyncRequestV1,
+): value is RelayRelationshipMailboxSyncResponseV1 {
+  if (!isObject(value) || !hasKeys(value, [
+    'createdAt', 'events', 'kind', 'nextCursor', 'requestId', 'requestSignature',
+    'senderRelayId', 'signature', 'status', 'targetRelayId', 'version',
+  ])) return false;
+  const { signature, ...body } = value;
+  if (!isSignature(signature) || !isRelationshipResponseBody(body, request?.mailboxId)
+    || (request && (!verifyRelayRelationshipMailboxSyncRequestV1(request)
+      || !relationshipResponseMatchesRequest(body, request)))) return false;
+  try { return verify(signable(RELATIONSHIP_RESPONSE_DOMAIN, body), decodeBase64(signature), didToPublicKey(body.senderRelayId)); }
+  catch { return false; }
+}
+
+export function serializeRelayRelationshipMailboxSyncRequestFrameV1(request: RelayRelationshipMailboxSyncRequestV1): string {
+  if (!verifyRelayRelationshipMailboxSyncRequestV1(request)) throw new Error('Invalid relationship mailbox sync request');
+  return boundedStringify({ type: RELAY_RELATIONSHIP_MAILBOX_SYNC_REQUEST_FRAME_TYPE, request });
+}
+export function serializeRelayRelationshipMailboxSyncResponseFrameV1(response: RelayRelationshipMailboxSyncResponseV1): string {
+  if (!verifyRelayRelationshipMailboxSyncResponseV1(response)) throw new Error('Invalid relationship mailbox sync response');
+  return boundedStringify({ type: RELAY_RELATIONSHIP_MAILBOX_SYNC_RESPONSE_FRAME_TYPE, response });
+}
+export function parseRelayRelationshipMailboxSyncRequestFrameV1(raw: string): RelayRelationshipMailboxSyncRequestV1 {
+  const frame = boundedParse(raw);
+  if (!isObject(frame) || !hasKeys(frame, ['request', 'type'])
+    || frame.type !== RELAY_RELATIONSHIP_MAILBOX_SYNC_REQUEST_FRAME_TYPE
+    || !verifyRelayRelationshipMailboxSyncRequestV1(frame.request)) throw new Error('Invalid relationship mailbox sync request frame');
+  return frame.request;
+}
+export function parseRelayRelationshipMailboxSyncResponseFrameV1(raw: string): RelayRelationshipMailboxSyncResponseV1 {
+  const frame = boundedParse(raw);
+  if (!isObject(frame) || !hasKeys(frame, ['response', 'type'])
+    || frame.type !== RELAY_RELATIONSHIP_MAILBOX_SYNC_RESPONSE_FRAME_TYPE
+    || !verifyRelayRelationshipMailboxSyncResponseV1(frame.response)) throw new Error('Invalid relationship mailbox sync response frame');
+  return frame.response;
+}
+
+function isRelationshipRequestBody(value: unknown): value is Omit<RelayRelationshipMailboxSyncRequestV1, 'signature'> {
+  if (!isObject(value) || !hasKeys(value, [
+    'createdAt', 'cursor', 'events', 'expiresAt', 'kind', 'mailboxId', 'requestId',
+    'senderRelayId', 'targetRelayId', 'version',
+  ])) return false;
+  return value.version === 1 && value.kind === 'relay-relationship-mailbox-sync-request'
+    && isRequestId(value.requestId) && isRelayId(value.senderRelayId)
+    && isRelayId(value.targetRelayId) && value.senderRelayId !== value.targetRelayId
+    && isRelationshipMailboxId(value.mailboxId) && isCursor(value.cursor)
+    && isRelationshipEvents(value.events, value.mailboxId)
+    && isTimestamp(value.createdAt) && isTimestamp(value.expiresAt)
+    && value.expiresAt > value.createdAt && value.expiresAt - value.createdAt <= LIFETIME_MS;
+}
+function isRelationshipResponseBody(
+  value: unknown, mailboxId?: string,
+): value is Omit<RelayRelationshipMailboxSyncResponseV1, 'signature'> {
+  if (!isObject(value) || !hasKeys(value, [
+    'createdAt', 'events', 'kind', 'nextCursor', 'requestId', 'requestSignature',
+    'senderRelayId', 'status', 'targetRelayId', 'version',
+  ])) return false;
+  return value.version === 1 && value.kind === 'relay-relationship-mailbox-sync-response'
+    && isRequestId(value.requestId) && isSignature(value.requestSignature)
+    && isRelayId(value.senderRelayId) && isRelayId(value.targetRelayId)
+    && (value.status === 'ok' || value.status === 'rejected')
+    && isRelationshipEvents(value.events, mailboxId) && isCursor(value.nextCursor)
+    && (value.status === 'ok' || value.events.length === 0)
+    && isTimestamp(value.createdAt);
+}
+function relationshipResponseMatchesRequest(
+  response: Omit<RelayRelationshipMailboxSyncResponseV1, 'signature'>,
+  request: RelayRelationshipMailboxSyncRequestV1,
+): boolean {
+  return response.requestId === request.requestId
+    && response.requestSignature === request.signature
+    && response.senderRelayId === request.targetRelayId
+    && response.targetRelayId === request.senderRelayId
+    && response.createdAt >= request.createdAt && response.createdAt <= request.expiresAt;
+}
+function isRelationshipEvents(value: unknown, mailboxId?: string): value is RelayRelationshipMailboxEventV1[] {
+  return Array.isArray(value) && value.length <= MAX_RELAY_MAILBOX_SYNC_EVENTS
+    && value.every(event => verifyRelayRelationshipMailboxEventV1(event, mailboxId));
+}
+function isRelationshipMailboxId(value: unknown): value is string {
+  return typeof value === 'string' && /^rmbx_[A-Za-z0-9_-]{43}$/.test(value);
+}
 
 export type RelayMailboxEventV1 =
   | { kind: 'envelope'; envelope: EncryptedMailboxEnvelope }

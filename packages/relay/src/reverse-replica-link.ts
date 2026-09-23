@@ -4,10 +4,12 @@ import WebSocket from 'ws';
 import {
   MAX_RELAY_REPLICA_INVENTORY_BATCH_RECEIPTS,
   RELAY_MAILBOX_SYNC_RESPONSE_FRAME_TYPE,
+  RELAY_RELATIONSHIP_MAILBOX_SYNC_RESPONSE_FRAME_TYPE,
   RELAY_REPLICA_INVENTORY_BATCH_RESPONSE_FRAME_TYPE,
   RELAY_REPLICA_RECONCILIATION_RESPONSE_FRAME_TYPE,
   RELAY_REPLICA_RECEIPT_FRAME_TYPE,
   createRelayMailboxSyncRequestV1,
+  createRelayRelationshipMailboxSyncRequestV1,
   createRelayReplicaInventoryBatchRequestFrameV1,
   createRelayReplicaInventoryBatchRequestV1,
   createRelayReplicaPutFrameV1,
@@ -17,14 +19,17 @@ import {
   isDurabilityReceiptV1,
   isRelayReplicaReconciliationReceiptV1,
   parseRelayMailboxSyncResponseFrameV1,
+  parseRelayRelationshipMailboxSyncResponseFrameV1,
   parseRelayReplicaInventoryBatchResponseFrameV1,
   parseRelayReplicaReceiptFrameV1,
   parseRelayReplicaReconciliationResponseFrameV1,
   serializeRelayMailboxSyncRequestFrameV1,
+  serializeRelayRelationshipMailboxSyncRequestFrameV1,
   serializeRelayReplicaInventoryBatchRequestFrameV1,
   serializeRelayReplicaPutFrameV1,
   serializeRelayReplicaReconciliationRequestFrameV1,
   verifyRelayMailboxSyncResponseV1,
+  verifyRelayRelationshipMailboxSyncResponseV1,
   verifyRelayReplicaInventoryBatchResponseV1,
   verifyRelayReplicaReceiptV1,
   verifyRelayReplicaReconciliationResponseV1,
@@ -33,6 +38,8 @@ import {
   type RelayDescriptorV1,
   type RelayMailboxEventV1,
   type RelayMailboxSyncResponseV1,
+  type RelayRelationshipMailboxEventV1,
+  type RelayRelationshipMailboxSyncResponseV1,
   type RelayReplicaInventoryBatchResponseV1,
   type RelayReplicaReceiptV1,
   type RelayReplicaReconciliationResponseV1,
@@ -57,6 +64,7 @@ const RESPONSE_TYPES = new Set<string>([
   RELAY_REPLICA_INVENTORY_BATCH_RESPONSE_FRAME_TYPE,
   RELAY_REPLICA_RECONCILIATION_RESPONSE_FRAME_TYPE,
   RELAY_MAILBOX_SYNC_RESPONSE_FRAME_TYPE,
+  RELAY_RELATIONSHIP_MAILBOX_SYNC_RESPONSE_FRAME_TYPE,
 ]);
 const MAX_PENDING = 128;
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -203,6 +211,23 @@ export class ReverseReplicaRequests {
         const response = parseRelayMailboxSyncResponseFrameV1(raw);
         if (!verifyRelayMailboxSyncResponseV1(response, request)
           || response.senderRelayId !== relayId) throw new Error('Invalid reverse mailbox response');
+        return response;
+      }, request.expiresAt);
+  }
+
+  syncRelationshipMailbox(
+    relayId: string, mailboxId: string, cursor: number,
+    events: RelayRelationshipMailboxEventV1[],
+  ): Promise<RelayRelationshipMailboxSyncResponseV1> {
+    const request = createRelayRelationshipMailboxSyncRequestV1(
+      relayId, mailboxId, cursor, events, this.identity,
+    );
+    return this.send(relayId, request.requestId,
+      serializeRelayRelationshipMailboxSyncRequestFrameV1(request),
+      RELAY_RELATIONSHIP_MAILBOX_SYNC_RESPONSE_FRAME_TYPE, raw => {
+        const response = parseRelayRelationshipMailboxSyncResponseFrameV1(raw);
+        if (!verifyRelayRelationshipMailboxSyncResponseV1(response, request)
+          || response.senderRelayId !== relayId) throw new Error('Invalid reverse relationship mailbox response');
         return response;
       }, request.expiresAt);
   }
