@@ -126,6 +126,7 @@ The pilot uses one persistent DID per user and one relay-local index. The next m
 - [x] Merge duplicate replies and prevent duplicate match notifications
   - [x] Merge signed relay replies by publication ID and retain at most the requester's top-k results
   - [x] Derive each recipient's match-notice envelope ID from the stable publication-pair match ID; converge acknowledgement tombstones across relays with differing notice expiries, and persist one visible match per recipient publication on the personal node
+  - [x] Exercise two independent relays matching the same pair through client fetch, decryption, local insertion, and acknowledgement; show one visible match
 - [ ] Apply owner-configured storage, bandwidth, CPU, power, and schedule limits without violating already-issued durability promises
 - [ ] Expose local contribution and replica-health metrics without exposing peer activity
 - [x] Add a five-relay churn and partition test harness

@@ -94,7 +94,7 @@ Read the full [protocol v2 threat model](docs/developers/protocol-v2.md) and [ro
 
 The current validation baseline is:
 
-- **302 automated tests** across core, node, relay, storage, migration, and integration flows
+- **303 automated tests** across core, node, relay, storage, migration, and integration flows
 - **44/44 evaluation gates passing**
 - **93.3% recall** for the evaluated 512-bit LSH configuration at a 0.7 Hamming-similarity threshold
 - **2.3 ms p95** for a 10,000-fingerprint Hamming scan on the recorded evaluation machine
