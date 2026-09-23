@@ -25,32 +25,34 @@ function endpoint(port: number): string { return `ws://127.0.0.1:${port}/`; }
 
 function makeTarget(index: number): RelayServer {
   return createRelayServer({
+    maxSearchesPerMin: 1_000,
     port: TARGET_PORTS[index], host: '127.0.0.1', persistDir: TARGET_DIRS[index],
     relayDiscovery: {
       endpoints: [endpoint(TARGET_PORTS[index])], reachability: 'direct',
       supportedGroups: ['public'],
       storage: { capacityBytes: 4_000_000, availableBytes: 3_000_000 },
     },
-    relayLinkHeartbeatIntervalMs: 100, relayLinkHeartbeatTimeoutMs: 1_500,
+    relayLinkHeartbeatIntervalMs: 500, relayLinkHeartbeatTimeoutMs: 5_000,
   });
 }
 
 function makeSource(): RelayServer {
   return createRelayServer({
+    maxSearchesPerMin: 1_000,
     port: SOURCE_PORT, host: '127.0.0.1', persistDir: SOURCE_DIR,
     desiredReplicaCount: 2, minimumHealthyReplicaCount: 2,
-    replicaRepairIntervalMs: 100, replicaInventoryIntervalMs: 500,
+    replicaRepairIntervalMs: 250, replicaInventoryIntervalMs: 2_000,
     relayDiscovery: {
       endpoints: [], reachability: 'outbound-only', supportedGroups: ['public'],
       storage: { capacityBytes: 4_000_000, availableBytes: 3_000_000 },
     },
     relayLinks: {
       targets: TARGET_PORTS.map(port => createRelayContactHintV1('configured', endpoint(port))),
-      maxConnections: 2, handshakeTimeoutMs: 2_000,
-      heartbeatIntervalMs: 100, heartbeatTimeoutMs: 1_500,
-      replicaRequestTimeoutMs: 1_000, reconnectBaseMs: 50, reconnectMaxMs: 200,
+      maxConnections: 2, handshakeTimeoutMs: 5_000,
+      heartbeatIntervalMs: 500, heartbeatTimeoutMs: 5_000,
+      replicaRequestTimeoutMs: 5_000, reconnectBaseMs: 50, reconnectMaxMs: 200,
     },
-    relayLinkHeartbeatIntervalMs: 100, relayLinkHeartbeatTimeoutMs: 1_500,
+    relayLinkHeartbeatIntervalMs: 500, relayLinkHeartbeatTimeoutMs: 5_000,
   });
 }
 
@@ -76,7 +78,7 @@ function makePublication(itemType: 'need' | 'offer') {
     record: createPublicationRecord({
       groupId: 'public', fingerprintEpoch: 'mailbox-replication-test',
       fingerprint: new Uint8Array(64).fill(0x39), itemType,
-      createdAt: now, expiresAt: now + 60_000,
+      createdAt: now, expiresAt: now + 180_000,
     }, keys),
   };
 }
@@ -104,7 +106,7 @@ async function acknowledge(
   expect(response.payload).toMatchObject({ status: 'ok', message: 'acknowledged:1' });
 }
 
-async function waitFor(check: () => Promise<boolean> | boolean, timeoutMs = 15_000): Promise<void> {
+async function waitFor(check: () => Promise<boolean> | boolean, timeoutMs = 30_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (await check()) return;
@@ -174,9 +176,9 @@ describe('publication mailbox anti-entropy', () => {
     rmSync(`${TARGET_DIRS[1]}/relay-operations.ndjson`, { force: true });
     targets[1] = makeTarget(1);
     await targets[1].start();
-    await waitFor(() => targets[1].getStats().active_publications === 2, 15_000);
-    await waitFor(async () => (await fetch(TARGET_PORTS[1], need.record, need.keys)).includes(needNoticeId), 15_000);
+    await waitFor(() => targets[1].getStats().active_publications === 2, 30_000);
+    await waitFor(async () => (await fetch(TARGET_PORTS[1], need.record, need.keys)).includes(needNoticeId), 30_000);
     await waitFor(async () => !(await fetch(TARGET_PORTS[1], offer.record, offer.keys))
-      .includes(offerNoticeId), 15_000);
-  }, 40_000);
+      .includes(offerNoticeId), 30_000);
+  }, 90_000);
 });

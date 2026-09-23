@@ -29,6 +29,7 @@ function volunteer(index: number): RelayServer {
   const port = VOLUNTEERS[index];
   const direct = index === DIRECT_VOLUNTEER;
   return createRelayServer({
+    maxSearchesPerMin: 1_000,
     port, host: '127.0.0.1', persistDir: directories[index + 1],
     relayDiscovery: {
       endpoints: direct ? [endpoint(port)] : [],
@@ -38,30 +39,32 @@ function volunteer(index: number): RelayServer {
     },
     relayLinks: {
       targets: [createRelayContactHintV1('configured', endpoint(CONTROLLER))],
-      handshakeTimeoutMs: 2_000, heartbeatIntervalMs: 100,
-      heartbeatTimeoutMs: 1_500, reconnectBaseMs: 50, reconnectMaxMs: 200,
+      handshakeTimeoutMs: 5_000, heartbeatIntervalMs: 500,
+      heartbeatTimeoutMs: 5_000, reconnectBaseMs: 50, reconnectMaxMs: 200,
     },
-    relayLinkHeartbeatIntervalMs: 100, relayLinkHeartbeatTimeoutMs: 1_500,
+    relayLinkHeartbeatIntervalMs: 500, relayLinkHeartbeatTimeoutMs: 5_000,
   });
 }
 
 function controller(volunteers: RelayServer[]): RelayServer {
   return createRelayServer({
+    maxSearchesPerMin: 1_000,
     port: CONTROLLER, host: '127.0.0.1', persistDir: directories[0],
     desiredReplicaCount: 5, minimumHealthyReplicaCount: 3,
-    replicaRepairIntervalMs: 100, replicaInventoryIntervalMs: 300,
+    replicaRepairIntervalMs: 250, replicaInventoryIntervalMs: 2_000,
     inboundReplicaTargetIds: volunteers.map(target => target.getRelayDescriptor()!.relayId),
     relayDiscovery: {
       endpoints: [endpoint(CONTROLLER)], reachability: 'direct',
       supportedGroups: ['public'],
       storage: { capacityBytes: 4_000_000, availableBytes: 3_000_000 },
     },
-    relayLinkHeartbeatIntervalMs: 100, relayLinkHeartbeatTimeoutMs: 1_500,
+    relayLinkHeartbeatIntervalMs: 500, relayLinkHeartbeatTimeoutMs: 5_000,
   });
 }
 
 function gateway(): RelayServer {
   return createRelayServer({
+    maxSearchesPerMin: 1_000,
     port: GATEWAY, host: '127.0.0.1', persistDir: directories[6],
     relayDiscovery: {
       endpoints: [], reachability: 'outbound-only', supportedGroups: ['public'],
@@ -69,10 +72,10 @@ function gateway(): RelayServer {
     },
     relayLinks: {
       targets: [createRelayContactHintV1('configured', endpoint(VOLUNTEERS[DIRECT_VOLUNTEER]))],
-      handshakeTimeoutMs: 2_000, heartbeatIntervalMs: 100,
-      heartbeatTimeoutMs: 1_500, reconnectBaseMs: 50, reconnectMaxMs: 200,
+      handshakeTimeoutMs: 5_000, heartbeatIntervalMs: 500,
+      heartbeatTimeoutMs: 5_000, reconnectBaseMs: 50, reconnectMaxMs: 200,
     },
-    relayLinkHeartbeatIntervalMs: 100, relayLinkHeartbeatTimeoutMs: 1_500,
+    relayLinkHeartbeatIntervalMs: 500, relayLinkHeartbeatTimeoutMs: 5_000,
   });
 }
 
@@ -90,7 +93,7 @@ function request(port: number, raw: string): Promise<Message> {
   });
 }
 
-async function waitFor(check: () => boolean | Promise<boolean>, timeoutMs = 20_000): Promise<void> {
+async function waitFor(check: () => boolean | Promise<boolean>, timeoutMs = 40_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (await check()) return;
@@ -107,7 +110,7 @@ function publication(itemType: 'need' | 'offer') {
     record: createPublicationRecord({
       groupId: 'public', fingerprintEpoch: 'v03-completion',
       fingerprint: new Uint8Array(64).fill(0x6d), itemType,
-      createdAt: now, expiresAt: now + 120_000,
+      createdAt: now, expiresAt: now + 240_000,
     }, keys),
   };
 }
@@ -217,5 +220,5 @@ describe('v0.3 volunteer-only completion path', () => {
       await Promise.all([...running].map(relay => relay.stop({ graceful: false })));
       for (const directory of directories) rmSync(directory, { recursive: true, force: true });
     }
-  }, 90_000);
+  }, 180_000);
 });

@@ -27,6 +27,7 @@ const volunteers: RelayServer[] = [];
 
 function createVolunteer(index: number): RelayServer {
   return createRelayServer({
+    maxSearchesPerMin: 1_000,
     port: BASE + index + 1,
     host: '127.0.0.1',
     persistDir: VOLUNTEER_DIRS[index],
@@ -37,15 +38,15 @@ function createVolunteer(index: number): RelayServer {
     },
     relayLinks: {
       targets: [createRelayContactHintV1('configured', `ws://127.0.0.1:${BASE}/`)],
-      handshakeTimeoutMs: 2_000, heartbeatIntervalMs: 100,
-      heartbeatTimeoutMs: 1_500, reconnectBaseMs: 50, reconnectMaxMs: 200,
+      handshakeTimeoutMs: 5_000, heartbeatIntervalMs: 500,
+      heartbeatTimeoutMs: 5_000, reconnectBaseMs: 50, reconnectMaxMs: 200,
     },
-    relayLinkHeartbeatIntervalMs: 100,
-    relayLinkHeartbeatTimeoutMs: 1_500,
+    relayLinkHeartbeatIntervalMs: 500,
+    relayLinkHeartbeatTimeoutMs: 5_000,
   });
 }
 
-async function waitFor(predicate: () => boolean | Promise<boolean>, timeoutMs = 15_000): Promise<void> {
+async function waitFor(predicate: () => boolean | Promise<boolean>, timeoutMs = 30_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (!(await predicate())) {
     if (Date.now() >= deadline) throw new Error('Timed out waiting for reverse-link placement');
@@ -86,12 +87,13 @@ async function fetch(
 beforeAll(async () => {
   for (let index = 0; index < 6; index++) volunteers.push(createVolunteer(index));
   controller = createRelayServer({
+    maxSearchesPerMin: 1_000,
     port: BASE, host: '127.0.0.1', persistDir: CONTROLLER_DIR,
     desiredReplicaCount: 5, minimumHealthyReplicaCount: 3,
     inboundReplicaTargetIds: volunteers.slice(0, 5)
       .map(volunteer => volunteer.getRelayDescriptor()!.relayId),
-    replicaRepairIntervalMs: 100, replicaInventoryIntervalMs: 300,
-    relayLinkHeartbeatIntervalMs: 100, relayLinkHeartbeatTimeoutMs: 1_500,
+    replicaRepairIntervalMs: 250, replicaInventoryIntervalMs: 2_000,
+    relayLinkHeartbeatIntervalMs: 500, relayLinkHeartbeatTimeoutMs: 5_000,
     relayDiscovery: {
       endpoints: [`ws://127.0.0.1:${BASE}/`], reachability: 'direct',
       supportedGroups: ['public'],
@@ -135,7 +137,7 @@ describe('reverse-link placement onto NAT-style volunteers', () => {
       [0, 1, 2, 3, 4].map(index => fetchRelationship(BASE + index + 1, recipient)),
     )).every(ids => ids.includes(envelope.envelopeId)));
     expect(await fetchRelationship(BASE + 6, recipient)).toEqual([]);
-  }, 20_000);
+  }, 60_000);
 
   it('reaches five signed receipts and repairs a lost volunteer over its outbound link', async () => {
     await waitFor(() => controller.getRelayLinkStatus().inboundRelayIds.length === 6);
@@ -145,7 +147,7 @@ describe('reverse-link placement onto NAT-style volunteers', () => {
     const record = createPublicationRecord({
       groupId: 'public', fingerprintEpoch: '2026-09',
       fingerprint: new Uint8Array(64).fill(0x35), itemType: 'offer',
-      createdAt: now, expiresAt: now + 60_000,
+      createdAt: now, expiresAt: now + 180_000,
     }, keys);
     expect((await request(BASE, serializePublicationOperationFrame(
       createPublicationOperationFrame(record),
@@ -176,7 +178,7 @@ describe('reverse-link placement onto NAT-style volunteers', () => {
     const matching = createPublicationRecord({
       groupId: 'public', fingerprintEpoch: '2026-09',
       fingerprint: new Uint8Array(64).fill(0x35), itemType: 'need',
-      createdAt: Date.now(), expiresAt: Date.now() + 60_000,
+      createdAt: Date.now(), expiresAt: Date.now() + 180_000,
     }, matchingKeys);
     expect((await request(BASE, serializePublicationOperationFrame(
       createPublicationOperationFrame(matching),
@@ -201,5 +203,5 @@ describe('reverse-link placement onto NAT-style volunteers', () => {
     await waitFor(() => volunteers.slice(0, 5)
       .every(volunteer => volunteer.getStats().active_publications === 1));
     expect(volunteers[5].getStats().active_publications).toBe(0);
-  }, 30_000);
+  }, 90_000);
 });

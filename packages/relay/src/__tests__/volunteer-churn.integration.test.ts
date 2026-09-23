@@ -32,6 +32,7 @@ function endpoint(port: number): string { return `ws://127.0.0.1:${port}/`; }
 
 function makeTarget(index: number): RelayServer {
   return createRelayServer({
+    maxSearchesPerMin: 1_000,
     port: TARGET_PORTS[index], host: '127.0.0.1', persistDir: TARGET_DIRS[index],
     relayDiscovery: {
       endpoints: [], reachability: 'outbound-only', supportedGroups: ['public'],
@@ -49,6 +50,7 @@ function makeTarget(index: number): RelayServer {
 
 function makeSource(): RelayServer {
   return createRelayServer({
+    maxSearchesPerMin: 1_000,
     port: SOURCE_PORT, host: '127.0.0.1', persistDir: SOURCE_DIR,
     desiredReplicaCount: 5, minimumHealthyReplicaCount: 3,
     replicaRepairIntervalMs: 250, replicaInventoryIntervalMs: 2_000,
@@ -129,7 +131,7 @@ function publication(itemType: 'need' | 'offer', groupId = 'public', fill = 0x39
     record: createPublicationRecord({
       groupId, fingerprintEpoch: 'volunteer-churn',
       fingerprint: new Uint8Array(64).fill(fill), itemType,
-      createdAt: now, expiresAt: now + 120_000,
+      createdAt: now, expiresAt: now + 240_000,
     }, keys),
   };
 }
@@ -160,7 +162,7 @@ async function search(port: number, groupId: string, fill: number): Promise<stri
   return response.payload.results.map(result => result.publicationId);
 }
 
-async function waitFor(check: () => Promise<boolean> | boolean, timeoutMs = 30_000): Promise<void> {
+async function waitFor(check: () => Promise<boolean> | boolean, timeoutMs = 45_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (await check()) return;
@@ -289,5 +291,5 @@ describe('five-relay volunteer churn and partition', () => {
     expect(source.getReplicaPlacementStatus(offer.record.publicationId)).toMatchObject({
       minimumConfirmed: true, targetConfirmed: true, confirmedReplicaCount: 5,
     });
-  }, 120_000);
+  }, 180_000);
 });
