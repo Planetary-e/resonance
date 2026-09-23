@@ -260,12 +260,16 @@ export interface RelayConfig {
   admissionVerifier?: AdmissionCapabilityVerifierV2;
   /** Decline discretionary first admissions while retaining existing obligations. */
   acceptNewWork?: (ingressBytes: number) => boolean;
+  /** Shared meter also used by the standalone owner's total-usage policy. */
+  resourceMeter?: RelayTrafficMeter;
 }
 
 export interface RelayStats {
   relay_id: string;
   transport_ingress_bytes: number;
   transport_egress_bytes: number;
+  lan_ingress_bytes: number;
+  lan_egress_bytes: number;
   process_cpu_milliseconds: number;
   data_file_bytes: number;
   publication_commitment_floor_bytes: number;
@@ -490,8 +494,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   );
   const relayIdentity = loadOrCreateRelayIdentity(cfg.persistDir);
   const replicaStorageLedger = new ReplicaStorageLedger();
-  const trafficMeter = new RelayTrafficMeter();
-  const cpuAtStart = process.cpuUsage();
+  const trafficMeter = cfg.resourceMeter ?? new RelayTrafficMeter(cfg.persistDir);
 
   const rateLimiter = new RateLimiter({
     maxPublishesPerMin: cfg.maxPublishesPerMin,
@@ -554,6 +557,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   let wss: WebSocketServer;
   let publicationExpiryTimer: ReturnType<typeof setTimeout> | null = null;
   let cleanupTimer: ReturnType<typeof setInterval> | null = null;
+  let resourceCheckpointTimer: ReturnType<typeof setInterval> | null = null;
   let lastJournalCompactionCheckLength = 0;
   let mailboxExpiredSinceCompaction = 0;
   let lastCapacityCompactionLength = -1;
@@ -2196,10 +2200,10 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
 
   function resourceMetrics(): Pick<RelayStats,
     'transport_ingress_bytes' | 'transport_egress_bytes' | 'process_cpu_milliseconds'
+    | 'lan_ingress_bytes' | 'lan_egress_bytes'
     | 'data_file_bytes' | 'publication_commitment_floor_bytes'
     | 'mailbox_commitment_floor_bytes' | 'journal_commitment_floor_bytes'> {
     const traffic = trafficMeter.snapshot();
-    const cpu = process.cpuUsage(cpuAtStart);
     const hasPublicationObligations = replicaStorageLedger.reservedBytes > 0;
     const journalReserve = JOURNAL_TERMINAL_RESERVE_BYTES
       * (publicationStore.liveRecordCount
@@ -2208,7 +2212,9 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     return {
       transport_ingress_bytes: traffic.ingressBytes,
       transport_egress_bytes: traffic.egressBytes,
-      process_cpu_milliseconds: Math.floor((cpu.user + cpu.system) / 1_000),
+      lan_ingress_bytes: traffic.lanIngressBytes,
+      lan_egress_bytes: traffic.lanEgressBytes,
+      process_cpu_milliseconds: Math.floor(traffic.cpuMicros / 1_000),
       data_file_bytes: relayDataFileBytes(cfg.persistDir),
       publication_commitment_floor_bytes: hasPublicationObligations
         ? replicaStorageLedger.reservedBytes + FIRST_SEEN_TOMBSTONE_RESERVE_BYTES : 0,
@@ -3756,6 +3762,11 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           log('error', 'journal_compaction_failed', { error: String(error) });
         }
       }, 5 * 60_000);
+      resourceCheckpointTimer = setInterval(() => {
+        try { trafficMeter.checkpoint(); }
+        catch (error) { log('warn', 'resource_checkpoint_failed', { error: String(error) }); }
+      }, 30_000);
+      resourceCheckpointTimer.unref?.();
 
       relayLinkHeartbeatTimer = setInterval(() => {
         const now = Date.now();
@@ -3781,6 +3792,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       stopping = true;
       if (publicationExpiryTimer) clearTimeout(publicationExpiryTimer);
       if (cleanupTimer) clearInterval(cleanupTimer);
+      if (resourceCheckpointTimer) clearInterval(resourceCheckpointTimer);
       if (relayLinkHeartbeatTimer) clearInterval(relayLinkHeartbeatTimer);
       if (replicaRepairTimer) clearInterval(replicaRepairTimer);
       if (replicaRepairWakeupTimer) clearTimeout(replicaRepairWakeupTimer);
@@ -3806,6 +3818,8 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       await new Promise<void>((resolve) => {
         httpServer?.close(() => resolve());
       });
+
+      trafficMeter.checkpoint();
 
       log('info', 'stopped');
     },

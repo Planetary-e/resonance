@@ -43,6 +43,7 @@ export async function startLanDiscovery(
   relayPort: number,
   ownEndpoints: readonly string[],
   onHint: (endpoint: string) => void,
+  onTraffic?: (direction: 'ingress' | 'egress', bytes: number) => void,
 ): Promise<LanDiscovery> {
   const socket: Socket = createSocket({ type: 'udp4', reuseAddr: true });
   // Multicast is a best-effort hint channel. A later socket error must not
@@ -50,6 +51,7 @@ export async function startLanDiscovery(
   socket.on('error', () => { /* Keep the relay running without LAN hints. */ });
   const lastHint = new Map<string, number>();
   socket.on('message', (data, remote) => {
+    try { onTraffic?.('ingress', data.length); } catch { /* Metering must not stop discovery. */ }
     const endpoint = parseLanBeacon(data, remote.address);
     if (!endpoint || ownEndpoints.includes(endpoint)) return;
     const now = Date.now();
@@ -81,7 +83,11 @@ export async function startLanDiscovery(
   }
   const beacon = Buffer.from(`${PREFIX}${relayPort}`, 'ascii');
   const announce = (): void => {
-    socket.send(beacon, PORT, GROUP, () => { /* availability is best effort */ });
+    socket.send(beacon, PORT, GROUP, error => {
+      if (!error) {
+        try { onTraffic?.('egress', beacon.length); } catch { /* Keep discovery available. */ }
+      }
+    });
   };
   announce();
   const timer = setInterval(announce, 30_000);

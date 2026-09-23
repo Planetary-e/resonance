@@ -99,6 +99,8 @@ export interface RelayStatus {
     publication_storage_quota_bytes?: number;
     transport_ingress_bytes?: number;
     transport_egress_bytes?: number;
+    lan_ingress_bytes?: number;
+    lan_egress_bytes?: number;
     process_cpu_milliseconds?: number;
     data_file_bytes?: number;
     mailbox_storage_reserved_bytes?: number;
@@ -112,6 +114,7 @@ export interface RelayStatus {
 export interface RelayOwnerControls {
   publicationStorageMiB?: number;
   newWorkIngressMiBPerHour?: number;
+  totalBandwidthMiBPerHour?: number;
   cpuMillisecondsPerMinute?: number;
   activeHours?: string;
   onlyWhenCharging?: boolean;

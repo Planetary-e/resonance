@@ -6,6 +6,7 @@ import {
   parseMessage, serializePublicationOperationFrame,
 } from '@resonance/core';
 import { createRelayServer } from '../server.js';
+import { RelayTrafficMeter } from '../relay-resource-meter.js';
 
 const PORT = 37_000 + Math.floor(Math.random() * 1_000);
 const DIRECTORY = `/tmp/resonance-owner-accounting-${Date.now()}-${PORT}`;
@@ -26,8 +27,10 @@ function publish(raw: string): Promise<unknown> {
 
 describe('relay resource accounting and storage commitments', () => {
   it('reports accepted-work cost and refuses a quota below retained promises on restart', async () => {
+    const firstMeter = new RelayTrafficMeter(DIRECTORY);
     const original = createRelayServer({
       port: PORT, host: '127.0.0.1', persistDir: DIRECTORY,
+      resourceMeter: firstMeter,
       publicationStorageQuotaBytes: 1_000_000,
       maxJournalStorageBytes: 1_000_000,
     });
@@ -51,6 +54,8 @@ describe('relay resource accounting and storage commitments', () => {
         .toBeGreaterThan(before.publication_storage_reserved_bytes);
       expect(before.journal_commitment_floor_bytes).toBeGreaterThan(before.journal_bytes);
       expect(before.process_cpu_milliseconds).toBeGreaterThanOrEqual(0);
+      firstMeter.recordLanIngress(17);
+      firstMeter.recordLanEgress(19);
       await original.stop({ graceful: false });
 
       const tooSmall = createRelayServer({
@@ -69,6 +74,14 @@ describe('relay resource accounting and storage commitments', () => {
       try {
         await restored.start();
         expect(restored.getStats().active_publications).toBe(1);
+        expect(restored.getStats().transport_ingress_bytes)
+          .toBeGreaterThanOrEqual(before.transport_ingress_bytes);
+        expect(restored.getStats().transport_egress_bytes)
+          .toBeGreaterThanOrEqual(before.transport_egress_bytes);
+        expect(restored.getStats().process_cpu_milliseconds)
+          .toBeGreaterThanOrEqual(before.process_cpu_milliseconds);
+        expect(restored.getStats().lan_ingress_bytes).toBe(17);
+        expect(restored.getStats().lan_egress_bytes).toBe(19);
         expect(restored.getStats().publication_commitment_floor_bytes)
           .toBeGreaterThan(0);
       } finally {

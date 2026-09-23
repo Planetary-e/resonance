@@ -17,6 +17,7 @@ describe('desktop relay service definitions', () => {
       workingDirectory: '/opt/Resonance',
       controls: {
         publicationStorageMiB: 256, newWorkIngressMiBPerHour: 32,
+        totalBandwidthMiBPerHour: 128,
         cpuMillisecondsPerMinute: 10_000, activeHours: '08:00-22:00',
         onlyWhenCharging: true,
       },
@@ -28,6 +29,7 @@ describe('desktop relay service definitions', () => {
       expect(mac).toContain('wss://relay.example/one?tag=a&amp;b=2');
       expect(mac).not.toContain('server.mjs');
       expect(mac).toContain('RELAY_NEW_WORK_CPU_MS_PER_MINUTE');
+      expect(mac).toContain('RELAY_TOTAL_BANDWIDTH_BYTES_PER_HOUR');
 
       const linux = linuxServiceUnit(options);
       expect(linux).toContain('Restart=always');

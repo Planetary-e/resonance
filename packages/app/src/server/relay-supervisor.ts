@@ -23,6 +23,7 @@ export interface RelayServiceOptions {
 export interface RelayOwnerControls {
   publicationStorageMiB?: number;
   newWorkIngressMiBPerHour?: number;
+  totalBandwidthMiBPerHour?: number;
   cpuMillisecondsPerMinute?: number;
   activeHours?: string;
   onlyWhenCharging?: boolean;
@@ -63,6 +64,10 @@ function environment(options: RelayServiceOptions): Record<string, string> {
     ...(controls.newWorkIngressMiBPerHour === undefined ? {} : {
       RELAY_NEW_WORK_BANDWIDTH_BYTES_PER_HOUR:
         String(controls.newWorkIngressMiBPerHour * 1_048_576),
+    }),
+    ...(controls.totalBandwidthMiBPerHour === undefined ? {} : {
+      RELAY_TOTAL_BANDWIDTH_BYTES_PER_HOUR:
+        String(controls.totalBandwidthMiBPerHour * 1_048_576),
     }),
     ...(controls.cpuMillisecondsPerMinute === undefined ? {} : {
       RELAY_NEW_WORK_CPU_MS_PER_MINUTE: String(controls.cpuMillisecondsPerMinute),

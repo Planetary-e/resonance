@@ -48,6 +48,7 @@ export default function Dashboard({
   const [contactText, setContactText] = useState('');
   const [storageText, setStorageText] = useState('');
   const [bandwidthText, setBandwidthText] = useState('');
+  const [totalBandwidthText, setTotalBandwidthText] = useState('');
   const [cpuText, setCpuText] = useState('');
   const [hoursText, setHoursText] = useState('');
   const [onlyWhenCharging, setOnlyWhenCharging] = useState(false);
@@ -55,6 +56,7 @@ export default function Dashboard({
     setContactText((relayStatus?.contacts ?? []).join(', '));
     setStorageText(String(relayStatus?.controls.publicationStorageMiB ?? ''));
     setBandwidthText(String(relayStatus?.controls.newWorkIngressMiBPerHour ?? ''));
+    setTotalBandwidthText(String(relayStatus?.controls.totalBandwidthMiBPerHour ?? ''));
     setCpuText(String(relayStatus?.controls.cpuMillisecondsPerMinute ?? ''));
     setHoursText(relayStatus?.controls.activeHours ?? '');
     setOnlyWhenCharging(relayStatus?.controls.onlyWhenCharging ?? false);
@@ -63,6 +65,7 @@ export default function Dashboard({
   const controls: RelayOwnerControls = {
     ...(storageText.trim() ? { publicationStorageMiB: Number(storageText) } : {}),
     ...(bandwidthText.trim() ? { newWorkIngressMiBPerHour: Number(bandwidthText) } : {}),
+    ...(totalBandwidthText.trim() ? { totalBandwidthMiBPerHour: Number(totalBandwidthText) } : {}),
     ...(cpuText.trim() ? { cpuMillisecondsPerMinute: Number(cpuText) } : {}),
     ...(hoursText.trim() ? { activeHours: hoursText.trim() } : {}),
     onlyWhenCharging,
@@ -122,6 +125,10 @@ export default function Dashboard({
           <label className="text-sm" htmlFor="relay-bandwidth">New-work ingress budget (MiB/hour)</label>
           <input id="relay-bandwidth" type="number" min="0" value={bandwidthText}
             onChange={event => setBandwidthText(event.target.value)}
+            disabled={relayStatus?.enabled ?? false} placeholder="No limit" />
+          <label className="text-sm" htmlFor="relay-total-bandwidth">Total traffic budget (MiB/hour)</label>
+          <input id="relay-total-bandwidth" type="number" min="0" value={totalBandwidthText}
+            onChange={event => setTotalBandwidthText(event.target.value)}
             disabled={relayStatus?.enabled ?? false} placeholder="No limit" />
           <label className="text-sm" htmlFor="relay-cpu">CPU budget (ms/minute)</label>
           <input id="relay-cpu" type="number" min="0" max="60000" value={cpuText}
@@ -194,11 +201,11 @@ export default function Dashboard({
               <span className="value">{((relayStatus.stats.mailbox_commitment_floor_bytes ?? 0) / 1_048_576).toFixed(2)} MiB</span>
             </div>
             <div className="stat-item">
-              <span className="label">Network in / out since relay start</span>
-              <span className="value">{((relayStatus.stats.transport_ingress_bytes ?? 0) / 1_048_576).toFixed(2)} / {((relayStatus.stats.transport_egress_bytes ?? 0) / 1_048_576).toFixed(2)} MiB</span>
+              <span className="label">Network in / out (lifetime, including LAN)</span>
+              <span className="value">{(((relayStatus.stats.transport_ingress_bytes ?? 0) + (relayStatus.stats.lan_ingress_bytes ?? 0)) / 1_048_576).toFixed(2)} / {(((relayStatus.stats.transport_egress_bytes ?? 0) + (relayStatus.stats.lan_egress_bytes ?? 0)) / 1_048_576).toFixed(2)} MiB</span>
             </div>
             <div className="stat-item">
-              <span className="label">Process CPU since relay start</span>
+              <span className="label">Process CPU (lifetime)</span>
               <span className="value">{((relayStatus.stats.process_cpu_milliseconds ?? 0) / 1_000).toFixed(1)} s</span>
             </div>
           </div>

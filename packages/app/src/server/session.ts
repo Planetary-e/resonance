@@ -105,6 +105,7 @@ function validateOwnerControls(input: RelayOwnerControls): RelayOwnerControls {
   };
   const publicationStorageMiB = integer(input.publicationStorageMiB, 'Publication storage', 1_048_576);
   const newWorkIngressMiBPerHour = integer(input.newWorkIngressMiBPerHour, 'New-work bandwidth', 1_048_576);
+  const totalBandwidthMiBPerHour = integer(input.totalBandwidthMiBPerHour, 'Total bandwidth', 1_048_576);
   const cpuMillisecondsPerMinute = integer(input.cpuMillisecondsPerMinute, 'CPU budget', 60_000);
   if (publicationStorageMiB !== undefined && publicationStorageMiB < 1) {
     throw new Error('Publication storage must be at least 1 MiB');
@@ -122,6 +123,7 @@ function validateOwnerControls(input: RelayOwnerControls): RelayOwnerControls {
   return {
     ...(publicationStorageMiB === undefined ? {} : { publicationStorageMiB }),
     ...(newWorkIngressMiBPerHour === undefined ? {} : { newWorkIngressMiBPerHour }),
+    ...(totalBandwidthMiBPerHour === undefined ? {} : { totalBandwidthMiBPerHour }),
     ...(cpuMillisecondsPerMinute === undefined ? {} : { cpuMillisecondsPerMinute }),
     ...(activeHours ? { activeHours } : {}),
     ...(input.onlyWhenCharging ? { onlyWhenCharging: true } : {}),
@@ -245,6 +247,8 @@ export async function getRelayStats(): Promise<{
     publication_storage_quota_bytes: number;
     transport_ingress_bytes: number;
     transport_egress_bytes: number;
+    lan_ingress_bytes: number;
+    lan_egress_bytes: number;
     process_cpu_milliseconds: number;
     data_file_bytes: number;
     mailbox_storage_reserved_bytes: number;
@@ -277,6 +281,8 @@ export async function getRelayStats(): Promise<{
       publication_storage_quota_bytes: Number(stats.publication_storage_quota_bytes) || 0,
       transport_ingress_bytes: Number(stats.transport_ingress_bytes) || 0,
       transport_egress_bytes: Number(stats.transport_egress_bytes) || 0,
+      lan_ingress_bytes: Number(stats.lan_ingress_bytes) || 0,
+      lan_egress_bytes: Number(stats.lan_egress_bytes) || 0,
       process_cpu_milliseconds: Number(stats.process_cpu_milliseconds) || 0,
       data_file_bytes: Number(stats.data_file_bytes) || 0,
       mailbox_storage_reserved_bytes: Number(stats.mailbox_storage_reserved_bytes) || 0,

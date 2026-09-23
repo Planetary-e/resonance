@@ -8,6 +8,7 @@ import { createRelayContactHintV1 } from '@resonance/core';
 import { log } from './logger.js';
 import { localRelayEndpoints, startLanDiscovery } from './lan-discovery.js';
 import { OwnerResourcePolicy } from './owner-resource-policy.js';
+import { RelayTrafficMeter } from './relay-resource-meter.js';
 import { createRelayServer } from './server.js';
 
 const relayPort = parseNonNegativeInteger(process.env.RELAY_PORT, 9090, 'RELAY_PORT');
@@ -76,25 +77,37 @@ const ownerBandwidth = parseOptionalNonNegativeInteger(
   process.env.RELAY_NEW_WORK_BANDWIDTH_BYTES_PER_HOUR,
   'RELAY_NEW_WORK_BANDWIDTH_BYTES_PER_HOUR',
 );
+const ownerTotalBandwidth = parseOptionalNonNegativeInteger(
+  process.env.RELAY_TOTAL_BANDWIDTH_BYTES_PER_HOUR,
+  'RELAY_TOTAL_BANDWIDTH_BYTES_PER_HOUR',
+);
 const ownerCpu = parseOptionalNonNegativeInteger(
   process.env.RELAY_NEW_WORK_CPU_MS_PER_MINUTE,
   'RELAY_NEW_WORK_CPU_MS_PER_MINUTE',
 );
 const ownerSchedule = process.env.RELAY_ACTIVE_HOURS;
 const ownerExternalPower = process.env.RELAY_ONLY_WHEN_CHARGING === 'true';
-const ownerPolicy = ownerBandwidth !== undefined || ownerCpu !== undefined
+const relayDataDir = process.env.RELAY_DATA_DIR ?? './data';
+const resourceMeter = new RelayTrafficMeter(relayDataDir);
+const ownerPolicy = ownerBandwidth !== undefined || ownerTotalBandwidth !== undefined || ownerCpu !== undefined
   || ownerSchedule !== undefined || ownerExternalPower
   ? new OwnerResourcePolicy({
     maxNewWorkIngressBytesPerHour: ownerBandwidth,
+    maxTotalBandwidthBytesPerHour: ownerTotalBandwidth,
     maxCpuMillisecondsPerMinute: ownerCpu,
     activeHours: ownerSchedule,
     requireExternalPower: ownerExternalPower,
+    cpuMicros: () => resourceMeter.snapshot().cpuMicros,
+    totalBandwidthBytes: () => resourceMeter.snapshot().totalBandwidthBytes,
+    checkpointUsage: () => resourceMeter.checkpoint(),
+    persistDir: relayDataDir,
   }) : null;
 
 const server = createRelayServer({
   port: relayPort,
   host: process.env.RELAY_HOST ?? '0.0.0.0',
-  persistDir: process.env.RELAY_DATA_DIR ?? './data',
+  persistDir: relayDataDir,
+  resourceMeter,
   adminApiKey: process.env.RELAY_ADMIN_API_KEY || null,
   acceptNewWork: ownerPolicy ? bytes => ownerPolicy.allowNewWork(bytes) : undefined,
   maxPublishesPerMin: parseNonNegativeInteger(
@@ -151,6 +164,9 @@ if (lanEnabled) {
       }).catch(error => {
         log('warn', 'relay_lan_contact_failed', { endpoint, error: String(error) });
       });
+    }, (direction, bytes) => {
+      if (direction === 'ingress') resourceMeter.recordLanIngress(bytes);
+      else resourceMeter.recordLanEgress(bytes);
     });
   } catch (error) {
     log('warn', 'relay_lan_listener_unavailable', { error: String(error) });

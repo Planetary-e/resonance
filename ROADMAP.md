@@ -133,10 +133,10 @@ The pilot uses one persistent DID per user and one relay-local index. The next m
   - [x] Merge signed relay replies by publication ID and retain at most the requester's top-k results
   - [x] Derive each recipient's match-notice envelope ID from the stable publication-pair match ID; converge acknowledgement tombstones across relays with differing notice expiries, and persist one visible match per recipient publication on the personal node
   - [x] Exercise two independent relays matching the same pair through client fetch, decryption, local insertion, and acknowledgement; show one visible match
-- [ ] Apply owner-configured storage, bandwidth, CPU, power, and schedule limits without violating already-issued durability promises
+- [x] Apply owner-configured storage, bandwidth, CPU, power, and schedule limits without violating already-issued durability promises
   - [x] Let desktop owners set publication storage, new-work ingress and CPU budgets, local active hours, and a charging-only condition; refuse new publications, searches, and first-time replicas when limits bind while continuing acknowledgements, withdrawals, and retained repairs
   - [x] Report aggregate HTTP/WebSocket ingress and egress, process CPU, data-file, retained-mailbox, and journal bytes; expose publication, mailbox, and journal commitment floors and refuse a storage quota below accepted state on restart
-  - [ ] Bound total bandwidth and CPU with a policy that still serves already-accepted obligations; account for LAN-discovery UDP and measure long-running resource costs across process restarts
+  - [x] Pause discretionary work when measured total traffic or process CPU reaches the owner's budget while continuing already-accepted obligations; include LAN-discovery UDP payloads and carry resource counters and budget windows across process restarts. These budgets are admission thresholds, not hard caps on obligations.
 - [x] Expose local contribution and aggregate replica-health metrics without exposing peer activity
   - [x] Show connected-relay count, active-publication count, publication storage use, and placements at the receipt minimum in the authenticated desktop view; never return peer IDs or exact publication records there
 - [x] Add a five-relay churn and partition test harness
