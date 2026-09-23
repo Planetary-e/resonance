@@ -1,6 +1,7 @@
 /** Outbound authenticated relay link and reconnecting connection manager. */
 
 import WebSocket, { type RawData } from 'ws';
+import type { Socket } from 'node:net';
 import {
   MAX_RELAY_DISCOVERY_FRAME_BYTES,
   MAX_RELAY_REPLICA_INVENTORY_BATCH_RECEIPTS,
@@ -102,6 +103,7 @@ export interface RelayLinkClientOptions {
   /** Re-authenticate the link to refresh signed peer metadata. */
   descriptorRefreshIntervalMs?: number;
   now?: () => number;
+  onTransportSocket?: (socket: Socket) => void;
   /** Handle a signed shutdown notice sent by this link's authenticated target. */
   onReplicaHandoffRequest?: (
     request: RelayReplicaHandoffRequestV1,
@@ -283,6 +285,7 @@ export function connectRelayLinkV1(
       return;
     }
 
+    socket.on('upgrade', response => options.onTransportSocket?.(response.socket));
     socket.on('open', () => socket.send(serialized));
     socket.on('message', (data: RawData, isBinary: boolean) => {
       if (accepted) {

@@ -135,7 +135,8 @@ The pilot uses one persistent DID per user and one relay-local index. The next m
   - [x] Exercise two independent relays matching the same pair through client fetch, decryption, local insertion, and acknowledgement; show one visible match
 - [ ] Apply owner-configured storage, bandwidth, CPU, power, and schedule limits without violating already-issued durability promises
   - [x] Let desktop owners set publication storage, new-work ingress and CPU budgets, local active hours, and a charging-only condition; refuse new publications, searches, and first-time replicas when limits bind while continuing acknowledgements, withdrawals, and retained repairs
-  - [ ] Account for total ingress and egress, mailbox and journal disk use, and resource use from existing obligations; expose the resulting commitment floor before accepting tighter hard limits
+  - [x] Report aggregate HTTP/WebSocket ingress and egress, process CPU, data-file, retained-mailbox, and journal bytes; expose publication, mailbox, and journal commitment floors and refuse a storage quota below accepted state on restart
+  - [ ] Bound total bandwidth and CPU with a policy that still serves already-accepted obligations; account for LAN-discovery UDP and measure long-running resource costs across process restarts
 - [x] Expose local contribution and aggregate replica-health metrics without exposing peer activity
   - [x] Show connected-relay count, active-publication count, publication storage use, and placements at the receipt minimum in the authenticated desktop view; never return peer IDs or exact publication records there
 - [x] Add a five-relay churn and partition test harness

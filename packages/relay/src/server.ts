@@ -7,6 +7,7 @@ import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import { WebSocket, WebSocketServer } from 'ws';
+import { RelayTrafficMeter, relayDataFileBytes } from './relay-resource-meter.js';
 import {
   MessageTypes,
   MAILBOX_DEPOSIT_FRAME_TYPE,
@@ -256,6 +257,13 @@ export interface RelayConfig {
 
 export interface RelayStats {
   relay_id: string;
+  transport_ingress_bytes: number;
+  transport_egress_bytes: number;
+  process_cpu_milliseconds: number;
+  data_file_bytes: number;
+  publication_commitment_floor_bytes: number;
+  mailbox_commitment_floor_bytes: number;
+  journal_commitment_floor_bytes: number;
   indexed_embeddings: number;
   stored_publications: number;
   active_publications: number;
@@ -475,6 +483,8 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   );
   const relayIdentity = loadOrCreateRelayIdentity(cfg.persistDir);
   const replicaStorageLedger = new ReplicaStorageLedger();
+  const trafficMeter = new RelayTrafficMeter();
+  const cpuAtStart = process.cpuUsage();
 
   const rateLimiter = new RateLimiter({
     maxPublishesPerMin: cfg.maxPublishesPerMin,
@@ -625,6 +635,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       return descriptor;
     }, {
       ...cfg.relayLinks,
+      onTransportSocket: socket => trafficMeter.observe(socket),
       onReplicaHandoffRequest: acceptReplicaHandoffRequest,
       onQueryRequest: request => processForwardedSearch(request, request.senderRelayId),
       onReplicaRequestFrame(raw, remote, socket) {
@@ -2064,6 +2075,29 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     return { intentCount: intents.length, receiptCount, minimumConfirmedCount };
   }
 
+  function resourceMetrics(): Pick<RelayStats,
+    'transport_ingress_bytes' | 'transport_egress_bytes' | 'process_cpu_milliseconds'
+    | 'data_file_bytes' | 'publication_commitment_floor_bytes'
+    | 'mailbox_commitment_floor_bytes' | 'journal_commitment_floor_bytes'> {
+    const traffic = trafficMeter.snapshot();
+    const cpu = process.cpuUsage(cpuAtStart);
+    const hasPublicationObligations = replicaStorageLedger.reservedBytes > 0;
+    const journalReserve = JOURNAL_TERMINAL_RESERVE_BYTES
+      * (publicationStore.liveRecordCount
+        + (hasPublicationObligations && publicationStore.firstSeenTombstoneCount === 0 ? 1 : 0))
+      + JOURNAL_ACK_RESERVE_BYTES * mailboxStore.envelopeCount;
+    return {
+      transport_ingress_bytes: traffic.ingressBytes,
+      transport_egress_bytes: traffic.egressBytes,
+      process_cpu_milliseconds: Math.floor((cpu.user + cpu.system) / 1_000),
+      data_file_bytes: relayDataFileBytes(cfg.persistDir),
+      publication_commitment_floor_bytes: hasPublicationObligations
+        ? replicaStorageLedger.reservedBytes + FIRST_SEEN_TOMBSTONE_RESERVE_BYTES : 0,
+      mailbox_commitment_floor_bytes: mailboxStore.commitmentFloorBytes,
+      journal_commitment_floor_bytes: 2 * (operationLog.byteLength + journalReserve),
+    };
+  }
+
   function handleHttpRequest(req: { url?: string; method?: string }, res: {
     writeHead: (code: number, headers?: Record<string, string>) => void;
     end: (body?: string) => void;
@@ -2108,6 +2142,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         relay_id: relayIdentity.did,
+        ...resourceMetrics(),
         indexed_embeddings: stats.total,
         stored_publications: publicationStore.size,
         active_publications: publicationStore.activeRecords().length,
@@ -3500,10 +3535,17 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       const now = Date.now();
       for (const operation of publicationStore.activeRecords(now)) applyToMatchingIndex(operation, false);
       enforcePublicationExpiries();
+      const floor = resourceMetrics();
+      if (publicationStorageQuotaBytes < floor.publication_commitment_floor_bytes
+        || maxMailboxStorageBytes < floor.mailbox_commitment_floor_bytes
+        || maxJournalStorageBytes < floor.journal_commitment_floor_bytes) {
+        throw new Error('Configured storage quota is below existing relay commitments');
+      }
       scheduleNextPublicationExpiry(now);
       log('info', 'journal_replayed', { dir: cfg.persistDir, entries: operationLog.length });
 
       httpServer = createServer(handleHttpRequest);
+      httpServer.on('connection', socket => trafficMeter.observe(socket));
       wss = new WebSocketServer({
         server: httpServer,
         maxPayload: MAX_RELAY_DISCOVERY_FRAME_BYTES,
@@ -3598,6 +3640,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       const placement = replicaPlacementMetrics();
       return {
         relay_id: relayIdentity.did,
+        ...resourceMetrics(),
         indexed_embeddings: stats.total,
         stored_publications: publicationStore.size,
         active_publications: publicationStore.activeRecords().length,
@@ -3654,6 +3697,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       const result = await discoverRelayContactV1(hint, {
         supportedGroups: cfg.relayDiscovery?.supportedGroups ?? [],
         ...options,
+        onTransportSocket: socket => trafficMeter.observe(socket),
       });
       const now = Date.now();
       const observations = result.descriptors.map(descriptor => ({

@@ -88,6 +88,7 @@ export interface RelayStatus {
   port: number | null;
   contacts: string[];
   controls: RelayOwnerControls;
+  storageCommitmentFloorBytes?: number;
   stats: {
     relay_id?: string;
     connected_relays?: number;
@@ -96,6 +97,15 @@ export interface RelayStatus {
     minimum_confirmed_placements?: number;
     publication_storage_reserved_bytes?: number;
     publication_storage_quota_bytes?: number;
+    transport_ingress_bytes?: number;
+    transport_egress_bytes?: number;
+    process_cpu_milliseconds?: number;
+    data_file_bytes?: number;
+    mailbox_storage_reserved_bytes?: number;
+    journal_bytes?: number;
+    publication_commitment_floor_bytes?: number;
+    mailbox_commitment_floor_bytes?: number;
+    journal_commitment_floor_bytes?: number;
   } | null;
 }
 

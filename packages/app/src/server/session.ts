@@ -69,6 +69,7 @@ interface RelayConfig {
   adminKey?: string;
   contacts?: string[];
   controls?: RelayOwnerControls;
+  storageCommitmentFloorBytes?: number;
   runtime?: { nodePath: string; entryPath: string };
 }
 
@@ -127,6 +128,13 @@ function validateOwnerControls(input: RelayOwnerControls): RelayOwnerControls {
   };
 }
 
+function storageCommitmentFloor(stats: Record<string, unknown> | null, fallback = 0): number {
+  if (!stats) return fallback;
+  return Math.max(0,
+    Number(stats.publication_commitment_floor_bytes) || 0,
+    Number(stats.journal_commitment_floor_bytes) || 0);
+}
+
 // --- Relay mode ---
 
 export async function startRelayMode(
@@ -148,6 +156,14 @@ export async function startRelayMode(
     })) throw new Error('Relay contacts must be up to 16 distinct ws:// or wss:// endpoints');
   const controls = validateOwnerControls(requestedControls ?? previous.controls ?? {});
   const runtime = relayServiceRuntime();
+  const previousStats = previous.enabled ? await relayServiceStats(previous.port, adminKey) : null;
+  const minimumStorageBytes = storageCommitmentFloor(
+    previousStats, previous.storageCommitmentFloorBytes ?? 0,
+  );
+  if (controls.publicationStorageMiB !== undefined
+    && controls.publicationStorageMiB * 1_048_576 < minimumStorageBytes) {
+    throw new Error(`Storage limit must be at least ${Math.ceil(minimumStorageBytes / 1_048_576)} MiB to preserve accepted relay data`);
+  }
   if (previous.enabled && previous.port === p
     && previous.runtime?.nodePath === runtime.nodePath
     && previous.runtime?.entryPath === runtime.entryPath
@@ -187,8 +203,15 @@ export async function startRelayMode(
 }
 
 export async function stopRelayMode(): Promise<void> {
+  const previous = loadRelayConfig();
+  const stats = previous.enabled && previous.adminKey
+    ? await relayServiceStats(previous.port, previous.adminKey) : null;
   uninstallRelayService();
-  saveRelayConfig({ ...loadRelayConfig(), enabled: false });
+  saveRelayConfig({ ...previous, enabled: false,
+    storageCommitmentFloorBytes: storageCommitmentFloor(
+      stats, previous.storageCommitmentFloorBytes ?? 0,
+    ),
+  });
   if (session) {
     session.relayClient.disconnect();
     const urls = session.remoteRelayUrls;
@@ -211,6 +234,7 @@ export function isRelayMode(): boolean {
 export async function getRelayStats(): Promise<{
   enabled: boolean; running: boolean; port: number; contacts: string[];
   controls: RelayOwnerControls;
+  storageCommitmentFloorBytes: number;
   stats: {
     relay_id: string;
     connected_relays: number;
@@ -219,17 +243,30 @@ export async function getRelayStats(): Promise<{
     minimum_confirmed_placements: number;
     publication_storage_reserved_bytes: number;
     publication_storage_quota_bytes: number;
+    transport_ingress_bytes: number;
+    transport_egress_bytes: number;
+    process_cpu_milliseconds: number;
+    data_file_bytes: number;
+    mailbox_storage_reserved_bytes: number;
+    journal_bytes: number;
+    publication_commitment_floor_bytes: number;
+    mailbox_commitment_floor_bytes: number;
+    journal_commitment_floor_bytes: number;
   } | null;
 } | null> {
   const config = loadRelayConfig();
   if (!config.enabled || !config.adminKey) return {
     enabled: false, running: false, port: config.port,
-    contacts: config.contacts ?? [], controls: config.controls ?? {}, stats: null,
+    contacts: config.contacts ?? [], controls: config.controls ?? {},
+    storageCommitmentFloorBytes: config.storageCommitmentFloorBytes ?? 0, stats: null,
   };
   const stats = await relayServiceStats(config.port, config.adminKey);
   return {
     enabled: true, running: stats !== null, port: config.port,
     contacts: config.contacts ?? [], controls: config.controls ?? {},
+    storageCommitmentFloorBytes: storageCommitmentFloor(
+      stats, config.storageCommitmentFloorBytes ?? 0,
+    ),
     stats: stats ? {
       relay_id: String(stats.relay_id ?? ''),
       connected_relays: Number(stats.connected_relays) || 0,
@@ -238,6 +275,16 @@ export async function getRelayStats(): Promise<{
       minimum_confirmed_placements: Number(stats.minimum_confirmed_placements) || 0,
       publication_storage_reserved_bytes: Number(stats.publication_storage_reserved_bytes) || 0,
       publication_storage_quota_bytes: Number(stats.publication_storage_quota_bytes) || 0,
+      transport_ingress_bytes: Number(stats.transport_ingress_bytes) || 0,
+      transport_egress_bytes: Number(stats.transport_egress_bytes) || 0,
+      process_cpu_milliseconds: Number(stats.process_cpu_milliseconds) || 0,
+      data_file_bytes: Number(stats.data_file_bytes) || 0,
+      mailbox_storage_reserved_bytes: Number(stats.mailbox_storage_reserved_bytes) || 0,
+      journal_bytes: Number(stats.journal_bytes) || 0,
+      publication_commitment_floor_bytes:
+        Number(stats.publication_commitment_floor_bytes) || 0,
+      mailbox_commitment_floor_bytes: Number(stats.mailbox_commitment_floor_bytes) || 0,
+      journal_commitment_floor_bytes: Number(stats.journal_commitment_floor_bytes) || 0,
     } : null,
   };
 }

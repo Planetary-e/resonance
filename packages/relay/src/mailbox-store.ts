@@ -16,6 +16,7 @@ export class MailboxStore {
   /** Prevent an acknowledged envelope from being delivered again on retry. */
   private acknowledged = new Map<string, Map<string, number>>();
   private retainedByteCount = 0;
+  private acknowledgementGrowthReserveBytes = 0;
   private activeEnvelopeCount = 0;
 
   hasEnvelope(mailboxId: string, envelopeId: string): boolean {
@@ -61,6 +62,11 @@ export class MailboxStore {
     return this.retainedByteCount;
   }
 
+  /** Space needed to replace every retained envelope with its future acknowledgement. */
+  get commitmentFloorBytes(): number {
+    return this.retainedByteCount + this.acknowledgementGrowthReserveBytes;
+  }
+
   canEnqueue(envelopes: readonly EncryptedMailboxEnvelope[], quotaBytes: number): boolean {
     if (!Number.isSafeInteger(quotaBytes) || quotaBytes < 0) return false;
     let additional = 0;
@@ -70,9 +76,12 @@ export class MailboxStore {
       if (included.has(key) || this.hasEnvelope(envelope.mailboxId, envelope.envelopeId)
         || this.hasAcknowledgedEnvelope(envelope.mailboxId, envelope.envelopeId)) continue;
       included.add(key);
-      additional += envelopeBytes(envelope);
+      additional += Math.max(
+        envelopeBytes(envelope),
+        acknowledgementBytes(envelope.mailboxId, envelope.envelopeId, envelope.expiresAt),
+      );
     }
-    return this.retainedBytes + additional <= quotaBytes;
+    return this.commitmentFloorBytes + additional <= quotaBytes;
   }
 
   presentEnvelopeIds(mailboxId: string, envelopeIds: readonly string[]): string[] {
@@ -92,6 +101,7 @@ export class MailboxStore {
     if (mailbox.has(envelope.envelopeId)) return 'duplicate';
     mailbox.set(envelope.envelopeId, envelope);
     this.retainedByteCount += envelopeBytes(envelope);
+    this.acknowledgementGrowthReserveBytes += acknowledgementGrowth(envelope);
     this.activeEnvelopeCount++;
     return 'accepted';
   }
@@ -112,6 +122,7 @@ export class MailboxStore {
         if (envelope.expiresAt <= now) {
           mailbox.delete(id);
           this.retainedByteCount -= envelopeBytes(envelope);
+          this.acknowledgementGrowthReserveBytes -= acknowledgementGrowth(envelope);
           this.activeEnvelopeCount--;
           removed++;
         }
@@ -140,6 +151,7 @@ export class MailboxStore {
       if (!envelope) continue;
       mailbox.delete(id);
       this.retainedByteCount -= envelopeBytes(envelope);
+      this.acknowledgementGrowthReserveBytes -= acknowledgementGrowth(envelope);
       this.activeEnvelopeCount--;
       removed++;
       if (envelope.expiresAt > Date.now()) {
@@ -164,8 +176,8 @@ export class MailboxStore {
     const effectiveExpiry = Math.max(expiresAt, existing?.expiresAt ?? 0, previousExpiry ?? 0);
     const additional = acknowledgementBytes(mailboxId, envelopeId, effectiveExpiry)
       - (previousExpiry === undefined ? 0 : acknowledgementBytes(mailboxId, envelopeId, previousExpiry))
-      - (existing ? envelopeBytes(existing) : 0);
-    return this.retainedByteCount + additional <= quotaBytes;
+      - (existing ? envelopeBytes(existing) + acknowledgementGrowth(existing) : 0);
+    return this.commitmentFloorBytes + additional <= quotaBytes;
   }
 
   /** An acknowledgement is an observed-remove tombstone even if its envelope is absent here. */
@@ -179,6 +191,7 @@ export class MailboxStore {
       mailbox.delete(envelopeId);
       if (mailbox.size === 0) this.mailboxes.delete(mailboxId);
       this.retainedByteCount -= envelopeBytes(envelope);
+      this.acknowledgementGrowthReserveBytes -= acknowledgementGrowth(envelope);
       this.activeEnvelopeCount--;
     }
     let ids = this.acknowledged.get(mailboxId);
@@ -252,10 +265,12 @@ export class MailboxStore {
     this.mailboxes = restored;
     this.acknowledged = acknowledged;
     this.retainedByteCount = 0;
+    this.acknowledgementGrowthReserveBytes = 0;
     this.activeEnvelopeCount = 0;
     for (const mailbox of restored.values()) {
       for (const envelope of mailbox.values()) {
         this.retainedByteCount += envelopeBytes(envelope);
+        this.acknowledgementGrowthReserveBytes += acknowledgementGrowth(envelope);
         this.activeEnvelopeCount++;
       }
     }
@@ -269,6 +284,12 @@ export class MailboxStore {
 
 function envelopeBytes(envelope: EncryptedMailboxEnvelope): number {
   return Buffer.byteLength(JSON.stringify(envelope), 'utf8');
+}
+
+function acknowledgementGrowth(envelope: EncryptedMailboxEnvelope): number {
+  return Math.max(0,
+    acknowledgementBytes(envelope.mailboxId, envelope.envelopeId, envelope.expiresAt)
+      - envelopeBytes(envelope));
 }
 
 function acknowledgementBytes(mailboxId: string, envelopeId: string, expiresAt: number): number {

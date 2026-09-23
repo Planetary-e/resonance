@@ -141,6 +141,13 @@ export default function Dashboard({
         <p className="text-sm text-muted">
           These limits pause new work. The relay continues handling accepted records, repairs, acknowledgements, and withdrawals.
         </p>
+        {(relayStatus?.storageCommitmentFloorBytes ?? 0) > 0 && (
+          <p className="text-sm text-muted">
+            Minimum storage limit for accepted data: {Math.ceil(
+              (relayStatus?.storageCommitmentFloorBytes ?? 0) / 1_048_576,
+            )} MiB. A lower setting is rejected when the relay starts.
+          </p>
+        )}
 
         {relayStatus?.enabled && relayStatus.stats && (
           <div className="relay-stats">
@@ -173,6 +180,26 @@ export default function Dashboard({
                 {Math.round((relayStatus.stats.publication_storage_reserved_bytes ?? 0) / 1_048_576)}
                 /{Math.round((relayStatus.stats.publication_storage_quota_bytes ?? 0) / 1_048_576)} MiB
               </span>
+            </div>
+            <div className="stat-item">
+              <span className="label">Relay data files</span>
+              <span className="value">{((relayStatus.stats.data_file_bytes ?? 0) / 1_048_576).toFixed(2)} MiB</span>
+            </div>
+            <div className="stat-item">
+              <span className="label">Mailbox / journal retained</span>
+              <span className="value">{((relayStatus.stats.mailbox_storage_reserved_bytes ?? 0) / 1_048_576).toFixed(2)} / {((relayStatus.stats.journal_bytes ?? 0) / 1_048_576).toFixed(2)} MiB</span>
+            </div>
+            <div className="stat-item">
+              <span className="label">Mailbox minimum quota</span>
+              <span className="value">{((relayStatus.stats.mailbox_commitment_floor_bytes ?? 0) / 1_048_576).toFixed(2)} MiB</span>
+            </div>
+            <div className="stat-item">
+              <span className="label">Network in / out since relay start</span>
+              <span className="value">{((relayStatus.stats.transport_ingress_bytes ?? 0) / 1_048_576).toFixed(2)} / {((relayStatus.stats.transport_egress_bytes ?? 0) / 1_048_576).toFixed(2)} MiB</span>
+            </div>
+            <div className="stat-item">
+              <span className="label">Process CPU since relay start</span>
+              <span className="value">{((relayStatus.stats.process_cpu_milliseconds ?? 0) / 1_000).toFixed(1)} s</span>
             </div>
           </div>
         )}

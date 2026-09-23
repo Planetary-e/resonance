@@ -1,6 +1,7 @@
 /** Outbound relay discovery over a short, unlinkable WebSocket exchange. */
 
 import WebSocket, { type RawData } from 'ws';
+import type { Socket } from 'node:net';
 import {
   MAX_RELAY_DISCOVERY_FRAME_BYTES,
   MAX_RELAY_PEERS_PER_RESPONSE,
@@ -20,6 +21,7 @@ export interface RelayContactDiscoveryOptions {
   maxPeers?: number;
   timeoutMs?: number;
   now?: () => number;
+  onTransportSocket?: (socket: Socket) => void;
 }
 
 export interface RelayContactDiscoveryResult {
@@ -89,6 +91,7 @@ export function discoverRelayContactV1(
       return;
     }
 
+    socket.on('upgrade', response => options.onTransportSocket?.(response.socket));
     socket.on('open', () => socket.send(serializedRequest));
     socket.on('message', (data: RawData, isBinary: boolean) => {
       if (isBinary) {
