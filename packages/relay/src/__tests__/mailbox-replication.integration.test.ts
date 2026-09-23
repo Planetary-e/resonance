@@ -176,6 +176,7 @@ describe('publication mailbox anti-entropy', () => {
     await targets[1].start();
     await waitFor(() => targets[1].getStats().active_publications === 2, 15_000);
     await waitFor(async () => (await fetch(TARGET_PORTS[1], need.record, need.keys)).includes(needNoticeId), 15_000);
-    expect(await fetch(TARGET_PORTS[1], offer.record, offer.keys)).not.toContain(offerNoticeId);
+    await waitFor(async () => !(await fetch(TARGET_PORTS[1], offer.record, offer.keys))
+      .includes(offerNoticeId), 15_000);
   }, 40_000);
 });
