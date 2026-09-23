@@ -102,6 +102,16 @@ afterAll(async () => {
 });
 
 describe('authenticated outbound relay links', () => {
+  it('rejects a public cleartext link before dialing', async () => {
+    const identity = generateIdentity();
+    const descriptor = spoke.getRelayDescriptor();
+    expect(descriptor).not.toBeNull();
+    await expect(connectRelayLinkV1(
+      createRelayContactHintV1('configured', 'ws://relay.example.org/'),
+      descriptor!, identity,
+    )).rejects.toThrow('Internet-facing relay endpoints require wss://');
+  });
+
   it('rejects a reachable relay that does not match an invitation pin', async () => {
     const initiator = generateIdentity();
     const wrongRelay = generateIdentity();

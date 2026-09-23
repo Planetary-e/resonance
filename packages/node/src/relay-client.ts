@@ -4,6 +4,7 @@
 
 import WebSocket from 'ws';
 import {
+  assertSecureRelayTransportEndpoint,
   MessageTypes,
   MAILBOX_RESPONSE_MESSAGE_TYPE,
   SEARCH_RESPONSE_MESSAGE_TYPE,
@@ -153,6 +154,7 @@ export function createRelayClient(config: RelayClientConfig): RelayClient {
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let currentUrl = config.relayUrl;
   const allUrls = [config.relayUrl, ...(config.fallbackUrls ?? [])];
+  allUrls.forEach(assertSecureRelayTransportEndpoint);
   let urlIndex = 0;
   const events: Partial<RelayClientEvents> = {};
   const pending = new Map<string, PendingRequest>();

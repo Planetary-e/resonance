@@ -74,6 +74,23 @@ afterAll(async () => {
 });
 
 describe('outbound relay discovery', () => {
+  it('rejects a public cleartext endpoint in its own advertisement', () => {
+    expect(() => createRelayServer({
+      relayDiscovery: {
+        endpoints: ['ws://relay.example.org/'],
+        reachability: 'direct',
+        supportedGroups: ['public'],
+        storage: { capacityBytes: 1_000_000, availableBytes: 800_000 },
+      },
+    })).toThrow('Internet-facing relay endpoints require wss://');
+  });
+
+  it('rejects a public cleartext contact before dialing', async () => {
+    const hint = createRelayContactHintV1('configured', 'ws://relay.example.org/');
+    await expect(discoverRelayContactV1(hint))
+      .rejects.toThrow('Internet-facing relay endpoints require wss://');
+  });
+
   it('verifies a pinned responder and ingests independently signed descriptors', async () => {
     const sourceDescriptor = source.getRelayDescriptor();
     expect(sourceDescriptor).not.toBeNull();

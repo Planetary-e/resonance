@@ -10,6 +10,7 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { RelayTrafficMeter, relayDataFileBytes } from './relay-resource-meter.js';
 import { DirectReachabilityObservations } from './direct-reachability.js';
 import {
+  assertSecureRelayTransportEndpoint,
   MessageTypes,
   MAILBOX_DEPOSIT_FRAME_TYPE,
   MAILBOX_REQUEST_FRAME_TYPE,
@@ -380,6 +381,7 @@ type PublicationCommitStatus = PublicationApplyStatus | 'capacity-exhausted';
 
 export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   const cfg = { ...DEFAULT_CONFIG, ...config };
+  cfg.relayDiscovery?.endpoints.forEach(assertSecureRelayTransportEndpoint);
   const publicationStorageQuotaBytes = config?.publicationStorageQuotaBytes
     ?? cfg.relayDiscovery?.storage.availableBytes
     ?? DEFAULT_PUBLICATION_STORAGE_QUOTA_BYTES;

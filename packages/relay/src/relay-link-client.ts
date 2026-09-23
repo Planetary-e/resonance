@@ -3,6 +3,7 @@
 import WebSocket, { type RawData } from 'ws';
 import type { Socket } from 'node:net';
 import {
+  assertSecureRelayTransportEndpoint,
   MAX_RELAY_DISCOVERY_FRAME_BYTES,
   MAX_RELAY_REPLICA_INVENTORY_BATCH_RECEIPTS,
   RELAY_REPLICA_INVENTORY_BATCH_RESPONSE_FRAME_TYPE,
@@ -196,6 +197,8 @@ export function connectRelayLinkV1(
   options: RelayLinkClientOptions = {},
 ): Promise<RelayLinkConnection> {
   if (!verifyRelayContactHintV1(hint)) return Promise.reject(new Error('Invalid relay contact hint'));
+  try { assertSecureRelayTransportEndpoint(hint.endpoint); }
+  catch (error) { return Promise.reject(error); }
   const handshakeTimeoutMs = options.handshakeTimeoutMs ?? 15_000;
   const heartbeatIntervalMs = options.heartbeatIntervalMs ?? 30_000;
   const heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? 90_000;
