@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import { WebSocket, WebSocketServer } from 'ws';
 import { RelayTrafficMeter, relayDataFileBytes } from './relay-resource-meter.js';
+import { DirectReachabilityObservations } from './direct-reachability.js';
 import {
   MessageTypes,
   MAILBOX_DEPOSIT_FRAME_TYPE,
@@ -300,6 +301,7 @@ export interface RelayStats {
   inbound_authenticated_relays: number;
   outbound_authenticated_relays: number;
   connected_query_peers: number;
+  peer_confirmed_direct_endpoints: number;
   durability_receipts: number;
   placement_intents: number;
   minimum_confirmed_placements: number;
@@ -510,6 +512,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     cfg.relayDiscovery?.maxKnownRelays ?? 256,
     relayIdentity.did,
   );
+  const directReachability = new DirectReachabilityObservations();
 
   const seenSearches = new Map<string, number>();
   const pendingInboundQueries = new Map<string, {
@@ -2241,7 +2244,8 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
 
   function liveLinkMetrics(): Pick<RelayStats,
     'connected_relays' | 'inbound_authenticated_relays'
-    | 'outbound_authenticated_relays' | 'connected_query_peers'> {
+    | 'outbound_authenticated_relays' | 'connected_query_peers'
+    | 'peer_confirmed_direct_endpoints'> {
     return {
       connected_relays: connectedRelayIds().length,
       inbound_authenticated_relays: [...inboundRelayLinks.values()]
@@ -2249,6 +2253,9 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       outbound_authenticated_relays: outboundRelayLinks?.connectedPeers().length ?? 0,
       connected_query_peers: new Set((cfg.relayDiscovery?.supportedGroups ?? [])
         .flatMap(groupId => [...eligibleQueryPeers(groupId).keys()])).size,
+      peer_confirmed_direct_endpoints: directReachability.confirmedEndpointCount(
+        getOwnRelayDescriptor(),
+      ),
     };
   }
 
@@ -3250,6 +3257,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           observedEndpoint: `ws://${ip.includes(':') ? `[${ip}]` : ip}/`,
           lastPongAt: now,
         });
+        directReachability.observe(ownDescriptor, remoteRelayId, request.dialedEndpoint, ip, now);
         ws.on('pong', () => {
           const link = inboundRelayLinks.get(remoteRelayId);
           if (link?.socket === ws) link.lastPongAt = Date.now();

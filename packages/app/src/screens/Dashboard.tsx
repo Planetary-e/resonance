@@ -179,6 +179,10 @@ export default function Dashboard({
               <span className="value">{relayStatus.stats.connected_query_peers ?? 0}</span>
             </div>
             <div className="stat-item">
+              <span className="label">Direct endpoints confirmed by peers (5 min)</span>
+              <span className="value">{relayStatus.stats.peer_confirmed_direct_endpoints ?? 0}</span>
+            </div>
+            <div className="stat-item">
               <span className="label">Active Publications</span>
               <span className="value">{relayStatus.stats.active_publications ?? 0}</span>
             </div>

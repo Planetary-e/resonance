@@ -243,6 +243,7 @@ export async function getRelayStats(): Promise<{
     inbound_authenticated_relays: number;
     outbound_authenticated_relays: number;
     connected_query_peers: number;
+    peer_confirmed_direct_endpoints: number;
     active_publications: number;
     placement_intents: number;
     minimum_confirmed_placements: number;
@@ -280,6 +281,7 @@ export async function getRelayStats(): Promise<{
       inbound_authenticated_relays: Number(stats.inbound_authenticated_relays) || 0,
       outbound_authenticated_relays: Number(stats.outbound_authenticated_relays) || 0,
       connected_query_peers: Number(stats.connected_query_peers) || 0,
+      peer_confirmed_direct_endpoints: Number(stats.peer_confirmed_direct_endpoints) || 0,
       active_publications: Number(stats.active_publications) || 0,
       placement_intents: Number(stats.placement_intents) || 0,
       minimum_confirmed_placements: Number(stats.minimum_confirmed_placements) || 0,

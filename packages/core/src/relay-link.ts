@@ -14,6 +14,7 @@ import {
 import {
   MAX_RELAY_DISCOVERY_FRAME_BYTES,
   isRelayDescriptorActiveV1,
+  createRelayContactHintV1,
   verifyRelayDescriptorV1,
   type RelayDescriptorV1,
 } from './relay-discovery.js';
@@ -26,7 +27,9 @@ export const MAX_RELAY_LINK_HANDSHAKE_LIFETIME_MS = 60_000;
 const LINK_OPEN_DOMAIN = 'resonance:relay-link:v1:open';
 const LINK_ACCEPT_DOMAIN = 'resonance:relay-link:v1:accept';
 const OPEN_BODY_KEYS = ['createdAt', 'descriptor', 'expiresAt', 'kind', 'linkId', 'version'] as const;
+const OPEN_BODY_WITH_ENDPOINT_KEYS = [...OPEN_BODY_KEYS, 'dialedEndpoint'] as const;
 const OPEN_KEYS = [...OPEN_BODY_KEYS, 'signature'] as const;
+const OPEN_WITH_ENDPOINT_KEYS = [...OPEN_BODY_WITH_ENDPOINT_KEYS, 'signature'] as const;
 const ACCEPT_BODY_KEYS = [
   'createdAt',
   'expiresAt',
@@ -43,6 +46,8 @@ export interface RelayLinkOpenBodyV1 {
   kind: 'relay-link-open';
   linkId: string;
   descriptor: RelayDescriptorV1;
+  /** Signed statement of the exact target URL used for this connection. */
+  dialedEndpoint?: string;
   createdAt: number;
   expiresAt: number;
 }
@@ -80,6 +85,7 @@ export function createRelayLinkOpenV1(
   identity: Identity,
   createdAt = Date.now(),
   expiresAt = createdAt + 30_000,
+  dialedEndpoint?: string,
 ): RelayLinkOpenV1 {
   const linkId = opaqueLinkId(generateSigningKeyPair().publicKey);
   const body: RelayLinkOpenBodyV1 = {
@@ -87,6 +93,7 @@ export function createRelayLinkOpenV1(
     kind: 'relay-link-open',
     linkId,
     descriptor,
+    ...(dialedEndpoint === undefined ? {} : { dialedEndpoint }),
     createdAt,
     expiresAt,
   };
@@ -104,7 +111,8 @@ export function createRelayLinkOpenV1(
 }
 
 export function verifyRelayLinkOpenV1(value: unknown): value is RelayLinkOpenV1 {
-  if (!isObject(value) || !hasOnlyKeys(value, OPEN_KEYS)) return false;
+  if (!isObject(value) || !hasOnlyKeys(value,
+    'dialedEndpoint' in value ? OPEN_WITH_ENDPOINT_KEYS : OPEN_KEYS)) return false;
   const { signature, ...body } = value;
   if (!isCanonicalBase64(signature, 64) || !isRelayLinkOpenBody(body)) return false;
   try {
@@ -237,7 +245,15 @@ export function parseRelayLinkAcceptFrameV1(raw: string): RelayLinkAcceptFrameV1
 }
 
 function isRelayLinkOpenBody(value: unknown): value is RelayLinkOpenBodyV1 {
-  if (!isObject(value) || !hasOnlyKeys(value, OPEN_BODY_KEYS)) return false;
+  if (!isObject(value) || !hasOnlyKeys(value,
+    'dialedEndpoint' in value ? OPEN_BODY_WITH_ENDPOINT_KEYS : OPEN_BODY_KEYS)) return false;
+  if ('dialedEndpoint' in value) {
+    if (typeof value.dialedEndpoint !== 'string') return false;
+    try {
+      if (createRelayContactHintV1('configured', value.dialedEndpoint).endpoint
+        !== value.dialedEndpoint) return false;
+    } catch { return false; }
+  }
   if (value.version !== RELAY_LINK_VERSION || value.kind !== 'relay-link-open') return false;
   if (!isOpaqueLinkId(value.linkId) || !verifyRelayDescriptorV1(value.descriptor)) return false;
   if (!isTimestamp(value.createdAt) || !isTimestamp(value.expiresAt)) return false;

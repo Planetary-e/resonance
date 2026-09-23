@@ -95,4 +95,22 @@ describe('relay link handshake', () => {
     expect(() => parseRelayLinkOpenFrameV1(JSON.stringify({ ...openFrame, extra: true }))).toThrow();
     expect(() => parseRelayLinkAcceptFrameV1(JSON.stringify({ ...acceptFrame, extra: true }))).toThrow();
   });
+
+  it('binds an optional contacted endpoint to the initiator signature', () => {
+    const initiator = generateIdentity();
+    const request = createRelayLinkOpenV1(
+      descriptor(initiator, false), initiator, NOW, NOW + 30_000,
+      'wss://relay.example.net/',
+    );
+    expect(verifyRelayLinkOpenV1(request)).toBe(true);
+    expect(parseRelayLinkOpenFrameV1(serializeRelayLinkOpenFrameV1(
+      createRelayLinkOpenFrameV1(request),
+    )).request.dialedEndpoint).toBe('wss://relay.example.net/');
+    expect(verifyRelayLinkOpenV1({ ...request, dialedEndpoint: 'wss://other.example.net/' }))
+      .toBe(false);
+    expect(() => createRelayLinkOpenV1(
+      descriptor(initiator, false), initiator, NOW, NOW + 30_000,
+      'wss://relay.example.net:443/',
+    )).toThrow();
+  });
 });

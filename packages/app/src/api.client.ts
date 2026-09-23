@@ -95,6 +95,7 @@ export interface RelayStatus {
     inbound_authenticated_relays?: number;
     outbound_authenticated_relays?: number;
     connected_query_peers?: number;
+    peer_confirmed_direct_endpoints?: number;
     active_publications?: number;
     placement_intents?: number;
     minimum_confirmed_placements?: number;

@@ -345,6 +345,7 @@ describe('Relay protocol v2 integration', () => {
     expect(stats).toHaveProperty('inbound_authenticated_relays', 0);
     expect(stats).toHaveProperty('outbound_authenticated_relays', 0);
     expect(stats).toHaveProperty('connected_query_peers', 0);
+    expect(stats).toHaveProperty('peer_confirmed_direct_endpoints', 0);
     expect(stats).not.toHaveProperty('connected_relay_ids');
     expect(stats).toHaveProperty('durability_receipts');
   });

@@ -191,6 +191,7 @@ describe('authenticated outbound relay links', () => {
     expect(hub.getRelayLinkStatus().inboundRelayIds).toEqual([spokeId]);
     expect(spoke.getStats().connected_relays).toBe(1);
     expect(hub.getStats().connected_relays).toBe(1);
+    expect(hub.getStats().peer_confirmed_direct_endpoints).toBe(0);
     expect(spoke.getStats()).toMatchObject({
       inbound_authenticated_relays: 0,
       outbound_authenticated_relays: 1,

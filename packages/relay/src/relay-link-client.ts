@@ -221,6 +221,7 @@ export function connectRelayLinkV1(
     identity,
     createdAt,
     createdAt + Math.min(30_000, handshakeTimeoutMs + 5_000),
+    hint.endpoint,
   );
   const serialized = serializeRelayLinkOpenFrameV1(createRelayLinkOpenFrameV1(request));
 
