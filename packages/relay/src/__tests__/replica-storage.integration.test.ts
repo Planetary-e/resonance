@@ -11,6 +11,7 @@ import {
   generateIdentity,
   generatePublicationKeyMaterial,
   serializePublicationOperationFrame,
+  verifyRelayDescriptorV1,
   verifyRelayReplicaReceiptV1,
   type Identity,
   type PublicationOperation,
@@ -403,21 +404,47 @@ describe('replica storage quotas', () => {
     const live = publication(0x49);
     const liveBytes = publicationStorageReservationBytes(live);
     expect(liveBytes).toBeLessThan(64 * 1024);
-    // The first write crosses a 64 KiB bucket, but cannot change the public
-    // descriptor until its one-minute storage refresh interval has elapsed.
-    const quotaBytes = liveBytes + (64 * 1024) - 1 + FIRST_SEEN_TOMBSTONE_RESERVE_BYTES;
+    // A nonzero bucket change waits for the one-minute refresh interval.
+    const quotaBytes = liveBytes + (128 * 1024) - 1 + FIRST_SEEN_TOMBSTONE_RESERVE_BYTES;
     const target = createTarget(port, directory, quotaBytes);
     const source = generateIdentity();
     await target.start();
     const before = target.getRelayDescriptor();
     const link = await connectSource(port, source);
     try {
-      expect(before?.storage.availableBytes).toBe(64 * 1024);
+      expect(before?.storage.availableBytes).toBe(128 * 1024);
       expect((await link.placeReplica(live)).status).toBe('stored');
-      expect(target.getStats().publication_storage_available_bytes).toBe((64 * 1024) - 1);
+      expect(target.getStats().publication_storage_available_bytes).toBe((128 * 1024) - 1);
       expect(target.getRelayDescriptor()).toEqual(before);
       expect(target.getRelayDescriptor((before?.issuedAt ?? 0) + 60_001)?.storage.availableBytes)
-        .toBe(0);
+        .toBe(64 * 1024);
+    } finally {
+      link.close();
+      await link.closed;
+      await target.stop();
+    }
+  });
+
+  it('immediately signs zero available capacity when the last public bucket is exhausted', async () => {
+    const port = BASE_PORT + 32;
+    const directory = `/tmp/resonance-replica-storage-${Date.now()}-full-descriptor`;
+    temporaryDirectories.push(directory);
+    const live = publication(0x4a);
+    const liveBytes = publicationStorageReservationBytes(live);
+    const quotaBytes = liveBytes + (64 * 1024) - 1 + FIRST_SEEN_TOMBSTONE_RESERVE_BYTES;
+    const target = createTarget(port, directory, quotaBytes);
+    const source = generateIdentity();
+    await target.start();
+    const before = target.getRelayDescriptor()!;
+    const link = await connectSource(port, source);
+    try {
+      expect(before.storage.availableBytes).toBe(64 * 1024);
+      expect((await link.placeReplica(live)).status).toBe('stored');
+      const full = target.getRelayDescriptor()!;
+      expect(full.storage.availableBytes).toBe(0);
+      expect(full.sequence).toBeGreaterThan(before.sequence);
+      expect(verifyRelayDescriptorV1(full)).toBe(true);
+      expect(target.getRelayDescriptor()).toEqual(full);
     } finally {
       link.close();
       await link.closed;

@@ -588,8 +588,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     return {
       capacityBytes: discovery.storage.capacityBytes,
       // A public descriptor is a placement hint, not an activity feed. Round
-      // downward so it never overclaims ordinary capacity while avoiding
-      // per-publication byte deltas visible to descriptor pollers.
+      // downward to avoid byte-level publication activity in descriptors.
       availableBytes: Math.floor(exactAvailableBytes / STORAGE_AVAILABILITY_GRANULARITY_BYTES)
         * STORAGE_AVAILABILITY_GRANULARITY_BYTES,
     };
@@ -605,7 +604,14 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     const storageChanged = previousDescriptor === null
       || previousDescriptor.storage.capacityBytes !== currentStorage.capacityBytes
       || previousDescriptor.storage.availableBytes !== currentStorage.availableBytes;
+    // A stale positive hint can keep attracting placements after the relay
+    // becomes full. Publish that one-way transition immediately; ordinary
+    // bucket changes remain rate-limited to avoid an activity feed.
+    const becameFull = previousDescriptor !== null
+      && previousDescriptor.storage.availableBytes > 0
+      && currentStorage.availableBytes === 0;
     const canRefreshStorage = previousDescriptor === null
+      || becameFull
       || now - relayDescriptorStorageUpdatedAt >= STORAGE_AVAILABILITY_REFRESH_MS;
     const storage = storageChanged && !canRefreshStorage
       ? previousDescriptor.storage
