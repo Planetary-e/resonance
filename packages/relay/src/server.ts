@@ -297,6 +297,9 @@ export interface RelayStats {
   matches_today: number;
   known_relays: number;
   connected_relays: number;
+  inbound_authenticated_relays: number;
+  outbound_authenticated_relays: number;
+  connected_query_peers: number;
   durability_receipts: number;
   placement_intents: number;
   minimum_confirmed_placements: number;
@@ -812,23 +815,8 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   ): Promise<SearchResultV2[]> {
     const local = localSearchResults(search, Date.now());
     if (remainingHops <= 0 || local.length >= search.k || Date.now() + 100 >= deadline) return local;
-    const peers = new Map<string, { relayId: string; outbound: boolean }>();
-    for (const peer of outboundRelayLinks?.connectedPeers() ?? []) {
-      if (peer.relayId === excludeRelayId
-        || !peer.descriptor.capabilities.answersQueries
-        || !peer.descriptor.capabilities.forwardsQueries
-        || !peer.descriptor.supportedGroups.includes(search.groupId)) continue;
-      peers.set(peer.relayId, { relayId: peer.relayId, outbound: true });
-    }
-    for (const [relayId, link] of inboundRelayLinks) {
-      if (relayId === excludeRelayId || peers.has(relayId)
-        || link.socket.readyState !== WebSocket.OPEN
-        || !link.descriptor.capabilities.answersQueries
-        || !link.descriptor.capabilities.forwardsQueries
-        || !link.descriptor.supportedGroups.includes(search.groupId)) continue;
-      peers.set(relayId, { relayId, outbound: false });
-    }
-    const eligible = [...peers.values()].sort((a, b) => a.relayId.localeCompare(b.relayId));
+    const eligible = [...eligibleQueryPeers(search.groupId, excludeRelayId).values()]
+      .sort((a, b) => a.relayId.localeCompare(b.relayId));
     if (eligible.length === 0) return local;
     // Rotate the bounded fanout by one-use search ID so the same first peers
     // do not receive every query when a volunteer has more than five links.
@@ -852,6 +840,28 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       }
     }));
     return mergeSearchResults(search, [local, ...remote]);
+  }
+
+  function eligibleQueryPeers(
+    groupId: string, excludeRelayId?: string,
+  ): Map<string, { relayId: string; outbound: boolean }> {
+    const peers = new Map<string, { relayId: string; outbound: boolean }>();
+    for (const peer of outboundRelayLinks?.connectedPeers() ?? []) {
+      if (peer.relayId === excludeRelayId
+        || !peer.descriptor.capabilities.answersQueries
+        || !peer.descriptor.capabilities.forwardsQueries
+        || !peer.descriptor.supportedGroups.includes(groupId)) continue;
+      peers.set(peer.relayId, { relayId: peer.relayId, outbound: true });
+    }
+    for (const [relayId, link] of inboundRelayLinks) {
+      if (relayId === excludeRelayId || peers.has(relayId)
+        || link.socket.readyState !== WebSocket.OPEN
+        || !link.descriptor.capabilities.answersQueries
+        || !link.descriptor.capabilities.forwardsQueries
+        || !link.descriptor.supportedGroups.includes(groupId)) continue;
+      peers.set(relayId, { relayId, outbound: false });
+    }
+    return peers;
   }
 
   async function processForwardedSearch(
@@ -2229,6 +2239,19 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     };
   }
 
+  function liveLinkMetrics(): Pick<RelayStats,
+    'connected_relays' | 'inbound_authenticated_relays'
+    | 'outbound_authenticated_relays' | 'connected_query_peers'> {
+    return {
+      connected_relays: connectedRelayIds().length,
+      inbound_authenticated_relays: [...inboundRelayLinks.values()]
+        .filter(link => link.socket.readyState === WebSocket.OPEN).length,
+      outbound_authenticated_relays: outboundRelayLinks?.connectedPeers().length ?? 0,
+      connected_query_peers: new Set((cfg.relayDiscovery?.supportedGroups ?? [])
+        .flatMap(groupId => [...eligibleQueryPeers(groupId).keys()])).size,
+    };
+  }
+
   function handleHttpRequest(req: { url?: string; method?: string }, res: {
     writeHead: (code: number, headers?: Record<string, string>) => void;
     end: (body?: string) => void;
@@ -2302,7 +2325,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         connected_nodes: 0,
         matches_today: stats.matchesToday,
         known_relays: relayDirectory.size(),
-        connected_relays: connectedRelayIds().length,
+        ...liveLinkMetrics(),
         durability_receipts: placement.receiptCount,
         placement_intents: placement.intentCount,
         minimum_confirmed_placements: placement.minimumConfirmedCount,
@@ -3865,7 +3888,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         connected_nodes: 0,
         matches_today: stats.matchesToday,
         known_relays: relayDirectory.size(),
-        connected_relays: connectedRelayIds().length,
+        ...liveLinkMetrics(),
         durability_receipts: placement.receiptCount,
         placement_intents: placement.intentCount,
         minimum_confirmed_placements: placement.minimumConfirmedCount,

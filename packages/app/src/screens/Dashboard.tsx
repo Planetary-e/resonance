@@ -171,6 +171,14 @@ export default function Dashboard({
               <span className="value">{relayStatus.stats.connected_relays ?? 0}</span>
             </div>
             <div className="stat-item">
+              <span className="label">Authenticated inbound / outbound links</span>
+              <span className="value">{relayStatus.stats.inbound_authenticated_relays ?? 0} / {relayStatus.stats.outbound_authenticated_relays ?? 0}</span>
+            </div>
+            <div className="stat-item">
+              <span className="label">Connected query paths</span>
+              <span className="value">{relayStatus.stats.connected_query_peers ?? 0}</span>
+            </div>
+            <div className="stat-item">
               <span className="label">Active Publications</span>
               <span className="value">{relayStatus.stats.active_publications ?? 0}</span>
             </div>

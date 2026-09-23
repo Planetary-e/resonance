@@ -158,6 +158,8 @@ describe('bounded query routing over volunteer relay links', () => {
     const hub = servers[0];
     expect(origin.getStats().stored_publications).toBe(0);
     expect(hub.getStats().stored_publications).toBe(0);
+    expect(origin.getStats().connected_query_peers).toBe(1);
+    expect(hub.getStats().connected_query_peers).toBe(4);
 
     const request = searchRequest(0xa5);
     const response = await searchThroughOrigin(request);

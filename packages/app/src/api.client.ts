@@ -92,6 +92,9 @@ export interface RelayStatus {
   stats: {
     relay_id?: string;
     connected_relays?: number;
+    inbound_authenticated_relays?: number;
+    outbound_authenticated_relays?: number;
+    connected_query_peers?: number;
     active_publications?: number;
     placement_intents?: number;
     minimum_confirmed_placements?: number;

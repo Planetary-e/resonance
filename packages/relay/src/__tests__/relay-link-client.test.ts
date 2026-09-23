@@ -191,6 +191,16 @@ describe('authenticated outbound relay links', () => {
     expect(hub.getRelayLinkStatus().inboundRelayIds).toEqual([spokeId]);
     expect(spoke.getStats().connected_relays).toBe(1);
     expect(hub.getStats().connected_relays).toBe(1);
+    expect(spoke.getStats()).toMatchObject({
+      inbound_authenticated_relays: 0,
+      outbound_authenticated_relays: 1,
+      connected_query_peers: 1,
+    });
+    expect(hub.getStats()).toMatchObject({
+      inbound_authenticated_relays: 1,
+      outbound_authenticated_relays: 0,
+      connected_query_peers: 1,
+    });
     expect(hub.getKnownRelayDescriptors().find(value => value.relayId === spokeId)?.reachability)
       .toBe('outbound-only');
 
@@ -250,10 +260,12 @@ describe('authenticated outbound relay links', () => {
     const spokeId = spoke.getRelayDescriptor()!.relayId;
     await hub.stop();
     await waitFor(() => spoke.getRelayLinkStatus().connectedRelayIds.length === 0);
+    expect(spoke.getStats().connected_query_peers).toBe(0);
 
     hub = createHub();
     await hub.start();
     await waitFor(() => spoke.getRelayLinkStatus().connectedRelayIds.includes(hubId));
+    expect(spoke.getStats().connected_query_peers).toBe(1);
 
     expect(hub.getRelayDescriptor()!.relayId).toBe(hubId);
     expect(hub.getRelayLinkStatus().inboundRelayIds).toEqual([spokeId]);
