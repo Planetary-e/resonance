@@ -78,6 +78,38 @@ jobs:
           echo "bundle_dir=$BUNDLE_DIR" >> "$GITHUB_OUTPUT"
           ls -lhR "$BUNDLE_DIR" || true
 
+      - name: Verify macOS beta app signature
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle_dir="packages/app/src-tauri/target/${{ matrix.rust-target }}/release/bundle"
+          shopt -s nullglob
+          dmgs=( "$bundle_dir"/dmg/*.dmg )
+          test "${#dmgs[@]}" -gt 0
+          mount_dir=""
+          cleanup() {
+            if [[ -n "$mount_dir" ]]; then
+              hdiutil detach "$mount_dir" >/dev/null 2>&1 || true
+              rmdir "$mount_dir" 2>/dev/null || true
+            fi
+          }
+          trap cleanup EXIT
+          for dmg in "${dmgs[@]}"; do
+            hdiutil verify "$dmg"
+            mount_dir="$(mktemp -d)"
+            hdiutil attach -readonly -nobrowse -mountpoint "$mount_dir" "$dmg"
+            app_path="$mount_dir/Resonance.app"
+            test -d "$app_path"
+            codesign --verify --deep --strict --verbose=2 "$app_path"
+            signature="$(codesign -dv --verbose=4 "$app_path" 2>&1)"
+            [[ "$signature" == *"Signature=adhoc"* ]]
+            [[ "$signature" == *"Sealed Resources version=2"* ]]
+            hdiutil detach "$mount_dir"
+            rmdir "$mount_dir"
+            mount_dir=""
+          done
+
       - name: Upload macOS DMG
         if: runner.os == 'macOS'
         uses: actions/upload-artifact@v4
