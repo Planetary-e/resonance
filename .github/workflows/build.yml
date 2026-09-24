@@ -78,7 +78,7 @@ jobs:
           echo "bundle_dir=$BUNDLE_DIR" >> "$GITHUB_OUTPUT"
           ls -lhR "$BUNDLE_DIR" || true
 
-      - name: Verify macOS beta app signature
+      - name: Smoke-test macOS beta app from DMG
         if: runner.os == 'macOS'
         shell: bash
         run: |
@@ -88,7 +88,12 @@ jobs:
           dmgs=( "$bundle_dir"/dmg/*.dmg )
           test "${#dmgs[@]}" -gt 0
           mount_dir=""
+          backend_pid=""
           cleanup() {
+            if [[ -n "$backend_pid" ]]; then
+              kill "$backend_pid" 2>/dev/null || true
+              wait "$backend_pid" 2>/dev/null || true
+            fi
             if [[ -n "$mount_dir" ]]; then
               hdiutil detach "$mount_dir" >/dev/null 2>&1 || true
               rmdir "$mount_dir" 2>/dev/null || true
@@ -105,6 +110,38 @@ jobs:
             signature="$(codesign -dv --verbose=4 "$app_path" 2>&1)"
             [[ "$signature" == *"Signature=adhoc"* ]]
             [[ "$signature" == *"Sealed Resources version=2"* ]]
+            node_bin="$app_path/Contents/MacOS/node"
+            server_dir="$app_path/Contents/Resources/server"
+            test -f "$server_dir/server.mjs"
+            test -f "$server_dir/relay.mjs"
+            test -d "$server_dir/node_modules"
+            "$node_bin" -e 'console.log("sidecar-ready")'
+            (cd "$server_dir" && "$node_bin" --input-type=module -e \
+              'await import("sharp"); await import("onnxruntime-node"); await import("@huggingface/transformers");')
+            test_data="$(mktemp -d)"
+            backend_log="$(mktemp)"
+            RESONANCE_DATA_DIR="$test_data" RESONANCE_PORT=39317 \
+              NODE_PATH="$server_dir/node_modules" \
+              "$node_bin" "$server_dir/server.mjs" >"$backend_log" 2>&1 &
+            backend_pid=$!
+            ready=false
+            for attempt in {1..40}; do
+              if curl --fail --silent --show-error \
+                http://127.0.0.1:39317/api/status > /dev/null 2>&1; then
+                ready=true
+                break
+              fi
+              if ! kill -0 "$backend_pid" 2>/dev/null; then break; fi
+              sleep 0.25
+            done
+            if [[ "$ready" != true ]]; then
+              cat "$backend_log"
+              exit 1
+            fi
+            kill "$backend_pid"
+            wait "$backend_pid" 2>/dev/null || true
+            backend_pid=""
+            rm -rf "$test_data" "$backend_log"
             hdiutil detach "$mount_dir"
             rmdir "$mount_dir"
             mount_dir=""
@@ -157,5 +194,5 @@ jobs:
             artifacts/**/*.rpm
             artifacts/**/*.exe
           generate_release_notes: true
-          draft: false
+          draft: true
           prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') }}

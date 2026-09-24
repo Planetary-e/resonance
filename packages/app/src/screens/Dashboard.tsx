@@ -80,8 +80,9 @@ export default function Dashboard({
         <StatCard label="Matches" value={status?.matches ?? 0} color="purple" />
         <StatCard label="Channels" value={channelCount} color="green" />
         <StatCard
-          label="Relay"
-          value={status?.relayConnected ? 'Online' : 'Offline'}
+          label="Last relay request"
+          value={status?.relayActivity === 'succeeded' ? 'Worked'
+            : status?.relayActivity === 'failed' ? 'Failed' : 'Not checked'}
           color="gold"
         />
       </div>

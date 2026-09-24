@@ -154,4 +154,32 @@ describe('protocol v2 publication storage', () => {
     expect(matches[0].partnerPublicationId).toBe(partner.publicationId);
     reopened.close();
   });
+
+  it('does not surface a match between two publications owned by this device', async () => {
+    const { store, record } = await insertItemAndPublication(temporaryDatabase(), randomKey());
+    const partnerKeys = generatePublicationKeyMaterial();
+    const partner = createPublicationRecord({
+      groupId: 'public',
+      fingerprintEpoch: 'pilot-static-v1',
+      fingerprint: new Uint8Array(64).fill(0x5a),
+      itemType: 'offer',
+      createdAt: record.createdAt,
+      expiresAt: record.expiresAt,
+    }, partnerKeys);
+    store.insertItem({
+      id: 'item-2', type: 'offer', rawText: 'Can repair a bicycle',
+      embedding: new Float32Array([0.25, 0.75]), privacyLevel: 'medium',
+    });
+    store.insertPublication('item-2', partner, partnerKeys);
+    const relay = generateIdentity();
+    const operation = createMatchOperationV2(record, partner, relay, {
+      createdAt: record.createdAt + 1,
+      expiresAt: record.createdAt + 60_000,
+    });
+
+    expect(store.insertMailboxMatch('item-1', createMatchNoticeMessage(record, partner, operation, relay)))
+      .toBe(false);
+    expect(store.listMailboxMatches()).toHaveLength(0);
+    store.close();
+  });
 });

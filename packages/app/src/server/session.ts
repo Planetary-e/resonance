@@ -59,8 +59,32 @@ export interface Session {
   remoteRelayUrls: string[];
 }
 
+export class ModelLoadError extends Error {
+  constructor() {
+    super('The matching model could not load. Connect to the internet on first use, then retry.');
+    this.name = 'ModelLoadError';
+  }
+}
+
+async function loadEmbeddingEngine(): Promise<EmbeddingEngine> {
+  const engine = new EmbeddingEngine();
+  try {
+    await engine.initialize();
+  } catch (error) {
+    console.error('Matching model load failed:', error);
+    throw new ModelLoadError();
+  }
+  return engine;
+}
+
 let session: Session | null = null;
 let sessionEvents: SessionEvents = {};
+export type RelayActivity = 'not-checked' | 'succeeded' | 'failed';
+let relayActivity: RelayActivity = 'not-checked';
+
+export function getRelayActivity(): RelayActivity {
+  return relayActivity;
+}
 // --- Relay config persistence ---
 
 interface RelayConfig {
@@ -307,6 +331,13 @@ export function getSession(): Session | null {
   return session;
 }
 
+export function listExternalMailboxMatches(): ReturnType<LocalStore['listMailboxMatches']> {
+  if (!session) return [];
+  const ownPublications = new Set(session.store.listPublications().map(value => value.publicationId));
+  return session.store.listMailboxMatches()
+    .filter(match => !ownPublications.has(match.partnerPublicationId));
+}
+
 export function isUnlocked(): boolean {
   return session !== null;
 }
@@ -328,12 +359,12 @@ function wireEvents(s: Session): void {
 
 export async function initSession(password: string): Promise<{ did: string }> {
   ensureDataDir();
+  // A failed first model download must not leave a half-created identity.
+  await loadEmbeddingEngine();
   const mgr = createIdentityManager();
   const identity = await mgr.create(password);
 
-  // Initialize engine + create DB
-  const engine = new EmbeddingEngine();
-  await engine.initialize();
+  // Create the encrypted store only after the model and identity are ready.
   const store = await openStoreAsync(getDbPath(), deriveStoreKey(identity));
   store.close();
 
@@ -345,10 +376,8 @@ export async function unlockSession(password: string, relayUrl: string): Promise
 
   const mgr = createIdentityManager();
   const identity = await mgr.load(password);
+  const engine = await loadEmbeddingEngine();
   const store = await openStoreAsync(getDbPath(), deriveStoreKey(identity));
-
-  const engine = new EmbeddingEngine();
-  await engine.initialize();
 
   // Auto-start relay if config says enabled
   const relayConfig = loadRelayConfig();
@@ -384,6 +413,7 @@ export async function unlockSession(password: string, relayUrl: string): Promise
     identity, store, engine, relayClient, pairwiseChannelMgr,
     identityMgr: mgr, remoteRelayUrls: uniqueRemoteUrls,
   };
+  relayActivity = 'not-checked';
   wireEvents(session);
   resetInactivityTimer();
 
@@ -409,6 +439,7 @@ export function lockSession(): void {
   session.relayClient.disconnect();
   session.store.close();
   session = null;
+  relayActivity = 'not-checked';
 }
 
 export async function publishItem(text: string, type: ItemType, privacy: PrivacyLevel): Promise<{
@@ -441,7 +472,11 @@ export async function publishItem(text: string, type: ItemType, privacy: Privacy
     if (ack.status !== 'ok') throw new Error(ack.message ?? 'Relay rejected publication');
     s.store.updateItemStatus(id, 'published');
     status = 'published';
-  } catch { /* relay unavailable; signed operation remains available for retry */ }
+    relayActivity = 'succeeded';
+  } catch {
+    relayActivity = 'failed';
+    /* relay unavailable; signed operation remains available for retry */
+  }
 
   return { id, status, dims: embedding.length };
 }
@@ -458,8 +493,14 @@ export async function withdrawItem(itemId: string): Promise<void> {
   );
   if (!publication.tombstone) s.store.setPublicationTombstone(itemId, tombstone);
   s.store.updateItemStatus(itemId, 'withdrawn');
-  const ack = await s.relayClient.submitPublicationOperation(tombstone);
-  if (ack.status !== 'ok') throw new Error(ack.message ?? 'Relay rejected tombstone');
+  try {
+    const ack = await s.relayClient.submitPublicationOperation(tombstone);
+    if (ack.status !== 'ok') throw new Error(ack.message ?? 'Relay rejected tombstone');
+    relayActivity = 'succeeded';
+  } catch (error) {
+    relayActivity = 'failed';
+    throw error;
+  }
 }
 
 export async function syncMatchMailboxes(): Promise<number> {
@@ -488,20 +529,26 @@ export async function searchRelay(text: string, type: ItemType): Promise<Array<{
   const embedding = await s.engine.embedForMatching(text, type);
   // LSH: hash the query — relay sees only the binary hash, not the embedding
   const hash = hashEmbedding(embedding, getSharedProjectionMatrix());
-  const results = await s.relayClient.searchV2({
-    groupId: 'public',
-    fingerprintEpoch: 'pilot-static-v1',
-    fingerprint: hash,
-    itemType: type,
-    k: 10,
-    threshold: 0.65,
-  });
-  return results.results;
+  try {
+    const results = await s.relayClient.searchV2({
+      groupId: 'public',
+      fingerprintEpoch: 'pilot-static-v1',
+      fingerprint: hash,
+      itemType: type,
+      k: 10,
+      threshold: 0.65,
+    });
+    relayActivity = 'succeeded';
+    return results.results;
+  } catch (error) {
+    relayActivity = 'failed';
+    throw error;
+  }
 }
 
 export async function initiateChannel(matchId: string): Promise<{ channelId: string }> {
   const s = session!;
-  const mailboxMatch = s.store.listMailboxMatches().find((candidate) => candidate.matchId === matchId);
+  const mailboxMatch = listExternalMailboxMatches().find((candidate) => candidate.matchId === matchId);
   if (mailboxMatch) {
     const channel = await s.pairwiseChannelMgr.initiate(matchId);
     return { channelId: channel.channelId ?? channel.localKeys.relationshipId };

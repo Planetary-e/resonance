@@ -14,7 +14,7 @@ export interface UseSession {
   token: string | null;
   refresh: () => Promise<StatusResponse | null>;
   unlock: (password: string) => Promise<{ error?: string; token?: string }>;
-  init: (password: string) => Promise<{ error?: string }>;
+  init: (password: string) => Promise<{ error?: string; token?: string }>;
   lock: () => Promise<void>;
 }
 
@@ -42,7 +42,7 @@ export function useSession(): UseSession {
       setAuthToken(unlockResult.token);
     }
     await refresh();
-    return {};
+    return { token: unlockResult.token };
   }, [refresh]);
 
   const unlockFn = useCallback(async (password: string) => {

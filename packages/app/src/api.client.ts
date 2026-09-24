@@ -30,6 +30,7 @@ export interface StatusResponse {
   unlocked: boolean;
   did: string | null;
   relayConnected: boolean;
+  relayActivity: 'not-checked' | 'succeeded' | 'failed';
   relayMode: boolean;
   items: number;
   matches: number;

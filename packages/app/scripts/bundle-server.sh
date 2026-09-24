@@ -123,6 +123,10 @@ copy_slim "@img/sharp-darwin-arm64"
 copy_slim "@img/sharp-darwin-x64"
 copy_slim "@img/sharp-linux-x64"
 copy_slim "@img/sharp-win32-x64"
+copy_slim "@img/sharp-libvips-darwin-arm64"
+copy_slim "@img/sharp-libvips-darwin-x64"
+copy_slim "@img/sharp-libvips-linux-x64"
+copy_slim "@img/sharp-libvips-win32-x64"
 
 # Pure JS dependencies that are externalized
 copy_slim "sql.js"
@@ -143,6 +147,9 @@ case "$TARGET" in
     rm -rf "$RESOURCES/node_modules/@img/sharp-linux-x64" 2>/dev/null
     rm -rf "$RESOURCES/node_modules/@img/sharp-win32-x64" 2>/dev/null
     rm -rf "$RESOURCES/node_modules/@img/sharp-darwin-x64" 2>/dev/null
+    rm -rf "$RESOURCES/node_modules/@img/sharp-libvips-linux-x64" 2>/dev/null
+    rm -rf "$RESOURCES/node_modules/@img/sharp-libvips-win32-x64" 2>/dev/null
+    rm -rf "$RESOURCES/node_modules/@img/sharp-libvips-darwin-x64" 2>/dev/null
     ;;
   x86_64-apple-darwin)
     rm -rf "$RESOURCES/node_modules/onnxruntime-node/bin/napi-v3/linux" 2>/dev/null
@@ -150,6 +157,9 @@ case "$TARGET" in
     rm -rf "$RESOURCES/node_modules/@img/sharp-linux-x64" 2>/dev/null
     rm -rf "$RESOURCES/node_modules/@img/sharp-win32-x64" 2>/dev/null
     rm -rf "$RESOURCES/node_modules/@img/sharp-darwin-arm64" 2>/dev/null
+    rm -rf "$RESOURCES/node_modules/@img/sharp-libvips-linux-x64" 2>/dev/null
+    rm -rf "$RESOURCES/node_modules/@img/sharp-libvips-win32-x64" 2>/dev/null
+    rm -rf "$RESOURCES/node_modules/@img/sharp-libvips-darwin-arm64" 2>/dev/null
     ;;
   x86_64-unknown-linux-gnu)
     rm -rf "$RESOURCES/node_modules/onnxruntime-node/bin/napi-v3/darwin" 2>/dev/null
@@ -157,6 +167,9 @@ case "$TARGET" in
     rm -rf "$RESOURCES/node_modules/@img/sharp-darwin-arm64" 2>/dev/null
     rm -rf "$RESOURCES/node_modules/@img/sharp-darwin-x64" 2>/dev/null
     rm -rf "$RESOURCES/node_modules/@img/sharp-win32-x64" 2>/dev/null
+    rm -rf "$RESOURCES/node_modules/@img/sharp-libvips-darwin-arm64" 2>/dev/null
+    rm -rf "$RESOURCES/node_modules/@img/sharp-libvips-darwin-x64" 2>/dev/null
+    rm -rf "$RESOURCES/node_modules/@img/sharp-libvips-win32-x64" 2>/dev/null
     ;;
   x86_64-pc-windows-msvc)
     rm -rf "$RESOURCES/node_modules/onnxruntime-node/bin/napi-v3/darwin" 2>/dev/null
@@ -164,6 +177,9 @@ case "$TARGET" in
     rm -rf "$RESOURCES/node_modules/@img/sharp-darwin-arm64" 2>/dev/null
     rm -rf "$RESOURCES/node_modules/@img/sharp-darwin-x64" 2>/dev/null
     rm -rf "$RESOURCES/node_modules/@img/sharp-linux-x64" 2>/dev/null
+    rm -rf "$RESOURCES/node_modules/@img/sharp-libvips-darwin-arm64" 2>/dev/null
+    rm -rf "$RESOURCES/node_modules/@img/sharp-libvips-darwin-x64" 2>/dev/null
+    rm -rf "$RESOURCES/node_modules/@img/sharp-libvips-linux-x64" 2>/dev/null
     ;;
 esac
 

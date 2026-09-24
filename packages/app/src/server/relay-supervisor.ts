@@ -3,6 +3,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
+import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
@@ -17,6 +18,7 @@ export interface RelayServiceOptions {
   entryPath: string;
   workingDirectory: string;
   nodePathEnv?: string;
+  tsxImportPath?: string;
   controls?: RelayOwnerControls;
 }
 
@@ -30,7 +32,7 @@ export interface RelayOwnerControls {
 }
 
 export function relayServiceRuntime(): Pick<RelayServiceOptions,
-  'nodePath' | 'entryPath' | 'workingDirectory' | 'nodePathEnv'> {
+  'nodePath' | 'entryPath' | 'workingDirectory' | 'nodePathEnv' | 'tsxImportPath'> {
   const entryPath = process.env.RESONANCE_RELAY_ENTRY
     ?? resolve(process.cwd(), '../relay/src/main.ts');
   return {
@@ -38,12 +40,13 @@ export function relayServiceRuntime(): Pick<RelayServiceOptions,
     entryPath,
     workingDirectory: process.env.RESONANCE_RELAY_CWD ?? process.cwd(),
     nodePathEnv: process.env.NODE_PATH,
+    tsxImportPath: entryPath.endsWith('.ts') ? createRequire(import.meta.url).resolve('tsx') : undefined,
   };
 }
 
 function command(options: RelayServiceOptions): string[] {
   return [options.nodePath,
-    ...(options.entryPath.endsWith('.ts') ? ['--import', 'tsx'] : []),
+    ...(options.entryPath.endsWith('.ts') ? ['--import', options.tsxImportPath ?? 'tsx'] : []),
     options.entryPath];
 }
 

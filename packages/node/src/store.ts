@@ -880,6 +880,10 @@ export async function openStoreAsync(dbPath: string, encryptionKey: Uint8Array):
       if (!publication || publication.publication_id !== notice.payload.recipientPublicationId) {
         throw new Error('Mailbox match notice recipient does not match local item');
       }
+      // A relay cannot link pseudonymous publications to one owner. Suppress
+      // a match between this device's own publications after decryption.
+      if (queryOne(db, 'SELECT publication_id FROM publication_secrets WHERE publication_id = ?',
+        [notice.payload.partnerPublicationId])) return false;
       const encrypted = encryptField(decodeUTF8(JSON.stringify(notice)), key);
       db.run(
         `INSERT OR IGNORE INTO mailbox_matches (

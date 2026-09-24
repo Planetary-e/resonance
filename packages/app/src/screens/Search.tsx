@@ -16,9 +16,10 @@ function similarityColor(sim: number): string {
 
 interface SearchProps {
   onToast: (message: string, type?: 'info' | 'success' | 'error') => void;
+  onSearchComplete: () => void;
 }
 
-export default function Search({ onToast }: SearchProps) {
+export default function Search({ onToast, onSearchComplete }: SearchProps) {
   const [text, setText] = useState('');
   const [type, setType] = useState<'need' | 'offer'>('need');
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -33,6 +34,7 @@ export default function Search({ onToast }: SearchProps) {
 
     setLoading(true);
     const data = await search(trimmed, type);
+    onSearchComplete();
     setLoading(false);
     setSearched(true);
 

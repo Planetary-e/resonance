@@ -210,7 +210,7 @@ export default function App() {
   const handleInit = useCallback(async (password: string) => {
     const result = await session.init(password);
     if (result.error) return { error: result.error };
-    await handleUnlocked(session.token ?? undefined);
+    await handleUnlocked(result.token);
     return {};
   }, [session, handleUnlocked]);
 
@@ -303,7 +303,7 @@ export default function App() {
     <div className="app-layout">
       <TopBar
         did={session.status?.did ?? null}
-        relayConnected={session.status?.relayConnected ?? false}
+        relayActivity={session.status?.relayActivity ?? 'not-checked'}
         onLock={handleLock}
       />
       <TabNav activeTab={activeTab} onChange={handleTabChange} />
@@ -340,7 +340,7 @@ export default function App() {
         )}
 
         {activeTab === 'search' && (
-          <Search onToast={toast} />
+          <Search onToast={toast} onSearchComplete={session.refresh} />
         )}
 
         {activeTab === 'matches' && (

@@ -6,6 +6,9 @@ import { randomBytes } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
   getSession,
+  ModelLoadError,
+  listExternalMailboxMatches,
+  getRelayActivity,
   isUnlocked,
   isInitialized,
   isRelayMode,
@@ -25,6 +28,11 @@ import {
 
 type Req = IncomingMessage;
 type Res = ServerResponse;
+
+function utcTimestamp(value: string): string {
+  return /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)
+    ? `${value.replace(' ', 'T')}Z` : value;
+}
 
 // In dev mode, Tauri WebView loads from Vite (localhost:5173) and fetches the API on :3000.
 // In production, the frontend is served from the same origin as the API.
@@ -132,9 +140,10 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
       unlocked,
       did: s?.identity.did ?? null,
       relayConnected: s?.relayClient.isConnected() ?? false,
+      relayActivity: getRelayActivity(),
       relayMode: isRelayMode(),
       items: s ? s.store.listItems().length : 0,
-      matches: s ? s.store.listMailboxMatches().length : 0,
+      matches: s ? listExternalMailboxMatches().length : 0,
     });
     return true;
   }
@@ -148,7 +157,8 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
       const result = await initSession(password);
       json(res, result);
     } catch (err) {
-      error(res, 'Internal error', 500);
+      error(res, err instanceof ModelLoadError ? err.message : 'Internal error',
+        err instanceof ModelLoadError ? 503 : 500);
     }
     return true;
   }
@@ -163,7 +173,8 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
       sessionToken = randomBytes(32).toString('hex');
       json(res, { ...result, token: sessionToken });
     } catch (err) {
-      error(res, 'Wrong password or corrupted identity', 401);
+      error(res, err instanceof ModelLoadError ? err.message : 'Wrong password or corrupted identity',
+        err instanceof ModelLoadError ? 503 : 401);
     }
     return true;
   }
@@ -181,7 +192,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
     const items = getSession()!.store.listItems();
     json(res, items.map(i => ({
       id: i.id, type: i.type, rawText: i.rawText, privacyLevel: i.privacyLevel,
-      epsilon: i.epsilon, status: i.status, createdAt: i.createdAt,
+      epsilon: i.epsilon, status: i.status, createdAt: utcTimestamp(i.createdAt),
     })));
     return true;
   }
@@ -222,7 +233,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
     if (!requireAuth(req, res)) return true;
     await syncMatchMailboxes();
     const s = getSession()!;
-    const mailboxMatches = s.store.listMailboxMatches().map(match => ({
+    const mailboxMatches = listExternalMailboxMatches().map(match => ({
       id: match.matchId,
       itemId: match.itemId,
       partnerDID: match.partnerPublicationId,
