@@ -2773,7 +2773,7 @@ dependencies = [
 
 [[package]]
 name = "resonance"
-version = "0.2.3-beta.1"
+version = "0.2.3-beta.2"
 dependencies = [
  "serde",
  "serde_json",
