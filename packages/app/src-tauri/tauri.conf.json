@@ -1,6 +1,6 @@
 {
   "productName": "Resonance",
-  "version": "0.2.2",
+  "version": "0.2.3-beta.1",
   "identifier": "earth.planetary.resonance",
   "build": {
     "beforeDevCommand": "npm run dev",

@@ -1,6 +1,6 @@
 [package]
 name = "resonance"
-version = "0.2.2"
+version = "0.2.3-beta.1"
 edition = "2021"
 
 [lib]
