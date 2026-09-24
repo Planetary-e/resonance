@@ -70,6 +70,15 @@ jobs:
           tauriScript: npx tauri
           args: --target ${{ matrix.rust-target }}
 
+      - name: Smoke-test isolated Windows and Linux backend resources
+        if: runner.os != 'macOS'
+        shell: bash
+        run: |
+          sidecar="packages/app/src-tauri/binaries/node-${{ matrix.rust-target }}"
+          if [[ "${{ runner.os }}" == "Windows" ]]; then sidecar="$sidecar.exe"; fi
+          node packages/app/scripts/smoke-runtime.mjs \
+            packages/app/src-tauri/resources/server "$sidecar"
+
       - name: Find build output
         id: output
         shell: bash
