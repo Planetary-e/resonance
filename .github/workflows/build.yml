@@ -117,7 +117,9 @@ jobs:
             test -d "$server_dir/node_modules"
             "$node_bin" -e 'console.log("sidecar-ready")'
             (cd "$server_dir" && "$node_bin" --input-type=module -e \
-              'await import("sharp"); await import("onnxruntime-node"); await import("@huggingface/transformers");')
+              'const sharp = (await import("sharp")).default;
+               await sharp({ create: { width: 1, height: 1, channels: 3, background: "red" } }).png().toBuffer();
+               await import("onnxruntime-node"); await import("@huggingface/transformers");')
             test_data="$(mktemp -d)"
             backend_log="$(mktemp)"
             RESONANCE_DATA_DIR="$test_data" RESONANCE_PORT=39317 \

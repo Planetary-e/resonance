@@ -126,10 +126,15 @@ pub fn run() {
                 stop_backend();
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
-
-    stop_backend();
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, event| {
+            // Tauri's run loop exits the process directly, so cleanup after
+            // run() is never reached when the user chooses Quit.
+            if let tauri::RunEvent::Exit = event {
+                stop_backend();
+            }
+        });
 }
 
 /// Find a Tauri sidecar binary by name (handles platform triple suffix).
