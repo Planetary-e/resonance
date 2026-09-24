@@ -5,11 +5,13 @@
 
 import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
-import { createServer, type Server } from 'node:http';
+import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
+import { createServer as createHttpsServer, type Server as HttpsServer } from 'node:https';
 import { WebSocket, WebSocketServer } from 'ws';
 import { RelayTrafficMeter, relayDataFileBytes } from './relay-resource-meter.js';
 import { DirectReachabilityObservations } from './direct-reachability.js';
 import {
+  assertSecureRelayTransportEndpoint,
   MessageTypes,
   MAILBOX_DEPOSIT_FRAME_TYPE,
   MAILBOX_REQUEST_FRAME_TYPE,
@@ -217,6 +219,8 @@ export interface RelayDiscoveryConfig {
 export interface RelayConfig {
   port: number;
   host: string;
+  /** PEM credentials for a direct HTTPS/WSS listener; omit behind a loopback TLS proxy. */
+  tls?: { cert: string | Buffer; key: string | Buffer };
   persistDir: string;
   persistIntervalMs: number;
   matchThreshold: number;
@@ -333,7 +337,7 @@ export interface RelayServer {
 
 const DEFAULT_CONFIG: RelayConfig = {
   port: 9090,
-  host: '0.0.0.0',
+  host: '127.0.0.1',
   persistDir: './data',
   persistIntervalMs: 60_000,
   matchThreshold: 0.70,  // Hamming similarity threshold for LSH matching
@@ -380,6 +384,18 @@ type PublicationCommitStatus = PublicationApplyStatus | 'capacity-exhausted';
 
 export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   const cfg = { ...DEFAULT_CONFIG, ...config };
+  cfg.relayDiscovery?.endpoints.forEach(assertSecureRelayTransportEndpoint);
+  const advertisedEndpoints = cfg.relayDiscovery?.endpoints ?? [];
+  if (cfg.tls && (!cfg.tls.cert || !cfg.tls.key)) {
+    throw new Error('Relay TLS requires both a certificate and private key');
+  }
+  if (cfg.tls && advertisedEndpoints.some(endpoint => new URL(endpoint).protocol !== 'wss:')) {
+    throw new Error('A TLS relay can advertise only wss:// endpoints');
+  }
+  if (!cfg.tls && advertisedEndpoints.some(endpoint => new URL(endpoint).protocol === 'wss:')
+    && !['127.0.0.1', '::1', 'localhost'].includes(cfg.host)) {
+    throw new Error('A relay using an external TLS proxy must bind its cleartext backend to loopback');
+  }
   const publicationStorageQuotaBytes = config?.publicationStorageQuotaBytes
     ?? cfg.relayDiscovery?.storage.availableBytes
     ?? DEFAULT_PUBLICATION_STORAGE_QUOTA_BYTES;
@@ -559,7 +575,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   let relayDescriptorSequence = Date.now();
   let relayDescriptorStorageUpdatedAt = 0;
 
-  let httpServer: Server;
+  let httpServer: HttpServer | HttpsServer;
   let wss: WebSocketServer;
   let publicationExpiryTimer: ReturnType<typeof setTimeout> | null = null;
   let cleanupTimer: ReturnType<typeof setInterval> | null = null;
@@ -3763,7 +3779,9 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       scheduleNextPublicationExpiry(now);
       log('info', 'journal_replayed', { dir: cfg.persistDir, entries: operationLog.length });
 
-      httpServer = createServer(handleHttpRequest);
+      httpServer = cfg.tls
+        ? createHttpsServer(cfg.tls, handleHttpRequest)
+        : createHttpServer(handleHttpRequest);
       httpServer.on('connection', socket => trafficMeter.observe(socket));
       wss = new WebSocketServer({
         server: httpServer,

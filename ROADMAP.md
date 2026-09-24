@@ -168,6 +168,9 @@ The five-target placement goal remains conditional on enough eligible volunteers
 - [ ] Send publish, search, and mailbox requests through two independently selected volunteer hops
 - [ ] Encrypt requests so the entry relay sees the source address but not the operation, while the destination sees the operation but not the source address
 - [ ] Use authenticated encrypted transport for every Internet-facing peer connection
+  - [x] Reject public `ws://` endpoints at client, discovery, relay-link, and advertised-endpoint boundaries; retain cleartext only for loopback and private-LAN development
+  - [ ] Provide and verify TLS termination for reachable volunteer relays, then audit every inbound and outbound connection path
+    - [x] Support a direct HTTPS/WSS relay listener using operator-supplied PEM credentials and verify its TLS handshake in tests
 - [ ] Add challenge-response connection authentication with nonces and replay protection
 - [ ] Verify relay and peer signatures on acknowledgements, matches, inventories, receipts, and forwarded operations
 - [ ] Apply strict schemas, bounded collections, message-size limits, and request timeouts before processing untrusted input

@@ -4,6 +4,7 @@
  */
 
 import {
+  assertSecureRelayTransportEndpoint,
   EmbeddingEngine,
   perturbWithLevel,
   hashEmbedding,
@@ -150,12 +151,9 @@ export async function startRelayMode(
       .split(',').map(value => value.trim()).filter(Boolean);
   if (contacts.length > 16 || new Set(contacts).size !== contacts.length
     || contacts.some(value => {
-      try {
-        const url = new URL(value);
-        return !['ws:', 'wss:'].includes(url.protocol) || Boolean(url.username || url.password)
-          || Boolean(url.search || url.hash);
-      } catch { return true; }
-    })) throw new Error('Relay contacts must be up to 16 distinct ws:// or wss:// endpoints');
+      try { assertSecureRelayTransportEndpoint(value); return false; }
+      catch { return true; }
+    })) throw new Error('Relay contacts must be up to 16 distinct endpoints; public contacts require wss://');
   const controls = validateOwnerControls(requestedControls ?? previous.controls ?? {});
   const runtime = relayServiceRuntime();
   const previousStats = previous.enabled ? await relayServiceStats(previous.port, adminKey) : null;
