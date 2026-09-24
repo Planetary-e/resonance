@@ -20,6 +20,7 @@ type AppState = 'loading' | 'login' | 'app';
 
 export default function App() {
   const [appState, setAppState] = useState<AppState>('loading');
+  const [connectionDelayed, setConnectionDelayed] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>('dashboard');
   const [activities, setActivities] = useState<Activity[]>([]);
 
@@ -157,6 +158,7 @@ export default function App() {
   // ---- Initial status check ----
   useEffect(() => {
     let cancelled = false;
+    const delayTimer = setTimeout(() => setConnectionDelayed(true), 15000);
 
     async function check() {
       const data = await session.refresh();
@@ -177,7 +179,7 @@ export default function App() {
     }
 
     check();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; clearTimeout(delayTimer); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- After unlock, load data and connect WS ----
@@ -275,7 +277,9 @@ export default function App() {
         <div className="loading-screen">
           <div className="logo">Resonance</div>
           <div className="spinner" />
-          <div className="subtitle">Connecting...</div>
+          <div className="subtitle">{connectionDelayed
+            ? 'The local service is taking longer than expected. Close and reopen Resonance.'
+            : 'Connecting...'}</div>
         </div>
         <ToastContainer toasts={toasts} onDismiss={dismiss} />
       </>

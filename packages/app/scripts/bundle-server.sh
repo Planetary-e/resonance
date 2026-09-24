@@ -64,6 +64,7 @@ npx esbuild src/server/start.ts \
   --external:protobufjs \
   --external:long \
   --external:flatbuffers \
+  --external:hnswlib-node \
   --target=node20 \
   2>&1
 
@@ -119,6 +120,9 @@ copy_slim "tweetnacl-util"
 copy_slim "protobufjs"
 copy_slim "long"
 copy_slim "flatbuffers"
+copy_slim "hnswlib-node"
+copy_slim "bindings"
+copy_slim "file-uri-to-path"
 
 # Strip ONNX runtime binaries for other platforms to save space
 echo "==> Stripping non-target platform binaries..."
