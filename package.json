@@ -1,6 +1,6 @@
 {
   "name": "resonance",
-  "version": "0.2.2",
+  "version": "0.3.0-beta.1",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -12,6 +12,7 @@
   "scripts": {
     "build": "tsc -b",
     "test": "vitest run",
+    "test:churn": "vitest run --maxWorkers=1 volunteer-churn.integration reverse-replica-placement.integration replica-replacement.integration v03-completion.integration",
     "eval": "npm run eval --workspace=@resonance/eval",
     "eval:quick": "npm run eval:quick --workspace=@resonance/eval",
     "resonance": "npm run resonance --workspace=@resonance/node --",

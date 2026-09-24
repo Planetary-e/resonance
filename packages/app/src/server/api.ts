@@ -371,8 +371,11 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
   // --- Relay mode ---
 
   if (url === '/api/relay/status' && method === 'GET') {
-    const stats = getRelayStats();
-    json(res, stats ?? { enabled: false, port: null, stats: null });
+    if (!requireAuth(req, res)) return true;
+    const stats = await getRelayStats();
+    json(res, stats ?? {
+      enabled: false, running: false, port: null, contacts: [], controls: {}, stats: null,
+    });
     return true;
   }
 
@@ -380,15 +383,22 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
     if (!requireAuth(req, res)) return true;
     const body = await readBody(req);
     const port = body.port as number | undefined;
+    const contacts = body.contacts as string[] | undefined;
+    const controls = body.controls as Parameters<typeof startRelayMode>[2];
     if (port !== undefined && (typeof port !== 'number' || port < 1024 || port > 65535)) {
       error(res, 'Port must be a number between 1024 and 65535');
       return true;
     }
+    if (contacts !== undefined && (!Array.isArray(contacts)
+      || contacts.some(value => typeof value !== 'string'))) {
+      error(res, 'Contacts must be a list of relay endpoints');
+      return true;
+    }
     try {
-      const result = await startRelayMode(port);
+      const result = await startRelayMode(port, contacts, controls);
       json(res, result);
     } catch (err) {
-      error(res, 'Internal error', 500);
+      error(res, err instanceof Error ? err.message : 'Relay service failed', 500);
     }
     return true;
   }
@@ -399,7 +409,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
       await stopRelayMode();
       json(res, { stopped: true });
     } catch (err) {
-      error(res, 'Internal error', 500);
+      error(res, err instanceof Error ? err.message : 'Relay service failed', 500);
     }
     return true;
   }

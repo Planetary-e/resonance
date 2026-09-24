@@ -15,7 +15,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Install dependencies
@@ -28,7 +28,7 @@ jobs:
         run: npm run build
 
       - name: Run tests
-        run: npx vitest run
+        run: npx vitest run --maxWorkers=1
 
       - name: Run eval suite (quick)
         run: npm run eval:quick

@@ -341,6 +341,68 @@ describe('protocol v2 node-to-relay flow', () => {
     bobStore.close();
   });
 
+  it('shows one notification when two independent relays match the same pair', async () => {
+    const secondPort = PORT + 1;
+    const secondDir = `/tmp/resonance-duplicate-match-${Date.now()}`;
+    const secondRelay = createRelayServer({
+      port: secondPort, host: '127.0.0.1', persistDir: secondDir,
+    });
+    const store = await openStoreAsync(':memory:', nacl.randomBytes(nacl.secretbox.keyLength));
+    try {
+      await secondRelay.start();
+      const offerKeys = generatePublicationKeyMaterial();
+      const needKeys = generatePublicationKeyMaterial();
+      const now = Date.now();
+      const groupId = `duplicate-match-${now}`;
+      const offer = createPublicationRecord({
+        groupId, fingerprintEpoch: 'pilot-static-v1',
+        fingerprint: new Uint8Array(64).fill(0x5a), itemType: 'offer',
+        createdAt: now, expiresAt: now + 86_400_000,
+      }, offerKeys);
+      const need = createPublicationRecord({
+        groupId, fingerprintEpoch: 'pilot-static-v1',
+        fingerprint: new Uint8Array(64).fill(0x5a), itemType: 'need',
+        createdAt: now, expiresAt: now + 86_400_000,
+      }, needKeys);
+      store.insertItem({
+        id: 'duplicate-recipient', type: 'need', rawText: 'recipient',
+        embedding: new Float32Array([1, 0]), privacyLevel: 'medium',
+      });
+      store.insertPublication('duplicate-recipient', need, needKeys);
+
+      const clients = [PORT, secondPort].map(port => createRelayClient({
+        relayUrl: `ws://127.0.0.1:${port}/`,
+      }));
+      for (const client of clients) {
+        expect((await client.submitPublicationOperation(offer)).status).toBe('ok');
+        expect((await client.submitPublicationOperation(need)).status).toBe('ok');
+      }
+      const inboxes = await Promise.all(clients.map(client => client.fetchMailbox(need, needKeys)));
+      expect(inboxes.map(inbox => inbox.notices.length)).toEqual([1, 1]);
+      expect(inboxes[0].envelopes[0].envelopeId).toBe(inboxes[1].envelopes[0].envelopeId);
+      expect(inboxes[0].notices[0].payload.matchOperation.operationId)
+        .not.toBe(inboxes[1].notices[0].payload.matchOperation.operationId);
+      expect(store.insertMailboxMatch('duplicate-recipient', inboxes[0].notices[0])).toBe(true);
+      expect(store.insertMailboxMatch('duplicate-recipient', inboxes[1].notices[0])).toBe(false);
+      expect(store.listMailboxMatches()).toHaveLength(1);
+      await Promise.all(clients.map((client, index) => client.acknowledgeMailbox(
+        need, needKeys, inboxes[index].envelopes.map(envelope => envelope.envelopeId),
+      )));
+      expect((await Promise.all(clients.map(client => client.fetchMailbox(need, needKeys))))
+        .flatMap(inbox => inbox.notices)).toEqual([]);
+      for (const client of clients) {
+        const offerInbox = await client.fetchMailbox(offer, offerKeys);
+        await client.acknowledgeMailbox(
+          offer, offerKeys, offerInbox.envelopes.map(envelope => envelope.envelopeId),
+        );
+      }
+    } finally {
+      store.close();
+      await secondRelay.stop({ graceful: false });
+      rmSync(secondDir, { recursive: true, force: true });
+    }
+  });
+
   it('establishes the same durable pairwise channel through encrypted mailboxes', async () => {
     const aliceIdentity = generateIdentity();
     const bobIdentity = generateIdentity();

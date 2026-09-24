@@ -4,6 +4,7 @@
 # Produces:
 #   src-tauri/binaries/node-<triple>       — Node.js binary (sidecar)
 #   src-tauri/resources/server/server.mjs  — Bundled server code
+#   src-tauri/resources/server/relay.mjs   — Independent relay service code
 #   src-tauri/resources/server/node_modules/  — Native modules only (slim)
 #
 # Usage: bash scripts/bundle-server.sh
@@ -68,6 +69,19 @@ npx esbuild src/server/start.ts \
   2>&1
 
 echo "  server.mjs: $(du -sh "$RESOURCES/server.mjs" | cut -f1)"
+
+echo "==> Bundling relay.mjs..."
+npx esbuild ../relay/src/main.ts \
+  --bundle \
+  --platform=node \
+  --format=esm \
+  --outfile="$RESOURCES/relay.mjs" \
+  --external:ws \
+  --external:hash-wasm \
+  --external:tweetnacl \
+  --external:tweetnacl-util \
+  --target=node20 \
+  2>&1
 
 # ── 2. Copy runtime modules (slim — no caches, no sources, no types) ──
 echo "==> Copying runtime modules..."

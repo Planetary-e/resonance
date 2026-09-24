@@ -480,14 +480,6 @@ export function createRelayClient(config: RelayClientConfig): RelayClient {
     });
   }
 
-  async function sendRelationshipMailboxRequest(request: RelationshipMailboxRequestV2): Promise<Message> {
-    let lastError: unknown;
-    for (const url of allUrls) {
-      try { return await sendRelationshipMailboxRequestToUrl(url, request); } catch (error) { lastError = error; }
-    }
-    throw lastError instanceof Error ? lastError : new Error('All relay URLs failed');
-  }
-
   function searchV2ToUrl(url: string, request: SearchRequestV2): Promise<SearchResponsePayloadV2> {
     return new Promise((resolve, reject) => {
       const admission = admissionFor(url, 'search', request);
@@ -639,19 +631,32 @@ export function createRelayClient(config: RelayClientConfig): RelayClient {
 
     async fetchRelationshipMailbox(keys: RelationshipKeyMaterial): Promise<RelationshipMailboxFetchResult> {
       const request = createRelationshipMailboxRequestV2('fetch', keys);
-      const response = await sendRelationshipMailboxRequest(request);
-      if (response.type === MessageTypes.ACK) {
-        const ack = response.payload as AckPayload;
-        throw new Error(ack.message ?? 'Relay rejected relationship mailbox fetch');
+      // Explicit fallback relays can temporarily disagree during repair. Merge
+      // their answers so one empty or stale relay cannot hide a live envelope.
+      const results = await Promise.allSettled(allUrls.map(async url => {
+        const response = await sendRelationshipMailboxRequestToUrl(url, request);
+        if (response.type === MessageTypes.ACK) {
+          const ack = response.payload as AckPayload;
+          throw new Error(ack.message ?? 'Relay rejected relationship mailbox fetch');
+        }
+        if (response.type !== MAILBOX_RESPONSE_MESSAGE_TYPE) throw new Error('Unexpected relationship mailbox response');
+        const payload = response.payload as MailboxResponsePayload;
+        if (payload.requestId !== request.requestId
+          || payload.mailboxId !== keys.mailboxId
+          || !Array.isArray(payload.envelopes)) throw new Error('Relationship mailbox response does not match request');
+        return payload.envelopes;
+      }));
+      const successes = results.filter((result): result is PromiseFulfilledResult<EncryptedMailboxEnvelope[]> =>
+        result.status === 'fulfilled');
+      if (successes.length === 0) {
+        const failed = results[0] as PromiseRejectedResult;
+        throw failed.reason instanceof Error ? failed.reason : new Error('All relay URLs failed');
       }
-      if (response.type !== MAILBOX_RESPONSE_MESSAGE_TYPE) throw new Error('Unexpected relationship mailbox response');
-      const payload = response.payload as MailboxResponsePayload;
-      if (payload.requestId !== request.requestId
-        || payload.mailboxId !== keys.mailboxId
-        || !Array.isArray(payload.envelopes)) throw new Error('Relationship mailbox response does not match request');
-      return {
-        envelopes: payload.envelopes,
-      };
+      const envelopes = new Map<string, EncryptedMailboxEnvelope>();
+      for (const result of successes) for (const envelope of result.value) {
+        if (!envelopes.has(envelope.envelopeId)) envelopes.set(envelope.envelopeId, envelope);
+      }
+      return { envelopes: [...envelopes.values()].sort((a, b) => a.envelopeId.localeCompare(b.envelopeId)) };
     },
 
     async depositRelationshipMailboxEnvelope(recipientRelationshipId, keys, envelope): Promise<AckPayload> {
@@ -665,11 +670,18 @@ export function createRelayClient(config: RelayClientConfig): RelayClient {
 
     async acknowledgeRelationshipMailbox(keys, envelopeIds): Promise<AckPayload> {
       const request = createRelationshipMailboxRequestV2('ack', keys, envelopeIds);
-      const response = await sendRelationshipMailboxRequest(request);
-      if (response.type !== MessageTypes.ACK) throw new Error('Unexpected relationship mailbox acknowledgement');
-      const ack = response.payload as AckPayload;
-      if (ack.status !== 'ok') throw new Error(ack.message ?? 'Relay rejected relationship mailbox acknowledgement');
-      return ack;
+      const results = await Promise.allSettled(allUrls.map(async url => {
+        const response = await sendRelationshipMailboxRequestToUrl(url, request);
+        if (response.type !== MessageTypes.ACK) throw new Error('Unexpected relationship mailbox acknowledgement');
+        const ack = response.payload as AckPayload;
+        if (ack.status !== 'ok') throw new Error(ack.message ?? 'Relay rejected relationship mailbox acknowledgement');
+        return ack;
+      }));
+      const success = results.find((result): result is PromiseFulfilledResult<AckPayload> =>
+        result.status === 'fulfilled');
+      if (success) return success.value;
+      const failed = results[0] as PromiseRejectedResult;
+      throw failed.reason instanceof Error ? failed.reason : new Error('All relay URLs failed');
     },
 
     async searchV2(input: CreateSearchRequestInputV2): Promise<SearchResponsePayloadV2> {

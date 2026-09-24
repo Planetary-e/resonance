@@ -84,11 +84,44 @@ export interface PublishResult {
 
 export interface RelayStatus {
   enabled: boolean;
+  running: boolean;
   port: number | null;
+  contacts: string[];
+  controls: RelayOwnerControls;
+  storageCommitmentFloorBytes?: number;
   stats: {
-    connectedNodes?: number;
-    indexedItems?: number;
+    relay_id?: string;
+    connected_relays?: number;
+    inbound_authenticated_relays?: number;
+    outbound_authenticated_relays?: number;
+    connected_query_peers?: number;
+    peer_confirmed_direct_endpoints?: number;
+    active_publications?: number;
+    placement_intents?: number;
+    minimum_confirmed_placements?: number;
+    publication_storage_reserved_bytes?: number;
+    publication_storage_quota_bytes?: number;
+    transport_ingress_bytes?: number;
+    transport_egress_bytes?: number;
+    lan_ingress_bytes?: number;
+    lan_egress_bytes?: number;
+    process_cpu_milliseconds?: number;
+    data_file_bytes?: number;
+    mailbox_storage_reserved_bytes?: number;
+    journal_bytes?: number;
+    publication_commitment_floor_bytes?: number;
+    mailbox_commitment_floor_bytes?: number;
+    journal_commitment_floor_bytes?: number;
   } | null;
+}
+
+export interface RelayOwnerControls {
+  publicationStorageMiB?: number;
+  newWorkIngressMiBPerHour?: number;
+  totalBandwidthMiBPerHour?: number;
+  cpuMillisecondsPerMinute?: number;
+  activeHours?: string;
+  onlyWhenCharging?: boolean;
 }
 
 export interface AppEvent {
@@ -242,8 +275,10 @@ export async function getRelayStatus(): Promise<RelayStatus & { error?: string }
   return api<RelayStatus>('GET', '/api/relay/status');
 }
 
-export async function startRelay(port?: number): Promise<{ port: number; error?: string }> {
-  return api('POST', '/api/relay/start', port ? { port } : {});
+export async function startRelay(
+  contacts: string[], controls: RelayOwnerControls, port?: number,
+): Promise<{ port: number; error?: string }> {
+  return api('POST', '/api/relay/start', { contacts, controls, ...(port ? { port } : {}) });
 }
 
 export async function stopRelay(): Promise<{ stopped: boolean; error?: string }> {

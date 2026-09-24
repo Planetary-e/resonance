@@ -203,7 +203,9 @@ export function encryptMatchNotice(
     version: PROTOCOL_V2_VERSION,
     kind: 'mailbox-envelope',
     payloadType: 'match-notice',
-    envelopeId: createMailboxEnvelopeId(message.payload.matchOperation.operationId, recipient.mailbox.id),
+    // Every relay attesting the same publication pair uses one delivery key.
+    // The signed attestation can differ, but the recipient sees one match.
+    envelopeId: createMailboxEnvelopeId(message.payload.matchId, recipient.mailbox.id),
     mailboxId: recipient.mailbox.id,
     ephemeralKey: encodeBase64(ephemeral.publicKey),
     nonce: encodeBase64(encrypted.nonce),
@@ -257,7 +259,9 @@ export function decryptMatchNotice(
   if (!verifyMatchNoticeMessage(message)) throw new Error('Mailbox match notice signature is invalid');
   if (message.payload.recipientPublicationId !== keys.publicationId
     || message.payload.recipientMailboxId !== keys.mailboxId
-    || createMailboxEnvelopeId(message.payload.matchOperation.operationId, keys.mailboxId) !== envelope.envelopeId
+    || (createMailboxEnvelopeId(message.payload.matchId, keys.mailboxId) !== envelope.envelopeId
+      // Accept notices written before pair-scoped delivery IDs were introduced.
+      && createMailboxEnvelopeId(message.payload.matchOperation.operationId, keys.mailboxId) !== envelope.envelopeId)
     || message.payload.createdAt !== envelope.createdAt
     || message.payload.expiresAt !== envelope.expiresAt) {
     throw new Error('Mailbox envelope metadata does not match its encrypted notice');

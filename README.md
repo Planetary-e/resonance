@@ -8,7 +8,7 @@ Planetary Resonance is an open-source protocol and application for helping peopl
 
 A person writes a need or offer in natural language. Their device turns it into a compact matching fingerprint, publishes it under a key created for that one publication, and keeps the original text and root identity local. A relay compares complementary fingerprints. If two publications match, both people can consent to a fresh pairwise relationship and exchange end-to-end encrypted disclosures through asynchronous mailboxes.
 
-Resonance is currently a **research prototype**, not a production network. The protocol v2 privacy and persistence foundation is implemented. Automatic replication, relay-to-relay query forwarding, private transport, and mobile participation are the next milestones.
+Resonance is currently a **research prototype**, not a production network. The protocol v2 privacy and persistence foundation is implemented, along with configured volunteer-relay replication, bounded relay-to-relay search forwarding, publication and relationship mailbox repair, receipt-authorized batch checks after storage loss, narrow signed state reconciliation, and enforced storage quotas. Private transport and mobile participation remain future milestones. Relationship mailbox replication currently requires connected volunteer links and explicitly configured client fallback URLs for retrieval after an original relay disappears; it does not yet provide a durable receipt minimum.
 
 ## The goal
 
@@ -66,9 +66,11 @@ Important limits in the current version:
 
 - Similarity matching necessarily reveals that some fingerprints are close. A compact fingerprint reduces exposed data; it is not a proof that semantic membership cannot be inferred.
 - A relay or network observer can still correlate requests by IP address, timing, size, and repeated fingerprints. Two-hop private transport, padding, batching, and route rotation are planned work.
-- Current clients use one configured relay at a time. A relay that does not hold a record does **not** yet forward the query to another relay.
-- Records are not yet replicated automatically. If the only relay holding a record goes offline, that record is temporarily unavailable.
-- A desktop relay contributes only while its relay process is running. Independent background supervision and graceful multi-relay handoff belong to the volunteer-replication milestone.
+- Current clients use one configured relay at a time. That relay can now forward a search across at most two authenticated relay-link hops, consulting up to five connected, group-compatible volunteers per hop when its local index has fewer than the requested number of results. A timeout returns the results available locally and from peers that replied. The relay does not dial unverified peer-exchange hints to answer a search; signed remote scores are relay assertions, not independent match proofs.
+- A relay with configured authenticated relay contacts automatically attempts to place each locally submitted publication or tombstone on up to five live eligible volunteer relays. New selections prefer different observed endpoint failure domains—IPv4 `/24`, IPv6 `/48`, or exact DNS hostname—before using another relay in a domain already selected. This reduces obvious shared-network fate but does not prove independent operators or physical locations. The relay records positive signed receipts durably and retries pending configured targets after reconnect or restart. It retains a disconnected target through a configurable outage grace period, then replaces it only when a connected eligible spare can preserve the placement size. A signed `capacity-exhausted` refusal or a receipt-backed signed graceful retirement also removes that target for the exact operation and seeks another configured volunteer. A signed `stale`, `conflict`, or `terminal` refusal authorizes one read-only state request to that exact target; if it returns an unambiguous newer owner-signed operation, the source adopts it locally without automatically placing it elsewhere. Conflicts, unavailable state, `unsupported-group`, and `invalid` remain quarantined until a newer owner-signed operation is accepted locally. Rate limits and persistence failures retain the target for bounded retry. A later publication revision makes a fresh target decision. Until a record has enough receipts, the local relay may still be its only copy.
+- A signed receipt proves a relay fsynced one exact operation at one point in time. Receipt-holders are periodically checked over their authenticated link in target-scoped batches of up to 64 receipts; one signed bitmap reports which exact operations remain present, and a missing bit causes a fresh placement attempt. Each query still requires the target's prior signed receipt, so it cannot probe arbitrary publication IDs or enumerate the target's full inventory. This is still a relay's assertion at one moment, not proof that it is continuously online or independently operated. A relay that returns with the same infrastructure identity can repair its copy; a relay that remains offline beyond the grace period can be rotated out when a live spare exists.
+- A volunteer relay now enforces an operator-chosen allocation for retained publication state and can return a signed `capacity-exhausted` receipt. It can also cap the allocation attributed to each inbound relay identity. Every new journal row carries explicit `local`, `replica`, or `legacy` provenance, so local state remains outside inbound-peer accounting even if the relay later recreates its infrastructure identity. Unmarked historical rows are conservatively charged to one legacy allocation bucket rather than guessed as local or remote; later updates and tombstones carry the explicit legacy tag so a compactor preserves that accounting. Each quota keeps a 512-byte protected withdrawal reserve for a valid tombstone that arrives before its live predecessor; new live publications cannot consume it. Its public descriptor reports a coarse, rate-limited admission-capacity hint based on retained-state quota and current journal headroom, not measured filesystem free space. Safe compaction removes expired delivery and obsolete repair history, but active matches, placements, unexpired envelopes, and tombstones can still fill the finite journal and stop new writes.
+- A relay that shuts down normally sends signed, bounded handoff batches to reachable original placement controllers. Each controller verifies its own receipt for the exact hosted operation, durably excludes the retiring relay, selects a connected spare, queues repair, and signs an acknowledgement. Shutdown waits at most two seconds per reachable controller and reports whether the minimum receipt count already existed elsewhere; it does not wait for the replacement write to finish. Crashes and offline controllers still rely on inventory checks and repair.
 - The project does not operate a required fleet of permanent servers. The planned availability model depends on several independently operated volunteer devices.
 
 Read the full [protocol v2 threat model](docs/developers/protocol-v2.md) and [roadmap](ROADMAP.md) before relying on Resonance for sensitive activity.
@@ -83,13 +85,16 @@ Read the full [protocol v2 threat model](docs/developers/protocol-v2.md) and [ro
 | Pairwise consent, encrypted disclosures, retries, and channel close | Implemented |
 | CLI and Tauri desktop flows | Implemented from current source |
 | v0.1 local-data backup and upgrade | Implemented |
-| Automatic multi-relay placement, repair, and query forwarding | Planned for v0.3 |
+| Configured-relay placement, failure-domain preference, signed receipts, persistent repair state, reconnect retry, offline-target replacement, receipt-scoped batch checks, and publication-state quotas | Implemented v0.3 foundation |
+| Signed graceful replica handoff | Implemented v0.3 foundation |
+| Journal compaction, bounded query forwarding, publication-mailbox replication, match-notice deduplication, desktop background relay service, and five-relay churn harness | Implemented v0.3 foundation |
+| Pairwise relationship-mailbox placement, broader churn evaluation, and full resource accounting | Remaining v0.3 work |
 | Private two-hop transport and anonymous abuse-control credentials | Planned for v0.4 |
 | iOS and Android clients | Planned for v0.5 |
 
 The current validation baseline is:
 
-- **198 automated tests** across core, node, relay, storage, migration, and integration flows
+- **More than 300 automated tests** across core, node, relay, storage, migration, and integration flows
 - **44/44 evaluation gates passing**
 - **93.3% recall** for the evaluated 512-bit LSH configuration at a 0.7 Hamming-similarity threshold
 - **2.3 ms p95** for a 10,000-fingerprint Hamming scan on the recorded evaluation machine
@@ -101,9 +106,11 @@ These are development measurements, not service-level guarantees. See the [lates
 
 ### Download a desktop build
 
-Installers are published on [GitHub Releases](https://github.com/Planetary-e/resonance/releases). The latest published release currently includes an Apple Silicon macOS DMG, a Windows x64 installer, and Linux Debian/RPM packages.
+Installers are published on [GitHub Releases](https://github.com/Planetary-e/resonance/releases). Check each release's tag and notes before installing; available packages include an Apple Silicon macOS DMG, a Windows x64 installer, and Linux Debian/RPM packages.
 
 Packaged releases may lag the protocol on `main`. Read the release notes and use the source workflow below when you want the newest protocol behavior.
+
+Friends testing a v0.3 beta should follow the [volunteer test guide](docs/testing/v0.3-beta-pilot.md). Use invented data: network metadata and fingerprints are not yet protected by the planned private transport. A cross-household test needs at least one trusted volunteer with a reachable relay endpoint; the desktop app itself connects outbound only.
 
 The release workflow runs when a version tag is pushed, or when a maintainer starts it manually. Merging source changes into `main` does not immediately replace the downloadable applications.
 
@@ -139,6 +146,18 @@ npm run start --workspace=@resonance/relay
 ```
 
 The relay writes its infrastructure identity and operation journal under `RELAY_DATA_DIR`. Stop it with `Ctrl+C`; accepted operations are replayed on the next start.
+
+In the desktop app, enter one or more trusted volunteer relay WebSocket addresses under **Volunteer relay contacts**, then enable **Act as Relay**. The app installs a user-level background job (launchd on macOS, systemd on Linux, Task Scheduler on Windows) that runs the standalone relay independently of the window. It listens only on the local loopback interface and maintains outbound authenticated links to the configured contacts, so it can keep contributing after the graphical app closes without an inbound Internet port. Turning the switch off removes the job. The app reports whether the job is running; contacts are explicit choices, while discovery results remain hints. Platform service installation still needs release-package validation on Windows and Linux.
+
+To expose signed v0.3 discovery metadata, set `RELAY_PUBLIC_ENDPOINTS` to the relay's comma-separated public WebSocket endpoints. Use `RELAY_CONTACTS` for configured relay hints and authenticated outbound links; every contacted relay and every descriptor it returns is verified independently. A relay with contacts and no public endpoint advertises itself as `outbound-only`. `RELAY_PUBLICATION_STORAGE_QUOTA_BYTES` limits retained publication state and must not exceed `RELAY_STORAGE_AVAILABLE_BYTES`; it defaults to that value. `RELAY_REPLICA_STORAGE_PER_RELAY_BYTES` can impose a smaller allocation for each inbound relay identity. The relay-wide and per-relay quotas each keep a 512-byte withdrawal reserve. New rows carry explicit local, replica, or legacy allocation provenance; unmarked historic rows remain in one conservative legacy bucket, reported only through exact local or authorized statistics. The descriptor rounds available capacity down to 64 KiB and updates it at most once a minute; authenticated relay links re-establish on that cadence to receive the latest signed hint. Use it as a placement preference and rely on a signed `capacity-exhausted` response for an exact refusal. A local publication or tombstone creates a durable placement intent, selects up to five live eligible targets from explicit outbound contacts and approved inbound volunteer IDs, and records only positive signed fsync receipts. It retries missing selected targets on reconnect and after restart, while retaining prior targets for updates and tombstones. `RELAY_REPLICA_OFFLINE_REPLACEMENT_MS` sets the outage grace period before an offline selected target may be replaced by a connected eligible spare; it defaults to five minutes and must be at least 100 milliseconds. A replacement is journaled before repair starts and occurs only when the spare preserves the placement size. Receipt-holders receive periodic target-scoped batch checks; only the relay that holds each target's prior signed receipt can ask, and a clear bit in the signed presence bitmap schedules repair. Peer-exchange results are never dialed automatically. See [Relay discovery for v0.3](docs/developers/relay-discovery-v0.3.md) for the protocol, current limits, and trust model.
+
+Set `RELAY_ADMIN_API_KEY` to enable the exact operational `/stats` endpoint. Without it, `/stats` is disabled; the programmatic relay API remains available to an embedding operator.
+
+The authenticated stats report transport ingress and egress, process CPU time, relay data-file bytes, retained mailbox and journal bytes, and the minimum publication, mailbox, and journal quotas needed for accepted state. Transport and CPU totals start again when the relay process restarts; transport counts TCP/WebSocket and HTTP sockets, not LAN-discovery UDP. On restart, a relay refuses a storage quota below retained commitments. The desktop shows the current storage floor before a smaller publication limit can be applied. New-work ingress, CPU, power, and hours controls still limit discretionary admissions; repairs, acknowledgements, and withdrawals continue even if they exceed those budgets.
+
+To allow a directly reachable relay to place copies onto volunteers that connected to it from behind NAT, set `RELAY_INBOUND_REPLICA_TARGET_IDS` on that relay to a comma-separated list of approved relay IDs. Each volunteer can read its own infrastructure ID from the desktop relay status or its local authenticated `/stats` response and share it with the contact it trusts. The direct relay verifies the signed link descriptor and selects only approved, currently connected IDs with the required storage and group capabilities. A successful placement still requires a signed fsync receipt; merely knowing or advertising an ID grants no storage placement.
+
+Run `npm run test:churn` to exercise five outbound-only volunteers through link isolation, abrupt loss, empty-journal repair, controller outage, and reconnection. The command also tests search from an unseeded relay and encrypted notice delivery after the controller and two volunteers stop. The [churn harness guide](docs/developers/churn-harness-v0.3.md) explains the logged measurements and the limits of these local tests.
 
 The current transport is suitable for local development and controlled testing. It is not yet the private, authenticated Internet transport described in the roadmap.
 
@@ -335,7 +354,7 @@ The project currently collaborates in public through GitHub Issues and pull requ
 - **Propose a protocol change:** start with an issue. Describe the threat model, relay failure behavior, compatibility impact, and how the change can be evaluated before writing a large implementation.
 - **Contribute code or documentation:** choose an open issue, comment that you intend to work on it, create a focused branch, add appropriate tests or evaluation evidence, and open a pull request.
 - **Find approachable work:** look for [`good first issue`](https://github.com/Planetary-e/resonance/labels/good%20first%20issue) and [`help wanted`](https://github.com/Planetary-e/resonance/labels/help%20wanted) labels when available.
-- **Help with the next network milestone:** relay discovery, multi-relay publication, replica repair, bounded query forwarding, churn testing, and resource controls are the main v0.3 priorities.
+- **Help with the next network milestone:** test volunteer links and repair across independent networks, plus background-service installation in Windows and Linux packages.
 
 Community norms:
 
@@ -350,6 +369,7 @@ See the [contribution guide](docs/developers/contributing.html), [open issues](h
 ## Documentation
 
 - [Protocol v2 and threat model](docs/developers/protocol-v2.md)
+- [Relay discovery for v0.3](docs/developers/relay-discovery-v0.3.md)
 - [v0.1 to v0.2 upgrade guide](docs/developers/v0.1-to-v0.2-upgrade.md)
 - [Architecture](docs/developers/architecture.html)
 - [How Resonance works](docs/how-it-works.html)

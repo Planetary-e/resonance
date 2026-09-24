@@ -1,12 +1,73 @@
 export { HammingIndex, ComplementaryHammingIndex, type HashMetadata, type HammingMatch } from './hamming-index.js';
 export { MatchingEngine, type MatchNotification, type SearchResult, type MatchingEngineConfig } from './matching-engine.js';
 export { RateLimiter, type RateLimiterConfig } from './rate-limiter.js';
-export { createRelayServer, type RelayConfig, type RelayServer, type RelayStats } from './server.js';
+export {
+  createRelayServer,
+  type RelayConfig,
+  type RelayDiscoveryConfig,
+  type RelayDiscoveryIngestResult,
+  type RelayServer,
+  type RelayStats,
+} from './server.js';
+export {
+  RelayDirectory,
+  type RelayDescriptorObservation,
+  type RelayDirectorySelection,
+} from './relay-directory.js';
+export {
+  discoverRelayContactV1,
+  type RelayContactDiscoveryOptions,
+  type RelayContactDiscoveryResult,
+} from './relay-discovery-client.js';
+export {
+  connectRelayLinkV1,
+  RelayLinkManager,
+  type RelayLinkClientOptions,
+  type RelayLinkClose,
+  type RelayLinkConnection,
+  type ConnectedRelayPeer,
+  type RelayLinkManagerEvent,
+  type RelayLinkManagerOptions,
+  type RelayLinkManagerStatus,
+} from './relay-link-client.js';
+export {
+  DEFAULT_DESIRED_REPLICA_COUNT,
+  DEFAULT_MINIMUM_HEALTHY_REPLICA_COUNT,
+  MAX_PERMANENTLY_REJECTED_REPLICA_TARGETS,
+  MAX_RECONCILIATION_REQUIRED_REPLICA_TARGETS,
+  MAX_REPLICA_TARGETS,
+  createReplicaPlacementIntent,
+  isPermanentReplicaRejection,
+  isReconciliationRequiredReplicaRejection,
+  verifyReplicaPlacementIntent,
+  placementMatchesOperation,
+  ReplicaPlacementTracker,
+  ReplicaReconciliationScheduler,
+  type ReplicaPlacementPolicy,
+  type ReplicaPlacementIntentV1,
+  type ReplicaReconciliationRequirementV1,
+  type ReplicaPlacementStatus,
+} from './replica-placement.js';
+export {
+  observedReplicaFailureDomain,
+  prioritizeReplicaDiversity,
+  type ReplicaDiversityCandidate,
+} from './replica-diversity.js';
 export {
   PublicationOperationStore,
   type PublicationApplyResult,
   type PublicationApplyStatus,
 } from './publication-store.js';
+export {
+  FIRST_SEEN_TOMBSTONE_RESERVE_BYTES,
+  ReplicaStorageLedger,
+  TOMBSTONE_HEADROOM_BYTES,
+  publicationStorageAllocatableBytes,
+  publicationStorageReservationBytes,
+  type ReplicaStorageAllocation,
+  type PublicationStorageAllocationOrigin,
+  type PublicationStorageAllocationPrincipal,
+} from './replica-storage-ledger.js';
 export { MailboxStore } from './mailbox-store.js';
 export {
   MatchOperationStore,

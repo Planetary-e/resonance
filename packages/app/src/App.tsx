@@ -230,8 +230,10 @@ export default function App() {
   }, [session]);
 
   // ---- Relay toggle ----
-  const handleRelayToggle = useCallback(async () => {
-    const result = await relay.toggle();
+  const handleRelayToggle = useCallback(async (
+    contacts: string[], controls: import('./api.client').RelayOwnerControls,
+  ) => {
+    const result = await relay.toggle(contacts, controls);
     if (result.error) {
       toast(`Relay error: ${result.error}`, 'error');
     } else {

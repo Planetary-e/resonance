@@ -32,7 +32,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Install Rust
@@ -59,7 +59,7 @@ jobs:
         run: npm ci
 
       - name: Run tests (skip embedding-heavy tests in CI)
-        run: npx vitest run --exclude '**/embedding.test.ts' --exclude '**/integration.test.ts' --exclude '**/hnsw*'
+        run: npx vitest run --maxWorkers=1 --exclude '**/embedding.test.ts' --exclude '**/integration.test.ts' --exclude '**/hnsw*'
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
@@ -77,6 +77,38 @@ jobs:
           BUNDLE_DIR="packages/app/src-tauri/target/${{ matrix.rust-target }}/release/bundle"
           echo "bundle_dir=$BUNDLE_DIR" >> "$GITHUB_OUTPUT"
           ls -lhR "$BUNDLE_DIR" || true
+
+      - name: Verify macOS beta app signature
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle_dir="packages/app/src-tauri/target/${{ matrix.rust-target }}/release/bundle"
+          shopt -s nullglob
+          dmgs=( "$bundle_dir"/dmg/*.dmg )
+          test "${#dmgs[@]}" -gt 0
+          mount_dir=""
+          cleanup() {
+            if [[ -n "$mount_dir" ]]; then
+              hdiutil detach "$mount_dir" >/dev/null 2>&1 || true
+              rmdir "$mount_dir" 2>/dev/null || true
+            fi
+          }
+          trap cleanup EXIT
+          for dmg in "${dmgs[@]}"; do
+            hdiutil verify "$dmg"
+            mount_dir="$(mktemp -d)"
+            hdiutil attach -readonly -nobrowse -mountpoint "$mount_dir" "$dmg"
+            app_path="$mount_dir/Resonance.app"
+            test -d "$app_path"
+            codesign --verify --deep --strict --verbose=2 "$app_path"
+            signature="$(codesign -dv --verbose=4 "$app_path" 2>&1)"
+            [[ "$signature" == *"Signature=adhoc"* ]]
+            [[ "$signature" == *"Sealed Resources version=2"* ]]
+            hdiutil detach "$mount_dir"
+            rmdir "$mount_dir"
+            mount_dir=""
+          done
 
       - name: Upload macOS DMG
         if: runner.os == 'macOS'

@@ -130,9 +130,16 @@ describe('protocol v2 publication storage', () => {
       expiresAt: record.createdAt + 60_000,
     });
     const notice = createMatchNoticeMessage(record, partner, operation, relay);
+    const otherRelay = generateIdentity();
+    const otherOperation = createMatchOperationV2(record, partner, otherRelay, {
+      createdAt: record.createdAt + 2,
+      expiresAt: record.createdAt + 59_000,
+    });
+    const otherNotice = createMatchNoticeMessage(record, partner, otherOperation, otherRelay);
 
     expect(store.insertMailboxMatch('item-1', notice)).toBe(true);
     expect(store.insertMailboxMatch('item-1', notice)).toBe(false);
+    expect(store.insertMailboxMatch('item-1', otherNotice)).toBe(false);
     store.close();
 
     const bytes = readFileSync(path).toString('utf8');
@@ -140,6 +147,7 @@ describe('protocol v2 publication storage', () => {
     expect(bytes).not.toContain(partner.mailbox.id);
 
     const reopened = await openStoreAsync(path, key);
+    expect(reopened.insertMailboxMatch('item-1', otherNotice)).toBe(false);
     const matches = reopened.listMailboxMatches();
     expect(matches).toHaveLength(1);
     expect(matches[0].notice).toEqual(notice);

@@ -141,6 +141,7 @@ code, .mono { font-family: var(--font-mono); font-size: 0.88em; }
 label { display: block; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); margin-bottom: 0.4rem; }
 
 input[type="text"],
+input[type="number"],
 input[type="password"],
 input[type="email"],
 input[type="search"],
@@ -151,7 +152,7 @@ select {
   padding: 0.6rem 0.85rem; transition: border-color var(--transition), box-shadow var(--transition); outline: none;
 }
 
-input[type="text"]:focus, input[type="password"]:focus, input[type="email"]:focus,
+input[type="text"]:focus, input[type="number"]:focus, input[type="password"]:focus, input[type="email"]:focus,
 input[type="search"]:focus, textarea:focus, select:focus {
   border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim);
 }
@@ -312,7 +313,9 @@ input[type="range"]::-moz-range-thumb { width: 18px; height: 18px; border-radius
 /* --- Relay Section --- */
 .relay-section { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.25rem; margin-bottom: 1.5rem; }
 .relay-toggle-row { display: flex; align-items: center; justify-content: space-between; }
-.relay-stats { display: flex; gap: 2rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); font-size: 0.85rem; }
+.relay-controls { display: grid; grid-template-columns: minmax(12rem, 1fr) minmax(10rem, 2fr); align-items: center; gap: 0.65rem 1rem; margin-top: 1rem; }
+.relay-controls label:last-child { grid-column: 1 / -1; display: flex; align-items: center; gap: 0.5rem; }
+.relay-stats { display: flex; flex-wrap: wrap; gap: 2rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); font-size: 0.85rem; }
 .relay-stats .stat-item { display: flex; flex-direction: column; gap: 0.2rem; }
 .relay-stats .stat-item .label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); }
 .relay-stats .stat-item .value { font-family: var(--font-mono); font-size: 0.9rem; color: var(--text); }
@@ -359,3 +362,5 @@ input[type="range"]::-moz-range-thumb { width: 18px; height: 18px; border-radius
   .tab-nav { padding: 0 0.75rem; }
   .topbar-did { display: none; }
 }
+.relay-own-id { grid-column: 1 / -1; }
+.relay-own-id .value { overflow-wrap: anywhere; font-size: 0.8rem; user-select: text; }
