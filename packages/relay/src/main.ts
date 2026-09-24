@@ -4,6 +4,7 @@
  * Relay server entry point. Configured via environment variables.
  */
 
+import { readFileSync } from 'node:fs';
 import { createRelayContactHintV1 } from '@resonance/core';
 import { log } from './logger.js';
 import { localRelayEndpoints, startLanDiscovery } from './lan-discovery.js';
@@ -12,8 +13,18 @@ import { RelayTrafficMeter } from './relay-resource-meter.js';
 import { createRelayServer } from './server.js';
 
 const relayPort = parseNonNegativeInteger(process.env.RELAY_PORT, 9090, 'RELAY_PORT');
+const tlsCertFile = process.env.RELAY_TLS_CERT_FILE;
+const tlsKeyFile = process.env.RELAY_TLS_KEY_FILE;
+if (Boolean(tlsCertFile) !== Boolean(tlsKeyFile)) {
+  throw new Error('RELAY_TLS_CERT_FILE and RELAY_TLS_KEY_FILE must be set together');
+}
+const tls = tlsCertFile && tlsKeyFile
+  ? { cert: readFileSync(tlsCertFile), key: readFileSync(tlsKeyFile) }
+  : undefined;
 const lanEnabled = process.env.RELAY_LAN_DISCOVERY === 'true';
-if (lanEnabled && (process.env.RELAY_HOST ?? '0.0.0.0') !== '0.0.0.0') {
+if (lanEnabled && tls) throw new Error('LAN discovery requires a plain private-LAN listener');
+const relayHost = process.env.RELAY_HOST ?? '127.0.0.1';
+if (lanEnabled && relayHost !== '0.0.0.0') {
   throw new Error('LAN discovery requires RELAY_HOST=0.0.0.0');
 }
 const localEndpoints = lanEnabled ? localRelayEndpoints(relayPort) : [];
@@ -104,8 +115,9 @@ const ownerPolicy = ownerBandwidth !== undefined || ownerTotalBandwidth !== unde
   }) : null;
 
 const server = createRelayServer({
+  tls,
   port: relayPort,
-  host: process.env.RELAY_HOST ?? '0.0.0.0',
+  host: relayHost,
   persistDir: relayDataDir,
   resourceMeter,
   adminApiKey: process.env.RELAY_ADMIN_API_KEY || null,
