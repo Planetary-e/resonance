@@ -34,6 +34,7 @@ export { BOOTSTRAP_RELAYS, DEFAULT_RELAY_PORT } from './bootstrap.js';
 export { assertSecureRelayTransportEndpoint } from './relay-transport.js';
 export {
   selectPrivateRouteV1,
+  observedNetworkDomainV1,
   type PrivateRouteCandidateV1,
   type PrivateRouteV1,
 } from './private-route.js';
@@ -44,6 +45,7 @@ export {
   MAX_PRIVATE_KEY_LIFETIME_MS,
   MAX_PRIVATE_REQUEST_LIFETIME_MS,
   PrivateRequestReplayCacheV1,
+  type PrivateReplayRecordV1,
   generateRelayTransportKeyV1,
   verifyRelayTransportKeyV1,
   isRelayTransportKeyActiveV1,

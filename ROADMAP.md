@@ -171,12 +171,12 @@ The five-target placement goal remains conditional on enough eligible volunteers
   - [x] Connect the personal client to explicit experimental entry and destination roles; fail closed if their signed descriptors or observed IP domains overlap, and never use a configured destination as a direct entry contact
   - [x] Preflight the exact entry-to-destination forwarding endpoint: the entry fetches the destination's signed key over a live socket and signs its observed IP for the client; the client never dials that destination during the operation
 - [ ] Encrypt requests so the entry relay sees the source address but not the operation, while the destination sees the operation but not the source address
-  - [x] Define bounded HPKE entry and destination layers with signed relay encryption keys, short expiry, authenticated metadata, and per-process replay rejection
+  - [x] Define bounded HPKE entry and destination layers with signed relay encryption keys, short expiry, authenticated metadata, and replay rejection
   - [x] Advertise a signed relay encryption key in discovery and carry both encrypted request and reply through live local relay sockets
   - [x] Observe entry and destination sockets in separate relay processes; verify the entry wire omits the operation ID and the destination's operation connection originates from the entry process
-  - [ ] Enforce durable replay behavior after relay restart
+  - [x] Fsync private request replay evidence before forwarding or applying a request, restore unexpired entries before listening after a restart, and fail closed on complete-record corruption or exhausted capacity
   - [x] Stop direct client-to-destination key discovery; verify the destination's signed response and the entry's fresh signed socket observation before encrypting the operation
-  - [ ] Validate network-domain diversity independently for DNS-named destinations; a dishonest entry can misstate its observed destination IP, and distinct domains do not prove distinct operators
+  - [x] Resolve DNS-named destinations independently and require the entry's reported IP to be in the answer set, with every answer outside the entry's observed network domain. This depends on the client's DNS resolver: it does not authenticate DNS, prove the exact destination socket IP when there are multiple answers, or prove distinct operators
 - [ ] Use authenticated encrypted transport for every Internet-facing peer connection
   - [x] Reject public `ws://` endpoints at client, discovery, relay-link, and advertised-endpoint boundaries; retain cleartext only for loopback and private-LAN development
   - [ ] Provide and verify TLS termination for reachable volunteer relays, then audit every inbound and outbound connection path

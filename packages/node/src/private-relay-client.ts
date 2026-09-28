@@ -60,6 +60,7 @@ import {
   type SearchResponsePayloadV2,
 } from '@resonance/core';
 import { discoverRelayContactV1 } from './relay-discovery-client.js';
+import { verifyPrivateDestinationAddressV1 } from './private-destination-dns.js';
 import type {
   MailboxFetchResult, RelayClient, RelayClientConfig, RelayClientEvents,
   RelationshipMailboxFetchResult,
@@ -151,8 +152,12 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
       try {
         const entry = await discoverEntry(entryUrl);
         const destination = await discoverDestination(entry, destinationUrl);
-        // The destination IP is the entry's signed live-socket observation.
-        // It is not independently observable by the client without leaking its address.
+        // Independently resolve DNS without opening a destination relay socket.
+        // DNS integrity and operator diversity remain separate trust questions.
+        await verifyPrivateDestinationAddressV1(
+          destinationUrl, destination.candidate.remoteAddress,
+          entry.candidate.remoteAddress,
+        );
         selectPrivateRouteV1([entry.candidate, destination.candidate]);
         return { entry, destination };
       } catch (error) { lastError = error; }

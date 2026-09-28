@@ -79,13 +79,36 @@ export interface PrivateResponseV1 {
   ciphertext: string;
 }
 
+export interface PrivateReplayRecordV1 {
+  id: string;
+  expiresAt: number;
+}
+
 /** Short-lived, bounded replay rejection for a relay process. */
 export class PrivateRequestReplayCacheV1 {
   private readonly seen = new Map<string, number>();
 
-  constructor(private readonly capacity = DEFAULT_REPLAY_CAPACITY) {
+  constructor(
+    private readonly capacity = DEFAULT_REPLAY_CAPACITY,
+    restored: readonly PrivateReplayRecordV1[] = [],
+    private readonly persist?: (record: PrivateReplayRecordV1) => void,
+    now = Date.now(),
+  ) {
     if (!Number.isSafeInteger(capacity) || capacity < 1 || capacity > 65_536) {
       throw new Error('Invalid private request replay capacity');
+    }
+    if (!validTimestamp(now) || !Array.isArray(restored) || restored.length > capacity) {
+      throw new Error('Invalid restored private replay entries');
+    }
+    for (const record of restored) {
+      if (!record || typeof record.id !== 'string' || record.id.length > 256
+        || !/^[A-Za-z0-9:_-]+$/.test(record.id)
+        || !validTimestamp(record.expiresAt)) {
+        throw new Error('Invalid restored private replay entry');
+      }
+      if (record.expiresAt <= now) continue;
+      if (this.seen.has(record.id)) throw new Error('Duplicate restored private replay entry');
+      this.seen.set(record.id, record.expiresAt);
     }
   }
 
@@ -99,6 +122,8 @@ export class PrivateRequestReplayCacheV1 {
     const id = `${layer.stage}:${layer.relayId}:${layer.keyId}:${layer.requestId}`;
     if (this.seen.has(id)) throw new Error('Replayed private request');
     if (this.seen.size >= this.capacity) throw new Error('Private replay cache is full');
+    // A durable adapter must fsync before this request can be forwarded or applied.
+    this.persist?.({ id, expiresAt: layer.expiresAt });
     this.seen.set(id, layer.expiresAt);
   }
 }

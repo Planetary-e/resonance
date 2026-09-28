@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { rmSync } from 'node:fs';
+import { readFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 import WebSocket from 'ws';
 import {
   MessageTypes,
@@ -30,6 +31,7 @@ import {
   type MailboxResponsePayload,
 } from '@resonance/core';
 import { discoverRelayContactV1 } from '../relay-discovery-client.js';
+import { PrivateReplayLog, PRIVATE_REPLAY_LOG_FILENAME } from '../private-replay-log.js';
 import { createRelayServer, type RelayServer } from '../server.js';
 
 const BASE_PORT = 42_000 + Math.floor(Math.random() * 1_000);
@@ -136,6 +138,12 @@ describe('private request forwarding over live volunteer relays', () => {
     expect(ack.payload).toMatchObject({ ref: publication.publicationId, status: 'ok' });
     expect(entry.getStats().stored_publications).toBe(0);
     expect(destination.getStats().stored_publications).toBe(1);
+    expect(readFileSync(join(ENTRY_DIR, PRIVATE_REPLAY_LOG_FILENAME), 'utf8'))
+      .toContain(`entry:${entryContact.responder.relayId}:${entryContact.transportKey!.keyId}:${outer.request.requestId}`);
+    const destinationEvidence = new PrivateReplayLog(DESTINATION_DIR).load();
+    expect(destinationEvidence.some(record => record.id ===
+      `destination:${destinationContact.responder.relayId}:${destinationContact.transportKey!.keyId}:${outer.request.requestId}`))
+      .toBe(true);
     await expect(send(outerRaw)).rejects.toThrow('4003');
 
     const search = createSearchRequestV2({

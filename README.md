@@ -145,7 +145,7 @@ RELAY_DATA_DIR=.resonance/relay \
 npm run start --workspace=@resonance/relay
 ```
 
-For local v0.4 transport testing, set `RESONANCE_EXPERIMENTAL_PRIVATE_ROUTE_URLS` before starting the app server. Give it a comma-separated list with an **entry relay first** and one or more **destination relays after it**. The client contacts the entry to obtain each destination's signed key and refuses a route when it cannot verify the destination response and a different observed IP domain. Public endpoints require `wss://`. This mode is experimental; see the [v0.4 roadmap](ROADMAP.md) for its remaining trust and replay limits.
+For local v0.4 transport testing, set `RESONANCE_EXPERIMENTAL_PRIVATE_ROUTE_URLS` before starting the app server. Give it a comma-separated list with an **entry relay first** and one or more **destination relays after it**. The client contacts the entry to obtain each destination's signed key and refuses a route when it cannot verify the destination response and a different observed IP domain. For DNS-named destinations, it also checks the entry's IP claim against a fresh lookup by the client's resolver. This lookup does not authenticate DNS or prove distinct relay operators, and it exposes the destination hostname to the resolver. Relays fsync short-lived private request replay evidence before forwarding or applying it and reload that evidence after restart. Public endpoints require `wss://`. This mode is experimental; see the [v0.4 roadmap](ROADMAP.md) for its remaining trust limits.
 
 The relay writes its infrastructure identity and operation journal under `RELAY_DATA_DIR`. Stop it with `Ctrl+C`; accepted operations are replayed on the next start.
 

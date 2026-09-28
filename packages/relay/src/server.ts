@@ -9,6 +9,7 @@ import { createServer as createHttpServer, type Server as HttpServer } from 'nod
 import { createServer as createHttpsServer, type Server as HttpsServer } from 'node:https';
 import { WebSocket, WebSocketServer } from 'ws';
 import { RelayTrafficMeter, relayDataFileBytes } from './relay-resource-meter.js';
+import { PrivateReplayLog } from './private-replay-log.js';
 import { DirectReachabilityObservations } from './direct-reachability.js';
 import {
   assertSecureRelayTransportEndpoint,
@@ -568,7 +569,8 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   let relationshipMailboxSyncOffset = 0;
   const seenPeerRequests = new Map<string, number>();
   const seenPrivateDiscoveryRequests = new Map<string, number>();
-  const privateReplay = new PrivateRequestReplayCacheV1();
+  const privateReplayLog = new PrivateReplayLog(cfg.persistDir);
+  let privateReplay = new PrivateRequestReplayCacheV1();
   let activeTransportKey: RelayTransportKeyMaterialV1 | null = null;
   const transportKeys = new Map<string, RelayTransportKeyMaterialV1>();
   async function currentTransportKey(now: number): Promise<RelayTransportKeyMaterialV1> {
@@ -3988,6 +3990,9 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   return {
     async start(): Promise<void> {
       stopping = false;
+      privateReplay = new PrivateRequestReplayCacheV1(
+        4096, privateReplayLog.load(), record => privateReplayLog.append(record),
+      );
       const records = operationLog.load();
       for (const record of records) replayOperation(record.entry);
       for (const record of records) replayPlacementOperation(record.entry);

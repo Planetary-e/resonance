@@ -88,7 +88,7 @@ describe('personal client private transport', () => {
       fingerprint: new Uint8Array(64).fill(0xc5), itemType: 'offer',
       createdAt: now, expiresAt: now + 86_400_000,
     }, keys);
-    await expect(client.submitPublicationOperation(record)).rejects.toThrow('No independent two-relay route');
+    await expect(client.submitPublicationOperation(record)).rejects.toThrow('overlap the entry network domain');
     expect(servers[2].getStats().stored_publications).toBe(0);
   });
 });

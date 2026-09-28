@@ -44,7 +44,7 @@ export function selectPrivateRouteV1(
       || !candidate.descriptor.endpoints.includes(candidate.endpoint)) continue;
     try { assertSecureRelayTransportEndpoint(candidate.endpoint); }
     catch { continue; }
-    const domain = observedNetworkDomain(candidate.remoteAddress);
+    const domain = observedNetworkDomainV1(candidate.remoteAddress);
     if (!domain) continue;
     if (!byRelay.has(candidate.descriptor.relayId)) byRelay.set(candidate.descriptor.relayId, {
       candidate,
@@ -69,7 +69,8 @@ export function selectPrivateRouteV1(
   };
 }
 
-function observedNetworkDomain(address: string): string | undefined {
+/** Conservative /24 IPv4 or /48 IPv6 domain for observed relay sockets. */
+export function observedNetworkDomainV1(address: string): string | undefined {
   const normalized = address.startsWith('::ffff:') ? address.slice(7) : address;
   if (isIP(normalized) === 4) return `ipv4:${normalized.split('.').slice(0, 3).join('.')}`;
   if (isIP(normalized) !== 6) return undefined;
