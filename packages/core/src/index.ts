@@ -32,6 +32,11 @@ export { EmbeddingEngine, rewriteForMatching, type EmbeddingPrefix } from './emb
 
 export { BOOTSTRAP_RELAYS, DEFAULT_RELAY_PORT } from './bootstrap.js';
 export { assertSecureRelayTransportEndpoint } from './relay-transport.js';
+export {
+  selectPrivateRouteV1,
+  type PrivateRouteCandidateV1,
+  type PrivateRouteV1,
+} from './private-route.js';
 
 export {
   RELAY_DISCOVERY_VERSION,

@@ -166,6 +166,8 @@ The five-target placement goal remains conditional on enough eligible volunteers
 **Goal:** Prevent protocol identifiers from being reconnected through network metadata or abuse controls.
 
 - [ ] Send publish, search, and mailbox requests through two independently selected volunteer hops
+  - [x] Select an ordered pair from fresh, signed, directly reachable relay descriptors and authenticated transport observations; fail closed when identities or observed network domains overlap
+  - [ ] Establish entry-to-destination reachability, forward encrypted operations, and return replies through the selected route
 - [ ] Encrypt requests so the entry relay sees the source address but not the operation, while the destination sees the operation but not the source address
 - [ ] Use authenticated encrypted transport for every Internet-facing peer connection
   - [x] Reject public `ws://` endpoints at client, discovery, relay-link, and advertised-endpoint boundaries; retain cleartext only for loopback and private-LAN development
