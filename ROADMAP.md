@@ -169,6 +169,8 @@ The five-target placement goal remains conditional on enough eligible volunteers
   - [x] Select an ordered pair from fresh, signed, directly reachable relay descriptors and authenticated transport observations; fail closed when identities or observed network domains overlap
   - [ ] Establish entry-to-destination reachability, forward encrypted operations, and return replies through the selected route
 - [ ] Encrypt requests so the entry relay sees the source address but not the operation, while the destination sees the operation but not the source address
+  - [x] Define bounded HPKE entry and destination layers with signed relay encryption keys, short expiry, authenticated metadata, and per-process replay rejection
+  - [ ] Carry the layers through live relays and verify the two relay observations end to end
 - [ ] Use authenticated encrypted transport for every Internet-facing peer connection
   - [x] Reject public `ws://` endpoints at client, discovery, relay-link, and advertised-endpoint boundaries; retain cleartext only for loopback and private-LAN development
   - [ ] Provide and verify TLS termination for reachable volunteer relays, then audit every inbound and outbound connection path

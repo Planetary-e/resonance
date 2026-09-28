@@ -37,6 +37,25 @@ export {
   type PrivateRouteCandidateV1,
   type PrivateRouteV1,
 } from './private-route.js';
+export {
+  PRIVATE_ENVELOPE_VERSION,
+  MAX_PRIVATE_REQUEST_BYTES,
+  MAX_PRIVATE_FRAME_BYTES,
+  MAX_PRIVATE_KEY_LIFETIME_MS,
+  MAX_PRIVATE_REQUEST_LIFETIME_MS,
+  PrivateRequestReplayCacheV1,
+  generateRelayTransportKeyV1,
+  verifyRelayTransportKeyV1,
+  isRelayTransportKeyActiveV1,
+  createPrivateRequestV1,
+  openPrivateEntryRequestV1,
+  openPrivateDestinationRequestV1,
+  serializePrivateRequestLayerV1,
+  parsePrivateRequestLayerV1,
+  type RelayTransportKeyV1,
+  type RelayTransportKeyMaterialV1,
+  type PrivateRequestLayerV1,
+} from './private-envelope.js';
 
 export {
   RELAY_DISCOVERY_VERSION,
