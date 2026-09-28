@@ -50,12 +50,28 @@ export {
   createPrivateRequestV1,
   openPrivateEntryRequestV1,
   openPrivateDestinationRequestV1,
+  createPrivateResponseV1,
+  openPrivateResponseV1,
+  serializePrivateResponseV1,
+  parsePrivateResponseV1,
   serializePrivateRequestLayerV1,
   parsePrivateRequestLayerV1,
   type RelayTransportKeyV1,
   type RelayTransportKeyMaterialV1,
   type PrivateRequestLayerV1,
+  type PrivateRequestExchangeV1,
+  type PrivateDestinationPayloadV1,
+  type PrivateResponseV1,
 } from './private-envelope.js';
+export {
+  RELAY_PRIVATE_FORWARD_FRAME_TYPE,
+  createRelayPrivateForwardV1,
+  verifyRelayPrivateForwardV1,
+  isRelayPrivateForwardActiveV1,
+  serializeRelayPrivateForwardV1,
+  parseRelayPrivateForwardV1,
+  type RelayPrivateForwardV1,
+} from './private-forward.js';
 
 export {
   RELAY_DISCOVERY_VERSION,

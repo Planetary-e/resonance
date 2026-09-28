@@ -15,6 +15,7 @@ import {
   type RelayContactHintV1,
   type RelayDescriptorV1,
   type RelayPeerResponseV1,
+  type RelayTransportKeyV1,
 } from '@resonance/core';
 
 export interface RelayContactDiscoveryOptions {
@@ -30,6 +31,7 @@ export interface RelayContactDiscoveryResult {
   responder: RelayDescriptorV1;
   descriptors: RelayDescriptorV1[];
   response: RelayPeerResponseV1;
+  transportKey?: RelayTransportKeyV1;
 }
 
 /**
@@ -124,6 +126,8 @@ export function discoverRelayContactV1(
           responder,
           descriptors: frame.response.descriptors,
           response: frame.response,
+          ...(frame.response.transportKey === undefined
+            ? {} : { transportKey: frame.response.transportKey }),
         });
       } catch (error) {
         finish(asError(error, 'Invalid relay discovery response'));

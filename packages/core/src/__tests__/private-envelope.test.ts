@@ -5,12 +5,15 @@ import {
   MAX_PRIVATE_REQUEST_BYTES,
   PrivateRequestReplayCacheV1,
   createPrivateRequestV1,
+  createPrivateResponseV1,
   generateRelayTransportKeyV1,
   isRelayTransportKeyActiveV1,
   openPrivateDestinationRequestV1,
   openPrivateEntryRequestV1,
+  openPrivateResponseV1,
   parsePrivateRequestLayerV1,
   serializePrivateRequestLayerV1,
+  serializePrivateResponseV1,
   verifyRelayTransportKeyV1,
 } from '../private-envelope.js';
 
@@ -24,7 +27,7 @@ describe('private two-relay request envelope', () => {
     const entryReplay = new PrivateRequestReplayCacheV1();
     const destinationReplay = new PrivateRequestReplayCacheV1();
 
-    const outer = await createPrivateRequestV1(
+    const { request: outer, responsePrivateKey } = await createPrivateRequestV1(
       operation, entry.attestation, destination.attestation, NOW + 1,
     );
     const serialized = serializePrivateRequestLayerV1(outer);
@@ -40,10 +43,24 @@ describe('private two-relay request envelope', () => {
       .rejects.toThrow('Replayed');
     await expect(openPrivateDestinationRequestV1(inner, entry, destinationReplay, NOW + 2))
       .rejects.toThrow();
-    expect(encodeUTF8(await openPrivateDestinationRequestV1(
+    const opened = await openPrivateDestinationRequestV1(
       inner, destination, destinationReplay, NOW + 2,
-    )))
-      .toBe('private-publication-operation-canary');
+    );
+    expect(encodeUTF8(opened.data)).toBe('private-publication-operation-canary');
+    const encryptedReply = await createPrivateResponseV1(
+      decodeUTF8('signed-reply-canary'), opened.responseKey,
+      outer.requestId, destination.attestation.relayId,
+    );
+    expect(serializePrivateResponseV1(encryptedReply)).not.toContain('signed-reply-canary');
+    await expect(openPrivateResponseV1(
+      encryptedReply, entry.privateKey, outer.requestId, destination.attestation.relayId,
+    )).rejects.toThrow();
+    expect(encodeUTF8(await openPrivateResponseV1(
+      encryptedReply, responsePrivateKey, outer.requestId, destination.attestation.relayId,
+    ))).toBe('signed-reply-canary');
+    await expect(openPrivateResponseV1(
+      encryptedReply, responsePrivateKey, 'A'.repeat(22), destination.attestation.relayId,
+    )).rejects.toThrow();
     await expect(openPrivateDestinationRequestV1(inner, destination, destinationReplay, NOW + 2))
       .rejects.toThrow('Replayed');
   });
@@ -73,7 +90,7 @@ describe('private two-relay request envelope', () => {
     const destination = await generateRelayTransportKeyV1(generateIdentity(), NOW);
     const other = await generateRelayTransportKeyV1(generateIdentity(), NOW);
     const replay = new PrivateRequestReplayCacheV1();
-    const outer = await createPrivateRequestV1(
+    const { request: outer } = await createPrivateRequestV1(
       decodeUTF8('operation'), entry.attestation, destination.attestation, NOW + 1,
     );
     await expect(openPrivateEntryRequestV1(outer, other, replay, NOW + 2)).rejects.toThrow();
@@ -102,7 +119,7 @@ describe('private two-relay request envelope', () => {
       new Uint8Array(MAX_PRIVATE_REQUEST_BYTES + 1),
       entry.attestation, destination.attestation, NOW + 1,
     )).rejects.toThrow();
-    const outer = await createPrivateRequestV1(
+    const { request: outer } = await createPrivateRequestV1(
       decodeUTF8('operation'), entry.attestation, destination.attestation, NOW + 1,
     );
     expect(() => parsePrivateRequestLayerV1(JSON.stringify({ ...outer, extra: 1 }))).toThrow();
@@ -116,16 +133,16 @@ describe('private two-relay request envelope', () => {
     const entry = await generateRelayTransportKeyV1(generateIdentity(), NOW);
     const destination = await generateRelayTransportKeyV1(generateIdentity(), NOW);
     const replay = new PrivateRequestReplayCacheV1(1);
-    const first = await createPrivateRequestV1(
+    const { request: first } = await createPrivateRequestV1(
       decodeUTF8('first'), entry.attestation, destination.attestation, NOW + 1,
     );
-    const second = await createPrivateRequestV1(
+    const { request: second } = await createPrivateRequestV1(
       decodeUTF8('second'), entry.attestation, destination.attestation, NOW + 1,
     );
     await openPrivateEntryRequestV1(first, entry, replay, NOW + 2);
     await expect(openPrivateEntryRequestV1(second, entry, replay, NOW + 2))
       .rejects.toThrow('full');
-    const third = await createPrivateRequestV1(
+    const { request: third } = await createPrivateRequestV1(
       decodeUTF8('third'), entry.attestation, destination.attestation, first.expiresAt,
     );
     await expect(openPrivateEntryRequestV1(third, entry, replay, first.expiresAt + 1))

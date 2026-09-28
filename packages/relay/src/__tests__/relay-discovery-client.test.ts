@@ -4,6 +4,7 @@ import {
   createRelayContactHintV1,
   createRelayDescriptorV1,
   generateIdentity,
+  isRelayTransportKeyActiveV1,
 } from '@resonance/core';
 import { discoverRelayContactV1 } from '../relay-discovery-client.js';
 import { createRelayServer, type RelayServer } from '../server.js';
@@ -103,6 +104,8 @@ describe('outbound relay discovery', () => {
     const result = await collector.discoverRelay(hint, { maxPeers: 2 });
 
     expect(result.responder.relayId).toBe(sourceDescriptor!.relayId);
+    expect(result.transportKey?.relayId).toBe(sourceDescriptor!.relayId);
+    expect(isRelayTransportKeyActiveV1(result.transportKey, Date.now())).toBe(true);
     expect(result.descriptors).toHaveLength(2);
     expect(result.observations.every(observation => observation.status === 'accepted')).toBe(true);
     expect(collector.getStats().known_relays).toBe(2);

@@ -16,10 +16,12 @@ export const MAX_PRIVATE_REQUEST_LIFETIME_MS = 30 * 1000;
 const KEY_DOMAIN = 'resonance:private-transport:v1:key';
 const ENTRY_INFO = decodeUTF8('resonance:private-transport:v1:entry');
 const DESTINATION_INFO = decodeUTF8('resonance:private-transport:v1:destination');
+const RESPONSE_INFO = decodeUTF8('resonance:private-transport:v1:response');
 const KEY_BODY_KEYS = ['expiresAt', 'issuedAt', 'keyId', 'kind', 'publicKey', 'relayId', 'version'];
 const LAYER_KEYS = ['ciphertext', 'enc', 'expiresAt', 'keyId', 'relayId', 'requestId', 'stage', 'version'];
 const FORWARD_KEYS = ['destination', 'expiresAt', 'kind', 'requestId', 'version'];
-const PAYLOAD_KEYS = ['data', 'expiresAt', 'kind', 'requestId', 'version'];
+const PAYLOAD_KEYS = ['data', 'expiresAt', 'kind', 'requestId', 'responseKey', 'version'];
+const RESPONSE_KEYS = ['ciphertext', 'destinationRelayId', 'enc', 'requestId', 'type', 'version'];
 const DEFAULT_REPLAY_CAPACITY = 4096;
 
 const suite = new CipherSuite({
@@ -53,6 +55,26 @@ export interface PrivateRequestLayerV1 {
   requestId: string;
   expiresAt: number;
   /** Base64 of HPKE's encapsulated P-256 key. */
+  enc: string;
+  ciphertext: string;
+}
+
+export interface PrivateRequestExchangeV1 {
+  request: PrivateRequestLayerV1;
+  /** One-use recipient key; remains with the client. */
+  responsePrivateKey: CryptoKey;
+}
+
+export interface PrivateDestinationPayloadV1 {
+  data: Uint8Array;
+  responseKey: string;
+}
+
+export interface PrivateResponseV1 {
+  version: typeof PRIVATE_ENVELOPE_VERSION;
+  type: 'private_response';
+  requestId: string;
+  destinationRelayId: string;
   enc: string;
   ciphertext: string;
 }
@@ -146,7 +168,7 @@ export async function createPrivateRequestV1(
   entry: RelayTransportKeyV1,
   destination: RelayTransportKeyV1,
   now = Date.now(),
-): Promise<PrivateRequestLayerV1> {
+): Promise<PrivateRequestExchangeV1> {
   if (!(data instanceof Uint8Array) || data.length < 1
     || data.length > MAX_PRIVATE_REQUEST_BYTES
     || !isRelayTransportKeyActiveV1(entry, now)
@@ -161,6 +183,10 @@ export async function createPrivateRequestV1(
   );
   if (expiresAt <= now) throw new Error('Private request keys expire too soon');
   const requestId = base64url(randomBytes(16));
+  const responseKeys = await suite.kem.generateKeyPair();
+  const responseKey = encodeBase64(new Uint8Array(
+    await suite.kem.serializePublicKey(responseKeys.publicKey),
+  ));
   const inner = await sealLayer('destination', destination, requestId, expiresAt,
     decodeUTF8(JSON.stringify({
       version: PRIVATE_ENVELOPE_VERSION,
@@ -168,8 +194,9 @@ export async function createPrivateRequestV1(
       requestId,
       expiresAt,
       data: encodeBase64(data),
+      responseKey,
     })));
-  return sealLayer('entry', entry, requestId, expiresAt,
+  const request = await sealLayer('entry', entry, requestId, expiresAt,
     decodeUTF8(JSON.stringify({
       version: PRIVATE_ENVELOPE_VERSION,
       kind: 'private-forward',
@@ -177,6 +204,7 @@ export async function createPrivateRequestV1(
       expiresAt,
       destination: inner,
     })));
+  return { request, responsePrivateKey: responseKeys.privateKey };
 }
 
 /** The entry learns the destination and opaque inner layer, never the operation. */
@@ -209,7 +237,7 @@ export async function openPrivateDestinationRequestV1(
   key: RelayTransportKeyMaterialV1,
   replay: PrivateRequestReplayCacheV1,
   now = Date.now(),
-): Promise<Uint8Array> {
+): Promise<PrivateDestinationPayloadV1> {
   const plaintext = await openLayer(layer, key, 'destination', now);
   const payload = parseBounded(encodeUTF8(plaintext));
   if (!object(payload) || !exactKeys(payload, PAYLOAD_KEYS)
@@ -217,7 +245,8 @@ export async function openPrivateDestinationRequestV1(
     || payload.kind !== 'private-payload'
     || payload.requestId !== layer.requestId
     || payload.expiresAt !== layer.expiresAt
-    || !canonicalBase64(payload.data)) {
+    || !canonicalBase64(payload.data)
+    || !canonicalBase64(payload.responseKey, 65)) {
     throw new Error('Invalid private destination payload');
   }
   const data = decodeBase64(payload.data);
@@ -225,7 +254,75 @@ export async function openPrivateDestinationRequestV1(
     throw new Error('Invalid private destination payload size');
   }
   replay.consume(layer, now);
-  return data;
+  return { data, responseKey: payload.responseKey };
+}
+
+/** Encrypt a destination-signed reply so the entry cannot inspect its contents. */
+export async function createPrivateResponseV1(
+  signedReply: Uint8Array,
+  responseKey: string,
+  requestId: string,
+  destinationRelayId: string,
+): Promise<PrivateResponseV1> {
+  if (!(signedReply instanceof Uint8Array) || signedReply.length < 1
+    || signedReply.length > MAX_PRIVATE_REQUEST_BYTES
+    || !canonicalBase64(responseKey, 65)
+    || !/^[-_A-Za-z0-9]{22}$/.test(requestId)
+    || !validRelayId(destinationRelayId)) throw new Error('Invalid private response input');
+  const recipientPublicKey = await suite.kem.deserializePublicKey(decodeBase64(responseKey));
+  const sender = await suite.createSenderContext({
+    recipientPublicKey,
+    info: RESPONSE_INFO,
+  });
+  const ciphertext = await sender.seal(
+    signedReply, aad('response', destinationRelayId, '', requestId, 0),
+  );
+  const response: PrivateResponseV1 = {
+    version: PRIVATE_ENVELOPE_VERSION,
+    type: 'private_response',
+    requestId,
+    destinationRelayId,
+    enc: encodeBase64(new Uint8Array(sender.enc)),
+    ciphertext: encodeBase64(new Uint8Array(ciphertext)),
+  };
+  serializePrivateResponseV1(response);
+  return response;
+}
+
+export async function openPrivateResponseV1(
+  response: PrivateResponseV1,
+  privateKey: CryptoKey,
+  requestId: string,
+  destinationRelayId: string,
+): Promise<Uint8Array> {
+  if (!validResponse(response) || response.requestId !== requestId
+    || response.destinationRelayId !== destinationRelayId) {
+    throw new Error('Invalid private response');
+  }
+  const recipient = await suite.createRecipientContext({
+    recipientKey: privateKey,
+    enc: decodeBase64(response.enc),
+    info: RESPONSE_INFO,
+  });
+  return new Uint8Array(await recipient.open(
+    decodeBase64(response.ciphertext),
+    aad('response', destinationRelayId, '', requestId, 0),
+  ));
+}
+
+export function serializePrivateResponseV1(response: PrivateResponseV1): string {
+  if (!validResponse(response)) throw new Error('Invalid private response');
+  const raw = JSON.stringify(response);
+  if (decodeUTF8(raw).length > MAX_PRIVATE_FRAME_BYTES) {
+    throw new Error('Private response exceeds the maximum size');
+  }
+  return raw;
+}
+
+export function parsePrivateResponseV1(raw: string): PrivateResponseV1 {
+  const parsed = parseBounded(raw);
+  if (!validResponse(parsed)) throw new Error('Invalid private response');
+  return parsed;
 }
 
 export function serializePrivateRequestLayerV1(layer: PrivateRequestLayerV1): string {
@@ -309,6 +406,17 @@ function validLayer(value: unknown, stage?: PrivateRequestLayerV1['stage']): val
     && typeof value.keyId === 'string' && /^[-_A-Za-z0-9]{22}$/.test(value.keyId)
     && typeof value.requestId === 'string' && /^[-_A-Za-z0-9]{22}$/.test(value.requestId)
     && validTimestamp(value.expiresAt)
+    && canonicalBase64(value.enc, 65)
+    && canonicalBase64(value.ciphertext)
+    && value.ciphertext.length <= MAX_PRIVATE_FRAME_BYTES;
+}
+
+function validResponse(value: unknown): value is PrivateResponseV1 {
+  return object(value) && exactKeys(value, RESPONSE_KEYS)
+    && value.version === PRIVATE_ENVELOPE_VERSION
+    && value.type === 'private_response'
+    && typeof value.requestId === 'string' && /^[-_A-Za-z0-9]{22}$/.test(value.requestId)
+    && typeof value.destinationRelayId === 'string' && validRelayId(value.destinationRelayId)
     && canonicalBase64(value.enc, 65)
     && canonicalBase64(value.ciphertext)
     && value.ciphertext.length <= MAX_PRIVATE_FRAME_BYTES;
