@@ -6,6 +6,7 @@
   "scripts": {
     "eval": "tsx src/run.ts",
     "eval:quick": "tsx src/run.ts --quick",
+    "eval:scoped-fingerprint": "tsx src/scoped-fingerprint.ts",
     "smoke": "tsx src/smoke.ts"
   },
   "dependencies": {

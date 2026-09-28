@@ -962,7 +962,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     if (cfg.admissionVerifier) {
       if (!request.admission) return { status: 'admission-required', results: [] };
       try {
-        const decision = cfg.admissionVerifier.verifyAndSpend(request.admission, {
+        const decision = await cfg.admissionVerifier.verifyAndSpend(request.admission, {
           action: 'search',
           requestBinding: createAdmissionRequestBindingV2('search', request.search),
           now,
@@ -3316,7 +3316,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     }, 10_000);
 
     let receivedPrivateForward = false;
-    function handleRawMessage(data: Buffer, isBinary: boolean, internal = false): void {
+    async function handleRawMessage(data: Buffer, isBinary: boolean, internal = false): Promise<void> {
       if ((receivedPrivateForward || receivedPrivateEntry) && !internal) {
         ws.close(4000, 'unexpected_private_forward_message');
         return;
@@ -3384,7 +3384,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
               responseKey: opened.responseKey,
               requestId: frame.destination.requestId,
             };
-            handleRawMessage(payload, false, true);
+            void handleRawMessage(payload, false, true).catch(() => ws.close(4000, 'private_operation_failed'));
           }).catch(() => ws.close(4000, 'invalid_private_destination'));
         } catch { ws.close(4000, 'invalid_private_forward'); }
         return;
@@ -3638,7 +3638,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           sendOperationAck(ws, request.searchId, 'error', 'replayed_search');
           return;
         }
-        if (!authorizeAdmission(ws, request.searchId, frame.admission, 'search', request, now)) return;
+        if (!await authorizeAdmission(ws, request.searchId, frame.admission, 'search', request, now)) return;
         if (cfg.acceptNewWork?.(Buffer.byteLength(raw, 'utf8')) === false) {
           sendOperationAck(ws, request.searchId, 'error', 'owner_limited');
           return;
@@ -3688,7 +3688,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           sendOperationAck(ws, operation.publicationId, 'error', 'expired');
           return;
         }
-        if (!authorizeAdmission(
+        if (!await authorizeAdmission(
           ws, operation.publicationId, frame.admission, 'publication-write', operation,
         )) return;
         if (operation.kind === 'publication'
@@ -3739,7 +3739,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           sendOperationAck(ws, request.requestId, 'error', 'stale_timestamp');
           return;
         }
-        if (!authorizeAdmission(
+        if (!await authorizeAdmission(
           ws,
           request.requestId,
           frame.admission,
@@ -3785,7 +3785,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           sendOperationAck(ws, request.requestId, 'error', 'stale_timestamp');
           return;
         }
-        if (!authorizeAdmission(
+        if (!await authorizeAdmission(
           ws, request.requestId, frame.admission, 'mailbox-deposit', request,
         )) return;
         if (!rateLimiter.check(`transport:${ip}`, 'publish')) {
@@ -3826,7 +3826,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           sendOperationAck(ws, request.requestId, 'error', 'stale_timestamp');
           return;
         }
-        if (!authorizeAdmission(
+        if (!await authorizeAdmission(
           ws,
           request.requestId,
           frame.admission,
@@ -3882,7 +3882,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           sendOperationAck(ws, request.requestId, 'error', 'stale_timestamp');
           return;
         }
-        if (!authorizeAdmission(
+        if (!await authorizeAdmission(
           ws, request.requestId, frame.admission, 'mailbox-deposit', request,
         )) return;
         if (!rateLimiter.check(`transport:${ip}`, 'publish')) {
@@ -3964,7 +3964,18 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       clearTimeout(authTimeout);
       sendOperationAck(ws, msg.type, 'error', 'unknown_message_type');
     }
-    ws.on('message', handleRawMessage);
+    let clientMessageInFlight = false;
+    ws.on('message', (data, isBinary) => {
+      const clientMessage = !linkedRelayId;
+      if (clientMessage && clientMessageInFlight) {
+        ws.close(4008, 'concurrent_client_message');
+        return;
+      }
+      if (clientMessage) clientMessageInFlight = true;
+      void handleRawMessage(data as Buffer, isBinary)
+        .catch(() => ws.close(4000, 'request_failed'))
+        .finally(() => { if (clientMessage) clientMessageInFlight = false; });
+    });
 
     ws.on('close', () => {
       clearTimeout(authTimeout);
@@ -3989,21 +4000,21 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       log('error', 'ws_error', { error: String(err) });
     });
 
-    function authorizeAdmission(
+    async function authorizeAdmission(
       socket: WebSocket,
       ref: string,
       capability: AdmissionCapabilityV2 | undefined,
       action: RelayAdmissionActionV2,
       request: unknown,
       now = Date.now(),
-    ): boolean {
+    ): Promise<boolean> {
       if (!cfg.admissionVerifier) return true;
       if (!capability) {
         sendOperationAck(socket, ref, 'error', 'admission_required');
         return false;
       }
       try {
-        const decision = cfg.admissionVerifier.verifyAndSpend(capability, {
+        const decision = await cfg.admissionVerifier.verifyAndSpend(capability, {
           action,
           requestBinding: createAdmissionRequestBindingV2(action, request),
           now,

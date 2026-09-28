@@ -89,6 +89,7 @@ export {
   type AdmissionDecisionV2,
   type AdmissionVerificationContextV2,
 } from './admission.js';
+export { createLocalBlindAdmissionVerifierV2 } from './blind-admission-verifier.js';
 export { type ClientState, type HandlerContext } from './handler.js';
 export { log } from './logger.js';
 

@@ -1,9 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { rmSync } from 'node:fs';
+import { publicVerif } from '@cloudflare/privacypass-ts';
 import {
-  createPublicationRecord, generatePublicationKeyMaterial,
+  createBlindAdmissionRequestV2, createPublicationRecord, generatePublicationKeyMaterial,
+  issueBlindAdmissionRequestV2, presentBlindAdmissionTokenV2,
 } from '@resonance/core';
-import { createRelayServer, type RelayServer } from '@resonance/relay';
+import { createLocalBlindAdmissionVerifierV2, createRelayServer, type RelayServer } from '@resonance/relay';
 import { createRelayClient } from '../relay-client.js';
 
 const BASE_PORT = 46_000 + Math.floor(Math.random() * 1_000);
@@ -90,5 +92,58 @@ describe('personal client private transport', () => {
     }, keys);
     await expect(client.submitPublicationOperation(record)).rejects.toThrow('overlap the entry network domain');
     expect(servers[2].getStats().stored_publications).toBe(0);
+  });
+
+  it('redeems a blind token through the two-hop client without sending an account ID', async () => {
+    const entryEndpoint = `ws://127.0.0.1:${BASE_PORT + 3}/`;
+    const destinationEndpoint = `ws://[::1]:${BASE_PORT + 4}/`;
+    const entryDir = `${dirs[0]}-blind-entry`;
+    const destinationDir = `${dirs[0]}-blind-destination`;
+    const scope = { issuer: 'community-test', community: 'public', epoch: '2026-09' };
+    const mode = publicVerif.BlindRSAMode.PSS;
+    const keys = await publicVerif.Issuer.generateKey(mode, {
+      modulusLength: 2048, publicExponent: Uint8Array.from([1, 0, 1]),
+    });
+    const issuer = new publicVerif.Issuer(mode, scope.issuer, keys.privateKey, keys.publicKey);
+    const blinded = await createBlindAdmissionRequestV2(scope, keys.publicKey);
+    const token = await blinded.finalize(await issueBlindAdmissionRequestV2(issuer, blinded.request));
+    const verifier = createLocalBlindAdmissionVerifierV2({
+      directory: destinationDir, scope, issuerPublicKey: keys.publicKey,
+    });
+    const entry = relay(BASE_PORT + 3, '127.0.0.1', entryEndpoint, entryDir);
+    const destination = createRelayServer({
+      port: BASE_PORT + 4, host: '::1', persistDir: destinationDir,
+      admissionVerifier: verifier,
+      relayDiscovery: {
+        endpoints: [destinationEndpoint], reachability: 'direct', supportedGroups: ['public'],
+        storage: { capacityBytes: 1_000_000, availableBytes: 900_000 }, maxKnownRelays: 8,
+      },
+    });
+    await entry.start();
+    await destination.start();
+    try {
+      expect(entry.observeRelayDescriptor(destination.getRelayDescriptor()!)).toBe('accepted');
+      const client = createRelayClient({
+        relayUrl: destinationEndpoint,
+        privateEntryUrls: [entryEndpoint],
+        admissionCapabilityProvider: ({ action, requestBinding }) =>
+          presentBlindAdmissionTokenV2(token, scope, action, requestBinding),
+      });
+      const now = Date.now();
+      const record = createPublicationRecord({
+        groupId: 'public', fingerprintEpoch: 'pilot-static-v1',
+        fingerprint: new Uint8Array(64).fill(0xd6), itemType: 'offer',
+        createdAt: now, expiresAt: now + 86_400_000,
+      }, generatePublicationKeyMaterial());
+      expect((await client.submitPublicationOperation(record)).status).toBe('ok');
+      expect(entry.getStats().stored_publications).toBe(0);
+      expect(destination.getStats().stored_publications).toBe(1);
+    } finally {
+      await destination.stop();
+      await entry.stop();
+      verifier.close();
+      rmSync(entryDir, { recursive: true, force: true });
+      rmSync(destinationDir, { recursive: true, force: true });
+    }
   });
 });

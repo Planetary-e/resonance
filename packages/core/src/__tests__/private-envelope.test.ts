@@ -20,6 +20,20 @@ import {
 const NOW = 1_800_000_000_000;
 
 describe('private two-relay request envelope', () => {
+  it('exposes operation size through the current unpadded outer frame', async () => {
+    const entry = await generateRelayTransportKeyV1(generateIdentity(), NOW);
+    const destination = await generateRelayTransportKeyV1(generateIdentity(), NOW);
+    const small = await createPrivateRequestV1(
+      new Uint8Array(64), entry.attestation, destination.attestation, NOW + 1,
+    );
+    const large = await createPrivateRequestV1(
+      new Uint8Array(4_096), entry.attestation, destination.attestation, NOW + 1,
+    );
+    const smallBytes = decodeUTF8(serializePrivateRequestLayerV1(small.request)).length;
+    const largeBytes = decodeUTF8(serializePrivateRequestLayerV1(large.request)).length;
+    expect(largeBytes - smallBytes).toBeGreaterThan(5_000);
+  });
+
   it('keeps the operation unreadable to the entry and decrypts it only at the destination', async () => {
     const entry = await generateRelayTransportKeyV1(generateIdentity(), NOW);
     const destination = await generateRelayTransportKeyV1(generateIdentity(), NOW);

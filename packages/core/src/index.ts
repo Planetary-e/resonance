@@ -283,6 +283,8 @@ export {
   hammingSimilarity,
   expectedHammingSimilarity,
   getSharedProjectionMatrix,
+  getScopedProjectionMatrixV2,
+  currentFingerprintEpochV2,
   LSH_DEFAULTS,
 } from './lsh.js';
 
@@ -433,6 +435,15 @@ export {
   createAdmissionRequestBindingV2,
   isRelayAdmissionActionV2,
 } from './admission-v2.js';
+
+export {
+  type BlindAdmissionScopeV2,
+  createBlindAdmissionChallengeV2,
+  createBlindAdmissionRequestV2,
+  issueBlindAdmissionRequestV2,
+  presentBlindAdmissionTokenV2,
+  verifyBlindAdmissionTokenV2,
+} from './blind-admission-v2.js';
 
 export {
   type MatchPublicationReferenceV2,

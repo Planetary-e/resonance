@@ -182,6 +182,7 @@ The five-target placement goal remains conditional on enough eligible volunteers
   - [ ] Provide and verify TLS termination for reachable volunteer relays, then audit every inbound and outbound connection path
     - [x] Support a direct HTTPS/WSS relay listener using operator-supplied PEM credentials and verify its TLS handshake in tests
     - [x] Check direct-listener certificate validity and advertised hostnames at startup; reject public-source connections to a cleartext listener
+    - [x] Inventory production inbound/outbound socket paths and their remaining deployment checks in `docs/developers/v0.4-connection-audit.md`
 - [ ] Add challenge-response connection authentication with nonces and replay protection
   - [x] Bind each signed relay-link opening to a fresh nonce issued on that receiving socket; reject a captured opening on a second socket
 - [ ] Verify relay and peer signatures on acknowledgements, matches, inventories, receipts, and forwarded operations
@@ -192,11 +193,21 @@ The five-target placement goal remains conditional on enough eligible volunteers
 - [ ] Use short sessions, route rotation, fixed-size padding, batching, and timing jitter
   - [x] Use one request per private connection and vary the first entry attempted when multiple entry relays are configured
 - [ ] Replace per-DID limits with standardized blind, one-use capability tokens
+  - [x] Implement Privacy Pass Blind RSA issuance, scoped redemption, and a restart-safe single-relay spent-token log; verify a real publication through the relay and reject a conflicting reuse
+  - [x] Redeem a manually issued blind token over a real two-hop local client route without a client account identifier in the capability
+  - [ ] Add a persistent private client wallet, issuance protocol, admission policy, and end-to-end two-hop redemption without a stable account identifier
 - [ ] Support community or quorum issuance without requiring a permanent issuer service
+  - [x] Document offline volunteer issuance and the need for an audited threshold scheme before splitting one issuer key among volunteers
 - [ ] Replicate spent-token identifiers and define deterministic handling of double spends during partitions
+  - [x] Specify fail-closed four-of-five witness certificates for one-malicious-witness tolerance; local spent-ID copying is explicitly insufficient
+  - [ ] Implement signed, fsynced witness votes, fixed membership, certificate checks, and partition/restart tests
 - [ ] Measure protection against a curious relay, colluding relays, Sybil relays, and a network observer
+  - [x] Capture entry and destination observations in separate local processes and demonstrate that unpadded outer-frame length leaks operation-size differences
+  - [ ] Run colluding-operator, multi-domain Sybil, and timing-correlation adversaries with quantitative privacy targets
 - [ ] Define group-specific, rotating fingerprint epochs to limit correlation across communities and time
+  - [x] Derive deterministic group/month-specific public projection matrices and verify cross-scope hashes do not directly match; live v2 still uses the static pilot matrix
 - [ ] Measure the matching-quality and privacy effects of fingerprint rotation
+  - [x] Add a reproducible synthetic probe for within-scope quality and cross-scope correlation; real-text recall and epoch-boundary migration remain open
 
 **Completion test:** The entry hop cannot read an operation, the destination cannot see its originating address, and two valid operations cannot be linked by an account identifier or rate-limit credential.
 

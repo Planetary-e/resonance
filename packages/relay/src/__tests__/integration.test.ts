@@ -2,9 +2,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import WebSocket from 'ws';
+import { publicVerif } from '@cloudflare/privacypass-ts';
 import {
   MessageTypes,
   createAdmissionRequestBindingV2,
+  createBlindAdmissionRequestV2,
   createMailboxRequest,
   createMailboxRequestFrame,
   createMailboxDepositRequest,
@@ -19,6 +21,8 @@ import {
   createSearchRequestV2,
   createPublicationOperationFrame,
   createPublicationRecord,
+  issueBlindAdmissionRequestV2,
+  presentBlindAdmissionTokenV2,
   createPublicationTombstone,
   generateIdentity,
   generatePublicationKeyMaterial,
@@ -43,6 +47,7 @@ import {
 } from '@resonance/core';
 import { createRelayServer, type RelayServer } from '../server.js';
 import type { AdmissionCapabilityVerifierV2 } from '../admission.js';
+import { createLocalBlindAdmissionVerifierV2 } from '../blind-admission-verifier.js';
 import { RELAY_OPERATION_LOG_FILENAME } from '../operation-log.js';
 
 const PORT = 19090 + Math.floor(Math.random() * 1000);
@@ -290,6 +295,48 @@ describe('Relay protocol v2 integration', () => {
     } finally {
       await admissionServer.stop();
       rmSync(admissionDir, { recursive: true, force: true });
+    }
+  });
+
+  it('redeems a real blind token on a relay and preserves its spend across restart', async () => {
+    const port = PORT + 1101;
+    const directory = `${PERSIST_DIR}-blind-admission`;
+    const scope = { issuer: 'community-test', community: 'test', epoch: '2026-09' };
+    const mode = publicVerif.BlindRSAMode.PSS;
+    const keys = await publicVerif.Issuer.generateKey(mode, {
+      modulusLength: 2048, publicExponent: Uint8Array.from([1, 0, 1]),
+    });
+    const issuer = new publicVerif.Issuer(mode, scope.issuer, keys.privateKey, keys.publicKey);
+    const blinded = await createBlindAdmissionRequestV2(scope, keys.publicKey);
+    const token = await blinded.finalize(await issueBlindAdmissionRequestV2(issuer, blinded.request));
+    const first = record('offer', 0x36, 'test');
+    const binding = createAdmissionRequestBindingV2('publication-write', first);
+    const capability = await presentBlindAdmissionTokenV2(token, scope, 'publication-write', binding);
+    let verifier = createLocalBlindAdmissionVerifierV2({ directory, scope, issuerPublicKey: keys.publicKey });
+    let relay = createRelayServer({ port, host: '127.0.0.1', persistDir: directory, admissionVerifier: verifier });
+    await relay.start();
+    try {
+      const frame = serializePublicationOperationFrame(createPublicationOperationFrame(first, capability));
+      expect((await sendFrameToPort(port, frame) as Message<AckPayload>).payload.message).toBe('accepted');
+      await relay.stop();
+      verifier.close();
+      verifier = createLocalBlindAdmissionVerifierV2({ directory, scope, issuerPublicKey: keys.publicKey });
+      relay = createRelayServer({ port, host: '127.0.0.1', persistDir: directory, admissionVerifier: verifier });
+      await relay.start();
+      expect((await sendFrameToPort(port, frame) as Message<AckPayload>).payload.message).toBe('duplicate');
+      const second = record('offer', 0x37, 'test');
+      const different = await presentBlindAdmissionTokenV2(
+        token, scope, 'publication-write', createAdmissionRequestBindingV2('publication-write', second),
+      );
+      const rejected = await sendFrameToPort(
+        port, serializePublicationOperationFrame(createPublicationOperationFrame(second, different)),
+      ) as Message<AckPayload>;
+      expect(rejected.payload.message).toBe('admission_rejected');
+      expect(relay.getStats().stored_publications).toBe(1);
+    } finally {
+      await relay.stop();
+      verifier.close();
+      rmSync(directory, { recursive: true, force: true });
     }
   });
 
