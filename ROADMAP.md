@@ -173,7 +173,8 @@ The five-target placement goal remains conditional on enough eligible volunteers
 - [ ] Encrypt requests so the entry relay sees the source address but not the operation, while the destination sees the operation but not the source address
   - [x] Define bounded HPKE entry and destination layers with signed relay encryption keys, short expiry, authenticated metadata, and per-process replay rejection
   - [x] Advertise a signed relay encryption key in discovery and carry both encrypted request and reply through live local relay sockets
-  - [ ] Verify source-address and operation separation with relays in separate processes and enforce durable replay behavior after restart
+  - [x] Observe entry and destination sockets in separate relay processes; verify the entry wire omits the operation ID and the destination's operation connection originates from the entry process
+  - [ ] Enforce durable replay behavior after relay restart
   - [ ] Stop direct client-to-destination discovery: the experimental client currently contacts both relays for signed keys, which reveals its source address to the destination before the encrypted operation
 - [ ] Use authenticated encrypted transport for every Internet-facing peer connection
   - [x] Reject public `ws://` endpoints at client, discovery, relay-link, and advertised-endpoint boundaries; retain cleartext only for loopback and private-LAN development
