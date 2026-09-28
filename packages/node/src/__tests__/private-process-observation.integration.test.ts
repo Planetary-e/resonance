@@ -3,7 +3,7 @@ import { fork, type ChildProcess } from 'node:child_process';
 import { rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
-  RELAY_PEER_REQUEST_FRAME_TYPE, RELAY_PRIVATE_FORWARD_FRAME_TYPE,
+  PRIVATE_DISCOVERY_REQUEST_TYPE, RELAY_PEER_REQUEST_FRAME_TYPE, RELAY_PRIVATE_FORWARD_FRAME_TYPE,
   createPublicationRecord, generatePublicationKeyMaterial,
 } from '@resonance/core';
 import { createRelayClient } from '../relay-client.js';
@@ -11,7 +11,8 @@ import { createRelayClient } from '../relay-client.js';
 const BASE_PORT = 47_000 + Math.floor(Math.random() * 1_000);
 const ENTRY = `ws://127.0.0.1:${BASE_PORT}/`;
 const DESTINATION = `ws://[::1]:${BASE_PORT + 1}/`;
-const dirs = [0, 1].map(index => `/tmp/resonance-private-process-${Date.now()}-${BASE_PORT}-${index}`);
+const UNAWARE_ENTRY = `ws://127.0.0.1:${BASE_PORT + 2}/`;
+const dirs = [0, 1, 2].map(index => `/tmp/resonance-private-process-${Date.now()}-${BASE_PORT}-${index}`);
 const fixture = fileURLToPath(new URL('./fixtures/private-relay-process.mjs', import.meta.url));
 
 interface Observation { event: string; raw?: string; remoteAddress?: string; remotePort?: number;
@@ -71,23 +72,25 @@ class ProcessRelay {
 
 let entry: ProcessRelay;
 let destination: ProcessRelay;
+let unawareEntry: ProcessRelay;
 
 beforeAll(async () => {
   entry = new ProcessRelay(BASE_PORT, '127.0.0.1', ENTRY, dirs[0]);
   destination = new ProcessRelay(BASE_PORT + 1, '::1', DESTINATION, dirs[1]);
-  const [, descriptor] = await Promise.all([entry.ready, destination.ready]);
+  unawareEntry = new ProcessRelay(BASE_PORT + 2, '127.0.0.1', UNAWARE_ENTRY, dirs[2]);
+  const [, descriptor] = await Promise.all([entry.ready, destination.ready, unawareEntry.ready]);
   expect(await entry.request('observe', descriptor)).toBe('accepted');
 }, 20_000);
 
 afterAll(async () => {
-  await Promise.allSettled([entry?.stop(), destination?.stop()]);
+  await Promise.allSettled([entry?.stop(), destination?.stop(), unawareEntry?.stop()]);
   for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
 });
 
 describe('private transport observations in separate relay processes', () => {
   it('keeps the operation off the entry wire and sends destination work from the entry process', async () => {
     const client = createRelayClient({ relayUrl: DESTINATION,
-      privateRouteUrls: [ENTRY, DESTINATION] });
+      privateEntryUrls: [ENTRY] });
     const keys = generatePublicationKeyMaterial();
     const now = Date.now();
     const record = createPublicationRecord({
@@ -114,10 +117,39 @@ describe('private transport observations in separate relay processes', () => {
     expect((await entry.request('stats')).stored_publications).toBe(0);
     expect((await destination.request('stats')).stored_publications).toBe(1);
 
-    // This discovery connection is a known blocker for the privacy claim.
-    expect(destination.events.some(event => {
+    const destinationDiscovery = destination.events.find(event => {
       try { return JSON.parse(event.raw ?? '').type === RELAY_PEER_REQUEST_FRAME_TYPE; }
       catch { return false; }
-    })).toBe(true);
+    });
+    const entryDiscovery = entry.events.find(event => {
+      try { return JSON.parse(event.raw ?? '').type === PRIVATE_DISCOVERY_REQUEST_TYPE; }
+      catch { return false; }
+    });
+    expect(destinationDiscovery).toBeDefined();
+    expect(entryDiscovery).toBeDefined();
+    expect(JSON.parse(destinationDiscovery!.raw!).request.requestId)
+      .toBe(JSON.parse(entryDiscovery!.raw!).peerRequest.requestId);
+    // Both destination sockets, including key discovery, originate in entry.
+    for (const inbound of [destinationDiscovery, forwarded]) {
+      expect(entry.events.some(event => event.event === 'outbound'
+        && event.url === DESTINATION && event.localPort === inbound?.remotePort)).toBe(true);
+    }
+  }, 20_000);
+
+  it('does not contact a destination when the entry has no verified route to it', async () => {
+    const before = destination.events.length;
+    const client = createRelayClient({ relayUrl: DESTINATION,
+      privateEntryUrls: [UNAWARE_ENTRY] });
+    const keys = generatePublicationKeyMaterial();
+    const now = Date.now();
+    const record = createPublicationRecord({
+      groupId: 'public', fingerprintEpoch: 'pilot-static-v1',
+      fingerprint: new Uint8Array(64).fill(0xe5), itemType: 'offer',
+      createdAt: now, expiresAt: now + 86_400_000,
+    }, keys);
+    await expect(client.submitPublicationOperation(record))
+      .rejects.toThrow('Indirect destination discovery closed: 4004');
+    expect(destination.events.length).toBe(before);
+    expect((await unawareEntry.request('stats')).stored_publications).toBe(0);
   }, 20_000);
 });

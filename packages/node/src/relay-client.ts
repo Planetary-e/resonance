@@ -70,8 +70,8 @@ export interface RelayClientConfig {
   identity?: Identity;
   /** Additional relay URLs to try if primary fails. */
   fallbackUrls?: string[];
-  /** Explicit private-mode relay contacts. Every v2 request must cross two eligible relays. */
-  privateRouteUrls?: string[];
+  /** Explicit entry relays for private mode; destination URLs stay separate. */
+  privateEntryUrls?: string[];
   /** Enable auto-reconnect with exponential backoff. */
   autoReconnect?: boolean;
   /** Supplies an unlinkable capability for each exact v2 relay request. */
@@ -150,7 +150,7 @@ interface PendingRequest {
 }
 
 export function createRelayClient(config: RelayClientConfig): RelayClient {
-  if (config.privateRouteUrls !== undefined) return createPrivateRelayClient(config);
+  if (config.privateEntryUrls !== undefined) return createPrivateRelayClient(config);
   let ws: WebSocket | null = null;
   let connected = false;
   let intentionalDisconnect = false;

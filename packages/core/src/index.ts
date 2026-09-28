@@ -72,6 +72,19 @@ export {
   parseRelayPrivateForwardV1,
   type RelayPrivateForwardV1,
 } from './private-forward.js';
+export {
+  PRIVATE_DISCOVERY_REQUEST_TYPE,
+  PRIVATE_DISCOVERY_RESPONSE_TYPE,
+  MAX_PRIVATE_DISCOVERY_FRAME_BYTES,
+  createPrivateDiscoveryRequestV1,
+  parsePrivateDiscoveryRequestV1,
+  serializePrivateDiscoveryRequestV1,
+  createPrivateDiscoveryResponseV1,
+  verifyPrivateDiscoveryResponseV1,
+  type PrivateDiscoveryRequestV1,
+  type PrivateDiscoveryResponsePayloadV1,
+  type VerifiedPrivateDiscoveryV1,
+} from './private-discovery.js';
 
 export {
   RELAY_DISCOVERY_VERSION,

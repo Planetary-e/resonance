@@ -3,6 +3,7 @@
 import WebSocket from 'ws';
 import {
   MAX_PRIVATE_FRAME_BYTES,
+  MAX_PRIVATE_DISCOVERY_FRAME_BYTES,
   MessageTypes,
   MAILBOX_RESPONSE_MESSAGE_TYPE,
   SEARCH_RESPONSE_MESSAGE_TYPE,
@@ -13,6 +14,7 @@ import {
   createMailboxRequest,
   createMailboxRequestFrame,
   createPrivateRequestV1,
+  createPrivateDiscoveryRequestV1,
   createPublicationOperationFrame,
   createRelayContactHintV1,
   createRelationshipMailboxDepositFrameV2,
@@ -30,6 +32,7 @@ import {
   parseMessage,
   parsePrivateResponseV1,
   selectPrivateRouteV1,
+  serializePrivateDiscoveryRequestV1,
   serializeMailboxDepositFrame,
   serializeMailboxRequestFrame,
   serializePrivateRequestLayerV1,
@@ -38,6 +41,7 @@ import {
   serializeRelationshipMailboxRequestFrameV2,
   serializeSearchRequestFrameV2,
   verifyMessage,
+  verifyPrivateDiscoveryResponseV1,
   verifySearchResponsePayloadV2,
   type AckPayload,
   type AdmissionCapabilityV2,
@@ -68,11 +72,11 @@ interface PrivateContact {
 
 export function createPrivateRelayClient(config: RelayClientConfig): RelayClient {
   const destinations = [...new Set([config.relayUrl, ...(config.fallbackUrls ?? [])])];
-  const contactUrls = [...new Set(config.privateRouteUrls ?? [])];
-  if (contactUrls.length < 2 || destinations.some(url => !contactUrls.includes(url))) {
-    throw new Error('Private mode requires at least two configured contacts and every destination in that set');
+  const entryUrls = [...new Set(config.privateEntryUrls ?? [])];
+  if (entryUrls.length === 0 || destinations.some(url => entryUrls.includes(url))) {
+    throw new Error('Private mode requires separate entry and destination relay URLs');
   }
-  contactUrls.forEach(assertSecureRelayTransportEndpoint);
+  [...entryUrls, ...destinations].forEach(assertSecureRelayTransportEndpoint);
   const events: Partial<RelayClientEvents> = {};
 
   function admissionFor(url: string, action: RelayAdmissionActionV2, request: unknown): AdmissionCapabilityV2 | undefined {
@@ -83,41 +87,81 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
     });
   }
 
-  async function discoverContacts(): Promise<Map<string, PrivateContact>> {
-    const results = await Promise.allSettled(contactUrls.map(async endpoint => {
-      let remoteAddress = '';
-      const contact = await discoverRelayContactV1(createRelayContactHintV1('configured', endpoint), {
-        onTransportSocket: socket => { remoteAddress = socket.remoteAddress ?? ''; },
-      });
-      if (!contact.transportKey || !isRelayTransportKeyActiveV1(contact.transportKey, Date.now())
-        || contact.transportKey.relayId !== contact.responder.relayId) {
-        throw new Error('Relay did not provide an active signed transport key');
-      }
-      return { endpoint, candidate: { descriptor: contact.responder, endpoint, remoteAddress },
-        key: contact.transportKey };
-    }));
-    const contacts = new Map<string, PrivateContact>();
-    for (const result of results) if (result.status === 'fulfilled') {
-      contacts.set(result.value.endpoint, result.value);
+  async function discoverEntry(endpoint: string): Promise<PrivateContact> {
+    let remoteAddress = '';
+    const contact = await discoverRelayContactV1(createRelayContactHintV1('configured', endpoint), {
+      onTransportSocket: socket => { remoteAddress = socket.remoteAddress ?? ''; },
+    });
+    if (!contact.transportKey || !isRelayTransportKeyActiveV1(contact.transportKey, Date.now())
+      || contact.transportKey.relayId !== contact.responder.relayId) {
+      throw new Error('Entry relay did not provide an active signed transport key');
     }
-    return contacts;
+    return { candidate: { descriptor: contact.responder, endpoint, remoteAddress },
+      key: contact.transportKey };
+  }
+
+  async function discoverDestination(entry: PrivateContact, endpoint: string): Promise<PrivateContact> {
+    const request = createPrivateDiscoveryRequestV1(endpoint);
+    const requestRaw = serializePrivateDiscoveryRequestV1(request);
+    return new Promise((resolve, reject) => {
+      const socket = new WebSocket(entry.candidate.endpoint, {
+        handshakeTimeout: 8_000, maxPayload: MAX_PRIVATE_DISCOVERY_FRAME_BYTES,
+      });
+      let settled = false;
+      let receivedResponse = false;
+      const timer = setTimeout(() => finish(new Error('Indirect destination discovery timed out')), 8_000);
+      function finish(error?: Error, result?: PrivateContact): void {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (socket.readyState === WebSocket.OPEN) socket.close();
+        else if (socket.readyState === WebSocket.CONNECTING) socket.terminate();
+        if (error) reject(error); else resolve(result!);
+      }
+      socket.on('open', () => socket.send(requestRaw));
+      socket.on('message', data => {
+        if (receivedResponse) { finish(new Error('Entry sent multiple discovery responses')); return; }
+        receivedResponse = true;
+        try {
+          const verified = verifyPrivateDiscoveryResponseV1(
+            data.toString('utf8'), request, entry.candidate.descriptor.relayId,
+          );
+          finish(undefined, {
+            candidate: {
+              descriptor: verified.descriptor,
+              endpoint,
+              remoteAddress: verified.destinationRemoteAddress,
+            },
+            key: verified.transportKey,
+          });
+        } catch (error) { finish(error instanceof Error ? error : new Error(String(error))); }
+      });
+      socket.on('error', error => finish(error));
+      socket.on('close', (code, reason) => {
+        if (!settled && !receivedResponse) {
+          finish(new Error(`Indirect destination discovery closed: ${code} ${reason.toString()}`));
+        }
+      });
+    });
+  }
+
+  async function discoverRoute(destinationUrl: string): Promise<{ entry: PrivateContact; destination: PrivateContact }> {
+    let lastError: unknown;
+    for (const entryUrl of entryUrls) {
+      try {
+        const entry = await discoverEntry(entryUrl);
+        const destination = await discoverDestination(entry, destinationUrl);
+        // The destination IP is the entry's signed live-socket observation.
+        // It is not independently observable by the client without leaking its address.
+        selectPrivateRouteV1([entry.candidate, destination.candidate]);
+        return { entry, destination };
+      } catch (error) { lastError = error; }
+    }
+    throw lastError instanceof Error ? lastError : new Error('No independent two-relay route is available');
   }
 
   async function sendTo(destinationUrl: string, raw: string): Promise<Message> {
-    const contacts = await discoverContacts();
-    const destination = contacts.get(destinationUrl);
-    if (!destination) throw new Error('Private destination discovery failed');
-    let entry: PrivateContact | undefined;
-    for (const [endpoint, candidate] of contacts) {
-      if (endpoint === destinationUrl) continue;
-      try {
-        // The selector checks live observed IP domains and signed descriptors.
-        selectPrivateRouteV1([candidate.candidate, destination.candidate]);
-        entry = candidate;
-        break;
-      } catch { /* Try another independently observed relay. */ }
-    }
-    if (!entry) throw new Error('No independent two-relay route is available');
+    const { entry, destination } = await discoverRoute(destinationUrl);
     const exchange = await createPrivateRequestV1(
       decodeUTF8(raw), entry.key, destination.key,
     );
@@ -193,7 +237,14 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
   }
 
   return {
-    async connect() { await discoverContacts(); },
+    async connect() {
+      let lastError: unknown;
+      for (const destination of destinations) {
+        try { await discoverRoute(destination); return; }
+        catch (error) { lastError = error; }
+      }
+      throw lastError instanceof Error ? lastError : new Error('No private route is available');
+    },
     disconnect() {},
     isConnected() { return false; }, // v2 deliberately uses no persistent authenticated socket.
     on(next) { Object.assign(events, next); },

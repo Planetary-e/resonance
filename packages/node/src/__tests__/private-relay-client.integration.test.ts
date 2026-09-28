@@ -32,8 +32,11 @@ beforeAll(async () => {
   );
   for (const server of servers) await server.start();
   const destinationDescriptor = servers[1].getRelayDescriptor();
+  const sameDomainDescriptor = servers[2].getRelayDescriptor();
   expect(destinationDescriptor).toBeDefined();
+  expect(sameDomainDescriptor).toBeDefined();
   expect(servers[0].observeRelayDescriptor(destinationDescriptor!)).toBe('accepted');
+  expect(servers[0].observeRelayDescriptor(sameDomainDescriptor!)).toBe('accepted');
 });
 
 afterAll(async () => {
@@ -42,10 +45,15 @@ afterAll(async () => {
 });
 
 describe('personal client private transport', () => {
+  it('does not allow the same relay URL to act as entry and destination', () => {
+    expect(() => createRelayClient({ relayUrl: ENTRY, privateEntryUrls: [ENTRY] }))
+      .toThrow('separate entry and destination');
+  });
+
   it('sends publication, search, and mailbox operations through separate observed domains', async () => {
     const client = createRelayClient({
       relayUrl: DESTINATION,
-      privateRouteUrls: [ENTRY, DESTINATION],
+      privateEntryUrls: [ENTRY],
     });
     const keys = generatePublicationKeyMaterial();
     const now = Date.now();
@@ -71,7 +79,7 @@ describe('personal client private transport', () => {
   it('fails closed when both reachable contacts share one observed IP domain', async () => {
     const client = createRelayClient({
       relayUrl: SAME_DOMAIN,
-      privateRouteUrls: [ENTRY, SAME_DOMAIN],
+      privateEntryUrls: [ENTRY],
     });
     const keys = generatePublicationKeyMaterial();
     const now = Date.now();

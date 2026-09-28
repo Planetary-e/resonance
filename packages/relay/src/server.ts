@@ -32,6 +32,7 @@ import {
   RELATIONSHIP_MAILBOX_DEPOSIT_FRAME_TYPE,
   RELATIONSHIP_MAILBOX_REQUEST_FRAME_TYPE,
   RELAY_PEER_REQUEST_FRAME_TYPE,
+  PRIVATE_DISCOVERY_REQUEST_TYPE,
   SEARCH_REQUEST_FRAME_TYPE,
   SEARCH_RESPONSE_MESSAGE_TYPE,
   RELAY_QUERY_REQUEST_FRAME_TYPE,
@@ -59,6 +60,8 @@ import {
   createRelayDescriptorV1,
   createRelayPeerResponseFrameV1,
   createRelayPeerResponseV1,
+  createRelayContactHintV1,
+  createPrivateDiscoveryResponseV1,
   createPrivateResponseV1,
   createRelayPrivateForwardV1,
   generateRelayTransportKeyV1,
@@ -97,6 +100,7 @@ import {
   parseRelayReplicaPutFrameV1,
   parseRelayReplicaHandoffResponseFrameV1,
   parseRelayPeerRequestFrameV1,
+  parsePrivateDiscoveryRequestV1,
   parseRelayPrivateForwardV1,
   parsePrivateRequestLayerV1,
   parsePrivateResponseV1,
@@ -563,6 +567,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   const relationshipMailboxSyncNextAt = new Map<string, number>();
   let relationshipMailboxSyncOffset = 0;
   const seenPeerRequests = new Map<string, number>();
+  const seenPrivateDiscoveryRequests = new Map<string, number>();
   const privateReplay = new PrivateRequestReplayCacheV1();
   let activeTransportKey: RelayTransportKeyMaterialV1 | null = null;
   const transportKeys = new Map<string, RelayTransportKeyMaterialV1>();
@@ -3465,6 +3470,49 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         queueReplicaRepair();
         return;
       }
+      if (isObject(frameCandidate) && frameCandidate.type === PRIVATE_DISCOVERY_REQUEST_TYPE) {
+        clearTimeout(authTimeout);
+        if (!cfg.relayDiscovery || isBinary || !rateLimiter.check(`transport:${ip}`, 'discovery')) {
+          ws.close(4008, 'private_discovery_unavailable');
+          return;
+        }
+        let request: ReturnType<typeof parsePrivateDiscoveryRequestV1>;
+        try { request = parsePrivateDiscoveryRequestV1(raw); }
+        catch { ws.close(4000, 'invalid_private_discovery'); return; }
+        if (seenPrivateDiscoveryRequests.size >= 65_536
+          || seenPrivateDiscoveryRequests.has(request.requestId)) {
+          ws.close(4003, 'replayed_private_discovery');
+          return;
+        }
+        const candidates = relayDirectory.select({
+          limit: cfg.relayDiscovery.maxKnownRelays ?? 256, now: Date.now(),
+        }).filter(descriptor => descriptor.reachability === 'direct'
+          && descriptor.relayId !== relayIdentity.did
+          // Forwarding uses the first signed endpoint, so the preflight must
+          // observe that same socket destination.
+          && descriptor.endpoints[0] === request.targetEndpoint);
+        if (candidates.length !== 1) {
+          ws.close(4004, 'private_destination_unavailable');
+          return;
+        }
+        seenPrivateDiscoveryRequests.set(request.requestId, request.expiresAt);
+        let remoteAddress = '';
+        void discoverRelayContactV1(
+          createRelayContactHintV1('peer-exchange', request.targetEndpoint, candidates[0].relayId),
+          { request: request.peerRequest, timeoutMs: 5_000,
+            onTransportSocket: socket => { remoteAddress = socket.remoteAddress ?? ''; } },
+        ).then(contact => {
+          if (ws.readyState !== WebSocket.OPEN) return;
+          const response = createPrivateDiscoveryResponseV1(
+            request, remoteAddress, contact.response, relayIdentity,
+          );
+          ws.send(response, error => {
+            if (error) ws.terminate();
+            else ws.close(1000, 'private_discovery_complete');
+          });
+        }).catch(() => ws.close(4004, 'private_destination_unavailable'));
+        return;
+      }
       if (isObject(frameCandidate) && frameCandidate.type === RELAY_PEER_REQUEST_FRAME_TYPE) {
         clearTimeout(authTimeout);
         if (!cfg.relayDiscovery) {
@@ -3997,6 +4045,9 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         }
         for (const [requestId, expiresAt] of seenPeerRequests) {
           if (expiresAt <= Date.now()) seenPeerRequests.delete(requestId);
+        }
+        for (const [requestId, expiresAt] of seenPrivateDiscoveryRequests) {
+          if (expiresAt <= Date.now()) seenPrivateDiscoveryRequests.delete(requestId);
         }
         for (const [linkId, expiresAt] of seenRelayLinks) {
           if (expiresAt <= Date.now()) seenRelayLinks.delete(linkId);

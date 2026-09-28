@@ -65,7 +65,7 @@ Protocol v2 removes a stable user identifier from relay-visible application mess
 Important limits in the current version:
 
 - Similarity matching necessarily reveals that some fingerprints are close. A compact fingerprint reduces exposed data; it is not a proof that semantic membership cannot be inferred.
-- A relay or network observer can still correlate requests by IP address, timing, size, and repeated fingerprints. Two-hop private transport, padding, batching, and route rotation are planned work.
+- A relay or network observer can still correlate requests by IP address, timing, size, and repeated fingerprints. The v0.4 branch has experimental two-hop transport; padding, batching, route rotation, and independent operator verification remain planned work.
 - Current clients use one configured relay at a time. That relay can now forward a search across at most two authenticated relay-link hops, consulting up to five connected, group-compatible volunteers per hop when its local index has fewer than the requested number of results. A timeout returns the results available locally and from peers that replied. The relay does not dial unverified peer-exchange hints to answer a search; signed remote scores are relay assertions, not independent match proofs.
 - A relay with configured authenticated relay contacts automatically attempts to place each locally submitted publication or tombstone on up to five live eligible volunteer relays. New selections prefer different observed endpoint failure domains—IPv4 `/24`, IPv6 `/48`, or exact DNS hostname—before using another relay in a domain already selected. This reduces obvious shared-network fate but does not prove independent operators or physical locations. The relay records positive signed receipts durably and retries pending configured targets after reconnect or restart. It retains a disconnected target through a configurable outage grace period, then replaces it only when a connected eligible spare can preserve the placement size. A signed `capacity-exhausted` refusal or a receipt-backed signed graceful retirement also removes that target for the exact operation and seeks another configured volunteer. A signed `stale`, `conflict`, or `terminal` refusal authorizes one read-only state request to that exact target; if it returns an unambiguous newer owner-signed operation, the source adopts it locally without automatically placing it elsewhere. Conflicts, unavailable state, `unsupported-group`, and `invalid` remain quarantined until a newer owner-signed operation is accepted locally. Rate limits and persistence failures retain the target for bounded retry. A later publication revision makes a fresh target decision. Until a record has enough receipts, the local relay may still be its only copy.
 - A signed receipt proves a relay fsynced one exact operation at one point in time. Receipt-holders are periodically checked over their authenticated link in target-scoped batches of up to 64 receipts; one signed bitmap reports which exact operations remain present, and a missing bit causes a fresh placement attempt. Each query still requires the target's prior signed receipt, so it cannot probe arbitrary publication IDs or enumerate the target's full inventory. This is still a relay's assertion at one moment, not proof that it is continuously online or independently operated. A relay that returns with the same infrastructure identity can repair its copy; a relay that remains offline beyond the grace period can be rotated out when a live spare exists.
@@ -89,7 +89,7 @@ Read the full [protocol v2 threat model](docs/developers/protocol-v2.md) and [ro
 | Signed graceful replica handoff | Implemented v0.3 foundation |
 | Journal compaction, bounded query forwarding, publication-mailbox replication, match-notice deduplication, desktop background relay service, and five-relay churn harness | Implemented v0.3 foundation |
 | Pairwise relationship-mailbox placement, broader churn evaluation, and full resource accounting | Remaining v0.3 work |
-| Private two-hop transport and anonymous abuse-control credentials | Planned for v0.4 |
+| Private two-hop transport and anonymous abuse-control credentials | Experimental two-hop transport in the v0.4 branch; anonymous admission and privacy validation remain open |
 | iOS and Android clients | Planned for v0.5 |
 
 The current validation baseline is:
@@ -100,7 +100,7 @@ The current validation baseline is:
 - **2.3 ms p95** for a 10,000-fingerprint Hamming scan on the recorded evaluation machine
 - **42.4 ms** relay publication round trip and **134.1 ms** publication-to-encrypted-match delivery in the recorded run
 
-These are development measurements, not service-level guarantees. See the [latest committed evaluation report](docs/evals/eval-2026-09-16-10-12-37.md) for the dataset, platform, thresholds, informational metrics, and complete results.
+These are development measurements, not service-level guarantees. See the [latest committed evaluation report](docs/evals/eval-2026-09-28-13-43-18.md) for the dataset, platform, thresholds, informational metrics, and complete results.
 
 ## Use Resonance
 
@@ -144,6 +144,8 @@ RELAY_PORT=9090 \
 RELAY_DATA_DIR=.resonance/relay \
 npm run start --workspace=@resonance/relay
 ```
+
+For local v0.4 transport testing, set `RESONANCE_EXPERIMENTAL_PRIVATE_ROUTE_URLS` before starting the app server. Give it a comma-separated list with an **entry relay first** and one or more **destination relays after it**. The client contacts the entry to obtain each destination's signed key and refuses a route when it cannot verify the destination response and a different observed IP domain. Public endpoints require `wss://`. This mode is experimental; see the [v0.4 roadmap](ROADMAP.md) for its remaining trust and replay limits.
 
 The relay writes its infrastructure identity and operation journal under `RELAY_DATA_DIR`. Stop it with `Ctrl+C`; accepted operations are replayed on the next start.
 

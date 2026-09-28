@@ -66,12 +66,15 @@ function createSessionRelayClient(urls: string[], identity: Identity): RelayClie
   const configured = process.env.RESONANCE_EXPERIMENTAL_PRIVATE_ROUTE_URLS;
   const privateUrls = configured === undefined ? undefined
     : [...new Set(configured.split(',').map(url => url.trim()).filter(Boolean))];
-  const targets = privateUrls ?? urls;
+  if (privateUrls && privateUrls.length < 2) {
+    throw new Error('Experimental private transport needs an entry URL followed by at least one destination URL');
+  }
+  const targets = privateUrls === undefined ? urls : privateUrls.slice(1);
   return createRelayClient({
     relayUrl: targets[0] ?? '',
     identity,
     fallbackUrls: targets.slice(1),
-    ...(privateUrls === undefined ? {} : { privateRouteUrls: privateUrls }),
+    ...(privateUrls === undefined ? {} : { privateEntryUrls: privateUrls.slice(0, 1) }),
     autoReconnect: true,
   });
 }
