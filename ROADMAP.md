@@ -168,11 +168,13 @@ The five-target placement goal remains conditional on enough eligible volunteers
 - [ ] Send publish, search, and mailbox requests through two independently selected volunteer hops
   - [x] Select an ordered pair from fresh, signed, directly reachable relay descriptors and authenticated transport observations; fail closed when identities or observed network domains overlap
   - [x] Carry encrypted publish, search, and mailbox operations over two local relay sockets, with a signed entry-to-destination forward and an encrypted return reply
-  - [ ] Connect the personal client to route selection and verify remote entry-to-destination reachability before sending
+  - [x] Connect the personal client to explicit experimental route selection; fail closed if two signed, currently contacted relays are not in different observed IP domains
+  - [ ] Verify remote entry-to-destination reachability before sending, without directly contacting the destination from the personal device
 - [ ] Encrypt requests so the entry relay sees the source address but not the operation, while the destination sees the operation but not the source address
   - [x] Define bounded HPKE entry and destination layers with signed relay encryption keys, short expiry, authenticated metadata, and per-process replay rejection
   - [x] Advertise a signed relay encryption key in discovery and carry both encrypted request and reply through live local relay sockets
   - [ ] Verify source-address and operation separation with relays in separate processes and enforce durable replay behavior after restart
+  - [ ] Stop direct client-to-destination discovery: the experimental client currently contacts both relays for signed keys, which reveals its source address to the destination before the encrypted operation
 - [ ] Use authenticated encrypted transport for every Internet-facing peer connection
   - [x] Reject public `ws://` endpoints at client, discovery, relay-link, and advertised-endpoint boundaries; retain cleartext only for loopback and private-LAN development
   - [ ] Provide and verify TLS termination for reachable volunteer relays, then audit every inbound and outbound connection path

@@ -60,6 +60,22 @@ export interface Session {
   remoteRelayUrls: string[];
 }
 
+function createSessionRelayClient(urls: string[], identity: Identity): RelayClient {
+  // Private transport is an explicit pilot setting until route availability and
+  // admission are ready for every user. Once selected it never falls back direct.
+  const configured = process.env.RESONANCE_EXPERIMENTAL_PRIVATE_ROUTE_URLS;
+  const privateUrls = configured === undefined ? undefined
+    : [...new Set(configured.split(',').map(url => url.trim()).filter(Boolean))];
+  const targets = privateUrls ?? urls;
+  return createRelayClient({
+    relayUrl: targets[0] ?? '',
+    identity,
+    fallbackUrls: targets.slice(1),
+    ...(privateUrls === undefined ? {} : { privateRouteUrls: privateUrls }),
+    autoReconnect: true,
+  });
+}
+
 export class ModelLoadError extends Error {
   constructor() {
     super('The matching model could not load. Connect to the internet on first use, then retry.');
@@ -212,12 +228,9 @@ export async function startRelayMode(
   if (session) {
     session.relayClient.disconnect();
     session.remoteRelayUrls = [...new Set([...contacts, ...session.remoteRelayUrls])];
-    const localClient = createRelayClient({
-      relayUrl: `ws://localhost:${p}`,
-      identity: session.identity,
-      fallbackUrls: session.remoteRelayUrls,
-      autoReconnect: true,
-    });
+    const localClient = createSessionRelayClient(
+      [`ws://localhost:${p}`, ...session.remoteRelayUrls], session.identity,
+    );
     session.relayClient = localClient;
     session.pairwiseChannelMgr = createPairwiseChannelManagerV2(session.store, localClient);
     wireEvents(session);
@@ -239,12 +252,9 @@ export async function stopRelayMode(): Promise<void> {
   if (session) {
     session.relayClient.disconnect();
     const urls = session.remoteRelayUrls;
-    const remoteClient = createRelayClient({
-      relayUrl: urls[0] ?? 'ws://localhost:9090',
-      identity: session.identity,
-      fallbackUrls: urls.slice(1),
-      autoReconnect: true,
-    });
+    const remoteClient = createSessionRelayClient(
+      urls.length > 0 ? urls : ['ws://localhost:9090'], session.identity,
+    );
     session.relayClient = remoteClient;
     session.pairwiseChannelMgr = createPairwiseChannelManagerV2(session.store, remoteClient);
     wireEvents(session);
@@ -397,12 +407,7 @@ export async function unlockSession(password: string, relayUrl: string): Promise
   urls.push(...uniqueRemoteUrls.filter(u => !urls.includes(u)));
   if (urls.length === 0) urls.push(relayUrl); // fallback to whatever was passed
 
-  const relayClient = createRelayClient({
-    relayUrl: urls[0],
-    identity,
-    fallbackUrls: urls.slice(1),
-    autoReconnect: true,
-  });
+  const relayClient = createSessionRelayClient(urls, identity);
   const pairwiseChannelMgr = createPairwiseChannelManagerV2(store, relayClient);
 
   // Protocol v2 operations use short, self-authenticating connections. Keeping
