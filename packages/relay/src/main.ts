@@ -116,6 +116,7 @@ const ownerPolicy = ownerBandwidth !== undefined || ownerTotalBandwidth !== unde
 
 const server = createRelayServer({
   tls,
+  identityPassphrase: process.env.RELAY_IDENTITY_PASSPHRASE,
   port: relayPort,
   host: relayHost,
   persistDir: relayDataDir,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assertSecureRelayTransportEndpoint } from '../relay-transport.js';
+import { assertSecureRelayTransportEndpoint, isPrivateRelayAddress } from '../relay-transport.js';
 
 describe('relay transport boundary', () => {
   it.each([
@@ -34,5 +34,15 @@ describe('relay transport boundary', () => {
     expect(() => assertSecureRelayTransportEndpoint('wss://user:secret@relay.example.org/')).toThrow();
     expect(() => assertSecureRelayTransportEndpoint('wss://relay.example.org/?token=secret')).toThrow();
     expect(() => assertSecureRelayTransportEndpoint('wss://relay.example.org/#fragment')).toThrow();
+  });
+
+  it.each(['127.0.0.1', '::1', '::ffff:127.0.0.1', '10.0.1.2', '172.31.0.1', '192.168.1.2', 'fd12::1'])
+  ('allows cleartext only from private or loopback source IP %s', address => {
+    expect(isPrivateRelayAddress(address)).toBe(true);
+  });
+
+  it.each(['8.8.8.8', '198.51.100.8', '2606:4700:4700::1111', '0.0.0.0', undefined, 'localhost'])
+  ('rejects public or unknown cleartext source %s', address => {
+    expect(isPrivateRelayAddress(address)).toBe(false);
   });
 });

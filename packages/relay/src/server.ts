@@ -4,15 +4,17 @@
  */
 
 import { Buffer } from 'node:buffer';
-import { createHash } from 'node:crypto';
+import { createHash, X509Certificate } from 'node:crypto';
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
 import { createServer as createHttpsServer, type Server as HttpsServer } from 'node:https';
+import { isIP } from 'node:net';
 import { WebSocket, WebSocketServer } from 'ws';
 import { RelayTrafficMeter, relayDataFileBytes } from './relay-resource-meter.js';
 import { PrivateReplayLog } from './private-replay-log.js';
 import { DirectReachabilityObservations } from './direct-reachability.js';
 import {
   assertSecureRelayTransportEndpoint,
+  isPrivateRelayAddress,
   MessageTypes,
   MAILBOX_DEPOSIT_FRAME_TYPE,
   MAILBOX_REQUEST_FRAME_TYPE,
@@ -25,6 +27,7 @@ import {
   MAX_RELAY_REPLICA_INVENTORY_BATCH_RECEIPTS,
   PUBLICATION_OPERATION_FRAME_TYPE,
   RELAY_LINK_OPEN_FRAME_TYPE,
+  RELAY_LINK_CHALLENGE_REQUEST_FRAME_TYPE,
   RELAY_REPLICA_INVENTORY_BATCH_REQUEST_FRAME_TYPE,
   RELAY_REPLICA_HANDOFF_RESPONSE_FRAME_TYPE,
   RELAY_REPLICA_INVENTORY_REQUEST_FRAME_TYPE,
@@ -47,6 +50,7 @@ import {
   createMatchNoticeMessage,
   createRelayLinkAcceptFrameV1,
   createRelayLinkAcceptV1,
+  createRelayLinkChallengeV1,
   createRelayReplicaInventoryBatchResponseFrameV1,
   createRelayReplicaInventoryBatchResponseV1,
   createRelayReplicaInventoryResponseFrameV1,
@@ -95,6 +99,7 @@ import {
   parseRelationshipMailboxDepositFrameV2,
   parseRelationshipMailboxRequestFrameV2,
   parseRelayLinkOpenFrameV1,
+  parseRelayLinkChallengeRequestV1,
   parseRelayReplicaInventoryBatchRequestFrameV1,
   parseRelayReplicaInventoryRequestFrameV1,
   parseRelayReplicaReconciliationRequestFrameV1,
@@ -142,6 +147,7 @@ import {
   type RelationshipMailboxDepositV2,
   type RelationshipMailboxRequestV2,
   type RelayDescriptorV1,
+  type RelayLinkChallengeV1,
   type RelayContactHintV1,
   type RelayTransportKeyMaterialV1,
   type PrivateRequestLayerV1,
@@ -243,6 +249,8 @@ export interface RelayConfig {
   host: string;
   /** PEM credentials for a direct HTTPS/WSS listener; omit behind a loopback TLS proxy. */
   tls?: { cert: string | Buffer; key: string | Buffer };
+  /** Passphrase for the relay infrastructure identity's encrypted keystore. */
+  identityPassphrase?: string;
   persistDir: string;
   persistIntervalMs: number;
   matchThreshold: number;
@@ -414,9 +422,27 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   if (cfg.tls && advertisedEndpoints.some(endpoint => new URL(endpoint).protocol !== 'wss:')) {
     throw new Error('A TLS relay can advertise only wss:// endpoints');
   }
+  if (cfg.tls) {
+    let certificate: X509Certificate;
+    try { certificate = new X509Certificate(cfg.tls.cert); }
+    catch { throw new Error('Invalid relay TLS certificate'); }
+    const now = Date.now();
+    if (now < Date.parse(certificate.validFrom) || now >= Date.parse(certificate.validTo)) {
+      throw new Error('Relay TLS certificate is not currently valid');
+    }
+    for (const endpoint of advertisedEndpoints) {
+      const hostname = new URL(endpoint).hostname.replace(/^\[|\]$/g, '');
+      const matched = isIP(hostname) ? certificate.checkIP(hostname) : certificate.checkHost(hostname);
+      if (!matched) throw new Error('Relay TLS certificate does not cover an advertised endpoint');
+    }
+  }
   if (!cfg.tls && advertisedEndpoints.some(endpoint => new URL(endpoint).protocol === 'wss:')
     && !['127.0.0.1', '::1', 'localhost'].includes(cfg.host)) {
     throw new Error('A relay using an external TLS proxy must bind its cleartext backend to loopback');
+  }
+  if ((cfg.tls || advertisedEndpoints.some(endpoint => new URL(endpoint).protocol === 'wss:'))
+    && !cfg.identityPassphrase) {
+    throw new Error('A reachable WSS relay requires an encrypted identity keystore passphrase');
   }
   const publicationStorageQuotaBytes = config?.publicationStorageQuotaBytes
     ?? cfg.relayDiscovery?.storage.availableBytes
@@ -535,7 +561,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   const operationLog = new RelayOperationLog(
     cfg.persistDir, maxJournalFileBytes, journalReserveAfter,
   );
-  const relayIdentity = loadOrCreateRelayIdentity(cfg.persistDir);
+  const relayIdentity = loadOrCreateRelayIdentity(cfg.persistDir, cfg.identityPassphrase);
   const replicaStorageLedger = new ReplicaStorageLedger();
   const trafficMeter = cfg.resourceMeter ?? new RelayTrafficMeter(cfg.persistDir);
 
@@ -3264,6 +3290,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   function handleConnection(ws: WebSocket, req: any): void {
     const ip = req?.socket?.remoteAddress ?? 'unknown';
     let linkedRelayId: string | null = null;
+    let pendingLinkChallenge: RelayLinkChallengeV1 | null = null;
     let receivedPrivateEntry = false;
     let privateReply: { responseKey: string; requestId: string } | null = null;
 
@@ -3396,6 +3423,18 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         }
         return;
       }
+      if (isObject(frameCandidate) && frameCandidate.type === RELAY_LINK_CHALLENGE_REQUEST_FRAME_TYPE) {
+        if (!cfg.relayDiscovery || pendingLinkChallenge
+          || !rateLimiter.check(`transport:${ip}`, 'discovery')) {
+          ws.close(4008, 'relay_link_challenge_rejected');
+          return;
+        }
+        try { parseRelayLinkChallengeRequestV1(raw); }
+        catch { ws.close(4000, 'invalid_relay_link_challenge'); return; }
+        pendingLinkChallenge = createRelayLinkChallengeV1();
+        ws.send(JSON.stringify(pendingLinkChallenge));
+        return;
+      }
       if (isObject(frameCandidate) && frameCandidate.type === RELAY_LINK_OPEN_FRAME_TYPE) {
         clearTimeout(authTimeout);
         if (!cfg.relayDiscovery) {
@@ -3411,6 +3450,12 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         }
         const request = frame.request;
         const now = Date.now();
+        if (!pendingLinkChallenge || pendingLinkChallenge.expiresAt <= now
+          || request.serverNonce !== pendingLinkChallenge.nonce) {
+          ws.close(4003, 'relay_link_challenge_mismatch');
+          return;
+        }
+        pendingLinkChallenge = null;
         if (!isRelayLinkOpenActiveV1(request, now)) {
           ws.close(4003, 'expired_relay_link');
           return;
@@ -4028,7 +4073,15 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       httpServer = cfg.tls
         ? createHttpsServer(cfg.tls, handleHttpRequest)
         : createHttpServer(handleHttpRequest);
-      httpServer.on('connection', socket => trafficMeter.observe(socket));
+      httpServer.on('connection', socket => {
+        // A wildcard-bound development/LAN listener must not become a public
+        // cleartext relay if a port is forwarded or a firewall is relaxed.
+        if (!cfg.tls && !isPrivateRelayAddress(socket.remoteAddress)) {
+          socket.destroy();
+          return;
+        }
+        trafficMeter.observe(socket);
+      });
       wss = new WebSocketServer({
         server: httpServer,
         maxPayload: MAX_RELAY_DISCOVERY_FRAME_BYTES,

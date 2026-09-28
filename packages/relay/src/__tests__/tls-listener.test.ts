@@ -12,6 +12,7 @@ import { createRelayServer, type RelayServer } from '../server.js';
 
 const cert = readFileSync(new URL('./fixtures/localhost-test.crt', import.meta.url));
 const key = readFileSync(new URL('./fixtures/localhost-test.key', import.meta.url));
+const passphrase = 'local-test-relay-keystore-passphrase';
 const port = 41_000 + Math.floor(Math.random() * 1_000);
 const persistDir = `/tmp/resonance-tls-listener-${Date.now()}-${port}`;
 let server: RelayServer | undefined;
@@ -23,10 +24,22 @@ afterEach(async () => {
 });
 
 describe('direct TLS relay listener', () => {
+  it('requires an encrypted infrastructure identity for a reachable WSS listener', () => {
+    expect(() => createRelayServer({
+      port, host: '127.0.0.1', persistDir,
+      tls: { cert, key },
+      relayDiscovery: {
+        endpoints: [`wss://127.0.0.1:${port}/`],
+        reachability: 'direct', supportedGroups: ['public'],
+        storage: { capacityBytes: 1_000_000, availableBytes: 800_000 },
+      },
+    })).toThrow('encrypted identity keystore passphrase');
+  });
+
   it('serves signed discovery over WSS with a trusted certificate', async () => {
     server = createRelayServer({
       port, host: '127.0.0.1', persistDir,
-      tls: { cert, key },
+      tls: { cert, key }, identityPassphrase: passphrase,
       relayDiscovery: {
         endpoints: [`wss://127.0.0.1:${port}/`],
         reachability: 'direct', supportedGroups: ['public'],
@@ -76,12 +89,23 @@ describe('direct TLS relay listener', () => {
 
   it('does not advertise cleartext endpoints from a TLS listener', () => {
     expect(() => createRelayServer({
-      tls: { cert, key },
+      tls: { cert, key }, identityPassphrase: passphrase,
       relayDiscovery: {
         endpoints: ['ws://127.0.0.1:9090/'],
         reachability: 'direct', supportedGroups: ['public'],
         storage: { capacityBytes: 1_000_000, availableBytes: 800_000 },
       },
     })).toThrow('can advertise only wss://');
+  });
+
+  it('rejects an advertised WSS hostname that the direct certificate cannot authenticate', () => {
+    expect(() => createRelayServer({
+      tls: { cert, key }, identityPassphrase: passphrase,
+      relayDiscovery: {
+        endpoints: ['wss://other.example.org/'],
+        reachability: 'direct', supportedGroups: ['public'],
+        storage: { capacityBytes: 1_000_000, availableBytes: 800_000 },
+      },
+    })).toThrow('does not cover an advertised endpoint');
   });
 });

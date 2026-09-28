@@ -7,10 +7,16 @@ import {
   createPublicationTombstone,
   createRelayContactHintV1,
   createRelayDescriptorV1,
+  createRelayLinkOpenFrameV1,
+  createRelayLinkOpenV1,
   decodeRelayReplicaInventoryBatchPresenceV1,
   generateIdentity,
   generatePublicationKeyMaterial,
   serializePublicationOperationFrame,
+  serializeRelayLinkChallengeRequestV1,
+  serializeRelayLinkOpenFrameV1,
+  parseRelayLinkChallengeV1,
+  parseRelayLinkAcceptFrameV1,
   verifyRelayReplicaInventoryBatchResponseV1,
   verifyRelayReplicaInventoryResponseV1,
   verifyRelayReplicaReconciliationResponseV1,
@@ -102,6 +108,55 @@ afterAll(async () => {
 });
 
 describe('authenticated outbound relay links', () => {
+  it('rejects a signed opening replayed on a different receiving socket', async () => {
+    const identity = generateIdentity();
+    const now = Date.now();
+    const descriptor = createRelayDescriptorV1({
+      sequence: 1, endpoints: [], reachability: 'outbound-only',
+      capabilities: {
+        storesPublications: true, storesMailboxes: true, answersQueries: true,
+        forwardsQueries: false, replicaExchange: false,
+      },
+      supportedGroups: ['public'],
+      storage: { capacityBytes: 1_000_000, availableBytes: 800_000 },
+      issuedAt: now, expiresAt: now + 30_000,
+    }, identity);
+    const first = new WebSocket(HUB_ENDPOINT);
+    await new Promise<void>((resolve, reject) => {
+      first.once('open', resolve); first.once('error', reject);
+    });
+    first.send(serializeRelayLinkChallengeRequestV1());
+    const firstChallenge = parseRelayLinkChallengeV1(await new Promise<string>((resolve, reject) => {
+      first.once('message', data => resolve(data.toString())); first.once('error', reject);
+    }));
+    const opening = createRelayLinkOpenV1(
+      descriptor, identity, firstChallenge.nonce, Date.now(), firstChallenge.expiresAt,
+      HUB_ENDPOINT,
+    );
+    const raw = serializeRelayLinkOpenFrameV1(createRelayLinkOpenFrameV1(opening));
+    first.send(raw);
+    const acceptance = await new Promise<string>((resolve, reject) => {
+      first.once('message', data => resolve(data.toString())); first.once('error', reject);
+    });
+    expect(parseRelayLinkAcceptFrameV1(acceptance).response.linkId).toBe(opening.linkId);
+    first.close();
+    await new Promise<void>(resolve => first.once('close', resolve));
+
+    const second = new WebSocket(HUB_ENDPOINT);
+    await new Promise<void>((resolve, reject) => {
+      second.once('open', resolve); second.once('error', reject);
+    });
+    second.send(serializeRelayLinkChallengeRequestV1());
+    const secondChallenge = parseRelayLinkChallengeV1(await new Promise<string>((resolve, reject) => {
+      second.once('message', data => resolve(data.toString())); second.once('error', reject);
+    }));
+    expect(secondChallenge.nonce).not.toBe(firstChallenge.nonce);
+    second.send(raw);
+    expect(await new Promise<number>((resolve, reject) => {
+      second.once('close', code => resolve(code)); second.once('error', reject);
+    })).toBe(4003);
+  });
+
   it('rejects a public cleartext link before dialing', async () => {
     const identity = generateIdentity();
     const descriptor = spoke.getRelayDescriptor();

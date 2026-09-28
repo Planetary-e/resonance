@@ -181,11 +181,16 @@ The five-target placement goal remains conditional on enough eligible volunteers
   - [x] Reject public `ws://` endpoints at client, discovery, relay-link, and advertised-endpoint boundaries; retain cleartext only for loopback and private-LAN development
   - [ ] Provide and verify TLS termination for reachable volunteer relays, then audit every inbound and outbound connection path
     - [x] Support a direct HTTPS/WSS relay listener using operator-supplied PEM credentials and verify its TLS handshake in tests
+    - [x] Check direct-listener certificate validity and advertised hostnames at startup; reject public-source connections to a cleartext listener
 - [ ] Add challenge-response connection authentication with nonces and replay protection
+  - [x] Bind each signed relay-link opening to a fresh nonce issued on that receiving socket; reject a captured opening on a second socket
 - [ ] Verify relay and peer signatures on acknowledgements, matches, inventories, receipts, and forwarded operations
 - [ ] Apply strict schemas, bounded collections, message-size limits, and request timeouts before processing untrusted input
+  - [x] Bound signed reply envelopes to 1 MiB, reject extra envelope fields, and cap personal-client WebSocket replies at the same limit
 - [ ] Protect relay private keys with operating-system storage or an encrypted keystore
+  - [x] Add an scrypt/AES-GCM encrypted infrastructure keystore, atomic plaintext migration, and mandatory passphrase for a reachable WSS relay
 - [ ] Use short sessions, route rotation, fixed-size padding, batching, and timing jitter
+  - [x] Use one request per private connection and vary the first entry attempted when multiple entry relays are configured
 - [ ] Replace per-DID limits with standardized blind, one-use capability tokens
 - [ ] Support community or quorum issuance without requiring a permanent issuer service
 - [ ] Replicate spent-token identifiers and define deterministic handling of double spends during partitions

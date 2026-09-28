@@ -31,7 +31,7 @@ export {
 export { EmbeddingEngine, rewriteForMatching, type EmbeddingPrefix } from './embedding.js';
 
 export { BOOTSTRAP_RELAYS, DEFAULT_RELAY_PORT } from './bootstrap.js';
-export { assertSecureRelayTransportEndpoint } from './relay-transport.js';
+export { assertSecureRelayTransportEndpoint, isPrivateRelayAddress } from './relay-transport.js';
 export {
   selectPrivateRouteV1,
   observedNetworkDomainV1,
@@ -134,14 +134,21 @@ export {
   RELAY_LINK_VERSION,
   RELAY_LINK_OPEN_FRAME_TYPE,
   RELAY_LINK_ACCEPT_FRAME_TYPE,
+  RELAY_LINK_CHALLENGE_REQUEST_FRAME_TYPE,
+  RELAY_LINK_CHALLENGE_FRAME_TYPE,
   MAX_RELAY_LINK_HANDSHAKE_LIFETIME_MS,
   type RelayLinkOpenBodyV1,
+  type RelayLinkChallengeV1,
   type RelayLinkOpenV1,
   type RelayLinkAcceptBodyV1,
   type RelayLinkAcceptV1,
   type RelayLinkOpenFrameV1,
   type RelayLinkAcceptFrameV1,
   createRelayLinkOpenV1,
+  createRelayLinkChallengeV1,
+  parseRelayLinkChallengeRequestV1,
+  serializeRelayLinkChallengeRequestV1,
+  parseRelayLinkChallengeV1,
   verifyRelayLinkOpenV1,
   isRelayLinkOpenActiveV1,
   createRelayLinkAcceptV1,
@@ -535,6 +542,7 @@ export {
   type AuthPayload,
   type ChannelMessagePayload,
   type ChannelForwardPayload,
+  MAX_SIGNED_MESSAGE_BYTES,
   MessageTypes,
   createMessage,
   verifyMessage,

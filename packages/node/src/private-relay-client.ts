@@ -1,5 +1,6 @@
 /** Short-lived personal-client transport through two authenticated relay hops. */
 
+import { randomInt } from 'node:crypto';
 import WebSocket from 'ws';
 import {
   MAX_PRIVATE_FRAME_BYTES,
@@ -148,7 +149,9 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
 
   async function discoverRoute(destinationUrl: string): Promise<{ entry: PrivateContact; destination: PrivateContact }> {
     let lastError: unknown;
-    for (const entryUrl of entryUrls) {
+    const start = randomInt(entryUrls.length);
+    for (let offset = 0; offset < entryUrls.length; offset++) {
+      const entryUrl = entryUrls[(start + offset) % entryUrls.length];
       try {
         const entry = await discoverEntry(entryUrl);
         const destination = await discoverDestination(entry, destinationUrl);

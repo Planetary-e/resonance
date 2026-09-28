@@ -21,6 +21,13 @@ export function assertSecureRelayTransportEndpoint(endpoint: string): void {
   }
 }
 
+/** A cleartext listener may accept only loopback and private-LAN source IPs. */
+export function isPrivateRelayAddress(address: string | undefined): boolean {
+  if (!address) return false;
+  const normalized = address.toLowerCase().startsWith('::ffff:') ? address.slice(7) : address;
+  return isIP(normalized) !== 0 && isPrivateRelayHost(normalized);
+}
+
 function isPrivateRelayHost(hostname: string): boolean {
   if (hostname === 'localhost') return true;
   const host = hostname.startsWith('[') && hostname.endsWith(']')

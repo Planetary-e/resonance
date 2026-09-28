@@ -92,6 +92,35 @@ describe('relay infrastructure identity store', () => {
     expect(lstatSync(path).mode & 0o777).toBe(0o600);
   });
 
+  it('encrypts a new identity and refuses missing, wrong, or tampered passphrases', () => {
+    const dir = directory();
+    const passphrase = 'correct-horse-battery-staple-local';
+    const identity = loadOrCreateRelayIdentity(dir, passphrase);
+    const path = join(dir, RELAY_IDENTITY_FILENAME);
+    const stored = readFileSync(path, 'utf8');
+    expect(stored).toContain('relay-infrastructure-identity-encrypted');
+    expect(stored).not.toContain(encodeBase64(identity.secretKey));
+    expect(loadOrCreateRelayIdentity(dir, passphrase)).toEqual(identity);
+    expect(() => loadOrCreateRelayIdentity(dir)).toThrow('passphrase required');
+    expect(() => loadOrCreateRelayIdentity(dir, 'wrong-passphrase-with-16-chars'))
+      .toThrow('wrong passphrase or corrupt');
+    const tampered = JSON.parse(stored);
+    tampered.tag = Buffer.alloc(16).toString('base64');
+    writeFileSync(path, JSON.stringify(tampered));
+    expect(() => loadOrCreateRelayIdentity(dir, passphrase)).toThrow('wrong passphrase or corrupt');
+  });
+
+  it('atomically migrates an existing plaintext identity when a passphrase is supplied', () => {
+    const dir = directory();
+    const original = loadOrCreateRelayIdentity(dir);
+    const passphrase = 'another-long-relay-passphrase';
+    expect(loadOrCreateRelayIdentity(dir, passphrase)).toEqual(original);
+    const stored = readFileSync(join(dir, RELAY_IDENTITY_FILENAME), 'utf8');
+    expect(stored).toContain('relay-infrastructure-identity-encrypted');
+    expect(stored).not.toContain(encodeBase64(original.secretKey));
+    expect(loadOrCreateRelayIdentity(dir, passphrase)).toEqual(original);
+  });
+
   it.each([
     ['truncated JSON', '{"version":1'],
     ['unknown fields', JSON.stringify({ version: 1, surprise: true })],

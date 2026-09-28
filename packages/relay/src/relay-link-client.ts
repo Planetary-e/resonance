@@ -21,8 +21,11 @@ import {
   RELAY_MAILBOX_SYNC_REQUEST_FRAME_TYPE,
   RELAY_RELATIONSHIP_MAILBOX_SYNC_RESPONSE_FRAME_TYPE,
   RELAY_RELATIONSHIP_MAILBOX_SYNC_REQUEST_FRAME_TYPE,
+  type RelayLinkOpenV1,
   createRelayLinkOpenFrameV1,
   createRelayLinkOpenV1,
+  parseRelayLinkChallengeV1,
+  serializeRelayLinkChallengeRequestV1,
   createRelayReplicaInventoryRequestFrameV1,
   createRelayReplicaInventoryRequestV1,
   createRelayReplicaInventoryBatchRequestFrameV1,
@@ -219,18 +222,11 @@ export function connectRelayLinkV1(
 
   const clock = options.now ?? Date.now;
   const createdAt = clock();
-  const request = createRelayLinkOpenV1(
-    localDescriptor,
-    identity,
-    createdAt,
-    createdAt + Math.min(30_000, handshakeTimeoutMs + 5_000),
-    hint.endpoint,
-  );
-  const serialized = serializeRelayLinkOpenFrameV1(createRelayLinkOpenFrameV1(request));
 
   return new Promise((resolve, reject) => {
     let socket: WebSocket;
     let accepted = false;
+    let request: RelayLinkOpenV1 | null = null;
     let acceptedRemoteDescriptor: RelayDescriptorV1 | null = null;
     let settled = false;
     let heartbeat: ReturnType<typeof setInterval> | null = null;
@@ -308,7 +304,7 @@ export function connectRelayLinkV1(
     }
 
     socket.on('upgrade', response => options.onTransportSocket?.(response.socket));
-    socket.on('open', () => socket.send(serialized));
+    socket.on('open', () => socket.send(serializeRelayLinkChallengeRequestV1()));
     socket.on('message', (data: RawData, isBinary: boolean) => {
       if (accepted) {
         if (isBinary) {
@@ -533,7 +529,19 @@ export function connectRelayLinkV1(
         return;
       }
       try {
-        const frame = parseRelayLinkAcceptFrameV1(rawDataToString(data));
+        const raw = rawDataToString(data);
+        if (!request) {
+          const challenge = parseRelayLinkChallengeV1(raw, clock());
+          const issuedAt = clock();
+          request = createRelayLinkOpenV1(
+            localDescriptor, identity, challenge.nonce, issuedAt,
+            Math.min(challenge.expiresAt, issuedAt + Math.min(30_000, handshakeTimeoutMs + 5_000)),
+            hint.endpoint,
+          );
+          socket.send(serializeRelayLinkOpenFrameV1(createRelayLinkOpenFrameV1(request)));
+          return;
+        }
+        const frame = parseRelayLinkAcceptFrameV1(raw);
         const receivedAt = clock();
         if (!isRelayLinkAcceptActiveV1(frame.response, request, receivedAt)) {
           throw new Error('Relay link acceptance is invalid or inactive');
