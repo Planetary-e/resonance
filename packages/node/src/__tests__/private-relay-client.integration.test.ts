@@ -81,7 +81,7 @@ describe('personal client private transport', () => {
     }), client.fetchMailbox(record, keys)]);
     expect(search.results.some(result => result.publicationId === record.publicationId)).toBe(true);
     expect(mailbox.envelopes).toEqual([]);
-  });
+  }, 10_000); // Includes discovery, client scheduling, and both entry collection windows.
 
   it('closes active discovery on disconnect and does not try another destination', async () => {
     const stalledEntry = new WebSocketServer({ host: '127.0.0.1', port: 0 });

@@ -195,6 +195,7 @@ The five-target placement goal remains conditional on enough eligible volunteers
   - [x] Pad encrypted destination requests and replies into bounded 8–256 KiB buckets; test equal entry-frame lengths within a bucket and a 190 KiB operation under the 512 KiB frame cap
   - [x] Queue private client work before discovery and token reservation, release bounded shuffled batches with random delay, and cancel pending work and active sockets on disconnect
   - [x] Share a bounded 750 ms collection queue across private entry clients, shuffle forwarding batches, enforce count/byte/concurrency/wait limits, and cancel queued forwards on client disconnect or relay shutdown
+  - [x] Collect encrypted replies in an independent bounded 750 ms queue, release shuffled batches to the original clients, retain byte/count accounting through socket writes, and cancel replies on disconnect, expiry, or shutdown without undoing accepted destination operations
 - [ ] Replace per-DID limits with standardized blind, one-use capability tokens
   - [x] Implement Privacy Pass Blind RSA issuance, scoped redemption, and a restart-safe single-relay spent-token log; verify a real publication through the relay and reject a conflicting reuse
   - [x] Redeem a manually issued blind token over a real two-hop local client route without a client account identifier in the capability
@@ -209,6 +210,8 @@ The five-target placement goal remains conditional on enough eligible volunteers
   - [x] Capture entry and destination observations in separate local processes and demonstrate the original unpadded frame-length leak, then verify bucket padding removes exact-length differences within a bucket
   - [x] Run an eight-client local timing diagnostic across burst and sparse workloads: scheduling reduced burst action-order matches to 4/24, but inter-hop order still matched 24/24 in every condition; retain the report and traces without claiming Internet anonymity
   - [x] Compare shared entry mixing in separate relay processes over 192 completed searches: burst request-order matches fell from 20/24 to 2/24 on loopback and from 15/24 to 7/24 with simulated frame delays; sparse traffic and reply timing remain exposed, with latency and traces retained in `docs/evals/private-mix-2026-09-29T14-09-59-545Z.md`
+  - [x] Isolate reply batching in a second 192-search comparison: loopback burst reply-order matches fell from 24/24 to 2/24, but delayed bursts changed from 5/24 to 6/24 and sparse traffic remained exposed; retain the added latency and negative results in `docs/evals/private-reply-2026-09-29T14-30-17-612Z.md`
+  - [ ] Decide a sparse-traffic policy with explicit delay, bandwidth, and power budgets; measure stronger observers before selecting production timing defaults
   - [ ] Run colluding-operator, multi-domain Sybil, and timing-correlation adversaries with quantitative privacy targets
 - [ ] Define group-specific, rotating fingerprint epochs to limit correlation across communities and time
   - [x] Derive deterministic group/month-specific public projection matrices and verify cross-scope hashes do not directly match; live v2 still uses the static pilot matrix

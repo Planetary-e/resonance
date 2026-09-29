@@ -1,4 +1,4 @@
-/** Shared bounded forwarding queue. Sparse traffic and colluding relays remain linkable. */
+/** Shared bounded entry queue, used independently for requests and replies. */
 import { randomInt } from 'node:crypto';
 
 export interface PrivateEntryMixOptions {

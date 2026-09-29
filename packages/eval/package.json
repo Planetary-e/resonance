@@ -9,6 +9,7 @@
     "eval:scoped-fingerprint": "tsx src/scoped-fingerprint.ts",
     "eval:private-timing": "tsx src/private-timing.ts",
     "eval:private-mix": "tsx src/private-mix-timing.ts",
+    "eval:private-replies": "tsx src/private-mix-timing.ts --reply-comparison",
     "smoke": "tsx src/smoke.ts"
   },
   "dependencies": {

@@ -244,7 +244,7 @@ describe('private request forwarding over live volunteer relays', () => {
     expect(verifyMessage(mailboxResponse)).toBe(true);
     expect(mailboxResponse.payload.mailboxId).toBe(publication.mailbox.id);
     expect(mailboxResponse.payload.envelopes).toEqual([]);
-  });
+  }, 10_000); // Three sequential operations each cross two collection windows.
 
   it('fails closed when the entry has no authenticated route to the destination', async () => {
     const entryContact = await discoverRelayContactV1(

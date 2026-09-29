@@ -15,8 +15,8 @@ import { scoreTimingCorrelation } from './timing-correlation.js';
 interface Observation { phase: 'request' | 'reply'; requestId: string; atMs: number; bytes: number }
 interface Action { id: string; actionAt: number; requestId?: string; clientReplyAt?: number; completedAt?: number }
 interface Trace { id: string; actionAt: number; entryAt: number; destinationAt: number;
-  destinationReplyAt: number; clientReplyAt: number; completedAt: number; bytes: number }
-type Mode = 'unmixed' | 'entry-mix-750ms';
+  destinationReplyAt: number; clientReplyAt: number; completedAt: number; bytes: number; replyBytes: number }
+type Mode = 'unmixed' | 'entry-mix-750ms' | 'request-mix-only' | 'request-and-reply-mix';
 type Profile = 'loopback' | 'frame-delay-20-60ms';
 type Workload = 'burst-20ms' | 'sparse-1000ms';
 
@@ -67,9 +67,13 @@ class ProcessRelay {
 }
 
 const { values } = parseArgs({ options: { clients: { type: 'string', default: '8' },
-  trials: { type: 'string', default: '3' }, out: { type: 'string' } } });
+  trials: { type: 'string', default: '3' }, out: { type: 'string' },
+  'reply-comparison': { type: 'boolean', default: false } } });
 const count = integer(values.clients, 2, 16);
 const trials = integer(values.trials, 1, 10);
+const replyComparison = values['reply-comparison'];
+const baseline: Mode = replyComparison ? 'request-mix-only' : 'unmixed';
+const treatment: Mode = replyComparison ? 'request-and-reply-mix' : 'entry-mix-750ms';
 const context = new AsyncLocalStorage<Action>();
 const delay = simulateFrameDelay((socket, data) => {
   const action = context.getStore();
@@ -96,7 +100,9 @@ try {
   const endpoints = [`ws://127.0.0.1:${ports[0]}/`, `ws://127.0.0.1:${ports[1]}/`, `ws://[::1]:${ports[2]}/`];
   for (let index = 0; index < 3; index++) processes.push(new ProcessRelay({
     port: ports[index], host: index === 2 ? '::1' : '127.0.0.1', persistDir: join(directory, String(index)),
-    privateEntryMix: index === 1 ? {} : false, maxPeerRequestsPerMin: 10_000, maxSearchesPerMin: 10_000,
+    privateEntryMix: index === 1 || (replyComparison && index === 0) ? {} : false,
+    privateReplyMix: replyComparison && index === 1 ? {} : false,
+    maxPeerRequestsPerMin: 10_000, maxSearchesPerMin: 10_000,
     relayDiscovery: { endpoints: [endpoints[index]], reachability: 'direct', supportedGroups: ['public'],
       storage: { capacityBytes: 1_000_000, availableBytes: 900_000 }, maxKnownRelays: 8 },
   }));
@@ -109,10 +115,10 @@ try {
   for (const profile of ['loopback', 'frame-delay-20-60ms'] as const) {
     for (const workload of ['burst-20ms', 'sparse-1000ms'] as const) {
       for (let trial = 1; trial <= trials; trial++) {
-        const modes: Mode[] = ['unmixed', 'entry-mix-750ms'];
+        const modes: Mode[] = [baseline, treatment];
         if (trial % 2 === 0) modes.reverse();
         for (const mode of modes) {
-          const entryIndex = mode === 'unmixed' ? 0 : 1;
+          const entryIndex = mode === baseline ? 0 : 1;
           const seed = trial * 10_007 + (workload === 'burst-20ms' ? 31 : 71);
           const delayed = profile !== 'loopback';
           delay.configure(delayed, seed);
@@ -155,7 +161,8 @@ try {
             }
             return { id: action.id, actionAt: action.actionAt - start, entryAt: entry.atMs - start,
               destinationAt: destination.atMs - start, destinationReplyAt: reply.atMs - start,
-              clientReplyAt: action.clientReplyAt - start, completedAt: action.completedAt - start, bytes: entry.bytes };
+              clientReplyAt: action.clientReplyAt - start, completedAt: action.completedAt - start,
+              bytes: entry.bytes, replyBytes: reply.bytes };
           });
           const obs = (field: 'entryAt' | 'destinationAt' | 'destinationReplyAt' | 'clientReplyAt') =>
             traces.map(trace => ({ truth: trace.id, atMs: trace[field] }));
@@ -181,32 +188,40 @@ const summaries = [...new Set(results.map(result => `${result.profile}|${result.
     replyCorrect: group.reduce((sum, row) => sum + row.reply.correct, 0),
     transitP50Ms: percentile(traces.map(trace => trace.destinationAt - trace.entryAt), 0.5),
     transitP95Ms: percentile(traces.map(trace => trace.destinationAt - trace.entryAt), 0.95),
+    returnP50Ms: percentile(traces.map(trace => trace.clientReplyAt - trace.destinationReplyAt), 0.5),
+    returnP95Ms: percentile(traces.map(trace => trace.clientReplyAt - trace.destinationReplyAt), 0.95),
     completionP95Ms: percentile(traces.map(trace => trace.completedAt - trace.actionAt), 0.95),
-    distinctEntrySizes: new Set(traces.map(trace => trace.bytes)).size };
+    distinctEntrySizes: new Set(traces.map(trace => trace.bytes)).size,
+    distinctReplySizes: new Set(traces.map(trace => trace.replyBytes)).size };
 });
 const timestamp = new Date().toISOString();
 const output = values.out ? resolve(values.out) : join(resolve(dirname(fileURLToPath(import.meta.url)), '../../../docs/evals'),
-  `private-mix-${timestamp.replace(/[:.]/g, '-')}`);
+  `private-${replyComparison ? 'reply' : 'mix'}-${timestamp.replace(/[:.]/g, '-')}`);
 mkdirSync(dirname(output), { recursive: true });
 const report = { timestamp, sourceBase: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
   node: process.version, platform: `${process.platform}/${process.arch}`, processIds, parentPid: process.pid,
+  comparison: replyComparison ? 'reply-mixing' : 'request-mixing',
   clientsPerTrial: count, trials, summaries, results };
 writeFileSync(`${output}.json`, `${JSON.stringify(report, null, 2)}\n`);
 writeFileSync(`${output}.md`, [
-  '# Separate-process entry-mixing experiment', '',
+  `# Separate-process ${replyComparison ? 'reply' : 'entry'}-mixing experiment`, '',
   `Run: ${timestamp}; Node ${process.version}; ${report.platform}. Source base: ${report.sourceBase}. Experiment and queue changes are in the same commit as this report.`, '',
   '## Method and limits', '',
-  `${count} logical clients each send one equal-size search per trial. The clients share the parent process; unmixed entry, mixed entry, and destination each run in their own child process. Both conditions use the default client scheduler. The mixed entry holds requests for a 750 ms collection window, then shuffles them; the unmixed entry forwards immediately. Mode order alternates across ${trials} trials per workload/network profile. Burst actions are scheduled 20 ms apart; sparse actions 1,000 ms apart.`, '',
+  `${count} logical clients each send one equal-size search per trial. The clients share the parent process; baseline entry, treatment entry, and destination each run in their own child process. Both conditions use the default client scheduler. ${replyComparison
+    ? 'Both entries mix requests using a 750 ms collection window. The baseline immediately returns each encrypted reply; the treatment collects replies in an independent 750 ms queue and shuffles their release.'
+    : 'The treatment holds requests for a 750 ms collection window, then shuffles them; the baseline forwards immediately. Both entries explicitly disable reply mixing to isolate request mixing.'} Mode order alternates across ${trials} trials per workload/network profile. Burst actions are scheduled 20 ms apart; sparse actions 1,000 ms apart.`, '',
   'The simulated network profile delays each outgoing application frame by 20–60 ms, using seeded per-process pseudo-random streams. The zero-delay profile is ordinary loopback. This models frame latency and reordering between independent short connections, not TCP packet loss, bandwidth, geographic paths, or TLS record sizes. Relays share a physical machine and host clock; traces use epoch timestamps with a 2 ms cross-process clock tolerance. Per-IP discovery/search limits are raised to 10,000/minute because virtual clients share an address.', '',
   'The observer pairs timestamps by rank, without IDs, payloads, or sizes. Ground truth is kept only by the scorer. Forward accuracy compares entry ingress to destination ingress; reply accuracy compares destination reply send to client receipt. Transit latency includes queueing, cryptography, signing, and the simulated link. Full completion latency includes discovery. All requests must finish and have complete traces; failed trials stop the run. Crypto randomness is enabled, so exact measurements vary.', '',
   `Random-pairing reference for ${count} requests per trial: ${(100 / count).toFixed(1)}%; actual collection windows may contain fewer requests. Every request here uses one destination and one size bucket; batches split across destinations or sizes are not measured. Scores are a limited diagnostic, not independent statistical samples or an Internet anonymity guarantee. A stronger observer can use sizes, destinations, discovery, and repeated traffic. Colluding relays can still link the forwarded ciphertext and request ID.`, '',
   '## Results', '',
-  '| Network | Workload | Entry | Forward matches | Reply matches | Transit p50 / p95 ms | Completion p95 ms |',
-  '|---|---|---|---:|---:|---:|---:|',
-  ...summaries.map(row => `| ${row.profile} | ${row.workload} | ${row.mode} | ${metric(row.forwardCorrect, row.requests)} | ${metric(row.replyCorrect, row.requests)} | ${row.transitP50Ms} / ${row.transitP95Ms} | ${row.completionP95Ms} |`),
+  '| Network | Workload | Entry | Forward matches | Reply matches | Transit p50 / p95 ms | Return p50 / p95 ms | Completion p95 ms |',
+  '|---|---|---|---:|---:|---:|---:|---:|',
+  ...summaries.map(row => `| ${row.profile} | ${row.workload} | ${row.mode} | ${metric(row.forwardCorrect, row.requests)} | ${metric(row.replyCorrect, row.requests)} | ${row.transitP50Ms} / ${row.transitP95Ms} | ${row.returnP50Ms} / ${row.returnP95Ms} | ${row.completionP95Ms} |`),
   '', '## Interpretation', '',
-  'Compare unmixed and mixed forwarding under the same workload and network profile. Request mixing may reorder a busy batch; it does not create other users in a quiet window. The current return path forwards each reply immediately, so reply correlation must be assessed separately. This experiment provides no cover traffic and no defense against colluding relay operators. Do not treat a low score for one attack as proof of anonymity.', '',
-  '## Reproduce', '', '```sh', `npm run eval:private-mix -- --clients ${count} --trials ${trials}`, '```', '',
+  `Compare baseline and treatment under the same workload and network profile. Mixing may reorder a busy batch; it does not create other users in a quiet window. ${replyComparison
+    ? 'Reply scores isolate the added return queue; changes in forward scores between these two modes do not establish a benefit from reply mixing. Replies remain bound to their original request deadline, and admission failure never bypasses the queue.'
+    : 'The return path is explicitly unmixed in this request-only comparison.'} This experiment provides no cover traffic and no defense against colluding relay operators. Do not treat a low score for one attack as proof of anonymity.`, '',
+  '## Reproduce', '', '```sh', `npm run eval:private-${replyComparison ? 'replies' : 'mix'} -- --clients ${count} --trials ${trials}`, '```', '',
   `[Machine-readable traces](${basename(output)}.json). No production records, encrypted payloads, or private keys are retained.`, '',
 ].join('\n'));
 console.log(JSON.stringify({ report: `${output}.md`, summaries }, null, 2));

@@ -248,6 +248,7 @@ function record(capture: Capture, target: Map<string, WireEvent>, id: string, va
 function relay(port: number, host: string, endpoint: string, persistDir: string): RelayServer {
   return createRelayServer({ port, host, persistDir,
     privateEntryMix: false, // Preserve this earlier client-scheduler comparison.
+    privateReplyMix: false,
     // Many virtual clients share one loopback IP; do not confound this timing
     // experiment with the default per-IP admission limits.
     maxPeerRequestsPerMin: 10_000, maxSearchesPerMin: 10_000,

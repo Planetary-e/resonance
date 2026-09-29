@@ -296,6 +296,8 @@ export interface RelayConfig {
   admissionVerifier?: AdmissionCapabilityVerifierV2;
   /** Shared queue for experimental private forwards; false is an explicit unmixed mode. */
   privateEntryMix?: PrivateEntryMixOptions | false;
+  /** Independent shared queue for encrypted private replies; enabled by default. */
+  privateReplyMix?: PrivateEntryMixOptions | false;
   /** Decline discretionary first admissions while retaining existing obligations. */
   acceptNewWork?: (ingressBytes: number) => boolean;
   /** Shared meter also used by the standalone owner's total-usage policy. */
@@ -601,6 +603,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   const privateReplayLog = new PrivateReplayLog(cfg.persistDir);
   let privateReplay = new PrivateRequestReplayCacheV1();
   const privateEntryMix = cfg.privateEntryMix === false ? null : createPrivateEntryMix(cfg.privateEntryMix);
+  const privateReplyMix = cfg.privateReplyMix === false ? null : createPrivateEntryMix(cfg.privateReplyMix);
   const privateForwardControllers = new Set<AbortController>();
   let activeTransportKey: RelayTransportKeyMaterialV1 | null = null;
   const transportKeys = new Map<string, RelayTransportKeyMaterialV1>();
@@ -3238,7 +3241,14 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       ? privateEntryMix.schedule({ bytes: Buffer.byteLength(JSON.stringify(destination)),
         expiresAt: destination.expiresAt, signal: controller.signal }, work)
       : work(controller.signal);
-    void forwarded.catch(() => {
+    void forwarded.then(reply => {
+      if (!reply) return;
+      const release = (signal: AbortSignal) => sendPrivateReply(client, reply, signal, destination.expiresAt);
+      return privateReplyMix
+        ? privateReplyMix.schedule({ bytes: Buffer.byteLength(reply),
+          expiresAt: destination.expiresAt, signal: controller.signal }, release)
+        : release(controller.signal);
+    }).catch(() => {
       if (stopping) client.terminate();
       else if (client.readyState === WebSocket.OPEN) client.close(4008, 'private_mix_unavailable');
     }).finally(() => {
@@ -3247,9 +3257,36 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     });
   }
 
+  function sendPrivateReply(
+    client: WebSocket, reply: string, signal: AbortSignal, expiresAt: number,
+  ): Promise<void> {
+    const remainingMs = expiresAt - Date.now();
+    if (remainingMs <= 0 || signal.aborted || stopping || client.readyState !== WebSocket.OPEN) {
+      return Promise.reject(new Error('Private reply cancelled'));
+    }
+    return new Promise<void>((resolve, reject) => {
+      let done = false;
+      const finish = (error?: Error): void => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        signal.removeEventListener('abort', abort);
+        if (error) { client.terminate(); reject(error); }
+        else { client.close(1000, 'private_request_complete'); resolve(); }
+      };
+      const abort = () => finish(new Error('Private reply cancelled'));
+      // The explicit unmixed mode must also bound a stalled socket write.
+      const timer = setTimeout(() => finish(new Error('Private reply expired')), remainingMs);
+      signal.addEventListener('abort', abort, { once: true });
+      // Keep the reply charged to the queue until the socket write completes.
+      try { client.send(reply, error => finish(error)); }
+      catch (error) { finish(error instanceof Error ? error : new Error(String(error))); }
+    });
+  }
+
   async function forwardPrivateRequest(
     client: WebSocket, destination: PrivateRequestLayerV1, signal: AbortSignal,
-  ): Promise<void> {
+  ): Promise<string | undefined> {
     if (signal.aborted || stopping || client.readyState !== WebSocket.OPEN) return;
     const now = Date.now();
     const descriptor = relayDirectory.select({
@@ -3270,7 +3307,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     const timeoutMs = Math.min(10_000, destination.expiresAt - now);
     if (timeoutMs <= 0) { client.close(4003, 'private_request_expired'); return; }
     const request = createRelayPrivateForwardV1(destination, ownDescriptor, relayIdentity, now);
-    return new Promise<void>(resolveForward => {
+    return new Promise<string | undefined>(resolveForward => {
       const downstream = new WebSocket(endpoint, {
         handshakeTimeout: timeoutMs,
         maxPayload: MAX_RELAY_DISCOVERY_FRAME_BYTES,
@@ -3281,18 +3318,13 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         done = true;
         clearTimeout(timer);
         signal.removeEventListener('abort', abort);
-        resolveForward();
+        resolveForward(reply);
         if (downstream.readyState === WebSocket.OPEN) {
           downstream.close(1000, 'private_forward_complete');
         } else if (downstream.readyState === WebSocket.CONNECTING) {
           downstream.terminate();
         }
-        if (client.readyState !== WebSocket.OPEN) return;
-        if (!reply) { client.close(1011, 'private_forward_failed'); return; }
-        client.send(reply, error => {
-          if (error) client.terminate();
-          else client.close(1000, 'private_request_complete');
-        });
+        if (!reply && client.readyState === WebSocket.OPEN) client.close(1011, 'private_forward_failed');
       };
       const timer = setTimeout(() => finish(), timeoutMs);
       const abort = (): void => {
@@ -4194,6 +4226,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     async stop(options = {}): Promise<void> {
       stopping = true;
       privateEntryMix?.cancelAll();
+      privateReplyMix?.cancelAll();
       for (const controller of privateForwardControllers) controller.abort();
       if (publicationExpiryTimer) clearTimeout(publicationExpiryTimer);
       if (cleanupTimer) clearInterval(cleanupTimer);
