@@ -20,7 +20,7 @@ import {
 const NOW = 1_800_000_000_000;
 
 describe('private two-relay request envelope', () => {
-  it('exposes operation size through the current unpadded outer frame', async () => {
+  it('hides exact request and reply sizes inside bounded padding buckets', async () => {
     const entry = await generateRelayTransportKeyV1(generateIdentity(), NOW);
     const destination = await generateRelayTransportKeyV1(generateIdentity(), NOW);
     const small = await createPrivateRequestV1(
@@ -29,9 +29,42 @@ describe('private two-relay request envelope', () => {
     const large = await createPrivateRequestV1(
       new Uint8Array(4_096), entry.attestation, destination.attestation, NOW + 1,
     );
+    const nextBucket = await createPrivateRequestV1(
+      new Uint8Array(7_000), entry.attestation, destination.attestation, NOW + 1,
+    );
     const smallBytes = decodeUTF8(serializePrivateRequestLayerV1(small.request)).length;
     const largeBytes = decodeUTF8(serializePrivateRequestLayerV1(large.request)).length;
-    expect(largeBytes - smallBytes).toBeGreaterThan(5_000);
+    const nextBytes = decodeUTF8(serializePrivateRequestLayerV1(nextBucket.request)).length;
+    expect(largeBytes).toBe(smallBytes);
+    expect(nextBytes).toBeGreaterThan(largeBytes);
+    const entryReplay = new PrivateRequestReplayCacheV1();
+    const destinationReplay = new PrivateRequestReplayCacheV1();
+    const inner = await openPrivateEntryRequestV1(large.request, entry, entryReplay, NOW + 2);
+    const openedLarge = await openPrivateDestinationRequestV1(inner, destination, destinationReplay, NOW + 2);
+    expect(openedLarge.data).toEqual(new Uint8Array(4_096));
+    const openedSmall = await openPrivateDestinationRequestV1(
+      await openPrivateEntryRequestV1(small.request, entry, entryReplay, NOW + 2),
+      destination, destinationReplay, NOW + 2,
+    );
+    const openedNext = await openPrivateDestinationRequestV1(
+      await openPrivateEntryRequestV1(nextBucket.request, entry, entryReplay, NOW + 2),
+      destination, destinationReplay, NOW + 2,
+    );
+
+    const replySmall = await createPrivateResponseV1(
+      new Uint8Array(64), openedSmall.responseKey,
+      small.request.requestId, destination.attestation.relayId,
+    );
+    const replyLarge = await createPrivateResponseV1(
+      new Uint8Array(4_096), openedNext.responseKey,
+      nextBucket.request.requestId, destination.attestation.relayId,
+    );
+    expect(decodeUTF8(serializePrivateResponseV1(replySmall)).length)
+      .toBe(decodeUTF8(serializePrivateResponseV1(replyLarge)).length);
+    expect(await openPrivateResponseV1(replySmall, small.responsePrivateKey,
+      small.request.requestId, destination.attestation.relayId)).toEqual(new Uint8Array(64));
+    expect(await openPrivateResponseV1(replyLarge, nextBucket.responsePrivateKey,
+      nextBucket.request.requestId, destination.attestation.relayId)).toEqual(new Uint8Array(4_096));
   });
 
   it('keeps the operation unreadable to the entry and decrypts it only at the destination', async () => {
@@ -141,6 +174,17 @@ describe('private two-relay request envelope', () => {
     expect(() => parsePrivateRequestLayerV1(JSON.stringify({
       ...outer, enc: 'not-canonical!',
     }))).toThrow();
+    const maximum = await createPrivateRequestV1(
+      new Uint8Array(MAX_PRIVATE_REQUEST_BYTES), entry.attestation, destination.attestation, NOW + 1,
+    );
+    expect(decodeUTF8(serializePrivateRequestLayerV1(maximum.request)).length)
+      .toBeLessThanOrEqual(MAX_PRIVATE_FRAME_BYTES);
+    const maximumInner = await openPrivateEntryRequestV1(
+      maximum.request, entry, new PrivateRequestReplayCacheV1(), NOW + 2,
+    );
+    expect((await openPrivateDestinationRequestV1(
+      maximumInner, destination, new PrivateRequestReplayCacheV1(), NOW + 2,
+    )).data.length).toBe(MAX_PRIVATE_REQUEST_BYTES);
   });
 
   it('fails closed when replay capacity is exhausted and reclaims expired entries', async () => {

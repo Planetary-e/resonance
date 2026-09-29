@@ -192,6 +192,7 @@ The five-target placement goal remains conditional on enough eligible volunteers
   - [x] Add an scrypt/AES-GCM encrypted infrastructure keystore, atomic plaintext migration, and mandatory passphrase for a reachable WSS relay
 - [ ] Use short sessions, route rotation, fixed-size padding, batching, and timing jitter
   - [x] Use one request per private connection and vary the first entry attempted when multiple entry relays are configured
+  - [x] Pad encrypted destination requests and replies into bounded 8–256 KiB buckets; test equal entry-frame lengths within a bucket and a 190 KiB operation under the 512 KiB frame cap
 - [ ] Replace per-DID limits with standardized blind, one-use capability tokens
   - [x] Implement Privacy Pass Blind RSA issuance, scoped redemption, and a restart-safe single-relay spent-token log; verify a real publication through the relay and reject a conflicting reuse
   - [x] Redeem a manually issued blind token over a real two-hop local client route without a client account identifier in the capability
@@ -203,7 +204,7 @@ The five-target placement goal remains conditional on enough eligible volunteers
   - [x] Specify fail-closed four-of-five witness certificates for one-malicious-witness tolerance; local spent-ID copying is explicitly insufficient
   - [ ] Implement signed, fsynced witness votes, fixed membership, certificate checks, and partition/restart tests
 - [ ] Measure protection against a curious relay, colluding relays, Sybil relays, and a network observer
-  - [x] Capture entry and destination observations in separate local processes and demonstrate that unpadded outer-frame length leaks operation-size differences
+  - [x] Capture entry and destination observations in separate local processes and demonstrate the original unpadded frame-length leak, then verify bucket padding removes exact-length differences within a bucket
   - [ ] Run colluding-operator, multi-domain Sybil, and timing-correlation adversaries with quantitative privacy targets
 - [ ] Define group-specific, rotating fingerprint epochs to limit correlation across communities and time
   - [x] Derive deterministic group/month-specific public projection matrices and verify cross-scope hashes do not directly match; live v2 still uses the static pilot matrix

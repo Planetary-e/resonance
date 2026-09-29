@@ -8,7 +8,9 @@ import {
 } from './crypto.js';
 
 export const PRIVATE_ENVELOPE_VERSION = 1 as const;
-export const MAX_PRIVATE_REQUEST_BYTES = 256 * 1024;
+// Nested base64 and the 512 KiB outer-frame cap leave room for a 256 KiB
+// encrypted destination bucket only when the original operation is smaller.
+export const MAX_PRIVATE_REQUEST_BYTES = 190 * 1024;
 export const MAX_PRIVATE_FRAME_BYTES = 512 * 1024;
 export const MAX_PRIVATE_KEY_LIFETIME_MS = 15 * 60 * 1000;
 export const MAX_PRIVATE_REQUEST_LIFETIME_MS = 30 * 1000;
@@ -23,6 +25,8 @@ const FORWARD_KEYS = ['destination', 'expiresAt', 'kind', 'requestId', 'version'
 const PAYLOAD_KEYS = ['data', 'expiresAt', 'kind', 'requestId', 'responseKey', 'version'];
 const RESPONSE_KEYS = ['ciphertext', 'destinationRelayId', 'enc', 'requestId', 'type', 'version'];
 const DEFAULT_REPLAY_CAPACITY = 4096;
+const PADDED_PLAINTEXT_BUCKETS = [8, 16, 32, 64, 128, 256].map(kib => kib * 1024);
+const PADDED_LENGTH_BYTES = 4;
 
 const suite = new CipherSuite({
   kem: new DhkemP256HkdfSha256(),
@@ -300,7 +304,7 @@ export async function createPrivateResponseV1(
     info: RESPONSE_INFO,
   });
   const ciphertext = await sender.seal(
-    signedReply, aad('response', destinationRelayId, '', requestId, 0),
+    padPlaintext(signedReply), aad('response', destinationRelayId, '', requestId, 0),
   );
   const response: PrivateResponseV1 = {
     version: PRIVATE_ENVELOPE_VERSION,
@@ -329,10 +333,10 @@ export async function openPrivateResponseV1(
     enc: decodeBase64(response.enc),
     info: RESPONSE_INFO,
   });
-  return new Uint8Array(await recipient.open(
+  return unpadPlaintext(new Uint8Array(await recipient.open(
     decodeBase64(response.ciphertext),
     aad('response', destinationRelayId, '', requestId, 0),
-  ));
+  )), MAX_PRIVATE_REQUEST_BYTES);
 }
 
 export function serializePrivateResponseV1(response: PrivateResponseV1): string {
@@ -379,7 +383,13 @@ async function sealLayer(
     recipientPublicKey,
     info: stage === 'entry' ? ENTRY_INFO : DESTINATION_INFO,
   });
-  const ciphertext = await sender.seal(plaintext, aad(stage, relayId, keyId, requestId, expiresAt));
+  // The opaque destination layer has a fixed length within each bucket. Its
+  // serialized size then determines the entry frame without exposing the
+  // operation's exact length. The entry forward itself carries no operation.
+  const ciphertext = await sender.seal(
+    stage === 'destination' ? padPlaintext(plaintext) : plaintext,
+    aad(stage, relayId, keyId, requestId, expiresAt),
+  );
   const layer: PrivateRequestLayerV1 = {
     version: PRIVATE_ENVELOPE_VERSION,
     stage,
@@ -419,7 +429,30 @@ async function openLayer(
     decodeBase64(layer.ciphertext),
     aad(stage, layer.relayId, layer.keyId, layer.requestId, layer.expiresAt),
   );
-  return new Uint8Array(plaintext);
+  const bytes = new Uint8Array(plaintext);
+  return stage === 'destination' ? unpadPlaintext(bytes, MAX_PRIVATE_FRAME_BYTES) : bytes;
+}
+
+function padPlaintext(plaintext: Uint8Array): Uint8Array {
+  const bucket = PADDED_PLAINTEXT_BUCKETS.find(size => plaintext.length + PADDED_LENGTH_BYTES <= size);
+  if (!bucket) throw new Error('Private payload exceeds padding capacity');
+  const padded = randomBytes(bucket);
+  const view = new DataView(padded.buffer, padded.byteOffset, padded.byteLength);
+  view.setUint32(0, plaintext.length);
+  padded.set(plaintext, PADDED_LENGTH_BYTES);
+  return padded;
+}
+
+function unpadPlaintext(padded: Uint8Array, maxLength: number): Uint8Array {
+  if (!PADDED_PLAINTEXT_BUCKETS.includes(padded.length)) {
+    throw new Error('Invalid private padded payload size');
+  }
+  const length = new DataView(padded.buffer, padded.byteOffset, padded.byteLength).getUint32(0);
+  if (length < 1 || length > maxLength
+    || length + PADDED_LENGTH_BYTES > padded.length) {
+    throw new Error('Invalid private padded payload length');
+  }
+  return padded.subarray(PADDED_LENGTH_BYTES, PADDED_LENGTH_BYTES + length);
 }
 
 function validLayer(value: unknown, stage?: PrivateRequestLayerV1['stage']): value is PrivateRequestLayerV1 {
