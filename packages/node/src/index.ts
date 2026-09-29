@@ -16,6 +16,7 @@ export {
 export { createIdentityManager, type IdentityManager } from './identity.js';
 export { openBlindAdmissionWalletV2, type BlindAdmissionWalletV2 } from './blind-admission-wallet.js';
 export type { PrivateTrafficScheduleOptions } from './private-traffic-scheduler.js';
+export { PrivateOperationError, PRIVATE_OPERATION_DEADLINE_MS } from './private-operation.js';
 export { getDataDir, getDbPath, getIdentityPath, ensureDataDir, deriveStoreKey } from './config.js';
 export {
   createRelayClient,

@@ -1,9 +1,9 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { rmSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { once } from 'node:events';
-import { WebSocketServer } from 'ws';
+import WebSocket, { WebSocketServer } from 'ws';
 import { publicVerif } from '@cloudflare/privacypass-ts';
 import {
   createBlindAdmissionRequestV2, createPublicationRecord, generatePublicationKeyMaterial,
@@ -83,7 +83,7 @@ describe('personal client private transport', () => {
     expect(mailbox.envelopes).toEqual([]);
   }, 10_000); // Includes discovery, client scheduling, and both entry collection windows.
 
-  it('closes active discovery on disconnect and does not try another destination', async () => {
+  it.each(['disconnect', 'deadline'] as const)('closes active discovery on %s without starting another fallback', async reason => {
     const stalledEntry = new WebSocketServer({ host: '127.0.0.1', port: 0 });
     await once(stalledEntry, 'listening');
     const address = stalledEntry.address();
@@ -91,29 +91,37 @@ describe('personal client private transport', () => {
     let connections = 0;
     stalledEntry.on('connection', () => { connections++; });
     const client = createRelayClient({
-      relayUrl: DESTINATION, fallbackUrls: [SAME_DOMAIN],
+      relayUrl: DESTINATION, fallbackUrls: [SAME_DOMAIN, `ws://[::1]:${BASE_PORT + 9}/`],
       privateEntryUrls: [`ws://127.0.0.1:${address.port}/`],
-      privateTraffic: { batchWindowMs: 10, jitterMs: 0 },
+      privateTraffic: { batchWindowMs: reason === 'deadline' ? 1_000 : 10, jitterMs: 0 },
     });
     try {
       const connected = once(stalledEntry, 'connection');
+      const started = performance.now();
       const pending = client.connect();
-      const outcome = expect(pending).rejects.toThrow('disconnected');
+      const outcome = expect(pending).rejects.toMatchObject({
+        code: reason === 'deadline' ? 'PRIVATE_OPERATION_TIMEOUT' : 'PRIVATE_OPERATION_CANCELLED',
+        outcome: 'not-sent',
+      });
       const [socket] = await connected;
       const closed = once(socket, 'close');
-      client.disconnect();
+      if (reason === 'disconnect') client.disconnect();
       await outcome;
       await closed;
+      if (reason === 'deadline') {
+        expect(performance.now() - started).toBeGreaterThanOrEqual(9_950);
+        expect(performance.now() - started).toBeLessThan(11_000);
+      }
       // Give any erroneously scheduled fallback time to open another socket.
       await new Promise(resolve => setTimeout(resolve, 50));
-      expect(connections).toBe(1);
+      expect(connections).toBe(reason === 'deadline' ? 2 : 1);
       expect(stalledEntry.clients.size).toBe(0);
     } finally {
       client.disconnect();
       for (const socket of stalledEntry.clients) socket.terminate();
       await new Promise<void>(resolve => stalledEntry.close(() => resolve()));
     }
-  });
+  }, 12_000);
 
   it('fails closed when both reachable contacts share one observed IP domain', async () => {
     const client = createRelayClient({
@@ -131,7 +139,7 @@ describe('personal client private transport', () => {
     expect(servers[2].getStats().stored_publications).toBe(0);
   });
 
-  it('redeems a blind token through the two-hop client without sending an account ID', async () => {
+  it('preserves an accepted publication and exact blind-token retry after the shared deadline loses its reply', async () => {
     const entryEndpoint = `ws://127.0.0.1:${BASE_PORT + 3}/`;
     const destinationEndpoint = `ws://[::1]:${BASE_PORT + 4}/`;
     const entryDir = `${dirs[0]}-blind-entry`;
@@ -163,6 +171,7 @@ describe('personal client private transport', () => {
     });
     await entry.start();
     await destination.start();
+    let replySpy: ReturnType<typeof vi.spyOn> | undefined;
     try {
       expect(entry.observeRelayDescriptor(destination.getRelayDescriptor()!)).toBe('accepted');
       const client = createRelayClient({
@@ -180,11 +189,35 @@ describe('personal client private transport', () => {
       client.disconnect();
       await expect(cancelled).rejects.toThrow('disconnected');
       expect(wallet.available()).toBe(1);
+      const originalSend = WebSocket.prototype.send;
+      let heldSocket: WebSocket | undefined;
+      let heldCallback: ((error?: Error) => void) | undefined;
+      replySpy = vi.spyOn(WebSocket.prototype, 'send').mockImplementation(function (this: WebSocket, data, ...args) {
+        const port = (this as WebSocket & { _socket?: { localPort: number } })._socket?.localPort;
+        if (port === BASE_PORT + 3 && typeof data === 'string' && JSON.parse(data).type === 'private_response') {
+          // Destination accepted the record; hold the entry's final write to the client.
+          heldSocket = this;
+          heldCallback = args.find(value => typeof value === 'function');
+          return;
+        }
+        return Reflect.apply(originalSend, this, [data, ...args]);
+      });
+      await expect(client.submitPublicationOperation(record)).rejects.toMatchObject({
+        code: 'PRIVATE_OPERATION_TIMEOUT', outcome: 'unknown',
+      });
+      expect(heldCallback).toBeDefined();
+      expect(destination.getStats().stored_publications).toBe(1);
+      expect(wallet.available()).toBe(0);
+      await expect.poll(() => heldSocket?.readyState).toBe(WebSocket.CLOSED);
+      replySpy.mockRestore();
+      heldCallback?.(new Error('Late write failure'));
+      // The original signed operation reuses its reserved capability; no new token is available.
       expect((await client.submitPublicationOperation(record)).status).toBe('ok');
       expect(entry.getStats().stored_publications).toBe(0);
       expect(destination.getStats().stored_publications).toBe(1);
       expect(wallet.available()).toBe(0);
     } finally {
+      replySpy?.mockRestore();
       wallet.close();
       await destination.stop();
       await entry.stop();
@@ -192,5 +225,5 @@ describe('personal client private transport', () => {
       rmSync(entryDir, { recursive: true, force: true });
       rmSync(destinationDir, { recursive: true, force: true });
     }
-  });
+  }, 20_000);
 });

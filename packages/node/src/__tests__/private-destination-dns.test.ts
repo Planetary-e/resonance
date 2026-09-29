@@ -1,9 +1,48 @@
 import { describe, expect, it, vi } from 'vitest';
+import { Resolver } from 'node:dns/promises';
 import { verifyPrivateDestinationAddressV1 } from '../private-destination-dns.js';
 
 const ENDPOINT = 'wss://relay.example.test/';
 
 describe('independent private destination DNS check', () => {
+  it('cancels both native DNS queries when the operation is aborted', async () => {
+    const controller = new AbortController();
+    const queries: Array<(error: Error) => void> = [];
+    const resolve4 = vi.spyOn(Resolver.prototype, 'resolve4').mockImplementation(() => new Promise((_, reject) => { queries.push(reject); }));
+    const resolve6 = vi.spyOn(Resolver.prototype, 'resolve6').mockImplementation(() => new Promise((_, reject) => { queries.push(reject); }));
+    const cancel = vi.spyOn(Resolver.prototype, 'cancel').mockImplementation(() => {
+      queries.forEach(reject => reject(Object.assign(new Error('Cancelled'), { code: 'ECANCELLED' })));
+    });
+    try {
+      const pending = verifyPrivateDestinationAddressV1(ENDPOINT, '203.0.113.10', '198.51.100.5', undefined, controller.signal);
+      const reason = new Error('Operation deadline');
+      const outcome = expect(pending).rejects.toBe(reason);
+      await Promise.resolve();
+      expect(queries).toHaveLength(2);
+      controller.abort(reason);
+      await outcome;
+      expect(cancel).toHaveBeenCalledTimes(1);
+    } finally { resolve4.mockRestore(); resolve6.mockRestore(); cancel.mockRestore(); }
+  });
+
+  it('aborts a stalled lookup and ignores its late answer', async () => {
+    const controller = new AbortController();
+    let complete!: (addresses: string[]) => void;
+    const lookup = vi.fn(() => new Promise<string[]>(resolve => { complete = resolve; }));
+    const pending = verifyPrivateDestinationAddressV1(ENDPOINT, '203.0.113.10', '198.51.100.5', lookup, controller.signal);
+    const reason = new Error('Operation deadline');
+    const result = expect(pending).rejects.toBe(reason);
+    await Promise.resolve();
+    controller.abort(reason);
+    await result;
+    expect(lookup).toHaveBeenCalledWith('relay.example.test', controller.signal);
+    complete(['203.0.113.10']);
+    await expect(verifyPrivateDestinationAddressV1(
+      ENDPOINT, '203.0.113.10', '198.51.100.5', lookup, controller.signal,
+    )).rejects.toBe(reason);
+    expect(lookup).toHaveBeenCalledTimes(1);
+  });
+
   it('accepts a reported address only when all independently resolved addresses avoid the entry domain', async () => {
     const lookup = vi.fn(async () => ['203.0.113.10', '2001:db8:2::10']);
     await verifyPrivateDestinationAddressV1(

@@ -7,7 +7,7 @@ import { observedNetworkDomainV1 } from '@resonance/core';
 const MAX_ADDRESSES = 64;
 const DNS_TIMEOUT_MS = 3_000;
 
-export type PrivateDestinationLookup = (hostname: string) => Promise<string[]>;
+export type PrivateDestinationLookup = (hostname: string, signal?: AbortSignal) => Promise<string[]>;
 
 /**
  * Require the entry's claimed destination IP to occur in an independent DNS
@@ -20,14 +20,17 @@ export async function verifyPrivateDestinationAddressV1(
   reportedAddress: string,
   entryAddress: string,
   lookup: PrivateDestinationLookup = lookupDestinationAddresses,
+  signal?: AbortSignal,
 ): Promise<void> {
+  signal?.throwIfAborted();
   const hostname = new URL(endpoint).hostname.replace(/^\[|\]$/g, '');
   const entryDomain = observedNetworkDomainV1(entryAddress);
   const reportedDomain = observedNetworkDomainV1(reportedAddress);
   if (!entryDomain || !reportedDomain) throw new Error('Invalid private route IP observation');
 
   // A signed literal-IP endpoint is already independently checkable without DNS.
-  const addresses = isIP(hostname) ? [hostname] : await lookup(hostname);
+  const addresses = isIP(hostname) ? [hostname] : await abortableLookup(hostname, lookup, signal);
+  signal?.throwIfAborted();
   if (!Array.isArray(addresses) || addresses.length < 1 || addresses.length > MAX_ADDRESSES
     || addresses.some(address => typeof address !== 'string' || isIP(address) === 0)) {
     throw new Error('Destination DNS address set is unavailable or invalid');
@@ -41,8 +44,24 @@ export async function verifyPrivateDestinationAddressV1(
   }
 }
 
-async function lookupDestinationAddresses(hostname: string): Promise<string[]> {
+async function abortableLookup(hostname: string, lookup: PrivateDestinationLookup, signal?: AbortSignal): Promise<string[]> {
+  if (!signal) return lookup(hostname);
+  signal.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener('abort', onAbort, { once: true });
+    void Promise.resolve().then(() => {
+      signal.throwIfAborted();
+      return lookup(hostname, signal);
+    }).then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort));
+  });
+}
+
+async function lookupDestinationAddresses(hostname: string, signal?: AbortSignal): Promise<string[]> {
+  signal?.throwIfAborted();
   const resolver = new Resolver();
+  const onAbort = () => resolver.cancel();
+  signal?.addEventListener('abort', onAbort, { once: true });
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const queries = Promise.allSettled([resolver.resolve4(hostname), resolver.resolve6(hostname)]);
@@ -56,6 +75,7 @@ async function lookupDestinationAddresses(hostname: string): Promise<string[]> {
       }),
     ]);
     const addresses: string[] = [];
+    signal?.throwIfAborted();
     for (const result of results) {
       if (result.status === 'fulfilled') addresses.push(...result.value);
       else if (!isNoAddressError(result.reason)) {
@@ -65,6 +85,7 @@ async function lookupDestinationAddresses(hostname: string): Promise<string[]> {
     return addresses;
   } finally {
     if (timer) clearTimeout(timer);
+    signal?.removeEventListener('abort', onAbort);
   }
 }
 

@@ -11,6 +11,23 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); vi.clearAllMocks(); });
 
 describe('private traffic scheduling', () => {
+  it('honors an already aborted operation and detaches its listener after success', async () => {
+    const scheduler = createPrivateTrafficScheduler({ batchWindowMs: 10, jitterMs: 0 });
+    const cancelled = new AbortController();
+    const reason = new Error('Operation deadline');
+    cancelled.abort(reason);
+    const work = vi.fn(async () => 'done');
+    await expect(scheduler.schedule(work, cancelled.signal)).rejects.toBe(reason);
+    expect(work).not.toHaveBeenCalled();
+    const active = new AbortController();
+    const remove = vi.spyOn(active.signal, 'removeEventListener');
+    const result = scheduler.schedule(work, active.signal);
+    await vi.advanceTimersByTimeAsync(11);
+    expect(await result).toBe('done');
+    expect(remove).toHaveBeenCalledWith('abort', expect.any(Function));
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('collects a batch before release and applies bounded jitter before starting work', async () => {
     const scheduler = createPrivateTrafficScheduler({ batchWindowMs: 100, jitterMs: 100 });
     const calls: number[] = [];

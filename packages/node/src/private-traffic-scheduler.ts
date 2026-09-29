@@ -17,6 +17,7 @@ interface Entry {
   expiry?: ReturnType<typeof setTimeout>;
   dispatch?: ReturnType<typeof setTimeout>;
   done: boolean;
+  detach?: () => void;
 }
 
 export function createPrivateTrafficScheduler(options: PrivateTrafficScheduleOptions = {}) {
@@ -41,6 +42,7 @@ export function createPrivateTrafficScheduler(options: PrivateTrafficScheduleOpt
     entry.done = true;
     clearTimeout(entry.expiry);
     clearTimeout(entry.dispatch);
+    entry.detach?.();
     all.delete(entry);
     slots.delete(entry);
     const index = pending.indexOf(entry);
@@ -76,7 +78,8 @@ export function createPrivateTrafficScheduler(options: PrivateTrafficScheduleOpt
   }
 
   return {
-    schedule<T>(work: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    schedule<T>(work: (signal: AbortSignal) => Promise<T>, signal?: AbortSignal): Promise<T> {
+      if (signal?.aborted) return Promise.reject(signal.reason);
       if (all.size >= capacity) return Promise.reject(new Error('Private traffic queue is full'));
       return new Promise<T>((resolve, reject) => {
         const entry: Entry = {
@@ -94,6 +97,9 @@ export function createPrivateTrafficScheduler(options: PrivateTrafficScheduleOpt
         };
         all.add(entry);
         pending.push(entry);
+        const onAbort = () => fail(entry, signal!.reason);
+        signal?.addEventListener('abort', onAbort, { once: true });
+        entry.detach = () => signal?.removeEventListener('abort', onAbort);
         entry.expiry = setTimeout(() => fail(entry, new Error('Private traffic queue wait expired')), maxQueueWaitMs);
         arm();
       });

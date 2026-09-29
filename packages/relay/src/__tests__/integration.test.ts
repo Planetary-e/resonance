@@ -558,7 +558,7 @@ describe('Relay protocol v2 integration', () => {
       createMailboxRequest('fetch', bob.record, bob.keys, [], Date.now()),
     ))) as Message<{ envelopes: Array<{ envelopeId: string }> }>;
     expect(fetched.payload.envelopes.map(value => value.envelopeId)).not.toContain(envelope.envelopeId);
-  });
+  }, 15_000); // Three cold relay restarts plus seven exchanges; each exchange retains its 5s timeout.
 
   it('retains owner-signed tombstones across restart and prevents resurrection', async () => {
     const retainedBefore = server.getStats().retained_tombstones;
