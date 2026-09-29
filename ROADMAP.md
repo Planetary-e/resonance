@@ -211,7 +211,10 @@ The five-target placement goal remains conditional on enough eligible volunteers
   - [x] Run an eight-client local timing diagnostic across burst and sparse workloads: scheduling reduced burst action-order matches to 4/24, but inter-hop order still matched 24/24 in every condition; retain the report and traces without claiming Internet anonymity
   - [x] Compare shared entry mixing in separate relay processes over 192 completed searches: burst request-order matches fell from 20/24 to 2/24 on loopback and from 15/24 to 7/24 with simulated frame delays; sparse traffic and reply timing remain exposed, with latency and traces retained in `docs/evals/private-mix-2026-09-29T14-09-59-545Z.md`
   - [x] Isolate reply batching in a second 192-search comparison: loopback burst reply-order matches fell from 24/24 to 2/24, but delayed bursts changed from 5/24 to 6/24 and sparse traffic remained exposed; retain the added latency and negative results in `docs/evals/private-reply-2026-09-29T14-30-17-612Z.md`
-  - [ ] Decide a sparse-traffic policy with explicit delay, bandwidth, and power budgets; measure stronger observers before selecting production timing defaults
+  - [x] Decide the quiet-period resource policy: no automatic cover traffic, crowd polling, or longer quiet queues; specify bounded interactive delivery and an explicit local hold with no automatic release, with costs and limits in `docs/developers/v0.4-quiet-period-decision.md`
+  - [ ] Enforce one ten-second operation deadline across client scheduling, discovery, and all private route attempts; preserve unknown outcomes and exact-operation retry after transmission
+  - [ ] Add bounded encrypted local hold/release controls; never send held work or reserve capabilities on restart, expiry, cancellation, or outbox overflow
+  - [ ] Measure stronger observers, total traffic, and CPU/energy costs before selecting production timing defaults; quiet-period observer protection remains unresolved
   - [ ] Run colluding-operator, multi-domain Sybil, and timing-correlation adversaries with quantitative privacy targets
 - [ ] Define group-specific, rotating fingerprint epochs to limit correlation across communities and time
   - [x] Derive deterministic group/month-specific public projection matrices and verify cross-scope hashes do not directly match; live v2 still uses the static pilot matrix

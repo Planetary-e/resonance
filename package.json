@@ -24,6 +24,7 @@
     "eval:private-timing": "npm run eval:private-timing --workspace=@resonance/eval --",
     "eval:private-mix": "npm run eval:private-mix --workspace=@resonance/eval --",
     "eval:private-replies": "npm run eval:private-replies --workspace=@resonance/eval --",
+    "eval:quiet-budgets": "npm run eval:quiet-budgets --workspace=@resonance/eval --",
     "resonance": "npm run resonance --workspace=@resonance/node --",
     "app": "npm run start --workspace=@resonance/app"
   },

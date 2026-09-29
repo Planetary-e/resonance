@@ -10,6 +10,7 @@
     "eval:private-timing": "tsx src/private-timing.ts",
     "eval:private-mix": "tsx src/private-mix-timing.ts",
     "eval:private-replies": "tsx src/private-mix-timing.ts --reply-comparison",
+    "eval:quiet-budgets": "node --import tsx src/quiet-period-budgets.ts",
     "smoke": "tsx src/smoke.ts"
   },
   "dependencies": {
