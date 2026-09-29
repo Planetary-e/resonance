@@ -4,6 +4,7 @@
 
 import WebSocket from 'ws';
 import { createPrivateRelayClient } from './private-relay-client.js';
+import type { PrivateTrafficScheduleOptions } from './private-traffic-scheduler.js';
 import {
   assertSecureRelayTransportEndpoint,
   MAX_SIGNED_MESSAGE_BYTES,
@@ -73,6 +74,8 @@ export interface RelayClientConfig {
   fallbackUrls?: string[];
   /** Explicit entry relays for private mode; destination URLs stay separate. */
   privateEntryUrls?: string[];
+  /** Bounded batch release and timing jitter for experimental private mode. */
+  privateTraffic?: PrivateTrafficScheduleOptions;
   /** Enable auto-reconnect with exponential backoff. */
   autoReconnect?: boolean;
   /** Supplies an unlinkable capability for each exact v2 relay request. */

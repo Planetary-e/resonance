@@ -24,6 +24,7 @@ export interface RelayContactDiscoveryOptions {
   timeoutMs?: number;
   now?: () => number;
   onTransportSocket?: (socket: Socket) => void;
+  signal?: AbortSignal;
 }
 
 export interface RelayContactDiscoveryResult {
@@ -42,6 +43,7 @@ export function discoverRelayContactV1(
   hint: RelayContactHintV1,
   options: RelayContactDiscoveryOptions = {},
 ): Promise<RelayContactDiscoveryResult> {
+  if (options.signal?.aborted) return Promise.reject(options.signal.reason);
   if (!verifyRelayContactHintV1(hint)) {
     return Promise.reject(new Error('Invalid relay contact hint'));
   }
@@ -75,6 +77,7 @@ export function discoverRelayContactV1(
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      options.signal?.removeEventListener('abort', onAbort);
       if (socket.readyState === WebSocket.OPEN) socket.close(1000, 'discovery_complete');
       else if (socket.readyState === WebSocket.CONNECTING) socket.terminate();
       if (error) reject(error);
@@ -95,6 +98,13 @@ export function discoverRelayContactV1(
       reject(asError(error, 'Cannot open relay discovery connection'));
       return;
     }
+
+    function onAbort(): void {
+      finish(asError(options.signal?.reason, 'Relay discovery cancelled'));
+      // A cancelled caller must not wait for an uncooperative peer's close reply.
+      if (socket.readyState !== WebSocket.CLOSED) socket.terminate();
+    }
+    options.signal?.addEventListener('abort', onAbort, { once: true });
 
     socket.on('upgrade', response => options.onTransportSocket?.(response.socket));
     socket.on('open', () => socket.send(serializedRequest));

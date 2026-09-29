@@ -62,6 +62,7 @@ import {
 } from '@resonance/core';
 import { discoverRelayContactV1 } from './relay-discovery-client.js';
 import { verifyPrivateDestinationAddressV1 } from './private-destination-dns.js';
+import { createPrivateTrafficScheduler } from './private-traffic-scheduler.js';
 import type {
   MailboxFetchResult, RelayClient, RelayClientConfig, RelayClientEvents,
   RelationshipMailboxFetchResult,
@@ -80,6 +81,7 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
   }
   [...entryUrls, ...destinations].forEach(assertSecureRelayTransportEndpoint);
   const events: Partial<RelayClientEvents> = {};
+  const scheduler = createPrivateTrafficScheduler(config.privateTraffic);
 
   function admissionFor(url: string, action: RelayAdmissionActionV2, request: unknown): AdmissionCapabilityV2 | undefined {
     return config.admissionCapabilityProvider?.({
@@ -89,10 +91,12 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
     });
   }
 
-  async function discoverEntry(endpoint: string): Promise<PrivateContact> {
+  async function discoverEntry(endpoint: string, signal: AbortSignal): Promise<PrivateContact> {
+    signal.throwIfAborted();
     let remoteAddress = '';
     const contact = await discoverRelayContactV1(createRelayContactHintV1('configured', endpoint), {
       onTransportSocket: socket => { remoteAddress = socket.remoteAddress ?? ''; },
+      signal,
     });
     if (!contact.transportKey || !isRelayTransportKeyActiveV1(contact.transportKey, Date.now())
       || contact.transportKey.relayId !== contact.responder.relayId) {
@@ -102,7 +106,8 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
       key: contact.transportKey };
   }
 
-  async function discoverDestination(entry: PrivateContact, endpoint: string): Promise<PrivateContact> {
+  async function discoverDestination(entry: PrivateContact, endpoint: string, signal: AbortSignal): Promise<PrivateContact> {
+    signal.throwIfAborted();
     const request = createPrivateDiscoveryRequestV1(endpoint);
     const requestRaw = serializePrivateDiscoveryRequestV1(request);
     return new Promise((resolve, reject) => {
@@ -116,10 +121,16 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        signal.removeEventListener('abort', onAbort);
         if (socket.readyState === WebSocket.OPEN) socket.close();
         else if (socket.readyState === WebSocket.CONNECTING) socket.terminate();
         if (error) reject(error); else resolve(result!);
       }
+      function onAbort(): void {
+        finish(new Error('Private destination discovery cancelled'));
+        if (socket.readyState !== WebSocket.CLOSED) socket.terminate();
+      }
+      signal.addEventListener('abort', onAbort, { once: true });
       socket.on('open', () => socket.send(requestRaw));
       socket.on('message', data => {
         if (receivedResponse) { finish(new Error('Entry sent multiple discovery responses')); return; }
@@ -147,20 +158,22 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
     });
   }
 
-  async function discoverRoute(destinationUrl: string): Promise<{ entry: PrivateContact; destination: PrivateContact }> {
+  async function discoverRoute(destinationUrl: string, signal: AbortSignal): Promise<{ entry: PrivateContact; destination: PrivateContact }> {
     let lastError: unknown;
     const start = randomInt(entryUrls.length);
     for (let offset = 0; offset < entryUrls.length; offset++) {
+      signal.throwIfAborted();
       const entryUrl = entryUrls[(start + offset) % entryUrls.length];
       try {
-        const entry = await discoverEntry(entryUrl);
-        const destination = await discoverDestination(entry, destinationUrl);
+        const entry = await discoverEntry(entryUrl, signal);
+        const destination = await discoverDestination(entry, destinationUrl, signal);
         // Independently resolve DNS without opening a destination relay socket.
         // DNS integrity and operator diversity remain separate trust questions.
         await verifyPrivateDestinationAddressV1(
           destinationUrl, destination.candidate.remoteAddress,
           entry.candidate.remoteAddress,
         );
+        signal.throwIfAborted();
         selectPrivateRouteV1([entry.candidate, destination.candidate]);
         return { entry, destination };
       } catch (error) { lastError = error; }
@@ -168,11 +181,13 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
     throw lastError instanceof Error ? lastError : new Error('No independent two-relay route is available');
   }
 
-  async function sendTo(destinationUrl: string, raw: string): Promise<Message> {
-    const { entry, destination } = await discoverRoute(destinationUrl);
+  async function sendTo(destinationUrl: string, makeRaw: () => string, signal: AbortSignal): Promise<Message> {
+    const { entry, destination } = await discoverRoute(destinationUrl, signal);
+    signal.throwIfAborted();
     const exchange = await createPrivateRequestV1(
-      decodeUTF8(raw), entry.key, destination.key,
+      decodeUTF8(makeRaw()), entry.key, destination.key,
     );
+    signal.throwIfAborted();
     const requestRaw = serializePrivateRequestLayerV1(exchange.request);
     return new Promise((resolve, reject) => {
       const socket = new WebSocket(entry.candidate.endpoint, {
@@ -185,11 +200,17 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        signal.removeEventListener('abort', onAbort);
         if (socket.readyState === WebSocket.OPEN) socket.close();
         else if (socket.readyState === WebSocket.CONNECTING) socket.terminate();
         if (error) reject(error);
         else resolve(response!);
       }
+      function onAbort(): void {
+        finish(new Error('Private request cancelled'));
+        if (socket.readyState !== WebSocket.CLOSED) socket.terminate();
+      }
+      signal.addEventListener('abort', onAbort, { once: true });
       socket.on('open', () => socket.send(requestRaw));
       socket.on('message', data => {
         if (receivedResponse) { finish(new Error('Private relay sent multiple responses')); return; }
@@ -216,13 +237,16 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
     });
   }
 
-  async function firstReply(makeRaw: (url: string) => string): Promise<Message> {
-    let lastError: unknown;
-    for (const url of destinations) {
-      try { return await sendTo(url, makeRaw(url)); }
-      catch (error) { lastError = error; }
-    }
-    throw lastError instanceof Error ? lastError : new Error('No private destination answered');
+  function firstReply(makeRaw: (url: string) => string): Promise<Message> {
+    return scheduler.schedule(async signal => {
+      let lastError: unknown;
+      for (const url of destinations) {
+        signal.throwIfAborted();
+        try { return await sendTo(url, () => makeRaw(url), signal); }
+        catch (error) { lastError = error; }
+      }
+      throw lastError instanceof Error ? lastError : new Error('No private destination answered');
+    });
   }
 
   function expectedAck(message: Message, ref: string): AckPayload {
@@ -246,14 +270,17 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
 
   return {
     async connect() {
-      let lastError: unknown;
-      for (const destination of destinations) {
-        try { await discoverRoute(destination); return; }
-        catch (error) { lastError = error; }
-      }
-      throw lastError instanceof Error ? lastError : new Error('No private route is available');
+      await scheduler.schedule(async signal => {
+        let lastError: unknown;
+        for (const destination of destinations) {
+          signal.throwIfAborted();
+          try { await discoverRoute(destination, signal); return; }
+          catch (error) { lastError = error; }
+        }
+        throw lastError instanceof Error ? lastError : new Error('No private route is available');
+      });
     },
-    disconnect() {},
+    disconnect() { scheduler.cancelAll(); events.onDisconnect?.('Private client disconnected'); },
     isConnected() { return false; }, // v2 deliberately uses no persistent authenticated socket.
     on(next) { Object.assign(events, next); },
     async submitPublicationOperation(operation: PublicationOperation): Promise<AckPayload> {
@@ -291,8 +318,8 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
     async fetchRelationshipMailbox(keys: RelationshipKeyMaterial): Promise<RelationshipMailboxFetchResult> {
       const request = createRelationshipMailboxRequestV2('fetch', keys);
       const results = await Promise.allSettled(destinations.map(async url => expectedMailbox(
-        await sendTo(url, serializeRelationshipMailboxRequestFrameV2(
-          createRelationshipMailboxRequestFrameV2(request, admissionFor(url, 'mailbox-fetch', request)))),
+        await scheduler.schedule(signal => sendTo(url, () => serializeRelationshipMailboxRequestFrameV2(
+          createRelationshipMailboxRequestFrameV2(request, admissionFor(url, 'mailbox-fetch', request))), signal)),
         request.requestId, keys.mailboxId,
       )));
       const successes = results.filter((result): result is PromiseFulfilledResult<EncryptedMailboxEnvelope[]> =>
@@ -316,8 +343,8 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
     async acknowledgeRelationshipMailbox(keys, envelopeIds) {
       const request = createRelationshipMailboxRequestV2('ack', keys, envelopeIds);
       const results = await Promise.allSettled(destinations.map(async url => expectedAck(
-        await sendTo(url, serializeRelationshipMailboxRequestFrameV2(
-          createRelationshipMailboxRequestFrameV2(request, admissionFor(url, 'mailbox-acknowledge', request)))),
+        await scheduler.schedule(signal => sendTo(url, () => serializeRelationshipMailboxRequestFrameV2(
+          createRelationshipMailboxRequestFrameV2(request, admissionFor(url, 'mailbox-acknowledge', request))), signal)),
         request.requestId,
       )));
       const success = results.find((result): result is PromiseFulfilledResult<AckPayload> =>

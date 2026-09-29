@@ -193,6 +193,7 @@ The five-target placement goal remains conditional on enough eligible volunteers
 - [ ] Use short sessions, route rotation, fixed-size padding, batching, and timing jitter
   - [x] Use one request per private connection and vary the first entry attempted when multiple entry relays are configured
   - [x] Pad encrypted destination requests and replies into bounded 8–256 KiB buckets; test equal entry-frame lengths within a bucket and a 190 KiB operation under the 512 KiB frame cap
+  - [x] Queue private client work before discovery and token reservation, release bounded shuffled batches with random delay, and cancel pending work and active sockets on disconnect; this is local scheduling, with multi-user timing protection still unmeasured
 - [ ] Replace per-DID limits with standardized blind, one-use capability tokens
   - [x] Implement Privacy Pass Blind RSA issuance, scoped redemption, and a restart-safe single-relay spent-token log; verify a real publication through the relay and reject a conflicting reuse
   - [x] Redeem a manually issued blind token over a real two-hop local client route without a client account identifier in the capability

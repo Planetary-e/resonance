@@ -2,6 +2,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { rmSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
+import { once } from 'node:events';
+import { WebSocketServer } from 'ws';
 import { publicVerif } from '@cloudflare/privacypass-ts';
 import {
   createBlindAdmissionRequestV2, createPublicationRecord, generatePublicationKeyMaterial,
@@ -72,13 +74,45 @@ describe('personal client private transport', () => {
     expect(servers[0].getStats().stored_publications).toBe(0);
     expect(servers[1].getStats().stored_publications).toBe(1);
 
-    const search = await client.searchV2({
+    const [search, mailbox] = await Promise.all([client.searchV2({
       groupId: 'public', fingerprintEpoch: 'pilot-static-v1',
       fingerprint: new Uint8Array(64).fill(0xb5), itemType: 'need',
       k: 5, threshold: 0.9,
-    });
+    }), client.fetchMailbox(record, keys)]);
     expect(search.results.some(result => result.publicationId === record.publicationId)).toBe(true);
-    expect((await client.fetchMailbox(record, keys)).envelopes).toEqual([]);
+    expect(mailbox.envelopes).toEqual([]);
+  });
+
+  it('closes active discovery on disconnect and does not try another destination', async () => {
+    const stalledEntry = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+    await once(stalledEntry, 'listening');
+    const address = stalledEntry.address();
+    if (!address || typeof address === 'string') throw new Error('Expected a TCP port');
+    let connections = 0;
+    stalledEntry.on('connection', () => { connections++; });
+    const client = createRelayClient({
+      relayUrl: DESTINATION, fallbackUrls: [SAME_DOMAIN],
+      privateEntryUrls: [`ws://127.0.0.1:${address.port}/`],
+      privateTraffic: { batchWindowMs: 10, jitterMs: 0 },
+    });
+    try {
+      const connected = once(stalledEntry, 'connection');
+      const pending = client.connect();
+      const outcome = expect(pending).rejects.toThrow('disconnected');
+      const [socket] = await connected;
+      const closed = once(socket, 'close');
+      client.disconnect();
+      await outcome;
+      await closed;
+      // Give any erroneously scheduled fallback time to open another socket.
+      await new Promise(resolve => setTimeout(resolve, 50));
+      expect(connections).toBe(1);
+      expect(stalledEntry.clients.size).toBe(0);
+    } finally {
+      client.disconnect();
+      for (const socket of stalledEntry.clients) socket.terminate();
+      await new Promise<void>(resolve => stalledEntry.close(() => resolve()));
+    }
   });
 
   it('fails closed when both reachable contacts share one observed IP domain', async () => {
@@ -142,6 +176,10 @@ describe('personal client private transport', () => {
         fingerprint: new Uint8Array(64).fill(0xd6), itemType: 'offer',
         createdAt: now, expiresAt: now + 86_400_000,
       }, generatePublicationKeyMaterial());
+      const cancelled = client.submitPublicationOperation(record);
+      client.disconnect();
+      await expect(cancelled).rejects.toThrow('disconnected');
+      expect(wallet.available()).toBe(1);
       expect((await client.submitPublicationOperation(record)).status).toBe('ok');
       expect(entry.getStats().stored_publications).toBe(0);
       expect(destination.getStats().stored_publications).toBe(1);
