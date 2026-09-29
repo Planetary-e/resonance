@@ -1,11 +1,14 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { rmSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { join } from 'node:path';
 import { publicVerif } from '@cloudflare/privacypass-ts';
 import {
   createBlindAdmissionRequestV2, createPublicationRecord, generatePublicationKeyMaterial,
-  issueBlindAdmissionRequestV2, presentBlindAdmissionTokenV2,
+  issueBlindAdmissionRequestV2,
 } from '@resonance/core';
 import { createLocalBlindAdmissionVerifierV2, createRelayServer, type RelayServer } from '@resonance/relay';
+import { openBlindAdmissionWalletV2 } from '../blind-admission-wallet.js';
 import { createRelayClient } from '../relay-client.js';
 
 const BASE_PORT = 46_000 + Math.floor(Math.random() * 1_000);
@@ -107,6 +110,11 @@ describe('personal client private transport', () => {
     const issuer = new publicVerif.Issuer(mode, scope.issuer, keys.privateKey, keys.publicKey);
     const blinded = await createBlindAdmissionRequestV2(scope, keys.publicKey);
     const token = await blinded.finalize(await issueBlindAdmissionRequestV2(issuer, blinded.request));
+    const wallet = openBlindAdmissionWalletV2({
+      path: join(entryDir, 'client-wallet.json'), encryptionKey: randomBytes(32),
+      issuerPublicKey: keys.publicKey, scope,
+    });
+    expect(await wallet.importTokens([token])).toBe(1);
     const verifier = createLocalBlindAdmissionVerifierV2({
       directory: destinationDir, scope, issuerPublicKey: keys.publicKey,
     });
@@ -126,8 +134,7 @@ describe('personal client private transport', () => {
       const client = createRelayClient({
         relayUrl: destinationEndpoint,
         privateEntryUrls: [entryEndpoint],
-        admissionCapabilityProvider: ({ action, requestBinding }) =>
-          presentBlindAdmissionTokenV2(token, scope, action, requestBinding),
+        admissionCapabilityProvider: context => wallet.capabilityFor(context),
       });
       const now = Date.now();
       const record = createPublicationRecord({
@@ -138,7 +145,9 @@ describe('personal client private transport', () => {
       expect((await client.submitPublicationOperation(record)).status).toBe('ok');
       expect(entry.getStats().stored_publications).toBe(0);
       expect(destination.getStats().stored_publications).toBe(1);
+      expect(wallet.available()).toBe(0);
     } finally {
+      wallet.close();
       await destination.stop();
       await entry.stop();
       verifier.close();

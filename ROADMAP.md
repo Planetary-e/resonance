@@ -195,7 +195,8 @@ The five-target placement goal remains conditional on enough eligible volunteers
 - [ ] Replace per-DID limits with standardized blind, one-use capability tokens
   - [x] Implement Privacy Pass Blind RSA issuance, scoped redemption, and a restart-safe single-relay spent-token log; verify a real publication through the relay and reject a conflicting reuse
   - [x] Redeem a manually issued blind token over a real two-hop local client route without a client account identifier in the capability
-  - [ ] Add a persistent private client wallet, issuance protocol, admission policy, and end-to-end two-hop redemption without a stable account identifier
+  - [x] Add an experimental encrypted client wallet that verifies manually issued tokens, durably reserves a token for one exact request and destination before network I/O, and restores that reservation after restart; verify its two-hop redemption locally
+  - [ ] Integrate the wallet into the desktop client, then add an issuance protocol and admission policy without a stable account identifier
 - [ ] Support community or quorum issuance without requiring a permanent issuer service
   - [x] Document offline volunteer issuance and the need for an audited threshold scheme before splitting one issuer key among volunteers
 - [ ] Replicate spent-token identifiers and define deterministic handling of double spends during partitions

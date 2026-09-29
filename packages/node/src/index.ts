@@ -14,6 +14,7 @@ export {
   type CreateChannelInput,
 } from './store.js';
 export { createIdentityManager, type IdentityManager } from './identity.js';
+export { openBlindAdmissionWalletV2, type BlindAdmissionWalletV2 } from './blind-admission-wallet.js';
 export { getDataDir, getDbPath, getIdentityPath, ensureDataDir, deriveStoreKey } from './config.js';
 export {
   createRelayClient,
