@@ -8,6 +8,7 @@
     "eval:quick": "tsx src/run.ts --quick",
     "eval:scoped-fingerprint": "tsx src/scoped-fingerprint.ts",
     "eval:private-timing": "tsx src/private-timing.ts",
+    "eval:private-mix": "tsx src/private-mix-timing.ts",
     "smoke": "tsx src/smoke.ts"
   },
   "dependencies": {

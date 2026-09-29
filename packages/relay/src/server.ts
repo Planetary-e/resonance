@@ -232,6 +232,7 @@ import {
   type PublicationStorageAllocationPrincipal,
 } from './replica-storage-ledger.js';
 import type { AdmissionCapabilityVerifierV2 } from './admission.js';
+import { createPrivateEntryMix, type PrivateEntryMixOptions } from './private-entry-mix.js';
 
 export interface RelayDiscoveryConfig {
   endpoints: string[];
@@ -293,6 +294,8 @@ export interface RelayConfig {
   inboundReplicaTargetIds?: string[];
   /** When set, every v2 operation must present an anonymous one-use capability. */
   admissionVerifier?: AdmissionCapabilityVerifierV2;
+  /** Shared queue for experimental private forwards; false is an explicit unmixed mode. */
+  privateEntryMix?: PrivateEntryMixOptions | false;
   /** Decline discretionary first admissions while retaining existing obligations. */
   acceptNewWork?: (ingressBytes: number) => boolean;
   /** Shared meter also used by the standalone owner's total-usage policy. */
@@ -597,6 +600,8 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   const seenPrivateDiscoveryRequests = new Map<string, number>();
   const privateReplayLog = new PrivateReplayLog(cfg.persistDir);
   let privateReplay = new PrivateRequestReplayCacheV1();
+  const privateEntryMix = cfg.privateEntryMix === false ? null : createPrivateEntryMix(cfg.privateEntryMix);
+  const privateForwardControllers = new Set<AbortController>();
   let activeTransportKey: RelayTransportKeyMaterialV1 | null = null;
   const transportKeys = new Map<string, RelayTransportKeyMaterialV1>();
   async function currentTransportKey(now: number): Promise<RelayTransportKeyMaterialV1> {
@@ -3221,10 +3226,31 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     });
   }
 
-  function forwardPrivateRequest(
-    client: WebSocket, destination: PrivateRequestLayerV1,
-  ): void {
+  function queuePrivateForward(client: WebSocket, destination: PrivateRequestLayerV1): void {
     if (client.readyState !== WebSocket.OPEN) return;
+    if (stopping) { client.terminate(); return; }
+    const controller = new AbortController();
+    const cancel = () => controller.abort();
+    privateForwardControllers.add(controller);
+    client.once('close', cancel);
+    const work = (signal: AbortSignal) => forwardPrivateRequest(client, destination, signal);
+    const forwarded = privateEntryMix
+      ? privateEntryMix.schedule({ bytes: Buffer.byteLength(JSON.stringify(destination)),
+        expiresAt: destination.expiresAt, signal: controller.signal }, work)
+      : work(controller.signal);
+    void forwarded.catch(() => {
+      if (stopping) client.terminate();
+      else if (client.readyState === WebSocket.OPEN) client.close(4008, 'private_mix_unavailable');
+    }).finally(() => {
+      client.off('close', cancel);
+      privateForwardControllers.delete(controller);
+    });
+  }
+
+  async function forwardPrivateRequest(
+    client: WebSocket, destination: PrivateRequestLayerV1, signal: AbortSignal,
+  ): Promise<void> {
+    if (signal.aborted || stopping || client.readyState !== WebSocket.OPEN) return;
     const now = Date.now();
     const descriptor = relayDirectory.select({
       limit: cfg.relayDiscovery?.maxKnownRelays ?? 256, now,
@@ -3244,47 +3270,56 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     const timeoutMs = Math.min(10_000, destination.expiresAt - now);
     if (timeoutMs <= 0) { client.close(4003, 'private_request_expired'); return; }
     const request = createRelayPrivateForwardV1(destination, ownDescriptor, relayIdentity, now);
-    const downstream = new WebSocket(endpoint, {
-      handshakeTimeout: timeoutMs,
-      maxPayload: MAX_RELAY_DISCOVERY_FRAME_BYTES,
-    });
-    let done = false;
-    const finish = (reply?: string): void => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      if (downstream.readyState === WebSocket.OPEN) {
-        downstream.close(1000, 'private_forward_complete');
-      } else if (downstream.readyState === WebSocket.CONNECTING) {
-        downstream.terminate();
-      }
-      if (client.readyState !== WebSocket.OPEN) return;
-      if (!reply) { client.close(1011, 'private_forward_failed'); return; }
-      client.send(reply, error => {
-        if (error) client.terminate();
-        else client.close(1000, 'private_request_complete');
+    return new Promise<void>(resolveForward => {
+      const downstream = new WebSocket(endpoint, {
+        handshakeTimeout: timeoutMs,
+        maxPayload: MAX_RELAY_DISCOVERY_FRAME_BYTES,
       });
-    };
-    const timer = setTimeout(() => finish(), timeoutMs);
-    downstream.on('upgrade', response => trafficMeter.observe(response.socket));
-    downstream.on('open', () => {
-      downstream.send(serializeRelayPrivateForwardV1(request), error => {
-        if (error) finish();
+      let done = false;
+      const finish = (reply?: string): void => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        signal.removeEventListener('abort', abort);
+        resolveForward();
+        if (downstream.readyState === WebSocket.OPEN) {
+          downstream.close(1000, 'private_forward_complete');
+        } else if (downstream.readyState === WebSocket.CONNECTING) {
+          downstream.terminate();
+        }
+        if (client.readyState !== WebSocket.OPEN) return;
+        if (!reply) { client.close(1011, 'private_forward_failed'); return; }
+        client.send(reply, error => {
+          if (error) client.terminate();
+          else client.close(1000, 'private_request_complete');
+        });
+      };
+      const timer = setTimeout(() => finish(), timeoutMs);
+      const abort = (): void => {
+        finish();
+        if (downstream.readyState !== WebSocket.CLOSED) downstream.terminate();
+        if (stopping) client.terminate();
+      };
+      signal.addEventListener('abort', abort, { once: true });
+      downstream.on('upgrade', response => trafficMeter.observe(response.socket));
+      downstream.on('open', () => {
+        downstream.send(serializeRelayPrivateForwardV1(request), error => {
+          if (error) finish();
+        });
       });
+      downstream.on('message', (data, isBinary) => {
+        if (isBinary) { finish(); return; }
+        const raw = data.toString('utf8');
+        try {
+          const reply = parsePrivateResponseV1(raw);
+          if (reply.destinationRelayId !== descriptor.relayId
+            || reply.requestId !== destination.requestId) throw new Error('Invalid private reply');
+          finish(raw);
+        } catch { finish(); }
+      });
+      downstream.on('error', () => finish());
+      downstream.on('close', () => finish());
     });
-    downstream.on('message', (data, isBinary) => {
-      if (isBinary) { finish(); return; }
-      const raw = data.toString('utf8');
-      try {
-        const reply = parsePrivateResponseV1(raw);
-        if (reply.destinationRelayId !== descriptor.relayId
-          || reply.requestId !== destination.requestId) throw new Error('Invalid private reply');
-        finish(raw);
-      } catch { finish(); }
-    });
-    downstream.on('error', () => finish());
-    downstream.on('close', () => finish());
-    client.once('close', () => finish());
   }
 
   function handleConnection(ws: WebSocket, req: any): void {
@@ -3344,7 +3379,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           if (!material || layer.relayId !== relayIdentity.did) throw new Error('Unknown entry key');
           receivedPrivateEntry = true;
           void openPrivateEntryRequestV1(layer, material, privateReplay, Date.now())
-            .then(destination => forwardPrivateRequest(ws, destination))
+            .then(destination => queuePrivateForward(ws, destination))
             .catch(() => ws.close(4003, 'invalid_private_entry'));
         } catch { ws.close(4000, 'invalid_private_entry'); }
         return;
@@ -4158,6 +4193,8 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
 
     async stop(options = {}): Promise<void> {
       stopping = true;
+      privateEntryMix?.cancelAll();
+      for (const controller of privateForwardControllers) controller.abort();
       if (publicationExpiryTimer) clearTimeout(publicationExpiryTimer);
       if (cleanupTimer) clearInterval(cleanupTimer);
       if (resourceCheckpointTimer) clearInterval(resourceCheckpointTimer);

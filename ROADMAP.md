@@ -193,7 +193,8 @@ The five-target placement goal remains conditional on enough eligible volunteers
 - [ ] Use short sessions, route rotation, fixed-size padding, batching, and timing jitter
   - [x] Use one request per private connection and vary the first entry attempted when multiple entry relays are configured
   - [x] Pad encrypted destination requests and replies into bounded 8–256 KiB buckets; test equal entry-frame lengths within a bucket and a 190 KiB operation under the 512 KiB frame cap
-  - [x] Queue private client work before discovery and token reservation, release bounded shuffled batches with random delay, and cancel pending work and active sockets on disconnect; shared-entry mixing remains open
+  - [x] Queue private client work before discovery and token reservation, release bounded shuffled batches with random delay, and cancel pending work and active sockets on disconnect
+  - [x] Share a bounded 750 ms collection queue across private entry clients, shuffle forwarding batches, enforce count/byte/concurrency/wait limits, and cancel queued forwards on client disconnect or relay shutdown
 - [ ] Replace per-DID limits with standardized blind, one-use capability tokens
   - [x] Implement Privacy Pass Blind RSA issuance, scoped redemption, and a restart-safe single-relay spent-token log; verify a real publication through the relay and reject a conflicting reuse
   - [x] Redeem a manually issued blind token over a real two-hop local client route without a client account identifier in the capability
@@ -207,6 +208,7 @@ The five-target placement goal remains conditional on enough eligible volunteers
 - [ ] Measure protection against a curious relay, colluding relays, Sybil relays, and a network observer
   - [x] Capture entry and destination observations in separate local processes and demonstrate the original unpadded frame-length leak, then verify bucket padding removes exact-length differences within a bucket
   - [x] Run an eight-client local timing diagnostic across burst and sparse workloads: scheduling reduced burst action-order matches to 4/24, but inter-hop order still matched 24/24 in every condition; retain the report and traces without claiming Internet anonymity
+  - [x] Compare shared entry mixing in separate relay processes over 192 completed searches: burst request-order matches fell from 20/24 to 2/24 on loopback and from 15/24 to 7/24 with simulated frame delays; sparse traffic and reply timing remain exposed, with latency and traces retained in `docs/evals/private-mix-2026-09-29T14-09-59-545Z.md`
   - [ ] Run colluding-operator, multi-domain Sybil, and timing-correlation adversaries with quantitative privacy targets
 - [ ] Define group-specific, rotating fingerprint epochs to limit correlation across communities and time
   - [x] Derive deterministic group/month-specific public projection matrices and verify cross-scope hashes do not directly match; live v2 still uses the static pilot matrix

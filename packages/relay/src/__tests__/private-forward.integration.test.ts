@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { readFileSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import WebSocket from 'ws';
 import {
@@ -96,6 +96,62 @@ afterAll(async () => {
 });
 
 describe('private request forwarding over live volunteer relays', () => {
+  it.each(['disconnect', 'shutdown'] as const)(
+    'does not forward a queued publication after %s', async reason => {
+      const directory = `${ENTRY_DIR}-${reason}`;
+      const endpoint = `ws://127.0.0.1:${BASE_PORT + 2}/`;
+      const queuedEntry = relay(BASE_PORT + 2, directory);
+      let stopped = false;
+      let client: WebSocket | undefined;
+      await queuedEntry.start();
+      try {
+        const entryContact = await discoverRelayContactV1(createRelayContactHintV1('configured', endpoint));
+        const destinationContact = await discoverRelayContactV1(
+          createRelayContactHintV1('configured', DESTINATION_ENDPOINT),
+        );
+        expect(queuedEntry.observeRelayDescriptor(destinationContact.responder)).toBe('accepted');
+        const now = Date.now();
+        const publication = createPublicationRecord({
+          groupId: 'public', fingerprintEpoch: 'pilot-static-v1', fingerprint: new Uint8Array(64).fill(0xd5),
+          itemType: 'offer', createdAt: now, expiresAt: now + 86_400_000,
+        }, generatePublicationKeyMaterial());
+        const outer = await createPrivateRequestV1(
+          decodeUTF8(serializePublicationOperationFrame(createPublicationOperationFrame(publication))),
+          entryContact.transportKey!, destinationContact.transportKey!,
+        );
+        const before = destination.getStats().stored_publications;
+        client = new WebSocket(endpoint);
+        const socket = client;
+        socket.on('error', () => {});
+        const closed = new Promise<void>(resolve => socket.once('close', () => resolve()));
+        await new Promise<void>((resolve, reject) => {
+          socket.once('error', reject);
+          socket.once('open', () => socket.send(serializePrivateRequestLayerV1(outer.request),
+            error => error ? reject(error) : resolve()));
+        });
+        // Fsynced replay evidence means decryption succeeded and the request reached the queue.
+        const entryLog = join(directory, PRIVATE_REPLAY_LOG_FILENAME);
+        await expect.poll(() => existsSync(entryLog)
+          && readFileSync(entryLog, 'utf8').includes(outer.request.requestId), { interval: 10, timeout: 1_000 })
+          .toBe(true);
+        expect(destination.getStats().stored_publications).toBe(before);
+        if (reason === 'disconnect') socket.terminate();
+        else { await queuedEntry.stop(); stopped = true; }
+        await closed;
+        // Wait beyond the default collection window to catch a stray forwarding timer.
+        await new Promise(resolve => setTimeout(resolve, 850));
+        expect(destination.getStats().stored_publications).toBe(before);
+        const destinationLog = join(DESTINATION_DIR, PRIVATE_REPLAY_LOG_FILENAME);
+        expect(existsSync(destinationLog)
+          && readFileSync(destinationLog, 'utf8').includes(outer.request.requestId)).toBe(false);
+      } finally {
+        client?.terminate();
+        if (!stopped) await queuedEntry.stop();
+        rmSync(directory, { recursive: true, force: true });
+      }
+    },
+  );
+
   it('delivers an encrypted publication through an entry that does not store it', async () => {
     const entryContact = await discoverRelayContactV1(
       createRelayContactHintV1('configured', ENTRY_ENDPOINT),

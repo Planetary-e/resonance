@@ -22,6 +22,7 @@
     "eval:quick": "npm run eval:quick --workspace=@resonance/eval",
     "eval:scoped-fingerprint": "npm run eval:scoped-fingerprint --workspace=@resonance/eval",
     "eval:private-timing": "npm run eval:private-timing --workspace=@resonance/eval --",
+    "eval:private-mix": "npm run eval:private-mix --workspace=@resonance/eval --",
     "resonance": "npm run resonance --workspace=@resonance/node --",
     "app": "npm run start --workspace=@resonance/app"
   },
