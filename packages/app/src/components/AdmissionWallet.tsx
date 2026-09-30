@@ -1,0 +1,77 @@
+import React, { useEffect, useState } from 'react';
+import { getAdmissionWallet, configureAdmissionWallet, importAdmissionTokens, type AdmissionWalletStatus } from '../api.client';
+
+export default function AdmissionWallet({ privateDeliveryAvailable, onChange }: {
+  privateDeliveryAvailable: boolean; onChange: () => Promise<unknown>;
+}) {
+  const [status, setStatus] = useState<AdmissionWalletStatus | null>(null);
+  const [issuer, setIssuer] = useState('');
+  const [epoch, setEpoch] = useState('');
+  const [publicKey, setPublicKey] = useState('');
+  const [relays, setRelays] = useState('');
+  const [tokens, setTokens] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  async function refresh() {
+    const result = await getAdmissionWallet();
+    if (result.error) { setMessage(result.error); return; }
+    setStatus(result);
+  }
+  useEffect(() => { void refresh(); }, []);
+  async function configure(event: React.FormEvent) {
+    event.preventDefault(); setBusy(true); setMessage('');
+    try {
+      const result = await configureAdmissionWallet({ version: 1, scope: { issuer: issuer.trim(), community: 'public', epoch: epoch.trim() },
+        issuerPublicKey: publicKey.trim(), relayUrls: relays.split(/[\s,]+/).filter(Boolean) });
+      setMessage(result.error ?? 'Wallet setup saved. Automatic mailbox checks are paused.');
+      if (!result.error) { setIssuer(''); setEpoch(''); setPublicKey(''); setRelays(''); }
+      await refresh(); await onChange();
+    } finally { setBusy(false); }
+  }
+  async function importTokens(event: React.FormEvent) {
+    event.preventDefault(); setBusy(true); setMessage('');
+    const batch = tokens.trim().split(/\s+/).filter(Boolean);
+    // Bearer tokens do not remain displayed after an import attempt or get stored in browser storage.
+    setTokens('');
+    try {
+      const result = await importAdmissionTokens(batch);
+      setMessage(result.error ?? `${result.imported} new access tokens imported.`);
+      await refresh(); await onChange();
+    } finally { setBusy(false); }
+  }
+  return <section className="relay-section">
+    <h3>Access-token wallet</h3>
+    {message && <p role="status">{message}</p>}
+    {!status ? <p>Loading wallet…</p> : status.configured ? <>
+      <p><strong>{status.available} available</strong> · {status.reserved} reserved · {status.total}/{status.capacity} stored</p>
+      <p>Issuer: {status.scope?.issuer} · Community: {status.scope?.community} · Token period: {status.scope?.epoch}</p>
+      <details><summary>Pinned setup details</summary>
+        <p className="text-sm" style={{ overflowWrap: 'anywhere' }}>Key fingerprint: {status.keyFingerprint}</p>
+        <ul>{status.relayUrls?.map(url => <li key={url}>{url}</li>)}</ul>
+      </details>
+      <p>Tokens stay encrypted on this device. A reserved token belongs to one request and destination, including when delivery is uncertain. It cannot be reassigned. Automatic mailbox checks use tokens when enabled.</p>
+      <form onSubmit={importTokens}>
+        <label htmlFor="wallet-tokens">Access tokens from your community, one per line</label>
+        <textarea id="wallet-tokens" value={tokens} onChange={event => setTokens(event.target.value)} disabled={busy}
+          autoComplete="off" spellCheck={false} rows={3} maxLength={122000} />
+        <button className="btn btn-primary btn-sm" disabled={busy || !tokens.trim()}>Import tokens</button>
+        <button className="btn btn-ghost btn-sm" type="button" disabled={busy} onClick={() => void refresh()}>Refresh balance</button>
+      </form>
+      <p className="text-sm text-muted">This pilot imports already-issued tokens. Issuer and token-period changes are not supported yet. Keeping reservations prevents accidental reuse; do not reset the wallet to replenish tokens.</p>
+    </> : privateDeliveryAvailable ? <>
+      <p>Use setup details verified with your community. The issuer key, token period, and destination relays stay pinned. Setup pauses automatic mailbox checks.</p>
+      <form onSubmit={configure}>
+        <div className="form-group"><label htmlFor="wallet-issuer">Issuer name</label>
+          <input id="wallet-issuer" value={issuer} onChange={event => setIssuer(event.target.value)} maxLength={128} disabled={busy} required /></div>
+        <div className="form-group"><label htmlFor="wallet-epoch">Token period</label>
+          <input id="wallet-epoch" value={epoch} onChange={event => setEpoch(event.target.value)} maxLength={128} disabled={busy} required /></div>
+        <div className="form-group"><label htmlFor="wallet-key">Issuer public key (PEM)</label>
+          <textarea id="wallet-key" value={publicKey} onChange={event => setPublicKey(event.target.value)} rows={4} maxLength={4096} disabled={busy} spellCheck={false} required /></div>
+        <div className="form-group"><label htmlFor="wallet-relays">Destination relay addresses</label>
+          <textarea id="wallet-relays" value={relays} onChange={event => setRelays(event.target.value)} rows={2} maxLength={4104} disabled={busy} spellCheck={false} required /></div>
+        <p>Community: public. Add destination relays that accept these tokens; entry relays are configured separately.</p>
+        <button className="btn btn-primary btn-sm" disabled={busy}>Save wallet setup</button>
+      </form>
+    </> : <p>Wallet setup is available in the private transport pilot.</p>}
+  </section>;
+}

@@ -7,6 +7,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
   getSession,
   ModelLoadError,
+  WalletLoadError,
+  getAdmissionWalletStatus, configureAdmissionWallet, importAdmissionTokens,
   listExternalMailboxMatches,
   getRelayActivity,
   isUnlocked,
@@ -181,8 +183,8 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
       sessionToken = randomBytes(32).toString('hex');
       json(res, { ...result, token: sessionToken });
     } catch (err) {
-      error(res, err instanceof ModelLoadError ? err.message : 'Wrong password or corrupted identity',
-        err instanceof ModelLoadError ? 503 : 401);
+      error(res, err instanceof ModelLoadError || err instanceof WalletLoadError ? err.message : 'Wrong password or corrupted identity',
+        err instanceof ModelLoadError || err instanceof WalletLoadError ? 503 : 401);
     }
     return true;
   }
@@ -190,6 +192,28 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
   if (url === '/api/lock' && method === 'POST') {
     lockSession();
     json(res, { locked: true });
+    return true;
+  }
+
+  // Tokens and trust configuration are available only inside the authenticated local session.
+  if (url === '/api/admission-wallet' && method === 'GET') {
+    if (!requireAuth(req, res)) return true;
+    json(res, getAdmissionWalletStatus()); return true;
+  }
+  if (url === '/api/admission-wallet/configure' && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    try { await configureAdmissionWallet(await readBody(req)); json(res, { ok: true }); }
+    catch (err) { error(res, err instanceof Error ? err.message : 'Wallet setup failed', 409); }
+    return true;
+  }
+  if (url === '/api/admission-wallet/import' && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    const body = await readBody(req);
+    if (!Array.isArray(body.tokens) || body.tokens.length > 256 || body.tokens.some(value => typeof value !== 'string')) {
+      error(res, 'Provide at most 256 access tokens'); return true;
+    }
+    try { const imported = await importAdmissionTokens(body.tokens as string[]); json(res, { imported }); }
+    catch (err) { error(res, err instanceof Error ? err.message : 'Token import failed', 409); }
     return true;
   }
 

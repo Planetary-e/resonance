@@ -27,6 +27,9 @@ import {
   openPublicationOutbox,
   openPrivateRequestOutbox,
   derivePrivateRequestOutboxKey,
+  deriveAdmissionWalletKey,
+  openManagedAdmissionWallet,
+  type ManagedAdmissionWallet,
   guardRelayClient,
   type PrivateRequestOutbox,
   type PrivateRequestIntent,
@@ -73,6 +76,7 @@ export interface Session {
   remoteRelayUrls: string[];
   publicationOutbox: PublicationOutbox;
   requestOutbox: PrivateRequestOutbox;
+  admissionWallet: ManagedAdmissionWallet;
   mailboxSync?: { controller: AbortController; client: RelayClient; pending: Promise<number> };
   privatePublicationRoute?: PrivatePublicationRoute;
 }
@@ -88,11 +92,19 @@ function configuredPrivateRoute(): PrivatePublicationRoute | undefined {
 }
 
 function createSessionRelayClient(urls: string[], identity: Identity,
-  route = session?.privatePublicationRoute ?? configuredPrivateRoute()): RelayClient {
+  route = session?.privatePublicationRoute ?? configuredPrivateRoute(), wallet = session?.admissionWallet): RelayClient {
   return createRelayClient({
     ...(route ?? { relayUrl: urls[0] ?? '', fallbackUrls: urls.slice(1) }),
     identity, autoReconnect: true,
+    admissionCapabilityProvider: wallet ? context => {
+      if (!route && wallet.configured()) throw new Error('Access tokens require a private route; direct delivery is disabled');
+      return wallet.capabilityFor(context);
+    } : undefined,
   });
+}
+
+export class WalletLoadError extends Error {
+  constructor() { super('The access-token wallet could not be opened. Its saved tokens and reservations have been retained.'); }
 }
 
 export class ModelLoadError extends Error {
@@ -439,16 +451,24 @@ export async function unlockSession(password: string, relayUrl: string): Promise
   const outboxKey = derivePublicationOutboxKey(identity);
   let publicationOutbox: PublicationOutbox;
   let requestOutbox: PrivateRequestOutbox;
+  let admissionWallet: ManagedAdmissionWallet | undefined;
   let relayClient: RelayClient;
   try {
     privatePublicationRoute = configuredPrivateRoute();
+    const walletKey = deriveAdmissionWalletKey(identity);
+    try { admissionWallet = await openManagedAdmissionWallet({ directory: getDataDir(), encryptionKey: walletKey }); }
+    catch { throw new WalletLoadError(); }
+    finally { walletKey.fill(0); }
+    const capabilityProvider = (context: Parameters<ManagedAdmissionWallet['capabilityFor']>[0]) => admissionWallet!.capabilityFor(context);
     publicationOutbox = openPublicationOutbox({
       path: join(getDataDir(), 'publication-outbox.json'), encryptionKey: outboxKey,
+      admissionCapabilityProvider: capabilityProvider,
     });
     try {
       const requestKey = derivePrivateRequestOutboxKey(identity);
       try {
         requestOutbox = openPrivateRequestOutbox({ path: join(getDataDir(), 'private-request-outbox.json'), encryptionKey: requestKey,
+          admissionCapabilityProvider: capabilityProvider,
           execute: async (intent, client, signal) => {
             const current = session;
             if (!current || current.store !== store) throw new Error('Session changed before release');
@@ -468,10 +488,10 @@ export async function unlockSession(password: string, relayUrl: string): Promise
           },
         });
       } finally { requestKey.fill(0); }
-      try { relayClient = createSessionRelayClient(urls, identity, privatePublicationRoute); }
+      try { relayClient = createSessionRelayClient(urls, identity, privatePublicationRoute, admissionWallet); }
       catch (error) { requestOutbox.close(); throw error; }
     } catch (error) { publicationOutbox.close(); throw error; }
-  } catch (error) { store.close(); identity.secretKey.fill(0); throw error; }
+  } catch (error) { admissionWallet?.close(); store.close(); identity.secretKey.fill(0); throw error; }
   finally { outboxKey.fill(0); }
   const pairwiseChannelMgr = createPairwiseChannelManagerV2(store, relayClient);
 
@@ -479,7 +499,7 @@ export async function unlockSession(password: string, relayUrl: string): Promise
   // the legacy root-authenticated socket closed prevents passive DID linkage.
   session = {
     identity, store, engine, relayClient, pairwiseChannelMgr,
-    identityMgr: mgr, remoteRelayUrls: uniqueRemoteUrls, publicationOutbox, requestOutbox, privatePublicationRoute,
+    identityMgr: mgr, remoteRelayUrls: uniqueRemoteUrls, publicationOutbox, requestOutbox, privatePublicationRoute, admissionWallet,
   };
   try { reconcileDeliveredPublications(session); }
   catch (error) { lockSession(); throw error; }
@@ -510,6 +530,7 @@ export function lockSession(): void {
   // VULN-16: Zero key material
   session.identity.secretKey.fill(0);
   session.relayClient.disconnect();
+  session.admissionWallet.close();
   session.store.close();
   session = null;
   relayActivity = 'not-checked';
@@ -753,6 +774,25 @@ export async function releaseHeldRequest(id: string): Promise<PrivateRequestResu
 
 export function cancelHeldRequest(id: string): void { session!.requestOutbox.cancel(id); }
 export function removeHeldRequest(id: string): void { session!.requestOutbox.remove(id); }
+
+export function getAdmissionWalletStatus() { return session!.admissionWallet.status(); }
+
+export async function configureAdmissionWallet(profile: unknown): Promise<void> {
+  const s = session!;
+  if (!s.privatePublicationRoute) throw new Error('Wallet setup requires the private transport pilot');
+  // Persist the pause before accepting any token configuration; failed setup cannot start automatic spending.
+  s.requestOutbox.setAutomaticMailboxes(false);
+  stopAutomaticMailboxSync(s);
+  await s.admissionWallet.configure(profile);
+  if (session !== s) throw new Error('Session locked during wallet setup');
+}
+
+export async function importAdmissionTokens(tokens: readonly string[]): Promise<number> {
+  const s = session!;
+  const count = await s.admissionWallet.importTokens(tokens);
+  if (session !== s) throw new Error('Session locked during token import');
+  return count;
+}
 
 export async function searchRelay(text: string, type: ItemType): Promise<Array<{
   publicationId: string; similarity: number; itemType: string;

@@ -313,6 +313,7 @@ export default function App() {
             relayStatus={relay.relayStatus}
             onRelayToggle={handleRelayToggle}
             activities={activities}
+            onWalletChange={session.refresh}
           />
         )}
 

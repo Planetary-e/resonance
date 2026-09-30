@@ -352,3 +352,14 @@ export function holdMailboxCheck(kind: 'publication-mailbox' | 'relationship-mai
   return api('POST', '/api/private-requests/hold-mailbox', { kind, id });
 }
 export function setAutomaticMailboxChecks(automatic: boolean) { return api('POST', '/api/private-requests/mailbox-mode', { automatic }); }
+
+export interface AdmissionWalletStatus {
+  configured: boolean; scope?: { issuer: string; community: string; epoch: string };
+  keyFingerprint?: string; relayUrls?: string[];
+  available: number; reserved: number; total: number; capacity: number;
+}
+export function getAdmissionWallet() { return api<AdmissionWalletStatus>('GET', '/api/admission-wallet'); }
+export function configureAdmissionWallet(profile: { version: 1; scope: NonNullable<AdmissionWalletStatus['scope']>; issuerPublicKey: string; relayUrls: string[] }) {
+  return api('POST', '/api/admission-wallet/configure', profile);
+}
+export function importAdmissionTokens(tokens: string[]) { return api<{ imported: number }>('POST', '/api/admission-wallet/import', { tokens }); }

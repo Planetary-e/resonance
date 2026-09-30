@@ -200,7 +200,8 @@ The five-target placement goal remains conditional on enough eligible volunteers
   - [x] Implement Privacy Pass Blind RSA issuance, scoped redemption, and a restart-safe single-relay spent-token log; verify a real publication through the relay and reject a conflicting reuse
   - [x] Redeem a manually issued blind token over a real two-hop local client route without a client account identifier in the capability
   - [x] Add an experimental encrypted client wallet that verifies manually issued tokens, durably reserves a token for one exact request and destination before network I/O, and restores that reservation after restart; verify its two-hop redemption locally
-  - [ ] Integrate the wallet into the desktop client, then add an issuance protocol and admission policy without a stable account identifier
+  - [x] Integrate the encrypted wallet into the desktop private-transport pilot: pin an issuer key/scope and destination list, authenticate manual token imports, show available/reserved balances, and supply capabilities for immediate and held operations; retain reservations through lock/restart/crash and fail closed on exhaustion or missing private routing
+  - [ ] Add an end-user blinded issuance protocol, replenishment and issuer/epoch migration, and an admission policy without a stable account identifier
 - [ ] Support community or quorum issuance without requiring a permanent issuer service
   - [x] Document offline volunteer issuance and the need for an audited threshold scheme before splitting one issuer key among volunteers
 - [ ] Replicate spent-token identifiers and define deterministic handling of double spends during partitions

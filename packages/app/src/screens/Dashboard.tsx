@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import StatCard from '../components/StatCard';
+import AdmissionWallet from '../components/AdmissionWallet';
 import type { StatusResponse, RelayStatus, RelayOwnerControls } from '../api.client';
 
 interface Activity {
@@ -34,6 +35,7 @@ interface DashboardProps {
   relayStatus: RelayStatus | null;
   onRelayToggle: (contacts: string[], controls: RelayOwnerControls) => void;
   activities: Activity[];
+  onWalletChange: () => Promise<unknown>;
 }
 
 export default function Dashboard({
@@ -42,6 +44,7 @@ export default function Dashboard({
   relayStatus,
   onRelayToggle,
   activities,
+  onWalletChange,
 }: DashboardProps) {
   const relayLabel = relayStatus?.running ? 'Relay Active'
     : relayStatus?.enabled ? 'Relay Starting' : 'Relay Off';
@@ -86,6 +89,8 @@ export default function Dashboard({
           color="gold"
         />
       </div>
+
+      <AdmissionWallet privateDeliveryAvailable={status?.privateDeliveryAvailable ?? false} onChange={onWalletChange} />
 
       <div className="relay-section">
         <div className="relay-toggle-row">
