@@ -20,6 +20,10 @@ import {
   stopRelayMode,
   getRelayStats,
   publishItem,
+  listSessionItems,
+  releaseHeldPublication,
+  cancelHeldPublication,
+  removeHeldPublication,
   withdrawItem,
   syncMatchMailboxes,
   searchRelay,
@@ -142,7 +146,8 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
       relayConnected: s?.relayClient.isConnected() ?? false,
       relayActivity: getRelayActivity(),
       relayMode: isRelayMode(),
-      items: s ? s.store.listItems().length : 0,
+      privateDeliveryAvailable: !!s?.privatePublicationRoute,
+      items: s ? listSessionItems().length : 0,
       matches: s ? listExternalMailboxMatches().length : 0,
     });
     return true;
@@ -189,10 +194,10 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
 
   if (url === '/api/items' && method === 'GET') {
     if (!requireAuth(req, res)) return true;
-    const items = getSession()!.store.listItems();
+    const items = listSessionItems();
     json(res, items.map(i => ({
       id: i.id, type: i.type, rawText: i.rawText, privacyLevel: i.privacyLevel,
-      epsilon: i.epsilon, status: i.status, createdAt: utcTimestamp(i.createdAt),
+      epsilon: i.epsilon, status: i.status, createdAt: utcTimestamp(i.createdAt), delivery: i.delivery,
     })));
     return true;
   }
@@ -203,14 +208,31 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
     const text = body.text as string;
     const type = (body.type ?? 'need') as string;
     const privacy = (body.privacy ?? 'medium') as string;
+    const delivery = body.delivery ?? 'send';
+    if (delivery !== 'send' && delivery !== 'hold') { error(res, 'Delivery must be send or hold'); return true; }
     if (!text) { error(res, 'Text required'); return true; }
     if (!['need', 'offer'].includes(type)) { error(res, 'Type must be need or offer'); return true; }
     if (!['low', 'medium', 'high'].includes(privacy)) { error(res, 'Privacy must be low, medium, or high'); return true; }
     try {
-      const result = await publishItem(text, type as any, privacy as any);
+      const result = await publishItem(text, type as any, privacy as any, delivery);
       json(res, result);
     } catch (err) {
-      error(res, 'Internal error', 500);
+      error(res, err instanceof Error ? err.message : 'Could not save publication', 503);
+    }
+    return true;
+  }
+
+  const outboxAction = /^\/api\/outbox\/(out_[a-f0-9]{32})\/(release|cancel|remove)$/.exec(url);
+  if (outboxAction && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    try {
+      const [, id, action] = outboxAction;
+      if (action === 'release') await releaseHeldPublication(id);
+      else if (action === 'cancel') cancelHeldPublication(id);
+      else removeHeldPublication(id);
+      json(res, { ok: true });
+    } catch (err) {
+      error(res, err instanceof Error ? err.message : 'Saved publication action failed', 503);
     }
     return true;
   }

@@ -37,10 +37,19 @@ export function ensureDataDir(): void {
  * Uses domain separation to prevent key reuse across different purposes.
  */
 export function deriveStoreKey(identity: Identity): Uint8Array {
+  return deriveLocalKey(identity, 'resonance-store-key-v1');
+}
+
+export function derivePublicationOutboxKey(identity: Identity): Uint8Array {
+  return deriveLocalKey(identity, 'resonance-publication-outbox-key-v1');
+}
+
+function deriveLocalKey(identity: Identity, purpose: string): Uint8Array {
   // Domain-separated: hash(secretKey || domain) to produce a unique key for the store
-  const domain = new TextEncoder().encode('resonance-store-key-v1');
+  const domain = new TextEncoder().encode(purpose);
   const input = new Uint8Array(identity.secretKey.length + domain.length);
   input.set(identity.secretKey);
   input.set(domain, identity.secretKey.length);
-  return nacl.hash(input).slice(0, nacl.secretbox.keyLength);
+  try { return nacl.hash(input).slice(0, nacl.secretbox.keyLength); }
+  finally { input.fill(0); }
 }

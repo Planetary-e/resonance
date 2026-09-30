@@ -51,9 +51,8 @@ export function createPrivateOperation() {
     failure(cause: Error): Error {
       // A later fallback's rejection cannot undo an earlier unacknowledged send.
       if (controller.signal.aborted) return controller.signal.reason;
-      return uncertain && !(cause instanceof PrivateOperationError)
-        ? new PrivateOperationError('PRIVATE_OPERATION_FAILED', 'unknown', cause)
-        : cause;
+      return cause instanceof PrivateOperationError ? cause
+        : new PrivateOperationError('PRIVATE_OPERATION_FAILED', uncertain || transmitted ? 'unknown' : 'not-sent', cause);
     },
     dispose(): void { clearTimeout(timer); },
   };

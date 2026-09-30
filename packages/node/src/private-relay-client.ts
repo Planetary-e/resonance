@@ -197,9 +197,11 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
     throw lastError instanceof Error ? lastError : new Error('No independent two-relay route is available');
   }
 
-  async function sendTo(destinationUrl: string, makeRaw: () => string, operation: PrivateOperation, signal: AbortSignal): Promise<Message> {
+  async function sendTo(destinationUrl: string, makeRaw: () => string, operation: PrivateOperation, signal: AbortSignal, valid = () => {}): Promise<Message> {
+    valid();
     const { entry, destination } = await discoverRoute(destinationUrl, operation, signal);
     operation.check(signal);
+    valid();
     const plaintext = decodeUTF8(makeRaw());
     operation.check(signal);
     const exchange = await createPrivateRequestV1(
@@ -232,6 +234,7 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
         if (settled) return;
         try {
           operation.check(signal);
+          valid();
           // Once handed to the socket, failure cannot prove non-delivery.
           operation.markSent();
           socket.send(requestRaw);
@@ -265,13 +268,14 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
     });
   }
 
-  function firstReply(operation: PrivateOperation, makeRaw: (url: string) => string): Promise<Message> {
+  function firstReply(operation: PrivateOperation, makeRaw: (url: string) => string, valid = () => {}): Promise<Message> {
     return scheduler.schedule(async signal => {
       let lastError: unknown;
       let unknownOutcome: PrivateOperationError | undefined;
       for (const url of destinations) {
         operation.check(signal);
-        try { return await sendTo(url, () => makeRaw(url), operation, signal); }
+        valid();
+        try { return await sendTo(url, () => makeRaw(url), operation, signal, valid); }
         catch (error) {
           lastError = error;
           if (error instanceof PrivateOperationError && error.outcome === 'unknown') unknownOutcome = error;
@@ -322,8 +326,14 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
     on(next) { Object.assign(events, next); },
     async submitPublicationOperation(publication: PublicationOperation): Promise<AckPayload> {
       return runOperation(async operation => {
+        const valid = () => {
+          if (publication.kind === 'publication' && publication.expiresAt <= Date.now()) {
+            throw new Error('Publication expired before transmission');
+          }
+        };
+        valid();
         const reply = await firstReply(operation, url => serializePublicationOperationFrame(
-          createPublicationOperationFrame(publication, admissionFor(url, 'publication-write', publication))));
+          createPublicationOperationFrame(publication, admissionFor(url, 'publication-write', publication))), valid);
         const ack = expectedAck(reply, publication.publicationId);
         operation.check();
         return ack;

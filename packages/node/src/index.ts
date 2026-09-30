@@ -17,7 +17,9 @@ export { createIdentityManager, type IdentityManager } from './identity.js';
 export { openBlindAdmissionWalletV2, type BlindAdmissionWalletV2 } from './blind-admission-wallet.js';
 export type { PrivateTrafficScheduleOptions } from './private-traffic-scheduler.js';
 export { PrivateOperationError, PRIVATE_OPERATION_DEADLINE_MS } from './private-operation.js';
-export { getDataDir, getDbPath, getIdentityPath, ensureDataDir, deriveStoreKey } from './config.js';
+export { openPublicationOutbox, MAX_PUBLICATION_OUTBOX_BYTES, MAX_PUBLICATION_OUTBOX_ENTRIES,
+  type PublicationOutbox, type HeldPublicationSummary, type PrivatePublicationRoute } from './publication-outbox.js';
+export { getDataDir, getDbPath, getIdentityPath, ensureDataDir, deriveStoreKey, derivePublicationOutboxKey } from './config.js';
 export {
   createRelayClient,
   type RelayClient,

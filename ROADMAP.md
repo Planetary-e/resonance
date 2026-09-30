@@ -214,6 +214,8 @@ The five-target placement goal remains conditional on enough eligible volunteers
   - [x] Decide the quiet-period resource policy: no automatic cover traffic, crowd polling, or longer quiet queues; specify bounded interactive delivery and an explicit local hold with no automatic release, with costs and limits in `docs/developers/v0.4-quiet-period-decision.md`
   - [x] Enforce one ten-second operation deadline across client scheduling, discovery, DNS, and all private route attempts; cancel pending sockets, preserve timely partial mailbox replies and unknown outcomes, and verify exact-operation/wallet retry after a lost reply
   - [ ] Add bounded encrypted local hold/release controls; never send held work or reserve capabilities on restart, expiry, cancellation, or outbox overflow
+    - [x] Publications: encrypted 64-entry / 16 MiB outbox, explicit desktop Send/Cancel, pinned private routes, crash recovery without replay, and exact retry after an uncertain delivery; exclude held publications from mailbox sync
+    - [ ] Search and mailbox operations: define expiry-aware holds and explicit regeneration/release without creating fresh requests or reserving tokens automatically
   - [ ] Measure stronger observers, total traffic, and CPU/energy costs before selecting production timing defaults; quiet-period observer protection remains unresolved
   - [ ] Run colluding-operator, multi-domain Sybil, and timing-correlation adversaries with quantitative privacy targets
 - [ ] Define group-specific, rotating fingerprint epochs to limit correlation across communities and time

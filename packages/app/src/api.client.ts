@@ -32,11 +32,18 @@ export interface StatusResponse {
   relayConnected: boolean;
   relayActivity: 'not-checked' | 'succeeded' | 'failed';
   relayMode: boolean;
+  privateDeliveryAvailable: boolean;
   items: number;
   matches: number;
 }
 
+export interface PublicationDelivery {
+  id: string; state: 'held' | 'sending' | 'delivered' | 'cancelled' | 'expired' | 'outcome-unknown';
+  expiresAt: number; mayHaveBeenSent: boolean;
+}
+
 export interface Item {
+  delivery?: PublicationDelivery;
   id: string;
   type: 'need' | 'offer';
   rawText: string;
@@ -195,8 +202,13 @@ export async function publishItem(
   text: string,
   type: 'need' | 'offer',
   privacy: 'low' | 'medium' | 'high',
+  delivery: 'send' | 'hold' = 'send',
 ): Promise<PublishResult & { error?: string }> {
-  return api('POST', '/api/items', { text, type, privacy });
+  return api('POST', '/api/items', { text, type, privacy, delivery });
+}
+
+export async function outboxAction(id: string, action: 'release' | 'cancel' | 'remove'): Promise<{ error?: string }> {
+  return api('POST', `/api/outbox/${id}/${action}`);
 }
 
 export async function withdrawItem(id: string): Promise<{ withdrawn: boolean; error?: string }> {

@@ -17,11 +17,17 @@ import {
   type Identity,
   type PrivacyLevel,
   type ItemType,
+  type PublicationKeyMaterial,
 } from '@resonance/core';
 import {
   createIdentityManager,
   openStoreAsync,
   deriveStoreKey,
+  derivePublicationOutboxKey,
+  openPublicationOutbox,
+  type PublicationOutbox,
+  type PrivatePublicationRoute,
+  type HeldPublicationSummary,
   getDataDir,
   getDbPath,
   ensureDataDir,
@@ -58,24 +64,25 @@ export interface Session {
   pairwiseChannelMgr: PairwiseChannelManagerV2;
   identityMgr: IdentityManager;
   remoteRelayUrls: string[];
+  publicationOutbox: PublicationOutbox;
+  privatePublicationRoute?: PrivatePublicationRoute;
 }
 
-function createSessionRelayClient(urls: string[], identity: Identity): RelayClient {
-  // Private transport is an explicit pilot setting until route availability and
-  // admission are ready for every user. Once selected it never falls back direct.
+function configuredPrivateRoute(): PrivatePublicationRoute | undefined {
   const configured = process.env.RESONANCE_EXPERIMENTAL_PRIVATE_ROUTE_URLS;
-  const privateUrls = configured === undefined ? undefined
-    : [...new Set(configured.split(',').map(url => url.trim()).filter(Boolean))];
-  if (privateUrls && privateUrls.length < 2) {
+  if (configured === undefined) return undefined;
+  const urls = [...new Set(configured.split(',').map(url => url.trim()).filter(Boolean))];
+  if (urls.length < 2) {
     throw new Error('Experimental private transport needs an entry URL followed by at least one destination URL');
   }
-  const targets = privateUrls === undefined ? urls : privateUrls.slice(1);
+  return { relayUrl: urls[1], fallbackUrls: urls.slice(2), privateEntryUrls: [urls[0]] };
+}
+
+function createSessionRelayClient(urls: string[], identity: Identity,
+  route = session?.privatePublicationRoute ?? configuredPrivateRoute()): RelayClient {
   return createRelayClient({
-    relayUrl: targets[0] ?? '',
-    identity,
-    fallbackUrls: targets.slice(1),
-    ...(privateUrls === undefined ? {} : { privateEntryUrls: privateUrls.slice(0, 1) }),
-    autoReconnect: true,
+    ...(route ?? { relayUrl: urls[0] ?? '', fallbackUrls: urls.slice(1) }),
+    identity, autoReconnect: true,
   });
 }
 
@@ -383,7 +390,16 @@ export async function initSession(password: string): Promise<{ did: string }> {
 }
 
 export async function unlockSession(password: string, relayUrl: string): Promise<{ did: string }> {
-  if (session) return { did: session.identity.did };
+  if (session) {
+    const current = session;
+    // A new browser page needs a fresh token, even when the backend is still
+    // unlocked. Never let the existing in-memory identity bypass authentication.
+    const verified = await current.identityMgr.load(password);
+    try {
+      if (session !== current || verified.did !== current.identity.did) throw new Error('Session changed during unlock');
+      return { did: current.identity.did };
+    } finally { verified.secretKey.fill(0); }
+  }
 
   const mgr = createIdentityManager();
   const identity = await mgr.load(password);
@@ -410,15 +426,29 @@ export async function unlockSession(password: string, relayUrl: string): Promise
   urls.push(...uniqueRemoteUrls.filter(u => !urls.includes(u)));
   if (urls.length === 0) urls.push(relayUrl); // fallback to whatever was passed
 
-  const relayClient = createSessionRelayClient(urls, identity);
+  let privatePublicationRoute: PrivatePublicationRoute | undefined;
+  const outboxKey = derivePublicationOutboxKey(identity);
+  let publicationOutbox: PublicationOutbox;
+  let relayClient: RelayClient;
+  try {
+    privatePublicationRoute = configuredPrivateRoute();
+    publicationOutbox = openPublicationOutbox({
+      path: join(getDataDir(), 'publication-outbox.json'), encryptionKey: outboxKey,
+    });
+    try { relayClient = createSessionRelayClient(urls, identity, privatePublicationRoute); }
+    catch (error) { publicationOutbox.close(); throw error; }
+  } catch (error) { store.close(); identity.secretKey.fill(0); throw error; }
+  finally { outboxKey.fill(0); }
   const pairwiseChannelMgr = createPairwiseChannelManagerV2(store, relayClient);
 
   // Protocol v2 operations use short, self-authenticating connections. Keeping
   // the legacy root-authenticated socket closed prevents passive DID linkage.
   session = {
     identity, store, engine, relayClient, pairwiseChannelMgr,
-    identityMgr: mgr, remoteRelayUrls: uniqueRemoteUrls,
+    identityMgr: mgr, remoteRelayUrls: uniqueRemoteUrls, publicationOutbox, privatePublicationRoute,
   };
+  try { reconcileDeliveredPublications(session); }
+  catch (error) { lockSession(); throw error; }
   relayActivity = 'not-checked';
   wireEvents(session);
   resetInactivityTimer();
@@ -440,6 +470,7 @@ export function resetInactivityTimer(): void {
 export function lockSession(): void {
   if (inactivityTimer) { clearTimeout(inactivityTimer); inactivityTimer = null; }
   if (!session) return;
+  session.publicationOutbox.close();
   // VULN-16: Zero key material
   session.identity.secretKey.fill(0);
   session.relayClient.disconnect();
@@ -448,18 +479,19 @@ export function lockSession(): void {
   relayActivity = 'not-checked';
 }
 
-export async function publishItem(text: string, type: ItemType, privacy: PrivacyLevel): Promise<{
+export async function publishItem(text: string, type: ItemType, privacy: PrivacyLevel, delivery: 'send' | 'hold' = 'send'): Promise<{
   id: string; status: string; dims: number;
 }> {
   const s = session!;
+  if (delivery === 'hold' && !s.privatePublicationRoute) throw new Error('Local hold requires the private transport pilot');
   const embedding = await s.engine.embedForMatching(text, type);
+  if (session !== s) throw new Error('Session locked before saving');
   // LSH: hash the embedding instead of perturbing it
   const hash = hashEmbedding(embedding, getSharedProjectionMatrix());
   const id = randomUUID();
 
   // Still store perturbed locally for backward compat, but relay gets hash
   const { perturbed, epsilon } = perturbWithLevel(embedding, privacy);
-  s.store.insertItem({ id, type, rawText: text, embedding, privacyLevel: privacy, perturbed, epsilon });
   const keys = generatePublicationKeyMaterial();
   const now = Date.now();
   const record = createPublicationRecord({
@@ -470,6 +502,17 @@ export async function publishItem(text: string, type: ItemType, privacy: Privacy
     createdAt: now,
     expiresAt: now + 7 * 24 * 60 * 60 * 1000,
   }, keys);
+  if (delivery === 'hold') {
+    // Keep even the fingerprint and mailbox identifiers out of the ordinary store:
+    // mailbox sync must have no knowledge of an unsent publication.
+    const local: HeldItem = { id, type, rawText: text, privacyLevel: privacy, epsilon,
+      embedding: Array.from(embedding), perturbed: Array.from(perturbed), createdAt: new Date(now).toISOString(),
+      signingSecret: Buffer.from(keys.signingKeyPair.secretKey).toString('base64'),
+      mailboxSecret: Buffer.from(keys.mailboxKeyPair.secretKey).toString('base64') };
+    s.publicationOutbox.hold(record, s.privatePublicationRoute!, JSON.stringify(local));
+    return { id, status: 'held', dims: embedding.length };
+  }
+  s.store.insertItem({ id, type, rawText: text, embedding, privacyLevel: privacy, perturbed, epsilon });
   s.store.insertPublication(id, record, keys);
 
   let status = 'local';
@@ -485,6 +528,70 @@ export async function publishItem(text: string, type: ItemType, privacy: Privacy
   }
 
   return { id, status, dims: embedding.length };
+}
+
+interface HeldItem {
+  id: string; type: ItemType; rawText: string; privacyLevel: PrivacyLevel; epsilon: number;
+  embedding: number[]; perturbed: number[]; createdAt: string;
+  signingSecret: string; mailboxSecret: string;
+}
+
+function heldItem(s: Session, id: string): HeldItem {
+  return JSON.parse(s.publicationOutbox.read(id).localData) as HeldItem;
+}
+
+function reconcileDeliveredPublications(s: Session): void {
+  for (const delivery of s.publicationOutbox.list()) {
+    if (delivery.state !== 'delivered') continue;
+    const { record } = s.publicationOutbox.read(delivery.id);
+    const local = heldItem(s, delivery.id);
+    if (!s.store.getItem(local.id)) s.store.insertItem({
+      id: local.id, type: local.type, rawText: local.rawText, privacyLevel: local.privacyLevel,
+      epsilon: local.epsilon, embedding: new Float32Array(local.embedding), perturbed: new Float32Array(local.perturbed),
+    });
+    if (!s.store.getPublicationForItem(local.id)) {
+      const keys: PublicationKeyMaterial = {
+        publicationId: record.publicationId, mailboxId: record.mailbox.id,
+        signingKeyPair: { publicKey: Buffer.from(record.publicationKey, 'base64'), secretKey: Buffer.from(local.signingSecret, 'base64') },
+        mailboxKeyPair: { publicKey: Buffer.from(record.mailbox.encryptionKey, 'base64'), secretKey: Buffer.from(local.mailboxSecret, 'base64') },
+      };
+      s.store.insertPublication(local.id, record, keys);
+    }
+    // Restart recovery must never undo a later withdrawal.
+    if (s.store.getItem(local.id)?.status === 'local') s.store.updateItemStatus(local.id, 'published');
+  }
+}
+
+export function listSessionItems() {
+  const s = session!;
+  reconcileDeliveredPublications(s);
+  const deliveries = new Map<string, HeldPublicationSummary>();
+  const held = [];
+  for (const delivery of s.publicationOutbox.list()) {
+    const local = heldItem(s, delivery.id);
+    deliveries.set(local.id, delivery);
+    if (!s.store.getItem(local.id)) held.push({ id: local.id, type: local.type, rawText: local.rawText,
+      privacyLevel: local.privacyLevel, epsilon: local.epsilon, createdAt: local.createdAt, status: 'local' });
+  }
+  return [...held, ...s.store.listItems()].map(item => ({
+    id: item.id, type: item.type, rawText: item.rawText, privacyLevel: item.privacyLevel,
+    epsilon: item.epsilon, createdAt: item.createdAt, status: item.status, delivery: deliveries.get(item.id),
+  }));
+}
+
+export async function releaseHeldPublication(id: string): Promise<void> {
+  const s = session!;
+  try { await s.publicationOutbox.release(id); }
+  catch (error) { if (session === s) relayActivity = 'failed'; throw error; }
+  if (session !== s) throw new Error('Session locked; reopen to inspect delivery');
+  reconcileDeliveredPublications(s);
+  relayActivity = 'succeeded';
+}
+
+export function cancelHeldPublication(id: string): void { session!.publicationOutbox.cancel(id); }
+export function removeHeldPublication(id: string): void {
+  reconcileDeliveredPublications(session!);
+  session!.publicationOutbox.remove(id);
 }
 
 export async function withdrawItem(itemId: string): Promise<void> {

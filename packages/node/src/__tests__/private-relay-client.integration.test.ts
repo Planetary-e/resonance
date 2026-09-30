@@ -12,6 +12,7 @@ import {
 import { createLocalBlindAdmissionVerifierV2, createRelayServer, type RelayServer } from '@resonance/relay';
 import { openBlindAdmissionWalletV2 } from '../blind-admission-wallet.js';
 import { createRelayClient } from '../relay-client.js';
+import { openPublicationOutbox, type PublicationOutbox } from '../publication-outbox.js';
 
 const BASE_PORT = 46_000 + Math.floor(Math.random() * 1_000);
 const ENTRY = `ws://127.0.0.1:${BASE_PORT}/`;
@@ -139,6 +140,21 @@ describe('personal client private transport', () => {
     expect(servers[2].getStats().stored_publications).toBe(0);
   });
 
+  it('does not discover or reserve a capability when a publication expires while waiting locally', async () => {
+    const provider = vi.fn();
+    const client = createRelayClient({ relayUrl: DESTINATION, privateEntryUrls: [ENTRY],
+      admissionCapabilityProvider: provider, privateTraffic: { batchWindowMs: 100, jitterMs: 0 } });
+    const now = Date.now();
+    const record = createPublicationRecord({ groupId: 'public', fingerprintEpoch: 'pilot-static-v1',
+      fingerprint: new Uint8Array(64).fill(0xb4), itemType: 'offer', createdAt: now, expiresAt: now + 50,
+    }, generatePublicationKeyMaterial());
+    const wire = vi.spyOn(WebSocket.prototype, 'send');
+    try {
+      await expect(client.submitPublicationOperation(record)).rejects.toMatchObject({ outcome: 'not-sent' });
+      expect(provider).not.toHaveBeenCalled(); expect(wire).not.toHaveBeenCalled();
+    } finally { wire.mockRestore(); client.disconnect(); }
+  });
+
   it('preserves an accepted publication and exact blind-token retry after the shared deadline loses its reply', async () => {
     const entryEndpoint = `ws://127.0.0.1:${BASE_PORT + 3}/`;
     const destinationEndpoint = `ws://[::1]:${BASE_PORT + 4}/`;
@@ -172,6 +188,7 @@ describe('personal client private transport', () => {
     await entry.start();
     await destination.start();
     let replySpy: ReturnType<typeof vi.spyOn> | undefined;
+    let outbox: PublicationOutbox | undefined;
     try {
       expect(entry.observeRelayDescriptor(destination.getRelayDescriptor()!)).toBe('accepted');
       const client = createRelayClient({
@@ -202,9 +219,18 @@ describe('personal client private transport', () => {
         }
         return Reflect.apply(originalSend, this, [data, ...args]);
       });
-      await expect(client.submitPublicationOperation(record)).rejects.toMatchObject({
+      const outboxOptions = { path: join(entryDir, 'outbox.json'), encryptionKey: randomBytes(32),
+        admissionCapabilityProvider: (context: Parameters<typeof wallet.capabilityFor>[0]) => wallet.capabilityFor(context) };
+      outbox = openPublicationOutbox(outboxOptions);
+      const held = outbox.hold(record, { relayUrl: destinationEndpoint, fallbackUrls: [], privateEntryUrls: [entryEndpoint] });
+      expect(wallet.available()).toBe(1);
+      expect(destination.getStats().stored_publications).toBe(0);
+      await expect(outbox.release(held.id)).rejects.toMatchObject({
         code: 'PRIVATE_OPERATION_TIMEOUT', outcome: 'unknown',
       });
+      expect(outbox.list()[0].state).toBe('outcome-unknown');
+      outbox.close(); outbox = openPublicationOutbox(outboxOptions);
+      expect(outbox.list()[0].state).toBe('outcome-unknown');
       expect(heldCallback).toBeDefined();
       expect(destination.getStats().stored_publications).toBe(1);
       expect(wallet.available()).toBe(0);
@@ -212,12 +238,14 @@ describe('personal client private transport', () => {
       replySpy.mockRestore();
       heldCallback?.(new Error('Late write failure'));
       // The original signed operation reuses its reserved capability; no new token is available.
-      expect((await client.submitPublicationOperation(record)).status).toBe('ok');
+      expect((await outbox.release(held.id)).status).toBe('ok');
+      expect(outbox.list()[0].state).toBe('delivered');
       expect(entry.getStats().stored_publications).toBe(0);
       expect(destination.getStats().stored_publications).toBe(1);
       expect(wallet.available()).toBe(0);
     } finally {
       replySpy?.mockRestore();
+      outbox?.close();
       wallet.close();
       await destination.stop();
       await entry.stop();
