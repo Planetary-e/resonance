@@ -12,6 +12,7 @@ import {
 import { createLocalBlindAdmissionVerifierV2, createRelayServer, type RelayServer } from '@resonance/relay';
 import { openBlindAdmissionWalletV2 } from '../blind-admission-wallet.js';
 import { createRelayClient } from '../relay-client.js';
+import { openPrivateRequestOutbox, type PrivateRequestOutbox } from '../private-request-outbox.js';
 import { openPublicationOutbox, type PublicationOutbox } from '../publication-outbox.js';
 
 const BASE_PORT = 46_000 + Math.floor(Math.random() * 1_000);
@@ -154,6 +155,39 @@ describe('personal client private transport', () => {
       expect(provider).not.toHaveBeenCalled(); expect(wire).not.toHaveBeenCalled();
     } finally { wire.mockRestore(); client.disconnect(); }
   });
+
+  it('keeps a lost search response uncertain and creates a fresh admission binding only on explicit rerun', async () => {
+    const bindings: string[] = [];
+    const options: Parameters<typeof openPrivateRequestOutbox>[0] = {
+      path: join(dirs[0], 'saved-searches.json'), encryptionKey: randomBytes(32),
+      admissionCapabilityProvider: context => { bindings.push(context.requestBinding); return undefined; },
+      execute: async (intent, client) => {
+        if (intent.kind !== 'search') throw new Error('Expected search');
+        const reply = await client.searchV2({ groupId: 'public', fingerprintEpoch: 'pilot-static-v1',
+          fingerprint: Buffer.from(intent.fingerprint, 'base64'), itemType: intent.itemType, k: 10, threshold: 0.65 });
+        return { kind: 'search', results: reply.results };
+      },
+    };
+    let box: PrivateRequestOutbox = openPrivateRequestOutbox(options);
+    const held = box.hold({ kind: 'search', text: 'Saved search', itemType: 'need', fingerprint: Buffer.alloc(64, 0xb5).toString('base64') },
+      { relayUrl: DESTINATION, fallbackUrls: [], privateEntryUrls: [ENTRY] });
+    box.close(); box = openPrivateRequestOutbox(options); expect(bindings).toHaveLength(0);
+    const originalSend = WebSocket.prototype.send; let lostReply = false;
+    const spy = vi.spyOn(WebSocket.prototype, 'send').mockImplementation(function (this: WebSocket, data, ...args) {
+      const port = (this as WebSocket & { _socket?: { localPort: number } })._socket?.localPort;
+      if (port === BASE_PORT && typeof data === 'string' && JSON.parse(data).type === 'private_response') { lostReply = true; return; }
+      return Reflect.apply(originalSend, this, [data, ...args]);
+    });
+    try {
+      await expect(box.release(held.id)).rejects.toThrow('deadline');
+      expect(lostReply).toBe(true); expect(box.list()[0].state).toBe('outcome-unknown'); expect(bindings).toHaveLength(1);
+      box.close(); box = openPrivateRequestOutbox(options); expect(bindings).toHaveLength(1);
+      spy.mockRestore();
+      expect((await box.release(held.id)).kind).toBe('search');
+      expect(bindings).toHaveLength(2); expect(bindings[0]).not.toBe(bindings[1]);
+      expect(box.list()[0]).toMatchObject({ state: 'completed', attempts: 2 });
+    } finally { spy.mockRestore(); box.close(); }
+  }, 16_000);
 
   it('preserves an accepted publication and exact blind-token retry after the shared deadline loses its reply', async () => {
     const entryEndpoint = `ws://127.0.0.1:${BASE_PORT + 3}/`;

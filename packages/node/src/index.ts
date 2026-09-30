@@ -19,7 +19,7 @@ export type { PrivateTrafficScheduleOptions } from './private-traffic-scheduler.
 export { PrivateOperationError, PRIVATE_OPERATION_DEADLINE_MS } from './private-operation.js';
 export { openPublicationOutbox, MAX_PUBLICATION_OUTBOX_BYTES, MAX_PUBLICATION_OUTBOX_ENTRIES,
   type PublicationOutbox, type HeldPublicationSummary, type PrivatePublicationRoute } from './publication-outbox.js';
-export { getDataDir, getDbPath, getIdentityPath, ensureDataDir, deriveStoreKey, derivePublicationOutboxKey } from './config.js';
+export { getDataDir, getDbPath, getIdentityPath, ensureDataDir, deriveStoreKey, derivePublicationOutboxKey, derivePrivateRequestOutboxKey } from './config.js';
 export {
   createRelayClient,
   type RelayClient,
@@ -41,3 +41,6 @@ export {
   type UpgradeV2Options,
   type UpgradeV2Report,
 } from './upgrade-v2.js';
+
+export { openPrivateRequestOutbox, guardRelayClient, PRIVATE_REQUEST_HOLD_LIFETIME_MS,
+  type PrivateRequestOutbox, type PrivateRequestIntent, type PrivateRequestResult, type HeldRequest } from './private-request-outbox.js';

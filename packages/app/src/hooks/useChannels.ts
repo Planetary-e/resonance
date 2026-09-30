@@ -30,13 +30,14 @@ export interface UseChannels {
   close: () => Promise<{ error?: string }>;
 }
 
-export function useChannels(): UseChannels {
+export function useChannels(automaticMailboxes = true): UseChannels {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [activeChannel, setActiveChannel] = useState<Channel | null>(null);
   const [messages, setMessages] = useState<ChannelMessage[]>([]);
   const [messagesByChannel, setMessagesByChannel] = useState<Record<string, ChannelMessage[]>>({});
 
   useEffect(() => {
+    if (!automaticMailboxes) return;
     if (!activeChannel || activeChannel.state === 'closed') return;
     const channelId = activeChannel.id;
     let running = false;
@@ -58,7 +59,7 @@ export function useChannels(): UseChannels {
     };
     const timer = window.setInterval(sync, 5_000);
     return () => window.clearInterval(timer);
-  }, [activeChannel?.id, activeChannel?.state]);
+  }, [activeChannel?.id, activeChannel?.state, automaticMailboxes]);
 
   const refresh = useCallback(async () => {
     const data = await getChannels();

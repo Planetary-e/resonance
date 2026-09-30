@@ -26,7 +26,7 @@ export default function App() {
   const session = useSession();
   const items = useItems();
   const matches = useMatches();
-  const channels = useChannels();
+  const channels = useChannels(session.status?.automaticMailboxes ?? true);
   const relay = useRelay();
   const { toasts, toast, dismiss } = useToast();
 
@@ -343,11 +343,15 @@ export default function App() {
         )}
 
         {activeTab === 'search' && (
-          <Search onToast={toast} onSearchComplete={session.refresh} />
+          <Search onToast={toast} onSearchComplete={session.refresh} privateDeliveryAvailable={session.status?.privateDeliveryAvailable ?? false}
+            savedRequestsAvailable={session.status?.savedRequestsAvailable ?? false} />
         )}
 
         {activeTab === 'matches' && (
           <Matches
+            privateDeliveryAvailable={session.status?.privateDeliveryAvailable ?? false}
+            savedRequestsAvailable={session.status?.savedRequestsAvailable ?? false}
+            onMailboxChange={async () => { await Promise.all([matches.refresh(), channels.refresh(), session.refresh()]); }}
             matches={matches.matches}
             items={items.items}
             onConnect={async (matchId) => {
@@ -364,6 +368,7 @@ export default function App() {
           />
         )}
 
+        {activeTab === 'channels' && session.status?.automaticMailboxes === false && <p>Automatic mailbox checks are paused. Use Matches to run a saved check. Sending a message here still sends it immediately.</p>}
         {activeTab === 'channels' && (
           <ChannelScreen
             channels={channels.channels}

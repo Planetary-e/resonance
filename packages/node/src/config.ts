@@ -44,6 +44,10 @@ export function derivePublicationOutboxKey(identity: Identity): Uint8Array {
   return deriveLocalKey(identity, 'resonance-publication-outbox-key-v1');
 }
 
+export function derivePrivateRequestOutboxKey(identity: Identity): Uint8Array {
+  return deriveLocalKey(identity, 'resonance-private-request-outbox-key-v1');
+}
+
 function deriveLocalKey(identity: Identity, purpose: string): Uint8Array {
   // Domain-separated: hash(secretKey || domain) to produce a unique key for the store
   const domain = new TextEncoder().encode(purpose);

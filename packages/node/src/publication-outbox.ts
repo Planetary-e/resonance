@@ -75,7 +75,7 @@ export function openPublicationOutbox(options: {
       if (!verifyPublicationRecord(record) || record.createdAt > at || record.expiresAt <= at) {
         throw new Error('Only a currently valid signed publication can be held');
       }
-      validateRoute(route);
+      validatePrivatePublicationRoute(route);
       if (typeof localData !== 'string' || Buffer.byteLength(localData) > maxBytes) throw new Error('Invalid local outbox data');
       if (storage.read().entries.some(entry => entry.publicationId === record.publicationId)) {
         throw new Error('Publication already has an outbox entry');
@@ -170,7 +170,7 @@ export function openPublicationOutbox(options: {
         || typeof entry.mayHaveBeenSent !== 'boolean' || typeof entry.localData !== 'string'
         || (['held', 'cancelled'].includes(entry.state) && entry.mayHaveBeenSent)
         || (['sending', 'delivered', 'outcome-unknown'].includes(entry.state) && !entry.mayHaveBeenSent)) return false;
-      try { validateRoute(entry.route); } catch { return false; }
+      try { validatePrivatePublicationRoute(entry.route); } catch { return false; }
       ids.add(entry.id); publications.add(entry.publicationId);
     }
     return true;
@@ -184,7 +184,7 @@ function summary(entry: Entry): HeldPublicationSummary {
   return { id, publicationId, state, heldAt, expiresAt, mayHaveBeenSent };
 }
 
-function validateRoute(route: PrivatePublicationRoute): void {
+export function validatePrivatePublicationRoute(route: PrivatePublicationRoute): void {
   if (!route || typeof route !== 'object' || Array.isArray(route)
     || Object.keys(route).sort().join(',') !== 'fallbackUrls,privateEntryUrls,relayUrl'
     || !Array.isArray(route.fallbackUrls) || !Array.isArray(route.privateEntryUrls)

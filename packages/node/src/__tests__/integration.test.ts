@@ -472,9 +472,9 @@ describe('protocol v2 node-to-relay flow', () => {
     aliceChannels = createPairwiseChannelManagerV2(aliceStore, aliceClient);
     expect(aliceChannels.getByMatchId(matchId)?.localKeys.relationshipId).toBe(relationshipId);
 
-    const bobSync = await bobChannels.syncMailboxes();
+    const bobSync = await bobChannels.syncMailboxes({ publicationIds: [bobRecord.publicationId], relationshipIds: [] });
     expect(bobSync.channelsActivated).toBe(1);
-    const aliceSync = await aliceChannels.syncMailboxes();
+    const aliceSync = await aliceChannels.syncMailboxes({ publicationIds: [aliceRecord.publicationId], relationshipIds: [] });
     expect(aliceSync.channelsActivated).toBe(1);
 
     const aliceChannel = aliceChannels.getByMatchId(matchId)!;
@@ -525,10 +525,13 @@ describe('protocol v2 node-to-relay flow', () => {
     aliceChannels = createPairwiseChannelManagerV2(aliceStore, aliceClient);
     expect(aliceChannels.getByMatchId(matchId)?.pendingOutbound?.kind).toBe('channel-message');
     expect(aliceChannels.listMessages(aliceChannel.channelId!)[0].direction).toBe('sent');
-    await aliceChannels.syncMailboxes();
+    await aliceChannels.syncMailboxes({ publicationIds: [], relationshipIds: [] });
+    expect(aliceChannels.getByMatchId(matchId)?.pendingOutbound?.kind).toBe('channel-message');
+    expect(server.getStats().mailbox_envelopes).toBe(0);
+    await aliceChannels.syncMailboxes({ publicationIds: [], relationshipIds: [aliceChannel.localKeys.relationshipId] });
     expect(aliceChannels.getByMatchId(matchId)?.pendingOutbound).toBeNull();
     expect(server.getStats().mailbox_envelopes).toBe(1);
-    const bobMessageSync = await bobChannels.syncMailboxes();
+    const bobMessageSync = await bobChannels.syncMailboxes({ publicationIds: [], relationshipIds: [bobChannel.localKeys.relationshipId] });
     expect(bobMessageSync.channelOperationsProcessed).toBe(1);
     expect(bobChannels.listMessages(bobChannel.channelId!)).toEqual([
       expect.objectContaining({

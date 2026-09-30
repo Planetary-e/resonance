@@ -25,6 +25,13 @@ import {
   deriveStoreKey,
   derivePublicationOutboxKey,
   openPublicationOutbox,
+  openPrivateRequestOutbox,
+  derivePrivateRequestOutboxKey,
+  guardRelayClient,
+  type PrivateRequestOutbox,
+  type PrivateRequestIntent,
+  type PrivateRequestResult,
+  type HeldRequest,
   type PublicationOutbox,
   type PrivatePublicationRoute,
   type HeldPublicationSummary,
@@ -65,6 +72,8 @@ export interface Session {
   identityMgr: IdentityManager;
   remoteRelayUrls: string[];
   publicationOutbox: PublicationOutbox;
+  requestOutbox: PrivateRequestOutbox;
+  mailboxSync?: { controller: AbortController; client: RelayClient; pending: Promise<number> };
   privatePublicationRoute?: PrivatePublicationRoute;
 }
 
@@ -429,14 +438,39 @@ export async function unlockSession(password: string, relayUrl: string): Promise
   let privatePublicationRoute: PrivatePublicationRoute | undefined;
   const outboxKey = derivePublicationOutboxKey(identity);
   let publicationOutbox: PublicationOutbox;
+  let requestOutbox: PrivateRequestOutbox;
   let relayClient: RelayClient;
   try {
     privatePublicationRoute = configuredPrivateRoute();
     publicationOutbox = openPublicationOutbox({
       path: join(getDataDir(), 'publication-outbox.json'), encryptionKey: outboxKey,
     });
-    try { relayClient = createSessionRelayClient(urls, identity, privatePublicationRoute); }
-    catch (error) { publicationOutbox.close(); throw error; }
+    try {
+      const requestKey = derivePrivateRequestOutboxKey(identity);
+      try {
+        requestOutbox = openPrivateRequestOutbox({ path: join(getDataDir(), 'private-request-outbox.json'), encryptionKey: requestKey,
+          execute: async (intent, client, signal) => {
+            const current = session;
+            if (!current || current.store !== store) throw new Error('Session changed before release');
+            signal.throwIfAborted();
+            if (intent.kind === 'search') {
+              const response = await client.searchV2({ groupId: 'public', fingerprintEpoch: 'pilot-static-v1',
+                fingerprint: Buffer.from(intent.fingerprint, 'base64'), itemType: intent.itemType, k: 10, threshold: 0.65 });
+              return { kind: 'search', results: response.results };
+            }
+            assertMailboxTarget(current, intent);
+            const manager = createPairwiseChannelManagerV2(store, client);
+            const result = await manager.syncMailboxes({
+              publicationIds: intent.kind === 'publication-mailbox' ? [intent.publicationId] : [],
+              relationshipIds: intent.kind === 'relationship-mailbox' ? [intent.relationshipId] : [],
+            });
+            return { kind: 'mailbox', ...result };
+          },
+        });
+      } finally { requestKey.fill(0); }
+      try { relayClient = createSessionRelayClient(urls, identity, privatePublicationRoute); }
+      catch (error) { requestOutbox.close(); throw error; }
+    } catch (error) { publicationOutbox.close(); throw error; }
   } catch (error) { store.close(); identity.secretKey.fill(0); throw error; }
   finally { outboxKey.fill(0); }
   const pairwiseChannelMgr = createPairwiseChannelManagerV2(store, relayClient);
@@ -445,7 +479,7 @@ export async function unlockSession(password: string, relayUrl: string): Promise
   // the legacy root-authenticated socket closed prevents passive DID linkage.
   session = {
     identity, store, engine, relayClient, pairwiseChannelMgr,
-    identityMgr: mgr, remoteRelayUrls: uniqueRemoteUrls, publicationOutbox, privatePublicationRoute,
+    identityMgr: mgr, remoteRelayUrls: uniqueRemoteUrls, publicationOutbox, requestOutbox, privatePublicationRoute,
   };
   try { reconcileDeliveredPublications(session); }
   catch (error) { lockSession(); throw error; }
@@ -470,6 +504,8 @@ export function resetInactivityTimer(): void {
 export function lockSession(): void {
   if (inactivityTimer) { clearTimeout(inactivityTimer); inactivityTimer = null; }
   if (!session) return;
+  stopAutomaticMailboxSync(session);
+  session.requestOutbox.close();
   session.publicationOutbox.close();
   // VULN-16: Zero key material
   session.identity.secretKey.fill(0);
@@ -616,24 +652,107 @@ export async function withdrawItem(itemId: string): Promise<void> {
   }
 }
 
+function stopAutomaticMailboxSync(s: Session): void {
+  s.mailboxSync?.controller.abort(new Error('Automatic mailbox checks paused'));
+  s.mailboxSync?.client.disconnect();
+}
+
 export async function syncMatchMailboxes(): Promise<number> {
   const s = session!;
-  const activeBefore = new Set(
-    s.pairwiseChannelMgr.list().filter((channel) => channel.status === 'active').map((channel) => channel.matchId),
-  );
-  try {
-    const result = await s.pairwiseChannelMgr.syncMailboxes();
-    for (const channel of s.pairwiseChannelMgr.list()) {
-      if (channel.status === 'active' && !activeBefore.has(channel.matchId) && channel.channelId) {
-        sessionEvents.onChannelReady?.(channel.channelId, channel.matchId);
+  if (!s.requestOutbox.automaticMailboxes()) return 0;
+  if (s.mailboxSync) return s.mailboxSync.pending;
+  const controller = new AbortController();
+  // Isolate background checks so pausing them cannot cancel a publication/search.
+  const config = loadRelayConfig();
+  const urls = config.enabled ? [`ws://localhost:${config.port}`, ...s.remoteRelayUrls] : s.remoteRelayUrls;
+  const client = createSessionRelayClient(urls.length ? urls : ['ws://localhost:9090'], s.identity);
+  const manager = createPairwiseChannelManagerV2(s.store, guardRelayClient(client, controller.signal));
+  const pending = Promise.resolve().then(async () => {
+    try {
+      controller.signal.throwIfAborted();
+      const activeBefore = new Set(manager.list().filter(channel => channel.status === 'active').map(channel => channel.matchId));
+      const result = await manager.syncMailboxes();
+      for (const channel of manager.list()) {
+        if (channel.status === 'active' && !activeBefore.has(channel.matchId) && channel.channelId) {
+          sessionEvents.onChannelReady?.(channel.channelId, channel.matchId);
+        }
       }
-    }
-    return result.matchesAdded;
-  } catch {
-    // Durable envelopes remain available and will be retried on the next sync.
-    return 0;
+      return result.matchesAdded;
+    } catch { return 0; }
+    finally { client.disconnect(); if (s.mailboxSync?.controller === controller) s.mailboxSync = undefined; }
+  });
+  s.mailboxSync = { controller, client, pending };
+  return pending;
+}
+
+function assertMailboxTarget(s: Session, intent: Exclude<PrivateRequestIntent, { kind: 'search' }>): void {
+  if (intent.kind === 'publication-mailbox') {
+    const publication = s.store.getPublication(intent.publicationId);
+    if (!publication || publication.tombstone || publication.record.expiresAt <= Date.now()) throw new Error('Publication is no longer active; remove this saved check');
+  } else {
+    const channel = s.store.listPairwiseChannels().find(channel => channel.localKeys.relationshipId === intent.relationshipId);
+    if (!channel || !channel.channelId || channel.status === 'closed') throw new Error('Channel is no longer active; remove this saved check');
   }
 }
+
+export interface HeldRequestView extends Omit<HeldRequest, 'intent'> { kind: PrivateRequestIntent['kind']; label: string }
+export function listHeldRequests(): { automaticMailboxes: boolean; requests: HeldRequestView[];
+  mailboxes: Array<{ kind: 'publication-mailbox' | 'relationship-mailbox'; id: string; label: string }> } {
+  const s = session!;
+  return { automaticMailboxes: s.requestOutbox.automaticMailboxes(), requests: s.requestOutbox.list().map(entry => ({
+    id: entry.id, kind: entry.intent.kind, label: entry.intent.kind === 'search' ? entry.intent.text
+      : entry.intent.kind === 'publication-mailbox' ? s.store.getItem(s.store.getPublication(entry.intent.publicationId)?.itemId ?? '')?.rawText ?? 'Publication mailbox'
+      : 'Channel mailbox', state: entry.state, heldAt: entry.heldAt, expiresAt: entry.expiresAt,
+    attempts: entry.attempts, mayHaveBeenSent: entry.mayHaveBeenSent, result: entry.result,
+  })), mailboxes: [
+    ...s.store.listPublications().filter(publication => !publication.tombstone && publication.record.expiresAt > Date.now())
+      .map(publication => ({ kind: 'publication-mailbox' as const, id: publication.publicationId, label: s.store.getItem(publication.itemId)?.rawText ?? 'Publication mailbox' })),
+    ...s.store.listPairwiseChannels().filter(channel => channel.channelId && channel.status !== 'closed')
+      .map(channel => ({ kind: 'relationship-mailbox' as const, id: channel.localKeys.relationshipId, label: `Channel ${channel.channelId?.slice(0, 16)}` })),
+  ] };
+}
+
+export function setAutomaticMailboxChecks(enabled: boolean): void {
+  const s = session!;
+  s.requestOutbox.setAutomaticMailboxes(enabled);
+  if (!enabled) stopAutomaticMailboxSync(s);
+}
+
+export async function holdSearch(text: string, type: ItemType) {
+  const s = session!;
+  if (!s.privatePublicationRoute) throw new Error('Search hold requires the private transport pilot');
+  if (!text.trim() || Buffer.byteLength(text) > 8192) throw new Error('Saved search must contain 1–8192 bytes of text');
+  const embedding = await s.engine.embedForMatching(text, type);
+  if (session !== s) throw new Error('Session locked before saving');
+  const fingerprint = Buffer.from(hashEmbedding(embedding, getSharedProjectionMatrix())).toString('base64');
+  return s.requestOutbox.hold({ kind: 'search', text, itemType: type, fingerprint }, s.privatePublicationRoute);
+}
+
+export function holdMailboxCheck(kind: 'publication-mailbox' | 'relationship-mailbox', id: string) {
+  const s = session!;
+  if (!s.privatePublicationRoute) throw new Error('Mailbox hold requires the private transport pilot');
+  const intent: Exclude<PrivateRequestIntent, { kind: 'search' }> = kind === 'publication-mailbox' ? { kind, publicationId: id } : { kind, relationshipId: id };
+  assertMailboxTarget(s, intent);
+  const held = s.requestOutbox.hold(intent, s.privatePublicationRoute);
+  stopAutomaticMailboxSync(s);
+  return held;
+}
+
+export async function releaseHeldRequest(id: string): Promise<PrivateRequestResult> {
+  const s = session!;
+  // A previous automatic check may be unwinding. Stop its client before an explicit mailbox run.
+  const held = s.requestOutbox.list().find(entry => entry.id === id);
+  if (held?.intent.kind !== 'search') { stopAutomaticMailboxSync(s); await s.mailboxSync?.pending; }
+  if (session !== s) throw new Error('Session locked before release');
+  try {
+    const result = await s.requestOutbox.release(id);
+    if (session === s) relayActivity = 'succeeded';
+    return result;
+  } catch (error) { if (session === s) relayActivity = 'failed'; throw error; }
+}
+
+export function cancelHeldRequest(id: string): void { session!.requestOutbox.cancel(id); }
+export function removeHeldRequest(id: string): void { session!.requestOutbox.remove(id); }
 
 export async function searchRelay(text: string, type: ItemType): Promise<Array<{
   publicationId: string; similarity: number; itemType: string;

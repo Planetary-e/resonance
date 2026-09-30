@@ -101,3 +101,79 @@ it('holds and cancels locally across session restart, then explicitly releases o
   unavailable.mockRestore();
   expect((await request('/api/status')).status).toBe(200);
 }, 15_000);
+
+it('holds search and per-mailbox checks through restart and keeps automatic refresh quiet until explicitly enabled', async () => {
+  expect((await request('/api/private-requests/mailbox-mode', { automatic: false }, false)).status).toBe(401);
+  expect((await request('/api/private-requests/mailbox-mode', { automatic: false })).status).toBe(200);
+  const wire = vi.spyOn(WebSocket.prototype, 'send');
+  try {
+    const savedSearch = await request('/api/search', { text: 'I need patient gardening lessons.', type: 'need', delivery: 'hold' });
+    expect(savedSearch.status).toBe(200); expect(savedSearch.body.saved).toMatch(/^reqhold_/);
+    const publication = getSession()!.store.listPublications()[0];
+    const mailbox = await request('/api/private-requests/hold-mailbox', { kind: 'publication-mailbox', id: publication.publicationId });
+    expect(mailbox.status).toBe(200);
+    expect((await request('/api/private-requests/mailbox-mode', { automatic: true })).status).toBe(409);
+    for (const route of ['/api/matches', '/api/channels', '/api/channels/missing']) await request(route);
+    await request('/api/lock', {});
+    // Existing holds and the persistent pause remain manageable if pilot configuration is removed.
+    vi.stubEnv('RESONANCE_EXPERIMENTAL_PRIVATE_ROUTE_URLS', undefined);
+    const unlockedWithoutPilot = await request('/api/unlock', { password: 'test-password-for-outbox' });
+    expect(unlockedWithoutPilot.status).toBe(200); token = unlockedWithoutPilot.body.token;
+    expect((await request('/api/status')).body).toMatchObject({ privateDeliveryAvailable: false, savedRequestsAvailable: true, automaticMailboxes: false });
+    for (const route of ['/api/matches', '/api/channels', '/api/channels/missing']) await request(route);
+    const restored = await request('/api/private-requests');
+    expect(restored.body.automaticMailboxes).toBe(false);
+    expect(restored.body.requests.map((entry: { state: string }) => entry.state)).toEqual(['held', 'held']);
+    expect(JSON.stringify(restored.body)).not.toMatch(/fingerprint|relayUrl|secretKey/);
+    expect(readFileSync(join(directory, 'personal', 'private-request-outbox.json'), 'utf8')).not.toContain('gardening');
+    expect(wire).not.toHaveBeenCalled();
+    const searched = await request(`/api/private-requests/${savedSearch.body.saved}/release`, {});
+    expect(searched.status).toBe(200); expect(searched.body.result.kind).toBe('search');
+    expect(searched.body.result.results.length).toBeGreaterThan(0);
+    wire.mockClear();
+    const checked = await request(`/api/private-requests/${mailbox.body.saved}/release`, {});
+    expect(checked.status).toBe(200); expect(checked.body.result.kind).toBe('mailbox');
+    expect(wire).toHaveBeenCalled(); wire.mockClear();
+    await request('/api/matches'); await request('/api/channels'); expect(wire).not.toHaveBeenCalled();
+    // Completion and expiry are never permission to resume automatic checks.
+    expect((await request('/api/status')).body.automaticMailboxes).toBe(false);
+    const completed = (await request('/api/private-requests')).body.requests;
+    expect(completed.map((entry: { state: string }) => entry.state)).toEqual(['completed', 'completed']);
+    expect((await request('/api/private-requests/mailbox-mode', { automatic: true })).status).toBe(200);
+    expect((await request('/api/private-requests/mailbox-mode', { automatic: false })).status).toBe(200);
+    vi.stubEnv('RESONANCE_EXPERIMENTAL_PRIVATE_ROUTE_URLS', `${entryUrl},${destinationUrl}`);
+    await request('/api/lock', {});
+    token = (await request('/api/unlock', { password: 'test-password-for-outbox' })).body.token;
+    const cancelled = await request('/api/private-requests/hold-mailbox', { kind: 'publication-mailbox', id: publication.publicationId });
+    await request(`/api/private-requests/${cancelled.body.saved}/cancel`, {});
+    await request(`/api/private-requests/${cancelled.body.saved}/remove`, {});
+    expect(wire).not.toHaveBeenCalled();
+    expect((await request('/api/private-requests/mailbox-mode', { automatic: true })).status).toBe(200);
+    await request('/api/matches'); expect(wire).toHaveBeenCalled();
+  } finally { wire.mockRestore(); }
+}, 20_000);
+
+it('stops an in-flight automatic check when saving a mailbox hold and does not continue to other mailboxes', async () => {
+  const originalSend = WebSocket.prototype.send;
+  let replyWithheld = false;
+  const wire = vi.spyOn(WebSocket.prototype, 'send').mockImplementation(function (this: WebSocket, data, ...args) {
+    const port = (this as unknown as { _socket?: { localPort?: number } })._socket?.localPort;
+    if (port === basePort && typeof data === 'string' && JSON.parse(data).type === 'private_response') {
+      replyWithheld = true; return;
+    }
+    return Reflect.apply(originalSend, this, [data, ...args]);
+  });
+  const pending = request('/api/matches');
+  try {
+    await vi.waitFor(() => expect(replyWithheld).toBe(true), { timeout: 6000, interval: 20 });
+    const publication = getSession()!.store.listPublications()[0];
+    expect((await request('/api/private-requests/hold-mailbox', { kind: 'publication-mailbox', id: publication.publicationId })).status).toBe(200);
+    expect((await pending).status).toBe(200);
+    expect(getSession()!.mailboxSync).toBeUndefined();
+    const payloads = wire.mock.calls.filter(([data]) => typeof data === 'string' && JSON.parse(data).stage === 'entry');
+    expect(payloads).toHaveLength(1);
+    wire.mockClear();
+    await request('/api/matches'); await request('/api/channels');
+    expect(wire).not.toHaveBeenCalled();
+  } finally { wire.mockRestore(); await pending; }
+}, 15_000);

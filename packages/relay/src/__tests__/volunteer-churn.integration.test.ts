@@ -151,6 +151,7 @@ async function fetch(port: number, record: PublicationRecord, keys: PublicationK
   const response = await request(port, serializeMailboxRequestFrame(createMailboxRequestFrame(
     createMailboxRequest('fetch', record, keys, [], Date.now()),
   ))) as Message<{ envelopes: Array<{ envelopeId: string }> }>;
+  expect(Array.isArray(response.payload.envelopes), JSON.stringify(response.payload)).toBe(true);
   return response.payload.envelopes.map(envelope => envelope.envelopeId);
 }
 
@@ -248,7 +249,9 @@ describe('five-relay volunteer churn and partition', () => {
     const emptyJournalRestartStarted = Date.now();
     await targets[1].start();
     runningTargets.add(1);
-    await waitFor(() => targets[1].getStats().active_publications === 2);
+    // Three publications now exist. Two repaired records can be the need and the later offer,
+    // leaving this offer's mailbox absent; repair order is not guaranteed.
+    await waitFor(() => targets[1].getStats().active_publications === 3);
     await waitFor(async () => (await fetch(TARGET_PORTS[1], offer.record, offer.keys)).includes(noticeId));
     const emptyJournalRepairMs = Date.now() - emptyJournalRestartStarted;
 

@@ -27,6 +27,7 @@ import {
   withdrawItem,
   syncMatchMailboxes,
   searchRelay,
+  holdSearch, holdMailboxCheck, listHeldRequests, releaseHeldRequest, cancelHeldRequest, removeHeldRequest, setAutomaticMailboxChecks,
   initiateChannel,
 } from './session.js';
 
@@ -147,6 +148,8 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
       relayActivity: getRelayActivity(),
       relayMode: isRelayMode(),
       privateDeliveryAvailable: !!s?.privatePublicationRoute,
+      savedRequestsAvailable: !!s && (!!s.privatePublicationRoute || !s.requestOutbox.automaticMailboxes() || s.requestOutbox.list().length > 0),
+      automaticMailboxes: s?.requestOutbox.automaticMailboxes() ?? true,
       items: s ? listSessionItems().length : 0,
       matches: s ? listExternalMailboxMatches().length : 0,
     });
@@ -267,6 +270,39 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
     return true;
   }
 
+  if (url === '/api/private-requests' && method === 'GET') {
+    if (!requireAuth(req, res)) return true;
+    json(res, listHeldRequests()); return true;
+  }
+  if (url === '/api/private-requests/mailbox-mode' && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    const body = await readBody(req);
+    if (typeof body.automatic !== 'boolean') { error(res, 'Automatic must be true or false'); return true; }
+    try { setAutomaticMailboxChecks(body.automatic); json(res, { ok: true }); }
+    catch (err) { error(res, err instanceof Error ? err.message : 'Could not change mailbox checks', 409); }
+    return true;
+  }
+  if (url === '/api/private-requests/hold-mailbox' && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    const body = await readBody(req);
+    if (!['publication-mailbox', 'relationship-mailbox'].includes(String(body.kind)) || typeof body.id !== 'string') {
+      error(res, 'A valid mailbox is required'); return true;
+    }
+    try { const held = holdMailboxCheck(body.kind as 'publication-mailbox' | 'relationship-mailbox', body.id); json(res, { saved: held.id }); }
+    catch (err) { error(res, err instanceof Error ? err.message : 'Could not save mailbox check', 409); }
+    return true;
+  }
+  const heldAction = /^\/api\/private-requests\/(reqhold_[a-f0-9]{32})\/(release|cancel|remove)$/.exec(url);
+  if (heldAction && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    try {
+      const [, id, action] = heldAction;
+      if (action === 'release') json(res, { result: await releaseHeldRequest(id) });
+      else { if (action === 'cancel') cancelHeldRequest(id); else removeHeldRequest(id); json(res, { ok: true }); }
+    } catch (err) { error(res, err instanceof Error ? err.message : 'Saved request failed', 503); }
+    return true;
+  }
+
   // --- Search ---
 
   if (url === '/api/search' && method === 'POST') {
@@ -275,11 +311,14 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
     const text = body.text as string;
     const type = (body.type ?? 'need') as string;
     if (!text) { error(res, 'Text required'); return true; }
+    if (typeof text !== 'string' || !['need', 'offer'].includes(type)) { error(res, 'Valid search text and type required'); return true; }
+    if (body.delivery !== undefined && body.delivery !== 'send' && body.delivery !== 'hold') { error(res, 'Delivery must be send or hold'); return true; }
     try {
+      if (body.delivery === 'hold') { const held = await holdSearch(text, type as any); json(res, { saved: held.id }); return true; }
       const results = await searchRelay(text, type as any);
       json(res, { results });
     } catch (err) {
-      error(res, 'Internal error', 500);
+      error(res, err instanceof Error ? err.message : 'Search failed', 503);
     }
     return true;
   }

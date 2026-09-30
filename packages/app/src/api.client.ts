@@ -33,6 +33,8 @@ export interface StatusResponse {
   relayActivity: 'not-checked' | 'succeeded' | 'failed';
   relayMode: boolean;
   privateDeliveryAvailable: boolean;
+  savedRequestsAvailable: boolean;
+  automaticMailboxes: boolean;
   items: number;
   matches: number;
 }
@@ -232,8 +234,9 @@ export async function getMatches(): Promise<Match[]> {
 export async function search(
   text: string,
   type: 'need' | 'offer',
-): Promise<{ results: SearchResult[]; error?: string }> {
-  return api('POST', '/api/search', { text, type });
+  delivery: 'send' | 'hold' = 'send',
+): Promise<{ results?: SearchResult[]; saved?: string; error?: string }> {
+  return api('POST', '/api/search', { text, type, delivery });
 }
 
 // ============================================================================
@@ -330,3 +333,22 @@ export function connectEvents(
 
   return ws;
 }
+
+export interface HeldPrivateRequest {
+  id: string; kind: 'search' | 'publication-mailbox' | 'relationship-mailbox'; label: string;
+  state: 'held' | 'sending' | 'completed' | 'cancelled' | 'expired' | 'outcome-unknown';
+  heldAt: number; expiresAt: number; attempts: number; mayHaveBeenSent: boolean;
+  result: { kind: 'search'; results: SearchResult[] } | { kind: 'mailbox'; matchesAdded: number; messagesProcessed: number; channelOperationsProcessed: number; channelsActivated: number } | null;
+}
+export interface PrivateRequestList {
+  automaticMailboxes: boolean; requests: HeldPrivateRequest[];
+  mailboxes: Array<{ kind: 'publication-mailbox' | 'relationship-mailbox'; id: string; label: string }>;
+}
+export function getPrivateRequests() { return api<PrivateRequestList>('GET', '/api/private-requests'); }
+export function privateRequestAction(id: string, action: 'release' | 'cancel' | 'remove') {
+  return api<{ result?: NonNullable<HeldPrivateRequest['result']> }>('POST', `/api/private-requests/${id}/${action}`);
+}
+export function holdMailboxCheck(kind: 'publication-mailbox' | 'relationship-mailbox', id: string) {
+  return api('POST', '/api/private-requests/hold-mailbox', { kind, id });
+}
+export function setAutomaticMailboxChecks(automatic: boolean) { return api('POST', '/api/private-requests/mailbox-mode', { automatic }); }
