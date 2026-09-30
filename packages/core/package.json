@@ -7,7 +7,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./local-state": "./src/local-encrypted-state.ts",
-    "./admission-policy": "./src/admission-policy.ts"
+    "./admission-policy": "./src/admission-policy.ts",
+    "./admission-witness": "./src/admission-witness.ts"
   },
   "scripts": {
     "build": "tsc",

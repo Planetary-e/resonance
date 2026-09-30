@@ -4,6 +4,7 @@
  */
 
 import { Buffer } from 'node:buffer';
+import type { AdmissionWitness } from './admission-witness.js';
 import { createHash, X509Certificate } from 'node:crypto';
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
 import { createServer as createHttpsServer, type Server as HttpsServer } from 'node:https';
@@ -294,6 +295,8 @@ export interface RelayConfig {
   inboundReplicaTargetIds?: string[];
   /** When set, every v2 operation must present an anonymous one-use capability. */
   admissionVerifier?: AdmissionCapabilityVerifierV2;
+  /** Optional fixed-membership witness role; votes contain only request/token digests. */
+  admissionWitness?: AdmissionWitness;
   /** Shared queue for experimental private forwards; false is an explicit unmixed mode. */
   privateEntryMix?: PrivateEntryMixOptions | false;
   /** Independent shared queue for encrypted private replies; enabled by default. */
@@ -3399,6 +3402,16 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       // a short connection and never send the user's root identity.
       let frameCandidate: unknown;
       try { frameCandidate = JSON.parse(raw); } catch { /* handled by v1 parser below */ }
+      if (!linkedRelayId && isObject(frameCandidate) && frameCandidate.kind === 'admission-witness-request') {
+        clearTimeout(authTimeout);
+        if (stopping || isBinary || data.byteLength > 4096 || !cfg.admissionWitness
+          || !rateLimiter.check(`witness:${ip}`, 'discovery')) {
+          ws.close(4008, 'admission_witness_unavailable'); return;
+        }
+        try { sendClientResponse(JSON.stringify(cfg.admissionWitness.vote(frameCandidate, () => cfg.acceptNewWork?.(data.byteLength) !== false)), 'admission_witness_complete'); }
+        catch { ws.close(4003, 'admission_witness_refused'); }
+        return;
+      }
       if (!linkedRelayId && isObject(frameCandidate) && frameCandidate.stage === 'entry') {
         clearTimeout(authTimeout);
         if (isBinary || !rateLimiter.check(`transport:${ip}`, 'discovery')) {

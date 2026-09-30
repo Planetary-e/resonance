@@ -1,5 +1,6 @@
 /** Backend-only shared community admission policy: a pinned authority, revisions and cutoffs. */
 import { createHash } from 'node:crypto';
+import { parseAdmissionWitnessSet, type AdmissionWitnessSet } from './admission-witness.js';
 import { sign, verify } from './crypto.js';
 import { openEncryptedLocalState } from './local-encrypted-state.js';
 import { admissionKeyFingerprint, parseAdmissionWalletProfile, type AdmissionWalletProfileV1 } from './admission-profile.js';
@@ -8,6 +9,7 @@ export { admissionKeyFingerprint, normalizeAdmissionRelay, parseAdmissionWalletP
 export interface AdmissionPolicyKey {
   profile: AdmissionWalletProfileV1;
   notBefore: number; issueUntil: number; spendUntil: number; retryUntil: number;
+  witnesses?: AdmissionWitnessSet;
 }
 export interface AdmissionPolicyBody {
   version: 1; kind: 'admission-policy'; revision: number; issuedAt: number; expiresAt: number;
@@ -24,7 +26,8 @@ function bytes(value: unknown, size: number): value is string {
 function timestamp(value: unknown): value is number { return Number.isSafeInteger(value) && (value as number) >= 0; }
 function payload(body: AdmissionPolicyBody) {
   return Buffer.from(`${DOMAIN}\n${JSON.stringify([body.version, body.kind, body.revision, body.issuedAt, body.expiresAt, body.activeKey,
-    body.keys.map(entry => [entry.profile, entry.notBefore, entry.issueUntil, entry.spendUntil, entry.retryUntil])])}`);
+    body.keys.map(entry => [entry.profile, entry.notBefore, entry.issueUntil, entry.spendUntil, entry.retryUntil,
+      ...(entry.witnesses ? [entry.witnesses] : [])])])}`);
 }
 export function admissionAuthorityFingerprint(authority: string) {
   if (!bytes(authority, 32)) throw new Error('Invalid community authority key');
@@ -39,12 +42,14 @@ async function parseBody(value: unknown): Promise<AdmissionPolicyBody> {
     || JSON.stringify(value).length > 64 * 1024) throw new Error('Invalid signed admission policy');
   const input = structuredClone(value); const keys: AdmissionPolicyKey[] = []; const seen = new Set<string>();
   for (const entry of input.keys as unknown[]) {
-    if (!exact(entry, ['profile','notBefore','issueUntil','spendUntil','retryUntil'])
+    if (!exact(entry, ['profile','notBefore','issueUntil','spendUntil','retryUntil',
+      ...(entry && typeof entry === 'object' && Object.hasOwn(entry, 'witnesses') ? ['witnesses'] : [])])
       || !timestamp(entry.notBefore) || !timestamp(entry.issueUntil) || !timestamp(entry.spendUntil) || !timestamp(entry.retryUntil)
       || entry.notBefore >= entry.issueUntil || entry.issueUntil > entry.spendUntil || entry.spendUntil > entry.retryUntil) throw new Error('Invalid admission key cutoffs');
     const { profile } = await parseAdmissionWalletProfile(entry.profile); const id = admissionKeyFingerprint(profile.issuerPublicKey);
     if (seen.has(id)) throw new Error('Duplicate issuer key in admission policy');
-    seen.add(id); keys.push({ profile, notBefore: entry.notBefore, issueUntil: entry.issueUntil, spendUntil: entry.spendUntil, retryUntil: entry.retryUntil });
+    seen.add(id); keys.push({ profile, notBefore: entry.notBefore, issueUntil: entry.issueUntil, spendUntil: entry.spendUntil, retryUntil: entry.retryUntil,
+      ...(Object.hasOwn(entry, 'witnesses') ? { witnesses: parseAdmissionWitnessSet(entry.witnesses) } : {}) });
   }
   if (!seen.has(input.activeKey as string)) throw new Error('Active issuer key is absent from the policy');
   return { version: 1, kind: 'admission-policy', revision: input.revision as number, issuedAt: input.issuedAt as number,
@@ -78,7 +83,7 @@ export function assertAdmissionPolicySuccessor(previous: SignedAdmissionPolicy, 
   if (next.issuedAt < previous.issuedAt) throw new Error('Admission policy date moved backwards');
   for (const old of previous.keys) {
     const entry = next.keys.find(key => admissionKeyFingerprint(key.profile.issuerPublicKey) === admissionKeyFingerprint(old.profile.issuerPublicKey));
-    if (!entry || JSON.stringify(entry.profile) !== JSON.stringify(old.profile) || entry.notBefore !== old.notBefore
+    if (!entry || JSON.stringify(entry.profile) !== JSON.stringify(old.profile) || JSON.stringify(entry.witnesses) !== JSON.stringify(old.witnesses) || entry.notBefore !== old.notBefore
       || entry.issueUntil > old.issueUntil || entry.spendUntil > old.spendUntil || entry.retryUntil > old.retryUntil) {
       throw new Error('A policy must retain prior keys and cannot change their pins or extend retirement cutoffs');
     }

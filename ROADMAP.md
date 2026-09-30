@@ -210,7 +210,8 @@ The five-target placement goal remains conditional on enough eligible volunteers
   - [x] Document offline volunteer issuance and the need for an audited threshold scheme before splitting one issuer key among volunteers
 - [ ] Replicate spent-token identifiers and define deterministic handling of double spends during partitions
   - [x] Specify fail-closed four-of-five witness certificates for one-malicious-witness tolerance; local spent-ID copying is explicitly insufficient
-  - [ ] Implement signed, fsynced witness votes, fixed membership, certificate checks, and partition/restart tests
+  - [x] Implement signed, fsynced witness votes with issuer-key-pinned five-member sets, four-signature certificates, bounded real relay exchanges, and partition/concurrency/crash/restart tests
+  - [ ] Measure quorum availability, delay, bandwidth, and power with volunteer-device outages; resolve safe witness replacement, membership governance, and history compaction before enabling admission by default
 - [ ] Measure protection against a curious relay, colluding relays, Sybil relays, and a network observer
   - [x] Capture entry and destination observations in separate local processes and demonstrate the original unpadded frame-length leak, then verify bucket padding removes exact-length differences within a bucket
   - [x] Run an eight-client local timing diagnostic across burst and sparse workloads: scheduling reduced burst action-order matches to 4/24, but inter-hop order still matched 24/24 in every condition; retain the report and traces without claiming Internet anonymity

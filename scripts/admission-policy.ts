@@ -9,13 +9,13 @@ try {
   if (extra.length || !first) throw new Error('Invalid policy command');
   const read = (path: string) => { if (statSync(path).size > 65536) throw new Error('Policy input exceeds 64 KiB'); return readFileSync(path, 'utf8'); };
   const write = (path: string, data: string) => writeFileSync(path, data + '\n', { flag: 'wx', mode: 0o600 });
-  if (command === 'authority-keygen' && second && !third) {
+  if ((command === 'authority-keygen' || command === 'participant-keygen') && second && !third) {
     if (existsSync(first) || existsSync(second)) throw new Error('Authority output already exists');
     const key = generateSigningKeyPair();
     try {
       const publicKey = Buffer.from(key.publicKey).toString('base64url');
       write(first, JSON.stringify({ publicKey, secretKey: Buffer.from(key.secretKey).toString('base64url') }));
-      write(second, publicKey); console.log(`Community authority: ${admissionAuthorityFingerprint(publicKey)}`);
+      write(second, publicKey); console.log(`${command === 'authority-keygen' ? 'Community authority' : 'Admission participant'}: ${admissionAuthorityFingerprint(publicKey)}`);
     } finally { key.secretKey.fill(0); }
   } else if (command === 'storage-keygen' && !second && !third) {
     const key = randomBytes(32); try { write(first, key.toString('hex')); } finally { key.fill(0); }
@@ -31,6 +31,7 @@ try {
   console.error(error instanceof Error ? error.message : 'Policy operation failed');
   console.error('Usage: node --import tsx scripts/admission-policy.ts authority-keygen authority-private.json authority.pub');
   console.error('       node --import tsx scripts/admission-policy.ts storage-keygen local-policy-key.hex');
+  console.error('       node --import tsx scripts/admission-policy.ts participant-keygen participant-private.json participant.pub');
   console.error('       node --import tsx scripts/admission-policy.ts sign authority-private.json policy-body.json policy.json');
   process.exitCode = 1;
 }

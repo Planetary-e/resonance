@@ -98,3 +98,4 @@ export { log } from './logger.js';
 export { HnswIndex, MatchingIndex, type HnswIndexConfig, type VectorMetadata } from './hnsw.js';
 
 export { createConfiguredAdmissionVerifier } from './configured-admission-verifier.js';
+export { createAdmissionWitness, createAdmissionQuorumGate, type AdmissionWitness, type AdmissionWitnessTransport } from './admission-witness.js';

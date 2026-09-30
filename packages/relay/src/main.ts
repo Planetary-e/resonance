@@ -6,12 +6,15 @@
 
 import { readFileSync, statSync } from 'node:fs';
 import { createRelayContactHintV1 } from '@resonance/core';
+import { copyAdmissionSigningKey } from '@resonance/core/admission-witness';
 import { log } from './logger.js';
 import { localRelayEndpoints, startLanDiscovery } from './lan-discovery.js';
 import { OwnerResourcePolicy } from './owner-resource-policy.js';
 import { RelayTrafficMeter } from './relay-resource-meter.js';
 import { createRelayServer } from './server.js';
 import { createConfiguredAdmissionVerifier } from './configured-admission-verifier.js';
+import type { AdmissionCapabilityVerifierV2 } from './admission.js';
+import type { AdmissionWitness } from './admission-witness.js';
 import { createLocalBlindAdmissionVerifierV2 } from './blind-admission-verifier.js';
 
 const relayPort = parseNonNegativeInteger(process.env.RELAY_PORT, 9090, 'RELAY_PORT');
@@ -117,10 +120,27 @@ if (policyFiles.some(Boolean) && (!policyFiles.every(Boolean) || admissionSettin
 function policyFile(path: string) { if (statSync(path).size > 64 * 1024) throw new Error('Admission policy input is too large'); return readFileSync(path, 'utf8'); }
 const policyKeyHex = policyFiles.every(Boolean) ? policyFile(policyFiles[2]!).trim() : undefined;
 if (policyKeyHex !== undefined && !/^[a-f0-9]{64}$/.test(policyKeyHex)) throw new Error('Policy storage key must be 32 bytes encoded as lowercase hex');
-const admissionVerifier = policyFiles.every(Boolean)
+const witnessKeyFile = process.env.RELAY_ADMISSION_WITNESS_KEY_FILE;
+const coordinatorKeyFile = process.env.RELAY_ADMISSION_COORDINATOR_KEY_FILE;
+if ((witnessKeyFile || coordinatorKeyFile || process.env.RELAY_ADMISSION_WITNESS_INITIALIZE === 'true') && !policyFiles.every(Boolean)) {
+  throw new Error('Admission witness roles require signed community policy');
+}
+function signingKeyFile(path: string) {
+  const value = JSON.parse(policyFile(path));
+  if (typeof value.publicKey !== 'string' || typeof value.secretKey !== 'string') throw new Error('Invalid admission signing key file');
+  const secretKey = Buffer.from(value.secretKey, 'base64url');
+  try { return copyAdmissionSigningKey({ publicKey: Buffer.from(value.publicKey, 'base64url'), secretKey }); }
+  finally { secretKey.fill(0); }
+}
+const witnessKey = witnessKeyFile ? signingKeyFile(witnessKeyFile) : undefined;
+const coordinatorKey = coordinatorKeyFile ? signingKeyFile(coordinatorKeyFile) : undefined;
+const resourceMeter = new RelayTrafficMeter(relayDataDir);
+const admissionVerifier: (AdmissionCapabilityVerifierV2 & { close(): void; witness?: AdmissionWitness }) | undefined = policyFiles.every(Boolean)
   ? await createConfiguredAdmissionVerifier({ directory: relayDataDir, authority: policyFile(policyFiles[0]!).trim(),
     policy: JSON.parse(policyFile(policyFiles[1]!)), encryptionKey: Buffer.from(policyKeyHex!, 'hex'),
-    initialize: process.env.RELAY_ADMISSION_POLICY_INITIALIZE === 'true' })
+    initialize: process.env.RELAY_ADMISSION_POLICY_INITIALIZE === 'true', witnessKey, coordinatorKey,
+    onWitnessSocket: socket => resourceMeter.observe(socket),
+    initializeWitnessState: process.env.RELAY_ADMISSION_WITNESS_INITIALIZE === 'true' ? true : undefined })
   : admissionSettings.every(Boolean)
   ? createLocalBlindAdmissionVerifierV2({
     directory: relayDataDir,
@@ -131,7 +151,7 @@ const admissionVerifier = policyFiles.every(Boolean)
     },
     issuerPublicKey: await importAdmissionPublicKey(process.env.RELAY_ADMISSION_PUBLIC_KEY_FILE!),
   }) : undefined;
-const resourceMeter = new RelayTrafficMeter(relayDataDir);
+witnessKey?.secretKey.fill(0); coordinatorKey?.secretKey.fill(0);
 const ownerPolicy = ownerBandwidth !== undefined || ownerTotalBandwidth !== undefined || ownerCpu !== undefined
   || ownerSchedule !== undefined || ownerExternalPower
   ? new OwnerResourcePolicy({
@@ -153,6 +173,7 @@ const server = createRelayServer({
   host: relayHost,
   persistDir: relayDataDir,
   admissionVerifier,
+  admissionWitness: admissionVerifier?.witness,
   resourceMeter,
   adminApiKey: process.env.RELAY_ADMIN_API_KEY || null,
   acceptNewWork: ownerPolicy ? bytes => ownerPolicy.allowNewWork(bytes) : undefined,

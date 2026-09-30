@@ -30,6 +30,8 @@ export function createLocalBlindAdmissionVerifierV2(options: {
   scope?: BlindAdmissionScopeV2;
   issuerPublicKey?: CryptoKey;
   keyPolicies?: () => Array<{ scope: BlindAdmissionScopeV2; issuerPublicKey: CryptoKey; mode: 'all' | 'replay-only' | 'none' }>;
+  /** Persist a quorum certificate before the local spend can be accepted. */
+  beforeSpend?: (spend: string, context: AdmissionVerificationContextV2, issuerPublicKey: CryptoKey) => Promise<void>;
   maxSpends?: number;
 }): AdmissionCapabilityVerifierV2 & { close(): void } {
   if (!options.keyPolicies && (!options.scope || !options.issuerPublicKey)) throw new Error('Admission verification requires a key policy');
@@ -72,7 +74,14 @@ export function createLocalBlindAdmissionVerifierV2(options: {
         // Re-evaluate dates after asynchronous crypto; crossing a cutoff must not accept new work.
         const current = policy().find(key => key.issuerPublicKey === entry.issuerPublicKey);
         if (!current || current.mode === 'none') return { status: 'rejected', reason: 'key_retired' };
-        return recordSpend(spend, context, current.mode);
+        const previous = spends.get(spend);
+        if (previous !== undefined && previous !== `${context.action}\n${context.requestBinding}`) return { status: 'rejected', reason: 'double_spend' };
+        if (previous === undefined && current.mode === 'replay-only') return { status: 'rejected', reason: 'key_retired' };
+        if (options.beforeSpend) await options.beforeSpend(spend, context, entry.issuerPublicKey);
+        if (closed || poisoned) throw new Error('Admission spend log is unavailable');
+        const final = policy().find(key => key.issuerPublicKey === entry.issuerPublicKey);
+        if (!final || final.mode === 'none') return { status: 'rejected', reason: 'key_retired' };
+        return recordSpend(spend, context, final.mode);
       }
       return { status: 'rejected', reason: 'invalid_token' };
     },
