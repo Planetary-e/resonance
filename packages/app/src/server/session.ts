@@ -794,6 +794,20 @@ export async function importAdmissionTokens(tokens: readonly string[]): Promise<
   return count;
 }
 
+export async function requestAdmissionTokens(count: number) {
+  const s = session!;
+  const request = await s.admissionWallet.requestTokens(count);
+  if (session !== s) throw new Error('Session locked during token request');
+  return request;
+}
+export async function completeAdmissionIssuance(response: unknown) {
+  const s = session!;
+  const imported = await s.admissionWallet.completeIssuance(response);
+  if (session !== s) throw new Error('Session locked during token issuance');
+  return imported;
+}
+export function cancelAdmissionIssuance() { session!.admissionWallet.cancelIssuance(); }
+
 export async function searchRelay(text: string, type: ItemType): Promise<Array<{
   publicationId: string; similarity: number; itemType: string;
 }>> {

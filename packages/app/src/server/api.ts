@@ -9,6 +9,7 @@ import {
   ModelLoadError,
   WalletLoadError,
   getAdmissionWalletStatus, configureAdmissionWallet, importAdmissionTokens,
+  requestAdmissionTokens, completeAdmissionIssuance, cancelAdmissionIssuance,
   listExternalMailboxMatches,
   getRelayActivity,
   isUnlocked,
@@ -214,6 +215,27 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
     }
     try { const imported = await importAdmissionTokens(body.tokens as string[]); json(res, { imported }); }
     catch (err) { error(res, err instanceof Error ? err.message : 'Token import failed', 409); }
+    return true;
+  }
+
+  if (url === '/api/admission-wallet/request' && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    const body = await readBody(req);
+    if (typeof body.count !== 'number') { error(res, 'Choose a token count'); return true; }
+    try { json(res, { request: await requestAdmissionTokens(body.count) }); }
+    catch (err) { error(res, err instanceof Error ? err.message : 'Token request failed', 409); }
+    return true;
+  }
+  if (url === '/api/admission-wallet/complete' && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    try { json(res, { imported: await completeAdmissionIssuance(await readBody(req)) }); }
+    catch (err) { error(res, err instanceof Error ? err.message : 'Token issuance failed', 409); }
+    return true;
+  }
+  if (url === '/api/admission-wallet/cancel' && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    try { cancelAdmissionIssuance(); json(res, { ok: true }); }
+    catch (err) { error(res, err instanceof Error ? err.message : 'Cancellation failed', 409); }
     return true;
   }
 

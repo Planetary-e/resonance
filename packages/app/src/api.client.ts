@@ -356,10 +356,16 @@ export function setAutomaticMailboxChecks(automatic: boolean) { return api('POST
 export interface AdmissionWalletStatus {
   configured: boolean; scope?: { issuer: string; community: string; epoch: string };
   keyFingerprint?: string; relayUrls?: string[];
-  available: number; reserved: number; total: number; capacity: number;
+  available: number; reserved: number; total: number; capacity: number; availableCapacity: number;
+  archived: Array<{ scope: { issuer: string; community: string; epoch: string }; keyFingerprint: string; available: number; reserved: number }>;
+  pendingIssuance?: { batchId: string; requests: string[] };
 }
 export function getAdmissionWallet() { return api<AdmissionWalletStatus>('GET', '/api/admission-wallet'); }
 export function configureAdmissionWallet(profile: { version: 1; scope: NonNullable<AdmissionWalletStatus['scope']>; issuerPublicKey: string; relayUrls: string[] }) {
   return api('POST', '/api/admission-wallet/configure', profile);
 }
 export function importAdmissionTokens(tokens: string[]) { return api<{ imported: number }>('POST', '/api/admission-wallet/import', { tokens }); }
+
+export function requestAdmissionTokens(count: number) { return api('POST', '/api/admission-wallet/request', { count }); }
+export function completeAdmissionIssuance(response: unknown) { return api<{ imported: number }>('POST', '/api/admission-wallet/complete', response); }
+export function cancelAdmissionIssuance() { return api('POST', '/api/admission-wallet/cancel'); }

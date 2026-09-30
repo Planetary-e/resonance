@@ -46,3 +46,5 @@ export {
 
 export { openPrivateRequestOutbox, guardRelayClient, PRIVATE_REQUEST_HOLD_LIFETIME_MS,
   type PrivateRequestOutbox, type PrivateRequestIntent, type PrivateRequestResult, type HeldRequest } from './private-request-outbox.js';
+
+export { issueAdmissionBatch, type AdmissionIssuanceRequest, type AdmissionIssuanceResponse } from './blind-admission-issuance.js';

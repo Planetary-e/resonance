@@ -6,6 +6,7 @@ import WebSocket from 'ws';
 import { publicVerif } from '@cloudflare/privacypass-ts';
 import { EmbeddingEngine, createBlindAdmissionRequestV2, issueBlindAdmissionRequestV2 } from '@resonance/core';
 import { createRelayServer, createLocalBlindAdmissionVerifierV2, type RelayServer } from '@resonance/relay';
+import { issueAdmissionBatch } from '@resonance/node';
 import { createAppServer, type AppServer } from '../server.js';
 import { getSession, lockSession } from '../session.js';
 
@@ -14,6 +15,7 @@ const port = 50_100 + Math.floor(Math.random() * 400);
 const entryUrl = `ws://127.0.0.1:${port}/`; const destinationUrl = `ws://[::1]:${port + 1}/`;
 const scope = { issuer: 'desktop-test-community', community: 'public', epoch: '2026-09' };
 let app: AppServer; let base: string; let auth = ''; let profile: unknown;
+let issuerKeys: CryptoKeyPair;
 let verifier: ReturnType<typeof createLocalBlindAdmissionVerifierV2>;
 const relays: RelayServer[] = []; const tokens: string[] = [];
 let publicationHold: string; let searchHold: string;
@@ -33,6 +35,7 @@ beforeAll(async () => {
   vi.spyOn(EmbeddingEngine.prototype, 'initialize').mockResolvedValue();
   vi.spyOn(EmbeddingEngine.prototype, 'embedForMatching').mockResolvedValue(new Float32Array(768).fill(1 / Math.sqrt(768)));
   const keys = await publicVerif.Issuer.generateKey(publicVerif.BlindRSAMode.PSS, { modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]) });
+  issuerKeys = keys;
   const issuer = new publicVerif.Issuer(publicVerif.BlindRSAMode.PSS, scope.issuer, keys.privateKey, keys.publicKey);
   const der = Buffer.from(await crypto.subtle.exportKey('spki', keys.publicKey)).toString('base64');
   profile = { version: 1, scope, issuerPublicKey: `-----BEGIN PUBLIC KEY-----\n${der}\n-----END PUBLIC KEY-----`, relayUrls: [destinationUrl] };
@@ -139,3 +142,35 @@ it('never downgrades to direct token delivery when private routing is removed, w
   expect((await request(`/api/private-requests/${held.body.saved}/release`, {})).status).toBe(200);
   expect((await request('/api/admission-wallet')).body).toMatchObject({ available: 1, reserved: 7 });
 }, 10_000);
+
+it('prepares blinded requests without relay traffic and redeems newly issued tokens through the desktop private route', async () => {
+  vi.stubEnv('RESONANCE_EXPERIMENTAL_PRIVATE_ROUTE_URLS', `${entryUrl},${destinationUrl}`); await restart();
+  for (const path of ['request', 'complete', 'cancel']) {
+    expect((await request(`/api/admission-wallet/${path}`, { count: 2 }, false)).status).toBe(401);
+  }
+  const wire = vi.spyOn(WebSocket.prototype, 'send');
+  try {
+    expect((await request('/api/admission-wallet/request', { count: 33 })).status).toBe(409);
+    const prepared = await request('/api/admission-wallet/request', { count: 2 }); expect(prepared.status).toBe(200);
+    const blinded = prepared.body.request;
+    expect(JSON.stringify(blinded)).not.toContain(getSession()!.identity.did);
+    const response = await issueAdmissionBatch({ request: blinded, expectedProfile: profile, privateKey: issuerKeys.privateKey });
+    expect((await request('/api/admission-wallet/complete', { ...response, batchId: 'wrong' })).status).toBe(409);
+    expect((await request('/api/admission-wallet/complete', response)).body.imported).toBe(2);
+    expect((await request('/api/admission-wallet/complete', response)).status).toBe(409);
+    expect((await request('/api/admission-wallet')).body).toMatchObject({ available: 3, reserved: 7 });
+    expect((await request('/api/status')).body.automaticMailboxes).toBe(false);
+    expect(wire).not.toHaveBeenCalled();
+  } finally { wire.mockRestore(); }
+  expect((await request('/api/search', { text: 'A search using a replenished wallet', type: 'need' })).status).toBe(200);
+  expect((await request('/api/admission-wallet')).body).toMatchObject({ available: 2, reserved: 8 });
+  const abandoned = (await request('/api/admission-wallet/request', { count: 1 })).body.request;
+  const lateResponse = await issueAdmissionBatch({ request: abandoned, expectedProfile: profile, privateKey: issuerKeys.privateKey });
+  await restart();
+  expect((await request('/api/admission-wallet')).body.pendingIssuance).toBeUndefined();
+  expect((await request('/api/admission-wallet/complete', lateResponse)).status).toBe(409);
+  expect((await request('/api/admission-wallet')).body.available).toBe(2);
+  await request('/api/admission-wallet/request', { count: 1 });
+  expect((await request('/api/admission-wallet/cancel', {})).status).toBe(200);
+  expect((await request('/api/admission-wallet')).body.pendingIssuance).toBeUndefined();
+}, 12_000);

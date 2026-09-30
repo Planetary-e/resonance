@@ -1,4 +1,4 @@
-/** Encrypted, crash-safe local reservations for manually issued admission tokens. */
+/** Encrypted, crash-safe local reservations for admission tokens. */
 import {
   type AdmissionCapabilityV2, type BlindAdmissionScopeV2, type RelayAdmissionActionV2,
   assertSecureRelayTransportEndpoint, createAdmissionRequestBindingV2,
@@ -10,14 +10,17 @@ import { openEncryptedLocalState } from './encrypted-local-state.js';
 interface Reservation { relayUrl: string; action: RelayAdmissionActionV2; binding: string }
 interface WalletEntry { token: string; reservation?: Reservation }
 interface WalletState { version: 1; scope: BlindAdmissionScopeV2; entries: WalletEntry[] }
-const MAX_TOKENS = 256;
-const MAX_FILE_BYTES = 512 * 1024;
+const MAX_AVAILABLE = 256;
+const MAX_TOKENS = 4096; // Keep bounded reservation history; never recycle a token.
+const MAX_FILE_BYTES = 8 * 1024 * 1024;
 export interface BlindAdmissionWalletV2 {
   importTokens(tokens: readonly string[]): Promise<number>;
   /** Reserve durably before network I/O. Exact retries reuse the same token. */
   capabilityFor(context: AdmissionCapabilityRequestContextV2): AdmissionCapabilityV2;
+  /** Look up an exact prior reservation without allocating a fresh token. */
+  reservedCapabilityFor(context: AdmissionCapabilityRequestContextV2): AdmissionCapabilityV2 | undefined;
   available(): number;
-  summary(): { available: number; reserved: number; total: number; capacity: number };
+  summary(): { available: number; reserved: number; total: number; capacity: number; availableCapacity: number };
   close(): void;
 }
 
@@ -33,7 +36,7 @@ export function openBlindAdmissionWalletV2(options: {
   return {
     async importTokens(tokens) {
       ensureReady();
-      if (!Array.isArray(tokens) || tokens.length > MAX_TOKENS
+      if (!Array.isArray(tokens) || tokens.length > MAX_AVAILABLE
         || tokens.some(token => typeof token !== 'string' || !/^[A-Za-z0-9_-]{472}$/.test(token))) {
         throw new Error('Import at most 256 valid access tokens');
       }
@@ -41,7 +44,10 @@ export function openBlindAdmissionWalletV2(options: {
       try {
         const state = storage.read();
         const unique = [...new Set(tokens)].filter(token => !state.entries.some(entry => entry.token === token));
-        if (state.entries.length + unique.length > MAX_TOKENS) throw new Error('Admission wallet capacity exceeded');
+        if (state.entries.length + unique.length > MAX_TOKENS) throw new Error('Admission wallet history capacity exceeded; retain the wallet and arrange a new issuer key');
+        if (state.entries.filter(entry => !entry.reservation).length + unique.length > MAX_AVAILABLE) {
+          throw new Error('Admission wallet has room for at most 256 available tokens');
+        }
         const binding = createAdmissionRequestBindingV2('search', { kind: 'wallet-import' });
         for (const token of unique) {
           const proof = presentBlindAdmissionTokenV2(token, scope, 'search', binding);
@@ -66,10 +72,16 @@ export function openBlindAdmissionWalletV2(options: {
       storage.write({ ...state, entries });
       return presentBlindAdmissionTokenV2(entries[freeIndex].token, scope, context.action, context.requestBinding);
     },
+    reservedCapabilityFor(context) {
+      ensureReady(); validateContext(context);
+      const entry = storage.read().entries.find(entry => sameReservation(entry.reservation,
+        { relayUrl: context.relayUrl, action: context.action, binding: context.requestBinding }));
+      return entry ? presentBlindAdmissionTokenV2(entry.token, scope, context.action, context.requestBinding) : undefined;
+    },
     available() { ensureReady(); return storage.read().entries.filter(entry => !entry.reservation).length; },
     summary() {
       const entries = storage.read().entries; const available = entries.filter(entry => !entry.reservation).length;
-      return { available, reserved: entries.length - available, total: entries.length, capacity: MAX_TOKENS };
+      return { available, reserved: entries.length - available, total: entries.length, capacity: MAX_TOKENS, availableCapacity: MAX_AVAILABLE };
     },
     close() { storage.close(); },
   };
@@ -121,7 +133,7 @@ function validState(value: unknown, scope: BlindAdmissionScopeV2): value is Wall
       } catch { return false; }
     }
   }
-  return true;
+  return state.entries.filter(entry => !(entry as WalletEntry).reservation).length <= MAX_AVAILABLE;
 }
 
 function exactKeys(value: object, wanted: string[]): boolean {
