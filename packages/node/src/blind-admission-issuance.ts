@@ -24,7 +24,7 @@ function encoded(value: unknown, bytes: number): value is string {
   return typeof value === 'string' && value.length <= 400 && Buffer.from(value, 'base64url').length === bytes
     && Buffer.from(value, 'base64url').toString('base64url') === value;
 }
-function validateRequest(value: unknown): asserts value is AdmissionIssuanceRequest {
+export function validateAdmissionIssuanceRequest(value: unknown): asserts value is AdmissionIssuanceRequest {
   if (!exact(value, ['version', 'kind', 'scope', 'keyFingerprint', 'requests', 'batchId'])
     || value.version !== 1 || value.kind !== 'admission-issuance-request'
     || !exact(value.scope, ['issuer', 'community', 'epoch'])
@@ -70,24 +70,41 @@ export async function createAdmissionIssuanceBatch(profileValue: unknown, count:
   };
 }
 
-/** Calling this is the volunteer's explicit approval, not an automatic eligibility policy.
- * expectedProfile must come from the issuer's own configuration, never from the requester.
- * Use a separate key for each accepted scope; the blinded challenge is hidden from the signer.
- */
-export async function issueAdmissionBatch(options: { request: unknown; expectedProfile: unknown; privateKey: CryptoKey }) {
-  validateRequest(options.request);
-  const request = structuredClone(options.request);
-  const { profile, publicKey } = await parseAdmissionWalletProfile(options.expectedProfile);
+/** Validate public batch metadata before consuming an issuance allowance. */
+export function validateAdmissionIssuanceTarget(request: unknown, profile: Awaited<ReturnType<typeof parseAdmissionWalletProfile>>['profile']): asserts request is AdmissionIssuanceRequest {
+  validateAdmissionIssuanceRequest(request);
   if (request.keyFingerprint !== admissionKeyFingerprint(profile.issuerPublicKey)
     || ['issuer', 'community', 'epoch'].some(field => request.scope[field as keyof BlindAdmissionScopeV2] !== profile.scope[field as keyof BlindAdmissionScopeV2])) {
     throw new Error('Blinded request targets a different issuer key or token period');
   }
-  // Detect a mismatched private key before approving even the first blind signature.
+}
+
+/** Internal signing primitive. Production approval must first reserve an allowance durably. */
+export async function prepareAdmissionBatchIssuer(options: { expectedProfile: unknown; privateKey: CryptoKey }) {
+  const privateKey = options.privateKey;
+  const { profile, publicKey } = await parseAdmissionWalletProfile(options.expectedProfile);
   const probe = new TextEncoder().encode('resonance:issuer-key-check:v1');
-  const signature = await crypto.subtle.sign({ name: 'RSA-PSS', saltLength: 48 }, options.privateKey, probe);
+  const signature = await crypto.subtle.sign({ name: 'RSA-PSS', saltLength: 48 }, privateKey, probe);
   if (!await crypto.subtle.verify({ name: 'RSA-PSS', saltLength: 48 }, publicKey, signature, probe)) throw new Error('Issuer private key does not match its pinned public key');
-  const issuer = new publicVerif.Issuer(publicVerif.BlindRSAMode.PSS, profile.scope.issuer, options.privateKey, publicKey);
-  const responses: string[] = [];
-  for (const bytes of request.requests) responses.push(Buffer.from(await issueBlindAdmissionRequestV2(issuer, Buffer.from(bytes, 'base64url'))).toString('base64url'));
-  return { version: 1, kind: 'admission-issuance-response', batchId: request.batchId, responses } satisfies AdmissionIssuanceResponse;
+  const issuer = new publicVerif.Issuer(publicVerif.BlindRSAMode.PSS, profile.scope.issuer, privateKey, publicKey);
+  return {
+    profile,
+    async issue(value: unknown): Promise<AdmissionIssuanceResponse> {
+      validateAdmissionIssuanceTarget(value, profile);
+      const request = structuredClone(value);
+      const responses: string[] = [];
+      for (const bytes of request.requests) responses.push(Buffer.from(await issueBlindAdmissionRequestV2(issuer, Buffer.from(bytes, 'base64url'))).toString('base64url'));
+      return { version: 1, kind: 'admission-issuance-response', batchId: request.batchId, responses };
+    },
+  };
+}
+
+/** Low-level primitive for protocol tests/embedders. No eligibility or quota enforcement.
+ * The operational issuer command uses the durable permit ledger instead.
+ */
+export async function issueAdmissionBatch(options: { request: unknown; expectedProfile: unknown; privateKey: CryptoKey }) {
+  validateAdmissionIssuanceRequest(options.request);
+  const request = structuredClone(options.request);
+  const issuer = await prepareAdmissionBatchIssuer(options);
+  return issuer.issue(request);
 }

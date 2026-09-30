@@ -66,7 +66,7 @@ export default function AdmissionWallet({ privateDeliveryAvailable, onChange }: 
       </details>
       <p>Tokens stay encrypted on this device. A reserved token belongs to one request and destination, including when delivery is uncertain. It cannot be reassigned. Automatic mailbox checks use tokens when enabled.</p>
       <h4>Request more tokens</h4>
-      <p>Exchange a blinded request with a volunteer issuer. This preparation sends nothing to the network. Keep this app unlocked until you import the signed response. Locking, quitting, or cancelling loses the unfinished request; the issuer may still count it against your allowance.</p>
+      <p>Ask your community for a single-use issuance permit, then prepare exactly the number of tokens it allows. Share the permit and blinded request with the issuer separately; only the signed response goes here. This preparation sends nothing to the network. Keep this app unlocked until you import the signed response. Locking, quitting, or cancelling loses the unfinished request; the issuer may still count it against your allowance.</p>
       {status.pendingIssuance ? <>
         <label htmlFor="wallet-request">Blinded request to share with the issuer</label>
         <textarea id="wallet-request" readOnly rows={4} value={JSON.stringify(status.pendingIssuance)} onFocus={event => event.target.select()} />

@@ -1,28 +1,52 @@
-/** One explicitly approved offline batch. No server, account directory, or network. */
-import { readFileSync, writeFileSync, statSync } from 'node:fs';
-import { issueAdmissionBatch } from '../packages/node/src/blind-admission-issuance.js';
+/** Offline community permits and durable batch approval. No account directory or network. */
+import { existsSync, readFileSync, writeFileSync, statSync } from 'node:fs';
+import { openAdmissionIssuerLedger } from '../packages/node/src/admission-issuer-ledger.js';
 
-const [approval, profilePath, privateKeyPath, requestPath, responsePath, ...extra] = process.argv.slice(2);
-if (approval !== '--approve' || !profilePath || !privateKeyPath || !requestPath || !responsePath || extra.length) {
-  console.error('Usage: node --import tsx scripts/issue-admission-tokens.ts --approve issuer-profile.json issuer-private.pem request.json response.json');
-  console.error('Approve only after applying your community eligibility/allowance policy. Use a distinct key for every token period.');
-  process.exitCode = 1;
-} else {
+async function main() {
+  const args = process.argv.slice(2);
+  const command = args.shift();
+  if ((command === 'grant' || command === 'issue') && args.shift() !== '--approve') throw new Error('Granting a permit or signing a batch requires --approve');
+  const expected = { init: 5, grant: 4, issue: 6, status: 3 }[command ?? ''];
+  if (!expected || args.length !== expected) throw new Error('Invalid issuer command');
+  const [profilePath, privateKeyPath, ledgerPath, first, second, third] = args;
+  const output = command === 'grant' ? first : command === 'issue' ? third : undefined;
+  if (output && existsSync(output)) throw new Error('Output already exists; use a new filename to recover an exact response');
+  function read(path: string) {
+    if (statSync(path).size > 32768) throw new Error('Issuer input exceeds 32 KiB');
+    return readFileSync(path, 'utf8');
+  }
+  const profile = JSON.parse(read(profilePath));
+  const permit = command === 'issue' ? JSON.parse(read(first)) : undefined;
+  const request = command === 'issue' ? JSON.parse(read(second)) : undefined;
+  const pem = read(privateKeyPath).trim().match(/^-----BEGIN PRIVATE KEY-----\s+([A-Za-z0-9+/=\s]+)-----END PRIVATE KEY-----$/);
+  if (!pem) throw new Error('Expected one PKCS8 private key');
+  const bytes = Buffer.from(pem[1].replace(/\s/g, ''), 'base64');
+  let privateKey: CryptoKey;
+  // Blind RSA needs extractable RSA parameters; the ledger key is derived separately.
+  try { privateKey = await crypto.subtle.importKey('pkcs8', bytes, { name: 'RSA-PSS', hash: 'SHA-384' }, true, ['sign']); }
+  finally { bytes.fill(0); }
+  const ledger = await openAdmissionIssuerLedger({ path: ledgerPath, expectedProfile: profile, privateKey,
+    ...(command === 'init' ? { create: { batchSize: Number(first), maxPermits: Number(second) } } : {}) });
   try {
-    function read(path: string) {
-      if (statSync(path).size > 32768) throw new Error('Issuer input exceeds 32 KiB');
-      return readFileSync(path, 'utf8');
-    }
-    const pem = read(privateKeyPath).trim().match(/^-----BEGIN PRIVATE KEY-----\s+([A-Za-z0-9+/=\s]+)-----END PRIVATE KEY-----$/);
-    if (!pem) throw new Error('Expected one PKCS8 private key');
-    const bytes = Buffer.from(pem[1].replace(/\s/g, ''), 'base64');
-    let privateKey: CryptoKey;
-    // The Blind RSA library exports RSA parameters internally to perform blind signing.
-    try { privateKey = await crypto.subtle.importKey('pkcs8', bytes, { name: 'RSA-PSS', hash: 'SHA-384' }, true, ['sign']); }
-    finally { bytes.fill(0); }
-    const result = await issueAdmissionBatch({ request: JSON.parse(read(requestPath)), expectedProfile: JSON.parse(read(profilePath)), privateKey });
-    // Refuse overwriting any input, key or prior response.
-    writeFileSync(responsePath, JSON.stringify(result) + '\n', { flag: 'wx', mode: 0o600 });
-    console.log(`Approved ${result.responses.length} blinded tokens. Signed response saved.`);
-  } catch (error) { console.error(error instanceof Error ? error.message : 'Issuance failed'); process.exitCode = 1; }
+    if (command === 'grant') {
+      const invitation = ledger.grant();
+      // If output fails, its allocated allowance remains consumed. Never roll back a grant.
+      writeFileSync(output!, JSON.stringify(invitation) + '\n', { flag: 'wx', mode: 0o600 });
+      console.log(`Permit for ${invitation.count} tokens saved. Keep it private; give it to one eligible recipient.`);
+    } else if (command === 'issue') {
+      const response = await ledger.approve(permit, request);
+      writeFileSync(output!, JSON.stringify(response) + '\n', { flag: 'wx', mode: 0o600 });
+      console.log(`Approved ${response.responses.length} blinded tokens. Exact response saved; retries do not use more allowance.`);
+    } else console.log(JSON.stringify(ledger.status()));
+  } finally { ledger.close(); }
+}
+try { await main(); }
+catch (error) {
+  console.error(error instanceof Error ? error.message : 'Issuer operation failed');
+  console.error('Usage: node --import tsx scripts/issue-admission-tokens.ts <command>');
+  console.error('  init profile.json private.pem ledger.json <batch-size:1–32> <max-permits:1–256>');
+  console.error('  grant --approve profile.json private.pem ledger.json permit.json');
+  console.error('  issue --approve profile.json private.pem ledger.json permit.json request.json response.json');
+  console.error('  status profile.json private.pem ledger.json');
+  process.exitCode = 1;
 }

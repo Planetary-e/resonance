@@ -9,6 +9,7 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 export function openEncryptedLocalState<T>(options: {
   path: string; key: Uint8Array; domain: string; maxBytes: number;
   initial: T; validate(value: unknown): value is T;
+  mode?: 'create-new' | 'open-existing';
 }) {
   if (options.key.length !== 32) throw new Error('Encrypted local state requires a 32-byte key');
   const directory = dirname(options.path);
@@ -57,6 +58,8 @@ export function openEncryptedLocalState<T>(options: {
   }
 
   try {
+    if (options.mode === 'create-new' && existsSync(options.path)) throw new Error('Encrypted local state already exists');
+    if (options.mode === 'open-existing' && !existsSync(options.path)) throw new Error('Encrypted local state is missing; restore its history');
     // An interrupted replacement can leave encrypted temporary snapshots. Only the lock owner cleans them.
     const prefix = `.${basename(options.path)}.`;
     for (const file of readdirSync(directory)) {

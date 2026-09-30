@@ -138,7 +138,7 @@ it('replenishes beyond 256 historical reservations without recycling them, while
   } finally { rmSync(directory, { recursive: true, force: true }); }
 }, 15_000);
 
-it('approves a real offline batch with a PKCS8 issuer key and refuses overwriting the response', async () => {
+it('enforces permits in the offline PKCS8 issuer command and refuses overwriting the response', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'issuance-cli-'));
   try {
     const batch = await createAdmissionIssuanceBatch(profile, 1);
@@ -148,13 +148,27 @@ it('approves a real offline batch with a PKCS8 issuer key and refuses overwritin
     const der = Buffer.from(await crypto.subtle.exportKey('pkcs8', keys.privateKey)).toString('base64');
     writeFileSync(keyFile, `-----BEGIN PRIVATE KEY-----\n${der}\n-----END PRIVATE KEY-----\n`, { mode: 0o600 });
     const script = fileURLToPath(new URL('../../../../scripts/issue-admission-tokens.ts', import.meta.url));
-    const args = ['--import', 'tsx', script, '--approve', profileFile, keyFile, requestFile, responseFile];
+    const ledgerFile = join(directory, 'ledger.json'); const permitFile = join(directory, 'permit.json');
+    const base = ['--import', 'tsx', script];
+    for (const command of [
+      ['init', profileFile, keyFile, ledgerFile, '1', '1'],
+      ['grant', '--approve', profileFile, keyFile, ledgerFile, permitFile],
+    ]) {
+      const result = spawnSync(process.execPath, [...base, ...command], { encoding: 'utf8', timeout: 10_000 });
+      expect(result.status, result.stderr).toBe(0);
+    }
+    const args = [...base, 'issue', '--approve', profileFile, keyFile, ledgerFile, permitFile, requestFile, responseFile];
     const run = spawnSync(process.execPath, args, { encoding: 'utf8', timeout: 10_000 });
     expect(run.status, run.stderr).toBe(0);
     const response = readFileSync(responseFile, 'utf8');
     expect(await batch.finalize(JSON.parse(response))).toHaveLength(1);
     expect(spawnSync(process.execPath, args, { encoding: 'utf8', timeout: 10_000 }).status).toBe(1);
     expect(readFileSync(responseFile, 'utf8')).toBe(response);
+    const recoveredFile = join(directory, 'recovered.json');
+    const retry = spawnSync(process.execPath, [...args.slice(0, -1), recoveredFile], { encoding: 'utf8', timeout: 10_000 });
+    expect(retry.status, retry.stderr).toBe(0); expect(readFileSync(recoveredFile, 'utf8')).toBe(response);
+    const exhausted = spawnSync(process.execPath, [...base, 'grant', '--approve', profileFile, keyFile, ledgerFile, join(directory, 'extra.json')], { encoding: 'utf8', timeout: 10_000 });
+    expect(exhausted.status).toBe(1); expect(exhausted.stderr).toContain('allowance exhausted');
     const unapproved = spawnSync(process.execPath, args.filter(value => value !== '--approve'), { encoding: 'utf8', timeout: 10_000 });
     expect(unapproved.status).toBe(1);
   } finally { rmSync(directory, { recursive: true, force: true }); }

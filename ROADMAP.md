@@ -202,9 +202,10 @@ The five-target placement goal remains conditional on enough eligible volunteers
   - [x] Add an experimental encrypted client wallet that verifies manually issued tokens, durably reserves a token for one exact request and destination before network I/O, and restores that reservation after restart; verify its two-hop redemption locally
   - [x] Integrate the encrypted wallet into the desktop private-transport pilot: pin an issuer key/scope and destination list, authenticate manual token imports, show available/reserved balances, and supply capabilities for immediate and held operations; retain reservations through lock/restart/crash and fail closed on exhaustion or missing private routing
   - [x] Add offline desktop blinded requests and signed-response import with an explicit volunteer approval command; cancel unfinished blinding state on lock/restart, replenish within bounded storage, and retain old reservations through issuer-key/period changes
-  - [ ] Define and enforce an anonymous eligibility/allowance policy, authenticated issuer-configuration distribution, and coordinated key retirement without a stable redemption identifier
+  - [x] Enforce an offline invitation policy: one-use random permits, fixed cohort batches and a bounded issuer-wide allowance, encrypted durable reservations before signing, exact response recovery, and no permit/member identifier in redemption
+  - [ ] Define automated Sybil-resistant eligibility and fair invitation distribution; authenticate shared issuer configuration and coordinate key retirement without a stable redemption identifier
 - [ ] Support community or quorum issuance without requiring a permanent issuer service
-  - [x] Implement explicit offline volunteer batch approval without a permanent issuer service; automatic eligibility and quotas remain open
+  - [x] Implement explicit offline volunteer batch approval without a permanent issuer service; one authoritative permit ledger enforces local budgets, while distributed issuance and automated eligibility remain open
   - [x] Document offline volunteer issuance and the need for an audited threshold scheme before splitting one issuer key among volunteers
 - [ ] Replicate spent-token identifiers and define deterministic handling of double spends during partitions
   - [x] Specify fail-closed four-of-five witness certificates for one-malicious-witness tolerance; local spent-ID copying is explicitly insufficient

@@ -6,7 +6,7 @@ import WebSocket from 'ws';
 import { publicVerif } from '@cloudflare/privacypass-ts';
 import { EmbeddingEngine, createBlindAdmissionRequestV2, issueBlindAdmissionRequestV2 } from '@resonance/core';
 import { createRelayServer, createLocalBlindAdmissionVerifierV2, type RelayServer } from '@resonance/relay';
-import { issueAdmissionBatch } from '@resonance/node';
+import { issueAdmissionBatch, openAdmissionIssuerLedger } from '@resonance/node';
 import { createAppServer, type AppServer } from '../server.js';
 import { getSession, lockSession } from '../session.js';
 
@@ -154,7 +154,14 @@ it('prepares blinded requests without relay traffic and redeems newly issued tok
     const prepared = await request('/api/admission-wallet/request', { count: 2 }); expect(prepared.status).toBe(200);
     const blinded = prepared.body.request;
     expect(JSON.stringify(blinded)).not.toContain(getSession()!.identity.did);
-    const response = await issueAdmissionBatch({ request: blinded, expectedProfile: profile, privateKey: issuerKeys.privateKey });
+    const issuer = await openAdmissionIssuerLedger({ path: join(directory, 'issuer-ledger.json'), expectedProfile: profile,
+      privateKey: issuerKeys.privateKey, create: { batchSize: 2, maxPermits: 1 } });
+    let response;
+    try {
+      const permit = issuer.grant(); response = await issuer.approve(permit, blinded);
+      expect(JSON.stringify(response)).not.toContain(permit.secret);
+      expect(issuer.status()).toMatchObject({ remainingPermits: 0, boundTokens: 2 });
+    } finally { issuer.close(); }
     expect((await request('/api/admission-wallet/complete', { ...response, batchId: 'wrong' })).status).toBe(409);
     expect((await request('/api/admission-wallet/complete', response)).body.imported).toBe(2);
     expect((await request('/api/admission-wallet/complete', response)).status).toBe(409);

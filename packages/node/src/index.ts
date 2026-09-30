@@ -48,3 +48,5 @@ export { openPrivateRequestOutbox, guardRelayClient, PRIVATE_REQUEST_HOLD_LIFETI
   type PrivateRequestOutbox, type PrivateRequestIntent, type PrivateRequestResult, type HeldRequest } from './private-request-outbox.js';
 
 export { issueAdmissionBatch, type AdmissionIssuanceRequest, type AdmissionIssuanceResponse } from './blind-admission-issuance.js';
+
+export { openAdmissionIssuerLedger, type AdmissionIssuerLedger, type AdmissionIssuerPolicy, type AdmissionIssuancePermit } from './admission-issuer-ledger.js';
