@@ -1,11 +1,13 @@
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
 import { publicVerif } from '@cloudflare/privacypass-ts';
-import { EmbeddingEngine, createBlindAdmissionRequestV2, issueBlindAdmissionRequestV2 } from '@resonance/core';
-import { createRelayServer, createLocalBlindAdmissionVerifierV2, type RelayServer } from '@resonance/relay';
+import { EmbeddingEngine, generateSigningKeyPair, createBlindAdmissionRequestV2, issueBlindAdmissionRequestV2 } from '@resonance/core';
+import { createRelayServer, createConfiguredAdmissionVerifier, type RelayServer } from '@resonance/relay';
+import { signAdmissionPolicy, admissionKeyFingerprint, type SignedAdmissionPolicy, type AdmissionWalletProfileV1 } from '@resonance/core/admission-policy';
 import { issueAdmissionBatch, openAdmissionIssuerLedger } from '@resonance/node';
 import { createAppServer, type AppServer } from '../server.js';
 import { getSession, lockSession } from '../session.js';
@@ -14,9 +16,11 @@ const directory = mkdtempSync(join(tmpdir(), 'desktop-admission-'));
 const port = 50_100 + Math.floor(Math.random() * 400);
 const entryUrl = `ws://127.0.0.1:${port}/`; const destinationUrl = `ws://[::1]:${port + 1}/`;
 const scope = { issuer: 'desktop-test-community', community: 'public', epoch: '2026-09' };
-let app: AppServer; let base: string; let auth = ''; let profile: unknown;
+const authorityKeys = generateSigningKeyPair(); const authority = Buffer.from(authorityKeys.publicKey).toString('base64url');
+let policy: SignedAdmissionPolicy;
+let app: AppServer; let base: string; let auth = ''; let profile: AdmissionWalletProfileV1;
 let issuerKeys: CryptoKeyPair;
-let verifier: ReturnType<typeof createLocalBlindAdmissionVerifierV2>;
+let verifier: Awaited<ReturnType<typeof createConfiguredAdmissionVerifier>>;
 const relays: RelayServer[] = []; const tokens: string[] = [];
 let publicationHold: string; let searchHold: string;
 async function request(path: string, body?: unknown, authenticated = true, method = body === undefined ? 'GET' : 'POST') {
@@ -43,7 +47,10 @@ beforeAll(async () => {
     const blinded = await createBlindAdmissionRequestV2(scope, keys.publicKey);
     tokens.push(await blinded.finalize(await issueBlindAdmissionRequestV2(issuer, blinded.request)));
   }
-  verifier = createLocalBlindAdmissionVerifierV2({ directory: join(directory, 'destination'), scope, issuerPublicKey: keys.publicKey });
+  const now = Date.now();
+  policy = await signAdmissionPolicy({ version: 1, kind: 'admission-policy', revision: 1, issuedAt: now - 1000, expiresAt: now + 86400000,
+    activeKey: admissionKeyFingerprint(profile.issuerPublicKey), keys: [{ profile, notBefore: now - 1000, issueUntil: now + 3600000, spendUntil: now + 7200000, retryUntil: now + 10800000 }] }, authority, authorityKeys.secretKey);
+  verifier = await createConfiguredAdmissionVerifier({ directory: join(directory, 'destination'), authority, policy, encryptionKey: randomBytes(32), initialize: true });
   for (const [index, host, endpoint] of [[0, '127.0.0.1', entryUrl], [1, '::1', destinationUrl]] as const) {
     const relay = createRelayServer({ port: port + index, host, persistDir: join(directory, index ? 'destination' : 'entry'),
       admissionVerifier: index ? verifier : undefined,
@@ -158,6 +165,7 @@ it('prepares blinded requests without relay traffic and redeems newly issued tok
       privateKey: issuerKeys.privateKey, create: { batchSize: 2, maxPermits: 1 } });
     let response;
     try {
+      await issuer.installPolicy(policy, authority);
       const permit = issuer.grant(); response = await issuer.approve(permit, blinded);
       expect(JSON.stringify(response)).not.toContain(permit.secret);
       expect(issuer.status()).toMatchObject({ remainingPermits: 0, boundTokens: 2 });
@@ -181,3 +189,20 @@ it('prepares blinded requests without relay traffic and redeems newly issued tok
   expect((await request('/api/admission-wallet/cancel', {})).status).toBe(200);
   expect((await request('/api/admission-wallet')).body.pendingIssuance).toBeUndefined();
 }, 12_000);
+
+it('authenticates signed setup, retains policy through unlock, and refuses manual changes, rollback and retired fresh operations', async () => {
+  expect((await request('/api/admission-wallet/policy', { policy, authority }, false)).status).toBe(401);
+  expect((await request('/api/admission-wallet/policy', { policy: { ...policy, revision: 9 }, authority })).status).toBe(409);
+  expect((await request('/api/admission-wallet/policy', { policy, authority })).status).toBe(200);
+  await restart();
+  expect((await request('/api/admission-wallet')).body.policy.revision).toBe(1);
+  expect((await request('/api/admission-wallet/configure', profile)).status).toBe(409);
+  expect((await request('/api/search', { text: 'Signed community policy search', type: 'need' })).status).toBe(200);
+  const { signature: _, authority: __, ...body } = policy;
+  const now = Date.now();
+  const retired = await signAdmissionPolicy({ ...body, revision: 2, keys: [{ ...body.keys[0], issueUntil: now - 500, spendUntil: now - 100 }] }, authority, authorityKeys.secretKey);
+  expect((await request('/api/admission-wallet/policy', { policy: retired, authority })).status).toBe(200);
+  expect((await request('/api/search', { text: 'Retired tokens must not be used', type: 'need' })).status).toBe(503);
+  expect((await request('/api/admission-wallet/policy', { policy, authority })).status).toBe(409);
+  expect((await request('/api/admission-wallet')).body.policy.revision).toBe(2);
+}, 12000);

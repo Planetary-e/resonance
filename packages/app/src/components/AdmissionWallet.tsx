@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { getAdmissionWallet, configureAdmissionWallet, importAdmissionTokens, requestAdmissionTokens, completeAdmissionIssuance, cancelAdmissionIssuance, type AdmissionWalletStatus } from '../api.client';
+import { getAdmissionWallet, configureAdmissionWallet, importAdmissionTokens, requestAdmissionTokens, completeAdmissionIssuance, cancelAdmissionIssuance, installAdmissionPolicy, type AdmissionWalletStatus } from '../api.client';
 
 export default function AdmissionWallet({ privateDeliveryAvailable, onChange }: {
   privateDeliveryAvailable: boolean; onChange: () => Promise<unknown>;
@@ -12,6 +12,8 @@ export default function AdmissionWallet({ privateDeliveryAvailable, onChange }: 
   const [tokens, setTokens] = useState('');
   const [count, setCount] = useState(8);
   const [response, setResponse] = useState('');
+  const [authority, setAuthority] = useState('');
+  const [policyText, setPolicyText] = useState('');
   const [changing, setChanging] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -54,9 +56,34 @@ export default function AdmissionWallet({ privateDeliveryAvailable, onChange }: 
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Invalid signed response'); }
     finally { setBusy(false); }
   }
+  async function installPolicy(event: React.FormEvent) {
+    event.preventDefault(); setBusy(true); setMessage('');
+    try {
+      const result = await installAdmissionPolicy(JSON.parse(policyText), authority.trim());
+      setMessage(result.error ?? 'Signed community policy saved. Earlier wallet history is retained; automatic checks are paused.');
+      if (!result.error) { setPolicyText(''); setAuthority(''); setChanging(false); }
+      await refresh(); await onChange();
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Invalid signed policy'); }
+    finally { setBusy(false); }
+  }
   return <section className="relay-section">
     <h3>Access-token wallet</h3>
     {message && <p role="status">{message}</p>}
+    {(privateDeliveryAvailable || status?.configured) && <details><summary>Community-signed setup</summary>
+      <p>Verify the community authority key through an independent trusted channel. A policy cannot authorize its own signing key. Once pinned, only this authority can update setup. Older revisions and extended retirement dates are refused.</p>
+      <form onSubmit={installPolicy}>
+        <label htmlFor="wallet-authority">Verified community authority key</label>
+        <input id="wallet-authority" value={authority} onChange={event => setAuthority(event.target.value)} maxLength={44} disabled={busy} required />
+        <label htmlFor="wallet-policy">Signed community policy (JSON)</label>
+        <textarea id="wallet-policy" value={policyText} onChange={event => setPolicyText(event.target.value)} rows={5} maxLength={65536} disabled={busy} spellCheck={false} required />
+        <button className="btn btn-primary btn-sm" disabled={busy || !!status?.pendingIssuance}>Verify and apply policy</button>
+      </form>
+    </details>}
+    {status?.policy && <div>
+      <p>Community policy revision {status.policy.revision}. Refresh before {new Date(status.policy.expiresAt).toLocaleString()}.</p>
+      <p className="text-sm" style={{ overflowWrap: 'anywhere' }}>Authority fingerprint: {status.policy.authorityFingerprint}</p>
+      <p className="text-sm">Current key: issuance ends {new Date(status.policy.issueUntil).toLocaleString()}; new uses end {new Date(status.policy.spendUntil).toLocaleString()}; recorded retries end {new Date(status.policy.retryUntil).toLocaleString()}.</p>
+    </div>}
     {!status ? <p>Loading wallet…</p> : status.configured && !changing ? <>
       <p><strong>{status.available} available</strong> · {status.reserved} reserved · {status.total}/{status.capacity} history slots used</p>
       <p>Issuer: {status.scope?.issuer} · Community: {status.scope?.community} · Token period: {status.scope?.epoch}</p>
@@ -91,7 +118,7 @@ export default function AdmissionWallet({ privateDeliveryAvailable, onChange }: 
       {!!status.archived.length && <details><summary>Previous setups retained for retries ({status.archived.length})</summary>
         {status.archived.map(prior => <p key={prior.keyFingerprint} style={{ overflowWrap: 'anywhere' }}>{prior.scope.issuer} · {prior.scope.epoch}: {prior.available} unused, {prior.reserved} reserved. Key: {prior.keyFingerprint}</p>)}
       </details>}
-      {privateDeliveryAvailable && <button className="btn btn-ghost btn-sm" disabled={busy || !!status.pendingIssuance} onClick={() => setChanging(true)}>Change issuer or token period</button>}
+      {privateDeliveryAvailable && !status.policy && <button className="btn btn-ghost btn-sm" disabled={busy || !!status.pendingIssuance} onClick={() => setChanging(true)}>Change issuer or token period</button>}
     </> : privateDeliveryAvailable ? <>
       <p>Use setup details verified with your community. Each setup pins its issuer key, token period, and destination relays. A changed setup requires a new key. Previous tokens stay on this device for exact retries; new requests use the setup you activate. Setup pauses automatic mailbox checks.</p>
       <form onSubmit={configure}>

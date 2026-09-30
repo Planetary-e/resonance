@@ -27,10 +27,12 @@ const ROW_KEYS = ['action', 'binding', 'spend', 'version'];
 
 export function createLocalBlindAdmissionVerifierV2(options: {
   directory: string;
-  scope: BlindAdmissionScopeV2;
-  issuerPublicKey: CryptoKey;
+  scope?: BlindAdmissionScopeV2;
+  issuerPublicKey?: CryptoKey;
+  keyPolicies?: () => Array<{ scope: BlindAdmissionScopeV2; issuerPublicKey: CryptoKey; mode: 'all' | 'replay-only' | 'none' }>;
   maxSpends?: number;
 }): AdmissionCapabilityVerifierV2 & { close(): void } {
+  if (!options.keyPolicies && (!options.scope || !options.issuerPublicKey)) throw new Error('Admission verification requires a key policy');
   const maxSpends = options.maxSpends ?? 10_000;
   if (!Number.isSafeInteger(maxSpends) || maxSpends < 1) throw new Error('Invalid admission spend capacity');
   mkdirSync(options.directory, { recursive: true, mode: 0o700 });
@@ -61,18 +63,25 @@ export function createLocalBlindAdmissionVerifierV2(options: {
   return {
     async verifyAndSpend(capability, context): Promise<AdmissionDecisionV2> {
       if (closed || poisoned) throw new Error('Admission spend log is unavailable');
-      const spend = await verifyBlindAdmissionTokenV2(
-        capability, options.scope, context.action, context.requestBinding, options.issuerPublicKey,
-      );
-      if (!spend) return { status: 'rejected', reason: 'invalid_token' };
-      return recordSpend(spend, context);
+      const policy = () => options.keyPolicies ? options.keyPolicies() : [{ scope: options.scope!, issuerPublicKey: options.issuerPublicKey!, mode: 'all' as const }];
+      for (const entry of policy()) {
+        if (entry.mode === 'none') continue;
+        const spend = await verifyBlindAdmissionTokenV2(capability, entry.scope, context.action, context.requestBinding, entry.issuerPublicKey);
+        if (!spend) continue;
+        if (closed || poisoned) throw new Error('Admission spend log is unavailable');
+        // Re-evaluate dates after asynchronous crypto; crossing a cutoff must not accept new work.
+        const current = policy().find(key => key.issuerPublicKey === entry.issuerPublicKey);
+        if (!current || current.mode === 'none') return { status: 'rejected', reason: 'key_retired' };
+        return recordSpend(spend, context, current.mode);
+      }
+      return { status: 'rejected', reason: 'invalid_token' };
     },
     close() {
       if (!closed) { closed = true; closeSync(fd); }
     },
   };
 
-  function recordSpend(spend: string, context: AdmissionVerificationContextV2): AdmissionDecisionV2 {
+  function recordSpend(spend: string, context: AdmissionVerificationContextV2, mode: 'all' | 'replay-only'): AdmissionDecisionV2 {
     const binding = `${context.action}\n${context.requestBinding}`;
     const previous = spends.get(spend);
     if (previous !== undefined) {
@@ -80,6 +89,7 @@ export function createLocalBlindAdmissionVerifierV2(options: {
         ? { status: 'replay' }
         : { status: 'rejected', reason: 'double_spend' };
     }
+    if (mode === 'replay-only') return { status: 'rejected', reason: 'key_retired' };
     if (spends.size >= maxSpends) return { status: 'rejected', reason: 'capacity_exhausted' };
     const row: SpendRow = { version: 1, spend, action: context.action, binding: context.requestBinding };
     const bytes = Buffer.from(`${JSON.stringify(row)}\n`);

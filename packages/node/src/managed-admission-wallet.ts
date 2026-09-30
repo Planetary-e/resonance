@@ -1,4 +1,5 @@
 /** Pinned active wallet plus immutable prior profiles for exact retries. */
+import { verifyAdmissionPolicy, assertAdmissionPolicyCurrent, assertAdmissionPolicySuccessor, admissionAuthorityFingerprint, type SignedAdmissionPolicy } from '@resonance/core/admission-policy';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { openEncryptedLocalState } from './encrypted-local-state.js';
@@ -13,25 +14,27 @@ export interface AdmissionWalletStatus {
   available: number; reserved: number; total: number; capacity: number; availableCapacity: number;
   archived: Array<{ scope: AdmissionWalletProfileV1['scope']; keyFingerprint: string; available: number; reserved: number }>;
   pendingIssuance?: AdmissionIssuanceRequest;
+  policy?: { revision: number; authorityFingerprint: string; expiresAt: number; issueUntil: number; spendUntil: number; retryUntil: number };
 }
 interface StateV1 { version: 1; profile: AdmissionWalletProfileV1 | null }
-interface StateV2 { version: 2; active: number; profiles: AdmissionWalletProfileV1[] }
+interface StateV2 { version: 2 | 3; active: number; profiles: AdmissionWalletProfileV1[]; policy?: SignedAdmissionPolicy }
 type State = StateV1 | StateV2;
 const MAX_PROFILES = 8;
 function stateV2(state: State): StateV2 {
-  return state.version === 2 ? state : { version: 2, active: 0, profiles: state.profile ? [state.profile] : [] };
+  return state.version !== 1 ? state : { version: 2, active: 0, profiles: state.profile ? [state.profile] : [] };
 }
 function validState(value: unknown): value is State {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const state = value as State;
   if (state.version === 1) return Object.keys(state).sort().join(',') === 'profile,version'
     && (state.profile === null || (!!state.profile && typeof state.profile === 'object'));
-  return state.version === 2 && Object.keys(state).sort().join(',') === 'active,profiles,version'
+  return ((state.version === 2 && Object.keys(state).sort().join(',') === 'active,profiles,version')
+    || (state.version === 3 && Object.keys(state).sort().join(',') === 'active,policy,profiles,version' && !!state.policy))
     && Array.isArray(state.profiles) && state.profiles.length >= 1 && state.profiles.length <= MAX_PROFILES
     && Number.isInteger(state.active) && state.active >= 0 && state.active < state.profiles.length;
 }
 
-export async function openManagedAdmissionWallet(options: { directory: string; encryptionKey: Uint8Array }) {
+export async function openManagedAdmissionWallet(options: { directory: string; encryptionKey: Uint8Array; now?: () => number }) {
   const key = Buffer.from(options.encryptionKey);
   let storage: ReturnType<typeof openEncryptedLocalState<State>>;
   try { storage = openEncryptedLocalState<State>({ path: join(options.directory, 'admission-profile.json'), key,
@@ -48,7 +51,13 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
       scope: parsed.profile.scope, issuerPublicKey: parsed.publicKey });
   }
   try {
-    const state = stateV2(storage.read()); const seen = new Set<string>();
+    const state = stateV2(storage.read());
+    if (state.policy) {
+      await verifyAdmissionPolicy(state.policy, state.policy.authority);
+      for (const profile of state.profiles) if (!state.policy.keys.some(entry => JSON.stringify(entry.profile) === JSON.stringify(profile))) throw new Error('Wallet profile is absent from its signed policy');
+      if (admissionKeyFingerprint(state.profiles[state.active].issuerPublicKey) !== state.policy.activeKey) throw new Error('Wallet active key differs from signed policy');
+    }
+    const seen = new Set<string>();
     for (const [index, profile] of state.profiles.entries()) {
       const parsed = await parseAdmissionWalletProfile(profile);
       const fingerprint = admissionKeyFingerprint(parsed.profile.issuerPublicKey);
@@ -65,6 +74,13 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
     if (!wallet) throw new Error('Set up the access-token wallet first');
     return { state, wallet, profile: state.profiles[state.active] };
   }
+  function checkPolicy(profile: AdmissionWalletProfileV1, use: 'issue' | 'spend' | 'retry') {
+    const state = stateV2(storage.read()); if (!state.policy) return;
+    const now = (options.now ?? Date.now)(); assertAdmissionPolicyCurrent(state.policy, now);
+    const entry = state.policy.keys.find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === admissionKeyFingerprint(profile.issuerPublicKey));
+    const cutoff = use === 'issue' ? entry?.issueUntil : use === 'spend' ? entry?.spendUntil : entry?.retryUntil;
+    if (!entry || now < entry.notBefore || now >= cutoff!) throw new Error('Issuer key is not active for this operation under the community policy');
+  }
   return {
     configured(): boolean { return stateV2(storage.read()).profiles.length > 0; },
     status(): AdmissionWalletStatus {
@@ -75,10 +91,14 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
         keyFingerprint: admissionKeyFingerprint(profile.issuerPublicKey), ...wallet.summary(),
         archived: state.profiles.flatMap((prior, index) => index === state.active ? [] : [{ scope: structuredClone(prior.scope),
           keyFingerprint: admissionKeyFingerprint(prior.issuerPublicKey), available: wallets[index].summary().available, reserved: wallets[index].summary().reserved }]),
+        ...(state.policy ? { policy: { revision: state.policy.revision, authorityFingerprint: admissionAuthorityFingerprint(state.policy.authority), expiresAt: state.policy.expiresAt,
+          ...(() => { const entry = state.policy!.keys.find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === state.policy!.activeKey)!;
+            return { issueUntil: entry.issueUntil, spendUntil: entry.spendUntil, retryUntil: entry.retryUntil }; })() } } : {}),
         ...(pending ? { pendingIssuance: structuredClone(pending.batch.request) } : {}) };
     },
     async configure(value: unknown) {
-      ready(); if (pending) throw new Error('Finish or cancel the pending token request before changing wallet setup');
+      ready(); if (stateV2(storage.read()).policy) throw new Error('Wallet setup is managed by signed community policy; import a newer signed revision');
+      if (pending) throw new Error('Finish or cancel the pending token request before changing wallet setup');
       busy = true;
       try {
         const parsed = await parseAdmissionWalletProfile(value);
@@ -97,16 +117,40 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
         wallets.push(wallet);
       } finally { busy = false; }
     },
+    async installPolicy(value: unknown, authority: string) {
+      ready(); if (pending) throw new Error('Finish or cancel the pending token request before changing community policy');
+      busy = true; const opened: BlindAdmissionWalletV2[] = [];
+      try {
+        const previous = stateV2(storage.read());
+        if (previous.policy && previous.policy.authority !== authority) throw new Error('Community authority is already pinned');
+        const policy = await verifyAdmissionPolicy(value, authority);
+        storage.read(); assertAdmissionPolicyCurrent(policy, (options.now ?? Date.now)());
+        if (previous.policy) assertAdmissionPolicySuccessor(previous.policy, policy);
+        const profiles = [...previous.profiles];
+        for (const profile of profiles) if (!policy.keys.some(entry => JSON.stringify(entry.profile) === JSON.stringify(profile))) {
+          throw new Error('Signed policy must retain all existing wallet profiles with their original pins');
+        }
+        for (const entry of policy.keys) {
+          if (profiles.some(profile => admissionKeyFingerprint(profile.issuerPublicKey) === admissionKeyFingerprint(entry.profile.issuerPublicKey))) continue;
+          if (profiles.length >= MAX_PROFILES) throw new Error('Wallet profile history is full');
+          const parsed = await parseAdmissionWalletProfile(entry.profile); storage.read();
+          opened.push(open(profiles.length, parsed)); profiles.push(parsed.profile);
+        }
+        const active = profiles.findIndex(profile => admissionKeyFingerprint(profile.issuerPublicKey) === policy.activeKey);
+        storage.write({ version: 3, active, profiles, policy });
+        wallets.push(...opened); opened.length = 0;
+      } finally { opened.forEach(wallet => wallet.close()); busy = false; }
+    },
     async importTokens(tokens: readonly string[]) {
       ready(); if (pending) throw new Error('Finish or cancel the pending token request before importing manual tokens');
       busy = true;
-      try { return await active().wallet.importTokens(tokens); } finally { busy = false; }
+      try { const { wallet, profile } = active(); checkPolicy(profile, 'spend'); return await wallet.importTokens(tokens); } finally { busy = false; }
     },
     async requestTokens(count: number) {
       ready(); if (pending) throw new Error('A token request is already pending');
       busy = true;
       try {
-        const { wallet, profile } = active(); const summary = wallet.summary();
+        const { wallet, profile } = active(); checkPolicy(profile, 'issue'); const summary = wallet.summary();
         if (count + summary.available > summary.availableCapacity || count + summary.total > summary.capacity) throw new Error('Not enough wallet capacity for this token request');
         const batch = await createAdmissionIssuanceBatch(profile, count);
         storage.read(); pending = { batch };
@@ -126,7 +170,8 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
           catch { if (pending === current) pending = undefined; throw new Error('Invalid issuer response; request a new blinded batch'); }
           storage.read(); current.response = response;
         }
-        const imported = await active().wallet.importTokens(current.tokens);
+        const target = active(); checkPolicy(target.profile, 'spend');
+        const imported = await target.wallet.importTokens(current.tokens);
         storage.read(); pending = undefined;
         return imported;
       } finally { busy = false; }
@@ -137,10 +182,10 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
       const normalized = { ...context, relayUrl: normalizeAdmissionRelay(context.relayUrl) };
       // Search ALL old reservations before allocating from the active profile. An old retry
       // must fail at the relay if its epoch is retired, never silently spend a fresh token.
-      for (const wallet of wallets) {
-        const previous = wallet.reservedCapabilityFor(normalized); if (previous) return previous;
+      for (const [index, wallet] of wallets.entries()) {
+        const previous = wallet.reservedCapabilityFor(normalized); if (previous) { checkPolicy(state.profiles[index], 'retry'); return previous; }
       }
-      const { wallet, profile } = active();
+      const { wallet, profile } = active(); checkPolicy(profile, 'spend');
       if (!profile.relayUrls.includes(normalized.relayUrl)) throw new Error('Destination is not in the pinned access-token relay list');
       return wallet.capabilityFor(normalized);
     },

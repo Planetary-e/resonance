@@ -96,3 +96,5 @@ export { log } from './logger.js';
 
 // Legacy exports (kept for eval benchmarks that still use HNSW)
 export { HnswIndex, MatchingIndex, type HnswIndexConfig, type VectorMetadata } from './hnsw.js';
+
+export { createConfiguredAdmissionVerifier } from './configured-admission-verifier.js';

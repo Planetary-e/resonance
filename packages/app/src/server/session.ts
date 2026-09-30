@@ -787,6 +787,14 @@ export async function configureAdmissionWallet(profile: unknown): Promise<void> 
   if (session !== s) throw new Error('Session locked during wallet setup');
 }
 
+export async function installAdmissionPolicy(policy: unknown, authority: string): Promise<void> {
+  const s = session!;
+  if (!s.privatePublicationRoute && !s.admissionWallet.configured()) throw new Error('Wallet setup requires the private transport pilot');
+  s.requestOutbox.setAutomaticMailboxes(false); stopAutomaticMailboxSync(s);
+  await s.admissionWallet.installPolicy(policy, authority);
+  if (session !== s) throw new Error('Session locked during policy update');
+}
+
 export async function importAdmissionTokens(tokens: readonly string[]): Promise<number> {
   const s = session!;
   const count = await s.admissionWallet.importTokens(tokens);

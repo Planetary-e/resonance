@@ -8,7 +8,7 @@ import {
   getSession,
   ModelLoadError,
   WalletLoadError,
-  getAdmissionWalletStatus, configureAdmissionWallet, importAdmissionTokens,
+  getAdmissionWalletStatus, configureAdmissionWallet, importAdmissionTokens, installAdmissionPolicy,
   requestAdmissionTokens, completeAdmissionIssuance, cancelAdmissionIssuance,
   listExternalMailboxMatches,
   getRelayActivity,
@@ -205,6 +205,14 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
     if (!requireAuth(req, res)) return true;
     try { await configureAdmissionWallet(await readBody(req)); json(res, { ok: true }); }
     catch (err) { error(res, err instanceof Error ? err.message : 'Wallet setup failed', 409); }
+    return true;
+  }
+  if (url === '/api/admission-wallet/policy' && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    const body = await readBody(req);
+    if (typeof body.authority !== 'string') { error(res, 'Provide the independently verified community authority key'); return true; }
+    try { await installAdmissionPolicy(body.policy, body.authority); json(res, { ok: true }); }
+    catch (err) { error(res, err instanceof Error ? err.message : 'Policy update failed', 409); }
     return true;
   }
   if (url === '/api/admission-wallet/import' && method === 'POST') {
