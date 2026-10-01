@@ -4181,7 +4181,19 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
 
       await new Promise<void>((resolve) => {
         httpServer.listen(cfg.port, cfg.host, () => {
-          log('info', 'started', { port: cfg.port, host: cfg.host, did: relayIdentity.did });
+          const address = httpServer.address();
+          const boundPort = address && typeof address !== 'string' ? address.port : cfg.port;
+          if (cfg.port === 0 && cfg.relayDiscovery) {
+            // A port-zero listener lets the OS reserve the port atomically. Resolve
+            // matching advertised placeholders only after that listener is bound.
+            cfg.relayDiscovery = { ...cfg.relayDiscovery, endpoints: advertisedEndpoints.map(endpoint => {
+              const url = new URL(endpoint);
+              if (url.port === '0') url.port = String(boundPort);
+              return url.href;
+            }) };
+            relayDescriptor = null;
+          }
+          log('info', 'started', { port: boundPort, host: cfg.host, did: relayIdentity.did });
           resolve();
         });
       });

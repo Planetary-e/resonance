@@ -11,7 +11,8 @@
     "eval:private-mix": "tsx src/private-mix-timing.ts",
     "eval:private-replies": "tsx src/private-mix-timing.ts --reply-comparison",
     "eval:quiet-budgets": "node --import tsx src/quiet-period-budgets.ts",
-    "smoke": "tsx src/smoke.ts"
+    "smoke": "tsx src/smoke.ts",
+    "eval:witness-availability": "node --import tsx src/witness-quorum.ts"
   },
   "dependencies": {
     "@resonance/core": "*",

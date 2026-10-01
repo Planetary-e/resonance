@@ -1,0 +1,1376 @@
+{
+  "generatedAt": "2026-10-01T05:31:10.468Z",
+  "sourceBase": "116b279c627ba8357b4638674e590c63715fca59",
+  "worktreeDirty": true,
+  "sourceSha256": {
+    "packages/eval/src/witness-quorum.ts": "3c2eb9533ad26ced9071ef895860c6c3e4661b078fab92acf0c097d620c0f9d2",
+    "packages/eval/src/witness-availability.ts": "6e67d3cb1771241182a40a3aea1be0ba8c66bbf504337293c57cd8222b78ab06",
+    "packages/eval/src/fixtures/witness-relay.ts": "eeaef4f0bfef13487ce1d9a38fb6091925957a3353dafc83e01aa0729734853f",
+    "packages/relay/src/server.ts": "0e1e109259924ef6e282ebeda3e803a2feb4fd13ab9264951520406f5969c557",
+    "packages/relay/src/admission-witness.ts": "853523e51f5226177df47bc44aecfdc1993291fb39b7e427399719baac63783b",
+    "packages/relay/src/admission-witness-transport.ts": "95a094cee4c7558b456c0416bd27b2d079ed6624dba47b19b3fcb9a9e12bf786",
+    "packages/relay/src/configured-admission-verifier.ts": "d50406b70eb337831554c6044bd4a8d7558626bf7e10f22f7f4c423720a44a6e",
+    "packages/core/src/admission-witness.ts": "d9ae09fe954545cccc864a8d4eeb97ca159d7f9798333630c098d32c5c4fa4d1",
+    "packages/core/src/local-encrypted-state.ts": "8f77f7e93cd1bff84f1ef74e3c97b4e2acdfdd4ccef71f3b2f9e28ad93b7096b",
+    "package-lock.json": "3e554dda5da9a3d475d921eb2889e61c6ca13ed4c3562a4af6d8cb1561718bf0"
+  },
+  "runtime": {
+    "node": "v24.19.0",
+    "platform": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Pro"
+  },
+  "trials": 12,
+  "seed": 20261001,
+  "timeoutMs": 3000,
+  "replyDelayMs": [
+    80,
+    160
+  ],
+  "measured": [
+    {
+      "scenario": "all-online",
+      "attempts": 12,
+      "accepted": 12,
+      "successLatency": {
+        "p50Ms": 50.60737500000005,
+        "p95Ms": 86.89195899999993
+      },
+      "refusalLatency": {
+        "p50Ms": null,
+        "p95Ms": null
+      },
+      "meanSocketBytes": 6926,
+      "meanCpuMs": 81.39533333333334
+    },
+    {
+      "scenario": "one-offline",
+      "attempts": 12,
+      "accepted": 12,
+      "successLatency": {
+        "p50Ms": 46.299999999999955,
+        "p95Ms": 50.74691699999994
+      },
+      "refusalLatency": {
+        "p50Ms": null,
+        "p95Ms": null
+      },
+      "meanSocketBytes": 6025.5,
+      "meanCpuMs": 61.047333333333334
+    },
+    {
+      "scenario": "two-offline",
+      "attempts": 12,
+      "accepted": 0,
+      "successLatency": {
+        "p50Ms": null,
+        "p95Ms": null
+      },
+      "refusalLatency": {
+        "p50Ms": 1.9016669999998612,
+        "p95Ms": 2.344667000000072
+      },
+      "meanSocketBytes": 0,
+      "meanCpuMs": 2.9595
+    },
+    {
+      "scenario": "delayed-replies",
+      "attempts": 12,
+      "accepted": 12,
+      "successLatency": {
+        "p50Ms": 191.4754579999999,
+        "p95Ms": 228.1752080000001
+      },
+      "refusalLatency": {
+        "p50Ms": null,
+        "p95Ms": null
+      },
+      "meanSocketBytes": 6913.5,
+      "meanCpuMs": 95.08008333333333
+    },
+    {
+      "scenario": "one-offline-delayed",
+      "attempts": 12,
+      "accepted": 12,
+      "successLatency": {
+        "p50Ms": 198.64599999999973,
+        "p95Ms": 217.1447909999997
+      },
+      "refusalLatency": {
+        "p50Ms": null,
+        "p95Ms": null
+      },
+      "meanSocketBytes": 6013,
+      "meanCpuMs": 62.93566666666667
+    },
+    {
+      "scenario": "two-lost-replies",
+      "attempts": 4,
+      "accepted": 0,
+      "successLatency": {
+        "p50Ms": null,
+        "p95Ms": null
+      },
+      "refusalLatency": {
+        "p50Ms": 3001.614540999999,
+        "p95Ms": 3004.006625
+      },
+      "meanSocketBytes": 6374.5,
+      "meanCpuMs": 102.99674999999999
+    },
+    {
+      "scenario": "same-claims-after-recovery",
+      "attempts": 4,
+      "accepted": 4,
+      "successLatency": {
+        "p50Ms": 37.601166000000376,
+        "p95Ms": 58.37091700000019
+      },
+      "refusalLatency": {
+        "p50Ms": null,
+        "p95Ms": null
+      },
+      "meanSocketBytes": 6963.5,
+      "meanCpuMs": 83.14125
+    },
+    {
+      "scenario": "cached-retry-all-offline",
+      "attempts": 12,
+      "accepted": 12,
+      "successLatency": {
+        "p50Ms": 10.069833000001381,
+        "p95Ms": 11.09087499999805
+      },
+      "refusalLatency": {
+        "p50Ms": null,
+        "p95Ms": null
+      },
+      "meanSocketBytes": 0,
+      "meanCpuMs": 12.62525
+    }
+  ],
+  "availability": {
+    "seed": 20261001,
+    "days": 90,
+    "warmupDays": 7,
+    "stepMinutes": 5,
+    "meanOnlineSessionHours": 6,
+    "scenarios": [
+      {
+        "name": "independent-0.5",
+        "p": 0.5,
+        "permanentlyUnavailable": 0,
+        "exactInstantAvailability": 0.1875,
+        "windows": [
+          {
+            "windowMinutes": 0,
+            "arrivals": 25920,
+            "accepted": 5230,
+            "refused": 20690,
+            "availability": 0.2017746913580247,
+            "acceptedWaitP50Minutes": 0,
+            "acceptedWaitP95Minutes": 0
+          },
+          {
+            "windowMinutes": 15,
+            "arrivals": 25920,
+            "accepted": 5901,
+            "refused": 20019,
+            "availability": 0.22766203703703702,
+            "acceptedWaitP50Minutes": 0,
+            "acceptedWaitP95Minutes": 10
+          },
+          {
+            "windowMinutes": 60,
+            "arrivals": 25920,
+            "accepted": 7648,
+            "refused": 18272,
+            "availability": 0.29506172839506173,
+            "acceptedWaitP50Minutes": 0,
+            "acceptedWaitP95Minutes": 50
+          }
+        ]
+      },
+      {
+        "name": "independent-0.75",
+        "p": 0.75,
+        "permanentlyUnavailable": 0,
+        "exactInstantAvailability": 0.6328125,
+        "windows": [
+          {
+            "windowMinutes": 0,
+            "arrivals": 25920,
+            "accepted": 16576,
+            "refused": 9344,
+            "availability": 0.6395061728395062,
+            "acceptedWaitP50Minutes": 0,
+            "acceptedWaitP95Minutes": 0
+          },
+          {
+            "windowMinutes": 15,
+            "arrivals": 25920,
+            "accepted": 18001,
+            "refused": 7919,
+            "availability": 0.694483024691358,
+            "acceptedWaitP50Minutes": 0,
+            "acceptedWaitP95Minutes": 10
+          },
+          {
+            "windowMinutes": 60,
+            "arrivals": 25920,
+            "accepted": 20875,
+            "refused": 5045,
+            "availability": 0.8053626543209876,
+            "acceptedWaitP50Minutes": 0,
+            "acceptedWaitP95Minutes": 45
+          }
+        ]
+      },
+      {
+        "name": "independent-0.9",
+        "p": 0.9,
+        "permanentlyUnavailable": 0,
+        "exactInstantAvailability": 0.9185399999999999,
+        "windows": [
+          {
+            "windowMinutes": 0,
+            "arrivals": 25920,
+            "accepted": 23736,
+            "refused": 2184,
+            "availability": 0.9157407407407407,
+            "acceptedWaitP50Minutes": 0,
+            "acceptedWaitP95Minutes": 0
+          },
+          {
+            "windowMinutes": 15,
+            "arrivals": 25920,
+            "accepted": 24781,
+            "refused": 1139,
+            "availability": 0.9560570987654321,
+            "acceptedWaitP50Minutes": 0,
+            "acceptedWaitP95Minutes": 0
+          },
+          {
+            "windowMinutes": 60,
+            "arrivals": 25920,
+            "accepted": 25699,
+            "refused": 221,
+            "availability": 0.9914737654320988,
+            "acceptedWaitP50Minutes": 0,
+            "acceptedWaitP95Minutes": 10
+          }
+        ]
+      },
+      {
+        "name": "independent-0.95",
+        "p": 0.95,
+        "permanentlyUnavailable": 0,
+        "exactInstantAvailability": 0.9774075,
+        "windows": [
+          {
+            "windowMinutes": 0,
+            "arrivals": 25920,
+            "accepted": 25225,
+            "refused": 695,
+            "availability": 0.9731867283950617,
+            "acceptedWaitP50Minutes": 0,
+            "acceptedWaitP95Minutes": 0
+          },
+          {
+            "windowMinutes": 15,
+            "arrivals": 25920,
+            "accepted": 25736,
+            "refused": 184,
+            "availability": 0.9929012345679012,
+            "acceptedWaitP50Minutes": 0,
+            "acceptedWaitP95Minutes": 0
+          },
+          {
+            "windowMinutes": 60,
+            "arrivals": 25920,
+            "accepted": 25917,
+            "refused": 3,
+            "availability": 0.9998842592592593,
+            "acceptedWaitP50Minutes": 0,
+            "acceptedWaitP95Minutes": 0
+          }
+        ]
+      },
+      {
+        "name": "one-unavailable-others-90-percent",
+        "p": 0.9,
+        "permanentlyUnavailable": 1,
+        "exactInstantAvailability": 0.6561,
+        "windows": [
+          {
+            "windowMinutes": 0,
+            "arrivals": 25920,
+            "accepted": 17414,
+            "refused": 8506,
+            "availability": 0.6718364197530864,
+            "acceptedWaitP50Minutes": 0,
+            "acceptedWaitP95Minutes": 0
+          },
+          {
+            "windowMinutes": 15,
+            "arrivals": 25920,
+            "accepted": 19745,
+            "refused": 6175,
+            "availability": 0.761766975308642,
+            "acceptedWaitP50Minutes": 0,
+            "acceptedWaitP95Minutes": 10
+          },
+          {
+            "windowMinutes": 60,
+            "arrivals": 25920,
+            "accepted": 23390,
+            "refused": 2530,
+            "availability": 0.902391975308642,
+            "acceptedWaitP50Minutes": 0,
+            "acceptedWaitP95Minutes": 45
+          }
+        ]
+      },
+      {
+        "name": "shared-eight-hour-schedule",
+        "starts": [
+          17,
+          17,
+          17,
+          17,
+          17
+        ],
+        "windows": [
+          {
+            "windowMinutes": 0,
+            "arrivals": 25920,
+            "accepted": 8640,
+            "refused": 17280,
+            "availability": 0.3333333333333333,
+            "acceptedWaitP50Minutes": 0,
+            "acceptedWaitP95Minutes": 0
+          },
+          {
+            "windowMinutes": 15,
+            "arrivals": 25920,
+            "accepted": 8910,
+            "refused": 17010,
+            "availability": 0.34375,
+            "acceptedWaitP50Minutes": 0,
+            "acceptedWaitP95Minutes": 0
+          },
+          {
+            "windowMinutes": 60,
+            "arrivals": 25920,
+            "accepted": 9720,
+            "refused": 16200,
+            "availability": 0.375,
+            "acceptedWaitP50Minutes": 0,
+            "acceptedWaitP95Minutes": 35
+          }
+        ]
+      },
+      {
+        "name": "staggered-eight-hour-schedules",
+        "starts": [
+          0,
+          5,
+          10,
+          15,
+          20
+        ],
+        "windows": [
+          {
+            "windowMinutes": 0,
+            "arrivals": 25920,
+            "accepted": 0,
+            "refused": 25920,
+            "availability": 0,
+            "acceptedWaitP50Minutes": null,
+            "acceptedWaitP95Minutes": null
+          },
+          {
+            "windowMinutes": 15,
+            "arrivals": 25920,
+            "accepted": 0,
+            "refused": 25920,
+            "availability": 0,
+            "acceptedWaitP50Minutes": null,
+            "acceptedWaitP95Minutes": null
+          },
+          {
+            "windowMinutes": 60,
+            "arrivals": 25920,
+            "accepted": 0,
+            "refused": 25920,
+            "availability": 0,
+            "acceptedWaitP50Minutes": null,
+            "acceptedWaitP95Minutes": null
+          }
+        ]
+      }
+    ]
+  },
+  "traces": [
+    {
+      "scenario": "all-online",
+      "trial": 0,
+      "accepted": true,
+      "elapsedMs": 63.334957999999915,
+      "connections": 5,
+      "socketBytes": 6941,
+      "cpuMs": 115.065,
+      "voteCalls": 5,
+      "replyPayloadBytes": 2775,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "all-online",
+      "trial": 1,
+      "accepted": true,
+      "elapsedMs": 58.81604099999993,
+      "connections": 5,
+      "socketBytes": 6941,
+      "cpuMs": 82.271,
+      "voteCalls": 5,
+      "replyPayloadBytes": 2775,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "all-online",
+      "trial": 2,
+      "accepted": true,
+      "elapsedMs": 86.89195899999993,
+      "connections": 5,
+      "socketBytes": 6911,
+      "cpuMs": 93.05,
+      "voteCalls": 5,
+      "replyPayloadBytes": 2775,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "all-online",
+      "trial": 3,
+      "accepted": true,
+      "elapsedMs": 50.726084000000014,
+      "connections": 5,
+      "socketBytes": 6881,
+      "cpuMs": 107.418,
+      "voteCalls": 5,
+      "replyPayloadBytes": 2775,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "all-online",
+      "trial": 4,
+      "accepted": true,
+      "elapsedMs": 46.488292,
+      "connections": 5,
+      "socketBytes": 6941,
+      "cpuMs": 72.369,
+      "voteCalls": 5,
+      "replyPayloadBytes": 2775,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "all-online",
+      "trial": 5,
+      "accepted": true,
+      "elapsedMs": 43.56704200000013,
+      "connections": 5,
+      "socketBytes": 6881,
+      "cpuMs": 71.54,
+      "voteCalls": 5,
+      "replyPayloadBytes": 2775,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "all-online",
+      "trial": 6,
+      "accepted": true,
+      "elapsedMs": 53.39016700000002,
+      "connections": 5,
+      "socketBytes": 6941,
+      "cpuMs": 83.692,
+      "voteCalls": 5,
+      "replyPayloadBytes": 2775,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "all-online",
+      "trial": 7,
+      "accepted": true,
+      "elapsedMs": 50.60737500000005,
+      "connections": 5,
+      "socketBytes": 6971,
+      "cpuMs": 62.58,
+      "voteCalls": 5,
+      "replyPayloadBytes": 2775,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "all-online",
+      "trial": 8,
+      "accepted": true,
+      "elapsedMs": 45.701499999999896,
+      "connections": 5,
+      "socketBytes": 6911,
+      "cpuMs": 70.66,
+      "voteCalls": 5,
+      "replyPayloadBytes": 2775,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "all-online",
+      "trial": 9,
+      "accepted": true,
+      "elapsedMs": 49.303666999999905,
+      "connections": 5,
+      "socketBytes": 6911,
+      "cpuMs": 80.383,
+      "voteCalls": 5,
+      "replyPayloadBytes": 2775,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "all-online",
+      "trial": 10,
+      "accepted": true,
+      "elapsedMs": 51.918541000000005,
+      "connections": 5,
+      "socketBytes": 6941,
+      "cpuMs": 59.364,
+      "voteCalls": 5,
+      "replyPayloadBytes": 2775,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "all-online",
+      "trial": 11,
+      "accepted": true,
+      "elapsedMs": 50.46524999999997,
+      "connections": 5,
+      "socketBytes": 6941,
+      "cpuMs": 78.352,
+      "voteCalls": 5,
+      "replyPayloadBytes": 2775,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "one-offline",
+      "trial": 0,
+      "accepted": true,
+      "elapsedMs": 44.7768329999999,
+      "connections": 4,
+      "socketBytes": 6018,
+      "cpuMs": 54.41,
+      "voteCalls": 4,
+      "replyPayloadBytes": 2220,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "one-offline",
+      "trial": 1,
+      "accepted": true,
+      "elapsedMs": 45.52591600000005,
+      "connections": 4,
+      "socketBytes": 5988,
+      "cpuMs": 53.46,
+      "voteCalls": 4,
+      "replyPayloadBytes": 2220,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "one-offline",
+      "trial": 2,
+      "accepted": true,
+      "elapsedMs": 50.56220899999994,
+      "connections": 4,
+      "socketBytes": 6048,
+      "cpuMs": 69.412,
+      "voteCalls": 4,
+      "replyPayloadBytes": 2220,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "one-offline",
+      "trial": 3,
+      "accepted": true,
+      "elapsedMs": 50.74691699999994,
+      "connections": 4,
+      "socketBytes": 6018,
+      "cpuMs": 85.171,
+      "voteCalls": 4,
+      "replyPayloadBytes": 2220,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "one-offline",
+      "trial": 4,
+      "accepted": true,
+      "elapsedMs": 50.500999999999976,
+      "connections": 4,
+      "socketBytes": 6048,
+      "cpuMs": 60.288,
+      "voteCalls": 4,
+      "replyPayloadBytes": 2220,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "one-offline",
+      "trial": 5,
+      "accepted": true,
+      "elapsedMs": 48.47541699999988,
+      "connections": 4,
+      "socketBytes": 6048,
+      "cpuMs": 55.728,
+      "voteCalls": 4,
+      "replyPayloadBytes": 2220,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "one-offline",
+      "trial": 6,
+      "accepted": true,
+      "elapsedMs": 49.720208000000184,
+      "connections": 4,
+      "socketBytes": 6018,
+      "cpuMs": 63.313,
+      "voteCalls": 4,
+      "replyPayloadBytes": 2220,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "one-offline",
+      "trial": 7,
+      "accepted": true,
+      "elapsedMs": 48.569958999999926,
+      "connections": 4,
+      "socketBytes": 6048,
+      "cpuMs": 69.386,
+      "voteCalls": 4,
+      "replyPayloadBytes": 2220,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "one-offline",
+      "trial": 8,
+      "accepted": true,
+      "elapsedMs": 41.755916999999954,
+      "connections": 4,
+      "socketBytes": 6018,
+      "cpuMs": 52.952,
+      "voteCalls": 4,
+      "replyPayloadBytes": 2220,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "one-offline",
+      "trial": 9,
+      "accepted": true,
+      "elapsedMs": 42.609958000000006,
+      "connections": 4,
+      "socketBytes": 5988,
+      "cpuMs": 54.4,
+      "voteCalls": 4,
+      "replyPayloadBytes": 2220,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "one-offline",
+      "trial": 10,
+      "accepted": true,
+      "elapsedMs": 46.299999999999955,
+      "connections": 4,
+      "socketBytes": 6018,
+      "cpuMs": 58.546,
+      "voteCalls": 4,
+      "replyPayloadBytes": 2220,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "one-offline",
+      "trial": 11,
+      "accepted": true,
+      "elapsedMs": 43.570583999999826,
+      "connections": 4,
+      "socketBytes": 6048,
+      "cpuMs": 55.502,
+      "voteCalls": 4,
+      "replyPayloadBytes": 2220,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "two-offline",
+      "trial": 0,
+      "accepted": false,
+      "elapsedMs": 2.344667000000072,
+      "connections": 0,
+      "socketBytes": 0,
+      "cpuMs": 4.06,
+      "voteCalls": 0,
+      "replyPayloadBytes": 0,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "two-offline",
+      "trial": 1,
+      "accepted": false,
+      "elapsedMs": 2.0296670000000177,
+      "connections": 0,
+      "socketBytes": 0,
+      "cpuMs": 3.36,
+      "voteCalls": 0,
+      "replyPayloadBytes": 0,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "two-offline",
+      "trial": 2,
+      "accepted": false,
+      "elapsedMs": 1.9016669999998612,
+      "connections": 0,
+      "socketBytes": 0,
+      "cpuMs": 2.652,
+      "voteCalls": 0,
+      "replyPayloadBytes": 0,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "two-offline",
+      "trial": 3,
+      "accepted": false,
+      "elapsedMs": 1.8981249999999363,
+      "connections": 0,
+      "socketBytes": 0,
+      "cpuMs": 2.554,
+      "voteCalls": 0,
+      "replyPayloadBytes": 0,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "two-offline",
+      "trial": 4,
+      "accepted": false,
+      "elapsedMs": 1.9017079999998714,
+      "connections": 0,
+      "socketBytes": 0,
+      "cpuMs": 2.736,
+      "voteCalls": 0,
+      "replyPayloadBytes": 0,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "two-offline",
+      "trial": 5,
+      "accepted": false,
+      "elapsedMs": 2.0721669999998085,
+      "connections": 0,
+      "socketBytes": 0,
+      "cpuMs": 2.837,
+      "voteCalls": 0,
+      "replyPayloadBytes": 0,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "two-offline",
+      "trial": 6,
+      "accepted": false,
+      "elapsedMs": 1.7090830000001915,
+      "connections": 0,
+      "socketBytes": 0,
+      "cpuMs": 3.185,
+      "voteCalls": 0,
+      "replyPayloadBytes": 0,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "two-offline",
+      "trial": 7,
+      "accepted": false,
+      "elapsedMs": 1.6261669999998958,
+      "connections": 0,
+      "socketBytes": 0,
+      "cpuMs": 2.595,
+      "voteCalls": 0,
+      "replyPayloadBytes": 0,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "two-offline",
+      "trial": 8,
+      "accepted": false,
+      "elapsedMs": 1.627416999999923,
+      "connections": 0,
+      "socketBytes": 0,
+      "cpuMs": 2.704,
+      "voteCalls": 0,
+      "replyPayloadBytes": 0,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "two-offline",
+      "trial": 9,
+      "accepted": false,
+      "elapsedMs": 1.7897910000001502,
+      "connections": 0,
+      "socketBytes": 0,
+      "cpuMs": 2.74,
+      "voteCalls": 0,
+      "replyPayloadBytes": 0,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "two-offline",
+      "trial": 10,
+      "accepted": false,
+      "elapsedMs": 1.9666250000000218,
+      "connections": 0,
+      "socketBytes": 0,
+      "cpuMs": 2.62,
+      "voteCalls": 0,
+      "replyPayloadBytes": 0,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "two-offline",
+      "trial": 11,
+      "accepted": false,
+      "elapsedMs": 2.058915999999954,
+      "connections": 0,
+      "socketBytes": 0,
+      "cpuMs": 3.471,
+      "voteCalls": 0,
+      "replyPayloadBytes": 0,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "delayed-replies",
+      "trial": 0,
+      "accepted": true,
+      "elapsedMs": 148.26000000000022,
+      "connections": 5,
+      "socketBytes": 6941,
+      "cpuMs": 77.628,
+      "voteCalls": 5,
+      "replyPayloadBytes": 2775,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "delayed-replies",
+      "trial": 1,
+      "accepted": true,
+      "elapsedMs": 228.1752080000001,
+      "connections": 5,
+      "socketBytes": 6941,
+      "cpuMs": 97.707,
+      "voteCalls": 5,
+      "replyPayloadBytes": 2775,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "delayed-replies",
+      "trial": 2,
+      "accepted": true,
+      "elapsedMs": 182.21679099999983,
+      "connections": 5,
+      "socketBytes": 6881,
+      "cpuMs": 94.981,
+      "voteCalls": 5,
+      "replyPayloadBytes": 2775,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "delayed-replies",
+      "trial": 3,
+      "accepted": true,
+      "elapsedMs": 191.05095800000026,
+      "connections": 5,
+      "socketBytes": 6911,
+      "cpuMs": 103.326,
+      "voteCalls": 5,
+      "replyPayloadBytes": 2775,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "delayed-replies",
+      "trial": 4,
+      "accepted": true,
+      "elapsedMs": 192.77641700000004,
+      "connections": 5,
+      "socketBytes": 6851,
+      "cpuMs": 107.436,
+      "voteCalls": 5,
+      "replyPayloadBytes": 2775,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "delayed-replies",
+      "trial": 5,
+      "accepted": true,
+      "elapsedMs": 209.0255830000001,
+      "connections": 5,
+      "socketBytes": 6881,
+      "cpuMs": 95.612,
+      "voteCalls": 5,
+      "replyPayloadBytes": 2775,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "delayed-replies",
+      "trial": 6,
+      "accepted": true,
+      "elapsedMs": 180.03816700000016,
+      "connections": 5,
+      "socketBytes": 6941,
+      "cpuMs": 104.339,
+      "voteCalls": 5,
+      "replyPayloadBytes": 2775,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "delayed-replies",
+      "trial": 7,
+      "accepted": true,
+      "elapsedMs": 208.44220799999994,
+      "connections": 5,
+      "socketBytes": 6941,
+      "cpuMs": 102.095,
+      "voteCalls": 5,
+      "replyPayloadBytes": 2775,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "delayed-replies",
+      "trial": 8,
+      "accepted": true,
+      "elapsedMs": 202.79745900000034,
+      "connections": 5,
+      "socketBytes": 6911,
+      "cpuMs": 91.893,
+      "voteCalls": 5,
+      "replyPayloadBytes": 2775,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "delayed-replies",
+      "trial": 9,
+      "accepted": true,
+      "elapsedMs": 193.69170799999984,
+      "connections": 5,
+      "socketBytes": 6941,
+      "cpuMs": 93.793,
+      "voteCalls": 5,
+      "replyPayloadBytes": 2775,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "delayed-replies",
+      "trial": 10,
+      "accepted": true,
+      "elapsedMs": 191.4754579999999,
+      "connections": 5,
+      "socketBytes": 6881,
+      "cpuMs": 96.41,
+      "voteCalls": 5,
+      "replyPayloadBytes": 2775,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "delayed-replies",
+      "trial": 11,
+      "accepted": true,
+      "elapsedMs": 186.255083,
+      "connections": 5,
+      "socketBytes": 6941,
+      "cpuMs": 75.741,
+      "voteCalls": 5,
+      "replyPayloadBytes": 2775,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "one-offline-delayed",
+      "trial": 0,
+      "accepted": true,
+      "elapsedMs": 136.35150000000067,
+      "connections": 4,
+      "socketBytes": 6018,
+      "cpuMs": 57.434,
+      "voteCalls": 4,
+      "replyPayloadBytes": 2220,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "one-offline-delayed",
+      "trial": 1,
+      "accepted": true,
+      "elapsedMs": 207.86275000000023,
+      "connections": 4,
+      "socketBytes": 6018,
+      "cpuMs": 60.426,
+      "voteCalls": 4,
+      "replyPayloadBytes": 2220,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "one-offline-delayed",
+      "trial": 2,
+      "accepted": true,
+      "elapsedMs": 188.11304199999995,
+      "connections": 4,
+      "socketBytes": 6018,
+      "cpuMs": 60.589,
+      "voteCalls": 4,
+      "replyPayloadBytes": 2220,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "one-offline-delayed",
+      "trial": 3,
+      "accepted": true,
+      "elapsedMs": 179.45208399999956,
+      "connections": 4,
+      "socketBytes": 6018,
+      "cpuMs": 57.891,
+      "voteCalls": 4,
+      "replyPayloadBytes": 2220,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "one-offline-delayed",
+      "trial": 4,
+      "accepted": true,
+      "elapsedMs": 190.8471669999999,
+      "connections": 4,
+      "socketBytes": 6018,
+      "cpuMs": 53.854,
+      "voteCalls": 4,
+      "replyPayloadBytes": 2220,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "one-offline-delayed",
+      "trial": 5,
+      "accepted": true,
+      "elapsedMs": 199.44116699999995,
+      "connections": 4,
+      "socketBytes": 6018,
+      "cpuMs": 59.053,
+      "voteCalls": 4,
+      "replyPayloadBytes": 2220,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "one-offline-delayed",
+      "trial": 6,
+      "accepted": true,
+      "elapsedMs": 178.32316600000013,
+      "connections": 4,
+      "socketBytes": 6018,
+      "cpuMs": 58.291,
+      "voteCalls": 4,
+      "replyPayloadBytes": 2220,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "one-offline-delayed",
+      "trial": 7,
+      "accepted": true,
+      "elapsedMs": 198.64599999999973,
+      "connections": 4,
+      "socketBytes": 6018,
+      "cpuMs": 55.973,
+      "voteCalls": 4,
+      "replyPayloadBytes": 2220,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "one-offline-delayed",
+      "trial": 8,
+      "accepted": true,
+      "elapsedMs": 204.6259170000003,
+      "connections": 4,
+      "socketBytes": 6048,
+      "cpuMs": 58.324,
+      "voteCalls": 4,
+      "replyPayloadBytes": 2220,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "one-offline-delayed",
+      "trial": 9,
+      "accepted": true,
+      "elapsedMs": 199.6812920000002,
+      "connections": 4,
+      "socketBytes": 6048,
+      "cpuMs": 62.316,
+      "voteCalls": 4,
+      "replyPayloadBytes": 2220,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "one-offline-delayed",
+      "trial": 10,
+      "accepted": true,
+      "elapsedMs": 205.1455419999993,
+      "connections": 4,
+      "socketBytes": 5958,
+      "cpuMs": 80.684,
+      "voteCalls": 4,
+      "replyPayloadBytes": 2220,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "one-offline-delayed",
+      "trial": 11,
+      "accepted": true,
+      "elapsedMs": 217.1447909999997,
+      "connections": 4,
+      "socketBytes": 5958,
+      "cpuMs": 90.393,
+      "voteCalls": 4,
+      "replyPayloadBytes": 2220,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "two-lost-replies",
+      "trial": 0,
+      "accepted": false,
+      "elapsedMs": 3001.564458,
+      "connections": 5,
+      "socketBytes": 6382,
+      "cpuMs": 87.945,
+      "voteCalls": 5,
+      "replyPayloadBytes": 1665,
+      "droppedReplyBytes": 1110
+    },
+    {
+      "scenario": "two-lost-replies",
+      "trial": 1,
+      "accepted": false,
+      "elapsedMs": 3004.006625,
+      "connections": 5,
+      "socketBytes": 6382,
+      "cpuMs": 93.195,
+      "voteCalls": 5,
+      "replyPayloadBytes": 1665,
+      "droppedReplyBytes": 1110
+    },
+    {
+      "scenario": "two-lost-replies",
+      "trial": 2,
+      "accepted": false,
+      "elapsedMs": 3001.614540999999,
+      "connections": 5,
+      "socketBytes": 6352,
+      "cpuMs": 102.346,
+      "voteCalls": 5,
+      "replyPayloadBytes": 1665,
+      "droppedReplyBytes": 1110
+    },
+    {
+      "scenario": "two-lost-replies",
+      "trial": 3,
+      "accepted": false,
+      "elapsedMs": 3003.2887919999994,
+      "connections": 5,
+      "socketBytes": 6382,
+      "cpuMs": 128.501,
+      "voteCalls": 5,
+      "replyPayloadBytes": 1665,
+      "droppedReplyBytes": 1110
+    },
+    {
+      "scenario": "same-claims-after-recovery",
+      "trial": 0,
+      "accepted": true,
+      "elapsedMs": 58.37091700000019,
+      "connections": 5,
+      "socketBytes": 6971,
+      "cpuMs": 143.501,
+      "voteCalls": 5,
+      "replyPayloadBytes": 2775,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "same-claims-after-recovery",
+      "trial": 1,
+      "accepted": true,
+      "elapsedMs": 37.78483300000153,
+      "connections": 5,
+      "socketBytes": 6941,
+      "cpuMs": 59.782,
+      "voteCalls": 5,
+      "replyPayloadBytes": 2775,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "same-claims-after-recovery",
+      "trial": 2,
+      "accepted": true,
+      "elapsedMs": 35.15791700000045,
+      "connections": 5,
+      "socketBytes": 6971,
+      "cpuMs": 66.232,
+      "voteCalls": 5,
+      "replyPayloadBytes": 2775,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "same-claims-after-recovery",
+      "trial": 3,
+      "accepted": true,
+      "elapsedMs": 37.601166000000376,
+      "connections": 5,
+      "socketBytes": 6971,
+      "cpuMs": 63.05,
+      "voteCalls": 5,
+      "replyPayloadBytes": 2775,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "cached-retry-all-offline",
+      "trial": 0,
+      "accepted": true,
+      "elapsedMs": 9.756790999999794,
+      "connections": 0,
+      "socketBytes": 0,
+      "cpuMs": 10.823,
+      "voteCalls": 0,
+      "replyPayloadBytes": 0,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "cached-retry-all-offline",
+      "trial": 1,
+      "accepted": true,
+      "elapsedMs": 10.970416000000114,
+      "connections": 0,
+      "socketBytes": 0,
+      "cpuMs": 15.007,
+      "voteCalls": 0,
+      "replyPayloadBytes": 0,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "cached-retry-all-offline",
+      "trial": 2,
+      "accepted": true,
+      "elapsedMs": 10.069833000001381,
+      "connections": 0,
+      "socketBytes": 0,
+      "cpuMs": 10.627,
+      "voteCalls": 0,
+      "replyPayloadBytes": 0,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "cached-retry-all-offline",
+      "trial": 3,
+      "accepted": true,
+      "elapsedMs": 10.779500000000553,
+      "connections": 0,
+      "socketBytes": 0,
+      "cpuMs": 14.952,
+      "voteCalls": 0,
+      "replyPayloadBytes": 0,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "cached-retry-all-offline",
+      "trial": 4,
+      "accepted": true,
+      "elapsedMs": 9.856124999998428,
+      "connections": 0,
+      "socketBytes": 0,
+      "cpuMs": 10.501,
+      "voteCalls": 0,
+      "replyPayloadBytes": 0,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "cached-retry-all-offline",
+      "trial": 5,
+      "accepted": true,
+      "elapsedMs": 10.761833000000479,
+      "connections": 0,
+      "socketBytes": 0,
+      "cpuMs": 14.799,
+      "voteCalls": 0,
+      "replyPayloadBytes": 0,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "cached-retry-all-offline",
+      "trial": 6,
+      "accepted": true,
+      "elapsedMs": 9.602624999999534,
+      "connections": 0,
+      "socketBytes": 0,
+      "cpuMs": 10.299,
+      "voteCalls": 0,
+      "replyPayloadBytes": 0,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "cached-retry-all-offline",
+      "trial": 7,
+      "accepted": true,
+      "elapsedMs": 10.790874999998778,
+      "connections": 0,
+      "socketBytes": 0,
+      "cpuMs": 14.621,
+      "voteCalls": 0,
+      "replyPayloadBytes": 0,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "cached-retry-all-offline",
+      "trial": 8,
+      "accepted": true,
+      "elapsedMs": 9.59874999999738,
+      "connections": 0,
+      "socketBytes": 0,
+      "cpuMs": 10.258,
+      "voteCalls": 0,
+      "replyPayloadBytes": 0,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "cached-retry-all-offline",
+      "trial": 9,
+      "accepted": true,
+      "elapsedMs": 11.09087499999805,
+      "connections": 0,
+      "socketBytes": 0,
+      "cpuMs": 15.257,
+      "voteCalls": 0,
+      "replyPayloadBytes": 0,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "cached-retry-all-offline",
+      "trial": 10,
+      "accepted": true,
+      "elapsedMs": 9.408250000000407,
+      "connections": 0,
+      "socketBytes": 0,
+      "cpuMs": 9.802,
+      "voteCalls": 0,
+      "replyPayloadBytes": 0,
+      "droppedReplyBytes": 0
+    },
+    {
+      "scenario": "cached-retry-all-offline",
+      "trial": 11,
+      "accepted": true,
+      "elapsedMs": 10.611666000000696,
+      "connections": 0,
+      "socketBytes": 0,
+      "cpuMs": 14.557,
+      "voteCalls": 0,
+      "replyPayloadBytes": 0,
+      "droppedReplyBytes": 0
+    }
+  ]
+}

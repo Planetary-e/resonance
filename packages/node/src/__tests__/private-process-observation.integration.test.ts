@@ -1,18 +1,19 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { fork, type ChildProcess } from 'node:child_process';
-import { rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   PRIVATE_DISCOVERY_REQUEST_TYPE, RELAY_PEER_REQUEST_FRAME_TYPE, RELAY_PRIVATE_FORWARD_FRAME_TYPE,
   createPublicationRecord, generatePublicationKeyMaterial,
+  type RelayDescriptorV1,
 } from '@resonance/core';
 import { createRelayClient } from '../relay-client.js';
 
-const BASE_PORT = 47_000 + Math.floor(Math.random() * 1_000);
-const ENTRY = `ws://127.0.0.1:${BASE_PORT}/`;
-const DESTINATION = `ws://[::1]:${BASE_PORT + 1}/`;
-const UNAWARE_ENTRY = `ws://127.0.0.1:${BASE_PORT + 2}/`;
-const dirs = [0, 1, 2].map(index => `/tmp/resonance-private-process-${Date.now()}-${BASE_PORT}-${index}`);
+let ENTRY: string, DESTINATION: string, UNAWARE_ENTRY: string;
+const directory = mkdtempSync(join(tmpdir(), 'resonance-private-process-'));
+const dirs = [0, 1, 2].map(index => join(directory, String(index)));
 const fixture = fileURLToPath(new URL('./fixtures/private-relay-process.mjs', import.meta.url));
 
 interface Observation { event: string; raw?: string; remoteAddress?: string; remotePort?: number;
@@ -23,7 +24,7 @@ class ProcessRelay {
   private child: ChildProcess;
   private nextId = 0;
   private pending = new Map<number, { resolve: (value: any) => void; reject: (error: Error) => void }>();
-  readonly ready: Promise<unknown>;
+  readonly ready: Promise<RelayDescriptorV1>;
 
   constructor(port: number, host: string, endpoint: string, persistDir: string) {
     this.child = fork(fixture, [], {
@@ -75,16 +76,19 @@ let destination: ProcessRelay;
 let unawareEntry: ProcessRelay;
 
 beforeAll(async () => {
-  entry = new ProcessRelay(BASE_PORT, '127.0.0.1', ENTRY, dirs[0]);
-  destination = new ProcessRelay(BASE_PORT + 1, '::1', DESTINATION, dirs[1]);
-  unawareEntry = new ProcessRelay(BASE_PORT + 2, '127.0.0.1', UNAWARE_ENTRY, dirs[2]);
-  const [, descriptor] = await Promise.all([entry.ready, destination.ready, unawareEntry.ready]);
+  entry = new ProcessRelay(0, '127.0.0.1', 'ws://127.0.0.1:0/', dirs[0]);
+  destination = new ProcessRelay(0, '::1', 'ws://[::1]:0/', dirs[1]);
+  unawareEntry = new ProcessRelay(0, '127.0.0.1', 'ws://127.0.0.1:0/', dirs[2]);
+  const [entryDescriptor, descriptor, unawareDescriptor] = await Promise.all([entry.ready, destination.ready, unawareEntry.ready]);
+  ENTRY = entryDescriptor.endpoints[0]; DESTINATION = descriptor.endpoints[0]; UNAWARE_ENTRY = unawareDescriptor.endpoints[0];
+  expect([ENTRY, DESTINATION, UNAWARE_ENTRY].every(endpoint => Number(new URL(endpoint).port) > 0)).toBe(true);
+  expect(new Set([ENTRY, DESTINATION, UNAWARE_ENTRY]).size).toBe(3);
   expect(await entry.request('observe', descriptor)).toBe('accepted');
 }, 20_000);
 
 afterAll(async () => {
   await Promise.allSettled([entry?.stop(), destination?.stop(), unawareEntry?.stop()]);
-  for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+  rmSync(directory, { recursive: true, force: true });
 });
 
 describe('private transport observations in separate relay processes', () => {

@@ -211,7 +211,9 @@ The five-target placement goal remains conditional on enough eligible volunteers
 - [ ] Replicate spent-token identifiers and define deterministic handling of double spends during partitions
   - [x] Specify fail-closed four-of-five witness certificates for one-malicious-witness tolerance; local spent-ID copying is explicitly insufficient
   - [x] Implement signed, fsynced witness votes with issuer-key-pinned five-member sets, four-signature certificates, bounded real relay exchanges, and partition/concurrency/crash/restart tests
-  - [ ] Measure quorum availability, delay, bandwidth, and power with volunteer-device outages; resolve safe witness replacement, membership governance, and history compaction before enabling admission by default
+  - [x] Model independent and correlated volunteer schedules and measure the authorization phase with five local relay processes: 80 attempts covering unavailable witnesses, delayed/lost replies, recovery, and persisted-certificate retries; retain traces and limits in `docs/evals/witness-availability-2026-10-01.md`
+  - [ ] Measure real volunteer overlap, Internet/TLS delay and total traffic, device energy, and near-capacity/concurrent costs; the local authorization benchmark and synthetic schedules do not establish these
+  - [ ] Resolve safe witness replacement, membership governance, and history compaction before enabling admission by default; keep four-of-five experimental because intermittent volunteer schedules can prevent quorum
 - [ ] Measure protection against a curious relay, colluding relays, Sybil relays, and a network observer
   - [x] Capture entry and destination observations in separate local processes and demonstrate the original unpadded frame-length leak, then verify bucket padding removes exact-length differences within a bucket
   - [x] Run an eight-client local timing diagnostic across burst and sparse workloads: scheduling reduced burst action-order matches to 4/24, but inter-hop order still matched 24/24 in every condition; retain the report and traces without claiming Internet anonymity
