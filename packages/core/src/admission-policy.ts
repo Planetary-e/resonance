@@ -33,7 +33,8 @@ export function admissionAuthorityFingerprint(authority: string) {
   if (!bytes(authority, 32)) throw new Error('Invalid community authority key');
   return `sha256:${createHash('sha256').update(Buffer.from(authority, 'base64url')).digest('hex')}`;
 }
-async function parseBody(value: unknown): Promise<AdmissionPolicyBody> {
+/** Structural normalization only; this does not authenticate an unsigned policy. */
+export async function parseAdmissionPolicyBody(value: unknown): Promise<AdmissionPolicyBody> {
   if (!exact(value, ['version','kind','revision','issuedAt','expiresAt','activeKey','keys']) || value.version !== 1 || value.kind !== 'admission-policy'
     || !Number.isSafeInteger(value.revision) || (value.revision as number) < 1 || !timestamp(value.issuedAt) || !timestamp(value.expiresAt)
     || value.expiresAt <= value.issuedAt || value.expiresAt - value.issuedAt > MAX_LIFETIME
@@ -58,7 +59,7 @@ async function parseBody(value: unknown): Promise<AdmissionPolicyBody> {
 export async function signAdmissionPolicy(value: unknown, authority: string, secretKey: Uint8Array): Promise<SignedAdmissionPolicy> {
   admissionAuthorityFingerprint(authority); const secret = Uint8Array.from(secretKey);
   try {
-    const body = await parseBody(value); const signature = sign(payload(body), secret);
+    const body = await parseAdmissionPolicyBody(value); const signature = sign(payload(body), secret);
     if (!verify(payload(body), signature, Buffer.from(authority, 'base64url'))) throw new Error('Community authority private key does not match');
     return { ...body, authority, signature: Buffer.from(signature).toString('base64url') };
   } finally { secret.fill(0); }
@@ -68,15 +69,15 @@ export async function verifyAdmissionPolicy(value: unknown, authority: string): 
   if (!exact(value, ['version','kind','revision','issuedAt','expiresAt','activeKey','keys','authority','signature'])
     || value.authority !== authority || !bytes(value.signature, 64)) throw new Error('Admission policy is not signed by the pinned community authority');
   const input = structuredClone(value); const { signature, authority: _, ...unsigned } = input;
-  const body = await parseBody(unsigned);
+  const body = await parseAdmissionPolicyBody(unsigned);
   if (!verify(payload(body), Buffer.from(signature as string, 'base64url'), Buffer.from(authority, 'base64url'))) throw new Error('Invalid community policy signature');
   return { ...body, authority, signature: signature as string };
 }
-export function admissionPolicyDigest(policy: SignedAdmissionPolicy) { return createHash('sha256').update(payload(policy)).digest('hex'); }
-export function assertAdmissionPolicyCurrent(policy: SignedAdmissionPolicy, now: number) {
+export function admissionPolicyDigest(policy: AdmissionPolicyBody) { return createHash('sha256').update(payload(policy)).digest('hex'); }
+export function assertAdmissionPolicyCurrent(policy: AdmissionPolicyBody, now: number) {
   if (!timestamp(now) || now < policy.issuedAt || now >= policy.expiresAt) throw new Error('Community admission policy is not current; import a current signed revision');
 }
-export function assertAdmissionPolicySuccessor(previous: SignedAdmissionPolicy, next: SignedAdmissionPolicy) {
+export function assertAdmissionPolicySuccessor(previous: AdmissionPolicyBody, next: AdmissionPolicyBody) {
   if (next.revision < previous.revision || (next.revision === previous.revision && admissionPolicyDigest(next) !== admissionPolicyDigest(previous))) {
     throw new Error('Admission policy rollback or conflicting revision');
   }

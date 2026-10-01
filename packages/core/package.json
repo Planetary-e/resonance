@@ -8,7 +8,8 @@
     ".": "./src/index.ts",
     "./local-state": "./src/local-encrypted-state.ts",
     "./admission-policy": "./src/admission-policy.ts",
-    "./admission-witness": "./src/admission-witness.ts"
+    "./admission-witness": "./src/admission-witness.ts",
+    "./admission-rotation": "./src/admission-rotation.ts"
   },
   "scripts": {
     "build": "tsc",
