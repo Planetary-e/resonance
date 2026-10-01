@@ -13,15 +13,18 @@ it('advertises the OS-assigned listener after start and restart while retaining 
     relayDiscovery: { endpoints: ['ws://127.0.0.1:0/', fixed], reachability: 'direct', supportedGroups: ['public'],
       storage: { capacityBytes: 1000000, availableBytes: 900000 } } });
   try {
+    expect(relay.getListeningPort()).toBeNull();
     for (let attempt = 0; attempt < 2; attempt++) {
       await relay.start();
       const descriptor = relay.getRelayDescriptor()!;
       expect(descriptor.endpoints).toContain(fixed);
       const local = descriptor.endpoints.find(endpoint => endpoint.startsWith('ws:'))!;
       expect(Number(new URL(local).port)).toBeGreaterThan(0);
+      expect(relay.getListeningPort()).toBe(Number(new URL(local).port));
       const discovered = await discoverRelayContactV1(createRelayContactHintV1('invitation', local, descriptor.relayId));
       expect(discovered.responder.endpoints).toEqual(descriptor.endpoints);
       await relay.stop();
+      expect(relay.getListeningPort()).toBeNull();
     }
   } finally { await relay.stop(); rmSync(directory, { recursive: true, force: true }); }
 }, 10000);

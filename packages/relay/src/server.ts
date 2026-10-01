@@ -360,6 +360,8 @@ export interface RelayDiscoveryIngestResult extends RelayContactDiscoveryResult 
 export interface RelayServer {
   start(): Promise<void>;
   stop(options?: { graceful?: boolean }): Promise<void>;
+  /** Local listener inspection, including unadvertised outbound-only relays. */
+  getListeningPort(): number | null;
   getStats(): RelayStats;
   getRelayDescriptor(now?: number): RelayDescriptorV1 | null;
   observeRelayDescriptor(value: unknown, now?: number): RelayDescriptorObservation;
@@ -4285,6 +4287,11 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       trafficMeter.checkpoint();
 
       log('info', 'stopped');
+    },
+
+    getListeningPort(): number | null {
+      const address = httpServer?.address();
+      return address && typeof address !== 'string' ? address.port : null;
     },
 
     getStats(): RelayStats {
