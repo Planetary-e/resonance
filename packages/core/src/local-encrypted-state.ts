@@ -10,6 +10,8 @@ export function openEncryptedLocalState<T>(options: {
   path: string; key: Uint8Array; domain: string; maxBytes: number;
   initial: T; validate(value: unknown): value is T;
   mode?: 'create-new' | 'open-existing';
+  /** Explicit, strict legacy decoder. Reading does not migrate; the next write atomically replaces the same file. */
+  decodeLegacy?: (bytes: Buffer) => T | undefined;
 }) {
   if (options.key.length !== 32) throw new Error('Encrypted local state requires a 32-byte key');
   const directory = dirname(options.path);
@@ -70,25 +72,38 @@ export function openEncryptedLocalState<T>(options: {
     if (!existsSync(options.path)) write(options.initial);
     else {
       const size = statSync(options.path).size;
-      if (size < 1 || size > options.maxBytes) throw new Error('Encrypted outbox file exceeds capacity or is empty');
-      const record = JSON.parse(readFileSync(options.path, 'utf8'));
-      if (!record || typeof record !== 'object' || Array.isArray(record)
-        || Object.keys(record).sort().join(',') !== 'ciphertext,nonce,tag,version'
-        || record.version !== 1 || ![record.nonce, record.tag, record.ciphertext].every(value =>
-          typeof value === 'string' && /^[A-Za-z0-9_-]+$/.test(value))) {
-        throw new Error('Encrypted outbox file is invalid');
+      if ((!size && !options.decodeLegacy) || size > options.maxBytes) throw new Error('Encrypted outbox file exceeds capacity or is empty');
+      const bytes = readFileSync(options.path);
+      if (bytes.length > options.maxBytes) throw new Error('Encrypted outbox file exceeds capacity');
+      let legacy: T | undefined;
+      let encoded: string | undefined;
+      try { legacy = options.decodeLegacy?.(bytes); if (legacy === undefined) encoded = bytes.toString('utf8'); }
+      finally { bytes.fill(0); }
+      if (legacy !== undefined) {
+        if (!options.validate(legacy)) throw new Error('Encrypted outbox legacy state is invalid');
+        state = legacy;
+      } else {
+        let record;
+        try { record = JSON.parse(encoded!); }
+        catch { throw new Error('Encrypted outbox file is invalid'); } // Never echo legacy plaintext in parser errors.
+        if (!record || typeof record !== 'object' || Array.isArray(record)
+          || Object.keys(record).sort().join(',') !== 'ciphertext,nonce,tag,version'
+          || record.version !== 1 || ![record.nonce, record.tag, record.ciphertext].every(value =>
+            typeof value === 'string' && /^[A-Za-z0-9_-]+$/.test(value))) {
+          throw new Error('Encrypted outbox file is invalid');
+        }
+        const nonce = Buffer.from(record.nonce, 'base64url');
+        const tag = Buffer.from(record.tag, 'base64url');
+        if (nonce.length !== 12 || tag.length !== 16) throw new Error('Encrypted outbox file is invalid');
+        const decipher = createDecipheriv('aes-256-gcm', key, nonce);
+        decipher.setAAD(aad); decipher.setAuthTag(tag);
+        const plaintext = Buffer.concat([decipher.update(Buffer.from(record.ciphertext, 'base64url')), decipher.final()]);
+        try {
+          const value: unknown = JSON.parse(plaintext.toString('utf8'));
+          if (!options.validate(value)) throw new Error('Encrypted outbox state is invalid');
+          state = value;
+        } finally { plaintext.fill(0); }
       }
-      const nonce = Buffer.from(record.nonce, 'base64url');
-      const tag = Buffer.from(record.tag, 'base64url');
-      if (nonce.length !== 12 || tag.length !== 16) throw new Error('Encrypted outbox file is invalid');
-      const decipher = createDecipheriv('aes-256-gcm', key, nonce);
-      decipher.setAAD(aad); decipher.setAuthTag(tag);
-      const plaintext = Buffer.concat([decipher.update(Buffer.from(record.ciphertext, 'base64url')), decipher.final()]);
-      try {
-        const value: unknown = JSON.parse(plaintext.toString('utf8'));
-        if (!options.validate(value)) throw new Error('Encrypted outbox state is invalid');
-        state = value;
-      } finally { plaintext.fill(0); }
     }
   } catch (error) { key.fill(0); unlock(); throw error; }
 

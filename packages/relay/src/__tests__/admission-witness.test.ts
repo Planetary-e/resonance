@@ -130,11 +130,12 @@ it('bounds unavailable witnesses and refuses late votes after timeout or close w
   const options = { directory: join(n.dir, 'destination'), encryptionKey: n.encryptionKey, policy: f.policy, authority: f.authority,
     coordinatorKey: f.coordinators[0], witnessTransport: transport, witnessTimeoutMs: 50 };
   let verifier = await createConfiguredAdmissionVerifier({ ...options, initialize: true }); clean.push(() => verifier.close());
+  const spentBefore = readFileSync(join(options.directory, 'admission-spends-v2.jsonl'));
   const token = await f.token(), c = claim(), cap = presentBlindAdmissionTokenV2(token, f.scope, c.action, c.requestBinding);
   await expect(verifier.verifyAndSpend(cap, { ...c, now: f.time })).rejects.toThrow('Four');
   requests.splice(0).forEach(resolve => resolve());
   await Promise.resolve();
-  expect(readFileSync(join(options.directory, 'admission-spends-v2.jsonl'), 'utf8')).toBe('');
+  expect(readFileSync(join(options.directory, 'admission-spends-v2.jsonl'))).toEqual(spentBefore);
   verifier.close(); verifier = await createConfiguredAdmissionVerifier({ ...options, witnessTransport: n.transport });
   expect(await verifier.verifyAndSpend(cap, { ...c, now: f.time })).toEqual({ status: 'accepted' });
   const second = claim(), cap2 = presentBlindAdmissionTokenV2(await f.token(), f.scope, second.action, second.requestBinding);

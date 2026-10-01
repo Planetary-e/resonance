@@ -4,6 +4,7 @@ import type { Socket } from 'node:net';
 import type { SigningKeyPair } from '@resonance/core';
 import { openAdmissionPolicyStore, assertAdmissionPolicyCurrent, parseAdmissionWalletProfile, admissionKeyFingerprint, type AdmissionPolicyKey } from '@resonance/core/admission-policy';
 import { createLocalBlindAdmissionVerifierV2 } from './blind-admission-verifier.js';
+import { openAdmissionSpendHistory } from './admission-spend-history.js';
 import { createAdmissionWitness, createAdmissionQuorumGate, type AdmissionWitnessTransport } from './admission-witness.js';
 
 export async function createConfiguredAdmissionVerifier(options: {
@@ -18,6 +19,7 @@ export async function createConfiguredAdmissionVerifier(options: {
     encryptionKey: options.encryptionKey, mode: options.initialize ? 'create-new' : 'open-existing', now });
   let witness: ReturnType<typeof createAdmissionWitness> | undefined;
   let quorum: ReturnType<typeof createAdmissionQuorumGate> | undefined;
+  let history: ReturnType<typeof openAdmissionSpendHistory> | undefined;
   try {
     const policy = await store.install(options.policy, options.authority);
     const shared = { directory: options.directory, encryptionKey: options.encryptionKey, policy, now, maxSpends: options.maxSpends,
@@ -27,7 +29,9 @@ export async function createConfiguredAdmissionVerifier(options: {
       timeoutMs: options.witnessTimeoutMs, onTransportSocket: options.onWitnessSocket });
     const entries: Array<AdmissionPolicyKey & { issuerPublicKey: CryptoKey }> = [];
     for (const entry of policy.keys) entries.push({ ...entry, issuerPublicKey: (await parseAdmissionWalletProfile(entry.profile)).publicKey });
-    const verifier = createLocalBlindAdmissionVerifierV2({ directory: options.directory, maxSpends: options.maxSpends,
+    history = openAdmissionSpendHistory({ directory: options.directory, encryptionKey: options.encryptionKey, policy, now,
+      initialize: options.initialize, maxSpends: options.maxSpends });
+    const verifier = createLocalBlindAdmissionVerifierV2({ directory: options.directory, maxSpends: options.maxSpends, history,
       async beforeSpend(spend, context, publicKey) {
         const entry = entries.find(entry => entry.issuerPublicKey === publicKey)!;
         if (!entry.witnesses) return;
@@ -42,5 +46,5 @@ export async function createConfiguredAdmissionVerifier(options: {
       },
     });
     return { verifyAndSpend: verifier.verifyAndSpend, witness, close() { quorum?.close(); witness?.close(); verifier.close(); store.close(); } };
-  } catch (error) { quorum?.close(); witness?.close(); store.close(); throw error; }
+  } catch (error) { history?.close(); quorum?.close(); witness?.close(); store.close(); throw error; }
 }

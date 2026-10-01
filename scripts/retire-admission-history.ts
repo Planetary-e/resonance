@@ -2,7 +2,7 @@
 import { closeSync, constants, fstatSync, openSync, readSync } from 'node:fs';
 import { join } from 'node:path';
 import { openAdmissionPolicyStore, verifyAdmissionPolicy } from '@resonance/core/admission-policy';
-import { createAdmissionWitness, createAdmissionQuorumGate } from '@resonance/relay';
+import { createAdmissionWitness, createAdmissionQuorumGate, openAdmissionSpendHistory } from '@resonance/relay';
 
 function read(path: string, maximum: number): string {
   const fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK);
@@ -33,21 +33,26 @@ try {
   const approved = command === 'retire' && raw[0] === '--approve' ? raw[1] : undefined;
   const args = approved ? raw.slice(2) : raw;
   if ((command !== 'plan' && command !== 'retire') || (command === 'retire' && !approved)
-    || args.length !== 6 || !['witness','coordinator'].includes(args[0])) throw new Error('Invalid maintenance command or missing explicit approval');
-  const [role, directory, authorityPath, storageKeyPath, participantPath, issuerKey] = args;
+    || !['witness','coordinator','local-spends'].includes(args[0])
+    || args.length !== (args[0] === 'local-spends' ? 5 : 6)) throw new Error('Invalid maintenance command or missing explicit approval');
+  const [role, directory, authorityPath, storageKeyPath] = args;
+  const issuerKey = args.at(-1)!;
   const authority = read(authorityPath, 256).trim(), hex = read(storageKeyPath, 128).trim();
   if (!/^[a-fA-F0-9]{64}$/.test(hex)) throw new Error('Invalid local policy storage key');
   const encryptionKey = Buffer.from(hex, 'hex');
   let participant: ReturnType<typeof privateKey> | undefined;
   let policyStore: Awaited<ReturnType<typeof openAdmissionPolicyStore>> | undefined;
-  let history: ReturnType<typeof createAdmissionWitness> | ReturnType<typeof createAdmissionQuorumGate> | undefined;
+  let history: ReturnType<typeof createAdmissionWitness> | ReturnType<typeof createAdmissionQuorumGate> | ReturnType<typeof openAdmissionSpendHistory> | undefined;
   try {
     // Read the device's installed, revision-pinned policy. Never import a policy or initialize missing history here.
     policyStore = await openAdmissionPolicyStore({ path: join(directory, 'admission-community-policy.json'), encryptionKey, mode: 'open-existing' });
     const policy = await verifyAdmissionPolicy(policyStore.current(), authority);
-    participant = privateKey(participantPath);
-    const options = { directory, encryptionKey, policy, signingKey: participant };
-    history = role === 'witness' ? createAdmissionWitness(options) : createAdmissionQuorumGate(options);
+    if (role === 'local-spends') history = openAdmissionSpendHistory({ directory, encryptionKey, policy });
+    else {
+      participant = privateKey(args[4]);
+      const options = { directory, encryptionKey, policy, signingKey: participant };
+      history = role === 'witness' ? createAdmissionWitness(options) : createAdmissionQuorumGate(options);
+    }
     const result = command === 'plan' ? history.planRetirement(issuerKey) : history.retire(issuerKey, approved!);
     console.log(JSON.stringify({ ...result, result: command === 'plan' ? 'review-required' : 'permanently-retired' }, null, 2));
   } finally {
@@ -58,5 +63,7 @@ try {
   console.error('Usage: node --import tsx scripts/retire-admission-history.ts');
   console.error('  plan <witness|coordinator> <directory> authority.pub local-policy-key.hex participant-private.json <issuer-key-fingerprint>');
   console.error('  retire --approve <review-digest> <witness|coordinator> <directory> authority.pub local-policy-key.hex participant-private.json <issuer-key-fingerprint>');
+  console.error('  plan local-spends <directory> authority.pub local-policy-key.hex <issuer-key-fingerprint>');
+  console.error('  retire --approve <review-digest> local-spends <directory> authority.pub local-policy-key.hex <issuer-key-fingerprint>');
   process.exitCode = 1;
 }
