@@ -14,7 +14,7 @@ export {
   type CreateChannelInput,
 } from './store.js';
 export { createIdentityManager, type IdentityManager } from './identity.js';
-export { openBlindAdmissionWalletV2, type BlindAdmissionWalletV2 } from './blind-admission-wallet.js';
+export { openBlindAdmissionWalletV2, type BlindAdmissionWalletV2, type AdmissionWalletRetirementPlan } from './blind-admission-wallet.js';
 export { openManagedAdmissionWallet, type ManagedAdmissionWallet, type AdmissionWalletProfileV1, type AdmissionWalletStatus } from './managed-admission-wallet.js';
 export { deriveAdmissionWalletKey } from './config.js';
 export type { PrivateTrafficScheduleOptions } from './private-traffic-scheduler.js';

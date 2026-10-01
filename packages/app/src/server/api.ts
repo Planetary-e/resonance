@@ -9,7 +9,7 @@ import {
   ModelLoadError,
   WalletLoadError,
   getAdmissionWalletStatus, configureAdmissionWallet, importAdmissionTokens, installAdmissionPolicy,
-  requestAdmissionTokens, completeAdmissionIssuance, cancelAdmissionIssuance,
+  requestAdmissionTokens, completeAdmissionIssuance, cancelAdmissionIssuance, planAdmissionWalletRetirement, retireAdmissionWallet,
   listExternalMailboxMatches,
   getRelayActivity,
   isUnlocked,
@@ -244,6 +244,20 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
     if (!requireAuth(req, res)) return true;
     try { cancelAdmissionIssuance(); json(res, { ok: true }); }
     catch (err) { error(res, err instanceof Error ? err.message : 'Cancellation failed', 409); }
+    return true;
+  }
+
+  if ((url === '/api/admission-wallet/retirement-plan' || url === '/api/admission-wallet/retire') && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    const body = await readBody(req), apply = url.endsWith('/retire');
+    if (!body || typeof body !== 'object' || Array.isArray(body)
+      || Object.keys(body).sort().join(',') !== (apply ? 'approvalDigest,keyFingerprint' : 'keyFingerprint')
+      || typeof body.keyFingerprint !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(body.keyFingerprint)
+      || (apply && (typeof body.approvalDigest !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(body.approvalDigest)))) {
+      error(res, 'Provide a wallet key and, for cleanup, its reviewed approval'); return true;
+    }
+    try { json(res, apply ? retireAdmissionWallet(body.keyFingerprint, body.approvalDigest as string) : planAdmissionWalletRetirement(body.keyFingerprint)); }
+    catch (err) { error(res, err instanceof Error ? err.message : 'Wallet cleanup failed', 409); }
     return true;
   }
 

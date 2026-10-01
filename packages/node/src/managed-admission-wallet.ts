@@ -1,5 +1,5 @@
 /** Pinned active wallet plus immutable prior profiles for exact retries. */
-import { verifyAdmissionPolicy, assertAdmissionPolicyCurrent, assertAdmissionPolicySuccessor, admissionAuthorityFingerprint, type SignedAdmissionPolicy } from '@resonance/core/admission-policy';
+import { verifyAdmissionPolicy, assertAdmissionPolicyCurrent, assertAdmissionPolicySuccessor, admissionAuthorityFingerprint, admissionPolicyDigest, type SignedAdmissionPolicy } from '@resonance/core/admission-policy';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { openEncryptedLocalState } from './encrypted-local-state.js';
@@ -12,7 +12,7 @@ export type { AdmissionWalletProfileV1 } from './admission-wallet-profile.js';
 export interface AdmissionWalletStatus {
   configured: boolean; scope?: AdmissionWalletProfileV1['scope']; keyFingerprint?: string; relayUrls?: string[];
   available: number; reserved: number; total: number; capacity: number; availableCapacity: number;
-  archived: Array<{ scope: AdmissionWalletProfileV1['scope']; keyFingerprint: string; available: number; reserved: number }>;
+  archived: Array<{ scope: AdmissionWalletProfileV1['scope']; keyFingerprint: string; available: number; reserved: number; permanentlyRetired: boolean; canRetire: boolean; tokensRemoved?: number; reservationsRemoved?: number }>;
   pendingIssuance?: AdmissionIssuanceRequest;
   policy?: { revision: number; authorityFingerprint: string; expiresAt: number; issueUntil: number; spendUntil: number; retryUntil: number };
 }
@@ -46,9 +46,9 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
   function file(index: number, profile: AdmissionWalletProfileV1) {
     return join(options.directory, index === 0 ? 'admission-wallet.json' : `admission-wallet-${admissionKeyFingerprint(profile.issuerPublicKey).slice(7)}.json`);
   }
-  function open(index: number, parsed: Awaited<ReturnType<typeof parseAdmissionWalletProfile>>) {
+  function open(index: number, parsed: Awaited<ReturnType<typeof parseAdmissionWalletProfile>>, existing = false) {
     return openBlindAdmissionWalletV2({ path: file(index, parsed.profile), encryptionKey: key,
-      scope: parsed.profile.scope, issuerPublicKey: parsed.publicKey });
+      scope: parsed.profile.scope, issuerPublicKey: parsed.publicKey, now: options.now, mode: existing ? 'open-existing' : undefined });
   }
   try {
     const state = stateV2(storage.read());
@@ -65,9 +65,37 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
       seen.add(fingerprint);
       // Missing history is not a new wallet. Never recreate it and permit token reuse.
       if (!existsSync(file(index, profile))) throw new Error('Saved access-token wallet is missing; restore its history');
-      wallets.push(open(index, parsed));
+      wallets.push(open(index, parsed, true));
     }
+    validateRetiredWallets(state, wallets);
   } catch (error) { wallets.forEach(wallet => wallet.close()); storage.close(); key.fill(0); throw error; }
+  function validateRetiredWallets(state: StateV2, candidates: BlindAdmissionWalletV2[]) {
+    for (const [index, wallet] of candidates.entries()) {
+      const r = wallet.summary().retirement; if (!r) continue;
+      const policy = state.policy, entry = policy?.keys.find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === r.issuerKey);
+      if (index === state.active) throw new Error('Cannot reactivate a permanently retired wallet');
+      if (!policy || !entry || admissionAuthorityFingerprint(policy.authority) !== r.authorityFingerprint
+        || policy.revision < r.policyRevision || entry.retryUntil > r.retryUntil
+        || (policy.revision === r.policyRevision && admissionPolicyDigest(policy) !== r.policyDigest)) {
+        throw new Error('Retired wallet does not match its pinned community policy');
+      }
+    }
+  }
+  function retirementTarget(issuerKey: string) {
+    ready(); if (pending) throw new Error('Finish or cancel the pending token request before wallet cleanup');
+    const state = stateV2(storage.read());
+    if (!state.policy) throw new Error('Wallet cleanup requires an installed signed community policy');
+    const index = state.profiles.findIndex(profile => admissionKeyFingerprint(profile.issuerPublicKey) === issuerKey);
+    if (index < 0) throw new Error('Unknown access-token wallet');
+    if (index === state.active) throw new Error('Cannot retire the active wallet; install a successor first');
+    return { state, policy: state.policy, wallet: wallets[index] };
+  }
+  function eligible(state: StateV2, issuerKey: string) {
+    if (busy || pending || !state.policy) return false;
+    try { assertAdmissionPolicyCurrent(state.policy, (options.now ?? Date.now)()); } catch { return false; }
+    const entry = state.policy.keys.find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === issuerKey);
+    return !!entry && state.policy.activeKey !== issuerKey && (options.now ?? Date.now)() >= entry.retryUntil;
+  }
   function ready() { storage.read(); if (busy) throw new Error('Access-token wallet update is in progress'); }
   function active() {
     const state = stateV2(storage.read()); const wallet = wallets[state.active];
@@ -82,6 +110,14 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
     if (!entry || now < entry.notBefore || now >= cutoff!) throw new Error('Issuer key is not active for this operation under the community policy');
   }
   return {
+    planRetirement(issuerKey: string) {
+      const { wallet, policy, state } = retirementTarget(issuerKey);
+      return wallet.planRetirement(policy, state);
+    },
+    retire(issuerKey: string, approvalDigest: string) {
+      const { wallet, policy, state } = retirementTarget(issuerKey);
+      return wallet.retire(policy, approvalDigest, state);
+    },
     configured(): boolean { return stateV2(storage.read()).profiles.length > 0; },
     status(): AdmissionWalletStatus {
       const state = stateV2(storage.read());
@@ -89,8 +125,13 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
       const { wallet, profile } = active();
       return { configured: true, scope: structuredClone(profile.scope), relayUrls: [...profile.relayUrls],
         keyFingerprint: admissionKeyFingerprint(profile.issuerPublicKey), ...wallet.summary(),
-        archived: state.profiles.flatMap((prior, index) => index === state.active ? [] : [{ scope: structuredClone(prior.scope),
-          keyFingerprint: admissionKeyFingerprint(prior.issuerPublicKey), available: wallets[index].summary().available, reserved: wallets[index].summary().reserved }]),
+        archived: state.profiles.flatMap((prior, index) => {
+          if (index === state.active) return [];
+          const summary = wallets[index].summary(), keyFingerprint = admissionKeyFingerprint(prior.issuerPublicKey);
+          return [{ scope: structuredClone(prior.scope), keyFingerprint, available: summary.available, reserved: summary.reserved,
+            permanentlyRetired: summary.permanentlyRetired, canRetire: !summary.permanentlyRetired && eligible(state, keyFingerprint),
+            ...(summary.retirement ? { tokensRemoved: summary.retirement.tokensRemoved, reservationsRemoved: summary.retirement.reservationsRemoved } : {}) }];
+        }),
         ...(state.policy ? { policy: { revision: state.policy.revision, authorityFingerprint: admissionAuthorityFingerprint(state.policy.authority), expiresAt: state.policy.expiresAt,
           ...(() => { const entry = state.policy!.keys.find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === state.policy!.activeKey)!;
             return { issueUntil: entry.issueUntil, spendUntil: entry.spendUntil, retryUntil: entry.retryUntil }; })() } } : {}),
@@ -106,13 +147,17 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
         const prior = state.profiles.findIndex(profile => admissionKeyFingerprint(profile.issuerPublicKey) === admissionKeyFingerprint(parsed.profile.issuerPublicKey));
         if (prior !== -1) {
           if (JSON.stringify(state.profiles[prior]) !== JSON.stringify(parsed.profile)) throw new Error('This issuer key is already pinned; a different period or setup requires a new key');
+          if (wallets[prior].summary().permanentlyRetired) throw new Error('Cannot reactivate a permanently retired wallet');
           if (prior !== state.active) storage.write({ ...state, active: prior });
           return;
         }
         if (state.profiles.length >= MAX_PROFILES) throw new Error('Wallet profile history is full; existing reservations must be retained');
         // Create the empty token file first. A crash can leave an orphan, never a pinned missing wallet.
         const wallet = open(state.profiles.length, parsed);
-        try { storage.write({ version: 2, active: state.profiles.length, profiles: [...state.profiles, parsed.profile] }); }
+        try {
+          if (wallet.summary().permanentlyRetired) throw new Error('Cannot reactivate a permanently retired wallet');
+          storage.write({ version: 2, active: state.profiles.length, profiles: [...state.profiles, parsed.profile] });
+        }
         catch (error) { wallet.close(); throw error; }
         wallets.push(wallet);
       } finally { busy = false; }
@@ -137,6 +182,7 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
           opened.push(open(profiles.length, parsed)); profiles.push(parsed.profile);
         }
         const active = profiles.findIndex(profile => admissionKeyFingerprint(profile.issuerPublicKey) === policy.activeKey);
+        validateRetiredWallets({ version: 3, active, profiles, policy }, [...wallets, ...opened]);
         storage.write({ version: 3, active, profiles, policy });
         wallets.push(...opened); opened.length = 0;
       } finally { opened.forEach(wallet => wallet.close()); busy = false; }
@@ -182,9 +228,13 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
       const normalized = { ...context, relayUrl: normalizeAdmissionRelay(context.relayUrl) };
       // Search ALL old reservations before allocating from the active profile. An old retry
       // must fail at the relay if its epoch is retired, never silently spend a fresh token.
+      let reserved: { capability: NonNullable<ReturnType<BlindAdmissionWalletV2['reservedCapabilityFor']>>; index: number } | undefined;
       for (const [index, wallet] of wallets.entries()) {
-        const previous = wallet.reservedCapabilityFor(normalized); if (previous) { checkPolicy(state.profiles[index], 'retry'); return previous; }
+        // Scan every denial fence before returning even a reservation from an earlier wallet.
+        const previous = wallet.reservedCapabilityFor(normalized);
+        if (previous && !reserved) reserved = { capability: previous, index };
       }
+      if (reserved) { checkPolicy(state.profiles[reserved.index], 'retry'); return reserved.capability; }
       const { wallet, profile } = active(); checkPolicy(profile, 'spend');
       if (!profile.relayUrls.includes(normalized.relayUrl)) throw new Error('Destination is not in the pinned access-token relay list');
       return wallet.capabilityFor(normalized);

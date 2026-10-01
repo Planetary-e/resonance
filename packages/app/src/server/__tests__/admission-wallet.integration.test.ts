@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
 import { publicVerif } from '@cloudflare/privacypass-ts';
-import { EmbeddingEngine, generateSigningKeyPair, createBlindAdmissionRequestV2, issueBlindAdmissionRequestV2 } from '@resonance/core';
+import { EmbeddingEngine, createAdmissionRequestBindingV2, generateSigningKeyPair, createBlindAdmissionRequestV2, issueBlindAdmissionRequestV2 } from '@resonance/core';
 import { createRelayServer, createConfiguredAdmissionVerifier, type RelayServer } from '@resonance/relay';
 import { signAdmissionPolicy, admissionKeyFingerprint, type SignedAdmissionPolicy, type AdmissionWalletProfileV1 } from '@resonance/core/admission-policy';
 import { issueAdmissionBatch, openAdmissionIssuerLedger } from '@resonance/node';
@@ -23,6 +23,7 @@ let issuerKeys: CryptoKeyPair;
 let verifier: Awaited<ReturnType<typeof createConfiguredAdmissionVerifier>>;
 const relays: RelayServer[] = []; const tokens: string[] = [];
 let publicationHold: string; let searchHold: string;
+const retiredRequest = { relayUrl: destinationUrl, action: 'search' as const, requestBinding: createAdmissionRequestBindingV2('search', { cleanup: true }) };
 async function request(path: string, body?: unknown, authenticated = true, method = body === undefined ? 'GET' : 'POST') {
   const response = await fetch(base + path, { method, headers: { 'content-type': 'application/json',
     ...(authenticated ? { authorization: `Bearer ${auth}` } : {}) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
@@ -199,6 +200,7 @@ it('authenticates signed setup, retains policy through unlock, and refuses manua
   expect((await request('/api/admission-wallet/configure', profile)).status).toBe(409);
   expect((await request('/api/search', { text: 'Signed community policy search', type: 'need' })).status).toBe(200);
   const { signature: _, authority: __, ...body } = policy;
+  getSession()!.admissionWallet.capabilityFor(retiredRequest);
   const now = Date.now();
   const retired = await signAdmissionPolicy({ ...body, revision: 2, keys: [{ ...body.keys[0], issueUntil: now - 500, spendUntil: now - 100 }] }, authority, authorityKeys.secretKey);
   expect((await request('/api/admission-wallet/policy', { policy: retired, authority })).status).toBe(200);
@@ -206,3 +208,52 @@ it('authenticates signed setup, retains policy through unlock, and refuses manua
   expect((await request('/api/admission-wallet/policy', { policy, authority })).status).toBe(409);
   expect((await request('/api/admission-wallet')).body.policy.revision).toBe(2);
 }, 12000);
+
+
+it('reviews and applies authenticated wallet cleanup locally, blocks old retries after unlock and preserves fresh tokens', async () => {
+  const keyFingerprint = admissionKeyFingerprint(profile.issuerPublicKey);
+  for (const endpoint of ['retirement-plan', 'retire']) {
+    expect((await request(`/api/admission-wallet/${endpoint}`, { keyFingerprint }, false)).status).toBe(401);
+    for (const body of [null, [], {}, { keyFingerprint, extra: true }]) {
+      expect((await request(`/api/admission-wallet/${endpoint}`, body)).status).toBe(400);
+    }
+  }
+  expect((await request('/api/admission-wallet/retirement-plan', { keyFingerprint })).status).toBe(409);
+  const keys = await publicVerif.Issuer.generateKey(publicVerif.BlindRSAMode.PSS, { modulusLength: 2048, publicExponent: new Uint8Array([1,0,1]) });
+  const fresh = { ...profile, scope: { ...scope, epoch: 'next-period' },
+    issuerPublicKey: `-----BEGIN PUBLIC KEY-----\n${Buffer.from(await crypto.subtle.exportKey('spki', keys.publicKey)).toString('base64')}\n-----END PUBLIC KEY-----` };
+  const now = Date.now(), { signature: _, authority: __, ...body } = policy, oldStart = body.keys[0].notBefore;
+  const successor = await signAdmissionPolicy({ ...body, revision: 3, activeKey: admissionKeyFingerprint(fresh.issuerPublicKey), keys: [
+    { ...body.keys[0], issueUntil: oldStart + 1, spendUntil: oldStart + 2, retryUntil: oldStart + 3 },
+    { profile: fresh, notBefore: now - 1000, issueUntil: now + 3600000, spendUntil: now + 7200000, retryUntil: now + 10800000 },
+  ] }, authority, authorityKeys.secretKey);
+  const wire = vi.spyOn(WebSocket.prototype, 'send');
+  try {
+    expect((await request('/api/admission-wallet/policy', { policy: successor, authority })).status).toBe(200);
+    const prepared = (await request('/api/admission-wallet/request', { count: 2 })).body.request;
+    expect((await request('/api/admission-wallet/retirement-plan', { keyFingerprint })).status).toBe(409);
+    const response = await issueAdmissionBatch({ request: prepared, expectedProfile: fresh, privateKey: keys.privateKey });
+    expect((await request('/api/admission-wallet/complete', response)).body.imported).toBe(2);
+    const before = readFileSync(join(directory, 'personal', 'admission-wallet.json'));
+    const reviewed = await request('/api/admission-wallet/retirement-plan', { keyFingerprint }); expect(reviewed.status).toBe(200);
+    expect(reviewed.body).toMatchObject({ tokensRemoved: 10, reservationsRemoved: 10, unusedTokensRemoved: 0 });
+    expect(readFileSync(join(directory, 'personal', 'admission-wallet.json'))).toEqual(before);
+    expect((await request('/api/admission-wallet/retire', { keyFingerprint })).status).toBe(400);
+    expect((await request('/api/admission-wallet/retire', { keyFingerprint, approvalDigest: 'sha256:' + '0'.repeat(64) })).status).toBe(409);
+    const { signature: _s, authority: _a, ...nextBody } = successor;
+    const next = await signAdmissionPolicy({ ...nextBody, revision: 4 }, authority, authorityKeys.secretKey);
+    expect((await request('/api/admission-wallet/policy', { policy: next, authority })).status).toBe(200);
+    expect((await request('/api/admission-wallet/retire', { keyFingerprint, approvalDigest: reviewed.body.approvalDigest })).status).toBe(409);
+    const plan = (await request('/api/admission-wallet/retirement-plan', { keyFingerprint })).body;
+    expect((await request('/api/admission-wallet/retire', { keyFingerprint, approvalDigest: plan.approvalDigest })).status).toBe(200);
+    await restart();
+    const status = (await request('/api/admission-wallet')).body;
+    expect(status).toMatchObject({ available: 2, reserved: 0, archived: [{ permanentlyRetired: true, tokensRemoved: 10, reservationsRemoved: 10 }] });
+    expect(() => getSession()!.admissionWallet.capabilityFor(retiredRequest)).toThrow('replacement token');
+    expect((await request('/api/admission-wallet')).body.available).toBe(2);
+    expect((await request('/api/status')).body.automaticMailboxes).toBe(false);
+    expect((await request('/api/admission-wallet/retirement-plan', { keyFingerprint })).status).toBe(409);
+    expect(wire).not.toHaveBeenCalled();
+    for (const secret of tokens) expect(JSON.stringify(plan) + JSON.stringify(status)).not.toContain(secret);
+  } finally { wire.mockRestore(); }
+}, 15000);

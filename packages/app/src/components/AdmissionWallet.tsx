@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { getAdmissionWallet, configureAdmissionWallet, importAdmissionTokens, requestAdmissionTokens, completeAdmissionIssuance, cancelAdmissionIssuance, installAdmissionPolicy, type AdmissionWalletStatus } from '../api.client';
+import { getAdmissionWallet, configureAdmissionWallet, importAdmissionTokens, requestAdmissionTokens, completeAdmissionIssuance, cancelAdmissionIssuance, installAdmissionPolicy, planAdmissionWalletRetirement, retireAdmissionWallet, type AdmissionWalletRetirementPlan, type AdmissionWalletStatus } from '../api.client';
 
 export default function AdmissionWallet({ privateDeliveryAvailable, onChange }: {
   privateDeliveryAvailable: boolean; onChange: () => Promise<unknown>;
@@ -17,6 +17,7 @@ export default function AdmissionWallet({ privateDeliveryAvailable, onChange }: 
   const [changing, setChanging] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const [retirementPlan, setRetirementPlan] = useState<AdmissionWalletRetirementPlan | null>(null);
   async function refresh() {
     const result = await getAdmissionWallet();
     if (result.error) { setMessage(result.error); return; }
@@ -24,7 +25,7 @@ export default function AdmissionWallet({ privateDeliveryAvailable, onChange }: 
   }
   useEffect(() => { void refresh(); }, []);
   async function configure(event: React.FormEvent) {
-    event.preventDefault(); setBusy(true); setMessage('');
+    event.preventDefault(); setBusy(true); setMessage(''); setRetirementPlan(null);
     try {
       const result = await configureAdmissionWallet({ version: 1, scope: { issuer: issuer.trim(), community: 'public', epoch: epoch.trim() },
         issuerPublicKey: publicKey.trim(), relayUrls: relays.split(/[\s,]+/).filter(Boolean) });
@@ -34,7 +35,7 @@ export default function AdmissionWallet({ privateDeliveryAvailable, onChange }: 
     } finally { setBusy(false); }
   }
   async function importTokens(event: React.FormEvent) {
-    event.preventDefault(); setBusy(true); setMessage('');
+    event.preventDefault(); setBusy(true); setMessage(''); setRetirementPlan(null);
     const batch = tokens.trim().split(/\s+/).filter(Boolean);
     // Bearer tokens do not remain displayed after an import attempt or get stored in browser storage.
     setTokens('');
@@ -45,7 +46,7 @@ export default function AdmissionWallet({ privateDeliveryAvailable, onChange }: 
     } finally { setBusy(false); }
   }
   async function issuance(action: 'request' | 'complete' | 'cancel') {
-    setBusy(true); setMessage('');
+    setBusy(true); setMessage(''); setRetirementPlan(null);
     try {
       const result = action === 'request' ? await requestAdmissionTokens(count)
         : action === 'cancel' ? await cancelAdmissionIssuance()
@@ -57,7 +58,7 @@ export default function AdmissionWallet({ privateDeliveryAvailable, onChange }: 
     finally { setBusy(false); }
   }
   async function installPolicy(event: React.FormEvent) {
-    event.preventDefault(); setBusy(true); setMessage('');
+    event.preventDefault(); setBusy(true); setMessage(''); setRetirementPlan(null);
     try {
       const result = await installAdmissionPolicy(JSON.parse(policyText), authority.trim());
       setMessage(result.error ?? 'Signed community policy saved. Earlier wallet history is retained; automatic checks are paused.');
@@ -65,6 +66,22 @@ export default function AdmissionWallet({ privateDeliveryAvailable, onChange }: 
       await refresh(); await onChange();
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Invalid signed policy'); }
     finally { setBusy(false); }
+  }
+  async function reviewRetirement(key: string) {
+    setBusy(true); setMessage(''); setRetirementPlan(null);
+    try {
+      const result = await planAdmissionWalletRetirement(key);
+      if (result.error) setMessage(result.error); else setRetirementPlan(result);
+    } finally { setBusy(false); }
+  }
+  async function applyRetirement() {
+    if (!retirementPlan) return;
+    setBusy(true); setMessage('');
+    try {
+      const result = await retireAdmissionWallet(retirementPlan.issuerKey, retirementPlan.approvalDigest);
+      setMessage(result.error ?? 'Old wallet permanently closed. Its tokens were removed; old requests remain blocked.');
+      setRetirementPlan(null); await refresh(); await onChange();
+    } finally { setBusy(false); }
   }
   return <section className="relay-section">
     <h3>Access-token wallet</h3>
@@ -115,9 +132,8 @@ export default function AdmissionWallet({ privateDeliveryAvailable, onChange }: 
         <button className="btn btn-ghost btn-sm" type="button" disabled={busy} onClick={() => void refresh()}>Refresh balance</button>
       </form></details>
       <p className="text-sm text-muted">Up to {status.availableCapacity} available tokens and {status.capacity} total history slots per setup. Reservations are retained to prevent reuse.</p>
-      {!!status.archived.length && <details><summary>Previous setups retained for retries ({status.archived.length})</summary>
-        {status.archived.map(prior => <p key={prior.keyFingerprint} style={{ overflowWrap: 'anywhere' }}>{prior.scope.issuer} · {prior.scope.epoch}: {prior.available} unused, {prior.reserved} reserved. Key: {prior.keyFingerprint}</p>)}
-      </details>}
+      <PreviousWallets archived={status.archived} plan={retirementPlan} busy={busy || !!status.pendingIssuance}
+        onReview={key => void reviewRetirement(key)} onApply={() => void applyRetirement()} onCancel={() => setRetirementPlan(null)} />
       {privateDeliveryAvailable && !status.policy && <button className="btn btn-ghost btn-sm" disabled={busy || !!status.pendingIssuance} onClick={() => setChanging(true)}>Change issuer or token period</button>}
     </> : privateDeliveryAvailable ? <>
       <p>Use setup details verified with your community. Each setup pins its issuer key, token period, and destination relays. A changed setup requires a new key. Previous tokens stay on this device for exact retries; new requests use the setup you activate. Setup pauses automatic mailbox checks.</p>
@@ -136,4 +152,31 @@ export default function AdmissionWallet({ privateDeliveryAvailable, onChange }: 
       </form>
     </> : <p>Wallet setup is available in the private transport pilot.</p>}
   </section>;
+}
+
+export function PreviousWallets({ archived, plan, busy, onReview, onApply, onCancel }: {
+  archived: AdmissionWalletStatus['archived']; plan: AdmissionWalletRetirementPlan | null; busy: boolean;
+  onReview: (key: string) => void; onApply: () => void; onCancel: () => void;
+}) {
+  if (!archived.length) return null;
+  return <details><summary>Previous wallet setups ({archived.length})</summary>
+    <p>Cleanup becomes available after a previous key’s final retry deadline in a current signed community policy. Finish any pending token request first.</p>
+    {archived.map(prior => <div key={prior.keyFingerprint}>
+      <p>{prior.scope.issuer} · {prior.scope.epoch}: {prior.permanentlyRetired
+        ? `Permanently closed. ${prior.tokensRemoved} tokens removed; ${prior.reservationsRemoved} old ${prior.reservationsRemoved === 1 ? 'reservation remains' : 'reservations remain'} blocked.`
+        : `${prior.available} unused, ${prior.reserved} reserved.`}</p>
+      <p className="text-sm" style={{ overflowWrap: 'anywhere' }}>Key: {prior.keyFingerprint}</p>
+      {prior.canRetire && <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => onReview(prior.keyFingerprint)}>Review cleanup</button>}
+    </div>)}
+    {plan && <section aria-label="Review old wallet cleanup">
+      <h4>Permanently close this old wallet?</h4>
+      <p>{plan.scope.issuer} · Community: {plan.scope.community} · Token period: {plan.scope.epoch}</p>
+      <p className="text-sm" style={{ overflowWrap: 'anywhere' }}>Key: {plan.issuerKey}</p>
+      <p>This removes {plan.tokensRemoved} tokens, including {plan.unusedTokensRemoved} unused tokens, and the details of {plan.reservationsRemoved} {plan.reservationsRemoved === 1 ? 'reservation' : 'reservations'}. The final retry deadline was {new Date(plan.retryUntil).toLocaleString()}.</p>
+      <p>This cannot be undone. This wallet cannot be reactivated. Old requests remain blocked and cannot consume replacement tokens. Your current wallet and automatic mailbox setting stay unchanged.</p>
+      <p>Small encrypted prevention records and the setup remain on this device. Cleanup does not free a setup slot or remove copies in backups.</p>
+      <button className="btn btn-primary btn-sm" disabled={busy} onClick={onApply}>Permanently close old wallet</button>
+      <button className="btn btn-ghost btn-sm" disabled={busy} onClick={onCancel}>Cancel cleanup</button>
+    </section>}
+  </details>;
 }

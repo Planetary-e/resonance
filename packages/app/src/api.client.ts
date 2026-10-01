@@ -357,7 +357,7 @@ export interface AdmissionWalletStatus {
   configured: boolean; scope?: { issuer: string; community: string; epoch: string };
   keyFingerprint?: string; relayUrls?: string[];
   available: number; reserved: number; total: number; capacity: number; availableCapacity: number;
-  archived: Array<{ scope: { issuer: string; community: string; epoch: string }; keyFingerprint: string; available: number; reserved: number }>;
+  archived: Array<{ scope: { issuer: string; community: string; epoch: string }; keyFingerprint: string; available: number; reserved: number; permanentlyRetired: boolean; canRetire: boolean; tokensRemoved?: number; reservationsRemoved?: number }>;
   pendingIssuance?: { batchId: string; requests: string[] };
   policy?: { revision: number; authorityFingerprint: string; expiresAt: number; issueUntil: number; spendUntil: number; retryUntil: number };
 }
@@ -372,3 +372,16 @@ export function completeAdmissionIssuance(response: unknown) { return api<{ impo
 export function cancelAdmissionIssuance() { return api('POST', '/api/admission-wallet/cancel'); }
 
 export function installAdmissionPolicy(policy: unknown, authority: string) { return api('POST', '/api/admission-wallet/policy', { policy, authority }); }
+
+export interface AdmissionWalletRetirementPlan {
+  kind: 'admission-wallet-retirement'; issuerKey: string; scope: NonNullable<AdmissionWalletStatus['scope']>;
+  authorityFingerprint: string; policyRevision: number; policyDigest: string; retryUntil: number;
+  tokensRemoved: number; unusedTokensRemoved: number; reservationsRemoved: number; denialMarkersRetained: number;
+  approvalDigest: string;
+}
+export function planAdmissionWalletRetirement(keyFingerprint: string) {
+  return api<AdmissionWalletRetirementPlan>('POST', '/api/admission-wallet/retirement-plan', { keyFingerprint });
+}
+export function retireAdmissionWallet(keyFingerprint: string, approvalDigest: string) {
+  return api<AdmissionWalletRetirementPlan>('POST', '/api/admission-wallet/retire', { keyFingerprint, approvalDigest });
+}

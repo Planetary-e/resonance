@@ -30,6 +30,7 @@ import {
   deriveAdmissionWalletKey,
   openManagedAdmissionWallet,
   type ManagedAdmissionWallet,
+  type AdmissionWalletRetirementPlan,
   guardRelayClient,
   type PrivateRequestOutbox,
   type PrivateRequestIntent,
@@ -774,6 +775,9 @@ export async function releaseHeldRequest(id: string): Promise<PrivateRequestResu
 
 export function cancelHeldRequest(id: string): void { session!.requestOutbox.cancel(id); }
 export function removeHeldRequest(id: string): void { session!.requestOutbox.remove(id); }
+
+export function planAdmissionWalletRetirement(issuerKey: string): AdmissionWalletRetirementPlan { return session!.admissionWallet.planRetirement(issuerKey); }
+export function retireAdmissionWallet(issuerKey: string, approvalDigest: string): AdmissionWalletRetirementPlan { return session!.admissionWallet.retire(issuerKey, approvalDigest); }
 
 export function getAdmissionWalletStatus() { return session!.admissionWallet.status(); }
 
