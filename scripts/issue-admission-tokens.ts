@@ -5,8 +5,12 @@ import { openAdmissionIssuerLedger } from '../packages/node/src/admission-issuer
 async function main() {
   const args = process.argv.slice(2);
   const command = args.shift();
+  let retirementApproval: string | undefined;
+  if (command === 'retire') {
+    if (args.shift() !== '--approve' || !/^sha256:[a-f0-9]{64}$/.test(retirementApproval = args.shift() ?? '')) throw new Error('Retirement requires --approve and the reviewed digest');
+  }
   if ((command === 'grant' || command === 'issue' || command === 'policy') && args.shift() !== '--approve') throw new Error('Granting, signing, or installing policy requires --approve');
-  const expected = { init: 5, grant: 4, issue: 6, status: 3, policy: 5 }[command ?? ''];
+  const expected = { init: 5, grant: 4, issue: 6, status: 3, policy: 5, 'plan-retirement': 4, retire: 4 }[command ?? ''];
   if (!expected || args.length !== expected) throw new Error('Invalid issuer command');
   const [profilePath, privateKeyPath, ledgerPath, first, second, third] = args;
   const output = command === 'grant' ? first : command === 'issue' ? third : undefined;
@@ -28,7 +32,11 @@ async function main() {
   const ledger = await openAdmissionIssuerLedger({ path: ledgerPath, expectedProfile: profile, privateKey,
     ...(command === 'init' ? { create: { batchSize: Number(first), maxPermits: Number(second) } } : {}) });
   try {
-    if (command === 'policy') {
+    if (command === 'plan-retirement' || command === 'retire') {
+      const authority = read(first, 256).trim();
+      const result = command === 'plan-retirement' ? ledger.planRetirement(authority) : ledger.retire(authority, retirementApproval!);
+      console.log(JSON.stringify({ ...result, result: command === 'plan-retirement' ? 'review-required' : 'permanently-retired' }, null, 2));
+    } else if (command === 'policy') {
       await ledger.installPolicy(JSON.parse(read(second, 65536)), read(first).trim());
       console.log('Signed community policy installed; existing permits and reservations retained.');
     } else if (command === 'grant') {
@@ -52,5 +60,7 @@ catch (error) {
   console.error('  issue --approve profile.json private.pem ledger.json permit.json request.json response.json');
   console.error('  policy --approve profile.json private.pem ledger.json authority.pub policy.json');
   console.error('  status profile.json private.pem ledger.json');
+  console.error('  plan-retirement profile.json private.pem ledger.json authority.pub');
+  console.error('  retire --approve <review-digest> profile.json private.pem ledger.json authority.pub');
   process.exitCode = 1;
 }

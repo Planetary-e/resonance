@@ -1,6 +1,8 @@
 /** Offline invitation admission. No member identifier is added to issuance or redemption. */
-import { verifyAdmissionPolicy, assertAdmissionPolicyCurrent, assertAdmissionPolicySuccessor, type SignedAdmissionPolicy } from '@resonance/core/admission-policy';
+import { verifyAdmissionPolicy, assertAdmissionPolicyCurrent, assertAdmissionPolicySuccessor,
+  admissionAuthorityFingerprint, admissionPolicyDigest, type SignedAdmissionPolicy } from '@resonance/core/admission-policy';
 import { createHash, hkdfSync, randomBytes } from 'node:crypto';
+import { resolve } from 'node:path';
 import { openEncryptedLocalState } from './encrypted-local-state.js';
 import { admissionKeyFingerprint, type AdmissionWalletProfileV1 } from './admission-wallet-profile.js';
 import { prepareAdmissionBatchIssuer, validateAdmissionIssuanceTarget, type AdmissionIssuanceResponse } from './blind-admission-issuance.js';
@@ -11,7 +13,11 @@ export interface AdmissionIssuancePermit {
 }
 export interface AdmissionIssuerPolicy { batchSize: number; maxPermits: number }
 interface Entry { permitHash: string; batchId?: string; response?: AdmissionIssuanceResponse }
-interface State { version: 1; profile: AdmissionWalletProfileV1; policy: AdmissionIssuerPolicy; entries: Entry[]; communityPolicy?: SignedAdmissionPolicy }
+interface Totals { allocatedPermits: number; boundPermits: number; completedPermits: number }
+interface BaseState { profile: AdmissionWalletProfileV1; policy: AdmissionIssuerPolicy; entries: Entry[]; communityPolicy?: SignedAdmissionPolicy }
+type State = (BaseState & { version: 1 }) | (BaseState & {
+  version: 2; communityPolicy: SignedAdmissionPolicy; retirement: Totals & { retiredAt: number };
+});
 const DOMAIN = 'resonance:admission-issuer-ledger:v1';
 const MAX_BYTES = 8 * 1024 * 1024;
 const hex = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
@@ -25,11 +31,30 @@ function validatePolicy(policy: unknown): asserts policy is AdmissionIssuerPolic
   }
 }
 function permitHash(secret: string) { return createHash('sha256').update(`${DOMAIN}:permit\n${secret}`).digest('hex'); }
+function totals(state: State): Totals {
+  if (state.version === 2) {
+    const { allocatedPermits, boundPermits, completedPermits } = state.retirement;
+    return { allocatedPermits, boundPermits, completedPermits };
+  }
+  return { allocatedPermits: state.entries.length, boundPermits: state.entries.filter(entry => entry.batchId).length,
+    completedPermits: state.entries.filter(entry => entry.response).length };
+}
 function validState(value: unknown, profile: AdmissionWalletProfileV1): value is State {
-  if (!exact(value, (value as State)?.communityPolicy ? ['version', 'profile', 'policy', 'entries', 'communityPolicy'] : ['version', 'profile', 'policy', 'entries']) || value.version !== 1
+  const version = (value as State | null)?.version;
+  if (!exact(value, ['version', 'profile', 'policy', 'entries',
+    ...(version === 2 || (value as State)?.communityPolicy ? ['communityPolicy'] : []), ...(version === 2 ? ['retirement'] : [])])
+    || (version !== 1 && version !== 2)
     || JSON.stringify(value.profile) !== JSON.stringify(profile)) return false;
   try { validatePolicy(value.policy); } catch { return false; }
   if (!Array.isArray(value.entries) || value.entries.length > value.policy.maxPermits) return false;
+  if (version === 2) {
+    const r = value.retirement;
+    return value.entries.length === 0 && !!value.communityPolicy
+      && exact(r, ['retiredAt','allocatedPermits','boundPermits','completedPermits'])
+      && [r.retiredAt, r.allocatedPermits, r.boundPermits, r.completedPermits].every(n => Number.isSafeInteger(n) && (n as number) >= 0)
+      && (r.completedPermits as number) <= (r.boundPermits as number)
+      && (r.boundPermits as number) <= (r.allocatedPermits as number) && (r.allocatedPermits as number) <= value.policy.maxPermits;
+  }
   const permits = new Set<string>(); const batches = new Set<string>();
   for (const entry of value.entries) {
     if (!exact(entry, entry?.response !== undefined ? ['permitHash', 'batchId', 'response'] : entry?.batchId !== undefined ? ['permitHash', 'batchId'] : ['permitHash'])
@@ -73,20 +98,48 @@ export async function openAdmissionIssuerLedger(options: {
       initial: { version: 1, profile, policy: create ?? { batchSize: 1, maxPermits: 1 }, entries: [] },
       validate: (value): value is State => validState(value, profile) });
   } finally { key.fill(0); }
-  try { const policy = storage.read().communityPolicy; if (policy) {
+  try { const state = storage.read(), policy = state.communityPolicy; if (policy) {
     await verifyAdmissionPolicy(policy, policy.authority);
     if (!policy.keys.some(entry => JSON.stringify(entry.profile) === JSON.stringify(profile))) throw new Error('Issuer is absent from its signed community policy');
+    if (state.version === 2) {
+      // Retirement seals this policy as historical evidence; it need not remain current at every subsequent open.
+      const id = admissionKeyFingerprint(profile.issuerPublicKey), entry = policy.keys.find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === id)!;
+      if (policy.activeKey === id || state.retirement.retiredAt < entry.retryUntil) throw new Error('Invalid permanent issuer retirement');
+      assertAdmissionPolicyCurrent(policy, state.retirement.retiredAt);
+    }
   } } catch (error) { storage.close(); throw error; }
   let busy = false;
+  function live() { const state = storage.read(); if (state.version === 2) throw new Error('Issuer ledger is permanently retired'); return state; }
   function checkPolicy(recover = false) {
-    const policy = storage.read().communityPolicy; if (!policy) return;
+    const policy = live().communityPolicy; if (!policy) return;
     const now = (options.now ?? Date.now)(); assertAdmissionPolicyCurrent(policy, now);
     const id = admissionKeyFingerprint(profile.issuerPublicKey);
     const entry = policy.keys.find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === id);
     if (!entry || now < entry.notBefore || now >= (recover ? entry.spendUntil : entry.issueUntil)
       || (!recover && policy.activeKey !== id)) throw new Error('Issuer is retired or inactive under the signed community policy');
   }
-  function ready() { storage.read(); if (busy) throw new Error('Issuer approval is already in progress'); }
+  function ready() { live(); if (busy) throw new Error('Issuer approval or policy update is already in progress'); }
+  function planRetirement(authority: string) {
+    ready(); const state = live(), policy = state.communityPolicy;
+    if (!policy) throw new Error('Issuer retirement requires an installed signed community policy');
+    if (policy.authority !== authority) throw new Error('Issuer retirement authority does not match the pinned community authority');
+    const now = (options.now ?? Date.now)(); assertAdmissionPolicyCurrent(policy, now);
+    const issuerKey = admissionKeyFingerprint(profile.issuerPublicKey);
+    const entry = policy.keys.find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === issuerKey)!;
+    if (policy.activeKey === issuerKey) throw new Error('Cannot permanently retire the active issuer key; install a successor first');
+    if (now < entry.retryUntil) throw new Error('Issuer history must remain until the key retry cutoff');
+    const ledgerPath = resolve(options.path), policyDigest = admissionPolicyDigest(policy), retained = totals(state);
+    const approvalDigest = 'sha256:' + createHash('sha256').update(JSON.stringify([
+      'resonance:admission-issuer-retirement:v1', ledgerPath, authority, issuerKey, policyDigest, state,
+    ])).digest('hex');
+    return { kind: 'admission-issuer-retirement' as const, ledgerPath, issuerKey,
+      authorityFingerprint: admissionAuthorityFingerprint(authority), policyRevision: policy.revision, policyDigest,
+      responseRecoveryUntil: entry.spendUntil, retryUntil: entry.retryUntil,
+      recordsBefore: state.entries.length, recordsRemoved: state.entries.length, recordsAfter: 0,
+      ...retained, batchSize: state.policy.batchSize, maxPermits: state.policy.maxPermits,
+      unallocatedPermitsCancelled: state.policy.maxPermits - retained.allocatedPermits, approvalDigest,
+      notice: 'Permanently closes this issuer ledger, including cached responses and policy changes. Lifetime totals remain; no allowance is refunded or transferred. Wallets, relays and policy key slots are unchanged.' };
+  }
   function validatePermit(value: unknown): asserts value is AdmissionIssuancePermit {
     const state = storage.read();
     if (!exact(value, ['version', 'kind', 'scope', 'keyFingerprint', 'count', 'secret']) || value.version !== 1 || value.kind !== 'admission-issuance-permit'
@@ -97,6 +150,18 @@ export async function openAdmissionIssuerLedger(options: {
       || Buffer.from(value.secret, 'base64url').toString('base64url') !== value.secret) throw new Error('Invalid permit for this issuer policy');
   }
   return {
+    planRetirement,
+    retire(authority: string, approvedDigest: string) {
+      const plan = planRetirement(authority);
+      if (approvedDigest !== plan.approvalDigest) throw new Error('Issuer history changed or approval does not match; review retirement again');
+      const state = live();
+      const retiredAt = (options.now ?? Date.now)(); assertAdmissionPolicyCurrent(state.communityPolicy!, retiredAt);
+      if (retiredAt < plan.retryUntil) throw new Error('Issuer history must remain until the key retry cutoff');
+      // One flushed snapshot seals the key, preserves lifetime accounting, and removes all per-permit evidence.
+      storage.write({ ...state, version: 2, communityPolicy: state.communityPolicy!, entries: [],
+        retirement: { retiredAt, ...totals(state) } });
+      return plan;
+    },
     async installPolicy(value: unknown, authority: string) {
       ready(); const state = storage.read();
       if (state.communityPolicy && state.communityPolicy.authority !== authority) throw new Error('Community authority is already pinned');
@@ -110,11 +175,12 @@ export async function openAdmissionIssuerLedger(options: {
       } finally { busy = false; }
     },
     status() {
-      const { policy, entries } = storage.read();
-      const bound = entries.filter(entry => entry.batchId).length; const completed = entries.filter(entry => entry.response).length;
-      return { ...policy, allocatedPermits: entries.length, remainingPermits: policy.maxPermits - entries.length,
-        boundPermits: bound, completedPermits: completed, tokenBudget: policy.batchSize * policy.maxPermits,
-        allocatedTokens: entries.length * policy.batchSize, boundTokens: bound * policy.batchSize };
+      const state = storage.read(), { policy, entries } = state, counts = totals(state), retired = state.version === 2;
+      return { ...policy, ...counts, permanentlyRetired: retired, retainedEntries: entries.length,
+        remainingPermits: retired ? 0 : policy.maxPermits - counts.allocatedPermits,
+        unallocatedPermitsCancelled: retired ? policy.maxPermits - counts.allocatedPermits : 0,
+        tokenBudget: policy.batchSize * policy.maxPermits, allocatedTokens: counts.allocatedPermits * policy.batchSize,
+        boundTokens: counts.boundPermits * policy.batchSize, ...(retired ? { retiredAt: state.retirement.retiredAt } : {}) };
     },
     /** An explicit community invitation, with no recipient/account field. Never refund or reuse. */
     grant(): AdmissionIssuancePermit {
