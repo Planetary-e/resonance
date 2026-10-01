@@ -25,6 +25,10 @@ export class MatchOperationStore {
 
   evaluate(operation: unknown): MatchOperationApplyResult {
     if (!verifyMatchOperationV2(operation)) return { status: 'invalid' };
+    return this.evaluateVerified(operation);
+  }
+
+  private evaluateVerified(operation: MatchOperationV2): MatchOperationApplyResult {
     if (this.operations.has(operation.operationId)) {
       return { status: 'duplicate', current: this.currentByMatch.get(operation.matchId) };
     }
@@ -38,8 +42,8 @@ export class MatchOperationStore {
   }
 
   apply(operation: unknown): MatchOperationApplyResult {
-    const result = this.evaluate(operation);
-    if (!verifyMatchOperationV2(operation)) return result;
+    if (!verifyMatchOperationV2(operation)) return { status: 'invalid' };
+    const result = this.evaluateVerified(operation);
     if (result.status === 'duplicate' || result.status === 'stale'
       || result.status === 'conflict' || result.status === 'invalid') return result;
 

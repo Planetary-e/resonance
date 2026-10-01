@@ -1,0 +1,410 @@
+{
+  "collectedOn": "2026-10-01",
+  "platform": {
+    "os": "darwin",
+    "arch": "arm64",
+    "node": "v24.19.0",
+    "cpu": "Apple M3 Pro"
+  },
+  "baselineCommit": "c61711441a8c702959c9da4c4163f6a266b795b7",
+  "method": {
+    "processesPerVariant": 1,
+    "runsPerProcess": 5,
+    "freshRelayPerRun": true,
+    "realCachedModel": true,
+    "privateRouting": false,
+    "admission": false,
+    "profiler": "Node inspector CPU sampler, enabled only for the five benchmark calls",
+    "fsync": "All fsyncSync calls forwarded unchanged and timed; totals include relay startup, both publications and shutdown",
+    "comparison": "The same original channel-flow benchmark was used for both variants; only the four production validation files changed. Later benchmark naming, CPU reporting, address and fixture cleanup changes are not in these timing samples.",
+    "limits": "Sequential small local samples, no interleaved control, cold-first-run effects, profiler overhead and scheduling noise. These do not reproduce or isolate the cause of the GitHub 501.4 ms sample."
+  },
+  "baseline": {
+    "runs": [
+      {
+        "run": 1,
+        "results": [
+          {
+            "name": "Persisted v2 publication acceptance",
+            "target": "<500ms",
+            "actual": "47.8ms",
+            "value": 47.82237500000019,
+            "passed": true
+          },
+          {
+            "name": "V2 publication \u2192 match indexing",
+            "target": "<500ms",
+            "actual": "146.6ms",
+            "value": 146.57266700000014,
+            "passed": true
+          }
+        ],
+        "flushesMs": [
+          4.212083000000121,
+          2.6834579999999733,
+          2.980666999999812,
+          3.837624999999889,
+          0.008207999999967797,
+          2.8421670000000177,
+          1.5107499999999163,
+          1.8173749999998563,
+          3.4193749999999454
+        ],
+        "totalFlushMs": 23.3117079999995
+      },
+      {
+        "run": 2,
+        "results": [
+          {
+            "name": "Persisted v2 publication acceptance",
+            "target": "<500ms",
+            "actual": "38.9ms",
+            "value": 38.86387500000001,
+            "passed": true
+          },
+          {
+            "name": "V2 publication \u2192 match indexing",
+            "target": "<500ms",
+            "actual": "126.4ms",
+            "value": 126.37416699999994,
+            "passed": true
+          }
+        ],
+        "flushesMs": [
+          3.743791999999985,
+          3.4919589999999516,
+          3.0174999999999272,
+          3.4230829999996786,
+          0.006499999999959982,
+          3.423999999999978,
+          3.2133340000000317,
+          1.8297080000002097,
+          1.6650840000002063
+        ],
+        "totalFlushMs": 23.814959999999928
+      },
+      {
+        "run": 3,
+        "results": [
+          {
+            "name": "Persisted v2 publication acceptance",
+            "target": "<500ms",
+            "actual": "36.6ms",
+            "value": 36.62995799999999,
+            "passed": true
+          },
+          {
+            "name": "V2 publication \u2192 match indexing",
+            "target": "<500ms",
+            "actual": "120.7ms",
+            "value": 120.74695800000018,
+            "passed": true
+          }
+        ],
+        "flushesMs": [
+          3.267166999999972,
+          2.6372910000000047,
+          3.0054999999997563,
+          2.862416999999823,
+          0.005708999999569642,
+          2.4634580000001733,
+          2.951583000000028,
+          1.7872499999998581,
+          2.5763750000000982
+        ],
+        "totalFlushMs": 21.556749999999283
+      },
+      {
+        "run": 4,
+        "results": [
+          {
+            "name": "Persisted v2 publication acceptance",
+            "target": "<500ms",
+            "actual": "41.4ms",
+            "value": 41.41687499999989,
+            "passed": true
+          },
+          {
+            "name": "V2 publication \u2192 match indexing",
+            "target": "<500ms",
+            "actual": "121.7ms",
+            "value": 121.66924999999992,
+            "passed": true
+          }
+        ],
+        "flushesMs": [
+          3.342208000000028,
+          2.687916000000314,
+          3.0245840000002318,
+          1.4916669999997794,
+          0.012416999999913969,
+          2.4670420000002196,
+          2.9010419999999613,
+          1.7736669999999322,
+          3.027708999999959
+        ],
+        "totalFlushMs": 20.72825200000034
+      },
+      {
+        "run": 5,
+        "results": [
+          {
+            "name": "Persisted v2 publication acceptance",
+            "target": "<500ms",
+            "actual": "32.9ms",
+            "value": 32.907416999999896,
+            "passed": true
+          },
+          {
+            "name": "V2 publication \u2192 match indexing",
+            "target": "<500ms",
+            "actual": "117.9ms",
+            "value": 117.93912499999988,
+            "passed": true
+          }
+        ],
+        "flushesMs": [
+          3.2640839999999116,
+          2.7012500000000728,
+          2.8122080000002825,
+          3.0179159999997864,
+          0.00654099999974278,
+          2.7594160000003285,
+          2.7731669999998303,
+          1.5096670000002632,
+          2.7448340000000826
+        ],
+        "totalFlushMs": 21.5890830000003
+      }
+    ],
+    "verificationCount": 50,
+    "uniqueSignatureTuples": 7,
+    "cpuSampledSelfMs": {
+      "other": 183.502,
+      "TweetNaCl": 805.583000000001,
+      "fsync": 125.78999999999998,
+      "HNSW constructor": 148.042
+    }
+  },
+  "optimized": {
+    "runs": [
+      {
+        "run": 1,
+        "results": [
+          {
+            "name": "Persisted v2 publication acceptance",
+            "target": "<500ms",
+            "actual": "44.6ms",
+            "value": 44.63779199999999,
+            "passed": true
+          },
+          {
+            "name": "V2 publication \u2192 match indexing",
+            "target": "<500ms",
+            "actual": "123.9ms",
+            "value": 123.85725000000002,
+            "passed": true
+          }
+        ],
+        "flushesMs": [
+          3.359499999999798,
+          1.9897080000000642,
+          3.6048749999999927,
+          3.5905830000001515,
+          0.006750000000010914,
+          3.1735000000001037,
+          2.9505410000001575,
+          1.8114590000000135,
+          1.4837500000001
+        ],
+        "totalFlushMs": 21.970666000000392
+      },
+      {
+        "run": 2,
+        "results": [
+          {
+            "name": "Persisted v2 publication acceptance",
+            "target": "<500ms",
+            "actual": "36.3ms",
+            "value": 36.26537499999995,
+            "passed": true
+          },
+          {
+            "name": "V2 publication \u2192 match indexing",
+            "target": "<500ms",
+            "actual": "105.1ms",
+            "value": 105.08462499999996,
+            "passed": true
+          }
+        ],
+        "flushesMs": [
+          3.2388330000001133,
+          2.6752910000000156,
+          2.8831659999998465,
+          3.187832999999955,
+          0.003292000000101325,
+          3.360458000000108,
+          3.0897079999999733,
+          3.8831659999998465,
+          2.9520830000001297
+        ],
+        "totalFlushMs": 25.27383000000009
+      },
+      {
+        "run": 3,
+        "results": [
+          {
+            "name": "Persisted v2 publication acceptance",
+            "target": "<500ms",
+            "actual": "32.4ms",
+            "value": 32.36412500000006,
+            "passed": true
+          },
+          {
+            "name": "V2 publication \u2192 match indexing",
+            "target": "<500ms",
+            "actual": "101.3ms",
+            "value": 101.30025000000023,
+            "passed": true
+          }
+        ],
+        "flushesMs": [
+          1.9392910000001393,
+          2.9970840000000862,
+          3.0104590000000826,
+          4.11220800000001,
+          0.0037919999999758147,
+          3.0284590000001117,
+          3.098584000000301,
+          1.547708000000057,
+          2.6866249999998217
+        ],
+        "totalFlushMs": 22.424210000000585
+      },
+      {
+        "run": 4,
+        "results": [
+          {
+            "name": "Persisted v2 publication acceptance",
+            "target": "<500ms",
+            "actual": "31.0ms",
+            "value": 30.972458000000188,
+            "passed": true
+          },
+          {
+            "name": "V2 publication \u2192 match indexing",
+            "target": "<500ms",
+            "actual": "101.2ms",
+            "value": 101.19066699999985,
+            "passed": true
+          }
+        ],
+        "flushesMs": [
+          4.0634170000003,
+          2.7278339999998025,
+          2.797625000000153,
+          2.471625000000131,
+          0.0057500000002619345,
+          2.681415999999899,
+          2.4635000000002947,
+          1.8238750000000437,
+          1.5730830000002243
+        ],
+        "totalFlushMs": 20.60812500000111
+      },
+      {
+        "run": 5,
+        "results": [
+          {
+            "name": "Persisted v2 publication acceptance",
+            "target": "<500ms",
+            "actual": "31.9ms",
+            "value": 31.93666600000006,
+            "passed": true
+          },
+          {
+            "name": "V2 publication \u2192 match indexing",
+            "target": "<500ms",
+            "actual": "101.6ms",
+            "value": 101.60266599999977,
+            "passed": true
+          }
+        ],
+        "flushesMs": [
+          1.8902499999999236,
+          3.2510000000002037,
+          2.84775000000036,
+          3.180959000000257,
+          0.004750000000058208,
+          2.88675000000012,
+          3.1530830000001515,
+          4.031500000000051,
+          2.679291999999805
+        ],
+        "totalFlushMs": 23.92533400000093
+      }
+    ],
+    "verificationCount": 41,
+    "uniqueSignatureTuples": 7,
+    "cpuSampledSelfMs": {
+      "other": 168.5,
+      "TweetNaCl": 689.46,
+      "fsync": 130.957,
+      "HNSW constructor": 121.208
+    }
+  },
+  "remoteBeforeOptimization": [
+    {
+      "head": "1382057",
+      "runUrl": "https://github.com/Planetary-e/resonance/actions/runs/36823136891",
+      "matchMs": 501.4,
+      "functionalTestsPassed": 517,
+      "evalPassed": 43,
+      "evalTotal": 44
+    },
+    {
+      "head": "c617114",
+      "runUrl": "https://github.com/Planetary-e/resonance/actions/runs/36836603369",
+      "matchMs": 309.1,
+      "functionalTestsPassed": 525,
+      "evalPassed": 44,
+      "evalTotal": 44
+    }
+  ],
+  "finalValidation": {
+    "testFiles": 105,
+    "testsPassed": 526,
+    "typeScriptBuildPassed": true,
+    "quickEvaluationMetricsPassed": 44,
+    "quickEvaluationMetricsTotal": 44,
+    "quickReport": "eval-2026-10-01-08-45-09.md",
+    "channelResults": [
+      {
+        "name": "Persisted v2 publication acceptance",
+        "target": "<500ms",
+        "actual": "36.8ms (CPU 58.7ms)",
+        "value": 36.76708299999882,
+        "passed": true,
+        "details": {
+          "wallMs": 36.76708299999882,
+          "processCpuMs": 58.735,
+          "durable": true
+        }
+      },
+      {
+        "name": "V2 publication \u2192 durable encrypted match",
+        "target": "<500ms",
+        "actual": "110.1ms (CPU 152.2ms)",
+        "value": 110.11308299998927,
+        "passed": true,
+        "details": {
+          "wallMs": 110.11308299998927,
+          "processCpuMs": 152.155,
+          "durable": true,
+          "matches": 1,
+          "mailboxEnvelopes": 2
+        }
+      }
+    ]
+  }
+}

@@ -186,6 +186,7 @@ The five-target placement goal remains conditional on enough eligible volunteers
 - [ ] Add challenge-response connection authentication with nonces and replay protection
   - [x] Bind each signed relay-link opening to a fresh nonce issued on that receiving socket; reject a captured opening on a second socket
 - [ ] Verify relay and peer signatures on acknowledgements, matches, inventories, receipts, and forwarded operations
+  - [x] Profile durable match creation and remove repeated signature checks within individual constructors/store calls while retaining authentication at every public boundary; retain tampering coverage and the unchanged <500 ms evaluation gate in `docs/evals/publication-match-2026-10-01.md`
 - [ ] Apply strict schemas, bounded collections, message-size limits, and request timeouts before processing untrusted input
   - [x] Bound signed reply envelopes to 1 MiB, reject extra envelope fields, and cap personal-client WebSocket replies at the same limit
 - [ ] Protect relay private keys with operating-system storage or an encrypted keystore

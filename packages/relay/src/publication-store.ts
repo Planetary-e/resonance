@@ -38,7 +38,10 @@ export class PublicationOperationStore {
 
   evaluate(operation: unknown): PublicationApplyResult {
     if (!verifyPublicationOperation(operation)) return { status: 'invalid' };
+    return this.evaluateVerified(operation);
+  }
 
+  private evaluateVerified(operation: PublicationOperation): PublicationApplyResult {
     const state = this.publications.get(operation.publicationId);
     const current = state?.current;
     if (!current) {
@@ -63,8 +66,9 @@ export class PublicationOperationStore {
   }
 
   apply(operation: unknown): PublicationApplyResult {
-    const result = this.evaluate(operation);
-    if (result.status !== 'accepted' || !verifyPublicationOperation(operation)) return result;
+    if (!verifyPublicationOperation(operation)) return { status: 'invalid' };
+    const result = this.evaluateVerified(operation);
+    if (result.status !== 'accepted') return result;
 
     const state = this.publications.get(operation.publicationId);
     if (state?.current.kind !== 'publication' && operation.kind === 'publication') this.liveRecords++;
