@@ -20,6 +20,12 @@ const CONTROLLER = BASE;
 const VOLUNTEERS = [1, 2, 3, 4, 5].map(offset => BASE + offset);
 const GATEWAY = BASE + 6;
 const DIRECT_VOLUNTEER = 2;
+// Seven relays share one event loop here. Keep maintenance and observation
+// traffic below the work being tested, including on slower CI workers.
+const LINK_TIMING = {
+  handshakeTimeoutMs: 15_000, heartbeatIntervalMs: 1_000,
+  heartbeatTimeoutMs: 15_000, reconnectBaseMs: 250, reconnectMaxMs: 1_000,
+};
 const directories = [CONTROLLER, ...VOLUNTEERS, GATEWAY]
   .map(port => `/tmp/resonance-v03-completion-${port}-${RUN}`);
 
@@ -39,10 +45,9 @@ function volunteer(index: number): RelayServer {
     },
     relayLinks: {
       targets: [createRelayContactHintV1('configured', endpoint(CONTROLLER))],
-      handshakeTimeoutMs: 5_000, heartbeatIntervalMs: 500,
-      heartbeatTimeoutMs: 5_000, reconnectBaseMs: 50, reconnectMaxMs: 200,
+      ...LINK_TIMING,
     },
-    relayLinkHeartbeatIntervalMs: 500, relayLinkHeartbeatTimeoutMs: 5_000,
+    relayLinkHeartbeatIntervalMs: 1_000, relayLinkHeartbeatTimeoutMs: 15_000,
   });
 }
 
@@ -51,14 +56,14 @@ function controller(volunteers: RelayServer[]): RelayServer {
     maxSearchesPerMin: 1_000,
     port: CONTROLLER, host: '127.0.0.1', persistDir: directories[0],
     desiredReplicaCount: 5, minimumHealthyReplicaCount: 3,
-    replicaRepairIntervalMs: 250, replicaInventoryIntervalMs: 2_000,
+    replicaRepairIntervalMs: 1_000, replicaInventoryIntervalMs: 30_000,
     inboundReplicaTargetIds: volunteers.map(target => target.getRelayDescriptor()!.relayId),
     relayDiscovery: {
       endpoints: [endpoint(CONTROLLER)], reachability: 'direct',
       supportedGroups: ['public'],
       storage: { capacityBytes: 4_000_000, availableBytes: 3_000_000 },
     },
-    relayLinkHeartbeatIntervalMs: 500, relayLinkHeartbeatTimeoutMs: 5_000,
+    relayLinkHeartbeatIntervalMs: 1_000, relayLinkHeartbeatTimeoutMs: 15_000,
   });
 }
 
@@ -72,10 +77,9 @@ function gateway(): RelayServer {
     },
     relayLinks: {
       targets: [createRelayContactHintV1('configured', endpoint(VOLUNTEERS[DIRECT_VOLUNTEER]))],
-      handshakeTimeoutMs: 5_000, heartbeatIntervalMs: 500,
-      heartbeatTimeoutMs: 5_000, reconnectBaseMs: 50, reconnectMaxMs: 200,
+      ...LINK_TIMING,
     },
-    relayLinkHeartbeatIntervalMs: 500, relayLinkHeartbeatTimeoutMs: 5_000,
+    relayLinkHeartbeatIntervalMs: 1_000, relayLinkHeartbeatTimeoutMs: 15_000,
   });
 }
 
@@ -97,13 +101,16 @@ function request(port: number, raw: string): Promise<Message> {
   });
 }
 
-async function waitFor(check: () => boolean | Promise<boolean>, timeoutMs = 40_000): Promise<void> {
+async function waitFor(
+  check: () => boolean | Promise<boolean>, timeoutMs = 40_000,
+  diagnostics?: () => unknown,
+): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (await check()) return;
-    await new Promise(resolve => setTimeout(resolve, 75));
+    await new Promise(resolve => setTimeout(resolve, 500));
   }
-  throw new Error('v0.3 completion condition not met');
+  throw new Error(`v0.3 completion condition not met: ${JSON.stringify(diagnostics?.() ?? {})}`);
 }
 
 function publication(itemType: 'need' | 'offer') {
@@ -151,6 +158,7 @@ describe('v0.3 volunteer-only completion path', () => {
       await Promise.all(volunteers.map(start));
       await start(entry);
       await waitFor(() => source.getRelayLinkStatus().inboundRelayIds.length === 5
+        && volunteers.every(target => target.getRelayLinkStatus().connectedRelayIds.length === 1)
         && entry.getRelayLinkStatus().connectedRelayIds.length === 1);
 
       const offer = publication('offer');
@@ -199,7 +207,8 @@ describe('v0.3 volunteer-only completion path', () => {
       await start(source);
       await Promise.all([start(volunteers[0]), start(volunteers[1])]);
       await waitFor(() => source.getReplicaPlacementStatus(offer.record.publicationId)?.confirmedReplicaCount === 5
-        && source.getRelayLinkStatus().inboundRelayIds.length === 5);
+        && source.getRelayLinkStatus().inboundRelayIds.length === 5
+        && volunteers.every(target => target.getRelayLinkStatus().connectedRelayIds.length === 1));
       await waitFor(async () => (await Promise.all(VOLUNTEERS.map(port => fetch(port, offer.record, offer.keys))))
         .every(envelopes => envelopes.length === 1 && envelopes[0].envelopeId === notices[0].envelopeId));
 
@@ -208,9 +217,16 @@ describe('v0.3 volunteer-only completion path', () => {
           [notices[0].envelopeId], Date.now())),
       ));
       expect(ack.payload).toMatchObject({ status: 'ok', message: 'acknowledged:1' });
-      await waitFor(async () => (await Promise.all([CONTROLLER, ...VOLUNTEERS]
-        .map(port => fetch(port, offer.record, offer.keys))))
-        .every(envelopes => envelopes.length === 0));
+      let remainingEnvelopes: number[] = [];
+      await waitFor(async () => {
+        remainingEnvelopes = (await Promise.all([CONTROLLER, ...VOLUNTEERS]
+          .map(port => fetch(port, offer.record, offer.keys)))).map(envelopes => envelopes.length);
+        return remainingEnvelopes.every(count => count === 0);
+      }, 40_000, () => ({
+        phase: 'acknowledgement propagation', remainingEnvelopes,
+        controller: source.getRelayLinkStatus(),
+        volunteers: volunteers.map(target => target.getRelayLinkStatus()),
+      }));
 
       const tombstone = createPublicationTombstone(
         offer.record, 'withdrawn', offer.keys.signingKeyPair, Date.now(),

@@ -17,6 +17,7 @@
   "scripts": {
     "build": "tsc -b",
     "test": "vitest run",
+    "test:relay-load": "vitest run --config vitest.relay-load.config.ts",
     "test:churn": "vitest run --maxWorkers=1 volunteer-churn.integration reverse-replica-placement.integration replica-replacement.integration v03-completion.integration",
     "eval": "npm run eval --workspace=@resonance/eval",
     "eval:quick": "npm run eval:quick --workspace=@resonance/eval",

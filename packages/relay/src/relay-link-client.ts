@@ -306,6 +306,9 @@ export function connectRelayLinkV1(
     socket.on('upgrade', response => options.onTransportSocket?.(response.socket));
     socket.on('open', () => socket.send(serializeRelayLinkChallengeRequestV1()));
     socket.on('message', (data: RawData, isBinary: boolean) => {
+      // A timed-out/rejected dial no longer has an owner. Buffered messages
+      // must not revive it or install timers after its caller starts a retry.
+      if (settled && !accepted) return;
       if (accepted) {
         if (isBinary) {
           socket.close(4000, 'relay_message_must_be_json');

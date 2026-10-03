@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { rmSync } from 'node:fs';
 import WebSocket from 'ws';
 import {
@@ -17,6 +17,7 @@ import {
   serializeRelayLinkOpenFrameV1,
   parseRelayLinkChallengeV1,
   parseRelayLinkAcceptFrameV1,
+  RELAY_LINK_ACCEPT_FRAME_TYPE,
   verifyRelayReplicaInventoryBatchResponseV1,
   verifyRelayReplicaInventoryResponseV1,
   verifyRelayReplicaReconciliationResponseV1,
@@ -108,6 +109,55 @@ afterAll(async () => {
 });
 
 describe('authenticated outbound relay links', () => {
+  it('ignores an acceptance delivered after the handshake has failed', async () => {
+    const identity = generateIdentity();
+    const now = Date.now();
+    const descriptor = createRelayDescriptorV1({
+      sequence: 1, endpoints: [], reachability: 'outbound-only',
+      capabilities: {
+        storesPublications: true, storesMailboxes: true, answersQueries: true,
+        forwardsQueries: false, replicaExchange: false,
+      },
+      supportedGroups: ['public'],
+      storage: { capacityBytes: 1_000_000, availableBytes: 800_000 },
+      issuedAt: now, expiresAt: now + 30_000,
+    }, identity);
+    const originalEmit = WebSocket.prototype.emit;
+    let held: { socket: WebSocket; args: unknown[] } | undefined;
+    const emit = vi.spyOn(WebSocket.prototype, 'emit').mockImplementation(function (this: WebSocket, event, ...args) {
+      if (event === 'message' && this.url === HUB_ENDPOINT) {
+        const frame = JSON.parse(String(args[0]));
+        if (frame.type === RELAY_LINK_ACCEPT_FRAME_TYPE && frame.response.initiatorRelayId === identity.did) {
+          held = { socket: this, args };
+          return true;
+        }
+      }
+      return Reflect.apply(originalEmit, this, [event, ...args]);
+    });
+    try {
+      await expect(connectRelayLinkV1(
+        createRelayContactHintV1('configured', HUB_ENDPOINT), descriptor, identity,
+        { handshakeTimeoutMs: 3_000 },
+      )).rejects.toThrow('handshake timed out');
+      expect(held).toBeDefined();
+      const intervals = vi.spyOn(globalThis, 'setInterval');
+      const timeouts = vi.spyOn(globalThis, 'setTimeout');
+      try {
+        // A buffered callback must not turn a rejected dial into an unowned link
+        // or install heartbeat/descriptor timers that nobody can close.
+        Reflect.apply(originalEmit, held!.socket, ['message', ...held!.args]);
+        expect(intervals).not.toHaveBeenCalled();
+        expect(timeouts).not.toHaveBeenCalled();
+      } finally {
+        intervals.mockRestore(); timeouts.mockRestore();
+      }
+    } finally {
+      emit.mockRestore();
+      held?.socket.terminate();
+    }
+    await waitFor(() => !hub.getRelayLinkStatus().inboundRelayIds.includes(identity.did));
+  }, 10_000);
+
   it('rejects a signed opening replayed on a different receiving socket', async () => {
     const identity = generateIdentity();
     const now = Date.now();
