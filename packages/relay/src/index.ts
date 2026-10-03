@@ -91,6 +91,7 @@ export {
 } from './admission.js';
 export { createLocalBlindAdmissionVerifierV2 } from './blind-admission-verifier.js';
 export { openAdmissionSpendHistory } from './admission-spend-history.js';
+export type { AdmissionLegacySpendProof, AdmissionLegacyRecoveryPlan } from './admission-legacy-recovery.js';
 export type { PrivateEntryMixOptions } from './private-entry-mix.js';
 export { type ClientState, type HandlerContext } from './handler.js';
 export { log } from './logger.js';

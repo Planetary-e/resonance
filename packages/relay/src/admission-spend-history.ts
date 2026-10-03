@@ -1,8 +1,9 @@
 /** Key-attributed local spends and irreversible retirement in one encrypted snapshot. */
 import { resolve } from 'node:path';
 import { openEncryptedLocalState } from '@resonance/core/local-state';
-import { admissionKeyFingerprint, admissionPolicyKeys, isArchivedAdmissionKey, type SignedAdmissionPolicy } from '@resonance/core/admission-policy';
+import { admissionKeyFingerprint, admissionPolicyKeys, isArchivedAdmissionKey, assertAdmissionPolicyCurrent, type SignedAdmissionPolicy } from '@resonance/core/admission-policy';
 import { planAdmissionHistoryRetirement, validRetiredIssuerKeys, type AdmissionHistoryMaintenance } from './admission-history-retirement.js';
+import { checkAdmissionLegacyRecovery, type AdmissionSpendState, type AdmissionLegacyRecovery } from './admission-legacy-recovery.js';
 
 export interface AdmissionSpendRecord { spend: string; action: string; binding: string; issuerKey: string | null }
 export interface AdmissionSpendLedger {
@@ -30,13 +31,13 @@ export function openAdmissionSpendHistory(options: {
   /** Callers must authenticate the installed policy first. Initialization is only for genuinely new histories. */
   directory: string; encryptionKey: Uint8Array; policy: SignedAdmissionPolicy;
   initialize?: boolean; maxSpends?: number; now?: () => number;
-}): AdmissionSpendLedger & AdmissionHistoryMaintenance {
+}): AdmissionSpendLedger & AdmissionHistoryMaintenance & AdmissionLegacyRecovery {
   const limit = options.maxSpends ?? 10000;
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 10000) throw new Error('Invalid admission spend history capacity');
   const policy = structuredClone(options.policy), now = options.now ?? Date.now;
   const known = new Set(admissionPolicyKeys(policy).map(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey)));
   const participant = resolve(options.directory);
-  type State = { version: 2; authority: string; spends: AdmissionSpendRecord[]; retiredIssuerKeys: string[] };
+  type State = AdmissionSpendState;
   const initial: State = { version: 2, authority: policy.authority, spends: [], retiredIssuerKeys: [] };
   const storage = openEncryptedLocalState<State>({
     // Same path as the old JSONL: after replacement older readers fail closed, without a second-file migration window.
@@ -74,6 +75,24 @@ export function openAdmissionSpendHistory(options: {
     },
   });
   const spends = new Map(storage.read().spends.map(row => [row.spend, row]));
+  let recovering = false;
+  function writable() { storage.read(); if (recovering) throw new Error('Legacy spend recovery is in progress'); }
+  async function recover(proofs: unknown, approvedDigest?: string) {
+    writable(); recovering = true;
+    try {
+      const state = storage.read();
+      const checked = await checkAdmissionLegacyRecovery({ directory: participant, policy, state, proofs, now });
+      storage.read(); // A close during asynchronous verification must prevent both review and commit.
+      if (approvedDigest === undefined) return checked.plan;
+      if (approvedDigest !== checked.plan.approvalDigest) throw new Error('Recovery evidence, history or approval changed; review recovery again');
+      const time = now(); assertAdmissionPolicyCurrent(policy, time);
+      if (checked.plan.keys.some(key => time < key.retryUntil)) throw new Error('Legacy spend recovery must wait for the final retry cutoff');
+      // Proven removal and all required key fences are one atomic, flushed snapshot.
+      storage.write(checked.next);
+      spends.clear(); for (const row of checked.next.spends) spends.set(row.spend, row);
+      return checked.plan;
+    } finally { recovering = false; }
+  }
   const planRetirement = (issuerKey: string) => {
     const state = storage.read();
     return { ...planAdmissionHistoryRetirement({ role: 'local-spends', participant, policy, issuerKey, state,
@@ -82,10 +101,16 @@ export function openAdmissionSpendHistory(options: {
       unattributedRecordsRetained: state.spends.filter(row => row.issuerKey === null).length };
   };
   return {
+    planLegacyRecovery(proofs) { return recover(proofs); },
+    recoverLegacy(proofs, approvedDigest) {
+      if (typeof approvedDigest !== 'string') return Promise.reject(new Error('Legacy recovery requires explicit review approval'));
+      return recover(proofs, approvedDigest);
+    },
     size() { storage.read(); return spends.size; },
     get(spend) { storage.read(); const row = spends.get(spend); return row ? { ...row } : undefined; },
     isRetired(issuerKey) { return storage.read().retiredIssuerKeys.includes(issuerKey) || isArchivedAdmissionKey(policy, issuerKey); },
     write(row) {
+      writable();
       const state = storage.read(), previous = spends.get(row.spend);
       if (!fields(row, ['issuerKey','spend','action','binding']) || !validSpend(row)) throw new Error('Invalid admission spend record');
       if (!known.has(row.issuerKey) || isArchivedAdmissionKey(policy, row.issuerKey) || state.retiredIssuerKeys.includes(row.issuerKey)) throw new Error('Admission issuer key is permanently retired or unknown');
@@ -100,6 +125,7 @@ export function openAdmissionSpendHistory(options: {
     },
     planRetirement,
     retire(issuerKey, approvedDigest) {
+      writable();
       const plan = planRetirement(issuerKey);
       if (approvedDigest !== plan.approvalDigest) throw new Error('Admission history changed or approval does not match; review retirement again');
       const state = storage.read(), retained = state.spends.filter(row => row.issuerKey !== issuerKey);
