@@ -6,6 +6,7 @@
 
 import { readFileSync, statSync } from 'node:fs';
 import { createRelayContactHintV1 } from '@resonance/core';
+import { MAX_ADMISSION_POLICY_BYTES } from '@resonance/core/admission-policy';
 import { copyAdmissionSigningKey } from '@resonance/core/admission-witness';
 import { log } from './logger.js';
 import { localRelayEndpoints, startLanDiscovery } from './lan-discovery.js';
@@ -117,7 +118,7 @@ const policyFiles = [process.env.RELAY_ADMISSION_AUTHORITY_FILE, process.env.REL
 if (policyFiles.some(Boolean) && (!policyFiles.every(Boolean) || admissionSettings.some(Boolean))) {
   throw new Error('Supply all three signed admission policy files and omit the manual issuer settings');
 }
-function policyFile(path: string) { if (statSync(path).size > 64 * 1024) throw new Error('Admission policy input is too large'); return readFileSync(path, 'utf8'); }
+function policyFile(path: string, maximum = 64 * 1024) { if (statSync(path).size > maximum) throw new Error('Admission policy input is too large'); return readFileSync(path, 'utf8'); }
 const policyKeyHex = policyFiles.every(Boolean) ? policyFile(policyFiles[2]!).trim() : undefined;
 if (policyKeyHex !== undefined && !/^[a-f0-9]{64}$/.test(policyKeyHex)) throw new Error('Policy storage key must be 32 bytes encoded as lowercase hex');
 const witnessKeyFile = process.env.RELAY_ADMISSION_WITNESS_KEY_FILE;
@@ -137,7 +138,7 @@ const coordinatorKey = coordinatorKeyFile ? signingKeyFile(coordinatorKeyFile) :
 const resourceMeter = new RelayTrafficMeter(relayDataDir);
 const admissionVerifier: (AdmissionCapabilityVerifierV2 & { close(): void; witness?: AdmissionWitness }) | undefined = policyFiles.every(Boolean)
   ? await createConfiguredAdmissionVerifier({ directory: relayDataDir, authority: policyFile(policyFiles[0]!).trim(),
-    policy: JSON.parse(policyFile(policyFiles[1]!)), encryptionKey: Buffer.from(policyKeyHex!, 'hex'),
+    policy: JSON.parse(policyFile(policyFiles[1]!, MAX_ADMISSION_POLICY_BYTES)), encryptionKey: Buffer.from(policyKeyHex!, 'hex'),
     initialize: process.env.RELAY_ADMISSION_POLICY_INITIALIZE === 'true', witnessKey, coordinatorKey,
     onWitnessSocket: socket => resourceMeter.observe(socket),
     initializeWitnessState: process.env.RELAY_ADMISSION_WITNESS_INITIALIZE === 'true' ? true : undefined })

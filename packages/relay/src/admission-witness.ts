@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import type { Socket } from 'node:net';
 import type { SigningKeyPair } from '@resonance/core';
 import { openEncryptedLocalState } from '@resonance/core/local-state';
-import { admissionKeyFingerprint, assertAdmissionPolicyCurrent, type SignedAdmissionPolicy, type AdmissionPolicyKey } from '@resonance/core/admission-policy';
+import { admissionKeyFingerprint, assertAdmissionPolicyCurrent, admissionPolicyKeys, isArchivedAdmissionKey, type SignedAdmissionPolicy, type AdmissionPolicyKey } from '@resonance/core/admission-policy';
 import {
   admissionWitnessSetId, admissionSpendClaimId, copyAdmissionSigningKey, createAdmissionWitnessRequest, createAdmissionWitnessVote,
   exactWitnessFields, verifyAdmissionWitnessRequest, verifyAdmissionWitnessVote, verifyAdmissionSpendCertificate,
@@ -20,7 +20,7 @@ interface CommonOptions {
 export interface AdmissionWitness { vote(request: unknown, acceptNew?: () => boolean): AdmissionWitnessVote; close(): void }
 const indexKey = (claim: AdmissionSpendClaim) => `${claim.issuerKey}:${claim.spend}`;
 function entries(policy: SignedAdmissionPolicy) {
-  return new Map(policy.keys.map(key => [admissionKeyFingerprint(key.profile.issuerPublicKey), key]));
+  return new Map(admissionPolicyKeys(policy).map(key => [admissionKeyFingerprint(key.profile.issuerPublicKey), key]));
 }
 function current(policy: SignedAdmissionPolicy, entry: AdmissionPolicyKey, now: number) {
   assertAdmissionPolicyCurrent(policy, now);
@@ -39,7 +39,7 @@ export function createAdmissionWitness(options: CommonOptions): AdmissionWitness
   const retired = new Set<string>();
   let storage: ReturnType<typeof openEncryptedLocalState<State>>;
   try {
-    if (!policy.keys.some(entry => entry.witnesses?.members.some(member => member.publicKey === publicKey))) throw new Error('Witness key is absent from signed membership');
+    if (!admissionPolicyKeys(policy).some(entry => entry.witnesses?.members.some(member => member.publicKey === publicKey))) throw new Error('Witness key is absent from signed membership');
     storage = openEncryptedLocalState<State>({ path: join(options.directory, 'admission-witness-votes.json'), key: options.encryptionKey,
       domain: 'resonance:admission-witness-votes:v1', maxBytes: 16 * 1024 * 1024,
       mode: options.initialize ? 'create-new' : 'open-existing', initial: { version: 2, witness: publicKey, votes: [], retiredIssuerKeys: [] },
@@ -80,7 +80,7 @@ export function createAdmissionWitness(options: CommonOptions): AdmissionWitness
       const entry = issuerKey ? byKey.get(issuerKey) : undefined;
       if (!entry?.witnesses || !entry.witnesses.members.some(member => member.publicKey === publicKey)
         || !verifyAdmissionWitnessRequest(value, entry.witnesses)) throw new Error('Unauthenticated admission vote request');
-      if (retired.has(value.issuerKey)) throw new Error('Admission issuer key is permanently retired on this witness');
+      if (retired.has(value.issuerKey) || isArchivedAdmissionKey(policy, value.issuerKey)) throw new Error('Admission issuer key is permanently retired on this witness');
       const time = now(); current(policy, entry, time);
       const previous = votes.get(indexKey(value));
       if (previous) {
@@ -91,7 +91,7 @@ export function createAdmissionWitness(options: CommonOptions): AdmissionWitness
       if (acceptNew?.() === false) throw new Error('Admission witness owner paused new votes');
       // An owner callback can close this role or run maintenance before returning.
       storage.read();
-      if (retired.has(value.issuerKey)) throw new Error('Admission issuer key is permanently retired on this witness');
+      if (retired.has(value.issuerKey) || isArchivedAdmissionKey(policy, value.issuerKey)) throw new Error('Admission issuer key is permanently retired on this witness');
       const afterOwner = now(); current(policy, entry, afterOwner);
       if (afterOwner >= entry.spendUntil) throw new Error('New admission votes are retired');
       if (votes.size >= limit) throw new Error('Admission witness history is full');
@@ -117,7 +117,7 @@ export function createAdmissionQuorumGate(options: CommonOptions & { transport?:
   let storage: ReturnType<typeof openEncryptedLocalState<State>>;
   try {
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 50 || timeoutMs > 5000) throw new Error('Invalid witness deadline');
-    if (!policy.keys.some(entry => entry.witnesses?.coordinators.includes(publicKey))) throw new Error('Coordinator key is absent from signed membership');
+    if (!admissionPolicyKeys(policy).some(entry => entry.witnesses?.coordinators.includes(publicKey))) throw new Error('Coordinator key is absent from signed membership');
     storage = openEncryptedLocalState<State>({ path: join(options.directory, 'admission-witness-certificates.json'), key: options.encryptionKey,
       domain: 'resonance:admission-witness-certificates:v1', maxBytes: 32 * 1024 * 1024,
       mode: options.initialize ? 'create-new' : 'open-existing', initial: { version: 2, coordinator: publicKey, certificates: [], retiredIssuerKeys: [] },
@@ -158,7 +158,7 @@ export function createAdmissionQuorumGate(options: CommonOptions & { transport?:
       storage.read();
       const entry = byKey.get(issuerKey);
       if (!entry?.witnesses || !entry.witnesses.coordinators.includes(publicKey)) throw new Error('No authorized witness coordinator for issuer key');
-      if (retired.has(issuerKey)) throw new Error('Admission issuer key is permanently retired on this coordinator');
+      if (retired.has(issuerKey) || isArchivedAdmissionKey(policy, issuerKey)) throw new Error('Admission issuer key is permanently retired on this coordinator');
       current(policy, entry, now());
       const claim: AdmissionSpendClaim = { setId: admissionWitnessSetId(entry.witnesses), issuerKey, spend, action: context.action, requestBinding: context.requestBinding };
       const cached = certificates.get(indexKey(claim));
@@ -174,7 +174,7 @@ export function createAdmissionQuorumGate(options: CommonOptions & { transport?:
         const cert = await collectVotes(entry.witnesses, request, controller.signal, options.transport
           ?? ((member, req, signal) => requestAdmissionWitnessVote(member, req, signal, options.onTransportSocket)));
         storage.read(); current(policy, entry, now());
-        if (retired.has(issuerKey)) throw new Error('Admission issuer key is permanently retired on this coordinator');
+        if (retired.has(issuerKey) || isArchivedAdmissionKey(policy, issuerKey)) throw new Error('Admission issuer key is permanently retired on this coordinator');
         if (controller.signal.aborted) throw new Error('Admission quorum cancelled');
         if (!verifyAdmissionSpendCertificate(cert, claim, entry.witnesses)) throw new Error('Invalid admission certificate');
         const existing = certificates.get(indexKey(claim));

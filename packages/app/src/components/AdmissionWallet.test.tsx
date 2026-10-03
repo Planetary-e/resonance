@@ -15,7 +15,7 @@ function render(archived = [prior], reviewed: AdmissionWalletRetirementPlan | nu
 it('requires explicit review before destructive cleanup and explains consequences without exposing internal approval data', () => {
   expect(render()).toContain('Review cleanup'); expect(render()).not.toContain('Permanently close old wallet');
   const html = render([prior], plan);
-  for (const text of ['4 tokens', '3 unused tokens', '1 reservation', 'cannot be undone', 'cannot consume replacement tokens', 'does not free a setup slot', 'Cancel cleanup', 'automatic mailbox setting stay unchanged']) expect(html).toContain(text);
+  for (const text of ['4 tokens', '3 unused tokens', '1 reservation', 'cannot be undone', 'cannot consume replacement tokens', 'does not free a community setup slot', 'Cancel cleanup', 'automatic mailbox setting stay unchanged']) expect(html).toContain(text);
   expect(html).not.toContain(plan.approvalDigest); expect(html).not.toContain(plan.policyDigest);
   expect(render([prior], plan, true).match(/disabled=""/g)).toHaveLength(3);
 });

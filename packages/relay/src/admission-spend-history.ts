@@ -1,7 +1,7 @@
 /** Key-attributed local spends and irreversible retirement in one encrypted snapshot. */
 import { resolve } from 'node:path';
 import { openEncryptedLocalState } from '@resonance/core/local-state';
-import { admissionKeyFingerprint, type SignedAdmissionPolicy } from '@resonance/core/admission-policy';
+import { admissionKeyFingerprint, admissionPolicyKeys, isArchivedAdmissionKey, type SignedAdmissionPolicy } from '@resonance/core/admission-policy';
 import { planAdmissionHistoryRetirement, validRetiredIssuerKeys, type AdmissionHistoryMaintenance } from './admission-history-retirement.js';
 
 export interface AdmissionSpendRecord { spend: string; action: string; binding: string; issuerKey: string | null }
@@ -34,7 +34,7 @@ export function openAdmissionSpendHistory(options: {
   const limit = options.maxSpends ?? 10000;
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 10000) throw new Error('Invalid admission spend history capacity');
   const policy = structuredClone(options.policy), now = options.now ?? Date.now;
-  const known = new Set(policy.keys.map(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey)));
+  const known = new Set(admissionPolicyKeys(policy).map(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey)));
   const participant = resolve(options.directory);
   type State = { version: 2; authority: string; spends: AdmissionSpendRecord[]; retiredIssuerKeys: string[] };
   const initial: State = { version: 2, authority: policy.authority, spends: [], retiredIssuerKeys: [] };
@@ -84,11 +84,11 @@ export function openAdmissionSpendHistory(options: {
   return {
     size() { storage.read(); return spends.size; },
     get(spend) { storage.read(); const row = spends.get(spend); return row ? { ...row } : undefined; },
-    isRetired(issuerKey) { return storage.read().retiredIssuerKeys.includes(issuerKey); },
+    isRetired(issuerKey) { return storage.read().retiredIssuerKeys.includes(issuerKey) || isArchivedAdmissionKey(policy, issuerKey); },
     write(row) {
       const state = storage.read(), previous = spends.get(row.spend);
       if (!fields(row, ['issuerKey','spend','action','binding']) || !validSpend(row)) throw new Error('Invalid admission spend record');
-      if (!known.has(row.issuerKey) || state.retiredIssuerKeys.includes(row.issuerKey)) throw new Error('Admission issuer key is permanently retired or unknown');
+      if (!known.has(row.issuerKey) || isArchivedAdmissionKey(policy, row.issuerKey) || state.retiredIssuerKeys.includes(row.issuerKey)) throw new Error('Admission issuer key is permanently retired or unknown');
       if (previous && (previous.action !== row.action || previous.binding !== row.binding || (previous.issuerKey !== null && previous.issuerKey !== row.issuerKey))) {
         throw new Error('Conflicting admission spend');
       }

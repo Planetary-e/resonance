@@ -92,11 +92,12 @@ export default function AdmissionWallet({ privateDeliveryAvailable, onChange }: 
         <label htmlFor="wallet-authority">Verified community authority key</label>
         <input id="wallet-authority" value={authority} onChange={event => setAuthority(event.target.value)} maxLength={44} disabled={busy} required />
         <label htmlFor="wallet-policy">Signed community policy (JSON)</label>
-        <textarea id="wallet-policy" value={policyText} onChange={event => setPolicyText(event.target.value)} rows={5} maxLength={65536} disabled={busy} spellCheck={false} required />
+        <textarea id="wallet-policy" value={policyText} onChange={event => setPolicyText(event.target.value)} rows={5} maxLength={524288} disabled={busy} spellCheck={false} required />
         <button className="btn btn-primary btn-sm" disabled={busy || !!status?.pendingIssuance}>Verify and apply policy</button>
       </form>
     </details>}
     {status?.policy && <div>
+      <p>Community setups: {status.policy.currentKeys}/8 current; {status.policy.archivedKeys}/64 permanently retired.</p>
       <p>Community policy revision {status.policy.revision}. Refresh before {new Date(status.policy.expiresAt).toLocaleString()}.</p>
       <p className="text-sm" style={{ overflowWrap: 'anywhere' }}>Authority fingerprint: {status.policy.authorityFingerprint}</p>
       <p className="text-sm">Current key: issuance ends {new Date(status.policy.issueUntil).toLocaleString()}; new uses end {new Date(status.policy.spendUntil).toLocaleString()}; recorded retries end {new Date(status.policy.retryUntil).toLocaleString()}.</p>
@@ -174,7 +175,7 @@ export function PreviousWallets({ archived, plan, busy, onReview, onApply, onCan
       <p className="text-sm" style={{ overflowWrap: 'anywhere' }}>Key: {plan.issuerKey}</p>
       <p>This removes {plan.tokensRemoved} tokens, including {plan.unusedTokensRemoved} unused tokens, and the details of {plan.reservationsRemoved} {plan.reservationsRemoved === 1 ? 'reservation' : 'reservations'}. The final retry deadline was {new Date(plan.retryUntil).toLocaleString()}.</p>
       <p>This cannot be undone. This wallet cannot be reactivated. Old requests remain blocked and cannot consume replacement tokens. Your current wallet and automatic mailbox setting stay unchanged.</p>
-      <p>Small encrypted prevention records and the setup remain on this device. Cleanup does not free a setup slot or remove copies in backups.</p>
+      <p>Small encrypted prevention records and the setup remain on this device. Local cleanup does not free a community setup slot or remove copies in backups. The community must archive the retired setup in a new signed policy.</p>
       <button className="btn btn-primary btn-sm" disabled={busy} onClick={onApply}>Permanently close old wallet</button>
       <button className="btn btn-ghost btn-sm" disabled={busy} onClick={onCancel}>Cancel cleanup</button>
     </section>}

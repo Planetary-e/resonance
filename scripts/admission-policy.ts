@@ -2,12 +2,12 @@
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { generateSigningKeyPair } from '@resonance/core';
-import { signAdmissionPolicy, admissionAuthorityFingerprint } from '@resonance/core/admission-policy';
+import { signAdmissionPolicy, admissionAuthorityFingerprint, MAX_ADMISSION_POLICY_BYTES } from '@resonance/core/admission-policy';
 
 try {
   const [command, first, second, third, ...extra] = process.argv.slice(2);
   if (extra.length || !first) throw new Error('Invalid policy command');
-  const read = (path: string) => { if (statSync(path).size > 65536) throw new Error('Policy input exceeds 64 KiB'); return readFileSync(path, 'utf8'); };
+  const read = (path: string, maximum = 65536) => { if (statSync(path).size > maximum) throw new Error('Policy input exceeds its byte limit'); return readFileSync(path, 'utf8'); };
   const write = (path: string, data: string) => writeFileSync(path, data + '\n', { flag: 'wx', mode: 0o600 });
   if ((command === 'authority-keygen' || command === 'participant-keygen') && second && !third) {
     if (existsSync(first) || existsSync(second)) throw new Error('Authority output already exists');
@@ -23,7 +23,7 @@ try {
   } else if (command === 'sign' && second && third) {
     if (existsSync(third)) throw new Error('Policy output already exists');
     const key = JSON.parse(read(first)); const secret = Buffer.from(key.secretKey, 'base64url');
-    try { const signed = await signAdmissionPolicy(JSON.parse(read(second)), key.publicKey, secret); write(third, JSON.stringify(signed)); }
+    try { const signed = await signAdmissionPolicy(JSON.parse(read(second, MAX_ADMISSION_POLICY_BYTES)), key.publicKey, secret); write(third, JSON.stringify(signed)); }
     finally { secret.fill(0); }
     console.log('Signed policy saved. Distribute it with the independently verified authority key.');
   } else throw new Error('Invalid policy command');

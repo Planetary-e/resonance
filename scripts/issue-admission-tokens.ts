@@ -1,3 +1,4 @@
+import { MAX_ADMISSION_POLICY_BYTES } from '@resonance/core/admission-policy';
 /** Offline community permits and durable batch approval. No account directory or network. */
 import { existsSync, readFileSync, writeFileSync, statSync } from 'node:fs';
 import { openAdmissionIssuerLedger } from '../packages/node/src/admission-issuer-ledger.js';
@@ -37,7 +38,7 @@ async function main() {
       const result = command === 'plan-retirement' ? ledger.planRetirement(authority) : ledger.retire(authority, retirementApproval!);
       console.log(JSON.stringify({ ...result, result: command === 'plan-retirement' ? 'review-required' : 'permanently-retired' }, null, 2));
     } else if (command === 'policy') {
-      await ledger.installPolicy(JSON.parse(read(second, 65536)), read(first).trim());
+      await ledger.installPolicy(JSON.parse(read(second, MAX_ADMISSION_POLICY_BYTES)), read(first).trim());
       console.log('Signed community policy installed; existing permits and reservations retained.');
     } else if (command === 'grant') {
       const invitation = ledger.grant();

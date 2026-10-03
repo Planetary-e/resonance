@@ -1,6 +1,6 @@
 /** Offline invitation admission. No member identifier is added to issuance or redemption. */
 import { verifyAdmissionPolicy, assertAdmissionPolicyCurrent, assertAdmissionPolicySuccessor,
-  admissionAuthorityFingerprint, admissionPolicyDigest, type SignedAdmissionPolicy } from '@resonance/core/admission-policy';
+  admissionAuthorityFingerprint, admissionPolicyDigest, admissionPolicyKeys, isArchivedAdmissionKey, type SignedAdmissionPolicy } from '@resonance/core/admission-policy';
 import { createHash, hkdfSync, randomBytes } from 'node:crypto';
 import { resolve } from 'node:path';
 import { openEncryptedLocalState } from './encrypted-local-state.js';
@@ -100,10 +100,10 @@ export async function openAdmissionIssuerLedger(options: {
   } finally { key.fill(0); }
   try { const state = storage.read(), policy = state.communityPolicy; if (policy) {
     await verifyAdmissionPolicy(policy, policy.authority);
-    if (!policy.keys.some(entry => JSON.stringify(entry.profile) === JSON.stringify(profile))) throw new Error('Issuer is absent from its signed community policy');
+    if (!admissionPolicyKeys(policy).some(entry => JSON.stringify(entry.profile) === JSON.stringify(profile))) throw new Error('Issuer is absent from its signed community policy');
     if (state.version === 2) {
       // Retirement seals this policy as historical evidence; it need not remain current at every subsequent open.
-      const id = admissionKeyFingerprint(profile.issuerPublicKey), entry = policy.keys.find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === id)!;
+      const id = admissionKeyFingerprint(profile.issuerPublicKey), entry = admissionPolicyKeys(policy).find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === id)!;
       if (policy.activeKey === id || state.retirement.retiredAt < entry.retryUntil) throw new Error('Invalid permanent issuer retirement');
       assertAdmissionPolicyCurrent(policy, state.retirement.retiredAt);
     }
@@ -114,8 +114,8 @@ export async function openAdmissionIssuerLedger(options: {
     const policy = live().communityPolicy; if (!policy) return;
     const now = (options.now ?? Date.now)(); assertAdmissionPolicyCurrent(policy, now);
     const id = admissionKeyFingerprint(profile.issuerPublicKey);
-    const entry = policy.keys.find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === id);
-    if (!entry || now < entry.notBefore || now >= (recover ? entry.spendUntil : entry.issueUntil)
+    const entry = admissionPolicyKeys(policy).find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === id);
+    if (!entry || isArchivedAdmissionKey(policy, id) || now < entry.notBefore || now >= (recover ? entry.spendUntil : entry.issueUntil)
       || (!recover && policy.activeKey !== id)) throw new Error('Issuer is retired or inactive under the signed community policy');
   }
   function ready() { live(); if (busy) throw new Error('Issuer approval or policy update is already in progress'); }
@@ -125,7 +125,7 @@ export async function openAdmissionIssuerLedger(options: {
     if (policy.authority !== authority) throw new Error('Issuer retirement authority does not match the pinned community authority');
     const now = (options.now ?? Date.now)(); assertAdmissionPolicyCurrent(policy, now);
     const issuerKey = admissionKeyFingerprint(profile.issuerPublicKey);
-    const entry = policy.keys.find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === issuerKey)!;
+    const entry = admissionPolicyKeys(policy).find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === issuerKey)!;
     if (policy.activeKey === issuerKey) throw new Error('Cannot permanently retire the active issuer key; install a successor first');
     if (now < entry.retryUntil) throw new Error('Issuer history must remain until the key retry cutoff');
     const ledgerPath = resolve(options.path), policyDigest = admissionPolicyDigest(policy), retained = totals(state);
@@ -170,7 +170,7 @@ export async function openAdmissionIssuerLedger(options: {
         const policy = await verifyAdmissionPolicy(value, authority); storage.read();
         assertAdmissionPolicyCurrent(policy, (options.now ?? Date.now)());
         if (state.communityPolicy) assertAdmissionPolicySuccessor(state.communityPolicy, policy);
-        if (!policy.keys.some(entry => JSON.stringify(entry.profile) === JSON.stringify(profile))) throw new Error('Issuer is absent from the signed community policy');
+        if (!admissionPolicyKeys(policy).some(entry => JSON.stringify(entry.profile) === JSON.stringify(profile))) throw new Error('Issuer is absent from the signed community policy');
         storage.write({ ...state, communityPolicy: policy });
       } finally { busy = false; }
     },

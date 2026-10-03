@@ -1,7 +1,7 @@
 /** Encrypted, crash-safe local reservations for admission tokens. */
 import { createHash, KeyObject } from 'node:crypto';
 import { resolve } from 'node:path';
-import { admissionKeyFingerprint, admissionAuthorityFingerprint, admissionPolicyDigest, assertAdmissionPolicyCurrent, type SignedAdmissionPolicy } from '@resonance/core/admission-policy';
+import { admissionKeyFingerprint, admissionPolicyKeys, admissionAuthorityFingerprint, admissionPolicyDigest, assertAdmissionPolicyCurrent, type SignedAdmissionPolicy } from '@resonance/core/admission-policy';
 import {
   type AdmissionCapabilityV2, type BlindAdmissionScopeV2, type RelayAdmissionActionV2,
   assertSecureRelayTransportEndpoint, createAdmissionRequestBindingV2,
@@ -65,7 +65,7 @@ export function openBlindAdmissionWalletV2(options: {
   function planRetirement(policy: SignedAdmissionPolicy, configuration?: unknown): AdmissionWalletRetirementPlan {
     ensureReady(); const state = live();
     const now = (options.now ?? Date.now)(); assertAdmissionPolicyCurrent(policy, now);
-    const entry = policy.keys.find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === issuerKey);
+    const entry = admissionPolicyKeys(policy).find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === issuerKey);
     if (!entry || entry.profile.scope.issuer !== scope.issuer || entry.profile.scope.community !== scope.community || entry.profile.scope.epoch !== scope.epoch) {
       throw new Error('Wallet is absent from the signed community policy');
     }

@@ -2,6 +2,7 @@
 import { closeSync, constants, fstatSync, fsyncSync, openSync, readSync, writeSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { checkAdmissionRotation, prepareAdmissionRotation, signAdmissionRotation } from '@resonance/core/admission-rotation';
+import { MAX_ADMISSION_POLICY_BYTES } from '@resonance/core/admission-policy';
 
 function read(path: string, maximum = 65536): string {
   const fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK);
@@ -26,7 +27,7 @@ function json(path: string, maximum = 65536): unknown {
 }
 function writeExclusive(path: string, value: unknown, prettyPlan = false) {
   const output = Buffer.from(JSON.stringify(value, null, prettyPlan ? 2 : undefined) + '\n');
-  if (output.length > (prettyPlan ? 131072 : 65536)) throw new Error('Rotation output exceeds its file size limit');
+  if (output.length > (prettyPlan ? 2 * MAX_ADMISSION_POLICY_BYTES : MAX_ADMISSION_POLICY_BYTES)) throw new Error('Rotation output exceeds its file size limit');
   const fd = openSync(path, 'wx', 0o600);
   try {
     let offset = 0;
@@ -42,16 +43,16 @@ try {
   const [command, ...args] = process.argv.slice(2);
   if (command === 'prepare' && args.length === 4) {
     const [authorityPath, previousPath, requestPath, outputPath] = args;
-    const checked = await prepareAdmissionRotation(json(previousPath), json(requestPath), read(authorityPath, 256).trim());
+    const checked = await prepareAdmissionRotation(json(previousPath, MAX_ADMISSION_POLICY_BYTES), json(requestPath), read(authorityPath, 256).trim());
     writeExclusive(outputPath, checked.plan, true);
     console.log(JSON.stringify({ ...checked.summary, result: 'unsigned-plan-saved' }, null, 2));
   } else if (command === 'check' && args.length === 3) {
     const [authorityPath, previousPath, planPath] = args;
-    const checked = await checkAdmissionRotation(json(previousPath), json(planPath, 131072), read(authorityPath, 256).trim());
+    const checked = await checkAdmissionRotation(json(previousPath, MAX_ADMISSION_POLICY_BYTES), json(planPath, 2 * MAX_ADMISSION_POLICY_BYTES), read(authorityPath, 256).trim());
     console.log(JSON.stringify({ ...checked.summary, result: 'plan-checked' }, null, 2));
   } else if (command === 'sign' && args.length === 7 && args[0] === '--approve') {
     const [, approvedDigest, authorityPath, privatePath, previousPath, planPath, outputPath] = args;
-    const authority = read(authorityPath, 256).trim(), previous = json(previousPath), plan = json(planPath, 131072);
+    const authority = read(authorityPath, 256).trim(), previous = json(previousPath, MAX_ADMISSION_POLICY_BYTES), plan = json(planPath, 2 * MAX_ADMISSION_POLICY_BYTES);
     const checked = await checkAdmissionRotation(previous, plan, authority);
     if (approvedDigest !== checked.summary.approvalDigest) throw new Error('Approval digest does not match this rotation plan; review it again');
     const key = json(privatePath, 4096) as { publicKey?: unknown; secretKey?: unknown };

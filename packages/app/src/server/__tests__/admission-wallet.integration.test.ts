@@ -241,14 +241,16 @@ it('reviews and applies authenticated wallet cleanup locally, blocks old retries
     expect((await request('/api/admission-wallet/retire', { keyFingerprint })).status).toBe(400);
     expect((await request('/api/admission-wallet/retire', { keyFingerprint, approvalDigest: 'sha256:' + '0'.repeat(64) })).status).toBe(409);
     const { signature: _s, authority: _a, ...nextBody } = successor;
-    const next = await signAdmissionPolicy({ ...nextBody, revision: 4 }, authority, authorityKeys.secretKey);
+    const next = await signAdmissionPolicy({ ...nextBody, version: 2, revision: 4, issuedAt: Date.now(),
+      keys: [nextBody.keys[1]], archivedKeys: [nextBody.keys[0]] }, authority, authorityKeys.secretKey);
     expect((await request('/api/admission-wallet/policy', { policy: next, authority })).status).toBe(200);
     expect((await request('/api/admission-wallet/retire', { keyFingerprint, approvalDigest: reviewed.body.approvalDigest })).status).toBe(409);
     const plan = (await request('/api/admission-wallet/retirement-plan', { keyFingerprint })).body;
     expect((await request('/api/admission-wallet/retire', { keyFingerprint, approvalDigest: plan.approvalDigest })).status).toBe(200);
     await restart();
     const status = (await request('/api/admission-wallet')).body;
-    expect(status).toMatchObject({ available: 2, reserved: 0, archived: [{ permanentlyRetired: true, tokensRemoved: 10, reservationsRemoved: 10 }] });
+    expect(status).toMatchObject({ available: 2, reserved: 0, policy: { currentKeys: 1, archivedKeys: 1 },
+      archived: [{ permanentlyRetired: true, tokensRemoved: 10, reservationsRemoved: 10 }] });
     expect(() => getSession()!.admissionWallet.capabilityFor(retiredRequest)).toThrow('replacement token');
     expect((await request('/api/admission-wallet')).body.available).toBe(2);
     expect((await request('/api/status')).body.automaticMailboxes).toBe(false);

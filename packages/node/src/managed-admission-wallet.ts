@@ -1,5 +1,5 @@
 /** Pinned active wallet plus immutable prior profiles for exact retries. */
-import { verifyAdmissionPolicy, assertAdmissionPolicyCurrent, assertAdmissionPolicySuccessor, admissionAuthorityFingerprint, admissionPolicyDigest, type SignedAdmissionPolicy } from '@resonance/core/admission-policy';
+import { verifyAdmissionPolicy, assertAdmissionPolicyCurrent, assertAdmissionPolicySuccessor, admissionAuthorityFingerprint, admissionPolicyDigest, admissionPolicyKeys, MAX_ADMISSION_KEYS, MAX_ARCHIVED_ADMISSION_KEYS, type SignedAdmissionPolicy } from '@resonance/core/admission-policy';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { openEncryptedLocalState } from './encrypted-local-state.js';
@@ -14,12 +14,13 @@ export interface AdmissionWalletStatus {
   available: number; reserved: number; total: number; capacity: number; availableCapacity: number;
   archived: Array<{ scope: AdmissionWalletProfileV1['scope']; keyFingerprint: string; available: number; reserved: number; permanentlyRetired: boolean; canRetire: boolean; tokensRemoved?: number; reservationsRemoved?: number }>;
   pendingIssuance?: AdmissionIssuanceRequest;
-  policy?: { revision: number; authorityFingerprint: string; expiresAt: number; issueUntil: number; spendUntil: number; retryUntil: number };
+  policy?: { currentKeys: number; archivedKeys: number; revision: number; authorityFingerprint: string; expiresAt: number; issueUntil: number; spendUntil: number; retryUntil: number };
 }
 interface StateV1 { version: 1; profile: AdmissionWalletProfileV1 | null }
-interface StateV2 { version: 2 | 3; active: number; profiles: AdmissionWalletProfileV1[]; policy?: SignedAdmissionPolicy }
+interface StateV2 { version: 2 | 3 | 4; active: number; profiles: AdmissionWalletProfileV1[]; policy?: SignedAdmissionPolicy }
 type State = StateV1 | StateV2;
-const MAX_PROFILES = 8;
+const MAX_PROFILES = MAX_ADMISSION_KEYS;
+const MAX_PROFILE_HISTORY = MAX_ADMISSION_KEYS + MAX_ARCHIVED_ADMISSION_KEYS;
 function stateV2(state: State): StateV2 {
   return state.version !== 1 ? state : { version: 2, active: 0, profiles: state.profile ? [state.profile] : [] };
 }
@@ -29,8 +30,9 @@ function validState(value: unknown): value is State {
   if (state.version === 1) return Object.keys(state).sort().join(',') === 'profile,version'
     && (state.profile === null || (!!state.profile && typeof state.profile === 'object'));
   return ((state.version === 2 && Object.keys(state).sort().join(',') === 'active,profiles,version')
-    || (state.version === 3 && Object.keys(state).sort().join(',') === 'active,policy,profiles,version' && !!state.policy))
-    && Array.isArray(state.profiles) && state.profiles.length >= 1 && state.profiles.length <= MAX_PROFILES
+    || ((state.version === 3 || state.version === 4) && Object.keys(state).sort().join(',') === 'active,policy,profiles,version' && !!state.policy
+      && (state.version === 4 ? state.policy.version === 2 : state.policy.version === 1)))
+    && Array.isArray(state.profiles) && state.profiles.length >= 1 && state.profiles.length <= (state.version === 4 ? MAX_PROFILE_HISTORY : MAX_PROFILES)
     && Number.isInteger(state.active) && state.active >= 0 && state.active < state.profiles.length;
 }
 
@@ -38,7 +40,7 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
   const key = Buffer.from(options.encryptionKey);
   let storage: ReturnType<typeof openEncryptedLocalState<State>>;
   try { storage = openEncryptedLocalState<State>({ path: join(options.directory, 'admission-profile.json'), key,
-    domain: 'resonance:admission-profile:v1', maxBytes: 128 * 1024, initial: { version: 1, profile: null }, validate: validState });
+    domain: 'resonance:admission-profile:v1', maxBytes: 2 * 1024 * 1024, initial: { version: 1, profile: null }, validate: validState });
   } catch (error) { key.fill(0); throw error; }
   const wallets: BlindAdmissionWalletV2[] = [];
   let busy = false; let closed = false;
@@ -54,7 +56,7 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
     const state = stateV2(storage.read());
     if (state.policy) {
       await verifyAdmissionPolicy(state.policy, state.policy.authority);
-      for (const profile of state.profiles) if (!state.policy.keys.some(entry => JSON.stringify(entry.profile) === JSON.stringify(profile))) throw new Error('Wallet profile is absent from its signed policy');
+      for (const profile of state.profiles) if (!admissionPolicyKeys(state.policy).some(entry => JSON.stringify(entry.profile) === JSON.stringify(profile))) throw new Error('Wallet profile is absent from its signed policy');
       if (admissionKeyFingerprint(state.profiles[state.active].issuerPublicKey) !== state.policy.activeKey) throw new Error('Wallet active key differs from signed policy');
     }
     const seen = new Set<string>();
@@ -72,7 +74,7 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
   function validateRetiredWallets(state: StateV2, candidates: BlindAdmissionWalletV2[]) {
     for (const [index, wallet] of candidates.entries()) {
       const r = wallet.summary().retirement; if (!r) continue;
-      const policy = state.policy, entry = policy?.keys.find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === r.issuerKey);
+      const policy = state.policy, entry = policy ? admissionPolicyKeys(policy).find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === r.issuerKey) : undefined;
       if (index === state.active) throw new Error('Cannot reactivate a permanently retired wallet');
       if (!policy || !entry || admissionAuthorityFingerprint(policy.authority) !== r.authorityFingerprint
         || policy.revision < r.policyRevision || entry.retryUntil > r.retryUntil
@@ -93,7 +95,7 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
   function eligible(state: StateV2, issuerKey: string) {
     if (busy || pending || !state.policy) return false;
     try { assertAdmissionPolicyCurrent(state.policy, (options.now ?? Date.now)()); } catch { return false; }
-    const entry = state.policy.keys.find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === issuerKey);
+    const entry = admissionPolicyKeys(state.policy).find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === issuerKey);
     return !!entry && state.policy.activeKey !== issuerKey && (options.now ?? Date.now)() >= entry.retryUntil;
   }
   function ready() { storage.read(); if (busy) throw new Error('Access-token wallet update is in progress'); }
@@ -132,7 +134,7 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
             permanentlyRetired: summary.permanentlyRetired, canRetire: !summary.permanentlyRetired && eligible(state, keyFingerprint),
             ...(summary.retirement ? { tokensRemoved: summary.retirement.tokensRemoved, reservationsRemoved: summary.retirement.reservationsRemoved } : {}) }];
         }),
-        ...(state.policy ? { policy: { revision: state.policy.revision, authorityFingerprint: admissionAuthorityFingerprint(state.policy.authority), expiresAt: state.policy.expiresAt,
+        ...(state.policy ? { policy: { currentKeys: state.policy.keys.length, archivedKeys: state.policy.archivedKeys?.length ?? 0, revision: state.policy.revision, authorityFingerprint: admissionAuthorityFingerprint(state.policy.authority), expiresAt: state.policy.expiresAt,
           ...(() => { const entry = state.policy!.keys.find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === state.policy!.activeKey)!;
             return { issueUntil: entry.issueUntil, spendUntil: entry.spendUntil, retryUntil: entry.retryUntil }; })() } } : {}),
         ...(pending ? { pendingIssuance: structuredClone(pending.batch.request) } : {}) };
@@ -172,18 +174,18 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
         storage.read(); assertAdmissionPolicyCurrent(policy, (options.now ?? Date.now)());
         if (previous.policy) assertAdmissionPolicySuccessor(previous.policy, policy);
         const profiles = [...previous.profiles];
-        for (const profile of profiles) if (!policy.keys.some(entry => JSON.stringify(entry.profile) === JSON.stringify(profile))) {
+        for (const profile of profiles) if (!admissionPolicyKeys(policy).some(entry => JSON.stringify(entry.profile) === JSON.stringify(profile))) {
           throw new Error('Signed policy must retain all existing wallet profiles with their original pins');
         }
         for (const entry of policy.keys) {
           if (profiles.some(profile => admissionKeyFingerprint(profile.issuerPublicKey) === admissionKeyFingerprint(entry.profile.issuerPublicKey))) continue;
-          if (profiles.length >= MAX_PROFILES) throw new Error('Wallet profile history is full');
+          if (profiles.length >= (policy.version === 2 ? MAX_PROFILE_HISTORY : MAX_PROFILES)) throw new Error('Wallet profile history is full');
           const parsed = await parseAdmissionWalletProfile(entry.profile); storage.read();
           opened.push(open(profiles.length, parsed)); profiles.push(parsed.profile);
         }
         const active = profiles.findIndex(profile => admissionKeyFingerprint(profile.issuerPublicKey) === policy.activeKey);
-        validateRetiredWallets({ version: 3, active, profiles, policy }, [...wallets, ...opened]);
-        storage.write({ version: 3, active, profiles, policy });
+        validateRetiredWallets({ version: policy.version === 2 ? 4 : 3, active, profiles, policy }, [...wallets, ...opened]);
+        storage.write({ version: policy.version === 2 ? 4 : 3, active, profiles, policy });
         wallets.push(...opened); opened.length = 0;
       } finally { opened.forEach(wallet => wallet.close()); busy = false; }
     },
