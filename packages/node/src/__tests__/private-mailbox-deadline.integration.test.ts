@@ -23,7 +23,7 @@ it('shares one deadline across queued mailbox destinations and keeps replies val
     privateTraffic: { maxConcurrent: 1, maxQueueWaitMs: 10_000 },
   }));
   const blockedIds = new Set<string>();
-  const heldSockets: WebSocket[] = [];
+  const requestSockets = new Map<string, WebSocket>();
   const originalEmit = WebSocket.prototype.emit;
   const originalSend = WebSocket.prototype.send;
   try {
@@ -39,10 +39,8 @@ it('shares one deadline across queued mailbox destinations and keeps replies val
     vi.spyOn(WebSocket.prototype, 'send').mockImplementation(function (this: WebSocket, data, ...args) {
       if (typeof data === 'string') {
         const frame = JSON.parse(data);
-        if (frame.type === 'private_response' && blockedIds.has(frame.requestId)) {
-          heldSockets.push(this); // Simulate a stalled final write from the second destination.
-          return;
-        }
+        if (this.url === endpoints[0] && frame.stage === 'entry') requestSockets.set(frame.requestId, this);
+        if (frame.type === 'private_response' && blockedIds.has(frame.requestId)) return; // Withhold the final reply if it is attempted.
       }
       return Reflect.apply(originalSend, this, [data, ...args]);
     });
@@ -58,7 +56,10 @@ it('shares one deadline across queued mailbox destinations and keeps replies val
     expect(performance.now() - started).toBeGreaterThanOrEqual(9_950);
     expect(performance.now() - started).toBeLessThan(11_000);
     expect(blockedIds.size).toBe(2);
-    expect(heldSockets).toHaveLength(2);
+    // A slower host may hit the deadline during validation/mixing, before the final
+    // write. Assert cancellation of the actual client requests, not that a late write ran.
+    const heldSockets = [...blockedIds].map(id => requestSockets.get(id)!);
+    expect(heldSockets).toHaveLength(2); expect(heldSockets.every(Boolean)).toBe(true);
     await expect.poll(() => heldSockets.every(socket => socket.readyState === WebSocket.CLOSED)).toBe(true);
   } finally {
     clients.forEach(client => client.disconnect());
