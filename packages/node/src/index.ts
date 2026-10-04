@@ -14,7 +14,14 @@ export {
   type CreateChannelInput,
 } from './store.js';
 export { createIdentityManager, type IdentityManager } from './identity.js';
-export { getDataDir, getDbPath, getIdentityPath, ensureDataDir, deriveStoreKey } from './config.js';
+export { openBlindAdmissionWalletV2, type BlindAdmissionWalletV2, type AdmissionWalletRetirementPlan } from './blind-admission-wallet.js';
+export { openManagedAdmissionWallet, type ManagedAdmissionWallet, type AdmissionWalletProfileV1, type AdmissionWalletStatus } from './managed-admission-wallet.js';
+export { deriveAdmissionWalletKey } from './config.js';
+export type { PrivateTrafficScheduleOptions } from './private-traffic-scheduler.js';
+export { PrivateOperationError, PRIVATE_OPERATION_DEADLINE_MS } from './private-operation.js';
+export { openPublicationOutbox, MAX_PUBLICATION_OUTBOX_BYTES, MAX_PUBLICATION_OUTBOX_ENTRIES,
+  type PublicationOutbox, type HeldPublicationSummary, type PrivatePublicationRoute } from './publication-outbox.js';
+export { getDataDir, getDbPath, getIdentityPath, ensureDataDir, deriveStoreKey, derivePublicationOutboxKey, derivePrivateRequestOutboxKey } from './config.js';
 export {
   createRelayClient,
   type RelayClient,
@@ -36,3 +43,10 @@ export {
   type UpgradeV2Options,
   type UpgradeV2Report,
 } from './upgrade-v2.js';
+
+export { openPrivateRequestOutbox, guardRelayClient, PRIVATE_REQUEST_HOLD_LIFETIME_MS,
+  type PrivateRequestOutbox, type PrivateRequestIntent, type PrivateRequestResult, type HeldRequest } from './private-request-outbox.js';
+
+export { issueAdmissionBatch, type AdmissionIssuanceRequest, type AdmissionIssuanceResponse } from './blind-admission-issuance.js';
+
+export { openAdmissionIssuerLedger, type AdmissionIssuerLedger, type AdmissionIssuerPolicy, type AdmissionIssuancePermit } from './admission-issuer-ledger.js';

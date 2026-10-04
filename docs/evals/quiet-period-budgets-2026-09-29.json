@@ -1,0 +1,154 @@
+{
+  "generatedAt": "2026-09-29T14:46:22.545Z",
+  "sourceBase": "fcf31d1a2368123f4228768c577348550106a7df",
+  "input": "docs/evals/private-reply-2026-09-29T14-30-17-612Z.json",
+  "inputSha256": "0ab2cb96e7509585b049c2993b7424275b839a26be8eb451f914215658134e5a",
+  "requestBytes": 15495,
+  "replyBytes": 11213,
+  "exchangeBytes": 26708,
+  "cadence": [
+    {
+      "intervalSeconds": 1,
+      "exchangesPerConnectedHour": 3600,
+      "clientPayloadMBPerHour": 96.149,
+      "clientPayloadMBPer8Hours": 769.19,
+      "clientPayloadMBPer24Hours": 2307.571,
+      "uniformArrivalMeanWaitSeconds": 0.5,
+      "uniformArrivalP95WaitSeconds": 0.95
+    },
+    {
+      "intervalSeconds": 10,
+      "exchangesPerConnectedHour": 360,
+      "clientPayloadMBPerHour": 9.615,
+      "clientPayloadMBPer8Hours": 76.919,
+      "clientPayloadMBPer24Hours": 230.757,
+      "uniformArrivalMeanWaitSeconds": 5,
+      "uniformArrivalP95WaitSeconds": 9.5
+    },
+    {
+      "intervalSeconds": 60,
+      "exchangesPerConnectedHour": 60,
+      "clientPayloadMBPerHour": 1.602,
+      "clientPayloadMBPer8Hours": 12.82,
+      "clientPayloadMBPer24Hours": 38.46,
+      "uniformArrivalMeanWaitSeconds": 30,
+      "uniformArrivalP95WaitSeconds": 57
+    },
+    {
+      "intervalSeconds": 300,
+      "exchangesPerConnectedHour": 12,
+      "clientPayloadMBPerHour": 0.32,
+      "clientPayloadMBPer8Hours": 2.564,
+      "clientPayloadMBPer24Hours": 7.692,
+      "uniformArrivalMeanWaitSeconds": 150,
+      "uniformArrivalP95WaitSeconds": 285
+    }
+  ],
+  "opportunities": [
+    {
+      "meanOtherArrivalSeconds": 60,
+      "waitSeconds": 0.75,
+      "probabilityAtLeastOneOtherArrival": 0.012422199506118572
+    },
+    {
+      "meanOtherArrivalSeconds": 60,
+      "waitSeconds": 2,
+      "probabilityAtLeastOneOtherArrival": 0.0327838995179941
+    },
+    {
+      "meanOtherArrivalSeconds": 60,
+      "waitSeconds": 5,
+      "probabilityAtLeastOneOtherArrival": 0.07995558537067675
+    },
+    {
+      "meanOtherArrivalSeconds": 60,
+      "waitSeconds": 30,
+      "probabilityAtLeastOneOtherArrival": 0.3934693402873666
+    },
+    {
+      "meanOtherArrivalSeconds": 60,
+      "waitSeconds": 60,
+      "probabilityAtLeastOneOtherArrival": 0.6321205588285577
+    },
+    {
+      "meanOtherArrivalSeconds": 60,
+      "waitSeconds": 300,
+      "probabilityAtLeastOneOtherArrival": 0.9932620530009145
+    },
+    {
+      "meanOtherArrivalSeconds": 60,
+      "waitSeconds": 900,
+      "probabilityAtLeastOneOtherArrival": 0.9999996940976795
+    },
+    {
+      "meanOtherArrivalSeconds": 600,
+      "waitSeconds": 0.75,
+      "probabilityAtLeastOneOtherArrival": 0.0012492190754191336
+    },
+    {
+      "meanOtherArrivalSeconds": 600,
+      "waitSeconds": 2,
+      "probabilityAtLeastOneOtherArrival": 0.0033277839454766787
+    },
+    {
+      "meanOtherArrivalSeconds": 600,
+      "waitSeconds": 5,
+      "probabilityAtLeastOneOtherArrival": 0.008298707361124043
+    },
+    {
+      "meanOtherArrivalSeconds": 600,
+      "waitSeconds": 30,
+      "probabilityAtLeastOneOtherArrival": 0.04877057549928599
+    },
+    {
+      "meanOtherArrivalSeconds": 600,
+      "waitSeconds": 60,
+      "probabilityAtLeastOneOtherArrival": 0.09516258196404043
+    },
+    {
+      "meanOtherArrivalSeconds": 600,
+      "waitSeconds": 300,
+      "probabilityAtLeastOneOtherArrival": 0.3934693402873666
+    },
+    {
+      "meanOtherArrivalSeconds": 600,
+      "waitSeconds": 900,
+      "probabilityAtLeastOneOtherArrival": 0.7768698398515702
+    },
+    {
+      "meanOtherArrivalSeconds": 3600,
+      "waitSeconds": 0.75,
+      "probabilityAtLeastOneOtherArrival": 0.00020831163345140687
+    },
+    {
+      "meanOtherArrivalSeconds": 3600,
+      "waitSeconds": 2,
+      "probabilityAtLeastOneOtherArrival": 0.0005554012631418932
+    },
+    {
+      "meanOtherArrivalSeconds": 3600,
+      "waitSeconds": 5,
+      "probabilityAtLeastOneOtherArrival": 0.0013879248290916827
+    },
+    {
+      "meanOtherArrivalSeconds": 3600,
+      "waitSeconds": 30,
+      "probabilityAtLeastOneOtherArrival": 0.008298707361124043
+    },
+    {
+      "meanOtherArrivalSeconds": 3600,
+      "waitSeconds": 60,
+      "probabilityAtLeastOneOtherArrival": 0.016528546178382512
+    },
+    {
+      "meanOtherArrivalSeconds": 3600,
+      "waitSeconds": 300,
+      "probabilityAtLeastOneOtherArrival": 0.07995558537067675
+    },
+    {
+      "meanOtherArrivalSeconds": 3600,
+      "waitSeconds": 900,
+      "probabilityAtLeastOneOtherArrival": 0.22119921692859512
+    }
+  ]
+}

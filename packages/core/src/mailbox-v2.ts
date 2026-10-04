@@ -144,9 +144,8 @@ export function createMatchNoticeMessage(
   matchOperation: MatchOperationV2,
   relayIdentity: Identity,
 ): Message<MatchNoticePayload> {
-  if (!verifyPublicationRecord(recipient)
-    || !verifyPublicationRecord(partner)
-    || !verifyMatchOperationAgainstPublicationsV2(matchOperation, recipient, partner, 0)
+  // This verifier authenticates both publications as well as their signed match.
+  if (!verifyMatchOperationAgainstPublicationsV2(matchOperation, recipient, partner, 0)
     || matchOperation.relayId !== relayIdentity.did
     || matchOperation.relayKey !== encodeBase64(relayIdentity.publicKey)) {
     throw new Error('Cannot create a match notice for an invalid publication');

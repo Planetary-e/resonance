@@ -26,5 +26,5 @@ export interface AdmissionCapabilityVerifierV2 {
   verifyAndSpend(
     capability: AdmissionCapabilityV2,
     context: AdmissionVerificationContextV2,
-  ): AdmissionDecisionV2;
+  ): AdmissionDecisionV2 | Promise<AdmissionDecisionV2>;
 }

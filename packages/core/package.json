@@ -5,13 +5,20 @@
   "type": "module",
   "main": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./local-state": "./src/local-encrypted-state.ts",
+    "./admission-policy": "./src/admission-policy.ts",
+    "./admission-witness": "./src/admission-witness.ts",
+    "./admission-rotation": "./src/admission-rotation.ts",
+    "./history-checkpoint": "./src/history-checkpoint.ts"
   },
   "scripts": {
     "build": "tsc",
     "test": "vitest run"
   },
   "dependencies": {
+    "@cloudflare/privacypass-ts": "0.9.0",
+    "@hpke/core": "^1.9.0",
     "@huggingface/transformers": "^4.3.0",
     "hash-wasm": "^4.12.0",
     "tweetnacl": "^1.0.3",

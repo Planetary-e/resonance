@@ -3,10 +3,12 @@
 import WebSocket, { type RawData } from 'ws';
 import type { Socket } from 'node:net';
 import {
+  assertSecureRelayTransportEndpoint,
   MAX_RELAY_DISCOVERY_FRAME_BYTES,
   MAX_RELAY_PEERS_PER_RESPONSE,
   createRelayPeerRequestFrameV1,
   createRelayPeerRequestV1,
+  isRelayPeerRequestActiveV1,
   isRelayPeerResponseActiveV1,
   parseRelayPeerResponseFrameV1,
   serializeRelayPeerRequestFrameV1,
@@ -14,6 +16,8 @@ import {
   type RelayContactHintV1,
   type RelayDescriptorV1,
   type RelayPeerResponseV1,
+  type RelayPeerRequestV1,
+  type RelayTransportKeyV1,
 } from '@resonance/core';
 
 export interface RelayContactDiscoveryOptions {
@@ -22,6 +26,8 @@ export interface RelayContactDiscoveryOptions {
   timeoutMs?: number;
   now?: () => number;
   onTransportSocket?: (socket: Socket) => void;
+  /** Forward a caller-created one-use challenge unchanged to the contacted relay. */
+  request?: RelayPeerRequestV1;
 }
 
 export interface RelayContactDiscoveryResult {
@@ -29,6 +35,7 @@ export interface RelayContactDiscoveryResult {
   responder: RelayDescriptorV1;
   descriptors: RelayDescriptorV1[];
   response: RelayPeerResponseV1;
+  transportKey?: RelayTransportKeyV1;
 }
 
 /**
@@ -42,22 +49,28 @@ export function discoverRelayContactV1(
   if (!verifyRelayContactHintV1(hint)) {
     return Promise.reject(new Error('Invalid relay contact hint'));
   }
+  try { assertSecureRelayTransportEndpoint(hint.endpoint); }
+  catch (error) { return Promise.reject(error); }
   const timeoutMs = options.timeoutMs ?? 5_000;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 30_000) {
     return Promise.reject(new Error('Relay discovery timeout must be between 100 and 30000 ms'));
   }
-  const maxPeers = options.maxPeers ?? MAX_RELAY_PEERS_PER_RESPONSE;
+  const maxPeers = options.request?.maxPeers ?? options.maxPeers ?? MAX_RELAY_PEERS_PER_RESPONSE;
   if (!Number.isSafeInteger(maxPeers) || maxPeers < 1 || maxPeers > MAX_RELAY_PEERS_PER_RESPONSE) {
     return Promise.reject(new Error('Invalid relay discovery peer limit'));
   }
   const clock = options.now ?? Date.now;
   const createdAt = clock();
-  const request = createRelayPeerRequestV1({
+  const request = options.request ?? createRelayPeerRequestV1({
     supportedGroups: options.supportedGroups ?? [],
     maxPeers,
     createdAt,
     expiresAt: createdAt + Math.min(30_000, timeoutMs + 5_000),
   });
+  if (!isRelayPeerRequestActiveV1(request, createdAt)
+    || (options.maxPeers !== undefined && request.maxPeers !== options.maxPeers)) {
+    return Promise.reject(new Error('Invalid forwarded relay discovery challenge'));
+  }
   const serializedRequest = serializeRelayPeerRequestFrameV1(
     createRelayPeerRequestFrameV1(request),
   );
@@ -121,6 +134,8 @@ export function discoverRelayContactV1(
           responder,
           descriptors: frame.response.descriptors,
           response: frame.response,
+          ...(frame.response.transportKey === undefined
+            ? {} : { transportKey: frame.response.transportKey }),
         });
       } catch (error) {
         finish(asError(error, 'Invalid relay discovery response'));

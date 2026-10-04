@@ -94,10 +94,19 @@ export function createAppServer(config: AppServerConfig): AppServer {
 
         // API routes
         if (url.startsWith('/api/')) {
-          const handled = await handleApi(req, res, relayUrl);
-          if (!handled) {
-            res.writeHead(404, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'Not found' }));
+          try {
+            const handled = await handleApi(req, res, relayUrl);
+            if (!handled) {
+              res.writeHead(404, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Not found' }));
+            }
+          } catch {
+            // A failed durable-state read must close this request, not crash the
+            // desktop process or leave the browser waiting indefinitely.
+            if (!res.headersSent) {
+              res.writeHead(503, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Local state is unavailable. Lock and unlock to inspect saved delivery state.' }));
+            } else res.end();
           }
           return;
         }

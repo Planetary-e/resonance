@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import SavedRequests from '../components/SavedRequests';
 import { search, type SearchResult } from '../api.client';
 
 function truncatePublicationId(publicationId: string | null | undefined): string {
@@ -15,16 +16,20 @@ function similarityColor(sim: number): string {
 }
 
 interface SearchProps {
+  privateDeliveryAvailable: boolean;
+  savedRequestsAvailable?: boolean;
   onToast: (message: string, type?: 'info' | 'success' | 'error') => void;
   onSearchComplete: () => void;
 }
 
-export default function Search({ onToast, onSearchComplete }: SearchProps) {
+export default function Search({ onToast, onSearchComplete, privateDeliveryAvailable, savedRequestsAvailable = privateDeliveryAvailable }: SearchProps) {
   const [text, setText] = useState('');
   const [type, setType] = useState<'need' | 'offer'>('need');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [searched, setSearched] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [delivery, setDelivery] = useState<'send' | 'hold'>('send');
+  const [holdsVersion, setHoldsVersion] = useState(0);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -33,9 +38,12 @@ export default function Search({ onToast, onSearchComplete }: SearchProps) {
     if (!trimmed) return;
 
     setLoading(true);
-    const data = await search(trimmed, type);
+    const data = await search(trimmed, type, privateDeliveryAvailable ? delivery : 'send');
     onSearchComplete();
     setLoading(false);
+    if (data.saved) {
+      setHoldsVersion(value => value + 1); onToast('Search saved on this device; not sent.', 'success'); return;
+    }
     setSearched(true);
 
     if (data.error) {
@@ -62,6 +70,12 @@ export default function Search({ onToast, onSearchComplete }: SearchProps) {
           />
         </div>
 
+        {privateDeliveryAvailable && <div className="form-group">
+          <label htmlFor="search-delivery">Delivery</label>
+          <select id="search-delivery" value={delivery} disabled={loading} onChange={event => setDelivery(event.target.value as 'send' | 'hold')}>
+            <option value="send">Search now</option><option value="hold">Save search on this device</option>
+          </select>
+        </div>}
         <div className="flex items-center gap-md">
           <div className="toggle-group">
             <button
@@ -85,11 +99,13 @@ export default function Search({ onToast, onSearchComplete }: SearchProps) {
             type="submit"
             disabled={loading || !text.trim()}
           >
-            {loading ? 'Searching...' : 'Search'}
+            {loading ? 'Working...' : privateDeliveryAvailable && delivery === 'hold' ? 'Save search' : 'Search'}
           </button>
         </div>
       </form>
 
+      {savedRequestsAvailable && <SavedRequests kind="search" refreshKey={holdsVersion} onChange={onSearchComplete}
+        onToast={onToast} onResults={results => { setResults(results); setSearched(true); }} />}
       <div className="search-results">
         {searched && results.length === 0 && (
           <div className="empty-state">

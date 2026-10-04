@@ -26,7 +26,7 @@ export default function App() {
   const session = useSession();
   const items = useItems();
   const matches = useMatches();
-  const channels = useChannels();
+  const channels = useChannels(session.status?.automaticMailboxes ?? true);
   const relay = useRelay();
   const { toasts, toast, dismiss } = useToast();
 
@@ -168,12 +168,9 @@ export default function App() {
         return;
       }
 
-      if (data.unlocked) {
-        // Already unlocked (e.g., page reload)
-        setAppState('app');
-      } else {
-        setAppState('login');
-      }
+      // Credentials live only in this page's memory. A still-unlocked backend
+      // does not authenticate a freshly loaded page; unlock again to load data.
+      setAppState('login');
     }
 
     check();
@@ -316,16 +313,23 @@ export default function App() {
             relayStatus={relay.relayStatus}
             onRelayToggle={handleRelayToggle}
             activities={activities}
+            onWalletChange={session.refresh}
           />
         )}
 
         {activeTab === 'publish' && (
           <Publish
             items={items.items}
-            onPublish={async (text, type, privacy) => {
-              const result = await items.publish(text, type, privacy);
+            privateDeliveryAvailable={session.status?.privateDeliveryAvailable ?? false}
+            onOutboxAction={async (id, action) => {
+              const result = await items.outboxAction(id, action);
+              await session.refresh();
+              return result;
+            }}
+            onPublish={async (text, type, privacy, delivery) => {
+              const result = await items.publish(text, type, privacy, delivery);
               if (!result.error) {
-                addActivity('publish', `Published ${type}: "${text.substring(0, 60)}${text.length > 60 ? '...' : ''}"`);
+                addActivity('publish', `${result.status === 'published' ? 'Published' : 'Saved'} ${type}: "${text.substring(0, 60)}${text.length > 60 ? '...' : ''}"`);
                 session.refresh();
               }
               return result;
@@ -340,11 +344,15 @@ export default function App() {
         )}
 
         {activeTab === 'search' && (
-          <Search onToast={toast} onSearchComplete={session.refresh} />
+          <Search onToast={toast} onSearchComplete={session.refresh} privateDeliveryAvailable={session.status?.privateDeliveryAvailable ?? false}
+            savedRequestsAvailable={session.status?.savedRequestsAvailable ?? false} />
         )}
 
         {activeTab === 'matches' && (
           <Matches
+            privateDeliveryAvailable={session.status?.privateDeliveryAvailable ?? false}
+            savedRequestsAvailable={session.status?.savedRequestsAvailable ?? false}
+            onMailboxChange={async () => { await Promise.all([matches.refresh(), channels.refresh(), session.refresh()]); }}
             matches={matches.matches}
             items={items.items}
             onConnect={async (matchId) => {
@@ -361,6 +369,7 @@ export default function App() {
           />
         )}
 
+        {activeTab === 'channels' && session.status?.automaticMailboxes === false && <p>Automatic mailbox checks are paused. Use Matches to run a saved check. Sending a message here still sends it immediately.</p>}
         {activeTab === 'channels' && (
           <ChannelScreen
             channels={channels.channels}

@@ -6,7 +6,15 @@
   "scripts": {
     "eval": "tsx src/run.ts",
     "eval:quick": "tsx src/run.ts --quick",
-    "smoke": "tsx src/smoke.ts"
+    "eval:scoped-fingerprint": "tsx src/scoped-fingerprint.ts",
+    "eval:private-timing": "tsx src/private-timing.ts",
+    "eval:private-mix": "tsx src/private-mix-timing.ts",
+    "eval:private-replies": "tsx src/private-mix-timing.ts --reply-comparison",
+    "eval:quiet-budgets": "node --import tsx src/quiet-period-budgets.ts",
+    "smoke": "tsx src/smoke.ts",
+    "eval:witness-availability": "node --import tsx src/witness-quorum.ts",
+    "eval:witness-reconfiguration": "node --import tsx src/witness-reconfiguration.ts",
+    "eval:history-checkpoints": "node --import tsx src/history-checkpoints.ts"
   },
   "dependencies": {
     "@resonance/core": "*",

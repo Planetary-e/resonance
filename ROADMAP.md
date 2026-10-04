@@ -166,19 +166,84 @@ The five-target placement goal remains conditional on enough eligible volunteers
 **Goal:** Prevent protocol identifiers from being reconnected through network metadata or abuse controls.
 
 - [ ] Send publish, search, and mailbox requests through two independently selected volunteer hops
+  - [x] Select an ordered pair from fresh, signed, directly reachable relay descriptors and authenticated transport observations; fail closed when identities or observed network domains overlap
+  - [x] Carry encrypted publish, search, and mailbox operations over two local relay sockets, with a signed entry-to-destination forward and an encrypted return reply
+  - [x] Connect the personal client to explicit experimental entry and destination roles; fail closed if their signed descriptors or observed IP domains overlap, and never use a configured destination as a direct entry contact
+  - [x] Preflight the exact entry-to-destination forwarding endpoint: the entry fetches the destination's signed key over a live socket and signs its observed IP for the client; the client never dials that destination during the operation
 - [ ] Encrypt requests so the entry relay sees the source address but not the operation, while the destination sees the operation but not the source address
+  - [x] Define bounded HPKE entry and destination layers with signed relay encryption keys, short expiry, authenticated metadata, and replay rejection
+  - [x] Advertise a signed relay encryption key in discovery and carry both encrypted request and reply through live local relay sockets
+  - [x] Observe entry and destination sockets in separate relay processes; verify the entry wire omits the operation ID and the destination's operation connection originates from the entry process
+  - [x] Fsync private request replay evidence before forwarding or applying a request, restore unexpired entries before listening after a restart, and fail closed on complete-record corruption or exhausted capacity
+  - [x] Stop direct client-to-destination key discovery; verify the destination's signed response and the entry's fresh signed socket observation before encrypting the operation
+  - [x] Resolve DNS-named destinations independently and require the entry's reported IP to be in the answer set, with every answer outside the entry's observed network domain. This depends on the client's DNS resolver: it does not authenticate DNS, prove the exact destination socket IP when there are multiple answers, or prove distinct operators
 - [ ] Use authenticated encrypted transport for every Internet-facing peer connection
+  - [x] Reject public `ws://` endpoints at client, discovery, relay-link, and advertised-endpoint boundaries; retain cleartext only for loopback and private-LAN development
+  - [ ] Provide and verify TLS termination for reachable volunteer relays, then audit every inbound and outbound connection path
+    - [x] Support a direct HTTPS/WSS relay listener using operator-supplied PEM credentials and verify its TLS handshake in tests
+    - [x] Check direct-listener certificate validity and advertised hostnames at startup; reject public-source connections to a cleartext listener
+    - [x] Inventory production inbound/outbound socket paths and their remaining deployment checks in `docs/developers/v0.4-connection-audit.md`
 - [ ] Add challenge-response connection authentication with nonces and replay protection
+  - [x] Bind each signed relay-link opening to a fresh nonce issued on that receiving socket; reject a captured opening on a second socket
 - [ ] Verify relay and peer signatures on acknowledgements, matches, inventories, receipts, and forwarded operations
+  - [x] Profile durable match creation and remove repeated signature checks within individual constructors/store calls while retaining authentication at every public boundary; retain tampering coverage and the unchanged <500 ms evaluation gate in `docs/evals/publication-match-2026-10-01.md`
 - [ ] Apply strict schemas, bounded collections, message-size limits, and request timeouts before processing untrusted input
+  - [x] Bound signed reply envelopes to 1 MiB, reject extra envelope fields, and cap personal-client WebSocket replies at the same limit
 - [ ] Protect relay private keys with operating-system storage or an encrypted keystore
+  - [x] Add an scrypt/AES-GCM encrypted infrastructure keystore, atomic plaintext migration, and mandatory passphrase for a reachable WSS relay
 - [ ] Use short sessions, route rotation, fixed-size padding, batching, and timing jitter
+  - [x] Use one request per private connection and vary the first entry attempted when multiple entry relays are configured
+  - [x] Pad encrypted destination requests and replies into bounded 8–256 KiB buckets; test equal entry-frame lengths within a bucket and a 190 KiB operation under the 512 KiB frame cap
+  - [x] Queue private client work before discovery and token reservation, release bounded shuffled batches with random delay, and cancel pending work and active sockets on disconnect
+  - [x] Share a bounded 750 ms collection queue across private entry clients, shuffle forwarding batches, enforce count/byte/concurrency/wait limits, and cancel queued forwards on client disconnect or relay shutdown
+  - [x] Collect encrypted replies in an independent bounded 750 ms queue, release shuffled batches to the original clients, retain byte/count accounting through socket writes, and cancel replies on disconnect, expiry, or shutdown without undoing accepted destination operations
 - [ ] Replace per-DID limits with standardized blind, one-use capability tokens
+  - [x] Implement Privacy Pass Blind RSA issuance, scoped redemption, and a restart-safe single-relay spent-token log; verify a real publication through the relay and reject a conflicting reuse
+  - [x] Redeem a manually issued blind token over a real two-hop local client route without a client account identifier in the capability
+  - [x] Add an experimental encrypted client wallet that verifies manually issued tokens, durably reserves a token for one exact request and destination before network I/O, and restores that reservation after restart; verify its two-hop redemption locally
+  - [x] Integrate the encrypted wallet into the desktop private-transport pilot: pin an issuer key/scope and destination list, authenticate manual token imports, show available/reserved balances, and supply capabilities for immediate and held operations; retain reservations through lock/restart/crash and fail closed on exhaustion or missing private routing
+  - [x] Add offline desktop blinded requests and signed-response import with an explicit volunteer approval command; cancel unfinished blinding state on lock/restart, replenish within bounded storage, and retain old reservations through issuer-key/period changes
+  - [x] Enforce an offline invitation policy: one-use random permits, fixed cohort batches and a bounded issuer-wide allowance, encrypted durable reservations before signing, exact response recovery, and no permit/member identifier in redemption
+  - [x] Authenticate shared issuer configuration with an independently pinned community authority; persist signed revisions across desktop/issuer/relay restarts and enforce issuance, new-spend, and recorded-retry deadlines without deleting history
+  - [ ] Define automated Sybil-resistant eligibility and fair invitation distribution; resolve authority rotation, conflicting signed policies across devices, emergency-update distribution, and safe history compaction
 - [ ] Support community or quorum issuance without requiring a permanent issuer service
+  - [x] Implement explicit offline volunteer batch approval without a permanent issuer service; one authoritative permit ledger enforces local budgets, while distributed issuance and automated eligibility remain open
+  - [x] Document offline volunteer issuance and the need for an audited threshold scheme before splitting one issuer key among volunteers
 - [ ] Replicate spent-token identifiers and define deterministic handling of double spends during partitions
+  - [x] Specify fail-closed four-of-five witness certificates for one-malicious-witness tolerance; local spent-ID copying is explicitly insufficient
+  - [x] Implement signed, fsynced witness votes with issuer-key-pinned five-member sets, four-signature certificates, bounded real relay exchanges, and partition/concurrency/crash/restart tests
+  - [x] Model independent and correlated volunteer schedules and measure the authorization phase with five local relay processes: 80 attempts covering unavailable witnesses, delayed/lost replies, recovery, and persisted-certificate retries; retain traces and limits in `docs/evals/witness-availability-2026-10-01.md`
+  - [ ] Measure real volunteer overlap, Internet/TLS delay and total traffic, device energy, and near-capacity/concurrent costs; the local authorization benchmark and synthetic schedules do not establish these
+  - [x] Specify and validate conservative cohort rotation: new issuer key for new witnesses, original membership/history for old tokens, no automatic conversion or refund; exhaustively check certificate intersections and retain the successive-replacement counterexample in `docs/developers/v0.4-witness-replacement-decision.md`
+  - [x] Add offline rotation preparation, review and digest-approved signing: verify the signed predecessor and successor rules, retain old cohorts, report cutoffs and policy capacity, and explicitly leave remote readiness/history capacity unverified; operator guide in `docs/developers/v0.4-admission-rotation-tool.md`
+  - [x] Add reviewed local retirement for expired, non-active issuer keys: atomically retain permanent denial markers while compacting their witness votes/coordinator certificates; preserve other keys, reject clock/configuration reactivation, and test legacy snapshots, flush failures and SIGKILL recovery in `docs/developers/v0.4-admission-history-retirement.md`
+  - [x] Extend reviewed retirement to signed-policy relays’ local spend histories: encrypt key-attributed records, retain unattributed legacy spends, atomically persist denial markers with compaction, and verify real-token retries, failed flushes, offline maintenance and SIGKILL recovery
+  - [x] Add reviewed permanent issuer-ledger retirement after the final key cutoff: atomically remove per-permit evidence, preserve lifetime allowance counters, cancel unused allowance, and refuse signing/recovery/reactivation; verify CLI, interrupted issuance, failed flushes and SIGKILL in `docs/developers/v0.4-issuer-retirement.md`
+  - [x] Add reviewed desktop wallet retirement after the final retry cutoff: remove bearer tokens and raw reservation details atomically with a permanent key fence and encrypted retry-denial digests; prevent old retries from consuming fresh tokens, retain current balances, and verify UI, authenticated API, failed flushes and SIGKILL recovery in `docs/developers/v0.4-wallet-retirement.md`
+  - [x] Advance beyond eight current configurations using signed policy v2: preserve up to 64 immutable archived configurations, deny all archived-key use, retain local evidence and retry denials, and verify ninth-key issuance/redemption, restart, cleanup and offline CLI review in `docs/developers/v0.4-policy-archives.md`
+  - [x] Recover proven unattributed legacy spends through reviewed offline token verification after the final cutoff: atomically retain issuer-key fences, preserve all unproven rows, and test bounded batches, malformed proofs, stale approval, failed flushes, CLI and SIGKILL in `docs/developers/v0.4-legacy-spend-recovery.md`; keep missing/empty/corrupt state fail-closed
+  - [x] Investigate the follow-up CI reconnection failure: fence late messages after rejected handshakes, reduce completion-test maintenance contention, require both ends to connect, and add opt-in real-crypto load coverage in `docs/developers/v0.4-relay-load-validation.md`
+  - [x] Evaluate recovery freshness with an executable fixed-volunteer model: expose stale backups, unsafe three/three quorums, recovery regression without write-back, and stale-writer races; specify four/five encrypted incremental evidence and generation barriers in `docs/developers/v0.4-history-checkpoint-decision.md` without enabling operational restore
+  - [x] Implement bounded owner-signed encrypted checkpoint/delta blocks, incremental payload persistence and a durable one-way generation barrier on a pinned volunteer; test corruption, capacity, failed writes/flushes/renames and SIGKILL without enabling live recovery (`docs/developers/v0.4-history-checkpoint-storage.md`)
+  - [ ] Implement authenticated volunteer checkpoint exchange, quorum generation allocation/activation and mandatory durable replication before acknowledging protected work; verify repeated/concurrent recovery, quorum-safe compaction and reviewed atomic restore before reopening lost histories
+  - [ ] Resolve authenticated policy freshness and migration beyond the bounded 64-configuration archive; never treat missing records as unused capacity or discard permanent denial evidence
+  - [ ] Resolve same-key witness replacement, membership governance/freshness, and history compaction before enabling admission by default; fresh-key cohort rotation does not rescue stranded old tokens or remove finite history limits
 - [ ] Measure protection against a curious relay, colluding relays, Sybil relays, and a network observer
+  - [x] Capture entry and destination observations in separate local processes and demonstrate the original unpadded frame-length leak, then verify bucket padding removes exact-length differences within a bucket
+  - [x] Run an eight-client local timing diagnostic across burst and sparse workloads: scheduling reduced burst action-order matches to 4/24, but inter-hop order still matched 24/24 in every condition; retain the report and traces without claiming Internet anonymity
+  - [x] Compare shared entry mixing in separate relay processes over 192 completed searches: burst request-order matches fell from 20/24 to 2/24 on loopback and from 15/24 to 7/24 with simulated frame delays; sparse traffic and reply timing remain exposed, with latency and traces retained in `docs/evals/private-mix-2026-09-29T14-09-59-545Z.md`
+  - [x] Isolate reply batching in a second 192-search comparison: loopback burst reply-order matches fell from 24/24 to 2/24, but delayed bursts changed from 5/24 to 6/24 and sparse traffic remained exposed; retain the added latency and negative results in `docs/evals/private-reply-2026-09-29T14-30-17-612Z.md`
+  - [x] Decide the quiet-period resource policy: no automatic cover traffic, crowd polling, or longer quiet queues; specify bounded interactive delivery and an explicit local hold with no automatic release, with costs and limits in `docs/developers/v0.4-quiet-period-decision.md`
+  - [x] Enforce one ten-second operation deadline across client scheduling, discovery, DNS, and all private route attempts; cancel pending sockets, preserve timely partial mailbox replies and unknown outcomes, and verify exact-operation/wallet retry after a lost reply
+  - [x] Add bounded encrypted local hold/release controls; never send held work or reserve capabilities on restart, expiry, cancellation, or outbox overflow
+    - [x] Publications: encrypted 64-entry / 16 MiB outbox, explicit desktop Send/Cancel, pinned private routes, crash recovery without replay, and exact retry after an uncertain delivery; exclude held publications from mailbox sync
+    - [x] Searches and per-mailbox checks: encrypted 24-hour intents, fresh signed requests only on explicit Run, persistent pause across all automatic mailbox paths, bounded releases, and uncertain-outcome recovery without automatic retry; a selected mailbox run includes its required acknowledgements, connection responses, and pending messages
+  - [ ] Measure stronger observers, total traffic, and CPU/energy costs before selecting production timing defaults; quiet-period observer protection remains unresolved
+  - [ ] Run colluding-operator, multi-domain Sybil, and timing-correlation adversaries with quantitative privacy targets
 - [ ] Define group-specific, rotating fingerprint epochs to limit correlation across communities and time
+  - [x] Derive deterministic group/month-specific public projection matrices and verify cross-scope hashes do not directly match; live v2 still uses the static pilot matrix
 - [ ] Measure the matching-quality and privacy effects of fingerprint rotation
+  - [x] Add a reproducible synthetic probe for within-scope quality and cross-scope correlation; real-text recall and epoch-boundary migration remain open
 
 **Completion test:** The entry hop cannot read an operation, the destination cannot see its originating address, and two valid operations cannot be linked by an account identifier or rate-limit credential.
 

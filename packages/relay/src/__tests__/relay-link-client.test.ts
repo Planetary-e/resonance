@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { rmSync } from 'node:fs';
 import WebSocket from 'ws';
 import {
@@ -7,10 +7,17 @@ import {
   createPublicationTombstone,
   createRelayContactHintV1,
   createRelayDescriptorV1,
+  createRelayLinkOpenFrameV1,
+  createRelayLinkOpenV1,
   decodeRelayReplicaInventoryBatchPresenceV1,
   generateIdentity,
   generatePublicationKeyMaterial,
   serializePublicationOperationFrame,
+  serializeRelayLinkChallengeRequestV1,
+  serializeRelayLinkOpenFrameV1,
+  parseRelayLinkChallengeV1,
+  parseRelayLinkAcceptFrameV1,
+  RELAY_LINK_ACCEPT_FRAME_TYPE,
   verifyRelayReplicaInventoryBatchResponseV1,
   verifyRelayReplicaInventoryResponseV1,
   verifyRelayReplicaReconciliationResponseV1,
@@ -102,6 +109,114 @@ afterAll(async () => {
 });
 
 describe('authenticated outbound relay links', () => {
+  it('ignores an acceptance delivered after the handshake has failed', async () => {
+    const identity = generateIdentity();
+    const now = Date.now();
+    const descriptor = createRelayDescriptorV1({
+      sequence: 1, endpoints: [], reachability: 'outbound-only',
+      capabilities: {
+        storesPublications: true, storesMailboxes: true, answersQueries: true,
+        forwardsQueries: false, replicaExchange: false,
+      },
+      supportedGroups: ['public'],
+      storage: { capacityBytes: 1_000_000, availableBytes: 800_000 },
+      issuedAt: now, expiresAt: now + 30_000,
+    }, identity);
+    const originalEmit = WebSocket.prototype.emit;
+    let held: { socket: WebSocket; args: unknown[] } | undefined;
+    const emit = vi.spyOn(WebSocket.prototype, 'emit').mockImplementation(function (this: WebSocket, event, ...args) {
+      if (event === 'message' && this.url === HUB_ENDPOINT) {
+        const frame = JSON.parse(String(args[0]));
+        if (frame.type === RELAY_LINK_ACCEPT_FRAME_TYPE && frame.response.initiatorRelayId === identity.did) {
+          held = { socket: this, args };
+          return true;
+        }
+      }
+      return Reflect.apply(originalEmit, this, [event, ...args]);
+    });
+    try {
+      await expect(connectRelayLinkV1(
+        createRelayContactHintV1('configured', HUB_ENDPOINT), descriptor, identity,
+        { handshakeTimeoutMs: 3_000 },
+      )).rejects.toThrow('handshake timed out');
+      expect(held).toBeDefined();
+      const intervals = vi.spyOn(globalThis, 'setInterval');
+      const timeouts = vi.spyOn(globalThis, 'setTimeout');
+      try {
+        // A buffered callback must not turn a rejected dial into an unowned link
+        // or install heartbeat/descriptor timers that nobody can close.
+        Reflect.apply(originalEmit, held!.socket, ['message', ...held!.args]);
+        expect(intervals).not.toHaveBeenCalled();
+        expect(timeouts).not.toHaveBeenCalled();
+      } finally {
+        intervals.mockRestore(); timeouts.mockRestore();
+      }
+    } finally {
+      emit.mockRestore();
+      held?.socket.terminate();
+    }
+    await waitFor(() => !hub.getRelayLinkStatus().inboundRelayIds.includes(identity.did));
+  }, 10_000);
+
+  it('rejects a signed opening replayed on a different receiving socket', async () => {
+    const identity = generateIdentity();
+    const now = Date.now();
+    const descriptor = createRelayDescriptorV1({
+      sequence: 1, endpoints: [], reachability: 'outbound-only',
+      capabilities: {
+        storesPublications: true, storesMailboxes: true, answersQueries: true,
+        forwardsQueries: false, replicaExchange: false,
+      },
+      supportedGroups: ['public'],
+      storage: { capacityBytes: 1_000_000, availableBytes: 800_000 },
+      issuedAt: now, expiresAt: now + 30_000,
+    }, identity);
+    const first = new WebSocket(HUB_ENDPOINT);
+    await new Promise<void>((resolve, reject) => {
+      first.once('open', resolve); first.once('error', reject);
+    });
+    first.send(serializeRelayLinkChallengeRequestV1());
+    const firstChallenge = parseRelayLinkChallengeV1(await new Promise<string>((resolve, reject) => {
+      first.once('message', data => resolve(data.toString())); first.once('error', reject);
+    }));
+    const opening = createRelayLinkOpenV1(
+      descriptor, identity, firstChallenge.nonce, Date.now(), firstChallenge.expiresAt,
+      HUB_ENDPOINT,
+    );
+    const raw = serializeRelayLinkOpenFrameV1(createRelayLinkOpenFrameV1(opening));
+    first.send(raw);
+    const acceptance = await new Promise<string>((resolve, reject) => {
+      first.once('message', data => resolve(data.toString())); first.once('error', reject);
+    });
+    expect(parseRelayLinkAcceptFrameV1(acceptance).response.linkId).toBe(opening.linkId);
+    first.close();
+    await new Promise<void>(resolve => first.once('close', resolve));
+
+    const second = new WebSocket(HUB_ENDPOINT);
+    await new Promise<void>((resolve, reject) => {
+      second.once('open', resolve); second.once('error', reject);
+    });
+    second.send(serializeRelayLinkChallengeRequestV1());
+    const secondChallenge = parseRelayLinkChallengeV1(await new Promise<string>((resolve, reject) => {
+      second.once('message', data => resolve(data.toString())); second.once('error', reject);
+    }));
+    expect(secondChallenge.nonce).not.toBe(firstChallenge.nonce);
+    second.send(raw);
+    expect(await new Promise<number>((resolve, reject) => {
+      second.once('close', code => resolve(code)); second.once('error', reject);
+    })).toBe(4003);
+  });
+
+  it('rejects a public cleartext link before dialing', async () => {
+    const identity = generateIdentity();
+    const descriptor = spoke.getRelayDescriptor();
+    expect(descriptor).not.toBeNull();
+    await expect(connectRelayLinkV1(
+      createRelayContactHintV1('configured', 'ws://relay.example.org/'),
+      descriptor!, identity,
+    )).rejects.toThrow('Internet-facing relay endpoints require wss://');
+  });
+
   it('rejects a reachable relay that does not match an invitation pin', async () => {
     const initiator = generateIdentity();
     const wrongRelay = generateIdentity();
@@ -212,7 +327,7 @@ describe('authenticated outbound relay links', () => {
     expect(hub.getRelayLinkStatus().inboundRelayIds).toEqual([spokeId]);
   });
 
-  it('places publications and tombstones durably and collects signed receipts', async () => {
+  it('places publications and tombstones durably, collects receipts and replays them after restart', async () => {
     await waitFor(() => spoke.getRelayLinkStatus().connectedRelayIds.length === 1);
     const keys = generatePublicationKeyMaterial();
     const now = Date.now();
@@ -234,9 +349,16 @@ describe('authenticated outbound relay links', () => {
     expect(publicationReceipt.responderRelayId).toBe(hub.getRelayDescriptor()!.relayId);
     expect(spoke.getStats().durability_receipts).toBe(1);
 
-    await submitToSpoke(publication);
-    await waitFor(() => spoke.getReplicaReceipts(publication.publicationId)[0]?.status
-      === 'already-stored');
+    // Deterministically reproduce a retry landing during descriptor renewal:
+    // a disconnected target must not consume the pending explicit refresh.
+    await hub.stop({ graceful: false });
+    await waitFor(() => spoke.getRelayLinkStatus().connectedRelayIds.length === 0);
+    const attempts = vi.spyOn(RelayLinkManager.prototype, 'replicateTo');
+    try {
+      await submitToSpoke(publication);
+      await waitFor(() => attempts.mock.calls.some(([operation]) => operation.signature === publication.signature));
+    } finally { attempts.mockRestore(); hub = createHub(); await hub.start(); }
+    await waitFor(() => spoke.getReplicaReceipts(publication.publicationId)[0]?.status === 'already-stored');
 
     const tombstone = createPublicationTombstone(
       publication,
@@ -254,9 +376,8 @@ describe('authenticated outbound relay links', () => {
     expect(tombstoneReceipt.operationKind).toBe('publication-tombstone');
     expect(tombstoneReceipt.operationSignature).toBe(tombstone.signature);
     expect(hub.getStats().active_publications).toBe(0);
-  });
-
-  it('reconnects after the directly reachable relay restarts and replays its durable replicas', async () => {
+    // Restart belongs to this scenario: it must never consume fixtures left
+    // incomplete by a separate timed-out placement test.
     const hubId = hub.getRelayDescriptor()!.relayId;
     const spokeId = spoke.getRelayDescriptor()!.relayId;
     await hub.stop();
@@ -271,7 +392,7 @@ describe('authenticated outbound relay links', () => {
     expect(hub.getRelayDescriptor()!.relayId).toBe(hubId);
     expect(hub.getRelayLinkStatus().inboundRelayIds).toEqual([spokeId]);
     expect(hub.getStats().retained_tombstones).toBe(1);
-  });
+  }, 30_000);
 
   it('checks an exact replica with its prior target-signed receipt', async () => {
     const identity = generateIdentity();

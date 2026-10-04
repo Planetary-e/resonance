@@ -7,16 +7,30 @@
     "packages/*"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
+  },
+  "overrides": {
+    "@cloudflare/privacypass-ts": {
+      "@cloudflare/blindrsa-ts": "0.4.6"
+    }
   },
   "scripts": {
     "build": "tsc -b",
     "test": "vitest run",
+    "test:relay-load": "vitest run --config vitest.relay-load.config.ts",
     "test:churn": "vitest run --maxWorkers=1 volunteer-churn.integration reverse-replica-placement.integration replica-replacement.integration v03-completion.integration",
     "eval": "npm run eval --workspace=@resonance/eval",
     "eval:quick": "npm run eval:quick --workspace=@resonance/eval",
+    "eval:scoped-fingerprint": "npm run eval:scoped-fingerprint --workspace=@resonance/eval",
+    "eval:private-timing": "npm run eval:private-timing --workspace=@resonance/eval --",
+    "eval:private-mix": "npm run eval:private-mix --workspace=@resonance/eval --",
+    "eval:private-replies": "npm run eval:private-replies --workspace=@resonance/eval --",
+    "eval:quiet-budgets": "npm run eval:quiet-budgets --workspace=@resonance/eval --",
     "resonance": "npm run resonance --workspace=@resonance/node --",
-    "app": "npm run start --workspace=@resonance/app"
+    "app": "npm run start --workspace=@resonance/app",
+    "eval:witness-availability": "npm run eval:witness-availability --workspace=@resonance/eval --",
+    "eval:witness-reconfiguration": "npm run eval:witness-reconfiguration --workspace=@resonance/eval --",
+    "eval:history-checkpoints": "npm run eval:history-checkpoints --workspace=@resonance/eval --"
   },
   "devDependencies": {
     "@types/sql.js": "^1.4.11"
