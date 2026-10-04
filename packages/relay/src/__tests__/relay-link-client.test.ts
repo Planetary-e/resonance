@@ -349,9 +349,16 @@ describe('authenticated outbound relay links', () => {
     expect(publicationReceipt.responderRelayId).toBe(hub.getRelayDescriptor()!.relayId);
     expect(spoke.getStats().durability_receipts).toBe(1);
 
-    await submitToSpoke(publication);
-    await waitFor(() => spoke.getReplicaReceipts(publication.publicationId)[0]?.status
-      === 'already-stored');
+    // Deterministically reproduce a retry landing during descriptor renewal:
+    // a disconnected target must not consume the pending explicit refresh.
+    await hub.stop({ graceful: false });
+    await waitFor(() => spoke.getRelayLinkStatus().connectedRelayIds.length === 0);
+    const attempts = vi.spyOn(RelayLinkManager.prototype, 'replicateTo');
+    try {
+      await submitToSpoke(publication);
+      await waitFor(() => attempts.mock.calls.some(([operation]) => operation.signature === publication.signature));
+    } finally { attempts.mockRestore(); hub = createHub(); await hub.start(); }
+    await waitFor(() => spoke.getReplicaReceipts(publication.publicationId)[0]?.status === 'already-stored');
 
     const tombstone = createPublicationTombstone(
       publication,

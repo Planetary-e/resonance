@@ -668,7 +668,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   let replicaRepairQueued = false;
   let replicaRepairRunning = false;
   let stopping = false;
-  const replicaRefreshes = new Set<string>();
+  const replicaRefreshes = new Map<string, { operationSignature: string; targets: Set<string> }>();
   const startTime = Date.now();
   const placementTracker = new ReplicaPlacementTracker(relayIdentity.did);
   const inventoryScheduler = new ReplicaInventoryScheduler();
@@ -1746,7 +1746,10 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     // A duplicate client submission is an explicit idempotent retry. Refresh
     // all selected targets so a lost response can become an `already-stored`
     // receipt without turning the periodic repair loop into continuous probes.
-    if (status === 'duplicate') replicaRefreshes.add(operation.publicationId);
+    if (status === 'duplicate') replicaRefreshes.set(operation.publicationId, {
+      operationSignature: operation.signature,
+      targets: new Set(placementTracker.getIntent(operation.publicationId)?.targetRelayIds ?? []),
+    });
     if (status === 'accepted' || status === 'duplicate') queueReplicaRepair();
     return status;
   }
@@ -1930,6 +1933,14 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
 
   async function repairReplicaPlacementsOnce(): Promise<void> {
     if (!outboundRelayLinks && approvedInboundTargets.size === 0) return;
+    for (const [publicationId, refresh] of replicaRefreshes) {
+      const operation = publicationStore.get(publicationId);
+      if (!operation || operation.signature !== refresh.operationSignature
+        || !placementTracker.getIntent(publicationId)
+        || (operation.kind === 'publication' && !isPublicationActive(operation, Date.now()))) {
+        replicaRefreshes.delete(publicationId);
+      }
+    }
     const repairOperations: PublicationOperation[] = [];
     const reconciliationRequirements: ReplicaReconciliationRequirementV1[] = [];
     for (const persistedIntent of placementTracker.listIntents()) {
@@ -2019,8 +2030,17 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         replicaRefreshes.delete(operation.publicationId);
         continue;
       }
-      const refresh = replicaRefreshes.delete(operation.publicationId);
-      const targetRelayIds = refresh ? status.intent.targetRelayIds : status.pendingRelayIds;
+      let refresh = replicaRefreshes.get(operation.publicationId);
+      if (refresh && refresh.operationSignature !== operation.signature) {
+        replicaRefreshes.delete(operation.publicationId); refresh = undefined;
+      }
+      if (refresh) {
+        for (const target of refresh.targets) {
+          if (!status.intent.targetRelayIds.includes(target)) refresh.targets.delete(target);
+        }
+        if (refresh.targets.size === 0) replicaRefreshes.delete(operation.publicationId);
+      }
+      const targetRelayIds = [...new Set([...status.pendingRelayIds, ...(refresh?.targets ?? [])])];
       if (targetRelayIds.length === 0) continue;
       const receipts = [
         ...(outboundRelayLinks
@@ -2047,6 +2067,13 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           reason: receipt.reason,
         });
         if (quarantined || replaced) queueReplicaRepair();
+        refresh?.targets.delete(receipt.responderRelayId);
+      }
+      // Offline targets and lost replies retain their explicit retry. Clear only
+      // answered targets, so one offline volunteer does not repeatedly probe peers
+      // that already answered. A newer client retry may have arrived during I/O.
+      if (refresh?.targets.size === 0 && replicaRefreshes.get(operation.publicationId) === refresh) {
+        replicaRefreshes.delete(operation.publicationId);
       }
     }
 
