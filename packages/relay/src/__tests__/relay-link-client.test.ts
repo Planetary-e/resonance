@@ -327,7 +327,7 @@ describe('authenticated outbound relay links', () => {
     expect(hub.getRelayLinkStatus().inboundRelayIds).toEqual([spokeId]);
   });
 
-  it('places publications and tombstones durably and collects signed receipts', async () => {
+  it('places publications and tombstones durably, collects receipts and replays them after restart', async () => {
     await waitFor(() => spoke.getRelayLinkStatus().connectedRelayIds.length === 1);
     const keys = generatePublicationKeyMaterial();
     const now = Date.now();
@@ -369,9 +369,8 @@ describe('authenticated outbound relay links', () => {
     expect(tombstoneReceipt.operationKind).toBe('publication-tombstone');
     expect(tombstoneReceipt.operationSignature).toBe(tombstone.signature);
     expect(hub.getStats().active_publications).toBe(0);
-  });
-
-  it('reconnects after the directly reachable relay restarts and replays its durable replicas', async () => {
+    // Restart belongs to this scenario: it must never consume fixtures left
+    // incomplete by a separate timed-out placement test.
     const hubId = hub.getRelayDescriptor()!.relayId;
     const spokeId = spoke.getRelayDescriptor()!.relayId;
     await hub.stop();
@@ -386,7 +385,7 @@ describe('authenticated outbound relay links', () => {
     expect(hub.getRelayDescriptor()!.relayId).toBe(hubId);
     expect(hub.getRelayLinkStatus().inboundRelayIds).toEqual([spokeId]);
     expect(hub.getStats().retained_tombstones).toBe(1);
-  });
+  }, 30_000);
 
   it('checks an exact replica with its prior target-signed receipt', async () => {
     const identity = generateIdentity();
