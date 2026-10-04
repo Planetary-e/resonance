@@ -9,7 +9,8 @@
     "./local-state": "./src/local-encrypted-state.ts",
     "./admission-policy": "./src/admission-policy.ts",
     "./admission-witness": "./src/admission-witness.ts",
-    "./admission-rotation": "./src/admission-rotation.ts"
+    "./admission-rotation": "./src/admission-rotation.ts",
+    "./history-checkpoint": "./src/history-checkpoint.ts"
   },
   "scripts": {
     "build": "tsc",
