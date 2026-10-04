@@ -29,7 +29,8 @@
     "resonance": "npm run resonance --workspace=@resonance/node --",
     "app": "npm run start --workspace=@resonance/app",
     "eval:witness-availability": "npm run eval:witness-availability --workspace=@resonance/eval --",
-    "eval:witness-reconfiguration": "npm run eval:witness-reconfiguration --workspace=@resonance/eval --"
+    "eval:witness-reconfiguration": "npm run eval:witness-reconfiguration --workspace=@resonance/eval --",
+    "eval:history-checkpoints": "npm run eval:history-checkpoints --workspace=@resonance/eval --"
   },
   "devDependencies": {
     "@types/sql.js": "^1.4.11"

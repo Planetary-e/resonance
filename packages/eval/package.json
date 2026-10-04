@@ -13,7 +13,8 @@
     "eval:quiet-budgets": "node --import tsx src/quiet-period-budgets.ts",
     "smoke": "tsx src/smoke.ts",
     "eval:witness-availability": "node --import tsx src/witness-quorum.ts",
-    "eval:witness-reconfiguration": "node --import tsx src/witness-reconfiguration.ts"
+    "eval:witness-reconfiguration": "node --import tsx src/witness-reconfiguration.ts",
+    "eval:history-checkpoints": "node --import tsx src/history-checkpoints.ts"
   },
   "dependencies": {
     "@resonance/core": "*",
