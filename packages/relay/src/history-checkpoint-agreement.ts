@@ -18,6 +18,10 @@ export function createHistoryAgreementReplica(options: {
       if (closed) throw new Error('Agreement replica is closed');
       return options.store.exchangeAgreement(frame, key, options.now);
     },
+    transfer(frame: unknown) {
+      if (closed) throw new Error('Agreement replica is closed');
+      return options.store.exchangeAgreementData(frame, key, options.now);
+    },
     close() { if (!closed) { closed = true; key.secretKey.fill(0); } },
   };
 }

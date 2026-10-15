@@ -139,7 +139,7 @@ it('uses admission for saved and immediate searches, mailbox checks, publication
   expect((await request('/api/private-requests')).body.requests.find((entry: { id: string }) => entry.id === unfunded.body.saved))
     .toMatchObject({ state: 'held', mayHaveBeenSent: false });
   expect((await request('/api/admission-wallet')).body).toMatchObject({ available: 0, reserved: 6 });
-}, 20_000);
+}, 60_000); // Five sequential private operations each retain their ten-second production deadline.
 
 it('never downgrades to direct token delivery when private routing is removed, while pinned held routes remain usable', async () => {
   expect((await request('/api/admission-wallet/import', { tokens: tokens.slice(6) })).body.imported).toBe(2);

@@ -15,12 +15,16 @@ import { createHistoryAgreementReplica } from '../../history-checkpoint-agreemen
 import { historyCheckpointFixture } from './history-checkpoint-fixture.js';
 
 export const AGREEMENT_TEST_TIME = 10_000;
-export function historyAgreementFixture(tail: 'none' | 'missing' | 'newer' = 'none') {
+export function historyAgreementFixture(tail: 'none' | 'missing' | 'newer' | 'sparse' | 'forked' = 'none', length = 1) {
   const f = historyCheckpointFixture(), directory = mkdtempSync(join(tmpdir(), 'history-agreement-'));
   const stores = f.context.members.map((replica, i) => openHistoryCheckpointStore({ ...f.options, replica,
     directory: join(directory, `r${i}`), initialize: f.root }));
-  const delta = f.next(f.root);
-  if (tail === 'missing') stores.slice(0, 4).forEach(s => s.append(delta));
+  const blocks = [f.root];
+  for (let i = 0; i < length; i++) blocks.push(f.next(blocks.at(-1)!));
+  const delta = blocks[1];
+  if (tail === 'missing') stores.slice(0, 4).forEach(s => blocks.slice(1).forEach(b => s.append(b)));
+  if (tail === 'sparse' || tail === 'forked') blocks.slice(1).forEach(b => stores[0].append(b));
+  if (tail === 'forked') stores[4].append(f.next(f.root));
   if (tail === 'newer') stores[4].append(delta);
   const challenge = randomBytes(32).toString('base64url');
   const receipts = stores.map((store, i) => {
@@ -33,7 +37,7 @@ export function historyAgreementFixture(tail: 'none' | 'missing' | 'newer' = 'no
     } finally { role.close(); }
   });
   const preparation: HistoryRecoveryPreparation = { version: 1, kind: 'frozen-history', rootId: f.options.rootId,
-    generation: 0, nextGeneration: 1, receipts: receipts.slice(0, 4), envelopes: tail === 'missing' ? [f.root, delta] : [f.root] };
+    generation: 0, nextGeneration: 1, receipts: receipts.slice(0, 4), envelopes: tail === 'missing' || tail === 'sparse' || tail === 'forked' ? blocks : [f.root] };
   const a = createHistorySuccessorProposal(preparation, f.context, f.owner), b = createHistorySuccessorProposal(preparation, f.context, f.owner);
   const roles = stores.map((store, i) => createHistoryAgreementReplica({ context: f.context, store, signingKey: f.memberKeys[i], now: () => AGREEMENT_TEST_TIME }));
   function frames(action: HistoryAgreementRequest['action'], view: number, proposal: HistorySuccessorProposal | null = null,
@@ -57,6 +61,6 @@ export function historyAgreementFixture(tail: 'none' | 'missing' | 'newer' = 'no
     stores[i] = openHistoryCheckpointStore({ ...f.options, replica: f.context.members[i], directory: join(directory, `r${i}`) });
     roles[i] = createHistoryAgreementReplica({ context: f.context, store: stores[i], signingKey: f.memberKeys[i], now: () => AGREEMENT_TEST_TIME });
   }
-  return { ...f, directory, stores, roles, preparation, delta, a, b, frames, viewCertificate, certificate, promise, reopen,
+  return { ...f, directory, stores, roles, preparation, delta, blocks, a, b, frames, viewCertificate, certificate, promise, reopen,
     close() { roles.forEach(r => r.close()); stores.forEach(s => s.close()); rmSync(directory, { recursive: true, force: true }); } };
 }

@@ -4,8 +4,8 @@ import { createHistoryAgreementCoordinator } from '../../history-agreement-coord
 import { listenHistoryAgreementReplica } from '../../history-agreement-exchange.js';
 import { historyAgreementFixture } from './history-agreement-fixture.js';
 
-export function historyAgreementOwnerFixture() {
-  const n = historyAgreementFixture();
+export function historyAgreementOwnerFixture(tail: Parameters<typeof historyAgreementFixture>[0] = 'none', length = 1) {
+  const n = historyAgreementFixture(tail, length);
   const roles = n.roles;
   function realClock(i: number) {
     roles[i].close(); roles[i] = createHistoryAgreementReplica({ context: n.context, store: n.stores[i], signingKey: n.memberKeys[i] });
@@ -23,11 +23,11 @@ export function historyAgreementOwnerFixture() {
   return { ...n, options, owner, realClock, close() { owners.forEach(o => o.close()); n.close(); } };
 }
 
-export async function historyAgreementNetworkFixture() {
-  const n = historyAgreementOwnerFixture(), listeners: Awaited<ReturnType<typeof listenHistoryAgreementReplica>>[] = [];
+export async function historyAgreementNetworkFixture(tail: Parameters<typeof historyAgreementFixture>[0] = 'none', length = 1) {
+  const n = historyAgreementOwnerFixture(tail, length), listeners: Awaited<ReturnType<typeof listenHistoryAgreementReplica>>[] = [];
   let exchanges = 0;
   async function start(i: number) {
-    const listener = await listenHistoryAgreementReplica({ ...n.roles[i], exchange(frame) { exchanges++; return n.roles[i].exchange(frame); } },
+    const listener = await listenHistoryAgreementReplica({ ...n.roles[i], exchange(frame) { exchanges++; return n.roles[i].exchange(frame); }, transfer(frame) { exchanges++; return n.roles[i].transfer(frame); } },
       { port: listeners[i] ? Number(new URL(listeners[i].endpoint).port) : 0, connectionTimeoutMs: 30000 });
     listeners[i] = listener; n.options.members[i].endpoint = listener.endpoint;
   }

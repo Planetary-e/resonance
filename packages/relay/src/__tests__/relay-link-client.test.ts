@@ -300,11 +300,15 @@ describe('authenticated outbound relay links', () => {
   it('keeps an outbound-only relay reachable through a direct relay', async () => {
     const spokeId = spoke.getRelayDescriptor()!.relayId;
     const hubId = hub.getRelayDescriptor()!.relayId;
-    // These short-lived descriptors refresh independently of the socket state.
-    // Wait for both authenticated ends AND a current descriptor before asserting it.
-    await waitFor(() => spoke.getRelayLinkStatus().connectedRelayIds.includes(hubId)
-      && hub.getRelayLinkStatus().inboundRelayIds.includes(spokeId)
-      && hub.getKnownRelayDescriptors().some(value => value.relayId === spokeId && value.reachability === 'outbound-only'));
+    // Capture the same current descriptor that satisfied the wait. Synchronous
+    // crypto inside later stats calls can cross its expiry even before yielding.
+    let observed: ReturnType<RelayServer['getKnownRelayDescriptors']>[number] | undefined;
+    await waitFor(() => {
+      if (!spoke.getRelayLinkStatus().connectedRelayIds.includes(hubId)
+        || !hub.getRelayLinkStatus().inboundRelayIds.includes(spokeId)) return false;
+      observed = hub.getKnownRelayDescriptors().find(value => value.relayId === spokeId);
+      return observed?.reachability === 'outbound-only';
+    });
     expect(spoke.getRelayLinkStatus().connectedRelayIds).toEqual([hubId]);
     expect(hub.getRelayLinkStatus().inboundRelayIds).toEqual([spokeId]);
     expect(spoke.getStats().connected_relays).toBe(1);
@@ -320,8 +324,7 @@ describe('authenticated outbound relay links', () => {
       outbound_authenticated_relays: 0,
       connected_query_peers: 1,
     });
-    expect(hub.getKnownRelayDescriptors().find(value => value.relayId === spokeId)?.reachability)
-      .toBe('outbound-only');
+    expect(observed?.reachability).toBe('outbound-only');
 
     await new Promise(resolve => setTimeout(resolve, 300));
     await waitFor(() => spoke.getRelayLinkStatus().connectedRelayIds.includes(hubId)

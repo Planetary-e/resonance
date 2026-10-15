@@ -14,7 +14,8 @@ import {
   type HistoryPreparedEvidence, type HistoryViewCertificate, type HistoryViewReport,
 } from '@resonance/core/history-agreement';
 import type { HistoryReplicaEndpoint } from './history-checkpoint-exchange.js';
-import { exchangeHistoryAgreement, type HistoryAgreementTransport } from './history-agreement-exchange.js';
+import { createHistoryAgreementHistory } from './history-agreement-history.js';
+import { exchangeHistoryAgreement, exchangeHistoryAgreementData, type HistoryAgreementDataTransport, type HistoryAgreementTransport } from './history-agreement-exchange.js';
 
 export const HISTORY_AGREEMENT_COORDINATOR_FILENAME = 'history-agreement-owner.json';
 interface AgreementAttempt { challenge: string; issuedAt: number; expiresAt: number }
@@ -34,6 +35,8 @@ export function createHistoryAgreementCoordinator(options: {
   rootId: string; generation: number; nextGeneration: number; members: HistoryReplicaEndpoint[];
   initialize?: { proposal: HistorySuccessorProposal; view?: number };
   timeoutMs?: number; transport?: HistoryAgreementTransport;
+  /** Explicit composition with ciphertext recovery/write-back; never activates a writer. */
+  historyTransfer?: { transport?: HistoryAgreementDataTransport };
   /** Independent anchor, not a value recovered from the same owner file. */
   minimumView?: number;
 }) {
@@ -116,12 +119,23 @@ export function createHistoryAgreementCoordinator(options: {
       const started = performance.now(), issuedAt = Date.now(), expiresAt = issuedAt + timeoutMs;
       const controller = new AbortController(); active = controller;
       const cancel = () => controller.abort(); signal?.addEventListener('abort', cancel, { once: true });
+      const deadlineError = new Error('Agreement deadline expired');
+      const deadlineTimer = setTimeout(() => controller.abort(deadlineError), timeoutMs);
       const live = () => {
         if (closed || controller.signal.aborted || performance.now() - started >= timeoutMs || Date.now() >= expiresAt) {
           throw new Error('Agreement cancelled or timed out');
         }
       };
-      async function collect(state: AgreementOwnerState, attempt: AgreementAttempt): Promise<Array<HistoryViewReport | HistoryAgreementVote>> {
+      function frameFor(state: AgreementOwnerState, attempt: AgreementAttempt, member: HistoryReplicaEndpoint, action: HistoryAgreementRequest['action']): HistoryAgreementFrame {
+        const proof = action === 'prepare' ? state.viewCertificate : action === 'confirm' ? state.preparedCertificate : null;
+        const request = createHistoryAgreementRequest({ action, rootId, generation, nextGeneration, view: state.view,
+          replica: member.publicKey, ...attempt, proposalId: action === 'promise' ? null : historySuccessorProposalId(state.selected!),
+          evidenceId: proof && historyAgreementEvidenceId(proof) }, context, key);
+        return { request, proposal: action === 'promise' ? null : state.selected,
+          viewCertificate: action === 'prepare' ? state.viewCertificate : null, preparedCertificate: action === 'confirm' ? state.preparedCertificate : null };
+      }
+      async function collect(state: AgreementOwnerState, attempt: AgreementAttempt,
+        history?: ReturnType<typeof createHistoryAgreementHistory>): Promise<Array<HistoryViewReport | HistoryAgreementVote>> {
         return new Promise((resolve, reject) => {
           const group = new AbortController(), replies: Array<HistoryViewReport | HistoryAgreementVote> = [];
           let settled = false, remaining = 5;
@@ -130,18 +144,14 @@ export function createHistoryAgreementCoordinator(options: {
             clearTimeout(timer); controller.signal.removeEventListener('abort', abort); group.abort();
             if (error) reject(error); else resolve(replies);
           };
-          const abort = () => finish(new Error('Agreement cancelled'));
+          const abort = () => finish(controller.signal.reason === deadlineError ? deadlineError : new Error('Agreement cancelled'));
           const timer = setTimeout(() => finish(new Error('Four agreement replies unavailable before deadline')),
             Math.max(1, timeoutMs - (performance.now() - started)));
           controller.signal.addEventListener('abort', abort, { once: true });
           async function send(member: HistoryReplicaEndpoint, action: HistoryAgreementRequest['action']) {
             live(); if (group.signal.aborted) throw new Error('Agreement phase completed');
-            const proof = action === 'prepare' ? state.viewCertificate : action === 'confirm' ? state.preparedCertificate : null;
-            const request = createHistoryAgreementRequest({ action, rootId, generation, nextGeneration, view: state.view,
-              replica: member.publicKey, ...attempt, proposalId: action === 'promise' ? null : historySuccessorProposalId(state.selected!),
-              evidenceId: proof && historyAgreementEvidenceId(proof) }, context, key);
-            const frame: HistoryAgreementFrame = { request, proposal: action === 'promise' ? null : state.selected,
-              viewCertificate: action === 'prepare' ? state.viewCertificate : null, preparedCertificate: action === 'confirm' ? state.preparedCertificate : null };
+            const frame = frameFor(state, attempt, member, action), request = frame.request;
+            if (action === 'prepare') await history?.synchronize(member, group.signal);
             live();
             const raw = await transport(member, structuredClone(frame), group.signal);
             live(); if (group.signal.aborted) throw new Error('Agreement phase completed');
@@ -166,12 +176,21 @@ export function createHistoryAgreementCoordinator(options: {
           });
         });
       }
+      let history: ReturnType<typeof createHistoryAgreementHistory> | undefined;
+      let transferState: AgreementOwnerState, transferAttempt: AgreementAttempt;
       try {
         while (storage.read().phase !== 'decided') {
           live();
           const state = storage.read(), attempt = { challenge: randomBytes(32).toString('base64url'), issuedAt, expiresAt };
           storage.write({ ...state, attempt }); live(); // Intent precedes every phase and prerequisite request.
-          const replies = await collect(state, attempt); live();
+          transferState = state; transferAttempt = attempt;
+          if (options.historyTransfer && state.phase !== 'promise' && !history) {
+            history = createHistoryAgreementHistory({ context, key, members, proposal: state.selected!,
+              authorization: member => frameFor(transferState, transferAttempt, member, 'prepare'),
+              transport: options.historyTransfer.transport ?? exchangeHistoryAgreementData, signal: controller.signal, live });
+            await history.download(); live();
+          }
+          const replies = await collect(state, attempt, history); live();
           let next: AgreementOwnerState;
           if (state.phase === 'promise') {
             const viewCertificate = parseHistoryViewCertificate({ version: 2, kind: 'history-view-certificate', reports: replies }, context);
@@ -189,7 +208,7 @@ export function createHistoryAgreementCoordinator(options: {
           live(); storage.write(next); live(); // Complete proof precedes any subsequent phase or successful return.
         }
         return structuredClone(storage.read().certificate!);
-      } finally { signal?.removeEventListener('abort', cancel); controller.abort(); if (active === controller) active = undefined; }
+      } finally { clearTimeout(deadlineTimer); signal?.removeEventListener('abort', cancel); controller.abort(); if (active === controller) active = undefined; }
     },
     close() { if (!closed) { closed = true; active?.abort(); storage.close(); key.secretKey.fill(0); } },
   };

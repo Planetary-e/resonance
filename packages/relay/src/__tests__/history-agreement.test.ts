@@ -68,7 +68,7 @@ it('carries a hidden decision through view changes even when the deciding replie
   const v3 = n.promise(3); expect(v3.reports.every(r => r.prepared?.certificate.votes[0].request.view === 2)).toBe(true);
   expect(parseHistoryAgreementCertificate(hidden, n.context, 'confirmed')).toEqual(hidden);
   n.reopen(0); expect(n.stores[0].agreementState()!.report.request.view).toBe(3);
-});
+}, 60_000); // Multiple real-crypto views; the protocol clock remains independently controlled.
 
 it('refuses legacy reservations and requires complete selected payloads without truncating a newer tail', () => {
   const legacy = fixture(); legacy.stores[0].seal(legacy.a);
@@ -127,7 +127,7 @@ it('validates slot, bounded views and highest-proof selection even with correctl
   expect(() => parseHistoryAgreementFrame(n.frames('prepare', 3, n.b, v3)[1], n.context, NOW)).toThrow('highest prepared');
   const state = n.stores[0].agreementState()!;
   expect(() => parseHistoryAgreementState({ ...state, confirmed: null }, n.context, n.context.members[0])).toThrow('lost');
-});
+}, 60_000); // Multiple real-crypto views; the protocol clock remains independently controlled.
 
 it.each(['promise', 'prepare', 'confirm'] as const)('does not return %s after an uncertain fsync, and restores only durable state', action => {
   const n = fixture();

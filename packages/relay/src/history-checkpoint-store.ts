@@ -9,6 +9,8 @@ import { openEncryptedLocalState } from '@resonance/core/local-state';
 import { exactWitnessFields } from '@resonance/core/admission-witness';
 import type { SigningKeyPair } from '@resonance/core';
 import { HISTORY_AGREEMENT_MAX_VIEW, parseHistoryAgreementFrame, parseHistoryAgreementRequest } from '@resonance/core/history-agreement';
+import { createHistoryAgreementDataResponse, parseHistoryAgreementDataFrame } from '@resonance/core/history-agreement-data';
+import type { HistoryAgreementFrame } from '@resonance/core/history-agreement';
 import { advanceHistoryAgreement, parseHistoryAgreementState, type HistoryAgreementState } from './history-agreement-state.js';
 import { assertHistorySuccessorChain, historySuccessorProposalId, parseHistorySuccessorProposal,
   type HistorySuccessorProposal } from '@resonance/core/history-successor';
@@ -29,6 +31,8 @@ interface Manifest {
   successor?: HistorySuccessorProposal | null;
   /** Opt-in is atomic with the first promise. Never combined with a legacy reservation. */
   agreement?: HistoryAgreementState | null;
+  /** Descending, head-authenticated ciphertext; invisible until it joins the retained prefix. */
+  transfer?: { authorization: HistoryAgreementFrame; blocks: string[] } | null;
 }
 export interface HistoryCheckpointStoreOptions {
   directory: string;
@@ -66,7 +70,7 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
   }
   const initial: Manifest = { version: 1, contextId, replica, rootId, generation, blocks: [], freeze: null, successor: null };
   function validManifest(value: unknown): value is Manifest {
-    const optional = ['successor', 'agreement'].filter(key => value !== null && typeof value === 'object' && Object.hasOwn(value, key));
+    const optional = ['successor', 'agreement', 'transfer'].filter(key => value !== null && typeof value === 'object' && Object.hasOwn(value, key));
     if (!exactWitnessFields(value, ['version', 'contextId', 'replica', 'rootId', 'generation', 'blocks', 'freeze', ...optional])
       || value.version !== 1 || value.contextId !== contextId || value.replica !== replica || value.rootId !== rootId
       || value.generation !== generation || !Array.isArray(value.blocks) || !value.blocks.length
@@ -94,6 +98,20 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
         }
       } catch { return false; }
     }
+    if (value.transfer !== undefined && value.transfer !== null) {
+      try {
+        if (!exactWitnessFields(value.transfer, ['authorization', 'blocks'])) return false;
+        const f = parseHistoryAgreementFrame(value.transfer.authorization, context), ids = value.transfer.blocks;
+        const a = parseHistoryAgreementState(value.agreement, context, replica);
+        if (f.request.action !== 'prepare' || f.request.replica !== replica || f.request.rootId !== rootId
+          || f.request.generation !== generation || f.request.nextGeneration !== a.report.request.nextGeneration
+          || f.request.view !== a.report.request.view || value.successor || a.prepared || a.confirmed
+          || !Array.isArray(ids) || !ids.length || !ids.every(isHistoryDigest) || ids[0] !== f.proposal!.envelopeId
+          || ids.length >= f.proposal!.sequence + 1 - value.blocks.length
+          || new Set([...value.blocks, ...ids]).size !== value.blocks.length + ids.length
+          || value.blocks.length + ids.length > maxBlocks) return false;
+      } catch { return false; }
+    }
     return true;
   }
   let root: HistoryCheckpointEnvelope | undefined;
@@ -114,6 +132,7 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
   let failed = false;
   let blockBytes = 0;
   const envelopes: HistoryCheckpointEnvelope[] = [];
+  let staged: HistoryCheckpointEnvelope[] = [];
   const blockPath = (id: string) => join(directory, `${id.slice(7)}.block`);
   function ensureOpen() {
     storage.read();
@@ -122,15 +141,11 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
   function fits(bytes: number, count: number) {
     if (count > maxBlocks || blockBytes + bytes + 2 * MAX_MANIFEST_BYTES > maxBytes) throw new Error('History storage capacity exceeded');
   }
-  function writeBlock(envelope: HistoryCheckpointEnvelope): void {
-    const bytes = Buffer.from(JSON.stringify(envelope));
-    const id = historyCheckpointEnvelopeId(envelope);
-    const state = storage.read();
-    fits(bytes.length, state.blocks.length + 1);
+  function writeImmutable(envelope: HistoryCheckpointEnvelope): number {
+    const bytes = Buffer.from(JSON.stringify(envelope)), id = historyCheckpointEnvelopeId(envelope);
     const temporary = join(directory, `.block-${randomBytes(16).toString('hex')}.tmp`);
     let fd: number | undefined;
     try {
-      // The lock serializes this directory. Unexpected existing content needs inspection.
       if (existsSync(blockPath(id))) throw new Error('Unindexed history block requires reopen');
       fd = openSync(temporary, 'wx', 0o600);
       let offset = 0;
@@ -140,36 +155,47 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
         offset += written;
       }
       fsyncSync(fd); closeSync(fd); fd = undefined;
-      renameSync(temporary, blockPath(id));
-      flushDirectory(directory);
-      // The index never refers to a block before its file and directory are flushed.
-      const next = { ...state, blocks: [...state.blocks, id] };
-      if (!validManifest(next)) throw new Error('Invalid outgoing history manifest');
-      storage.write(next);
-      blockBytes += bytes.length;
-      envelopes.push(envelope);
+      renameSync(temporary, blockPath(id)); flushDirectory(directory);
+      return bytes.length;
+    } finally { if (fd !== undefined) closeSync(fd); rmSync(temporary, { force: true }); }
+  }
+  function writeBlock(envelope: HistoryCheckpointEnvelope): void {
+    const state = storage.read(), next = { ...state, blocks: [...state.blocks, historyCheckpointEnvelopeId(envelope)] };
+    fits(Buffer.byteLength(JSON.stringify(envelope)), next.blocks.length);
+    if (!validManifest(next)) throw new Error('Invalid outgoing history manifest');
+    try {
+      const size = writeImmutable(envelope);
+      storage.write(next); blockBytes += size; envelopes.push(envelope);
     } catch (error) { failed = true; throw error; }
-    finally { if (fd !== undefined) closeSync(fd); rmSync(temporary, { force: true }); }
+  }
+  function loadBlock(id: string): HistoryCheckpointEnvelope {
+    const path = blockPath(id), stat = lstatSync(path);
+    if (!stat.isFile() || stat.size <= 0 || stat.size > HISTORY_ENVELOPE_MAX_BYTES) throw new Error('Invalid history block size or type');
+    fits(stat.size, envelopes.length + staged.length + 1);
+    const bytes = readFileSync(path);
+    if (bytes.length !== stat.size) throw new Error('History block changed during read');
+    const envelope = parseHistoryCheckpointEnvelope(JSON.parse(bytes.toString('utf8')), context);
+    if (historyCheckpointEnvelopeId(envelope) !== id || envelope.generation !== generation) throw new Error('History block binding mismatch');
+    blockBytes += bytes.length; return envelope;
   }
   try {
     if (root) writeBlock(root);
     else {
       const state = storage.read();
       for (const [sequence, id] of state.blocks.entries()) {
-        const path = blockPath(id), stat = lstatSync(path);
-        if (!stat.isFile() || stat.size <= 0 || stat.size > HISTORY_ENVELOPE_MAX_BYTES) throw new Error('Invalid history block size or type');
-        fits(stat.size, sequence + 1);
-        const bytes = readFileSync(path);
-        if (bytes.length !== stat.size) throw new Error('History block changed during read');
-        let value: unknown;
-        try { value = JSON.parse(bytes.toString('utf8')); }
-        catch { throw new Error('Invalid history block encoding'); }
-        const envelope = parseHistoryCheckpointEnvelope(value, context);
-        if (historyCheckpointEnvelopeId(envelope) !== id || envelope.generation !== generation
-          || envelope.sequence !== sequence || envelope.previous !== (sequence ? state.blocks[sequence - 1] : null)) {
+        const envelope = loadBlock(id);
+        if (envelope.sequence !== sequence || envelope.previous !== (sequence ? state.blocks[sequence - 1] : null)) {
           throw new Error('History chain is incomplete or conflicting');
         }
-        blockBytes += bytes.length; envelopes.push(envelope);
+        envelopes.push(envelope);
+      }
+      if (state.transfer) {
+        for (const [offset, id] of state.transfer.blocks.entries()) {
+          const envelope = loadBlock(id);
+          if (envelope.sequence !== state.transfer.authorization.proposal!.sequence - offset
+            || (offset && staged[offset - 1].previous !== id)) throw new Error('Staged history chain is incomplete or conflicting');
+          staged.push(envelope);
+        }
       }
     }
     const state = storage.read();
@@ -180,7 +206,7 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
       throw new Error('History is behind the external progress anchor');
     }
     // Only unreferenced ciphertext is discarded. Validate the entire retained chain first.
-    const retained = new Set(state.blocks.map(id => `${id.slice(7)}.block`));
+    const retained = new Set([...state.blocks, ...(state.transfer?.blocks ?? [])].map(id => `${id.slice(7)}.block`));
     for (const name of readdirSync(directory)) {
       if ((/^[a-f0-9]{64}\.block$/.test(name) && !retained.has(name)) || /^\.block-[a-f0-9]{32}\.tmp$/.test(name)) {
         rmSync(join(directory, name));
@@ -225,10 +251,74 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
       // A signature never substitutes for possession of every retained ciphertext block.
       if (frame.proposal) assertHistorySuccessorChain(frame.proposal, state.blocks);
       const next = advanceHistoryAgreement(state.agreement ?? null, frame, context, key);
-      storage.write({ ...state, agreement: next.state });
+      // A new view can discard only the uncommitted transfer, never accepted blocks or votes.
+      const dropTransfer = state.transfer && request.view > state.transfer.authorization.request.view;
+      if (state.transfer && !dropTransfer && request.action !== 'promise') throw new Error('History transfer is incomplete');
+      storage.write({ ...state, agreement: next.state, ...(dropTransfer ? { transfer: null } : {}) });
+      if (dropTransfer) {
+        try {
+          for (const envelope of staged) { rmSync(blockPath(historyCheckpointEnvelopeId(envelope))); blockBytes -= Buffer.byteLength(JSON.stringify(envelope)); }
+          staged = []; flushDirectory(directory);
+        } catch (error) { failed = true; throw error; }
+      }
       // Expiration during fsync suppresses the response, but never rolls back a durable vote.
       parseHistoryAgreementRequest(request, context, now());
       return structuredClone(next.response);
+    },
+    /** Head-authenticated backwards transfer. Installation publishes the complete suffix atomically. */
+    exchangeAgreementData(value: unknown, key: SigningKeyPair, now: () => number = Date.now) {
+      ensureOpen();
+      const frame = parseHistoryAgreementDataFrame(value, context, now()), auth = frame.authorization;
+      const request = auth.request, proposal = auth.proposal!;
+      let state = storage.read();
+      if (request.replica !== replica || request.rootId !== rootId || request.generation !== generation
+        || request.nextGeneration !== state.freeze?.nextGeneration) throw new Error('Data request does not match frozen store pins');
+      let envelope: HistoryCheckpointEnvelope | null = null;
+      if (frame.action === 'read') {
+        envelope = envelopes[frame.sequence] ?? null; // Staged ciphertext is not accepted history.
+        if (!envelope || historyCheckpointEnvelopeId(envelope) !== frame.envelopeId) throw new Error('Requested history block unavailable');
+      } else if (frame.action === 'stage') {
+        if (state.successor || !state.agreement || state.agreement.report.request.view !== request.view) throw new Error('Transfer requires the current provisional agreement');
+        if (state.blocks.length > proposal.sequence + 1) throw new Error('Replica retains newer history');
+        if (state.blocks.length === proposal.sequence + 1) assertHistorySuccessorChain(proposal, state.blocks);
+        else {
+          if (state.agreement.prepared || state.agreement.confirmed) throw new Error('Transfer cannot extend voted history');
+          if (state.transfer && state.transfer.authorization.request.proposalId !== request.proposalId) throw new Error('Another transfer is pending in this view');
+          const expectedId = staged.at(-1)?.previous ?? proposal.envelopeId;
+          const expectedSequence = proposal.sequence - staged.length;
+          if (state.transfer?.blocks.includes(frame.envelopeId)) {
+            // Lost acknowledgement: the already durable block needs no rewrite.
+          } else {
+            if (frame.envelopeId !== expectedId || frame.sequence !== expectedSequence) throw new Error('Transfer does not follow the selected head');
+            const incoming = frame.envelope!, descending = [...staged, incoming];
+            const complete = incoming.sequence === state.blocks.length;
+            if (incoming.sequence < state.blocks.length) throw new Error('Transfer would replace accepted history');
+            const ids = descending.map(historyCheckpointEnvelopeId);
+            const next: Manifest = complete ? { ...state, blocks: [...state.blocks, ...[...ids].reverse()], transfer: null }
+              : { ...state, transfer: { authorization: auth, blocks: ids } };
+            if (complete) {
+              if (incoming.previous !== state.blocks.at(-1)) throw new Error('Transfer forks from retained history');
+              assertHistorySuccessorChain(proposal, next.blocks);
+            }
+            if (!validManifest(next)) throw new Error('Invalid outgoing transfer manifest');
+            fits(Buffer.byteLength(JSON.stringify(incoming)), state.blocks.length + descending.length);
+            // Every block is durable before either a staging index or the accepted index names it.
+            try {
+              const size = writeImmutable(incoming); storage.write(next); blockBytes += size;
+              if (complete) { envelopes.push(...[...descending].reverse()); staged = []; } else staged = descending;
+            } catch (error) { failed = true; throw error; }
+            state = next;
+          }
+        }
+      }
+      // The frame was authenticated before this synchronous operation. Recheck expiry,
+      // without re-verifying the entire immutable view certificate after every block.
+      parseHistoryAgreementRequest(request, context, now());
+      const last = staged.at(-1), sameTransfer = state.transfer?.authorization.request.proposalId === request.proposalId;
+      return createHistoryAgreementDataResponse(frame, {
+        head: { sequence: state.blocks.length - 1, envelopeId: state.blocks.at(-1)! },
+        pending: sameTransfer && last ? { sequence: last.sequence - 1, envelopeId: last.previous! } : null, envelope,
+      }, key);
     },
     /** Copy accepted historical ciphertext while frozen; never issues an ordinary write receipt. */
     repair(value: unknown, successor: unknown): string {

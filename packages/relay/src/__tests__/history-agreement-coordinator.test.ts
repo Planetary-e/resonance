@@ -79,7 +79,7 @@ it('carries a hidden final decision into a later coordinator even when its prefe
   const newer = n.owner(true, { directory: join(n.directory, 'other-owner'), initialize: { proposal: n.b, view: 2 } });
   const final = await newer.run(); expect(newer.read().selected).toEqual(n.a);
   expect(final.votes.every(v => v.request.proposalId === historySuccessorProposalId(n.a))).toBe(true);
-});
+}, 90_000); // Two separate 30-second operations plus real-crypto setup and reopening.
 
 it('rejects cached replies to fresh attempts and refuses phase, target and signature substitutions', async () => {
   const n = fixture(), cached = new Map<string, unknown>(); let replay = false;
@@ -123,15 +123,25 @@ it('sends nothing after failed intent persistence and refuses a competing run or
 
 it('bounds silent transports, cancels all pending work, and ignores replies arriving after timeout', async () => {
   const n = fixture(), late: Array<() => void> = [], signals: AbortSignal[] = [];
-  const owner = n.owner(true, { timeoutMs: 1000, transport: (m, f, signal) => {
-    signals.push(signal); const response = n.roles[n.context.members.indexOf(m.publicKey)].exchange(f);
-    return new Promise(resolve => late.push(() => resolve(response)));
-  } });
-  await expect(owner.run()).rejects.toThrow('deadline'); expect(signals.length).toBeGreaterThan(0); expect(signals.every(s => s.aborted)).toBe(true);
-  const saved = owner.read(); late.forEach(resolve => resolve()); await new Promise(resolve => setImmediate(resolve));
-  expect(owner.read()).toEqual(saved); expect(saved.phase).toBe('promise');
-  const cancel = new AbortController(); cancel.abort(); await expect(owner.run(cancel.signal)).rejects.toThrow('cancelled');
-  expect(owner.read()).toEqual(saved);
+  // Equal scheduled deadlines force the whole-run timer to win. This previously
+  // surfaced cancellation instead of timeout depending on scheduler rounding.
+  const wall = vi.spyOn(Date, 'now').mockReturnValue(Date.now());
+  const monotonic = vi.spyOn(performance, 'now').mockReturnValue(0);
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  try {
+    const owner = n.owner(true, { timeoutMs: 1000, transport: (m, f, signal) => {
+      signals.push(signal); const response = n.roles[n.context.members.indexOf(m.publicKey)].exchange(f);
+      return new Promise(resolve => late.push(() => resolve(response)));
+    } });
+    const pending = expect(owner.run()).rejects.toThrow('deadline');
+    await new Promise(resolve => setImmediate(resolve));
+    await vi.advanceTimersByTimeAsync(1000); await pending;
+    expect(signals).toHaveLength(5); expect(signals.every(s => s.aborted)).toBe(true);
+    const saved = owner.read(); late.forEach(resolve => resolve()); await new Promise(resolve => setImmediate(resolve));
+    expect(owner.read()).toEqual(saved); expect(saved.phase).toBe('promise');
+    const cancel = new AbortController(); cancel.abort(); await expect(owner.run(cancel.signal)).rejects.toThrow('cancelled');
+    expect(owner.read()).toEqual(saved);
+  } finally { vi.useRealTimers(); wall.mockRestore(); monotonic.mockRestore(); }
 });
 
 it('retains a decision but suppresses success when the final flush crosses the operation deadline', async () => {
