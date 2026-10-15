@@ -7,6 +7,9 @@ import { dirname, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { openEncryptedLocalState } from '@resonance/core/local-state';
 import { exactWitnessFields } from '@resonance/core/admission-witness';
+import type { SigningKeyPair } from '@resonance/core';
+import { HISTORY_AGREEMENT_MAX_VIEW, parseHistoryAgreementFrame, parseHistoryAgreementRequest } from '@resonance/core/history-agreement';
+import { advanceHistoryAgreement, parseHistoryAgreementState, type HistoryAgreementState } from './history-agreement-state.js';
 import { assertHistorySuccessorChain, historySuccessorProposalId, parseHistorySuccessorProposal,
   type HistorySuccessorProposal } from '@resonance/core/history-successor';
 import {
@@ -24,6 +27,8 @@ interface Manifest {
   blocks: string[]; freeze: HistoryFreeze | null;
   /** Missing only in pre-reservation manifests. A sealed successor is never replaced. */
   successor?: HistorySuccessorProposal | null;
+  /** Opt-in is atomic with the first promise. Never combined with a legacy reservation. */
+  agreement?: HistoryAgreementState | null;
 }
 export interface HistoryCheckpointStoreOptions {
   directory: string;
@@ -40,7 +45,7 @@ export interface HistoryCheckpointStoreOptions {
   maxBytes?: number;
   maxBlocks?: number;
   /** Optional external progress anchor; complete rollback without one remains undetectable. */
-  minimum?: { sequence: number; id: string; generationBarrier: number; successorId?: string };
+  minimum?: { sequence: number; id: string; generationBarrier: number; successorId?: string; agreementView?: number };
 }
 
 export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOptions) {
@@ -54,13 +59,15 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
     || !integer(maxBytes) || maxBytes <= 2 * MAX_MANIFEST_BYTES || maxBytes > 256 * 1024 * 1024
     || !integer(maxBlocks) || maxBlocks < 1 || maxBlocks > MAX_BLOCKS
     || (minimum && (!integer(minimum.sequence) || !isHistoryDigest(minimum.id) || !integer(minimum.generationBarrier)
-      || (minimum.successorId !== undefined && !isHistoryDigest(minimum.successorId))))) {
+      || (minimum.successorId !== undefined && !isHistoryDigest(minimum.successorId))
+      || (minimum.agreementView !== undefined && (!integer(minimum.agreementView) || minimum.agreementView < 1
+        || minimum.agreementView > HISTORY_AGREEMENT_MAX_VIEW))))) {
     throw new Error('Invalid history store pins or capacity');
   }
   const initial: Manifest = { version: 1, contextId, replica, rootId, generation, blocks: [], freeze: null, successor: null };
   function validManifest(value: unknown): value is Manifest {
-    if ((!exactWitnessFields(value, ['version', 'contextId', 'replica', 'rootId', 'generation', 'blocks', 'freeze'])
-      && !exactWitnessFields(value, ['version', 'contextId', 'replica', 'rootId', 'generation', 'blocks', 'freeze', 'successor']))
+    const optional = ['successor', 'agreement'].filter(key => value !== null && typeof value === 'object' && Object.hasOwn(value, key));
+    if (!exactWitnessFields(value, ['version', 'contextId', 'replica', 'rootId', 'generation', 'blocks', 'freeze', ...optional])
       || value.version !== 1 || value.contextId !== contextId || value.replica !== replica || value.rootId !== rootId
       || value.generation !== generation || !Array.isArray(value.blocks) || !value.blocks.length
       || value.blocks.length > maxBlocks || !value.blocks.every(isHistoryDigest)
@@ -75,6 +82,16 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
         if (p.rootId !== rootId || p.generation !== generation || !value.freeze
           || p.nextGeneration !== parseHistoryFreeze(value.freeze, context).nextGeneration) return false;
         assertHistorySuccessorChain(p, value.blocks);
+      } catch { return false; }
+    }
+    if (value.agreement !== undefined && value.agreement !== null) {
+      try {
+        const agreement = parseHistoryAgreementState(value.agreement, context, replica), r = agreement.report.request;
+        if (value.successor || r.rootId !== rootId || r.generation !== generation || !value.freeze
+          || r.nextGeneration !== parseHistoryFreeze(value.freeze, context).nextGeneration) return false;
+        for (const record of [agreement.prepared, agreement.confirmed]) {
+          if (record) assertHistorySuccessorChain(record.frame.proposal!, value.blocks);
+        }
       } catch { return false; }
     }
     return true;
@@ -158,7 +175,8 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
     const state = storage.read();
     if (minimum && (state.blocks[minimum.sequence] !== minimum.id
       || (state.freeze?.nextGeneration ?? generation) < minimum.generationBarrier
-      || (minimum.successorId !== undefined && (!state.successor || historySuccessorProposalId(state.successor) !== minimum.successorId)))) {
+      || (minimum.successorId !== undefined && (!state.successor || historySuccessorProposalId(state.successor) !== minimum.successorId))
+      || (minimum.agreementView !== undefined && (state.agreement?.report.request.view ?? 0) < minimum.agreementView))) {
       throw new Error('History is behind the external progress anchor');
     }
     // Only unreferenced ciphertext is discarded. Validate the entire retained chain first.
@@ -194,10 +212,29 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
     reservedSuccessor(): HistorySuccessorProposal | null {
       ensureOpen(); return structuredClone(storage.read().successor ?? null);
     },
+    agreementState(): HistoryAgreementState | null {
+      ensureOpen(); return structuredClone(storage.read().agreement ?? null);
+    },
+    /** Experimental signed agreement. No response escapes before the manifest is durable. */
+    exchangeAgreement(value: unknown, key: SigningKeyPair, now: () => number = Date.now) {
+      ensureOpen();
+      const frame = parseHistoryAgreementFrame(value, context, now()), request = frame.request, state = storage.read();
+      if (request.replica !== replica || request.rootId !== rootId || request.generation !== generation
+        || request.nextGeneration !== state.freeze?.nextGeneration) throw new Error('Agreement does not match frozen store pins');
+      if (state.successor) throw new Error('Legacy successor reservation cannot become a provisional vote');
+      // A signature never substitutes for possession of every retained ciphertext block.
+      if (frame.proposal) assertHistorySuccessorChain(frame.proposal, state.blocks);
+      const next = advanceHistoryAgreement(state.agreement ?? null, frame, context, key);
+      storage.write({ ...state, agreement: next.state });
+      // Expiration during fsync suppresses the response, but never rolls back a durable vote.
+      parseHistoryAgreementRequest(request, context, now());
+      return structuredClone(next.response);
+    },
     /** Copy accepted historical ciphertext while frozen; never issues an ordinary write receipt. */
     repair(value: unknown, successor: unknown): string {
       ensureOpen();
       const p = parseHistorySuccessorProposal(successor, context), state = storage.read();
+      if (state.agreement) throw new Error('Legacy repair is disabled after agreement opt-in');
       if (p.rootId !== rootId || p.generation !== generation || state.freeze?.nextGeneration !== p.nextGeneration) {
         throw new Error('Successor repair does not match the frozen generation');
       }
@@ -217,6 +254,7 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
     seal(successor: unknown): string {
       ensureOpen();
       const p = parseHistorySuccessorProposal(successor, context), state = storage.read(), id = historySuccessorProposalId(p);
+      if (state.agreement) throw new Error('Legacy sealing is disabled after agreement opt-in');
       if (p.rootId !== rootId || p.generation !== generation || state.freeze?.nextGeneration !== p.nextGeneration) {
         throw new Error('Successor does not match the frozen generation');
       }
@@ -251,6 +289,7 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
         throw new Error('Stale history generation barrier');
       }
       if (state.successor && request.nextGeneration !== state.successor.nextGeneration) throw new Error('Successor reservation cannot be replaced');
+      if (state.agreement && request.nextGeneration !== state.agreement.report.request.nextGeneration) throw new Error('Agreement slot cannot be replaced');
       if (request.nextGeneration === state.freeze?.nextGeneration) return;
       storage.write({ ...state, freeze: request });
     },

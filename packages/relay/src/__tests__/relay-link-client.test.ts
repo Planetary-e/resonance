@@ -298,10 +298,13 @@ describe('authenticated outbound relay links', () => {
   });
 
   it('keeps an outbound-only relay reachable through a direct relay', async () => {
-    await waitFor(() => spoke.getRelayLinkStatus().connectedRelayIds.length === 1);
-
     const spokeId = spoke.getRelayDescriptor()!.relayId;
     const hubId = hub.getRelayDescriptor()!.relayId;
+    // These short-lived descriptors refresh independently of the socket state.
+    // Wait for both authenticated ends AND a current descriptor before asserting it.
+    await waitFor(() => spoke.getRelayLinkStatus().connectedRelayIds.includes(hubId)
+      && hub.getRelayLinkStatus().inboundRelayIds.includes(spokeId)
+      && hub.getKnownRelayDescriptors().some(value => value.relayId === spokeId && value.reachability === 'outbound-only'));
     expect(spoke.getRelayLinkStatus().connectedRelayIds).toEqual([hubId]);
     expect(hub.getRelayLinkStatus().inboundRelayIds).toEqual([spokeId]);
     expect(spoke.getStats().connected_relays).toBe(1);

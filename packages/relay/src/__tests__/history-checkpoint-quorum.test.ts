@@ -104,7 +104,7 @@ it('cannot certify two competing next blocks even when one replica signs both', 
   const results = await Promise.allSettled([first.replicate(a), second.replicate(b)]);
   expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
   expect(n.stores.slice(0, 4).every(store => store.envelopeIdAt(1) === historyCheckpointEnvelopeId(a))).toBe(true);
-});
+}, 15_000); // Four real-crypto rounds plus durable fixtures can exceed Vitest's five-second default on CI.
 
 it('will not transmit before persisting its pending block or report success after an uncertain certificate flush', async () => {
   const n = network(), transport = vi.fn(n.transport);
