@@ -1,4 +1,4 @@
-/** Explicit local entry point; not yet exposed by the network listener or live admission. */
+/** Explicit replica entry point; live admission and writer activation remain separate. */
 import type { SigningKeyPair } from '@resonance/core';
 import { copyAdmissionSigningKey } from '@resonance/core/admission-witness';
 import { parseHistoryCheckpointContext, type HistoryCheckpointContext } from '@resonance/core/history-checkpoint';

@@ -149,6 +149,15 @@ export function parseHistoryViewCertificate(value: unknown, context: HistoryChec
   }
   return { version: 2, kind: 'history-view-certificate', reports };
 }
+/** Verify a reply against the exact outstanding request, including its target and challenge. */
+export function parseHistoryAgreementResponse(value: unknown, request: HistoryAgreementRequest,
+  context: HistoryCheckpointContext): HistoryViewReport | HistoryAgreementVote {
+  const original = parseHistoryAgreementRequest(request, context);
+  bounded(value, original.action === 'promise' ? 64 * 1024 : 4096);
+  const response = original.action === 'promise' ? parseHistoryViewReport(value, context) : parseHistoryAgreementVote(value, context);
+  if (JSON.stringify(response.request) !== JSON.stringify(original)) throw new Error('Agreement reply belongs to another request');
+  return response;
+}
 export function assertHistoryAgreementSelection(proposal: HistorySuccessorProposal, certificate: HistoryViewCertificate): void {
   if (historyAgreementSlot(proposal) !== historyAgreementSlot(certificate.reports[0].request)) throw new Error('Selection belongs to another slot');
   const proofs = certificate.reports.flatMap(r => r.prepared ? [r.prepared] : []);
