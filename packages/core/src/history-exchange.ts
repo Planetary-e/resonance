@@ -7,7 +7,7 @@ import {
 } from './history-checkpoint.js';
 
 export interface HistoryExchangeRequest {
-  version: 1; kind: 'history-request'; action: 'append' | 'head' | 'read' | 'freeze';
+  version: 1; kind: 'history-request'; action: 'append' | 'head' | 'read' | 'freeze' | 'repair' | 'seal';
   contextId: string; rootId: string; generation: number; replica: string;
   challenge: string; issuedAt: number; expiresAt: number;
   /** Block sequence, or the requested successor barrier for a freeze. */
@@ -18,7 +18,7 @@ export interface HistoryReplicaHead {
 }
 export interface HistoryExchangeResponse {
   version: 1; kind: 'history-response'; request: HistoryExchangeRequest;
-  status: 'stored' | 'head' | 'block' | 'missing' | 'frozen'; head: HistoryReplicaHead;
+  status: 'stored' | 'head' | 'block' | 'missing' | 'frozen' | 'repaired' | 'sealed'; head: HistoryReplicaHead;
   envelope: HistoryCheckpointEnvelope | null; signature: string;
 }
 export interface HistoryWriteCertificate { version: 1; receipts: HistoryExchangeResponse[] }
@@ -44,13 +44,13 @@ const requestBytes = (r: HistoryExchangeRequest) => Buffer.from(`${DOMAIN}:reque
 /** Omit now only when validating historical evidence, never when accepting a network request. */
 export function parseHistoryExchangeRequest(value: unknown, context: HistoryCheckpointContext, now?: number): HistoryExchangeRequest {
   if (!exactWitnessFields(value, requestFields) || value.version !== 1 || value.kind !== 'history-request'
-    || !['append', 'head', 'read', 'freeze'].includes(value.action as string) || value.contextId !== historyCheckpointContextId(context)
+    || !['append', 'head', 'read', 'freeze', 'repair', 'seal'].includes(value.action as string) || value.contextId !== historyCheckpointContextId(context)
     || !isHistoryDigest(value.rootId) || !integer(value.generation) || !context.members.includes(value.replica as string)
     || !witnessBytes(value.challenge, 32) || !integer(value.issuedAt) || !integer(value.expiresAt)
     || value.expiresAt <= value.issuedAt || value.expiresAt - value.issuedAt > HISTORY_REQUEST_MAX_LIFETIME_MS
     || !integer(value.sequence) || (value.action === 'head' && value.sequence !== 0)
     || (value.action === 'freeze' && value.sequence <= value.generation)
-    || (value.action === 'append' ? !isHistoryDigest(value.envelopeId) : value.envelopeId !== null)
+    || (['append', 'repair', 'seal'].includes(value.action as string) ? !isHistoryDigest(value.envelopeId) : value.envelopeId !== null)
     || !witnessBytes(value.signature, 64)
     || (now !== undefined && (!integer(now) || now < value.issuedAt || now >= value.expiresAt))) {
     throw new Error('Invalid or expired history request');
@@ -99,6 +99,11 @@ function responseBody(value: unknown, request: HistoryExchangeRequest, context: 
   } else if (echoed.action === 'freeze') {
     if (value.status !== 'frozen' || envelope !== null || head.freeze?.nextGeneration !== echoed.sequence) {
       throw new Error('Invalid history freeze response');
+    }
+  } else if (echoed.action === 'repair' || echoed.action === 'seal') {
+    if (value.status !== (echoed.action === 'repair' ? 'repaired' : 'sealed') || envelope !== null || !head.freeze
+      || head.sequence < echoed.sequence || (echoed.action === 'seal' && head.sequence !== echoed.sequence)) {
+      throw new Error('Invalid frozen history reservation response');
     }
   } else if (value.status === 'missing') {
     if (envelope !== null || head.sequence >= echoed.sequence) throw new Error('Invalid missing history block');

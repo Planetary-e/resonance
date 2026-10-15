@@ -11,7 +11,8 @@
     "./admission-witness": "./src/admission-witness.ts",
     "./admission-rotation": "./src/admission-rotation.ts",
     "./history-checkpoint": "./src/history-checkpoint.ts",
-    "./history-exchange": "./src/history-exchange.ts"
+    "./history-exchange": "./src/history-exchange.ts",
+    "./history-successor": "./src/history-successor.ts"
   },
   "scripts": {
     "build": "tsc",

@@ -7,6 +7,8 @@ import { dirname, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { openEncryptedLocalState } from '@resonance/core/local-state';
 import { exactWitnessFields } from '@resonance/core/admission-witness';
+import { assertHistorySuccessorChain, historySuccessorProposalId, parseHistorySuccessorProposal,
+  type HistorySuccessorProposal } from '@resonance/core/history-successor';
 import {
   HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointContextId, historyCheckpointEnvelopeId,
   isHistoryDigest, parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, parseHistoryFreeze,
@@ -20,6 +22,8 @@ const MAX_BLOCKS = 10_001;
 interface Manifest {
   version: 1; contextId: string; replica: string; rootId: string; generation: number;
   blocks: string[]; freeze: HistoryFreeze | null;
+  /** Missing only in pre-reservation manifests. A sealed successor is never replaced. */
+  successor?: HistorySuccessorProposal | null;
 }
 export interface HistoryCheckpointStoreOptions {
   directory: string;
@@ -36,7 +40,7 @@ export interface HistoryCheckpointStoreOptions {
   maxBytes?: number;
   maxBlocks?: number;
   /** Optional external progress anchor; complete rollback without one remains undetectable. */
-  minimum?: { sequence: number; id: string; generationBarrier: number };
+  minimum?: { sequence: number; id: string; generationBarrier: number; successorId?: string };
 }
 
 export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOptions) {
@@ -49,12 +53,14 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
   if (!context.members.includes(replica) || !isHistoryDigest(rootId) || !integer(generation)
     || !integer(maxBytes) || maxBytes <= 2 * MAX_MANIFEST_BYTES || maxBytes > 256 * 1024 * 1024
     || !integer(maxBlocks) || maxBlocks < 1 || maxBlocks > MAX_BLOCKS
-    || (minimum && (!integer(minimum.sequence) || !isHistoryDigest(minimum.id) || !integer(minimum.generationBarrier)))) {
+    || (minimum && (!integer(minimum.sequence) || !isHistoryDigest(minimum.id) || !integer(minimum.generationBarrier)
+      || (minimum.successorId !== undefined && !isHistoryDigest(minimum.successorId))))) {
     throw new Error('Invalid history store pins or capacity');
   }
-  const initial: Manifest = { version: 1, contextId, replica, rootId, generation, blocks: [], freeze: null };
+  const initial: Manifest = { version: 1, contextId, replica, rootId, generation, blocks: [], freeze: null, successor: null };
   function validManifest(value: unknown): value is Manifest {
-    if (!exactWitnessFields(value, ['version', 'contextId', 'replica', 'rootId', 'generation', 'blocks', 'freeze'])
+    if ((!exactWitnessFields(value, ['version', 'contextId', 'replica', 'rootId', 'generation', 'blocks', 'freeze'])
+      && !exactWitnessFields(value, ['version', 'contextId', 'replica', 'rootId', 'generation', 'blocks', 'freeze', 'successor']))
       || value.version !== 1 || value.contextId !== contextId || value.replica !== replica || value.rootId !== rootId
       || value.generation !== generation || !Array.isArray(value.blocks) || !value.blocks.length
       || value.blocks.length > maxBlocks || !value.blocks.every(isHistoryDigest)
@@ -62,6 +68,14 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
     if (value.freeze !== null) {
       try { if (parseHistoryFreeze(value.freeze, context).generation !== generation) return false; }
       catch { return false; }
+    }
+    if (value.successor !== undefined && value.successor !== null) {
+      try {
+        const p = parseHistorySuccessorProposal(value.successor, context);
+        if (p.rootId !== rootId || p.generation !== generation || !value.freeze
+          || p.nextGeneration !== parseHistoryFreeze(value.freeze, context).nextGeneration) return false;
+        assertHistorySuccessorChain(p, value.blocks);
+      } catch { return false; }
     }
     return true;
   }
@@ -143,7 +157,10 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
     }
     const state = storage.read();
     if (minimum && (state.blocks[minimum.sequence] !== minimum.id
-      || (state.freeze?.nextGeneration ?? generation) < minimum.generationBarrier)) throw new Error('History is behind the external progress anchor');
+      || (state.freeze?.nextGeneration ?? generation) < minimum.generationBarrier
+      || (minimum.successorId !== undefined && (!state.successor || historySuccessorProposalId(state.successor) !== minimum.successorId)))) {
+      throw new Error('History is behind the external progress anchor');
+    }
     // Only unreferenced ciphertext is discarded. Validate the entire retained chain first.
     const retained = new Set(state.blocks.map(id => `${id.slice(7)}.block`));
     for (const name of readdirSync(directory)) {
@@ -174,6 +191,43 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
       if (!integer(sequence)) throw new Error('Invalid history block sequence');
       return structuredClone(envelopes[sequence] ?? null);
     },
+    reservedSuccessor(): HistorySuccessorProposal | null {
+      ensureOpen(); return structuredClone(storage.read().successor ?? null);
+    },
+    /** Copy accepted historical ciphertext while frozen; never issues an ordinary write receipt. */
+    repair(value: unknown, successor: unknown): string {
+      ensureOpen();
+      const p = parseHistorySuccessorProposal(successor, context), state = storage.read();
+      if (p.rootId !== rootId || p.generation !== generation || state.freeze?.nextGeneration !== p.nextGeneration) {
+        throw new Error('Successor repair does not match the frozen generation');
+      }
+      if (state.successor && historySuccessorProposalId(state.successor) !== historySuccessorProposalId(p)) {
+        throw new Error('Another successor is already reserved');
+      }
+      const block = parseHistoryCheckpointEnvelope(value, context), id = historyCheckpointEnvelopeId(block);
+      if (block.generation !== generation || block.sequence > p.sequence
+        || (block.sequence === p.sequence && id !== p.envelopeId)) throw new Error('Wrong successor repair block');
+      if (state.blocks[block.sequence] === id) return id;
+      if (state.successor || block.sequence !== state.blocks.length || block.previous !== state.blocks.at(-1)) {
+        throw new Error('Successor repair has a gap, fork or sealed predecessor');
+      }
+      writeBlock(block); return id;
+    },
+    /** One irrevocable choice per predecessor. This is a reservation, not activation. */
+    seal(successor: unknown): string {
+      ensureOpen();
+      const p = parseHistorySuccessorProposal(successor, context), state = storage.read(), id = historySuccessorProposalId(p);
+      if (p.rootId !== rootId || p.generation !== generation || state.freeze?.nextGeneration !== p.nextGeneration) {
+        throw new Error('Successor does not match the frozen generation');
+      }
+      assertHistorySuccessorChain(p, state.blocks);
+      if (state.successor) {
+        if (historySuccessorProposalId(state.successor) !== id) throw new Error('Another successor is already reserved');
+        return id;
+      }
+      storage.write({ ...state, successor: p });
+      return id;
+    },
     /** Local durability only. This return value is not a four-volunteer certificate. */
     append(value: unknown): string {
       ensureOpen();
@@ -196,6 +250,7 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
       if (request.generation !== generation || request.nextGeneration < (state.freeze?.nextGeneration ?? generation)) {
         throw new Error('Stale history generation barrier');
       }
+      if (state.successor && request.nextGeneration !== state.successor.nextGeneration) throw new Error('Successor reservation cannot be replaced');
       if (request.nextGeneration === state.freeze?.nextGeneration) return;
       storage.write({ ...state, freeze: request });
     },

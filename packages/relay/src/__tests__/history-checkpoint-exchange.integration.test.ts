@@ -13,6 +13,8 @@ import { createHistoryCheckpointReplica, listenHistoryCheckpointReplica, readHis
   HISTORY_EXCHANGE_MAX_BYTES } from '../history-checkpoint-exchange.js';
 import { createHistoryCheckpointWriter } from '../history-checkpoint-quorum.js';
 import { createHistoryCheckpointRecovery } from '../history-checkpoint-recovery.js';
+import { createHistoryCheckpointSuccessor } from '../history-checkpoint-successor.js';
+import { historySuccessorProposalId, parseHistorySuccessorCertificate } from '@resonance/core/history-successor';
 import { historyCheckpointFixture } from './fixtures/history-checkpoint-fixture.js';
 
 const clean: Array<() => void | Promise<void>> = [];
@@ -169,3 +171,47 @@ it.each(['pending', 'prepared'])('retains %s recovery evidence across SIGKILL an
     if (child.exitCode === null && child.signalCode === null) { child.kill('SIGKILL'); await exited; }
   }
 }, 20000);
+
+it('writes back a partial tail to four real volunteers before reserving a successor and retains it after restart', async () => {
+  const n = await network(), delta = n.next(n.root); n.stores[0].append(delta); n.stores[1].append(delta);
+  const recovery = createHistoryCheckpointRecovery({ ...n.options, directory: join(n.directory, 'recovery'), nextGeneration: 1, initialize: true });
+  clean.push(() => recovery.close()); const prepared = await recovery.prepare(); expect(prepared.envelopes).toEqual([n.root, delta]);
+  await n.stop(4);
+  const options = { ...n.options, directory: join(n.directory, 'successor'), nextGeneration: 1 };
+  let successor = createHistoryCheckpointSuccessor({ ...options, initialize: prepared }); clean.push(() => successor.close());
+  const certificate = await successor.reserve(), proposal = successor.read().proposal;
+  expect(parseHistorySuccessorCertificate(certificate, proposal, n.context)).toEqual(certificate);
+  for (const receipt of certificate.receipts) {
+    const index = n.context.members.indexOf(receipt.request.replica);
+    expect(n.stores[index].read().envelopes).toEqual([n.root, delta]);
+    expect(n.stores[index].reservedSuccessor()).toEqual(proposal);
+  }
+  await n.stop(2); await n.restart(2); expect(n.stores[2].reservedSuccessor()).toEqual(proposal);
+  successor.close(); const before = n.exchanges(); successor = createHistoryCheckpointSuccessor(options);
+  expect(n.exchanges()).toBe(before); const repeated = await successor.reserve();
+  expect(repeated.proposalId).toBe(certificate.proposalId);
+  expect(repeated.receipts[0].request.challenge).not.toBe(certificate.receipts[0].request.challenge);
+  const writer = n.writer(); await expect(writer.replicate(n.root)).rejects.toThrow('Four');
+}, 30000);
+
+it.each(['pending', 'certified'])('preserves the exact %s successor across SIGKILL and retry', async mode => {
+  const n = await network(), delta = n.next(n.root); n.stores[0].append(delta); n.stores[1].append(delta);
+  const recovery = createHistoryCheckpointRecovery({ ...n.options, directory: join(n.directory, 'recovery'), nextGeneration: 1, initialize: true });
+  clean.push(() => recovery.close()); const preparation = await recovery.prepare();
+  const options = { ...n.options, directory: join(n.directory, 'successor'), nextGeneration: 1 };
+  const raw = JSON.stringify({ options, preparation, localKey: n.localKey.toString('hex'),
+    owner: { publicKey: Buffer.from(n.owner.publicKey).toString('hex'), secretKey: Buffer.from(n.owner.secretKey).toString('hex') } });
+  const child = fork(new URL('./fixtures/history-checkpoint-successor-crash.ts', import.meta.url), [raw, mode],
+    { execArgv: ['--import', 'tsx'], stdio: ['ignore', 'ignore', 'inherit', 'ipc'] });
+  const exited = once(child, 'exit');
+  try {
+    expect((await once(child, 'message'))[0]).toBe(mode); child.kill('SIGKILL'); await exited;
+    const before = n.exchanges(), successor = createHistoryCheckpointSuccessor(options); clean.push(() => successor.close());
+    expect(n.exchanges()).toBe(before); const saved = successor.read();
+    expect(saved.certificate === null).toBe(mode === 'pending');
+    const result = await successor.reserve(); expect(result.proposalId).toBe(historySuccessorProposalId(saved.proposal));
+    for (const receipt of result.receipts) expect(n.stores[n.context.members.indexOf(receipt.request.replica)].read().envelopes).toEqual([n.root, delta]);
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) { child.kill('SIGKILL'); await exited; }
+  }
+}, 30000);

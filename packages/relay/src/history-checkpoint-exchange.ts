@@ -10,13 +10,16 @@ import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointEnvelopeId, parseHistoryCh
 import { createHistoryExchangeResponse, parseHistoryExchangeRequest, parseHistoryExchangeResponse,
   type HistoryExchangeRequest, type HistoryExchangeResponse } from '@resonance/core/history-exchange';
 import type { openHistoryCheckpointStore } from './history-checkpoint-store.js';
+import { HISTORY_SUCCESSOR_MAX_BYTES, historySuccessorProposalId, historySuccessorRepairId, parseHistorySuccessorProposal,
+  type HistorySuccessorProposal } from '@resonance/core/history-successor';
 
-export const HISTORY_EXCHANGE_MAX_BYTES = HISTORY_ENVELOPE_MAX_BYTES + 4096;
+export const HISTORY_EXCHANGE_MAX_BYTES = HISTORY_ENVELOPE_MAX_BYTES + HISTORY_SUCCESSOR_MAX_BYTES + 4096;
 export interface HistoryReplicaEndpoint { publicKey: string; endpoint: string }
 export interface HistoryExchangeFrame {
   request: HistoryExchangeRequest; envelope: HistoryCheckpointEnvelope | null;
   /** Required only for a freeze; separately owner-signed for durable replica storage. */
   freeze?: HistoryFreeze;
+  successor?: HistorySuccessorProposal;
 }
 export type HistoryCheckpointTransport = (member: HistoryReplicaEndpoint, frame: HistoryExchangeFrame, signal: AbortSignal) => Promise<unknown>;
 
@@ -36,26 +39,37 @@ export function createHistoryCheckpointReplica(options: {
     exchange(value: unknown): HistoryExchangeResponse {
       if (closed) throw new Error('History replica is closed');
       if (!exactWitnessFields(value, ['request', 'envelope'])
-        && !exactWitnessFields(value, ['request', 'envelope', 'freeze'])) throw new Error('Invalid history exchange frame');
+        && !exactWitnessFields(value, ['request', 'envelope', 'freeze'])
+        && !exactWitnessFields(value, ['request', 'envelope', 'successor'])) throw new Error('Invalid history exchange frame');
       const request = parseHistoryExchangeRequest(value.request, context, now()), head = options.store.describe();
-      if (!exactWitnessFields(value, request.action === 'freeze' ? ['request', 'envelope', 'freeze'] : ['request', 'envelope'])) {
+      const fields = request.action === 'freeze' ? ['request', 'envelope', 'freeze']
+        : request.action === 'repair' || request.action === 'seal' ? ['request', 'envelope', 'successor'] : ['request', 'envelope'];
+      if (!exactWitnessFields(value, fields)) {
         throw new Error('Unexpected history freeze payload');
       }
       if (request.replica !== replica || request.rootId !== head.rootId || request.generation !== head.generation) {
         throw new Error('History request does not match enrolment');
       }
       let status: HistoryExchangeResponse['status'], envelope: HistoryCheckpointEnvelope | null = null;
-      if (request.action === 'append') {
+      if (request.action === 'seal') {
+        const p = parseHistorySuccessorProposal(value.successor, context);
+        if (value.envelope !== null || request.envelopeId !== historySuccessorProposalId(p)
+          || request.sequence !== p.sequence) throw new Error('Successor request payload mismatch');
+        options.store.seal(p); status = 'sealed';
+      } else if (request.action === 'append' || request.action === 'repair') {
         const incoming = parseHistoryCheckpointEnvelope(value.envelope, context);
+        const successor = request.action === 'repair' ? parseHistorySuccessorProposal(value.successor, context) : null;
         if (incoming.generation !== request.generation || incoming.sequence !== request.sequence
-          || historyCheckpointEnvelopeId(incoming) !== request.envelopeId) throw new Error('History request payload mismatch');
+          || (successor ? historySuccessorRepairId(successor, incoming) : historyCheckpointEnvelopeId(incoming)) !== request.envelopeId) {
+          throw new Error('History request payload mismatch');
+        }
         const existing = options.store.envelopeIdAt(incoming.sequence);
-        if (existing !== request.envelopeId && options.acceptNew?.() === false) throw new Error('History owner paused new storage');
+        if (existing !== historyCheckpointEnvelopeId(incoming) && options.acceptNew?.() === false) throw new Error('History owner paused new storage');
         // Owner callbacks may close/freeze the role. Recheck before any write or signature escapes.
         if (closed) throw new Error('History replica is closed');
         parseHistoryExchangeRequest(request, context, now());
-        options.store.append(incoming); // Completes file + manifest durability before signing.
-        status = 'stored';
+        if (successor) { options.store.repair(incoming, successor); status = 'repaired'; }
+        else { options.store.append(incoming); status = 'stored'; } // File + manifest durability precedes signing.
       } else {
         if (value.envelope !== null) throw new Error('Unexpected history request payload');
         if (request.action === 'freeze') {
