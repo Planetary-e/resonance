@@ -101,3 +101,7 @@ export { HnswIndex, MatchingIndex, type HnswIndexConfig, type VectorMetadata } f
 
 export { createConfiguredAdmissionVerifier } from './configured-admission-verifier.js';
 export { createAdmissionWitness, createAdmissionQuorumGate, type AdmissionWitness, type AdmissionWitnessTransport } from './admission-witness.js';
+export { openHistoryCheckpointStore, type HistoryCheckpointStoreOptions } from './history-checkpoint-store.js';
+export { createHistoryCheckpointReplica, listenHistoryCheckpointReplica, exchangeHistoryCheckpoint,
+  readHistoryCheckpoint, type HistoryCheckpointTransport, type HistoryReplicaEndpoint } from './history-checkpoint-exchange.js';
+export { createHistoryCheckpointWriter } from './history-checkpoint-quorum.js';

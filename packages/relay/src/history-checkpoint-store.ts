@@ -154,6 +154,26 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
   } catch (error) { storage.close(); throw error; }
 
   return {
+    matches(candidate: HistoryCheckpointContext, member: string): boolean {
+      ensureOpen();
+      return historyCheckpointContextId(candidate) === contextId && member === replica;
+    },
+    envelopeIdAt(sequence: number): string | null {
+      ensureOpen();
+      if (!integer(sequence)) throw new Error('Invalid history block sequence');
+      return storage.read().blocks[sequence] ?? null;
+    },
+    describe() {
+      ensureOpen();
+      const state = storage.read();
+      return structuredClone({ generation, rootId, sequence: state.blocks.length - 1,
+        envelopeId: state.blocks.at(-1)!, freeze: state.freeze });
+    },
+    envelopeAt(sequence: number): HistoryCheckpointEnvelope | null {
+      ensureOpen();
+      if (!integer(sequence)) throw new Error('Invalid history block sequence');
+      return structuredClone(envelopes[sequence] ?? null);
+    },
     /** Local durability only. This return value is not a four-volunteer certificate. */
     append(value: unknown): string {
       ensureOpen();
