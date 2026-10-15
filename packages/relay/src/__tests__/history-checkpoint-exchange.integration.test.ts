@@ -12,6 +12,7 @@ import { openHistoryCheckpointStore } from '../history-checkpoint-store.js';
 import { createHistoryCheckpointReplica, listenHistoryCheckpointReplica, readHistoryCheckpoint, exchangeHistoryCheckpoint,
   HISTORY_EXCHANGE_MAX_BYTES } from '../history-checkpoint-exchange.js';
 import { createHistoryCheckpointWriter } from '../history-checkpoint-quorum.js';
+import { createHistoryCheckpointRecovery } from '../history-checkpoint-recovery.js';
 import { historyCheckpointFixture } from './fixtures/history-checkpoint-fixture.js';
 
 const clean: Array<() => void | Promise<void>> = [];
@@ -123,6 +124,47 @@ it.each(['pending', 'committed'])('preserves %s writer evidence through SIGKILL,
     expect(n.exchanges()).toBe(before);
     expect(mode === 'pending' ? writer.read().pending : writer.read().committed?.envelope).toEqual(n.root);
     expect((await writer.replicate(n.root)).receipts).toHaveLength(4);
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) { child.kill('SIGKILL'); await exited; }
+  }
+}, 20000);
+
+it('collects complete frozen histories over real sockets and keeps the barrier after volunteer restart', async () => {
+  const n = await network(), writer = n.writer(); await writer.replicate(n.root);
+  const delta = n.next(n.root); await writer.replicate(delta);
+  const partial = n.next(delta); const latest = n.stores.findIndex(s => s.envelopeIdAt(1) === historyCheckpointEnvelopeId(delta));
+  n.stores[latest].append(partial);
+  // Require this partial holder in the four responding members; partial updates are retained conservatively.
+  const offline = latest === 4 ? 3 : 4; await n.stop(offline);
+  const options = { ...n.options, directory: join(n.directory, 'recovery'), nextGeneration: 1 };
+  let recovery = createHistoryCheckpointRecovery({ ...options, initialize: true }); clean.push(() => recovery.close());
+  const prepared = await recovery.prepare(); expect(prepared.envelopes).toEqual([n.root, delta, partial]);
+  await expect(writer.replicate(n.next(delta, 'competing old write'))).rejects.toThrow('Four');
+  await n.stop(latest); await n.restart(latest);
+  expect(n.stores[latest].describe().freeze?.nextGeneration).toBe(1);
+  recovery.close(); const before = n.exchanges(); recovery = createHistoryCheckpointRecovery(options);
+  expect(n.exchanges()).toBe(before); expect(recovery.read().prepared).toEqual(prepared);
+  expect((await recovery.prepare()).envelopes).toEqual(prepared.envelopes);
+}, 30000);
+
+it.each(['pending', 'prepared'])('retains %s recovery evidence across SIGKILL and explicitly retries with a new challenge', async mode => {
+  const n = await network(), options = { ...n.options, directory: join(n.directory, 'recovery'), nextGeneration: 1 };
+  const raw = JSON.stringify({ options, localKey: n.localKey.toString('hex'),
+    owner: { publicKey: Buffer.from(n.owner.publicKey).toString('hex'), secretKey: Buffer.from(n.owner.secretKey).toString('hex') } });
+  const child = fork(new URL('./fixtures/history-checkpoint-recovery-crash.ts', import.meta.url), [raw, mode],
+    { execArgv: ['--import', 'tsx'], stdio: ['ignore', 'ignore', 'inherit', 'ipc'] });
+  const exited = once(child, 'exit');
+  try {
+    expect((await once(child, 'message'))[0]).toBe(mode);
+    child.kill('SIGKILL'); await exited;
+    const before = n.exchanges(), recovery = createHistoryCheckpointRecovery(options); clean.push(() => recovery.close());
+    expect(n.exchanges()).toBe(before);
+    const saved = recovery.read();
+    expect(mode === 'pending' ? saved.attempt : saved.prepared).not.toBeNull();
+    const challenge = saved.attempt?.freeze.challenge ?? saved.prepared!.receipts[0].request.challenge;
+    const fresh = await recovery.prepare(); expect(fresh.receipts[0].request.challenge).not.toBe(challenge);
+    expect(fresh.envelopes).toEqual([n.root]);
+    expect(n.stores.every(s => s.describe().freeze?.nextGeneration === 1)).toBe(true);
   } finally {
     if (child.exitCode === null && child.signalCode === null) { child.kill('SIGKILL'); await exited; }
   }

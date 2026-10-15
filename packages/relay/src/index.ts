@@ -105,3 +105,4 @@ export { openHistoryCheckpointStore, type HistoryCheckpointStoreOptions } from '
 export { createHistoryCheckpointReplica, listenHistoryCheckpointReplica, exchangeHistoryCheckpoint,
   readHistoryCheckpoint, type HistoryCheckpointTransport, type HistoryReplicaEndpoint } from './history-checkpoint-exchange.js';
 export { createHistoryCheckpointWriter } from './history-checkpoint-quorum.js';
+export { createHistoryCheckpointRecovery } from './history-checkpoint-recovery.js';

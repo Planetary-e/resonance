@@ -7,9 +7,10 @@ import {
 } from './history-checkpoint.js';
 
 export interface HistoryExchangeRequest {
-  version: 1; kind: 'history-request'; action: 'append' | 'head' | 'read';
+  version: 1; kind: 'history-request'; action: 'append' | 'head' | 'read' | 'freeze';
   contextId: string; rootId: string; generation: number; replica: string;
   challenge: string; issuedAt: number; expiresAt: number;
+  /** Block sequence, or the requested successor barrier for a freeze. */
   sequence: number; envelopeId: string | null; signature: string;
 }
 export interface HistoryReplicaHead {
@@ -17,10 +18,17 @@ export interface HistoryReplicaHead {
 }
 export interface HistoryExchangeResponse {
   version: 1; kind: 'history-response'; request: HistoryExchangeRequest;
-  status: 'stored' | 'head' | 'block' | 'missing'; head: HistoryReplicaHead;
+  status: 'stored' | 'head' | 'block' | 'missing' | 'frozen'; head: HistoryReplicaHead;
   envelope: HistoryCheckpointEnvelope | null; signature: string;
 }
 export interface HistoryWriteCertificate { version: 1; receipts: HistoryExchangeResponse[] }
+/** Historical preparation evidence only: never permission to restore or start a writer. */
+export interface HistoryRecoveryPreparation {
+  version: 1; kind: 'frozen-history'; rootId: string; generation: number; nextGeneration: number;
+  receipts: HistoryExchangeResponse[]; envelopes: HistoryCheckpointEnvelope[];
+}
+export const HISTORY_RECOVERY_MAX_BLOCKS = 10_001;
+export const HISTORY_RECOVERY_MAX_BYTES = 64 * 1024 * 1024;
 export const HISTORY_REQUEST_MAX_LIFETIME_MS = 30_000;
 const DOMAIN = 'resonance:history-exchange:v1';
 const requestFields = ['version', 'kind', 'action', 'contextId', 'rootId', 'generation', 'replica',
@@ -36,11 +44,12 @@ const requestBytes = (r: HistoryExchangeRequest) => Buffer.from(`${DOMAIN}:reque
 /** Omit now only when validating historical evidence, never when accepting a network request. */
 export function parseHistoryExchangeRequest(value: unknown, context: HistoryCheckpointContext, now?: number): HistoryExchangeRequest {
   if (!exactWitnessFields(value, requestFields) || value.version !== 1 || value.kind !== 'history-request'
-    || !['append', 'head', 'read'].includes(value.action as string) || value.contextId !== historyCheckpointContextId(context)
+    || !['append', 'head', 'read', 'freeze'].includes(value.action as string) || value.contextId !== historyCheckpointContextId(context)
     || !isHistoryDigest(value.rootId) || !integer(value.generation) || !context.members.includes(value.replica as string)
     || !witnessBytes(value.challenge, 32) || !integer(value.issuedAt) || !integer(value.expiresAt)
     || value.expiresAt <= value.issuedAt || value.expiresAt - value.issuedAt > HISTORY_REQUEST_MAX_LIFETIME_MS
     || !integer(value.sequence) || (value.action === 'head' && value.sequence !== 0)
+    || (value.action === 'freeze' && value.sequence <= value.generation)
     || (value.action === 'append' ? !isHistoryDigest(value.envelopeId) : value.envelopeId !== null)
     || !witnessBytes(value.signature, 64)
     || (now !== undefined && (!integer(now) || now < value.issuedAt || now >= value.expiresAt))) {
@@ -87,6 +96,10 @@ function responseBody(value: unknown, request: HistoryExchangeRequest, context: 
       || (head.sequence === echoed.sequence && head.envelopeId !== echoed.envelopeId)) throw new Error('Invalid durable history acknowledgement');
   } else if (echoed.action === 'head') {
     if (value.status !== 'head' || envelope !== null) throw new Error('Invalid history head response');
+  } else if (echoed.action === 'freeze') {
+    if (value.status !== 'frozen' || envelope !== null || head.freeze?.nextGeneration !== echoed.sequence) {
+      throw new Error('Invalid history freeze response');
+    }
   } else if (value.status === 'missing') {
     if (envelope !== null || head.sequence >= echoed.sequence) throw new Error('Invalid missing history block');
   } else if (value.status !== 'block' || !envelope || envelope.sequence !== echoed.sequence
@@ -134,4 +147,42 @@ export function parseHistoryWriteCertificate(value: unknown, envelope: HistoryCh
     throw new Error('History receipts must be distinct and from the same attempt');
   }
   return { version: 1, receipts };
+}
+
+/** Validate a complete owner-signed chain and all four frozen head anchors, including shorter prefixes. */
+export function parseHistoryRecoveryPreparation(value: unknown, context: HistoryCheckpointContext): HistoryRecoveryPreparation {
+  if (!exactWitnessFields(value, ['version', 'kind', 'rootId', 'generation', 'nextGeneration', 'receipts', 'envelopes'])
+    || value.version !== 1 || value.kind !== 'frozen-history' || !isHistoryDigest(value.rootId)
+    || !integer(value.generation) || !integer(value.nextGeneration) || value.nextGeneration <= value.generation
+    || !Array.isArray(value.receipts) || value.receipts.length < 4 || value.receipts.length > 5
+    || !Array.isArray(value.envelopes) || !value.envelopes.length || value.envelopes.length > HISTORY_RECOVERY_MAX_BLOCKS) {
+    throw new Error('Invalid frozen history preparation');
+  }
+  let bytes = 0;
+  const ids: string[] = [];
+  const envelopes = value.envelopes.map((raw, sequence) => {
+    bytes += Buffer.byteLength(JSON.stringify(raw));
+    if (bytes > HISTORY_RECOVERY_MAX_BYTES) throw new Error('History recovery byte capacity exceeded');
+    const block = parseHistoryCheckpointEnvelope(raw, context), id = historyCheckpointEnvelopeId(block);
+    if (block.generation !== value.generation || block.sequence !== sequence
+      || block.previous !== (sequence ? ids[sequence - 1] : null) || (!sequence && id !== value.rootId)) {
+      throw new Error('Incomplete or conflicting recovery chain');
+    }
+    ids.push(id); return block;
+  });
+  const receipts = value.receipts.map(raw => {
+    const request = parseHistoryExchangeRequest(raw?.request, context);
+    if (request.action !== 'freeze' || request.rootId !== value.rootId || request.generation !== value.generation
+      || request.sequence !== value.nextGeneration) throw new Error('Recovery receipt binds another barrier');
+    const receipt = parseHistoryExchangeResponse(raw, request, context);
+    if (ids[receipt.head.sequence] !== receipt.head.envelopeId) throw new Error('Frozen heads have conflicting ancestry');
+    return receipt;
+  });
+  if (new Set(receipts.map(r => r.request.replica)).size !== receipts.length
+    || new Set(receipts.map(r => JSON.stringify([r.request.challenge, r.request.issuedAt, r.request.expiresAt]))).size !== 1
+    || Math.max(...receipts.map(r => r.head.sequence)) !== envelopes.length - 1) {
+    throw new Error('Recovery needs distinct same-attempt receipts and their complete newest chain');
+  }
+  return { version: 1, kind: 'frozen-history', rootId: value.rootId, generation: value.generation,
+    nextGeneration: value.nextGeneration, receipts, envelopes };
 }

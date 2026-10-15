@@ -1,4 +1,4 @@
-/** Experimental single-volunteer storage. No quorum receipt, network endpoint or restore command. */
+/** Experimental single-volunteer storage; exchange/recovery orchestration lives in separate modules. */
 import {
   closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync,
   readdirSync, renameSync, rmSync, writeSync,

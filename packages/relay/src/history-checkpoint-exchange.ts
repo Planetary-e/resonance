@@ -5,14 +5,19 @@ import WebSocket, { WebSocketServer } from 'ws';
 import { assertSecureRelayTransportEndpoint, type SigningKeyPair } from '@resonance/core';
 import { copyAdmissionSigningKey, exactWitnessFields } from '@resonance/core/admission-witness';
 import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointEnvelopeId, parseHistoryCheckpointContext,
-  parseHistoryCheckpointEnvelope, type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
+  parseHistoryCheckpointEnvelope, parseHistoryFreeze, type HistoryFreeze,
+  type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { createHistoryExchangeResponse, parseHistoryExchangeRequest, parseHistoryExchangeResponse,
   type HistoryExchangeRequest, type HistoryExchangeResponse } from '@resonance/core/history-exchange';
 import type { openHistoryCheckpointStore } from './history-checkpoint-store.js';
 
 export const HISTORY_EXCHANGE_MAX_BYTES = HISTORY_ENVELOPE_MAX_BYTES + 4096;
 export interface HistoryReplicaEndpoint { publicKey: string; endpoint: string }
-export interface HistoryExchangeFrame { request: HistoryExchangeRequest; envelope: HistoryCheckpointEnvelope | null }
+export interface HistoryExchangeFrame {
+  request: HistoryExchangeRequest; envelope: HistoryCheckpointEnvelope | null;
+  /** Required only for a freeze; separately owner-signed for durable replica storage. */
+  freeze?: HistoryFreeze;
+}
 export type HistoryCheckpointTransport = (member: HistoryReplicaEndpoint, frame: HistoryExchangeFrame, signal: AbortSignal) => Promise<unknown>;
 
 export function createHistoryCheckpointReplica(options: {
@@ -30,8 +35,12 @@ export function createHistoryCheckpointReplica(options: {
   return {
     exchange(value: unknown): HistoryExchangeResponse {
       if (closed) throw new Error('History replica is closed');
-      if (!exactWitnessFields(value, ['request', 'envelope'])) throw new Error('Invalid history exchange frame');
+      if (!exactWitnessFields(value, ['request', 'envelope'])
+        && !exactWitnessFields(value, ['request', 'envelope', 'freeze'])) throw new Error('Invalid history exchange frame');
       const request = parseHistoryExchangeRequest(value.request, context, now()), head = options.store.describe();
+      if (!exactWitnessFields(value, request.action === 'freeze' ? ['request', 'envelope', 'freeze'] : ['request', 'envelope'])) {
+        throw new Error('Unexpected history freeze payload');
+      }
       if (request.replica !== replica || request.rootId !== head.rootId || request.generation !== head.generation) {
         throw new Error('History request does not match enrolment');
       }
@@ -49,7 +58,13 @@ export function createHistoryCheckpointReplica(options: {
         status = 'stored';
       } else {
         if (value.envelope !== null) throw new Error('Unexpected history request payload');
-        if (request.action === 'head') status = 'head';
+        if (request.action === 'freeze') {
+          const freeze = parseHistoryFreeze(value.freeze, context);
+          if (freeze.generation !== request.generation || freeze.nextGeneration !== request.sequence
+            || freeze.challenge !== request.challenge) throw new Error('History freeze payload mismatch');
+          options.store.freeze(freeze); // Flush the one-way barrier before signing any frozen head.
+          status = 'frozen';
+        } else if (request.action === 'head') status = 'head';
         else { envelope = options.store.envelopeAt(request.sequence); status = envelope ? 'block' : 'missing'; }
       }
       const response = createHistoryExchangeResponse(request, status, options.store.describe(), envelope, context, key);
@@ -161,7 +176,7 @@ export function exchangeHistoryCheckpoint(member: HistoryReplicaEndpoint, frame:
 /** Read one signed head or one block; it cannot decide that the returned history is globally latest. */
 export async function readHistoryCheckpoint(member: HistoryReplicaEndpoint, request: HistoryExchangeRequest,
   context: HistoryCheckpointContext, signal: AbortSignal): Promise<HistoryExchangeResponse> {
-  if (request.action === 'append') throw new Error('Expected a history read request');
+  if (request.action !== 'head' && request.action !== 'read') throw new Error('Expected a history read request');
   const pinned = parseHistoryCheckpointContext(context), original = parseHistoryExchangeRequest(request, pinned, Date.now());
   const value = await exchangeHistoryCheckpoint(member, { request: original, envelope: null }, signal);
   if (signal.aborted) throw new Error('History exchange cancelled');
