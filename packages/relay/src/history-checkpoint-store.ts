@@ -63,6 +63,19 @@ export interface HistoryCheckpointStoreOptions {
 }
 
 export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOptions) {
+  return openStore(options, false);
+}
+
+/** Internal provisioning step: ONLY an unpublished staging directory guarded by a durable creation intent.
+ * This never opens an operational store. The caller must publish the directory and persist readiness
+ * before exposing append/read services. An existing manifest with accepted work is never initialized.
+ */
+export function prepareHistoryContinuationStore(options: HistoryCheckpointStoreOptions & { initialize: HistoryContinuationRoot }): void {
+  const store = openStore(options, true);
+  store.close();
+}
+
+function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
   const context = parseHistoryCheckpointContext(options.context);
   const contextId = historyCheckpointContextId(context);
   const { directory, replica, rootId, generation } = options;
@@ -83,6 +96,8 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
   }
   const initial: Manifest = { version: 1, contextId, replica, rootId, generation, blocks: [], freeze: null, successor: null };
   function validManifest(value: unknown): value is Manifest {
+    // This intermediate manifest can only exist inside the provisioner's unpublished directory.
+    if (preparing && JSON.stringify(value) === JSON.stringify(initial)) return true;
     const optional = ['successor', 'agreement', 'transfer', 'activation'].filter(key => value !== null && typeof value === 'object' && Object.hasOwn(value, key));
     if (!exactWitnessFields(value, ['version', 'contextId', 'replica', 'rootId', 'generation', 'blocks', 'freeze', ...optional])
       || value.version !== 1 || value.contextId !== contextId || value.replica !== replica || value.rootId !== rootId
@@ -156,14 +171,22 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
       throw new Error('History enrolment checkpoint does not match pins');
     }
     validateParent(root);
+    if (preparing && root.kind !== 'continuation') throw new Error('Only certified continuations can be provisioned');
     // Never reinterpret an incomplete or damaged directory as a new history.
-    if (existsSync(directory) && readdirSync(directory).length) throw new Error('History enrolment directory is not empty');
+    if (existsSync(directory) && readdirSync(directory).length) {
+      if (!preparing) throw new Error('History enrolment directory is not empty');
+      const allowed = new RegExp(`^(?:${HISTORY_MANIFEST_FILENAME.replace('.', '\\.')}(?:\\.lock|\\.recovery)?|\\.${HISTORY_MANIFEST_FILENAME.replace('.', '\\.')}\\.[a-f0-9]{16}\\.tmp|${rootId.slice(7)}\\.block|\\.block-[a-f0-9]{32}\\.tmp)$`);
+      for (const name of readdirSync(directory)) {
+        if (!allowed.test(name) || !lstatSync(join(directory, name)).isFile()) throw new Error('Unexpected provision staging contents');
+      }
+    }
     if (!existsSync(directory)) mkdirSync(directory, { mode: 0o700 });
     flushDirectory(dirname(directory));
   }
   const storage = openEncryptedLocalState<Manifest>({
     path: join(directory, HISTORY_MANIFEST_FILENAME), key: options.localKey, domain: DOMAIN,
-    maxBytes: MAX_MANIFEST_BYTES, mode: root ? 'create-new' : 'open-existing', initial, validate: validManifest,
+    maxBytes: MAX_MANIFEST_BYTES, mode: root && !(preparing && existsSync(join(directory, HISTORY_MANIFEST_FILENAME)))
+      ? 'create-new' : 'open-existing', initial, validate: validManifest,
   });
   let failed = false;
   let blockBytes = 0;
@@ -216,7 +239,21 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
     blockBytes += bytes.length; return envelope;
   }
   try {
-    if (root) writeBlock(root);
+    if (root && preparing) {
+      const state = storage.read();
+      if (state.blocks.length) {
+        if (state.blocks.length !== 1 || state.freeze || state.successor || state.agreement || state.transfer || state.activation) {
+          throw new Error('Provision staging contains operational history');
+        }
+        envelopes.push(loadBlock(rootId));
+      } else if (existsSync(blockPath(rootId))) {
+        // A crash may leave the flushed root just before the manifest's atomic replacement.
+        const retained = loadBlock(rootId);
+        if (retained.sequence !== 0 || retained.previous !== null) throw new Error('Invalid provisioned root');
+        storage.write({ ...initial, blocks: [rootId] }); envelopes.push(retained);
+      } else writeBlock(root);
+    }
+    else if (root) writeBlock(root);
     else {
       const state = storage.read();
       for (const [sequence, id] of state.blocks.entries()) {

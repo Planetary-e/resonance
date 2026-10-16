@@ -108,5 +108,8 @@ export { createHistoryCheckpointWriter } from './history-checkpoint-quorum.js';
 export { createHistoryCheckpointRecovery } from './history-checkpoint-recovery.js';
 export { createHistoryCheckpointSuccessor } from './history-checkpoint-successor.js';
 export { createHistoryAgreementReplica } from './history-checkpoint-agreement.js';
-export { listenHistoryAgreementReplica, exchangeHistoryAgreement, exchangeHistoryAgreementData, type HistoryAgreementDataTransport, type HistoryAgreementTransport } from './history-agreement-exchange.js';
+export { listenHistoryAgreementReplica, exchangeHistoryAgreement, exchangeHistoryAgreementData, exchangeHistoryProvision,
+  type HistoryAgreementDataTransport, type HistoryAgreementTransport, type HistoryProvisionTransport } from './history-agreement-exchange.js';
 export { createHistoryAgreementCoordinator } from './history-agreement-coordinator.js';
+export { openHistoryGenerationProvisioner, createHistoryGenerationReplica } from './history-generation-provisioner.js';
+export { createHistoryProvisionCoordinator } from './history-provision-coordinator.js';
