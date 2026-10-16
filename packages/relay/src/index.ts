@@ -110,7 +110,7 @@ export { createHistoryCheckpointSuccessor } from './history-checkpoint-successor
 export { createHistoryAgreementReplica } from './history-checkpoint-agreement.js';
 export { listenHistoryAgreementReplica, exchangeHistoryAgreement, exchangeHistoryAgreementData, exchangeHistoryProvision,
   type HistoryAgreementDataTransport, type HistoryAgreementTransport, type HistoryProvisionTransport } from './history-agreement-exchange.js';
-export { createHistoryAgreementCoordinator } from './history-agreement-coordinator.js';
+export { createHistoryAgreementCoordinator, type HistoryAgreementSelection } from './history-agreement-coordinator.js';
 export { openHistoryGenerationProvisioner, createHistoryGenerationReplica } from './history-generation-provisioner.js';
 export { createHistoryProvisionCoordinator } from './history-provision-coordinator.js';
 export { createHistoryAncestryDownload } from './history-ancestry-download.js';

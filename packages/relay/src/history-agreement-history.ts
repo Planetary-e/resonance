@@ -1,6 +1,6 @@
 /** Complete-history checks and bounded suffix write-back before agreement preparation. */
 import type { SigningKeyPair } from '@resonance/core';
-import { historyCheckpointEnvelopeId, type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
+import { historyCheckpointEnvelopeId, parseHistoryCheckpointEnvelope, type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { assertHistorySuccessorChain, type HistorySuccessorProposal } from '@resonance/core/history-successor';
 import { parseHistoryAgreementRequest, type HistoryAgreementFrame } from '@resonance/core/history-agreement';
 import { createHistoryAgreementDataFrame, parseHistoryAgreementDataResponse, type HistoryAgreementDataFrame } from '@resonance/core/history-agreement-data';
@@ -11,6 +11,8 @@ export function createHistoryAgreementHistory(options: {
   context: HistoryCheckpointContext; key: SigningKeyPair; members: HistoryReplicaEndpoint[];
   proposal: HistorySuccessorProposal; authorization: (member: HistoryReplicaEndpoint) => HistoryAgreementFrame;
   transport: HistoryAgreementDataTransport; signal: AbortSignal; live: () => void;
+  /** A completed ancestry cache, iterated oldest first. Its selected generation is revalidated here. */
+  retained?: () => Iterable<HistoryCheckpointEnvelope>;
 }) {
   const { context, key, members, proposal, transport, live, signal } = options;
   const blocks: HistoryCheckpointEnvelope[] = [], ids: string[] = [];
@@ -27,6 +29,21 @@ export function createHistoryAgreementHistory(options: {
     /** Follow authenticated predecessor hashes backwards, trying every pinned source. */
     async download() {
       if (proposal.sequence > 10_000) throw new Error('History transfer block capacity exceeded');
+      if (options.retained) {
+        let count = 0, bytes = 0, generationBytes = 0;
+        for (const raw of options.retained()) {
+          live();
+          const size = Buffer.byteLength(JSON.stringify(raw)); bytes += size;
+          if (++count > 10_001 || bytes > 256 * 1024 * 1024) throw new Error('Retained ancestry capacity exceeded');
+          const block = parseHistoryCheckpointEnvelope(raw, context);
+          if (block.generation !== proposal.generation) continue;
+          generationBytes += size;
+          if (generationBytes > 64 * 1024 * 1024 || block.sequence !== blocks.length
+            || block.previous !== (ids.at(-1) ?? null)) throw new Error('Retained history is incomplete or out of order');
+          blocks.push(block); ids.push(historyCheckpointEnvelopeId(block));
+        }
+        assertHistorySuccessorChain(proposal, ids); live(); return;
+      }
       let expected = proposal.envelopeId, size = 0;
       for (let sequence = proposal.sequence; sequence >= 0; sequence--) {
         live();

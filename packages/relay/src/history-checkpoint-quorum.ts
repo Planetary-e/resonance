@@ -10,6 +10,7 @@ import { historyCheckpointContextId, historyCheckpointEnvelopeId, isHistoryDiges
 import { createHistoryExchangeRequest, parseHistoryExchangeResponse, parseHistoryWriteCertificate,
   type HistoryExchangeResponse, type HistoryWriteCertificate } from '@resonance/core/history-exchange';
 import { exchangeHistoryCheckpoint, type HistoryCheckpointTransport, type HistoryReplicaEndpoint } from './history-checkpoint-exchange.js';
+import { createHistoryWriterRepair } from './history-writer-repair.js';
 
 export const HISTORY_WRITER_FILENAME = 'history-writer.json';
 interface WriterState {
@@ -26,6 +27,8 @@ export function createHistoryCheckpointWriter(options: {
   timeoutMs?: number; transport?: HistoryCheckpointTransport;
   /** A decided deterministic root; initial replication must still collect four fresh write receipts. */
   continuation?: HistoryContinuationRoot;
+  /** Complete current-generation ciphertext, oldest first, through committed or pending head. */
+  retained?: () => Iterable<HistoryCheckpointEnvelope>;
 }) {
   const context = parseHistoryCheckpointContext(options.context), contextId = historyCheckpointContextId(context);
   const { rootId, generation } = options;
@@ -107,6 +110,8 @@ export function createHistoryCheckpointWriter(options: {
         }
         live();
         const challenge = randomBytes(32).toString('base64url'), issuedAt = expiresAt - timeoutMs;
+        const repair = options.retained ? createHistoryWriterRepair({ context, key, rootId, block,
+          retained: options.retained, transport, challenge, issuedAt, expiresAt, live }) : undefined;
         const requests = members.map(member => createHistoryExchangeRequest({ action: 'append', rootId, generation,
           replica: member.publicKey, challenge, issuedAt, expiresAt, sequence: block.sequence, envelopeId: id }, context, key));
         live();
@@ -125,8 +130,10 @@ export function createHistoryCheckpointWriter(options: {
             Math.max(1, timeoutMs - (performance.now() - started)));
           controller.signal.addEventListener('abort', abort, { once: true });
           members.forEach((member, index) => {
-            void Promise.resolve().then(() => {
+            void Promise.resolve().then(async () => {
               if (settled) throw new Error('Attempt completed');
+              if (repair) await repair.synchronize(member, controller.signal);
+              live();
               return transport(member, { request: requests[index], envelope: structuredClone(block) }, controller.signal);
             }).then(response => {
               if (settled) return;

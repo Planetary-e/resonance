@@ -40,9 +40,12 @@ async function network(f = historyCheckpointFixture()) {
   const options = { directory: join(directory, 'writer'), context: f.context, localKey: f.localKey, signingKey: f.owner,
     rootId: f.options.rootId, generation: 0, members, timeoutMs: 30000 };
   const writer = () => { const w = createHistoryCheckpointWriter({ ...options, initialize: true }); clean.push(() => w.close()); return w; };
-  const request = (i: number, action: 'head' | 'read', sequence = 0) => createHistoryExchangeRequest({ action,
-    replica: members[i].publicKey, rootId: f.options.rootId, generation: 0, sequence, envelopeId: null,
-    issuedAt: Date.now(), expiresAt: Date.now() + 30000, challenge: randomBytes(32).toString('base64url') }, f.context, f.owner);
+  const request = (i: number, action: 'head' | 'read', sequence = 0) => {
+    const issuedAt = Date.now(); // One sample keeps the maximum lifetime exactly 30 seconds.
+    return createHistoryExchangeRequest({ action,
+      replica: members[i].publicKey, rootId: f.options.rootId, generation: 0, sequence, envelopeId: null,
+      issuedAt, expiresAt: issuedAt + 30000, challenge: randomBytes(32).toString('base64url') }, f.context, f.owner);
+  };
   return { ...f, directory, stores, roles, listeners, members, options, writer, request, exchanges: () => exchanges,
     stop: async (i: number) => { await listeners[i].close(); roles[i].close(); stores[i].close(); },
     restart: (i: number) => start(i, false) };
