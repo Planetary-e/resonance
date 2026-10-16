@@ -4,7 +4,7 @@ import type { SigningKeyPair } from '@resonance/core';
 import { copyAdmissionSigningKey, exactWitnessFields } from '@resonance/core/admission-witness';
 import { admissionPolicyDigest, assertAdmissionPolicyCurrent, assertAdmissionPolicySuccessor,
   isArchivedAdmissionKey, verifyAdmissionPolicy, type SignedAdmissionPolicy } from '@resonance/core/admission-policy';
-import { historyCheckpointContextId, historyCheckpointEnvelopeId, isHistoryDigest, openHistoryCheckpoint,
+import { HISTORY_DELTA_MAX_PAYLOAD, historyCheckpointContextId, historyCheckpointEnvelopeId, isHistoryDigest, openHistoryCheckpoint,
   parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, sealHistoryCheckpoint,
   type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { openEncryptedLocalState } from '@resonance/core/local-state';
@@ -13,7 +13,7 @@ import { decodeLegacyAdmissionSpendState, parseAdmissionSpendState, type Admissi
 import { checkAdmissionLegacyRecovery, type AdmissionSpendState } from './admission-legacy-recovery.js';
 import { planAdmissionHistoryRetirement } from './admission-history-retirement.js';
 import { encodeAdmissionHistoryRecord, parseAdmissionHistoryImage, reduceAdmissionHistory,
-  type AdmissionHistoryImage, type AdmissionHistoryMutation } from './admission-history-records.js';
+  type AdmissionHistoryImage, type AdmissionHistoryMutation, type AdmissionHistoryPolicyCheckpoint } from './admission-history-records.js';
 
 export interface ProtectedAdmissionState {
   version: 3; context: HistoryCheckpointContext; root: HistoryCheckpointEnvelope;
@@ -80,7 +80,8 @@ export async function openProtectedAdmissionSpendHistory(options: {
   async function nextImage(state: ProtectedAdmissionState): Promise<AdmissionHistoryImage> {
     if (!state.pending) return state.image;
     if (state.pending.sequence === 0) return parseAdmissionHistoryImage(decode(state.pending), context.authority, limit);
-    return (await reduceAdmissionHistory(state.image, decode(state.pending), limit)).image;
+    if (state.pending.kind === 'continuation') throw new Error('Protected admission restore requires reviewed successor activation');
+    return (await reduceAdmissionHistory(state.image, decode(state.pending), limit, state.pending.kind)).image;
   }
   function available() {
     const state = read();
@@ -105,8 +106,11 @@ export async function openProtectedAdmissionSpendHistory(options: {
   }
   async function commit(value: AdmissionHistoryMutation): Promise<void> {
     const before = available();
-    const reduced = await reduceAdmissionHistory(before.image, value, limit); read();
-    const pending = sealHistoryCheckpoint({ context, header: { kind: 'delta', generation: 0,
+    const kind = value.kind === 'policy' && Buffer.byteLength(JSON.stringify(value)) > HISTORY_DELTA_MAX_PAYLOAD ? 'checkpoint' : 'delta';
+    const record: AdmissionHistoryMutation | AdmissionHistoryPolicyCheckpoint = kind === 'checkpoint' && value.kind === 'policy'
+      ? { version: 1, kind: 'admission-policy-checkpoint', at: value.at, image: { ...before.image, policy: value.policy } } : value;
+    const reduced = await reduceAdmissionHistory(before.image, record, limit, kind); read();
+    const pending = sealHistoryCheckpoint({ context, header: { kind, generation: 0,
       sequence: before.applied!.sequence + 1, previous: before.applied!.id },
       plaintext: encodeAdmissionHistoryRecord(reduced.record), encryptionKey: key, signingKey: signer });
     storage!.write({ ...before, pending });
@@ -157,7 +161,7 @@ export async function openProtectedAdmissionSpendHistory(options: {
         || (state.applied.sequence === 0 && state.applied.id !== id(root))) throw new Error('Invalid applied admission history head');
       if (state.pending !== null) {
         const pending = parseHistoryCheckpointEnvelope(state.pending, context);
-        if (pending.generation !== 0 || pending.kind !== 'delta' || pending.sequence !== state.applied.sequence + 1
+        if (pending.generation !== 0 || pending.kind === 'continuation' || pending.sequence !== state.applied.sequence + 1
           || pending.previous !== state.applied.id) throw new Error('Invalid pending admission history successor');
         await nextImage(state);
       }

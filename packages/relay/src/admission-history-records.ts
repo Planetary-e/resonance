@@ -10,6 +10,9 @@ import { planAdmissionHistoryRetirement } from './admission-history-retirement.j
 export interface AdmissionHistoryImage {
   version: 1; kind: 'admission-spend-checkpoint'; policy: SignedAdmissionPolicy; state: AdmissionSpendState;
 }
+export interface AdmissionHistoryPolicyCheckpoint {
+  version: 1; kind: 'admission-policy-checkpoint'; at: number; image: AdmissionHistoryImage;
+}
 export type AdmissionHistoryMutation =
   | { version: 1; kind: 'spend'; at: number; row: AdmissionSpendRecord & { issuerKey: string } }
   | { version: 1; kind: 'retire'; at: number; issuerKey: string }
@@ -28,8 +31,15 @@ export async function parseAdmissionHistoryImage(value: unknown, authority: stri
   const policy = await verifyAdmissionPolicy(image.policy, authority);
   return { version: 1, kind: 'admission-spend-checkpoint', policy, state: parseAdmissionSpendState(image.state, policy, limit) };
 }
-export function encodeAdmissionHistoryRecord(value: AdmissionHistoryImage | AdmissionHistoryMutation): Buffer {
-  return Buffer.from(JSON.stringify(bounded(value, value.kind === 'admission-spend-checkpoint' ? HISTORY_CHECKPOINT_MAX_PAYLOAD : HISTORY_DELTA_MAX_PAYLOAD)));
+export function encodeAdmissionHistoryRecord(value: AdmissionHistoryImage | AdmissionHistoryMutation | AdmissionHistoryPolicyCheckpoint): Buffer {
+  const checkpoint = value.kind === 'admission-spend-checkpoint' || value.kind === 'admission-policy-checkpoint';
+  return Buffer.from(JSON.stringify(bounded(value, checkpoint ? HISTORY_CHECKPOINT_MAX_PAYLOAD : HISTORY_DELTA_MAX_PAYLOAD)));
+}
+
+function spendStateIdentity(state: AdmissionSpendState): string {
+  return JSON.stringify([state.version, state.authority,
+    state.spends.map(row => JSON.stringify([row.spend, row.action, row.binding, row.issuerKey])).sort(),
+    [...state.retiredIssuerKeys].sort()]);
 }
 
 /**
@@ -37,19 +47,27 @@ export function encodeAdmissionHistoryRecord(value: AdmissionHistoryImage | Admi
  * The enclosing envelope authenticates the owner's historical operation; `at` is
  * owner-asserted event time, never independent freshness or a trusted wall clock.
  */
-export async function reduceAdmissionHistory(image: AdmissionHistoryImage, value: unknown, limit = 10000): Promise<{
-  record: AdmissionHistoryMutation; image: AdmissionHistoryImage;
+export async function reduceAdmissionHistory(image: AdmissionHistoryImage, value: unknown, limit = 10000,
+  envelopeKind: 'delta' | 'checkpoint' = 'delta'): Promise<{
+  record: AdmissionHistoryMutation | AdmissionHistoryPolicyCheckpoint; image: AdmissionHistoryImage;
 }> {
-  const input = bounded(value, HISTORY_DELTA_MAX_PAYLOAD), current = structuredClone(image);
+  const input = bounded(value, envelopeKind === 'checkpoint' ? HISTORY_CHECKPOINT_MAX_PAYLOAD : HISTORY_DELTA_MAX_PAYLOAD), current = structuredClone(image);
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Invalid admission history mutation');
   const raw = input as Record<string, unknown>;
   const fields = raw.kind === 'spend' ? ['row'] : raw.kind === 'retire' ? ['issuerKey']
-    : raw.kind === 'policy' ? ['policy'] : raw.kind === 'legacy-recovery' ? ['attributions'] : [];
+    : raw.kind === 'policy' ? ['policy'] : raw.kind === 'legacy-recovery' ? ['attributions'] : raw.kind === 'admission-policy-checkpoint' ? ['image'] : [];
   if (!fields.length || !exactWitnessFields(raw, ['version', 'kind', 'at', ...fields]) || raw.version !== 1
-    || !Number.isSafeInteger(raw.at) || (raw.at as number) < 0) throw new Error('Invalid admission history mutation');
+    || !Number.isSafeInteger(raw.at) || (raw.at as number) < 0
+    || (envelopeKind === 'checkpoint') !== (raw.kind === 'admission-policy-checkpoint')) throw new Error('Invalid admission history mutation');
   const at = raw.at as number, state = current.state, policy = current.policy;
-  let next = state, record: AdmissionHistoryMutation;
-  if (raw.kind === 'policy') {
+  let next = state, record: AdmissionHistoryMutation | AdmissionHistoryPolicyCheckpoint;
+  if (raw.kind === 'admission-policy-checkpoint') {
+    const replacement = await parseAdmissionHistoryImage(raw.image, policy.authority, limit);
+    assertAdmissionPolicyCurrent(replacement.policy, at); assertAdmissionPolicySuccessor(policy, replacement.policy);
+    if (spendStateIdentity(replacement.state) !== spendStateIdentity(state)) throw new Error('Policy checkpoint must preserve every spend and permanent denial');
+    current.policy = replacement.policy; next = replacement.state;
+    record = { version: 1, kind: 'admission-policy-checkpoint', at, image: replacement };
+  } else if (raw.kind === 'policy') {
     const successor = await verifyAdmissionPolicy(raw.policy, policy.authority);
     assertAdmissionPolicyCurrent(successor, at); assertAdmissionPolicySuccessor(policy, successor);
     current.policy = successor;

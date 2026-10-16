@@ -194,6 +194,29 @@ it('replicates signed policy changes and retirement fences, reconstructible from
   h.close(); const reopened = await openProtectedAdmissionSpendHistory({ ...n.options, policy }); cleanup.push(() => reopened.close());
   expect(reopened.isRetired(n.policy.activeKey)).toBe(true);
 });
+it('replicates a policy larger than one delta as a complete checkpoint and resumes its exact pending ciphertext', async () => {
+  const n = await fixture(true, true); await n.history.ready(); const before = n.history.read().image; n.history.close();
+  const old = n.policy.keys[0], archivedKeys = Array.from({ length: 9 }, (_, i) => ({ ...old,
+    notBefore: f.time - 10000, issueUntil: f.time - 4000, spendUntil: f.time - 3000, retryUntil: f.time - 2000,
+    profile: { ...old.profile, scope: { ...old.profile.scope, epoch: `archived-${i}` },
+      issuerPublicKey: generateKeyPairSync('rsa', { modulusLength: 2048 }).publicKey.export({ type: 'spki', format: 'pem' }).toString(),
+      relayUrls: Array.from({ length: 8 }, (_, j) => `wss://relay.example/${j}/` + 'p'.repeat(490)) },
+    witnesses: { ...f.body.keys[0].witnesses!, members: f.body.keys[0].witnesses!.members.map((member, j) => ({ ...member,
+      endpoint: `wss://witness.example/${j}/` + 'p'.repeat(488) })) },
+  }));
+  const policy = await signAdmissionPolicy({ ...f.body, version: 2, revision: 2, keys: [old], archivedKeys }, f.authority, f.authorityKey.secretKey);
+  expect(Buffer.byteLength(JSON.stringify(policy))).toBeGreaterThan(65536);
+  let h = await openProtectedAdmissionSpendHistory({ ...n.options, policy }); cleanup.push(() => h.close()); n.online(3);
+  await expect(h.ready()).rejects.toThrow('Four'); const pending = h.read().pending!;
+  expect(pending.kind).toBe('checkpoint'); expect(h.read().image).toEqual(before); h.close();
+  n.online(4); h = await openProtectedAdmissionSpendHistory({ ...n.options, policy }); cleanup.push(() => h.close());
+  expect(h.read().pending).toEqual(pending); await h.ready();
+  expect(h.policy()).toEqual(policy); expect(h.read().image.state).toEqual(before.state);
+  const payload = JSON.parse(openHistoryCheckpoint(pending, n.context, n.key).toString());
+  expect((await reduceAdmissionHistory(before, payload, 10000, 'checkpoint')).image).toEqual(h.read().image);
+  const nextSpend = row(policy.activeKey); await h.write(nextSpend); expect(h.get(nextSpend.spend)).toEqual(nextSpend);
+  expect(n.stores.filter(s => s.describe().sequence === 2)).toHaveLength(4);
+}, 30000);
 it('verifies legacy bearer evidence locally before replicating only its irreversible attribution and key fence', async () => {
   const binding = createAdmissionRequestBindingV2('search', { query: 'legacy' });
   const capability = presentBlindAdmissionTokenV2(await f.token(), f.scope, 'search', binding);

@@ -67,3 +67,20 @@ it('authenticates snapshot policy and rejects duplicate spends and fence/key con
     { ...image, extra: true },
   ]) await expect(parseAdmissionHistoryImage(bad, f.authority)).rejects.toThrow();
 });
+it('binds full policy checkpoints to unchanged spends and permanent denials, including envelope kind and signed successor', async () => {
+  const policy = await successor(), legacy = { ...row(), issuerKey: null };
+  const current: AdmissionHistoryImage = { ...image, policy, state: { ...image.state, spends: [legacy], retiredIssuerKeys: [f.policy.activeKey] } };
+  const { authority, signature, ...body } = policy;
+  const next = await signAdmissionPolicy({ ...body, revision: 3 }, f.authority, f.authorityKey.secretKey);
+  const checkpoint = { version: 1 as const, kind: 'admission-policy-checkpoint' as const, at: f.time, image: { ...current, policy: next } };
+  expect((await reduceAdmissionHistory(current, checkpoint, 10000, 'checkpoint')).image).toEqual(checkpoint.image);
+  await expect(reduceAdmissionHistory(current, checkpoint)).rejects.toThrow('mutation');
+  await expect(reduceAdmissionHistory(current, spend(), 10000, 'checkpoint')).rejects.toThrow('mutation');
+  for (const edit of [
+    (value: typeof checkpoint) => { value.image.state.spends = []; },
+    (value: typeof checkpoint) => { value.image.state.retiredIssuerKeys = []; },
+    (value: typeof checkpoint) => { value.image.state.spends[0].binding = `admreq_${'c'.repeat(86)}`; },
+    (value: typeof checkpoint) => { value.image.policy.revision++; },
+    (value: typeof checkpoint) => { value.image.policy = f.policy; },
+  ]) { const bad = structuredClone(checkpoint); edit(bad); await expect(reduceAdmissionHistory(current, bad, 10000, 'checkpoint')).rejects.toThrow(); }
+});
