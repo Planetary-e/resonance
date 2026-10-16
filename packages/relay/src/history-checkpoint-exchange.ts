@@ -174,6 +174,7 @@ export function exchangeHistoryCheckpoint(member: HistoryReplicaEndpoint, frame:
     socket.on('error', () => finish(undefined, new Error('History connection failed')));
     socket.on('close', () => finish(undefined, new Error('History connection closed')));
     socket.on('upgrade', response => {
+      if (settled) return;
       try { onTransportSocket?.(response.socket); } catch { finish(undefined, new Error('History socket accounting failed')); }
     });
     socket.on('open', () => {
@@ -181,6 +182,7 @@ export function exchangeHistoryCheckpoint(member: HistoryReplicaEndpoint, frame:
       else if (!settled) socket!.send(encoded);
     });
     socket.on('message', (data, binary) => {
+      if (settled) return;
       if (binary || performance.now() >= deadline) { finish(undefined, new Error('Invalid or late history response')); return; }
       try { finish(JSON.parse(data.toString())); } catch { finish(undefined, new Error('Invalid history response')); }
     });

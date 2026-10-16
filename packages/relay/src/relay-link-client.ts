@@ -296,6 +296,8 @@ export function connectRelayLinkV1(
       socket = new WebSocket(hint.endpoint, {
         handshakeTimeout: handshakeTimeoutMs,
         maxPayload: MAX_RELAY_DISCOVERY_FRAME_BYTES,
+        perMessageDeflate: false,
+        followRedirects: false,
       });
     } catch (error) {
       clearTimeout(handshakeTimer);
@@ -303,8 +305,12 @@ export function connectRelayLinkV1(
       return;
     }
 
-    socket.on('upgrade', response => options.onTransportSocket?.(response.socket));
-    socket.on('open', () => socket.send(serializeRelayLinkChallengeRequestV1()));
+    socket.on('upgrade', response => {
+      if (settled) return;
+      try { options.onTransportSocket?.(response.socket); }
+      catch { failHandshake(new Error('Relay link socket accounting failed')); }
+    });
+    socket.on('open', () => { if (!settled) socket.send(serializeRelayLinkChallengeRequestV1()); });
     socket.on('message', (data: RawData, isBinary: boolean) => {
       // A timed-out/rejected dial no longer has an owner. Buffered messages
       // must not revive it or install timers after its caller starts a retry.

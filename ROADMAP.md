@@ -189,6 +189,7 @@ The five-target placement goal remains conditional on enough eligible volunteers
   - [x] Profile durable match creation and remove repeated signature checks within individual constructors/store calls while retaining authentication at every public boundary; retain tampering coverage and the unchanged <500 ms evaluation gate in `docs/evals/publication-match-2026-10-01.md`
 - [ ] Apply strict schemas, bounded collections, message-size limits, and request timeouts before processing untrusted input
   - [x] Bound signed reply envelopes to 1 MiB, reject extra envelope fields, and cap personal-client WebSocket replies at the same limit
+  - [x] Contain socket-accounting callback failures in discovery, relay-link and witness clients; prevent post-failure sends and verify real socket closure, cancellation and disabled compression (`docs/developers/v0.4-connection-audit.md`)
 - [ ] Protect relay private keys with operating-system storage or an encrypted keystore
   - [x] Add an scrypt/AES-GCM encrypted infrastructure keystore, atomic plaintext migration, and mandatory passphrase for a reachable WSS relay
 - [ ] Use short sessions, route rotation, fixed-size padding, batching, and timing jitter

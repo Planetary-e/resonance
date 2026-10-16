@@ -97,6 +97,8 @@ export function discoverRelayContactV1(
       socket = new WebSocket(hint.endpoint, {
         handshakeTimeout: timeoutMs,
         maxPayload: MAX_RELAY_DISCOVERY_FRAME_BYTES,
+        perMessageDeflate: false,
+        followRedirects: false,
       });
     } catch (error) {
       clearTimeout(timer);
@@ -104,9 +106,14 @@ export function discoverRelayContactV1(
       return;
     }
 
-    socket.on('upgrade', response => options.onTransportSocket?.(response.socket));
-    socket.on('open', () => socket.send(serializedRequest));
+    socket.on('upgrade', response => {
+      if (settled) return;
+      try { options.onTransportSocket?.(response.socket); }
+      catch { finish(new Error('Relay discovery socket accounting failed')); }
+    });
+    socket.on('open', () => { if (!settled) socket.send(serializedRequest); });
     socket.on('message', (data: RawData, isBinary: boolean) => {
+      if (settled) return;
       if (isBinary) {
         finish(new Error('Relay discovery response must be UTF-8 JSON'));
         return;

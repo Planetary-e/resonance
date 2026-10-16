@@ -16,13 +16,18 @@ export function requestAdmissionWitnessVote(member: AdmissionWitnessSet['members
     };
     const abort = () => finish(undefined, new Error('Witness request cancelled'));
     signal.addEventListener('abort', abort, { once: true });
-    try { socket = new WebSocket(member.endpoint, { handshakeTimeout: 3000, maxPayload: 4096, followRedirects: false }); }
+    try { socket = new WebSocket(member.endpoint, { handshakeTimeout: 3000, maxPayload: 4096, followRedirects: false, perMessageDeflate: false }); }
     catch { finish(undefined, new Error('Witness connection failed')); return; }
     socket.on('error', () => finish(undefined, new Error('Witness connection failed')));
     socket.on('close', () => finish(undefined, new Error('Witness connection closed')));
-    socket.on('upgrade', response => onTransportSocket?.(response.socket));
+    socket.on('upgrade', response => {
+      if (settled) return;
+      try { onTransportSocket?.(response.socket); }
+      catch { finish(undefined, new Error('Witness socket accounting failed')); }
+    });
     socket.on('open', () => { if (!settled) socket!.send(JSON.stringify(request)); });
     socket.on('message', (data, binary) => {
+      if (settled) return;
       if (binary) { finish(undefined, new Error('Invalid witness response')); return; }
       try { finish(JSON.parse(data.toString())); } catch { finish(undefined, new Error('Invalid witness response')); }
     });
