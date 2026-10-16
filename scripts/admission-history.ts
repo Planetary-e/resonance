@@ -103,6 +103,31 @@ try {
         }
       }
     }
+  } else if (['owner-retirement-plan', 'owner-retire', 'owner-legacy-plan', 'owner-legacy-recover'].includes(command)) {
+    const mutating = command === 'owner-retire' || command === 'owner-legacy-recover';
+    const approved = mutating && raw[0] === '--approve' ? raw[1] : undefined, args = approved ? raw.slice(2) : raw;
+    if (args.length !== 5 || (mutating && !approved)) throw new Error('Invalid protected maintenance command or missing approval');
+    const [configPath, policyPath, keyPath, directory, target] = args;
+    const protection = loadAdmissionHistoryProtectionFile(configPath); cleanup.push(() => protection.signingKey.secretKey.fill(0));
+    const encryptionKey = readOperatorStorageKey(keyPath); cleanup.push(() => encryptionKey.fill(0));
+    const policy = await verifyAdmissionPolicy(readOperatorJson(policyPath, MAX_ADMISSION_POLICY_BYTES), protection.context.authority);
+    const history = await openProtectedAdmissionSpendHistory({ directory, encryptionKey, authority: protection.context.authority, policy, protection });
+    cleanup.push(() => history.close());
+    // Planning is offline and cannot implicitly apply a policy or finish a pending mutation.
+    if (admissionPolicyDigest(history.read().image.policy) !== admissionPolicyDigest(policy)) {
+      throw new Error('Maintenance requires the retained policy; apply its successor explicitly before reviewing');
+    }
+    const retiring = command === 'owner-retirement-plan' || command === 'owner-retire';
+    const proofs = retiring ? undefined : readOperatorJson(target, 65536);
+    const plan = retiring ? history.planRetirement(target) : await history.planLegacyRecovery(proofs);
+    if (mutating) {
+      if (approved !== plan.approvalDigest) throw new Error('Maintenance approval does not match; review the current history again');
+      await history.ready(); // Fresh quorum is independent of the offline review.
+      if (retiring) await history.retire(target, approved!);
+      else await history.recoverLegacy(proofs, approved!); // Rechecks evidence/digest after readiness.
+    }
+    console.log(JSON.stringify({ ...plan, durability: 'protected-four-of-five', readiness: mutating ? 'confirmed' : 'unverified',
+      result: !mutating ? 'review-required' : retiring ? 'permanently-retired' : 'legacy-spends-recovered' }));
   } else if (command === 'owner-ready' && raw.length === 4) {
     const [configPath, policyPath, keyPath, directory] = raw;
     const protection = loadAdmissionHistoryProtectionFile(configPath); cleanup.push(() => protection.signingKey.secretKey.fill(0));
@@ -160,6 +185,8 @@ try {
   console.error('  owner-prepare|owner-export|owner-resume-setup owner-config.json policy.json owner-storage.hex owner-directory enrollment.json');
   console.error('  owner-inspect owner-config.json enrollment.json');
   console.error('  owner-ready owner-config.json policy.json owner-storage.hex owner-directory');
+  console.error('  owner-retirement-plan|owner-retire [--approve <digest>] owner-config.json policy.json owner-storage.hex owner-directory <issuer-key-fingerprint>');
+  console.error('  owner-legacy-plan|owner-legacy-recover [--approve <digest>] owner-config.json policy.json owner-storage.hex owner-directory proofs.json');
   console.error('  owner-recovery-plan|owner-recovery-start [--approve <digest>] owner-config.json enrollment.json owner-storage.hex recovery-directory <view>');
   console.error('  owner-recovery-status|owner-recovery-step owner-config.json enrollment.json owner-storage.hex recovery-directory');
   console.error('  owner-recovery-review|owner-recovery-restore [--approve <digest>] owner-config.json enrollment.json owner-storage.hex recovery-directory policy.json new-owner-directory');

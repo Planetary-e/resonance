@@ -108,8 +108,12 @@ it('enrolls five volunteer processes, refuses three copies and recovers real tok
   expect((await command('owner-resume-setup', ...recovery)).code).not.toBe(0);
   expect(readFileSync(join(damaged, 'admission-spends-v2.jsonl'))).toEqual(retained);
   expect(existsSync(join(damaged, 'admission-history-writer'))).toBe(false);
-  const beforeLoss = await openProtectedAdmissionSpendHistory({ ...options, protection }); await beforeLoss.ready();
-  await beforeLoss.retire(n.oldKey!, beforeLoss.planRetirement(n.oldKey!).approvalDigest); beforeLoss.close();
+  const maintenance = [n.configFile, n.policyFile, n.keyFile, n.ownerDirectory, n.oldKey!];
+  const retirement = await succeed('owner-retirement-plan', ...maintenance); expect(retirement.readiness).toBe('unverified');
+  await volunteers[3].close();
+  expect((await command('owner-retire', '--approve', retirement.approvalDigest, ...maintenance)).code).not.toBe(0);
+  volunteers[3] = await serve(n.replicaArgs[3], new URL(members[3].endpoint).port);
+  expect((await succeed('owner-retire', '--approve', retirement.approvalDigest, ...maintenance)).readiness).toBe('confirmed');
   rmSync(n.ownerDirectory, { recursive: true });
   expect(await succeed('owner-inspect', n.configFile, n.enrollment)).toEqual({ result: 'history-observed', contextId: exported.contextId,
     genesisId: exported.genesisId, certifiedBoundaries: 0, observedGeneration: 0, readiness: 'unverified', mutation: 'none' });
