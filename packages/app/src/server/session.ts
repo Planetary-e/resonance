@@ -143,7 +143,7 @@ interface RelayConfig {
   contacts?: string[];
   controls?: RelayOwnerControls;
   storageCommitmentFloorBytes?: number;
-  runtime?: { nodePath: string; entryPath: string };
+  runtime?: { nodePath: string; entryPath: string; historyVolunteerFile?: string };
 }
 
 function getRelayConfigPath(): string {
@@ -227,7 +227,7 @@ export async function startRelayMode(
       catch { return true; }
     })) throw new Error('Relay contacts must be up to 16 distinct endpoints; public contacts require wss://');
   const controls = validateOwnerControls(requestedControls ?? previous.controls ?? {});
-  const runtime = relayServiceRuntime();
+  const runtime = relayServiceRuntime(previous.runtime?.historyVolunteerFile);
   const previousStats = previous.enabled ? await relayServiceStats(previous.port, adminKey) : null;
   const minimumStorageBytes = storageCommitmentFloor(
     previousStats, previous.storageCommitmentFloorBytes ?? 0,
@@ -239,6 +239,7 @@ export async function startRelayMode(
   if (previous.enabled && previous.port === p
     && previous.runtime?.nodePath === runtime.nodePath
     && previous.runtime?.entryPath === runtime.entryPath
+    && previous.runtime?.historyVolunteerFile === runtime.historyVolunteerFile
     && JSON.stringify(previous.contacts) === JSON.stringify(contacts)
     && JSON.stringify(previous.controls ?? {}) === JSON.stringify(controls)
     && await relayServiceStats(p, adminKey)) return { port: p };
@@ -253,7 +254,7 @@ export async function startRelayMode(
   if (!running) throw new Error('The supervised relay did not become ready');
   saveRelayConfig({
     enabled: true, port: p, adminKey, contacts, controls,
-    runtime: { nodePath: runtime.nodePath, entryPath: runtime.entryPath },
+    runtime: { nodePath: runtime.nodePath, entryPath: runtime.entryPath, historyVolunteerFile: runtime.historyVolunteerFile },
   });
 
   // If session is active, reconnect client to local relay

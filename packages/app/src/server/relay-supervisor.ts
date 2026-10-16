@@ -19,6 +19,8 @@ export interface RelayServiceOptions {
   workingDirectory: string;
   nodePathEnv?: string;
   tsxImportPath?: string;
+  /** Explicit already-enrolled history configuration; never raw signing/storage keys. */
+  historyVolunteerFile?: string;
   controls?: RelayOwnerControls;
 }
 
@@ -31,16 +33,20 @@ export interface RelayOwnerControls {
   onlyWhenCharging?: boolean;
 }
 
-export function relayServiceRuntime(): Pick<RelayServiceOptions,
-  'nodePath' | 'entryPath' | 'workingDirectory' | 'nodePathEnv' | 'tsxImportPath'> {
+export function relayServiceRuntime(retainedHistoryVolunteerFile?: string): Pick<RelayServiceOptions,
+  'nodePath' | 'entryPath' | 'workingDirectory' | 'nodePathEnv' | 'tsxImportPath' | 'historyVolunteerFile'> {
   const entryPath = process.env.RESONANCE_RELAY_ENTRY
     ?? resolve(process.cwd(), '../relay/src/main.ts');
+  // Preserve an enrolled service across GUI launches without the original environment.
+  // An explicit empty override disables participation without deleting retained state.
+  const historyVolunteerFile = process.env.RESONANCE_RELAY_HISTORY_VOLUNTEER_FILE ?? retainedHistoryVolunteerFile;
   return {
     nodePath: process.env.RESONANCE_RELAY_NODE ?? process.execPath,
     entryPath,
     workingDirectory: process.env.RESONANCE_RELAY_CWD ?? process.cwd(),
     nodePathEnv: process.env.NODE_PATH,
     tsxImportPath: entryPath.endsWith('.ts') ? createRequire(import.meta.url).resolve('tsx') : undefined,
+    historyVolunteerFile: historyVolunteerFile ? resolve(historyVolunteerFile) : historyVolunteerFile,
   };
 }
 
@@ -59,6 +65,7 @@ function environment(options: RelayServiceOptions): Record<string, string> {
     RELAY_HOST: '127.0.0.1',
     RELAY_DATA_DIR: join(options.dataDir, 'relay-data'),
     RELAY_CONTACTS: options.contacts.join(','),
+    ...(options.historyVolunteerFile ? { RELAY_HISTORY_VOLUNTEER_FILE: options.historyVolunteerFile } : {}),
     ...(publicationBytes ? {
       RELAY_STORAGE_CAPACITY_BYTES: publicationBytes,
       RELAY_STORAGE_AVAILABLE_BYTES: publicationBytes,
@@ -156,6 +163,9 @@ function run(program: string, args: string[]): void {
 export function installRelayService(options: RelayServiceOptions): void {
   if (!existsSync(options.nodePath) || !existsSync(options.entryPath)) {
     throw new Error('The bundled relay runtime is missing');
+  }
+  if (options.historyVolunteerFile && !existsSync(options.historyVolunteerFile)) {
+    throw new Error('The enrolled history volunteer configuration is missing');
   }
   mkdirSync(options.dataDir, { recursive: true });
   if (process.platform === 'darwin') {

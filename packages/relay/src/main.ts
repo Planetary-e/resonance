@@ -15,6 +15,7 @@ import { RelayTrafficMeter } from './relay-resource-meter.js';
 import { createRelayServer } from './server.js';
 import { createConfiguredAdmissionVerifier } from './configured-admission-verifier.js';
 import { loadAdmissionHistoryProtectionFile } from './admission-history-config.js';
+import { readHistoryVolunteerConfigurationFile, openConfiguredHistoryVolunteer } from './history-volunteer-config.js';
 import type { AdmissionCapabilityVerifierV2 } from './admission.js';
 import type { AdmissionWitness } from './admission-witness.js';
 import { createLocalBlindAdmissionVerifierV2 } from './blind-admission-verifier.js';
@@ -42,9 +43,14 @@ const publicEndpoints = [...new Set([
   ...parseList(process.env.RELAY_PUBLIC_ENDPOINTS), ...localEndpoints,
 ])];
 const configuredContacts = parseList(process.env.RELAY_CONTACTS);
-const configuredHints = configuredContacts.map(endpoint => (
+const historyVolunteerConfig = process.env.RELAY_HISTORY_VOLUNTEER_FILE
+  ? readHistoryVolunteerConfigurationFile(process.env.RELAY_HISTORY_VOLUNTEER_FILE) : undefined;
+const hintMap = new Map(configuredContacts.map(endpoint => (
   createRelayContactHintV1('configured', endpoint)
-));
+)).map(hint => [hint.endpoint, hint]));
+// Explicit history controller pins take precedence over an unpinned contact hint.
+for (const hint of historyVolunteerConfig?.contacts ?? []) hintMap.set(hint.endpoint, hint);
+const configuredHints = [...hintMap.values()];
 const bootstrapHints = parseList(process.env.RELAY_BOOTSTRAP_CONTACTS).map(endpoint => (
   createRelayContactHintV1('bootstrap', endpoint)
 ));
@@ -177,46 +183,64 @@ const ownerPolicy = ownerBandwidth !== undefined || ownerTotalBandwidth !== unde
     persistDir: relayDataDir,
   }) : null;
 
-const server = createRelayServer({
-  tls,
-  identityPassphrase: process.env.RELAY_IDENTITY_PASSPHRASE,
-  port: relayPort,
-  host: relayHost,
-  persistDir: relayDataDir,
-  admissionVerifier,
-  admissionWitness: admissionVerifier?.witness,
-  resourceMeter,
-  adminApiKey: process.env.RELAY_ADMIN_API_KEY || null,
-  acceptNewWork: ownerPolicy ? bytes => ownerPolicy.allowNewWork(bytes) : undefined,
-  maxPublishesPerMin: parseNonNegativeInteger(
-    process.env.RELAY_MAX_PUBLISHES_PER_MIN, 10, 'RELAY_MAX_PUBLISHES_PER_MIN',
-  ),
-  maxSearchesPerMin: parseNonNegativeInteger(
-    process.env.RELAY_MAX_SEARCHES_PER_MIN, 30, 'RELAY_MAX_SEARCHES_PER_MIN',
-  ),
-  publicationStorageQuotaBytes,
-  maxReplicaStorageBytesPerRelay,
-  maxMailboxStorageBytes,
-  maxJournalStorageBytes,
-  replicaOfflineReplacementDelayMs: parseNonNegativeInteger(
-    process.env.RELAY_REPLICA_OFFLINE_REPLACEMENT_MS,
-    5 * 60_000,
-    'RELAY_REPLICA_OFFLINE_REPLACEMENT_MS',
-  ),
-  relayDiscovery: discoveryEnabled ? {
-    endpoints: publicEndpoints,
-    reachability: publicEndpoints.length > 0 ? 'direct' : 'outbound-only',
-    supportedGroups: parseList(process.env.RELAY_SUPPORTED_GROUPS, ['public']),
-    storage: {
-      capacityBytes: storageCapacityBytes,
-      availableBytes: storageAvailableBytes,
-    },
-  } : undefined,
-  relayLinks: configuredHints.length > 0 ? { targets: configuredHints } : undefined,
-  inboundReplicaTargetIds: parseList(process.env.RELAY_INBOUND_REPLICA_TARGET_IDS),
-});
+const historyVolunteer = historyVolunteerConfig
+  ? openConfiguredHistoryVolunteer(historyVolunteerConfig, ownerPolicy ? bytes => ownerPolicy.allowNewWork(bytes) : undefined) : undefined;
+let server: ReturnType<typeof createRelayServer>;
+try {
+  server = createRelayServer({
+    tls,
+    identityPassphrase: process.env.RELAY_IDENTITY_PASSPHRASE,
+    port: relayPort,
+    host: relayHost,
+    persistDir: relayDataDir,
+    admissionVerifier,
+    admissionWitness: admissionVerifier?.witness,
+    resourceMeter,
+    historyLinks: historyVolunteer?.router,
+    adminApiKey: process.env.RELAY_ADMIN_API_KEY || null,
+    acceptNewWork: ownerPolicy ? bytes => ownerPolicy.allowNewWork(bytes) : undefined,
+    maxPublishesPerMin: parseNonNegativeInteger(
+      process.env.RELAY_MAX_PUBLISHES_PER_MIN, 10, 'RELAY_MAX_PUBLISHES_PER_MIN',
+    ),
+    maxSearchesPerMin: parseNonNegativeInteger(
+      process.env.RELAY_MAX_SEARCHES_PER_MIN, 30, 'RELAY_MAX_SEARCHES_PER_MIN',
+    ),
+    publicationStorageQuotaBytes,
+    maxReplicaStorageBytesPerRelay,
+    maxMailboxStorageBytes,
+    maxJournalStorageBytes,
+    replicaOfflineReplacementDelayMs: parseNonNegativeInteger(
+      process.env.RELAY_REPLICA_OFFLINE_REPLACEMENT_MS,
+      5 * 60_000,
+      'RELAY_REPLICA_OFFLINE_REPLACEMENT_MS',
+    ),
+    relayDiscovery: discoveryEnabled ? {
+      endpoints: publicEndpoints,
+      reachability: publicEndpoints.length > 0 ? 'direct' : 'outbound-only',
+      supportedGroups: parseList(process.env.RELAY_SUPPORTED_GROUPS, ['public']),
+      storage: {
+        capacityBytes: storageCapacityBytes,
+        availableBytes: storageAvailableBytes,
+      },
+    } : undefined,
+    relayLinks: configuredHints.length > 0 ? { targets: configuredHints } : undefined,
+    inboundReplicaTargetIds: parseList(process.env.RELAY_INBOUND_REPLICA_TARGET_IDS),
+  });
 
-await server.start();
+  await server.start();
+} catch (error) { historyVolunteer?.close(); admissionVerifier?.close(); throw error; }
+
+let lan: Awaited<ReturnType<typeof startLanDiscovery>> | null = null;
+let shuttingDown = false;
+// Register before contact discovery: a silent contact must not prevent graceful shutdown.
+for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+  process.on(signal, async () => {
+    if (shuttingDown) return; shuttingDown = true;
+    try { await lan?.stop(); await server.stop(); }
+    finally { historyVolunteer?.close(); admissionVerifier?.close(); }
+    process.exit(0);
+  });
+}
 
 await Promise.all([...configuredHints, ...bootstrapHints].map(async (hint) => {
   try {
@@ -231,8 +255,7 @@ await Promise.all([...configuredHints, ...bootstrapHints].map(async (hint) => {
   }
 }));
 
-let lan: Awaited<ReturnType<typeof startLanDiscovery>> | null = null;
-if (lanEnabled) {
+if (lanEnabled && !shuttingDown) {
   try {
     lan = await startLanDiscovery(relayPort, localEndpoints, endpoint => {
       void server.discoverRelay(createRelayContactHintV1('local', endpoint)).then(result => {
@@ -249,16 +272,6 @@ if (lanEnabled) {
   } catch (error) {
     log('warn', 'relay_lan_listener_unavailable', { error: String(error) });
   }
-}
-
-// Graceful shutdown
-for (const signal of ['SIGTERM', 'SIGINT'] as const) {
-  process.on(signal, async () => {
-    await lan?.stop();
-    await server.stop();
-    admissionVerifier?.close();
-    process.exit(0);
-  });
 }
 
 async function importAdmissionPublicKey(path: string): Promise<CryptoKey> {

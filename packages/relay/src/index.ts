@@ -121,5 +121,6 @@ export { createHistoryProvisionCoordinator } from './history-provision-coordinat
 export { createHistoryAncestryDownload } from './history-ancestry-download.js';
 export { openHistoryVolunteerService } from './history-volunteer-service.js';
 export { HistoryRelayRouter } from './history-relay-router.js';
+export { readHistoryVolunteerConfigurationFile, openConfiguredHistoryVolunteer } from './history-volunteer-config.js';
 export { discoverHistoryContinuations, type HistoryContinuationDiscovery } from './history-continuation-discovery.js';
 export { prepareAdmissionHistoryRecovery, openAdmissionHistoryRecovery, type AdmissionRecoveryReview } from './admission-history-recovery.js';
