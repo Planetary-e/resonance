@@ -64,7 +64,7 @@ try {
     writeOperatorJsonNew(output, { version: 1, kind: 'admission-history-enrollment', ...value }, ENROLLMENT_MAX);
     console.log(JSON.stringify({ result: 'enrollment-exported', contextId: historyCheckpointContextId(value.context),
       genesisId: historyCheckpointEnvelopeId(value.root), output: resolve(output), readiness: 'unverified' }));
-  } else if (command.startsWith('owner-recovery-')) {
+  } else if (command?.startsWith('owner-recovery-')) {
     const approved = ['owner-recovery-start', 'owner-recovery-restore'].includes(command) && raw[0] === '--approve' ? raw[1] : undefined;
     const args = approved ? raw.slice(2) : raw;
     const planning = ['owner-recovery-plan', 'owner-recovery-start'].includes(command);
