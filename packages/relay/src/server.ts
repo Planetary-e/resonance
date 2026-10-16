@@ -225,6 +225,8 @@ import {
 } from './replica-placement.js';
 import { prioritizeReplicaDiversity } from './replica-diversity.js';
 import { ReverseReplicaRequests } from './reverse-replica-link.js';
+import { HISTORY_LINK_FRAME_TYPE } from './history-relay-link.js';
+import type { HistoryRelayRouter } from './history-relay-router.js';
 import {
   FIRST_SEEN_TOMBSTONE_RESERVE_BYTES,
   ReplicaStorageLedger,
@@ -291,6 +293,8 @@ export interface RelayConfig {
   relayDiscovery?: RelayDiscoveryConfig;
   /** Authenticated outbound relay links; requires relayDiscovery. */
   relayLinks?: Omit<RelayLinkManagerOptions, 'onEvent'>;
+  /** Caller-owned history router shared by inbound and outbound authenticated links. */
+  historyLinks?: HistoryRelayRouter;
   /** Explicitly approved inbound-link identities eligible for replica placement. */
   inboundReplicaTargetIds?: string[];
   /** When set, every v2 operation must present an anonymous one-use capability. */
@@ -755,6 +759,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       return descriptor;
     }, {
       ...cfg.relayLinks,
+      historyLinks: cfg.historyLinks,
       onTransportSocket: socket => trafficMeter.observe(socket),
       onReplicaHandoffRequest: acceptReplicaHandoffRequest,
       onQueryRequest: request => processForwardedSearch(request, request.senderRelayId),
@@ -3503,6 +3508,11 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           ws.close(4000, 'relay_message_must_be_json');
           return;
         }
+        if (isObject(frameCandidate) && frameCandidate.type === HISTORY_LINK_FRAME_TYPE) {
+          if (!cfg.historyLinks) ws.close(4003, 'history_link_disabled');
+          else cfg.historyLinks.handle(raw, linkedRelayId, ws);
+          return;
+        }
         if (reverseReplicaRequests.handleResponse(raw, linkedRelayId, ws)) return;
         if (isObject(frameCandidate) && frameCandidate.type === RELAY_QUERY_REQUEST_FRAME_TYPE) {
           handleRelayQueryRequest(raw, linkedRelayId, ws);
@@ -3607,6 +3617,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           createRelayLinkAcceptFrameV1(acceptance),
         );
         linkedRelayId = remoteRelayId;
+        cfg.historyLinks?.attach(remoteRelayId, ws);
         inboundRelayLinks.set(remoteRelayId, {
           socket: ws,
           descriptor: request.descriptor,

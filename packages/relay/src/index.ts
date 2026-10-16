@@ -120,5 +120,6 @@ export { openHistoryGenerationProvisioner, createHistoryGenerationReplica } from
 export { createHistoryProvisionCoordinator } from './history-provision-coordinator.js';
 export { createHistoryAncestryDownload } from './history-ancestry-download.js';
 export { openHistoryVolunteerService } from './history-volunteer-service.js';
+export { HistoryRelayRouter } from './history-relay-router.js';
 export { discoverHistoryContinuations, type HistoryContinuationDiscovery } from './history-continuation-discovery.js';
 export { prepareAdmissionHistoryRecovery, openAdmissionHistoryRecovery, type AdmissionRecoveryReview } from './admission-history-recovery.js';

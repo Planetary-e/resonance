@@ -2,6 +2,8 @@
 
 import WebSocket, { type RawData } from 'ws';
 import type { Socket } from 'node:net';
+import { HISTORY_LINK_FRAME_TYPE } from './history-relay-link.js';
+import type { HistoryRelayRouter } from './history-relay-router.js';
 import {
   assertSecureRelayTransportEndpoint,
   MAX_RELAY_DISCOVERY_FRAME_BYTES,
@@ -109,6 +111,8 @@ const MAX_PENDING_MAILBOX_SYNCS = 32;
 const DEFAULT_DESCRIPTOR_REFRESH_INTERVAL_MS = 60_000;
 
 export interface RelayLinkClientOptions {
+  /** Explicitly pinned history traffic; attached only after the signed handshake. */
+  historyLinks?: HistoryRelayRouter;
   handshakeTimeoutMs?: number;
   heartbeatIntervalMs?: number;
   heartbeatTimeoutMs?: number;
@@ -328,6 +332,11 @@ export function connectRelayLinkV1(
         }
         if (!isObject(candidate)) {
           socket.close(4000, 'unexpected_link_message');
+          return;
+        }
+        if (candidate.type === HISTORY_LINK_FRAME_TYPE) {
+          if (!acceptedRemoteDescriptor || !options.historyLinks) socket.close(4003, 'history_link_disabled');
+          else options.historyLinks.handle(raw, acceptedRemoteDescriptor.relayId, socket);
           return;
         }
         if (candidate.type === RELAY_REPLICA_PUT_FRAME_TYPE
@@ -564,6 +573,7 @@ export function connectRelayLinkV1(
           throw new Error('Relay link responder descriptor does not bind the contacted endpoint');
         }
 
+        options.historyLinks?.attach(remoteDescriptor.relayId, socket);
         accepted = true;
         acceptedRemoteDescriptor = remoteDescriptor;
         settled = true;
