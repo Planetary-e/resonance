@@ -64,13 +64,13 @@ describe('certificate-controlled history continuation', () => {
     expect(() => n.stores[1].requireContinuation(n.root, n.context.members[0])).toThrow();
   });
 
-  it('refuses a missing prefix, a longer accepted tail and legacy reservations without erasing them', () => {
-    const missing = fixture('missing'), before = missing.stores[4].read();
-    expect(() => missing.stores[4].activateContinuation(missing.root)).toThrow('complete selected');
-    expect(missing.stores[4].read()).toEqual(before);
-    const newer = fixture('newer'), tail = newer.stores[4].read();
-    expect(() => newer.stores[4].activateContinuation(newer.root)).toThrow('complete selected');
-    expect(newer.stores[4].read()).toEqual(tail);
+  it.each(['missing', 'newer'] as const)('refuses a %s selected history without erasing it', tail => {
+    const n = fixture(tail), before = n.stores[4].read();
+    expect(() => n.stores[4].activateContinuation(n.root)).toThrow('complete selected');
+    expect(n.stores[4].read()).toEqual(before);
+  });
+
+  it('refuses legacy reservations without erasing them', () => {
     const legacy = fixture(); legacy.stores[4].seal(legacy.b);
     expect(() => legacy.stores[4].activateContinuation(legacy.root)).toThrow('eligible frozen');
     expect(legacy.stores[4].reservedSuccessor()).toEqual(legacy.b);

@@ -108,6 +108,8 @@ it('rejects prefix acknowledgements when a competing writer advances after the r
   expect(() => history.get(n.currentRow.spend)).toThrow('readiness');
 });
 it('refuses a coherent older owner backup before even an exact replay can be served', async () => {
+  // Budget includes signed quorum setup, durable writes and multiple reopen/rollback cycles.
+  // Production request deadlines are unchanged.
   const n = await fixture(), { history, input } = await initialize(n); await history.ready(); history.close();
   const backup = join(n.directory, 'backup'); cpSync(input.directory, backup, { recursive: true });
   let h = await openProtectedAdmissionSpendHistory(input); await h.ready();
@@ -116,7 +118,7 @@ it('refuses a coherent older owner backup before even an exact replay can be ser
   h = await openProtectedAdmissionSpendHistory(input); cleanup.push(() => h.close());
   expect(() => h.get(n.currentRow.spend)).toThrow('readiness'); await expect(h.ready()).rejects.toThrow('Four');
   expect(h.read().applied?.sequence).toBe(0); expect(n.generations[1].filter(s => s.describe().sequence === 1).length).toBeGreaterThanOrEqual(4);
-});
+}, 30000);
 it.each(['before-image', 'after-image', 'after-writer', 'after-pending', 'before-certificate', 'after-certificate', 'before-apply', 'after-apply', 'durable'])(
   'preserves the complete recovered image and admission gate across SIGKILL at %s', async boundary => {
     const n = await fixture(true), input = options(n), child = fork(new URL('./fixtures/admission-restore-crash.ts', import.meta.url), [],
