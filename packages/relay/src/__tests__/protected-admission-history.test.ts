@@ -85,12 +85,12 @@ const row = (issuerKey: string) => ({ issuerKey, spend: randomBytes(32).toString
 
 it('promotes the intact local history under one file lock and refuses every local-only reopening', async () => {
   const n = await fixture(false, true);
-  expect(n.history.read().image.state.spends).toEqual([n.old]); expect(() => n.history.size()).toThrow('completion');
+  expect(n.history.read().image.state.spends).toEqual([n.old]); expect(() => n.history.size()).toThrow('readiness');
   const bytes = readFileSync(join(n.options.directory, 'admission-spends-v2.jsonl'));
   expect(bytes.includes(Buffer.from(n.old.spend))).toBe(false);
   await n.history.ready(); expect(n.history.get(n.old.spend)).toEqual(n.old);
   n.history.close(); expect(() => openAdmissionSpendHistory(n.options)).toThrow('state is invalid');
-  expect((await n.reopen()).get(n.old.spend)).toEqual(n.old);
+  const reopened = await n.reopen(); await reopened.ready(); expect(reopened.get(n.old.spend)).toEqual(n.old);
 });
 it('requires four durable copies, retains exact pending ciphertext and applies it after disk reopen without creating a second spend', async () => {
   const n = await fixture(); await n.history.ready(); const r = row(n.policy.activeKey); n.online(3);
@@ -144,7 +144,7 @@ it.each((process.platform === 'win32' ? ['intent', 'apply'] : ['intent', 'apply'
   expect(() => n.history.read()).toThrow('write failed');
   vi.mocked(fsyncSync).mockImplementation(actual.fsyncSync); const history = await n.reopen();
   const calls = n.calls(); await history.ready();
-  if (boundary.startsWith('apply')) { expect(n.calls()).toBe(calls); expect(history.get(r.spend)).toEqual(r); }
+  if (boundary.startsWith('apply')) { expect(n.calls()).toBeGreaterThan(calls); expect(history.get(r.spend)).toEqual(r); }
   else if (boundary === 'intent-directory') expect(history.get(r.spend)).toEqual(r);
   else expect(history.get(r.spend)).toBeUndefined();
 });
@@ -192,6 +192,7 @@ it('replicates signed policy changes and retirement fences, reconstructible from
   for (const block of blocks.slice(1)) image = (await reduceAdmissionHistory(image, JSON.parse(openHistoryCheckpoint(block, n.context, n.key).toString()))).image;
   expect(image).toEqual(h.read().image); n.time(f.time); await expect(h.write(n.old)).rejects.toThrow();
   h.close(); const reopened = await openProtectedAdmissionSpendHistory({ ...n.options, policy }); cleanup.push(() => reopened.close());
+  await reopened.ready();
   expect(reopened.isRetired(n.policy.activeKey)).toBe(true);
 });
 it('replicates a policy larger than one delta as a complete checkpoint and resumes its exact pending ciphertext', async () => {

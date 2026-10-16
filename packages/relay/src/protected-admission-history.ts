@@ -8,18 +8,21 @@ import { HISTORY_DELTA_MAX_PAYLOAD, historyCheckpointContextId, historyCheckpoin
   parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, sealHistoryCheckpoint,
   type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { openEncryptedLocalState } from '@resonance/core/local-state';
+import { historySuccessorProposalId } from '@resonance/core/history-successor';
 import { createRetainedHistoryCheckpointWriter } from './history-retained-writer.js';
+import { admissionHistoryReplayDigest } from './admission-history-replay.js';
+import { readPreparedAdmissionRestore, type AdmissionHistoryRestoration, type PreparedAdmissionHistoryRestore } from './admission-history-restore.js';
 import { decodeLegacyAdmissionSpendState, parseAdmissionSpendState, type AdmissionSpendRecord } from './admission-spend-history.js';
 import { checkAdmissionLegacyRecovery, type AdmissionSpendState } from './admission-legacy-recovery.js';
 import { planAdmissionHistoryRetirement } from './admission-history-retirement.js';
 import { encodeAdmissionHistoryRecord, parseAdmissionHistoryImage, reduceAdmissionHistory,
   type AdmissionHistoryImage, type AdmissionHistoryMutation, type AdmissionHistoryPolicyCheckpoint } from './admission-history-records.js';
 
-export interface ProtectedAdmissionState {
-  version: 3; context: HistoryCheckpointContext; root: HistoryCheckpointEnvelope;
+export type ProtectedAdmissionState = {
+  context: HistoryCheckpointContext; root: HistoryCheckpointEnvelope;
   image: AdmissionHistoryImage; applied: { sequence: number; id: string } | null;
   pending: HistoryCheckpointEnvelope | null;
-}
+} & ({ version: 3 } | { version: 4; restoration: AdmissionHistoryRestoration });
 type WriterOptions = Parameters<typeof createRetainedHistoryCheckpointWriter>[0];
 export interface AdmissionHistoryProtection {
   context: HistoryCheckpointContext; signingKey: SigningKeyPair; members: WriterOptions['members'];
@@ -27,6 +30,8 @@ export interface AdmissionHistoryProtection {
   initializeWriter?: boolean; initializeArchive?: boolean;
   /** Explicit same-file promotion of an intact existing local ledger. */
   promoteLocalHistory?: boolean;
+  /** Creation only, into the independently reviewed new directory. Reopen omits this capability. */
+  restore?: { preparation: PreparedAdmissionHistoryRestore; approvedDigest: string };
   timeoutMs?: number; transport?: WriterOptions['transport']; maxArchiveBlocks?: number; maxArchiveBytes?: number;
 }
 
@@ -40,6 +45,7 @@ export async function openProtectedAdmissionSpendHistory(options: {
   assertAdmissionPolicyCurrent(policy, now());
   const p = options.protection, context = parseHistoryCheckpointContext(p.context), contextId = historyCheckpointContextId(context);
   if (context.authority !== options.authority) throw new Error('Wrong admission history authority');
+  if (p.restore && !options.initialize) throw new Error('Reviewed restore only initializes a new protected history');
   const key = Buffer.from(options.encryptionKey), signer = copyAdmissionSigningKey(p.signingKey);
   if (key.length !== 32 || Buffer.from(signer.publicKey).toString('base64url') !== context.owner) {
     key.fill(0); signer.secretKey.fill(0); throw new Error('Wrong admission history owner or encryption key');
@@ -47,7 +53,7 @@ export async function openProtectedAdmissionSpendHistory(options: {
   const participant = resolve(options.directory);
   let storage: ReturnType<typeof openEncryptedLocalState<AdmissionSpendState | ProtectedAdmissionState>> | undefined;
   let writer: ReturnType<typeof createRetainedHistoryCheckpointWriter> | undefined;
-  let closed = false, active = false;
+  let closed = false, active = false, readyConfirmed = false;
   function baseline(state: AdmissionSpendState): ProtectedAdmissionState {
     if (context.policyDigest !== `sha256:${admissionPolicyDigest(policy)}`) throw new Error('Baseline policy does not match pinned history');
     const image: AdmissionHistoryImage = { version: 1, kind: 'admission-spend-checkpoint', policy, state: parseAdmissionSpendState(state, policy, limit) };
@@ -58,7 +64,7 @@ export async function openProtectedAdmissionSpendHistory(options: {
   function read(): ProtectedAdmissionState {
     if (closed) throw new Error('Protected admission history is closed');
     const state = storage!.read();
-    if (state.version !== 3) throw new Error('Admission history has not been protected');
+    if (state.version !== 3 && state.version !== 4) throw new Error('Admission history has not been protected');
     return state;
   }
   function decode(block: HistoryCheckpointEnvelope): unknown {
@@ -79,7 +85,9 @@ export async function openProtectedAdmissionSpendHistory(options: {
   }
   async function nextImage(state: ProtectedAdmissionState): Promise<AdmissionHistoryImage> {
     if (!state.pending) return state.image;
-    if (state.pending.sequence === 0) return parseAdmissionHistoryImage(decode(state.pending), context.authority, limit);
+    if (state.pending.sequence === 0) return state.version === 4
+      ? parseAdmissionHistoryImage(state.restoration.baseline, context.authority, limit)
+      : parseAdmissionHistoryImage(decode(state.pending), context.authority, limit);
     if (state.pending.kind === 'continuation') throw new Error('Protected admission restore requires reviewed successor activation');
     return (await reduceAdmissionHistory(state.image, decode(state.pending), limit, state.pending.kind)).image;
   }
@@ -88,21 +96,27 @@ export async function openProtectedAdmissionSpendHistory(options: {
     if (state.pending || !state.applied) throw new Error('Protected admission history needs durable completion');
     return state;
   }
+  function serving() {
+    read(); if (!readyConfirmed) throw new Error('Protected admission history needs fresh readiness confirmation');
+    return available();
+  }
   async function exclusive<T>(operation: () => Promise<T>): Promise<T> {
     read(); if (active) throw new Error('Protected admission history operation is in progress');
     active = true;
     try { return await operation(); } finally { active = false; }
   }
-  async function finishPending(): Promise<void> {
+  async function finishPending(): Promise<boolean> {
     const before = read(), pending = before.pending;
-    if (!pending) return;
+    if (!pending) return false;
     const image = await nextImage(before); read(); writerMatches();
     // A certificate already flushed by this writer completes an interrupted local apply.
     // It is not permission for a different new write or an old-generation restore.
     const committed = writer!.read().committed;
-    if (!committed || id(committed.envelope) !== id(pending)) await writer!.replicate(pending);
+    const fresh = !committed || id(committed.envelope) !== id(pending);
+    if (fresh) await writer!.replicate(pending);
     read();
     storage!.write({ ...before, image, applied: { sequence: pending.sequence, id: id(pending) }, pending: null });
+    return fresh;
   }
   async function commit(value: AdmissionHistoryMutation): Promise<void> {
     const before = available();
@@ -110,7 +124,7 @@ export async function openProtectedAdmissionSpendHistory(options: {
     const record: AdmissionHistoryMutation | AdmissionHistoryPolicyCheckpoint = kind === 'checkpoint' && value.kind === 'policy'
       ? { version: 1, kind: 'admission-policy-checkpoint', at: value.at, image: { ...before.image, policy: value.policy } } : value;
     const reduced = await reduceAdmissionHistory(before.image, record, limit, kind); read();
-    const pending = sealHistoryCheckpoint({ context, header: { kind, generation: 0,
+    const pending = sealHistoryCheckpoint({ context, header: { kind, generation: before.root.generation,
       sequence: before.applied!.sequence + 1, previous: before.applied!.id },
       plaintext: encodeAdmissionHistoryRecord(reduced.record), encryptionKey: key, signingKey: signer });
     storage!.write({ ...before, pending });
@@ -127,14 +141,24 @@ export async function openProtectedAdmissionSpendHistory(options: {
     if (!closed) { closed = true; writer?.close(); storage?.close(); key.fill(0); signer.secretKey.fill(0); }
   }
   try {
-    // v3 shares the original path and encryption domain. Every older local-only reader rejects its format.
+    let initial: ProtectedAdmissionState | undefined;
+    if (options.initialize) {
+      if (p.restore) {
+        const restored = readPreparedAdmissionRestore(p.restore.preparation, p.restore.approvedDigest, participant, context, policy);
+        // Check this handle's encryption key before any initialization can publish state.
+        await parseAdmissionHistoryImage(decode(restored.restoration.genesis), context.authority, limit);
+        initial = { version: 4, context, ...restored, image: structuredClone(restored.restoration.baseline), applied: null, pending: restored.root };
+      } else initial = baseline({ version: 2, authority: policy.authority, spends: [], retiredIssuerKeys: [] });
+    }
+    // v3/v4 share the original path and encryption domain. Older local-only readers reject both.
     storage = openEncryptedLocalState<AdmissionSpendState | ProtectedAdmissionState>({
       path: join(participant, 'admission-spends-v2.jsonl'), key, domain: 'resonance:admission-local-spends:v2', maxBytes: 32 * 1024 * 1024,
       mode: options.initialize ? 'create-new' : 'open-existing',
-      initial: options.initialize ? baseline({ version: 2, authority: policy.authority, spends: [], retiredIssuerKeys: [] }) : undefined!,
+      initial: initial!,
       decodeLegacy: bytes => decodeLegacyAdmissionSpendState(bytes, policy.authority, limit),
       validate(value): value is AdmissionSpendState | ProtectedAdmissionState {
         if (exactWitnessFields(value, ['version','context','root','image','applied','pending']) && value.version === 3) return true;
+        if (exactWitnessFields(value, ['version','context','root','image','applied','pending','restoration']) && value.version === 4) return true;
         try { parseAdmissionSpendState(value, policy, limit); return true; } catch { return false; }
       },
     });
@@ -146,12 +170,24 @@ export async function openProtectedAdmissionSpendHistory(options: {
     const state = read();
     if (historyCheckpointContextId(state.context) !== contextId) throw new Error('Protected admission history pins changed');
     const root = parseHistoryCheckpointEnvelope(state.root, context);
-    if (root.generation !== 0 || root.sequence !== 0 || root.kind !== 'checkpoint') throw new Error('Invalid protected admission baseline');
-    const original = await parseAdmissionHistoryImage(decode(root), context.authority, limit);
-    if (`sha256:${admissionPolicyDigest(original.policy)}` !== context.policyDigest) throw new Error('Protected baseline policy mismatch');
+    if (root.sequence !== 0 || (state.version === 3 ? root.generation !== 0 || root.kind !== 'checkpoint' : root.kind !== 'continuation')) {
+      throw new Error('Invalid protected admission baseline');
+    }
+    if (state.version === 4 && (!exactWitnessFields(state.restoration, ['genesis','baseline','replayDigest']) || !isHistoryDigest(state.restoration.replayDigest))) {
+      throw new Error('Invalid protected restoration capture');
+    }
+    const genesis = state.version === 4 ? parseHistoryCheckpointEnvelope(state.restoration.genesis, context) : root;
+    if (genesis.generation !== 0 || genesis.sequence !== 0 || genesis.kind !== 'checkpoint') throw new Error('Invalid protected admission genesis');
+    const originalGenesis = await parseAdmissionHistoryImage(decode(genesis), context.authority, limit);
+    if (`sha256:${admissionPolicyDigest(originalGenesis.policy)}` !== context.policyDigest) throw new Error('Protected baseline policy mismatch');
+    const original = state.version === 4 ? await parseAdmissionHistoryImage(state.restoration.baseline, context.authority, limit) : originalGenesis;
+    assertAdmissionPolicySuccessor(originalGenesis.policy, original.policy);
+    if (state.version === 4 && (root.kind !== 'continuation' || state.restoration.replayDigest !== admissionHistoryReplayDigest(contextId, id(genesis),
+      historySuccessorProposalId(root.proposal), original))) throw new Error('Protected restoration does not match its selected image');
     const image = await parseAdmissionHistoryImage(state.image, context.authority, limit);
     assertAdmissionPolicySuccessor(original.policy, image.policy);
     assertAdmissionPolicySuccessor(image.policy, policy);
+    if (original.state.retiredIssuerKeys.some(key => !image.state.retiredIssuerKeys.includes(key))) throw new Error('Protected history lost a baseline denial');
     if (state.applied === null) {
       if (!state.pending || id(parseHistoryCheckpointEnvelope(state.pending, context)) !== id(root)
         || JSON.stringify(image) !== JSON.stringify(original)) throw new Error('Incomplete protected baseline');
@@ -161,13 +197,16 @@ export async function openProtectedAdmissionSpendHistory(options: {
         || (state.applied.sequence === 0 && state.applied.id !== id(root))) throw new Error('Invalid applied admission history head');
       if (state.pending !== null) {
         const pending = parseHistoryCheckpointEnvelope(state.pending, context);
-        if (pending.generation !== 0 || pending.kind === 'continuation' || pending.sequence !== state.applied.sequence + 1
+        if (pending.generation !== root.generation || pending.kind === 'continuation' || pending.sequence !== state.applied.sequence + 1
           || pending.previous !== state.applied.id) throw new Error('Invalid pending admission history successor');
         await nextImage(state);
       }
     }
+    if (p.initializeWriter && state.applied !== null) throw new Error('Cannot initialize a writer for already applied admission history');
     writer = createRetainedHistoryCheckpointWriter({ directory: join(participant, 'admission-history-writer'), localKey: key,
-      context, signingKey: signer, rootId: id(root), generation: 0, members: p.members,
+      context, signingKey: signer, rootId: id(root), generation: root.generation, members: p.members,
+      requireCurrentHead: true,
+      ...(root.kind === 'continuation' ? { continuation: root } : {}),
       initialize: p.initializeWriter, initializeArchive: p.initializeArchive, timeoutMs: p.timeoutMs, transport: p.transport,
       maxArchiveBlocks: p.maxArchiveBlocks, maxArchiveBytes: p.maxArchiveBytes });
     writerMatches();
@@ -177,20 +216,26 @@ export async function openProtectedAdmissionSpendHistory(options: {
     /** Opening and enrollment are offline; the caller enrolls this exact root on the pinned replicas. */
     enrollment() { return { context: structuredClone(context), root: structuredClone(read().root) }; },
     read() { return structuredClone(read()); },
-    policy(): SignedAdmissionPolicy { return structuredClone(available().image.policy); },
+    policy(): SignedAdmissionPolicy { return structuredClone(serving().image.policy); },
     ready() { return exclusive(async () => {
-      await finishPending();
+      readyConfirmed = false;
+      let fresh = await finishPending();
       if (admissionPolicyDigest(read().image.policy) !== admissionPolicyDigest(policy)) {
         await commit({ version: 1, kind: 'policy', at: now(), policy });
+        fresh = true;
       }
+      // Reopen must not turn a coherent stale owner backup or an old root receipt into live admission.
+      if (!fresh) await writer!.replicate(writer!.read().committed!.envelope);
       assertAdmissionPolicyCurrent(available().image.policy, now());
+      readyConfirmed = true;
     }); },
-    size() { return available().image.state.spends.length; },
-    get(spend: string) { const row = available().image.state.spends.find(row => row.spend === spend); return row ? { ...row } : undefined; },
-    isRetired(issuerKey: string) { const { image } = available(); return image.state.retiredIssuerKeys.includes(issuerKey) || isArchivedAdmissionKey(image.policy, issuerKey); },
+    size() { return serving().image.state.spends.length; },
+    get(spend: string) { const row = serving().image.state.spends.find(row => row.spend === spend); return row ? { ...row } : undefined; },
+    isRetired(issuerKey: string) { const { image } = serving(); return image.state.retiredIssuerKeys.includes(issuerKey) || isArchivedAdmissionKey(image.policy, issuerKey); },
     write(value: AdmissionSpendRecord & { issuerKey: string }) {
       const row = structuredClone(value);
       return exclusive(async () => {
+      if (!readyConfirmed) throw new Error('Protected admission history needs fresh readiness confirmation');
       const state = read();
       if (state.pending) {
         const operation = decode(state.pending);
@@ -208,6 +253,7 @@ export async function openProtectedAdmissionSpendHistory(options: {
     },
     planRetirement(issuerKey: string) { if (active) throw new Error('Protected admission history operation is in progress'); return retirement(issuerKey); },
     retire(issuerKey: string, approvedDigest: string) { return exclusive(async () => {
+      serving();
       const plan = retirement(issuerKey);
       if (approvedDigest !== plan.approvalDigest) throw new Error('Admission history changed or approval does not match; review retirement again');
       await commit({ version: 1, kind: 'retire', at: now(), issuerKey }); return plan;
@@ -218,6 +264,7 @@ export async function openProtectedAdmissionSpendHistory(options: {
       read(); return checked.plan;
     }); },
     recoverLegacy(proofs: unknown, approvedDigest: string) { return exclusive(async () => {
+      serving();
       const { image } = available();
       const checked = await checkAdmissionLegacyRecovery({ directory: participant, policy: image.policy, state: image.state, proofs, now });
       read();

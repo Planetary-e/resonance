@@ -26,6 +26,8 @@ export function createHistoryCheckpointWriter(options: {
   directory: string; localKey: Uint8Array; context: HistoryCheckpointContext; signingKey: SigningKeyPair;
   rootId: string; generation: number; members: HistoryReplicaEndpoint[]; initialize?: boolean;
   timeoutMs?: number; transport?: HistoryCheckpointTransport;
+  /** Admission readiness requires replies whose current head is exactly this write, not a later prefix receipt. */
+  requireCurrentHead?: boolean;
   /** A decided deterministic root; initial replication must still collect four fresh write receipts. */
   continuation?: HistoryContinuationRoot;
   /** Complete current-generation ciphertext, oldest first, through committed or pending head. */
@@ -140,6 +142,9 @@ export function createHistoryCheckpointWriter(options: {
               if (settled) return;
               live();
               const receipt = parseHistoryExchangeResponse(response, requests[index], context);
+              if (options.requireCurrentHead && (receipt.head.sequence !== block.sequence || receipt.head.envelopeId !== id)) {
+                throw new Error('History acknowledgement advertises a newer head');
+              }
               live(); receipts.push(receipt);
               if (receipts.length === 4) finish(parseHistoryWriteCertificate({ version: 1, receipts }, block, rootId, context));
             }).catch(() => {}).finally(() => {

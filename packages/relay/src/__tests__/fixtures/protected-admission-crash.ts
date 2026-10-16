@@ -6,6 +6,7 @@ process.once('message', async (input: any) => {
   try {
     const history = await openProtectedAdmissionSpendHistory({ ...input.options, encryptionKey: Buffer.from(input.key, 'hex'), now: () => input.time,
       protection: { ...input.protection, signingKey: { publicKey: Buffer.from(input.owner.publicKey, 'hex'), secretKey: Buffer.from(input.owner.secretKey, 'hex') } } });
+    await history.ready();
     const rename = fs.renameSync; let renames = 0;
     fs.renameSync = (from, to) => {
       const phase = String(to).endsWith('admission-spends-v2.jsonl') ? (++renames === 1 ? 'intent' : 'apply') : '';
