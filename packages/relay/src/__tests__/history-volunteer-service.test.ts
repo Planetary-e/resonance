@@ -59,7 +59,7 @@ async function fixture(maxGenerations = 65) {
     const proposal = await freeze(blocks);
     const agreement = createHistoryAgreementCoordinator({ ...owner, directory: join(directory, `agreement-${proposal.generation}`),
       members: agreementMembers, rootId: proposal.rootId, generation: proposal.generation,
-      nextGeneration: proposal.nextGeneration, initialize: { proposal } }); cleanup.push(() => agreement.close());
+      nextGeneration: proposal.nextGeneration, initialize: { proposal }, historyTransfer: { retained: () => blocks } }); cleanup.push(() => agreement.close());
     return createHistoryContinuationRoot(proposal, await agreement.run(), f.context);
   }
   const request = (root: HistoryContinuationRoot, i: number) => {

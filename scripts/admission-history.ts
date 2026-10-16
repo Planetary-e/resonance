@@ -12,6 +12,7 @@ import { openProtectedAdmissionSpendHistory } from '../packages/relay/src/protec
 import { openHistoryVolunteerService } from '../packages/relay/src/history-volunteer-service.js';
 import { listenHistoryAgreementReplica } from '../packages/relay/src/history-agreement-exchange.js';
 import { discoverHistoryContinuations } from '../packages/relay/src/history-continuation-discovery.js';
+import { openAdmissionHistoryRecovery, prepareAdmissionHistoryRecovery } from '../packages/relay/src/admission-history-recovery.js';
 
 const ENROLLMENT_MAX = HISTORY_ENVELOPE_MAX_BYTES + 65536;
 const cleanup: Array<() => void> = [];
@@ -63,6 +64,56 @@ try {
     writeOperatorJsonNew(output, { version: 1, kind: 'admission-history-enrollment', ...value }, ENROLLMENT_MAX);
     console.log(JSON.stringify({ result: 'enrollment-exported', contextId: historyCheckpointContextId(value.context),
       genesisId: historyCheckpointEnvelopeId(value.root), output: resolve(output), readiness: 'unverified' }));
+  } else if (command.startsWith('owner-recovery-')) {
+    const approved = ['owner-recovery-start', 'owner-recovery-restore'].includes(command) && raw[0] === '--approve' ? raw[1] : undefined;
+    const args = approved ? raw.slice(2) : raw;
+    const planning = ['owner-recovery-plan', 'owner-recovery-start'].includes(command);
+    const reviewing = ['owner-recovery-review', 'owner-recovery-restore'].includes(command);
+    if ((!planning && !reviewing && !['owner-recovery-status', 'owner-recovery-step'].includes(command))
+      || args.length !== (planning ? 5 : reviewing ? 6 : 4)
+      || (['owner-recovery-start', 'owner-recovery-restore'].includes(command) && !approved)) throw new Error('Invalid recovery command or missing approval');
+    const [configPath, enrollmentPath, keyPath, directory] = args;
+    const protection = loadAdmissionHistoryProtectionFile(configPath); cleanup.push(() => protection.signingKey.secretKey.fill(0));
+    const pinned = enrollment(enrollmentPath);
+    if (pinned.contextId !== historyCheckpointContextId(protection.context)) throw new Error('Enrollment and owner configuration differ');
+    const encryptionKey = readOperatorStorageKey(keyPath); cleanup.push(() => encryptionKey.fill(0));
+    const options = { directory, protection, encryptionKey, genesis: pinned.root };
+    if (planning) {
+      if (!/^[1-9][0-9]*$/.test(args[4])) throw new Error('Recovery view must be a positive integer');
+      const review = await prepareAdmissionHistoryRecovery({ ...options, view: Number(args[4]) });
+      if (command === 'owner-recovery-plan') console.log(JSON.stringify(review));
+      else {
+        const recovery = await openAdmissionHistoryRecovery({ ...options, initialize: { review, approvedDigest: approved! } });
+        cleanup.push(() => recovery.close()); console.log(JSON.stringify({ result: 'recovery-created', ...recovery.status() }));
+      }
+    } else {
+      const recovery = await openAdmissionHistoryRecovery(options); cleanup.push(() => recovery.close());
+      if (command === 'owner-recovery-status') console.log(JSON.stringify(recovery.status()));
+      else if (command === 'owner-recovery-step') console.log(JSON.stringify(await recovery.advance()));
+      else {
+        const policy = readOperatorJson(args[4], MAX_ADMISSION_POLICY_BYTES), destination = args[5];
+        const preparation = await recovery.reviewRestore(destination, policy);
+        if (command === 'owner-recovery-review') console.log(JSON.stringify(preparation.review));
+        else {
+          const history = await openProtectedAdmissionSpendHistory({ directory: destination, encryptionKey,
+            authority: protection.context.authority, policy, initialize: true,
+            protection: { ...protection, initializeWriter: true, restore: { preparation, approvedDigest: approved! } } });
+          cleanup.push(() => history.close()); await history.ready();
+          console.log(JSON.stringify({ result: 'history-restored', generation: history.read().root.generation, readiness: 'confirmed' }));
+        }
+      }
+    }
+  } else if (command === 'owner-ready' && raw.length === 4) {
+    const [configPath, policyPath, keyPath, directory] = raw;
+    const protection = loadAdmissionHistoryProtectionFile(configPath); cleanup.push(() => protection.signingKey.secretKey.fill(0));
+    const encryptionKey = readOperatorStorageKey(keyPath); cleanup.push(() => encryptionKey.fill(0));
+    const writer = join(directory, 'admission-history-writer');
+    const history = await openProtectedAdmissionSpendHistory({ directory, encryptionKey, authority: protection.context.authority,
+      policy: readOperatorJson(policyPath, MAX_ADMISSION_POLICY_BYTES), protection: { ...protection,
+        initializeWriter: !existsSync(join(writer, 'history-writer.json')),
+        initializeArchive: !existsSync(join(writer, 'payloads', 'history-writer-payloads.json')) } });
+    cleanup.push(() => history.close()); await history.ready();
+    console.log(JSON.stringify({ result: 'history-ready', generation: history.read().root.generation, readiness: 'confirmed' }));
   } else if (command === 'owner-inspect' && raw.length === 2) {
     const protection = loadAdmissionHistoryProtectionFile(raw[0]); cleanup.push(() => protection.signingKey.secretKey.fill(0));
     const pinned = enrollment(raw[1]);
@@ -108,6 +159,10 @@ try {
   console.error('  owner-config owner-private.json authority.pub policy.json members.json owner-config.json');
   console.error('  owner-prepare|owner-export|owner-resume-setup owner-config.json policy.json owner-storage.hex owner-directory enrollment.json');
   console.error('  owner-inspect owner-config.json enrollment.json');
+  console.error('  owner-ready owner-config.json policy.json owner-storage.hex owner-directory');
+  console.error('  owner-recovery-plan|owner-recovery-start [--approve <digest>] owner-config.json enrollment.json owner-storage.hex recovery-directory <view>');
+  console.error('  owner-recovery-status|owner-recovery-step owner-config.json enrollment.json owner-storage.hex recovery-directory');
+  console.error('  owner-recovery-review|owner-recovery-restore [--approve <digest>] owner-config.json enrollment.json owner-storage.hex recovery-directory policy.json new-owner-directory');
   console.error('  replica-plan enrollment.json member-private.json member-storage.hex replica-directory');
   console.error('  replica-enroll --approve <digest> enrollment.json member-private.json member-storage.hex replica-directory');
   console.error('  replica-serve enrollment.json member-private.json member-storage.hex replica-directory <port>');

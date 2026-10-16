@@ -83,7 +83,10 @@ export function openHistoryVolunteerService(options: {
   return {
     checkpoint(raw: unknown) { return select(requestRoot(raw)).checkpoint.exchange(raw); },
     exchange(raw: unknown) { return select(requestRoot(raw)).agreement.exchange(raw); },
-    transfer(raw: unknown) { return select(requestRoot(raw)).agreement.transfer(raw); },
+    transfer(raw: unknown) {
+      const authorization = raw && typeof raw === 'object' && 'authorization' in raw ? raw.authorization : undefined;
+      return select(requestRoot(authorization)).agreement.transfer(raw);
+    },
     provision(raw: unknown) {
       const root = raw && typeof raw === 'object' && 'root' in raw ? raw.root : null;
       const proposal = root && typeof root === 'object' && 'proposal' in root ? root.proposal : null;

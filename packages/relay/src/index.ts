@@ -121,3 +121,4 @@ export { createHistoryProvisionCoordinator } from './history-provision-coordinat
 export { createHistoryAncestryDownload } from './history-ancestry-download.js';
 export { openHistoryVolunteerService } from './history-volunteer-service.js';
 export { discoverHistoryContinuations, type HistoryContinuationDiscovery } from './history-continuation-discovery.js';
+export { prepareAdmissionHistoryRecovery, openAdmissionHistoryRecovery, type AdmissionRecoveryReview } from './admission-history-recovery.js';

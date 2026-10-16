@@ -372,6 +372,8 @@ See the [contribution guide](docs/developers/contributing.html), [open issues](h
 
 - [Protocol v2 and threat model](docs/developers/protocol-v2.md)
 - [Relay discovery for v0.3](docs/developers/relay-discovery-v0.3.md)
+- [Experimental v0.4 volunteer history operation](docs/developers/v0.4-volunteer-history-operations.md)
+- [Experimental protected-owner recovery](docs/developers/v0.4-owner-history-recovery.md)
 - [v0.1 to v0.2 upgrade guide](docs/developers/v0.1-to-v0.2-upgrade.md)
 - [Architecture](docs/developers/architecture.html)
 - [How Resonance works](docs/how-it-works.html)

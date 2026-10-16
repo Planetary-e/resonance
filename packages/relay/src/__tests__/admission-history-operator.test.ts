@@ -7,9 +7,10 @@ import { execFile, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { randomBytes } from 'node:crypto';
 import { createAdmissionRequestBindingV2, presentBlindAdmissionTokenV2 } from '@resonance/core';
-import { admissionPolicyDigest, signAdmissionPolicy } from '@resonance/core/admission-policy';
+import { admissionKeyFingerprint, admissionPolicyDigest, signAdmissionPolicy } from '@resonance/core/admission-policy';
 import { loadAdmissionHistoryProtectionFile } from '../admission-history-config.js';
 import { createConfiguredAdmissionVerifier } from '../configured-admission-verifier.js';
+import { openProtectedAdmissionSpendHistory } from '../protected-admission-history.js';
 import { historyCheckpointFixture } from './fixtures/history-checkpoint-fixture.js';
 import { witnessFixture } from './fixtures/admission-witness-fixture.js';
 
@@ -21,11 +22,15 @@ function command(...args: string[]) {
     { timeout: 20000, maxBuffer: 65536 }, (error, stdout, stderr) => resolve({ code: error?.code ?? 0, stdout, stderr })));
 }
 async function succeed(...args: string[]) { const r = await command(...args); expect(r.stderr).toBe(''); expect(r.code).toBe(0); return JSON.parse(r.stdout); }
-async function setup() {
+async function setup(withRetired = false) {
   const issuer = await witnessFixture(), f = historyCheckpointFixture(), directory = mkdtempSync(join(tmpdir(), 'history-operator-'));
   cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
   const { witnesses: _, ...entry } = issuer.body.keys[0];
-  const policy = await signAdmissionPolicy({ ...issuer.body, keys: [entry] }, issuer.authority, issuer.authorityKey.secretKey);
+  const retired = withRetired ? await witnessFixture() : undefined, time = Date.now();
+  const oldKey = retired && admissionKeyFingerprint(retired.body.keys[0].profile.issuerPublicKey);
+  const keys = [entry, ...(retired ? [{ profile: retired.body.keys[0].profile, notBefore: time - 10000,
+    issueUntil: time - 9000, spendUntil: time - 8000, retryUntil: time - 7000 }] : [])];
+  const policy = await signAdmissionPolicy({ ...issuer.body, keys }, issuer.authority, issuer.authorityKey.secretKey);
   const context = { ...f.context, authority: issuer.authority, policyDigest: `sha256:${admissionPolicyDigest(policy)}` };
   const config = { version: 1, context, ownerKeyFile: 'owner-private.json', members: context.members.map((publicKey, i) => (
     { publicKey, endpoint: `ws://127.0.0.1:${43000 + i}/history-checkpoint` }
@@ -46,7 +51,7 @@ async function setup() {
     key(privateFile, f.memberKeys[i]); writeFileSync(storageFile, randomBytes(32).toString('hex'), { mode: 0o600 });
     return [enrollment, privateFile, storageFile, join(directory, `replica-${i}`)];
   });
-  return { ...f, issuer, policy, context: generated.context, config: generated, directory, configFile, keyFile, policyFile,
+  return { ...f, issuer, policy, oldKey, context: generated.context, config: generated, directory, configFile, keyFile, policyFile,
     ownerDirectory, enrollment, ownerArgs, replicaArgs };
 }
 async function serve(args: string[], port = '0') {
@@ -67,8 +72,8 @@ async function serve(args: string[], port = '0') {
   return { ...ready, close, exited };
 }
 
-it('prepares and enrolls five volunteer processes through the CLI, refuses three copies, then accepts a real token without losing its binding', async () => {
-  const n = await setup(), exported = await succeed('owner-prepare', ...n.ownerArgs);
+it('enrolls five volunteer processes, refuses three copies and recovers real tokens and permanent denials through three lost-owner generations', async () => {
+  const n = await setup(true), exported = await succeed('owner-prepare', ...n.ownerArgs);
   expect(exported.readiness).toBe('unverified');
   expect(JSON.stringify(JSON.parse(readFileSync(n.enrollment, 'utf8')))).not.toContain(Buffer.from(n.owner.secretKey).toString('base64url'));
   const volunteers: Awaited<ReturnType<typeof serve>>[] = [];
@@ -103,11 +108,53 @@ it('prepares and enrolls five volunteer processes through the CLI, refuses three
   expect((await command('owner-resume-setup', ...recovery)).code).not.toBe(0);
   expect(readFileSync(join(damaged, 'admission-spends-v2.jsonl'))).toEqual(retained);
   expect(existsSync(join(damaged, 'admission-history-writer'))).toBe(false);
+  const beforeLoss = await openProtectedAdmissionSpendHistory({ ...options, protection }); await beforeLoss.ready();
+  await beforeLoss.retire(n.oldKey!, beforeLoss.planRetirement(n.oldKey!).approvalDigest); beforeLoss.close();
   rmSync(n.ownerDirectory, { recursive: true });
   expect(await succeed('owner-inspect', n.configFile, n.enrollment)).toEqual({ result: 'history-observed', contextId: exported.contextId,
     genesisId: exported.genesisId, certifiedBoundaries: 0, observedGeneration: 0, readiness: 'unverified', mutation: 'none' });
   expect(existsSync(n.ownerDirectory)).toBe(false);
-}, 60000);
+  const accepted = [capability];
+  for (const generation of [1, 2, 3]) {
+    const workspace = join(n.directory, `recovery-${generation}`), destination = join(n.directory, `restored-${generation}`);
+    const args = [n.configFile, n.enrollment, n.keyFile, workspace];
+    const plan = await succeed('owner-recovery-plan', ...args, '1');
+    expect(plan.generation).toBe(generation - 1); expect(existsSync(workspace)).toBe(false);
+    expect((await command('owner-recovery-start', '--approve', 'wrong', ...args, '1')).code).not.toBe(0);
+    expect(existsSync(workspace)).toBe(false);
+    await succeed('owner-recovery-start', '--approve', plan.approvalDigest, ...args, '1');
+    let status = await succeed('owner-recovery-status', ...args);
+    for (let step = 0; step < 8 && !status.complete; step++) {
+      const result = await command('owner-recovery-step', ...args);
+      expect(result.stderr, `generation ${generation}, step ${step}, ${status.phase}`).toBe('');
+      expect(result.code).toBe(0); status = JSON.parse(result.stdout);
+    }
+    expect(status.complete).toBe(true); expect(status.phase).toBe('review');
+    const review = await succeed('owner-recovery-review', ...args, n.policyFile, destination);
+    expect(review.spends).toBe(accepted.length); expect(review.permanentDenials).toBe(1);
+    expect((await command('owner-recovery-restore', '--approve', 'wrong', ...args, n.policyFile, destination)).code).not.toBe(0);
+    expect(existsSync(join(destination, 'admission-spends-v2.jsonl'))).toBe(false);
+    if (generation === 1) {
+      await volunteers[3].close();
+      expect((await command('owner-recovery-restore', '--approve', review.approvalDigest, ...args, n.policyFile, destination)).code).not.toBe(0);
+      expect(existsSync(join(destination, 'admission-spends-v2.jsonl'))).toBe(true);
+      volunteers[3] = await serve(n.replicaArgs[3], new URL(members[3].endpoint).port);
+      expect((await succeed('owner-ready', n.configFile, n.policyFile, n.keyFile, destination)).readiness).toBe('confirmed');
+    } else expect((await succeed('owner-recovery-restore', '--approve', review.approvalDigest, ...args, n.policyFile, destination)).generation).toBe(generation);
+    const restored = await createConfiguredAdmissionVerifier({ ...options, directory: destination, initialize: true });
+    try {
+      for (const token of accepted) expect(await restored.verifyAndSpend(token, ctx)).toEqual({ status: 'replay' });
+      expect(await restored.verifyAndSpend(presentBlindAdmissionTokenV2(token, n.issuer.scope, 'search', different), { ...ctx, requestBinding: different }))
+        .toEqual({ status: 'rejected', reason: 'double_spend' });
+      const fresh = presentBlindAdmissionTokenV2(await n.issuer.token(), n.issuer.scope, 'search', binding);
+      expect(await restored.verifyAndSpend(fresh, ctx)).toEqual({ status: 'accepted' }); accepted.push(fresh);
+    } finally { restored.close(); }
+    const history = await openProtectedAdmissionSpendHistory({ ...options, directory: destination, protection });
+    await history.ready(); expect(history.isRetired(n.oldKey!)).toBe(true); expect(history.size()).toBe(accepted.length); history.close();
+    rmSync(destination, { recursive: true }); rmSync(workspace, { recursive: true });
+    expect((await succeed('owner-inspect', n.configFile, n.enrollment)).observedGeneration).toBe(generation);
+  }
+}, 180000);
 
 it('binds enrollment approval to member, destination and local key, and never resets existing or missing owner history', async () => {
   const n = await setup(); await succeed('owner-prepare', ...n.ownerArgs);
