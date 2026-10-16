@@ -41,7 +41,9 @@ describe('selected-history data transfer', { timeout: 30_000 }, () => {
   it('isolates returned blocks and authenticated positions from caller mutation', () => {
     const n = fixture(), read = n.frame(0, 'read'), original = n.stores[0].read();
     const raw = n.roles[0].transfer(read), parsed = parseHistoryAgreementDataResponse(raw, read, n.context);
-    raw.head.sequence = 0; raw.envelope!.ciphertext = 'changed';
+    raw.head.sequence = 0;
+    if (raw.envelope!.kind === 'continuation') throw new Error('Expected encrypted fixture block');
+    raw.envelope!.ciphertext = 'changed';
     expect(parsed.head.sequence).toBe(3); expect(parsed.envelope).toEqual(n.blocks[3]);
     parsed.envelope!.previous = null;
     expect(n.stores[0].read()).toEqual(original);

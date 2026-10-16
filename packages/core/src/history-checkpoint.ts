@@ -3,6 +3,7 @@ import { createCipheriv, createDecipheriv, createHash, hkdfSync, randomBytes } f
 import { sign, type SigningKeyPair } from './crypto.js';
 import { verifyHistorySignature } from './history-signature.js';
 import { copyAdmissionSigningKey, exactWitnessFields, witnessBytes } from './admission-witness.js';
+import { historyContinuationRootId, parseHistoryContinuationRoot, type HistoryContinuationRoot } from './history-continuation.js';
 
 export interface HistoryCheckpointContext {
   version: 1;
@@ -23,12 +24,13 @@ export interface HistoryCheckpointHeader {
   sequence: number;
   previous: string | null;
 }
-export interface HistoryCheckpointEnvelope extends HistoryCheckpointHeader {
+export interface HistoryEncryptedEnvelope extends HistoryCheckpointHeader {
   nonce: string;
   ciphertext: string;
   tag: string;
   signature: string;
 }
+export type HistoryCheckpointEnvelope = HistoryEncryptedEnvelope | HistoryContinuationRoot;
 export interface HistoryFreeze {
   version: 1;
   kind: 'history-freeze';
@@ -65,14 +67,14 @@ export function historyCheckpointContextId(context: HistoryCheckpointContext): s
 function header(h: HistoryCheckpointHeader): HistoryCheckpointHeader {
   if (h.version !== 1 || !['checkpoint', 'delta'].includes(h.kind) || !isHistoryDigest(h.contextId)
     || !integer(h.generation) || !integer(h.sequence)
-    || (h.sequence === 0 ? h.kind !== 'checkpoint' || h.previous !== null : !isHistoryDigest(h.previous))) {
+    || (h.sequence === 0 ? h.kind !== 'checkpoint' || h.generation !== 0 || h.previous !== null : !isHistoryDigest(h.previous))) {
     throw new Error('Invalid history envelope header');
   }
   return { version: 1, kind: h.kind, contextId: h.contextId, generation: h.generation,
     sequence: h.sequence, previous: h.previous };
 }
 const aad = (h: HistoryCheckpointHeader) => Buffer.from(`${DOMAIN}:payload\n${JSON.stringify(header(h))}`);
-const signedBytes = (h: HistoryCheckpointEnvelope) => Buffer.from(`${DOMAIN}:envelope\n${JSON.stringify([
+const signedBytes = (h: HistoryEncryptedEnvelope) => Buffer.from(`${DOMAIN}:envelope\n${JSON.stringify([
   header(h), h.nonce, h.ciphertext, h.tag,
 ])}`);
 function encryptionKey(key: Uint8Array, contextId: string): Buffer {
@@ -84,7 +86,7 @@ function encryptionKey(key: Uint8Array, contextId: string): Buffer {
 export function sealHistoryCheckpoint(options: {
   context: HistoryCheckpointContext; header: Omit<HistoryCheckpointHeader, 'version' | 'contextId'>;
   plaintext: Uint8Array; encryptionKey: Uint8Array; signingKey: SigningKeyPair;
-}): HistoryCheckpointEnvelope {
+}): HistoryEncryptedEnvelope {
   const context = parseHistoryCheckpointContext(options.context);
   const h = header({ ...options.header, version: 1, contextId: historyCheckpointContextId(context) });
   const limit = h.kind === 'checkpoint' ? HISTORY_CHECKPOINT_MAX_PAYLOAD : HISTORY_DELTA_MAX_PAYLOAD;
@@ -105,6 +107,9 @@ export function sealHistoryCheckpoint(options: {
 
 /** Replicas authenticate ciphertext without receiving the owner's decryption key. */
 export function parseHistoryCheckpointEnvelope(value: unknown, context: HistoryCheckpointContext): HistoryCheckpointEnvelope {
+  if (value !== null && typeof value === 'object' && 'kind' in value && value.kind === 'continuation') {
+    return parseHistoryContinuationRoot(value, context);
+  }
   if (!exactWitnessFields(value, [...headerFields, 'nonce', 'ciphertext', 'tag', 'signature'])) throw new Error('Invalid history envelope');
   const h = header(value as unknown as HistoryCheckpointHeader);
   const c = parseHistoryCheckpointContext(context);
@@ -122,11 +127,13 @@ export function parseHistoryCheckpointEnvelope(value: unknown, context: HistoryC
   return envelope;
 }
 export function historyCheckpointEnvelopeId(envelope: HistoryCheckpointEnvelope): string {
+  if (envelope.kind === 'continuation') return historyContinuationRootId(envelope);
   return historyDigest(Buffer.concat([signedBytes(envelope), Buffer.from(`\n${envelope.signature}`)]));
 }
 /** Application-specific snapshot/delta validation is still required before restoring a live role. */
 export function openHistoryCheckpoint(value: unknown, context: HistoryCheckpointContext, ownerKey: Uint8Array): Buffer {
   const envelope = parseHistoryCheckpointEnvelope(value, context);
+  if (envelope.kind === 'continuation') throw new Error('A continuation has no standalone snapshot; retain and traverse its predecessor history');
   const key = encryptionKey(ownerKey, envelope.contextId);
   let partial: Buffer | undefined;
   try {

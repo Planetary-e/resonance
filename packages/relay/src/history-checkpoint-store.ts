@@ -10,6 +10,7 @@ import { exactWitnessFields } from '@resonance/core/admission-witness';
 import type { SigningKeyPair } from '@resonance/core';
 import { HISTORY_AGREEMENT_MAX_VIEW, parseHistoryAgreementFrame, parseHistoryAgreementRequest } from '@resonance/core/history-agreement';
 import { createHistoryAgreementDataResponse, parseHistoryAgreementDataFrame } from '@resonance/core/history-agreement-data';
+import { historyContinuationRootId, parseHistoryContinuationRoot, type HistoryContinuationRoot } from '@resonance/core/history-continuation';
 import type { HistoryAgreementFrame } from '@resonance/core/history-agreement';
 import { advanceHistoryAgreement, parseHistoryAgreementState, type HistoryAgreementState } from './history-agreement-state.js';
 import { assertHistorySuccessorChain, historySuccessorProposalId, parseHistorySuccessorProposal,
@@ -24,6 +25,7 @@ export const HISTORY_MANIFEST_FILENAME = 'history-manifest.json';
 const DOMAIN = 'resonance:history-replica-manifest:v1';
 const MAX_MANIFEST_BYTES = 2 * 1024 * 1024;
 const MAX_BLOCKS = 10_001;
+const MAX_ANCESTRY_BYTES = 256 * 1024 * 1024;
 interface Manifest {
   version: 1; contextId: string; replica: string; rootId: string; generation: number;
   blocks: string[]; freeze: HistoryFreeze | null;
@@ -33,6 +35,12 @@ interface Manifest {
   agreement?: HistoryAgreementState | null;
   /** Descending, head-authenticated ciphertext; invisible until it joins the retained prefix. */
   transfer?: { authorization: HistoryAgreementFrame; blocks: string[] } | null;
+  /** Irreversible authority for one deterministic child; every predecessor block remains indexed. */
+  activation?: HistoryContinuationRoot | null;
+}
+export interface HistoryCheckpointAncestor {
+  /** Checks the durable activation and retained parent chain, returning the child ancestry depth. */
+  requireContinuation(root: HistoryContinuationRoot, replica: string): { depth: number; bytes: number };
 }
 export interface HistoryCheckpointStoreOptions {
   directory: string;
@@ -45,6 +53,8 @@ export interface HistoryCheckpointStoreOptions {
   generation: number;
   /** Only for a new, empty directory with an intact owner-authenticated checkpoint. */
   initialize?: HistoryCheckpointEnvelope;
+  /** Required on creation AND reopen of a non-genesis generation. Never inferred from discovery. */
+  parent?: HistoryCheckpointAncestor;
   /** Includes two maximum manifest copies plus all immutable encrypted blocks. */
   maxBytes?: number;
   maxBlocks?: number;
@@ -56,6 +66,9 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
   const context = parseHistoryCheckpointContext(options.context);
   const contextId = historyCheckpointContextId(context);
   const { directory, replica, rootId, generation } = options;
+  const parent = options.parent;
+  let ancestryDepth = 0;
+  let ancestorBytes = 0;
   const maxBytes = options.maxBytes ?? 64 * 1024 * 1024, maxBlocks = options.maxBlocks ?? MAX_BLOCKS;
   const minimum = options.minimum ? { ...options.minimum } : undefined;
   const integer = (n: number) => Number.isSafeInteger(n) && n >= 0;
@@ -70,7 +83,7 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
   }
   const initial: Manifest = { version: 1, contextId, replica, rootId, generation, blocks: [], freeze: null, successor: null };
   function validManifest(value: unknown): value is Manifest {
-    const optional = ['successor', 'agreement', 'transfer'].filter(key => value !== null && typeof value === 'object' && Object.hasOwn(value, key));
+    const optional = ['successor', 'agreement', 'transfer', 'activation'].filter(key => value !== null && typeof value === 'object' && Object.hasOwn(value, key));
     if (!exactWitnessFields(value, ['version', 'contextId', 'replica', 'rootId', 'generation', 'blocks', 'freeze', ...optional])
       || value.version !== 1 || value.contextId !== contextId || value.replica !== replica || value.rootId !== rootId
       || value.generation !== generation || !Array.isArray(value.blocks) || !value.blocks.length
@@ -112,7 +125,29 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
           || value.blocks.length + ids.length > maxBlocks) return false;
       } catch { return false; }
     }
+    if (value.activation !== undefined && value.activation !== null) {
+      try {
+        const root = parseHistoryContinuationRoot(value.activation, context), p = root.proposal;
+        if (value.successor || value.transfer || p.rootId !== rootId || p.generation !== generation
+          || !value.freeze || p.nextGeneration !== parseHistoryFreeze(value.freeze, context).nextGeneration) return false;
+        assertHistorySuccessorChain(p, value.blocks);
+      } catch { return false; }
+    }
     return true;
+  }
+  function validateParent(root: HistoryCheckpointEnvelope) {
+    if (generation === 0) {
+      if (root.kind === 'continuation' || parent) throw new Error('Genesis cannot replace another history generation');
+    } else {
+      if (root.kind !== 'continuation' || !parent) throw new Error('Continuation requires its retained activated predecessor');
+      const ancestry = parent.requireContinuation(root, replica);
+      ancestryDepth = ancestry.depth; ancestorBytes = ancestry.bytes;
+      if (!Number.isSafeInteger(ancestryDepth) || ancestryDepth < 1 || ancestryDepth > 64
+        || !Number.isSafeInteger(ancestorBytes) || ancestorBytes < 0
+        || ancestorBytes + 2 * MAX_MANIFEST_BYTES + Buffer.byteLength(JSON.stringify(root)) > MAX_ANCESTRY_BYTES) {
+        throw new Error('History ancestry capacity exceeded');
+      }
+    }
   }
   let root: HistoryCheckpointEnvelope | undefined;
   if (options.initialize) {
@@ -120,6 +155,7 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
     if (root.sequence !== 0 || root.generation !== generation || historyCheckpointEnvelopeId(root) !== rootId) {
       throw new Error('History enrolment checkpoint does not match pins');
     }
+    validateParent(root);
     // Never reinterpret an incomplete or damaged directory as a new history.
     if (existsSync(directory) && readdirSync(directory).length) throw new Error('History enrolment directory is not empty');
     if (!existsSync(directory)) mkdirSync(directory, { mode: 0o700 });
@@ -139,7 +175,8 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
     if (failed) throw new Error('History storage write failed; close and reopen before reuse');
   }
   function fits(bytes: number, count: number) {
-    if (count > maxBlocks || blockBytes + bytes + 2 * MAX_MANIFEST_BYTES > maxBytes) throw new Error('History storage capacity exceeded');
+    if (count > maxBlocks || blockBytes + bytes + 2 * MAX_MANIFEST_BYTES > maxBytes
+      || ancestorBytes + blockBytes + bytes + 2 * MAX_MANIFEST_BYTES > MAX_ANCESTRY_BYTES) throw new Error('History storage capacity exceeded');
   }
   function writeImmutable(envelope: HistoryCheckpointEnvelope): number {
     const bytes = Buffer.from(JSON.stringify(envelope)), id = historyCheckpointEnvelopeId(envelope);
@@ -184,6 +221,7 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
       const state = storage.read();
       for (const [sequence, id] of state.blocks.entries()) {
         const envelope = loadBlock(id);
+        if (sequence === 0) validateParent(envelope);
         if (envelope.sequence !== sequence || envelope.previous !== (sequence ? state.blocks[sequence - 1] : null)) {
           throw new Error('History chain is incomplete or conflicting');
         }
@@ -199,6 +237,8 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
       }
     }
     const state = storage.read();
+    validateParent(envelopes[0]);
+    fits(0, envelopes.length + staged.length);
     if (minimum && (state.blocks[minimum.sequence] !== minimum.id
       || (state.freeze?.nextGeneration ?? generation) < minimum.generationBarrier
       || (minimum.successorId !== undefined && (!state.successor || historySuccessorProposalId(state.successor) !== minimum.successorId))
@@ -215,6 +255,33 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
   } catch (error) { storage.close(); throw error; }
 
   return {
+    /** Explicit local activation only. The proof does not certify current network readiness. */
+    activateContinuation(value: unknown): HistoryContinuationRoot {
+      ensureOpen();
+      const root = parseHistoryContinuationRoot(value, context), p = root.proposal, state = storage.read();
+      if (state.successor || state.transfer || p.rootId !== rootId || p.generation !== generation
+        || p.nextGeneration !== state.freeze?.nextGeneration) throw new Error('Continuation does not match an eligible frozen predecessor');
+      assertHistorySuccessorChain(p, state.blocks);
+      if (state.activation) {
+        if (historyContinuationRootId(state.activation) !== historyContinuationRootId(root)) throw new Error('Another continuation is already activated');
+        return structuredClone(state.activation);
+      }
+      if (ancestryDepth >= 64) throw new Error('History ancestry capacity exceeded');
+      const next = { ...state, activation: root };
+      if (!validManifest(next)) throw new Error('Invalid outgoing activation manifest');
+      storage.write(next); // No child can be opened through this API before durable parent authority.
+      return structuredClone(root);
+    },
+    activatedContinuation(): HistoryContinuationRoot | null { ensureOpen(); return structuredClone(storage.read().activation ?? null); },
+    requireContinuation(value: HistoryContinuationRoot, member: string): { depth: number; bytes: number } {
+      ensureOpen();
+      const root = parseHistoryContinuationRoot(value, context), state = storage.read();
+      if (member !== replica || !state.activation || historyContinuationRootId(state.activation) !== historyContinuationRootId(root)) {
+        throw new Error('Retained predecessor has not activated this continuation for this replica');
+      }
+      assertHistorySuccessorChain(root.proposal, state.blocks);
+      return { depth: ancestryDepth + 1, bytes: ancestorBytes + blockBytes + 2 * MAX_MANIFEST_BYTES };
+    },
     matches(candidate: HistoryCheckpointContext, member: string): boolean {
       ensureOpen();
       return historyCheckpointContextId(candidate) === contextId && member === replica;
@@ -245,6 +312,7 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
     exchangeAgreement(value: unknown, key: SigningKeyPair, now: () => number = Date.now) {
       ensureOpen();
       const frame = parseHistoryAgreementFrame(value, context, now()), request = frame.request, state = storage.read();
+      if (state.activation) throw new Error('History already has an activated continuation');
       if (request.replica !== replica || request.rootId !== rootId || request.generation !== generation
         || request.nextGeneration !== state.freeze?.nextGeneration) throw new Error('Agreement does not match frozen store pins');
       if (state.successor) throw new Error('Legacy successor reservation cannot become a provisional vote');
@@ -278,6 +346,7 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
         envelope = envelopes[frame.sequence] ?? null; // Staged ciphertext is not accepted history.
         if (!envelope || historyCheckpointEnvelopeId(envelope) !== frame.envelopeId) throw new Error('Requested history block unavailable');
       } else if (frame.action === 'stage') {
+        if (state.activation) throw new Error('History already has an activated continuation');
         if (state.successor || !state.agreement || state.agreement.report.request.view !== request.view) throw new Error('Transfer requires the current provisional agreement');
         if (state.blocks.length > proposal.sequence + 1) throw new Error('Replica retains newer history');
         if (state.blocks.length === proposal.sequence + 1) assertHistorySuccessorChain(proposal, state.blocks);
@@ -324,7 +393,7 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
     repair(value: unknown, successor: unknown): string {
       ensureOpen();
       const p = parseHistorySuccessorProposal(successor, context), state = storage.read();
-      if (state.agreement) throw new Error('Legacy repair is disabled after agreement opt-in');
+      if (state.agreement || state.activation) throw new Error('Legacy repair is disabled after agreement opt-in or activation');
       if (p.rootId !== rootId || p.generation !== generation || state.freeze?.nextGeneration !== p.nextGeneration) {
         throw new Error('Successor repair does not match the frozen generation');
       }
@@ -344,7 +413,7 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
     seal(successor: unknown): string {
       ensureOpen();
       const p = parseHistorySuccessorProposal(successor, context), state = storage.read(), id = historySuccessorProposalId(p);
-      if (state.agreement) throw new Error('Legacy sealing is disabled after agreement opt-in');
+      if (state.agreement || state.activation) throw new Error('Legacy sealing is disabled after agreement opt-in or activation');
       if (p.rootId !== rootId || p.generation !== generation || state.freeze?.nextGeneration !== p.nextGeneration) {
         throw new Error('Successor does not match the frozen generation');
       }
@@ -371,7 +440,7 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
       writeBlock(envelope);
       return id;
     },
-    /** One-way local barrier; activation of a successor requires a future reviewed quorum protocol. */
+    /** One-way local barrier; an activated continuation permanently pins its successor. */
     freeze(value: unknown): void {
       ensureOpen();
       const request = parseHistoryFreeze(value, context), state = storage.read();
@@ -380,6 +449,7 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
       }
       if (state.successor && request.nextGeneration !== state.successor.nextGeneration) throw new Error('Successor reservation cannot be replaced');
       if (state.agreement && request.nextGeneration !== state.agreement.report.request.nextGeneration) throw new Error('Agreement slot cannot be replaced');
+      if (state.activation && request.nextGeneration !== state.activation.generation) throw new Error('Activated continuation cannot be replaced');
       if (request.nextGeneration === state.freeze?.nextGeneration) return;
       storage.write({ ...state, freeze: request });
     },

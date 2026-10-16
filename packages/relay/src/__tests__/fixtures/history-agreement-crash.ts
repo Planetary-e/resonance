@@ -14,7 +14,8 @@ process.once('message', (input: any) => {
     if (manifest && input.boundary === 'after-rename') process.kill(process.pid, 'SIGKILL');
   };
   syncBuiltinESMExports();
-  if (input.transfer) store.exchangeAgreementData(input.frame, key, () => input.now);
+  if (input.activation) store.activateContinuation(input.frame);
+  else if (input.transfer) store.exchangeAgreementData(input.frame, key, () => input.now);
   else store.exchangeAgreement(input.frame, key, () => input.now);
   // Successful response would now be safe to emit. Simulate losing it before delivery.
   process.send!('durable', () => process.kill(process.pid, 'SIGKILL'));
