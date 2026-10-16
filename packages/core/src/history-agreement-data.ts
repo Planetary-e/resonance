@@ -1,5 +1,6 @@
 /** Owner-authorized ciphertext transfer for a selected agreement proposal. Never a vote. */
-import { sign, verify, type SigningKeyPair } from './crypto.js';
+import { sign, type SigningKeyPair } from './crypto.js';
+import { verifyHistorySignature } from './history-signature.js';
 import { exactWitnessFields, witnessBytes } from './admission-witness.js';
 import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointEnvelopeId, historyDigest, isHistoryDigest,
   parseHistoryCheckpointEnvelope, type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from './history-checkpoint.js';
@@ -24,7 +25,7 @@ const integer = (n: unknown): n is number => Number.isSafeInteger(n) && (n as nu
 const body = (f: HistoryAgreementDataFrame) => [f.version, f.kind, f.action, f.authorization.request.signature, f.sequence, f.envelopeId];
 export const historyAgreementDataId = (f: HistoryAgreementDataFrame) => historyDigest(bytes('request-id', [...body(f), f.signature]));
 function check(purpose: string, value: unknown, signature: unknown, key: string) {
-  if (!witnessBytes(signature, 64) || !verify(bytes(purpose, value), Buffer.from(signature, 'base64url'), Buffer.from(key, 'base64url'))) {
+  if (!witnessBytes(signature, 64) || !verifyHistorySignature(bytes(purpose, value), Buffer.from(signature, 'base64url'), Buffer.from(key, 'base64url'))) {
     throw new Error('Invalid agreement data signature');
   }
 }

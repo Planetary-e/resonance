@@ -1,5 +1,6 @@
 /** Owner-authorized checkpoint exchange. Stored receipts attest to one write, not current global freshness. */
-import { sign, verify, type SigningKeyPair } from './crypto.js';
+import { sign, type SigningKeyPair } from './crypto.js';
+import { verifyHistorySignature } from './history-signature.js';
 import { copyAdmissionSigningKey, exactWitnessFields, witnessBytes } from './admission-witness.js';
 import {
   historyCheckpointContextId, historyCheckpointEnvelopeId, isHistoryDigest, parseHistoryCheckpointEnvelope,
@@ -56,7 +57,7 @@ export function parseHistoryExchangeRequest(value: unknown, context: HistoryChec
     throw new Error('Invalid or expired history request');
   }
   const request = { ...requestBody(value as unknown as HistoryExchangeRequest), signature: value.signature };
-  if (!verify(requestBytes(request), Buffer.from(request.signature, 'base64url'), Buffer.from(context.owner, 'base64url'))) {
+  if (!verifyHistorySignature(requestBytes(request), Buffer.from(request.signature, 'base64url'), Buffer.from(context.owner, 'base64url'))) {
     throw new Error('Invalid history request owner signature');
   }
   return request;
@@ -130,7 +131,7 @@ export function createHistoryExchangeResponse(request: HistoryExchangeRequest, s
 export function parseHistoryExchangeResponse(value: unknown, request: HistoryExchangeRequest,
   context: HistoryCheckpointContext): HistoryExchangeResponse {
   const response = responseBody(value, request, context);
-  if (!verify(responseBytes(response), Buffer.from(response.signature, 'base64url'), Buffer.from(request.replica, 'base64url'))) {
+  if (!verifyHistorySignature(responseBytes(response), Buffer.from(response.signature, 'base64url'), Buffer.from(request.replica, 'base64url'))) {
     throw new Error('Invalid history replica signature');
   }
   return response;

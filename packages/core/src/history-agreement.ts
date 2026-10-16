@@ -1,5 +1,6 @@
 /** Signed view-change evidence for one successor slot. No activation authority. */
-import { sign, verify, type SigningKeyPair } from './crypto.js';
+import { sign, type SigningKeyPair } from './crypto.js';
+import { verifyHistorySignature } from './history-signature.js';
 import { copyAdmissionSigningKey, exactWitnessFields, witnessBytes } from './admission-witness.js';
 import { historyCheckpointContextId, historyDigest, isHistoryDigest, type HistoryCheckpointContext } from './history-checkpoint.js';
 import { historySuccessorProposalId, parseHistorySuccessorProposal, type HistorySuccessorProposal } from './history-successor.js';
@@ -47,7 +48,7 @@ function signature(purpose: string, body: unknown, key: SigningKeyPair, expected
   } finally { copy.secretKey.fill(0); }
 }
 function checkSignature(purpose: string, body: unknown, encoded: unknown, key: string) {
-  if (!witnessBytes(encoded, 64) || !verify(bytes(purpose, body), Buffer.from(encoded, 'base64url'), Buffer.from(key, 'base64url'))) {
+  if (!witnessBytes(encoded, 64) || !verifyHistorySignature(bytes(purpose, body), Buffer.from(encoded, 'base64url'), Buffer.from(key, 'base64url'))) {
     throw new Error('Invalid history agreement signature');
   }
 }

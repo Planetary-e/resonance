@@ -1,6 +1,7 @@
 /** Experimental admission-history storage format. Signatures do not establish freshness. */
 import { createCipheriv, createDecipheriv, createHash, hkdfSync, randomBytes } from 'node:crypto';
-import { sign, verify, type SigningKeyPair } from './crypto.js';
+import { sign, type SigningKeyPair } from './crypto.js';
+import { verifyHistorySignature } from './history-signature.js';
 import { copyAdmissionSigningKey, exactWitnessFields, witnessBytes } from './admission-witness.js';
 
 export interface HistoryCheckpointContext {
@@ -115,7 +116,7 @@ export function parseHistoryCheckpointEnvelope(value: unknown, context: HistoryC
   const ciphertext = Buffer.from(value.ciphertext, 'base64url');
   if (ciphertext.length > limit || ciphertext.toString('base64url') !== value.ciphertext) throw new Error('Invalid history ciphertext');
   const envelope = { ...h, nonce: value.nonce, ciphertext: value.ciphertext, tag: value.tag, signature: value.signature };
-  if (!verify(signedBytes(envelope), Buffer.from(envelope.signature, 'base64url'), Buffer.from(c.owner, 'base64url'))) {
+  if (!verifyHistorySignature(signedBytes(envelope), Buffer.from(envelope.signature, 'base64url'), Buffer.from(c.owner, 'base64url'))) {
     throw new Error('Invalid history owner signature');
   }
   return envelope;
@@ -156,7 +157,7 @@ export function parseHistoryFreeze(value: unknown, context: HistoryCheckpointCon
     || !witnessBytes(value.challenge, 32) || !witnessBytes(value.signature, 64)) throw new Error('Invalid history freeze');
   const f: HistoryFreeze = { version: 1, kind: value.kind, contextId: value.contextId as string,
     generation: value.generation, nextGeneration: value.nextGeneration, challenge: value.challenge, signature: value.signature };
-  if (!verify(freezeBytes(f), Buffer.from(f.signature, 'base64url'), Buffer.from(context.owner, 'base64url'))) {
+  if (!verifyHistorySignature(freezeBytes(f), Buffer.from(f.signature, 'base64url'), Buffer.from(context.owner, 'base64url'))) {
     throw new Error('Invalid history freeze signature');
   }
   return f;

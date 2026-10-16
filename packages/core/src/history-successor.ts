@@ -1,6 +1,7 @@
 /** Immutable successor reservation. A certificate does not itself activate a new writer. */
 import { randomBytes } from 'node:crypto';
-import { sign, verify, type SigningKeyPair } from './crypto.js';
+import { sign, type SigningKeyPair } from './crypto.js';
+import { verifyHistorySignature } from './history-signature.js';
 import { copyAdmissionSigningKey, exactWitnessFields, witnessBytes } from './admission-witness.js';
 import { historyCheckpointContextId, historyCheckpointEnvelopeId, historyDigest, isHistoryDigest,
   type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from './history-checkpoint.js';
@@ -46,7 +47,7 @@ export function parseHistorySuccessorProposal(value: unknown, context: HistoryCh
   const proposal: HistorySuccessorProposal = { version: 1, kind: value.kind, contextId: value.contextId as string,
     rootId: value.rootId, generation: value.generation, nextGeneration: value.nextGeneration, sequence: value.sequence,
     envelopeId: value.envelopeId, nonce: value.nonce, freezes, signature: value.signature };
-  if (!verify(bytes(proposal), Buffer.from(proposal.signature, 'base64url'), Buffer.from(context.owner, 'base64url'))) {
+  if (!verifyHistorySignature(bytes(proposal), Buffer.from(proposal.signature, 'base64url'), Buffer.from(context.owner, 'base64url'))) {
     throw new Error('Invalid successor owner signature');
   }
   return proposal;
