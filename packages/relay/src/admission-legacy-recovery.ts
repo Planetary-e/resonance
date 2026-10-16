@@ -69,7 +69,7 @@ export async function checkAdmissionLegacyRecovery(options: {
     'resonance:admission-legacy-spend-recovery:v1', options.directory, policy.authority, policyDigest, state,
     [...recovered].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0),
   ])).digest('hex');
-  return { next, plan: {
+  return { next, attributions: [...recovered].map(([spend, issuerKey]) => ({ spend, issuerKey })), plan: {
     kind: 'admission-legacy-spend-recovery' as const, directory: options.directory,
     authorityFingerprint: admissionAuthorityFingerprint(policy.authority), policyRevision: policy.revision, policyDigest, keys,
     recordsBefore: state.spends.length, recordsRemoved: state.spends.length - retained.length, recordsAfter: retained.length,

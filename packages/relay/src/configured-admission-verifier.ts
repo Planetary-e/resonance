@@ -5,6 +5,7 @@ import type { SigningKeyPair } from '@resonance/core';
 import { openAdmissionPolicyStore, assertAdmissionPolicyCurrent, parseAdmissionWalletProfile, admissionKeyFingerprint, type AdmissionPolicyKey } from '@resonance/core/admission-policy';
 import { createLocalBlindAdmissionVerifierV2 } from './blind-admission-verifier.js';
 import { openAdmissionSpendHistory } from './admission-spend-history.js';
+import { openProtectedAdmissionSpendHistory, type AdmissionHistoryProtection } from './protected-admission-history.js';
 import { createAdmissionWitness, createAdmissionQuorumGate, type AdmissionWitnessTransport } from './admission-witness.js';
 
 export async function createConfiguredAdmissionVerifier(options: {
@@ -13,15 +14,25 @@ export async function createConfiguredAdmissionVerifier(options: {
   witnessKey?: SigningKeyPair; coordinatorKey?: SigningKeyPair;
   initializeWitnessState?: boolean; witnessTransport?: AdmissionWitnessTransport; witnessTimeoutMs?: number;
   onWitnessSocket?: (socket: Socket) => void;
+  historyProtection?: AdmissionHistoryProtection;
+  /** An explicitly prepared protected spend history can precede policy/witness initialization. */
+  initializeSpendHistory?: boolean;
 }) {
   const now = options.now ?? Date.now;
   const store = await openAdmissionPolicyStore({ path: join(options.directory, 'admission-community-policy.json'),
     encryptionKey: options.encryptionKey, mode: options.initialize ? 'create-new' : 'open-existing', now });
   let witness: ReturnType<typeof createAdmissionWitness> | undefined;
   let quorum: ReturnType<typeof createAdmissionQuorumGate> | undefined;
-  let history: ReturnType<typeof openAdmissionSpendHistory> | undefined;
+  let history: ReturnType<typeof openAdmissionSpendHistory> | Awaited<ReturnType<typeof openProtectedAdmissionSpendHistory>> | undefined;
   try {
     const policy = await store.install(options.policy, options.authority);
+    const historyOptions = { directory: options.directory, encryptionKey: options.encryptionKey, policy, now,
+      initialize: options.initializeSpendHistory ?? options.initialize, maxSpends: options.maxSpends };
+    if (options.historyProtection) {
+      const protectedHistory = await openProtectedAdmissionSpendHistory({ ...historyOptions, authority: options.authority, protection: options.historyProtection });
+      history = protectedHistory;
+      await protectedHistory.ready();
+    } else history = openAdmissionSpendHistory(historyOptions);
     const shared = { directory: options.directory, encryptionKey: options.encryptionKey, policy, now, maxSpends: options.maxSpends,
       initialize: options.initializeWitnessState ?? options.initialize };
     if (options.witnessKey) witness = createAdmissionWitness({ ...shared, signingKey: options.witnessKey });
@@ -29,8 +40,6 @@ export async function createConfiguredAdmissionVerifier(options: {
       timeoutMs: options.witnessTimeoutMs, onTransportSocket: options.onWitnessSocket });
     const entries: Array<AdmissionPolicyKey & { issuerPublicKey: CryptoKey }> = [];
     for (const entry of policy.keys) entries.push({ ...entry, issuerPublicKey: (await parseAdmissionWalletProfile(entry.profile)).publicKey });
-    history = openAdmissionSpendHistory({ directory: options.directory, encryptionKey: options.encryptionKey, policy, now,
-      initialize: options.initialize, maxSpends: options.maxSpends });
     const verifier = createLocalBlindAdmissionVerifierV2({ directory: options.directory, maxSpends: options.maxSpends, history,
       async beforeSpend(spend, context, publicKey) {
         const entry = entries.find(entry => entry.issuerPublicKey === publicKey)!;

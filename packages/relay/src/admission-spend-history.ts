@@ -10,7 +10,7 @@ export interface AdmissionSpendLedger {
   size(): number;
   get(spend: string): AdmissionSpendRecord | undefined;
   isRetired(issuerKey: string): boolean;
-  write(row: AdmissionSpendRecord & { issuerKey: string }): void;
+  write(row: AdmissionSpendRecord & { issuerKey: string }): void | Promise<void>;
   close(): void;
 }
 export interface LegacyAdmissionSpendRow { version: 1; spend: string; action: string; binding: string }
@@ -25,6 +25,41 @@ function validSpend(row: Record<string, unknown>): boolean {
 }
 export function isLegacyAdmissionSpendRow(value: unknown): value is LegacyAdmissionSpendRow {
   return fields(value, ['version','spend','action','binding']) && value.version === 1 && validSpend(value);
+}
+
+/** Shared strict decoder: promotion must hold the original file's lock throughout. */
+export function decodeLegacyAdmissionSpendState(bytes: Buffer, authority: string, limit: number): AdmissionSpendState | undefined {
+  if (!bytes.length) throw new Error('Empty admission spend history; restore intact history before reopening');
+  if (bytes.at(-1) !== 10) return undefined;
+  if (bytes.length > limit * 512) throw new Error('Admission legacy spend log exceeds capacity');
+  const spends: AdmissionSpendRecord[] = [];
+  for (const line of bytes.toString('utf8').split('\n')) {
+    if (!line) continue;
+    let row: unknown;
+    try { row = JSON.parse(line); } catch { throw new Error('Admission legacy spend log is corrupt'); }
+    if (!isLegacyAdmissionSpendRow(row)) throw new Error('Admission legacy spend log is corrupt');
+    spends.push({ spend: row.spend, action: row.action, binding: row.binding, issuerKey: null });
+  }
+  if (!spends.length) throw new Error('Empty admission spend history; restore intact history before reopening');
+  return { version: 2, authority, spends, retiredIssuerKeys: [] };
+}
+
+/** Structural history validation after the caller authenticates the signed policy. */
+export function parseAdmissionSpendState(value: unknown, policy: SignedAdmissionPolicy, limit = 10000): AdmissionSpendState {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 10000
+    || !fields(value, ['version','authority','spends','retiredIssuerKeys']) || value.version !== 2 || value.authority !== policy.authority
+    || !validRetiredIssuerKeys(value.retiredIssuerKeys, policy, '', 'local-spends')
+    || !Array.isArray(value.spends) || value.spends.length > limit) throw new Error('Invalid admission spend state');
+  const known = new Set(admissionPolicyKeys(policy).map(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey)));
+  const retired = new Set(value.retiredIssuerKeys), seen = new Set<string>();
+  for (const row of value.spends) {
+    if (!fields(row, ['issuerKey','spend','action','binding']) || !validSpend(row) || seen.has(row.spend as string)
+      || (row.issuerKey !== null && (typeof row.issuerKey !== 'string' || !known.has(row.issuerKey) || retired.has(row.issuerKey)))) {
+      throw new Error('Invalid admission spend state');
+    }
+    seen.add(row.spend as string);
+  }
+  return structuredClone(value) as unknown as AdmissionSpendState;
 }
 
 export function openAdmissionSpendHistory(options: {
@@ -45,33 +80,10 @@ export function openAdmissionSpendHistory(options: {
     domain: 'resonance:admission-local-spends:v2', maxBytes: 8 * 1024 * 1024,
     mode: options.initialize ? 'create-new' : 'open-existing', initial,
     decodeLegacy(bytes) {
-      // Empty files are ambiguous: an old unused log and a truncated new snapshot look identical.
-      if (!bytes.length) throw new Error('Empty admission spend history; restore intact history before reopening');
-      // The encrypted envelope never ends in a newline. Incomplete legacy data also fails the encrypted parser.
-      if (bytes.length && bytes.at(-1) !== 10) return undefined;
-      if (bytes.length > limit * 512) throw new Error('Admission legacy spend log exceeds capacity');
-      const spends: AdmissionSpendRecord[] = [];
-      for (const line of bytes.toString('utf8').split('\n')) {
-        if (!line) continue;
-        let row: unknown;
-        try { row = JSON.parse(line); } catch { throw new Error('Admission legacy spend log is corrupt'); }
-        if (!isLegacyAdmissionSpendRow(row)) throw new Error('Admission legacy spend log is corrupt');
-        // A hash cannot identify its issuer. Only a later cryptographically verified exact retry can attribute this row.
-        spends.push({ spend: row.spend, action: row.action, binding: row.binding, issuerKey: null });
-      }
-      if (!spends.length) throw new Error('Empty admission spend history; restore intact history before reopening');
-      return { ...initial, spends };
+      return decodeLegacyAdmissionSpendState(bytes, policy.authority, limit);
     },
     validate(value): value is State {
-      if (!fields(value, ['version','authority','spends','retiredIssuerKeys']) || value.version !== 2 || value.authority !== policy.authority
-        || !validRetiredIssuerKeys(value.retiredIssuerKeys, policy, participant, 'local-spends')
-        || !Array.isArray(value.spends) || value.spends.length > limit) return false;
-      const retired = new Set(value.retiredIssuerKeys), seen = new Set<string>();
-      return value.spends.every(row => {
-        if (!fields(row, ['issuerKey','spend','action','binding']) || !validSpend(row) || seen.has(row.spend as string)
-          || (row.issuerKey !== null && (typeof row.issuerKey !== 'string' || !known.has(row.issuerKey) || retired.has(row.issuerKey)))) return false;
-        seen.add(row.spend as string); return true;
-      });
+      try { parseAdmissionSpendState(value, policy, limit); return true; } catch { return false; }
     },
   });
   const spends = new Map(storage.read().spends.map(row => [row.spend, row]));

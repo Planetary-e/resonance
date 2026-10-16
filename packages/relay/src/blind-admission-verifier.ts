@@ -65,7 +65,13 @@ export function createLocalBlindAdmissionVerifierV2(options: {
         history.size();
         const final = policy().find(key => key.issuerPublicKey === entry.issuerPublicKey);
         if (!final || final.mode === 'none') return { status: 'rejected', reason: 'key_retired' };
-        return recordSpend(spend, context, final.mode, issuerKey);
+        const result = await recordSpend(spend, context, final.mode, issuerKey);
+        if (closed) throw new Error('Admission spend log is unavailable');
+        history.size();
+        const completed = policy().find(key => key.issuerPublicKey === entry.issuerPublicKey);
+        if (!completed || completed.mode === 'none' || history.isRetired(issuerKey)
+          || (result.status === 'accepted' && completed.mode !== 'all')) return { status: 'rejected', reason: 'key_retired' };
+        return result;
       }
       return { status: 'rejected', reason: 'invalid_token' };
     },
@@ -74,19 +80,20 @@ export function createLocalBlindAdmissionVerifierV2(options: {
     },
   };
 
-  function recordSpend(spend: string, context: AdmissionVerificationContextV2, mode: 'all' | 'replay-only', issuerKey: string): AdmissionDecisionV2 {
+  async function recordSpend(spend: string, context: AdmissionVerificationContextV2, mode: 'all' | 'replay-only', issuerKey: string): Promise<AdmissionDecisionV2> {
     // Recheck after the asynchronous quorum hook, including exact retries and legacy attribution.
     if (history.isRetired(issuerKey)) return { status: 'rejected', reason: 'key_retired' };
     const previous = history.get(spend);
     const row = { spend, action: context.action, binding: context.requestBinding, issuerKey };
     if (previous !== undefined) {
-      if (previous.action !== row.action || previous.binding !== row.binding) return { status: 'rejected', reason: 'double_spend' };
-      if (previous.issuerKey === null) history.write(row);
+      if (previous.action !== row.action || previous.binding !== row.binding
+        || (previous.issuerKey !== null && previous.issuerKey !== issuerKey)) return { status: 'rejected', reason: 'double_spend' };
+      if (previous.issuerKey === null) await history.write(row);
       return { status: 'replay' };
     }
     if (mode === 'replay-only') return { status: 'rejected', reason: 'key_retired' };
     if (history.size() >= maxSpends) return { status: 'rejected', reason: 'capacity_exhausted' };
-    history.write(row);
+    await history.write(row);
     return { status: 'accepted' };
   }
 }
