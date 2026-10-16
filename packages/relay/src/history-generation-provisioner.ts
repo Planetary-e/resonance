@@ -20,6 +20,8 @@ interface State {
 export function openHistoryGenerationProvisioner(options: {
   directory: string; localKey: Uint8Array; context: HistoryCheckpointContext; signingKey: SigningKeyPair;
   parent: ReturnType<typeof openHistoryCheckpointStore>; initialize?: boolean;
+  /** Resume only an unpublished empty slot whose durable parent has never activated a child. */
+  resumePristine?: boolean;
   maxBytes?: number; maxBlocks?: number; acceptNew?: () => boolean; now?: () => number;
 }) {
   const context = parseHistoryCheckpointContext(options.context), contextId = historyCheckpointContextId(context);
@@ -49,8 +51,16 @@ export function openHistoryGenerationProvisioner(options: {
   let journal: ReturnType<typeof openEncryptedLocalState<State>>;
   try {
     if (!parent.matches(context, replica)) throw new Error('Provisioner belongs to another predecessor or member');
+    if (options.resumePristine && (!options.initialize || parent.activatedContinuation()
+      || existsSync(join(directory, HISTORY_PROVISION_FILENAME)))) throw new Error('Cannot recreate an activated or published provision slot');
     if (options.initialize) {
-      if (existsSync(directory) && readdirSync(directory).length) throw new Error('History provision enrolment directory is not empty');
+      if (existsSync(directory) && readdirSync(directory).length) {
+        if (!options.resumePristine) throw new Error('History provision enrolment directory is not empty');
+        const allowed = /^(?:history-provision\.json\.(?:lock|recovery)|\.history-provision\.json\.[a-f0-9]{16}\.tmp)$/;
+        if (readdirSync(directory).some(name => !allowed.test(name) || !lstatSync(join(directory, name)).isFile())) {
+          throw new Error('Unregistered provision initialization contents require inspection');
+        }
+      }
       if (!existsSync(directory)) mkdirSync(directory, { mode: 0o700 });
       flush(dirname(directory));
     }
