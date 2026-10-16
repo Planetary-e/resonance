@@ -113,3 +113,4 @@ export { listenHistoryAgreementReplica, exchangeHistoryAgreement, exchangeHistor
 export { createHistoryAgreementCoordinator } from './history-agreement-coordinator.js';
 export { openHistoryGenerationProvisioner, createHistoryGenerationReplica } from './history-generation-provisioner.js';
 export { createHistoryProvisionCoordinator } from './history-provision-coordinator.js';
+export { createHistoryAncestryDownload } from './history-ancestry-download.js';

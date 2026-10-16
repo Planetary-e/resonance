@@ -119,29 +119,49 @@ export function openHistoryGenerationProvisioner(options: {
   };
 }
 
-/** Routes the enrolled predecessor and its single certified child on one bounded listener. */
-export function createHistoryGenerationReplica(options: Parameters<typeof openHistoryGenerationProvisioner>[0]) {
+/** Routes the complete locally enrolled chain and one provisionable child on a bounded listener. */
+export function createHistoryGenerationReplica(options: Parameters<typeof openHistoryGenerationProvisioner>[0] & {
+  /** Genesis first, ending immediately before parent. Handles retain their caller-owned lifetime. */
+  ancestors?: ReturnType<typeof openHistoryCheckpointStore>[];
+}) {
+  const retained = [...(options.ancestors ?? []), options.parent];
+  const replica = Buffer.from(options.signingKey.publicKey).toString('base64url');
+  if (retained.length > 65 || retained[0].describe().generation !== 0) throw new Error('History routing requires complete bounded ancestry from genesis');
+  const seen = new Set<string>();
+  for (let i = 0; i < retained.length; i++) {
+    const store = retained[i], head = store.describe(), root = store.envelopeAt(0)!;
+    if (!store.matches(options.context, replica) || seen.has(head.rootId)) throw new Error('Invalid history routing enrolment');
+    seen.add(head.rootId);
+    if (i) {
+      if (root.kind !== 'continuation') throw new Error('History routing has an ancestry gap');
+      const parentHead = retained[i - 1].describe();
+      if (root.proposal.rootId !== parentHead.rootId || root.proposal.generation !== parentHead.generation) throw new Error('History routing has an ancestry gap');
+      retained[i - 1].requireContinuation(root, replica);
+    }
+  }
   const provisioner = openHistoryGenerationProvisioner(options);
-  let agreement: ReturnType<typeof createHistoryAgreementReplica>, predecessor: ReturnType<typeof createHistoryCheckpointReplica>;
+  let agreement: ReturnType<typeof createHistoryAgreementReplica>;
+  const routes = new Map<string, ReturnType<typeof createHistoryCheckpointReplica>>();
   let next: ReturnType<typeof createHistoryCheckpointReplica> | undefined;
   try {
     agreement = createHistoryAgreementReplica({ ...options, store: options.parent });
-    predecessor = createHistoryCheckpointReplica({ ...options, store: options.parent });
-  } catch (error) { agreement!?.close(); provisioner.close(); throw error; }
+    for (const store of retained) routes.set(store.describe().rootId, createHistoryCheckpointReplica({ ...options, store }));
+  } catch (error) { agreement!?.close(); routes.forEach(r => r.close()); provisioner.close(); throw error; }
   return {
     exchange: agreement.exchange, transfer: agreement.transfer, provision: provisioner.provision,
     checkpoint(raw: unknown) {
       provisioner.read(); // Closed/uncertain provisioning never exposes an unfinished child.
       if (!raw || typeof raw !== 'object' || !('request' in raw)) throw new Error('Invalid history frame');
       const request = parseHistoryExchangeRequest(raw.request, options.context, (options.now ?? Date.now)());
-      if (request.rootId === options.parent.describe().rootId) return predecessor.exchange(raw);
+      const route = routes.get(request.rootId);
+      if (route) return route.exchange(raw);
       const child = provisioner.child();
       if (!child || request.rootId !== child.describe().rootId) throw new Error('History generation is not provisioned');
       next ??= createHistoryCheckpointReplica({ ...options, store: child });
       return next.exchange(raw);
     },
     read: provisioner.read,
-    close() { next?.close(); predecessor.close(); agreement.close(); provisioner.close(); },
+    close() { next?.close(); routes.forEach(r => r.close()); agreement.close(); provisioner.close(); },
   };
 }
 function flush(path: string) {
