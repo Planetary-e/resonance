@@ -11,9 +11,10 @@ import { createHistoryExchangeRequest, parseHistoryExchangeResponse, parseHistor
   type HistoryExchangeResponse, type HistoryWriteCertificate } from '@resonance/core/history-exchange';
 import { exchangeHistoryCheckpoint, type HistoryCheckpointTransport, type HistoryReplicaEndpoint } from './history-checkpoint-exchange.js';
 import { createHistoryWriterRepair } from './history-writer-repair.js';
+import type { HistoryWriterRepairSource } from './history-writer-prefix.js';
 
 export const HISTORY_WRITER_FILENAME = 'history-writer.json';
-interface WriterState {
+export interface HistoryCheckpointWriterState {
   version: 1; contextId: string; rootId: string; generation: number;
   committed: { envelope: HistoryCheckpointEnvelope; certificate: HistoryWriteCertificate } | null;
   pending: HistoryCheckpointEnvelope | null;
@@ -28,7 +29,7 @@ export function createHistoryCheckpointWriter(options: {
   /** A decided deterministic root; initial replication must still collect four fresh write receipts. */
   continuation?: HistoryContinuationRoot;
   /** Complete current-generation ciphertext, oldest first, through committed or pending head. */
-  retained?: () => Iterable<HistoryCheckpointEnvelope>;
+  retained?: () => HistoryWriterRepairSource;
 }) {
   const context = parseHistoryCheckpointContext(options.context), contextId = historyCheckpointContextId(context);
   const { rootId, generation } = options;
@@ -51,12 +52,12 @@ export function createHistoryCheckpointWriter(options: {
     }
     return parsed;
   }
-  function follows(block: HistoryCheckpointEnvelope, committed: WriterState['committed']): boolean {
+  function follows(block: HistoryCheckpointEnvelope, committed: HistoryCheckpointWriterState['committed']): boolean {
     return committed ? block.sequence === committed.envelope.sequence + 1
       && block.previous === historyCheckpointEnvelopeId(committed.envelope)
       : block.sequence === 0 && historyCheckpointEnvelopeId(block) === rootId;
   }
-  function valid(value: unknown): value is WriterState {
+  function valid(value: unknown): value is HistoryCheckpointWriterState {
     if (!exactWitnessFields(value, ['version', 'contextId', 'rootId', 'generation', 'committed', 'pending', ...(generation ? ['continuation'] : [])])
       || value.version !== 1 || value.contextId !== contextId || value.rootId !== rootId || value.generation !== generation) return false;
     try {
@@ -64,7 +65,7 @@ export function createHistoryCheckpointWriter(options: {
         const root = parseHistoryContinuationRoot(value.continuation, context);
         if (root.generation !== generation || historyContinuationRootId(root) !== rootId) return false;
       }
-      let committed: WriterState['committed'] = null;
+      let committed: HistoryCheckpointWriterState['committed'] = null;
       if (value.committed !== null) {
         if (!exactWitnessFields(value.committed, ['envelope', 'certificate'])) return false;
         const block = envelope(value.committed.envelope);
@@ -74,13 +75,13 @@ export function createHistoryCheckpointWriter(options: {
     } catch { return false; }
   }
   const key = copyAdmissionSigningKey(options.signingKey);
-  let storage: ReturnType<typeof openEncryptedLocalState<WriterState>>;
+  let storage: ReturnType<typeof openEncryptedLocalState<HistoryCheckpointWriterState>>;
   try {
     if (Buffer.from(key.publicKey).toString('base64url') !== context.owner) throw new Error('Wrong checkpoint writer owner');
-    const initial: WriterState = { version: 1, contextId, rootId, generation, committed: null, pending: null,
+    const initial: HistoryCheckpointWriterState = { version: 1, contextId, rootId, generation, committed: null, pending: null,
       ...(options.continuation ? { continuation: parseHistoryContinuationRoot(options.continuation, context) } : {}) };
     if ((options.initialize || options.continuation) && !valid(initial)) throw new Error('Writer initialization requires its certified continuation');
-    storage = openEncryptedLocalState<WriterState>({ path: join(options.directory, HISTORY_WRITER_FILENAME), key: options.localKey,
+    storage = openEncryptedLocalState<HistoryCheckpointWriterState>({ path: join(options.directory, HISTORY_WRITER_FILENAME), key: options.localKey,
       domain: 'resonance:history-checkpoint-writer:v1', maxBytes: 40 * 1024 * 1024,
       mode: options.initialize ? 'create-new' : 'open-existing',
       initial, validate: valid });
@@ -88,7 +89,7 @@ export function createHistoryCheckpointWriter(options: {
   let closed = false, active: AbortController | undefined;
   return {
     /** Exposes pending exact ciphertext for explicit retry after restart; never automatically sends. */
-    read(): WriterState { return structuredClone(storage.read()); },
+    read(): HistoryCheckpointWriterState { return structuredClone(storage.read()); },
     async replicate(value: unknown): Promise<HistoryWriteCertificate> {
       storage.read();
       if (closed) throw new Error('History writer is closed');

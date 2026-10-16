@@ -8,7 +8,7 @@ import { createHistoryFreeze, historyCheckpointEnvelopeId, type HistoryCheckpoin
 import { createHistoryExchangeRequest } from '@resonance/core/history-exchange';
 import { createHistorySuccessorProposal } from '@resonance/core/history-successor';
 import { openHistoryCheckpointStore } from '../history-checkpoint-store.js';
-import { createHistoryCheckpointWriter } from '../history-checkpoint-quorum.js';
+import { createRetainedHistoryCheckpointWriter } from '../history-retained-writer.js';
 import { createHistoryCheckpointReplica, listenHistoryCheckpointReplica } from '../history-checkpoint-exchange.js';
 import { createHistoryAgreementReplica } from '../history-checkpoint-agreement.js';
 import { createHistoryAgreementCoordinator } from '../history-agreement-coordinator.js';
@@ -66,17 +66,17 @@ it('writes through two certified generations over real sockets and preserves the
     // Use a real, now-closed socket endpoint for the unavailable fifth member.
     const offline = await listenHistoryCheckpointReplica(roles[0]); await offline.close();
     const members = n.context.members.map((publicKey, i) => ({ publicKey, endpoint: listeners[i]?.endpoint ?? offline.endpoint }));
-    const retained: HistoryCheckpointEnvelope[] = [root];
     const options = { directory: join(n.directory, `g${generation}-writer`), localKey: n.localKey, context: n.context,
-      signingKey: n.owner, rootId, generation, members, retained: () => retained };
-    expect(() => createHistoryCheckpointWriter({ ...options, initialize: true })).toThrow('certified continuation');
-    let writer = createHistoryCheckpointWriter({ ...options, initialize: true, continuation: root }); cleanup.push(() => writer.close());
+      signingKey: n.owner, rootId, generation, members };
+    expect(() => createRetainedHistoryCheckpointWriter({ ...options, initialize: true })).toThrow('certified continuation');
+    let writer = createRetainedHistoryCheckpointWriter({ ...options, initialize: true, continuation: root }); cleanup.push(() => writer.close());
     const delta = n.next(root);
     await expect(writer.replicate(delta)).rejects.toThrow('gap'); // A certificate is not four fresh root-write acknowledgements.
     expect((await writer.replicate(root)).receipts).toHaveLength(4);
     expect((await writer.replicate(delta)).receipts).toHaveLength(4);
-    retained.push(delta);
-    writer.close(); writer = createHistoryCheckpointWriter(options); cleanup.push(() => writer.close());
+    expect([...writer.history()]).toEqual([root, delta]);
+    writer.close(); writer = createRetainedHistoryCheckpointWriter(options); cleanup.push(() => writer.close());
+    expect([...writer.history()]).toEqual([root, delta]);
     expect(writer.read().continuation).toEqual(root); expect(writer.read().committed!.envelope).toEqual(delta);
     expect(stores.map(s => s.read().envelopes)).toEqual(Array.from({ length: 4 }, () => [root, delta]));
     writer.close();

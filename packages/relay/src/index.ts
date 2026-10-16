@@ -104,7 +104,8 @@ export { createAdmissionWitness, createAdmissionQuorumGate, type AdmissionWitnes
 export { openHistoryCheckpointStore, type HistoryCheckpointStoreOptions } from './history-checkpoint-store.js';
 export { createHistoryCheckpointReplica, listenHistoryCheckpointReplica, exchangeHistoryCheckpoint,
   readHistoryCheckpoint, type HistoryCheckpointTransport, type HistoryReplicaEndpoint } from './history-checkpoint-exchange.js';
-export { createHistoryCheckpointWriter } from './history-checkpoint-quorum.js';
+export { createHistoryCheckpointWriter, type HistoryCheckpointWriterState } from './history-checkpoint-quorum.js';
+export { createRetainedHistoryCheckpointWriter } from './history-retained-writer.js';
 export { createHistoryCheckpointRecovery } from './history-checkpoint-recovery.js';
 export { createHistoryCheckpointSuccessor } from './history-checkpoint-successor.js';
 export { createHistoryAgreementReplica } from './history-checkpoint-agreement.js';
