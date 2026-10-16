@@ -77,6 +77,19 @@ it('binds a freeze receipt to the exact requested successor barrier and fresh ch
     challenge: randomBytes(32).toString('base64url') }), f.context)).toThrow();
 });
 
+it('keeps absent activated-child observations separate from reads, fresh writes and global readiness', () => {
+  const f = fixture(), request = f.request(0, { action: 'continuation', envelopeId: null });
+  const response = createHistoryExchangeResponse(request, 'no-continuation', f.head, null, f.context, f.members[0]);
+  expect(parseHistoryExchangeResponse(response, request, f.context)).toEqual(response);
+  expect(() => f.request(0, { action: 'continuation', envelopeId: null, sequence: 1 })).toThrow();
+  expect(() => f.request(0, { action: 'continuation' })).toThrow();
+  expect(() => createHistoryExchangeResponse(request, 'continuation', f.head, f.root, f.context, f.members[0])).toThrow();
+  expect(() => createHistoryExchangeResponse(request, 'no-continuation', f.head, f.root, f.context, f.members[0])).toThrow();
+  expect(() => createHistoryExchangeResponse(request, 'head', f.head, null, f.context, f.members[0])).toThrow();
+  expect(() => parseHistoryWriteCertificate({ version: 1, receipts: Array(4).fill(response) }, f.root, f.rootId, f.context)).toThrow();
+  expect(() => parseHistoryExchangeResponse(response, f.request(0, { ...request, challenge: randomBytes(32).toString('base64url') }), f.context)).toThrow();
+});
+
 it('requires four frozen head anchors on one complete chain, not just the highest signed sequence', () => {
   const f = fixture(), freeze = createHistoryFreeze(f.context, 0, 1, f.request().challenge, f.owner);
   const delta = sealHistoryCheckpoint({ context: f.context, signingKey: f.owner, encryptionKey: randomBytes(32), plaintext: Buffer.from('delta'),

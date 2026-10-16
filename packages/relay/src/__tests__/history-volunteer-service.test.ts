@@ -6,7 +6,7 @@ import { randomBytes } from 'node:crypto';
 import { fork } from 'node:child_process';
 import { once } from 'node:events';
 import { createHistoryFreeze, historyCheckpointEnvelopeId, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
-import { createHistoryExchangeRequest, parseHistoryExchangeResponse } from '@resonance/core/history-exchange';
+import { createHistoryExchangeRequest, createHistoryExchangeResponse, parseHistoryExchangeResponse } from '@resonance/core/history-exchange';
 import { createHistorySuccessorProposal } from '@resonance/core/history-successor';
 import { createHistoryContinuationRoot, historyContinuationRootId, type HistoryContinuationRoot } from '@resonance/core/history-continuation';
 import { createHistoryProvisionRequest, parseHistoryProvisionReceipt } from '@resonance/core/history-provision';
@@ -16,6 +16,7 @@ import { exchangeHistoryCheckpoint } from '../history-checkpoint-exchange.js';
 import { createHistoryCheckpointWriter } from '../history-checkpoint-quorum.js';
 import { createHistoryAgreementCoordinator } from '../history-agreement-coordinator.js';
 import { createHistoryAncestryDownload } from '../history-ancestry-download.js';
+import { discoverHistoryContinuations } from '../history-continuation-discovery.js';
 import { historyCheckpointFixture } from './fixtures/history-checkpoint-fixture.js';
 
 const cleanup: Array<() => void | Promise<void>> = [];
@@ -86,7 +87,86 @@ it('runs freeze, agreement, provisioning and retained reads across three generat
     proposal, initialize: true }); cleanup.push(() => download.close());
   expect((await download.run()).complete).toBe(true); expect([...download.blocks()]).toEqual(ancestry);
   expect(n.services.map(s => s.describe().latest.generation)).toEqual([2, 2, 2, 2, 2]);
+  const before = n.services.map(s => s.describe());
+  const observed = await discoverHistoryContinuations({ ...n.owner, genesisId: historyCheckpointEnvelopeId(n.root), members: n.members });
+  expect(observed.continuations.map(r => r.generation)).toEqual([1, 2]);
+  expect(observed.observedLeaf.rootId).toBe(historyCheckpointEnvelopeId(root));
+  expect(observed.observedLeaf.receipts).toHaveLength(4);
+  expect(n.services.map(s => s.describe())).toEqual(before);
+  // All ancestry hops share one deadline; a silent/slow hop cannot reset it.
+  let calls = 0;
+  await expect(discoverHistoryContinuations({ ...n.owner, genesisId: historyCheckpointEnvelopeId(n.root), members: n.members,
+    timeoutMs: 200, transport: (member, frame, signal) => new Promise((resolve, reject) => {
+      calls++;
+      const timer = setTimeout(() => {
+        signal.removeEventListener('abort', abort);
+        try { resolve(n.services[n.members.findIndex(m => m.publicKey === member.publicKey)].checkpoint(frame)); } catch (error) { reject(error); }
+      }, 120);
+      const abort = () => { clearTimeout(timer); reject(new Error('cancelled')); };
+      signal.addEventListener('abort', abort, { once: true });
+    }) })).rejects.toThrow('timed out');
+  expect(calls).toBeLessThanOrEqual(10);
 }, 60000);
+
+it('does not infer the absence of a confirmed decision from four unactivated child observations', async () => {
+  const n = await fixture(), root = await n.decide(await n.append(n.root));
+  const options = { ...n.owner, genesisId: historyCheckpointEnvelopeId(n.root), members: n.members };
+  expect((await discoverHistoryContinuations(options)).observedLeaf.generation).toBe(0);
+  await n.provision(root);
+  const observed = await discoverHistoryContinuations(options);
+  expect(observed.continuations).toEqual([root]); expect(observed.observedLeaf.generation).toBe(1);
+  await expect(discoverHistoryContinuations({ ...options, maxGenerations: 1 })).rejects.toThrow('capacity');
+  expect(n.services.map(s => s.describe().generations)).toEqual([2, 2, 2, 2, 2]);
+  const issuedAt = Date.now(), request = createHistoryExchangeRequest({ action: 'continuation', rootId: options.genesisId, generation: 0,
+    replica: n.members[0].publicKey, challenge: randomBytes(32).toString('base64url'), issuedAt, expiresAt: issuedAt + 30000,
+    sequence: 0, envelopeId: null }, n.context, n.owner.signingKey);
+  const response = parseHistoryExchangeResponse(n.services[0].checkpoint({ request, envelope: null }), request, n.context);
+  for (const head of [{ ...response.head, sequence: 0, envelopeId: options.genesisId }, { ...response.head, freeze: null }]) {
+    expect(() => createHistoryExchangeResponse(request, 'continuation', head, root, n.context, n.memberKeys[0])).toThrow();
+  }
+  expect(() => parseHistoryExchangeResponse({ ...response, envelope: { ...root, certificate: { ...root.certificate,
+    votes: root.certificate.votes.slice(0, 3) } } }, request, n.context)).toThrow();
+}, 30000);
+
+it('ignores one forged observation, refuses two, and rejects replayed observations for new challenges', async () => {
+  const n = await fixture(), options = { ...n.owner, genesisId: historyCheckpointEnvelopeId(n.root), members: n.members };
+  const saved = new Map<string, unknown>();
+  // The API copies endpoint records; select by the public pin rather than object identity.
+  const transport: typeof exchangeHistoryCheckpoint = async (member, frame) => {
+    const raw = n.services[n.members.findIndex(m => m.publicKey === member.publicKey)].checkpoint(frame);
+    saved.set(member.publicKey, raw); return raw;
+  };
+  expect((await discoverHistoryContinuations({ ...options, transport })).observedLeaf.receipts).toHaveLength(4);
+  await expect(discoverHistoryContinuations({ ...options, transport: async member => saved.get(member.publicKey) })).rejects.toThrow('unavailable');
+  for (const broken of [1, 2]) {
+    const attempt = discoverHistoryContinuations({ ...options, transport: async (member, frame, signal) => {
+      const raw = await transport(member, frame, signal);
+      return n.members.findIndex(m => m.publicKey === member.publicKey) < broken ? { ...raw as object, signature: 'forged' } : raw;
+    } });
+    if (broken === 1) expect((await attempt).observedLeaf.receipts).toHaveLength(4);
+    else await expect(attempt).rejects.toThrow('unavailable');
+  }
+});
+
+it('bounds silent peers, closes attempts on cancellation and ignores late replies', async () => {
+  const n = await fixture(), options = { ...n.owner, genesisId: historyCheckpointEnvelopeId(n.root), members: n.members };
+  let started = 0, aborted = 0; const pending: Array<() => void> = [];
+  const transport: typeof exchangeHistoryCheckpoint = (member, frame, signal) => new Promise(resolve => {
+    started++; signal.addEventListener('abort', () => aborted++, { once: true });
+    const response = n.services[n.members.findIndex(m => m.publicKey === member.publicKey)].checkpoint(frame);
+    pending.push(() => resolve(response));
+  });
+  const controller = new AbortController(), run = discoverHistoryContinuations({ ...options, transport, signal: controller.signal });
+  await Promise.resolve(); expect(started).toBe(5); controller.abort();
+  await expect(run).rejects.toThrow('cancelled'); expect(aborted).toBe(5);
+  pending.splice(0).forEach(resolve => resolve()); await Promise.resolve();
+  const deadline = discoverHistoryContinuations({ ...options, transport, timeoutMs: 100 });
+  await expect(deadline).rejects.toThrow('timed out'); expect(aborted).toBe(10);
+  pending.splice(0).forEach(resolve => resolve());
+  const alreadyCancelled = new AbortController(); alreadyCancelled.abort();
+  await expect(discoverHistoryContinuations({ ...options, transport, signal: alreadyCancelled.signal })).rejects.toThrow('cancelled');
+  expect(started).toBe(10); expect(n.owner.signingKey.secretKey.some(byte => byte !== 0)).toBe(true);
+});
 
 it.each(['missing-slot', 'missing-child', 'corrupt-slot', 'unregistered-contents'])(
   'preserves and refuses %s after a certified child has been published', async damage => {

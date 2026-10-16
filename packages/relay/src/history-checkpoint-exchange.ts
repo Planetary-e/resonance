@@ -14,6 +14,8 @@ import { HISTORY_SUCCESSOR_MAX_BYTES, historySuccessorProposalId, historySuccess
   type HistorySuccessorProposal } from '@resonance/core/history-successor';
 
 export const HISTORY_EXCHANGE_MAX_BYTES = HISTORY_ENVELOPE_MAX_BYTES + HISTORY_SUCCESSOR_MAX_BYTES + 4096;
+/** A certified boundary is at most 36 KiB; discovery never accepts a full checkpoint. */
+export const HISTORY_CONTINUATION_RESPONSE_MAX_BYTES = 40 * 1024;
 export interface HistoryReplicaEndpoint { publicKey: string; endpoint: string }
 export interface HistoryExchangeFrame {
   request: HistoryExchangeRequest; envelope: HistoryCheckpointEnvelope | null;
@@ -79,6 +81,9 @@ export function createHistoryCheckpointReplica(options: {
           options.store.freeze(freeze); // Flush the one-way barrier before signing any frozen head.
           status = 'frozen';
         } else if (request.action === 'head') status = 'head';
+        else if (request.action === 'continuation') {
+          envelope = options.store.activatedContinuation(); status = envelope ? 'continuation' : 'no-continuation';
+        }
         else { envelope = options.store.envelopeAt(request.sequence); status = envelope ? 'block' : 'missing'; }
       }
       const response = createHistoryExchangeResponse(request, status, options.store.describe(), envelope, context, key);
@@ -169,7 +174,8 @@ export function exchangeHistoryCheckpoint(member: HistoryReplicaEndpoint, frame:
     if (signal.aborted) { abort(); return; }
     signal.addEventListener('abort', abort, { once: true });
     try { socket = new WebSocket(member.endpoint, { handshakeTimeout: 10_000, maxPayload: frame.request.action === 'read'
-      ? HISTORY_EXCHANGE_MAX_BYTES : 4096, perMessageDeflate: false, followRedirects: false }); }
+      ? HISTORY_EXCHANGE_MAX_BYTES : frame.request.action === 'continuation' ? HISTORY_CONTINUATION_RESPONSE_MAX_BYTES : 4096,
+      perMessageDeflate: false, followRedirects: false }); }
     catch { finish(undefined, new Error('History connection failed')); return; }
     socket.on('error', () => finish(undefined, new Error('History connection failed')));
     socket.on('close', () => finish(undefined, new Error('History connection closed')));
@@ -189,10 +195,10 @@ export function exchangeHistoryCheckpoint(member: HistoryReplicaEndpoint, frame:
   });
 }
 
-/** Read one signed head or one block; it cannot decide that the returned history is globally latest. */
+/** Read one signed head, block or activated boundary; none proves global freshness. */
 export async function readHistoryCheckpoint(member: HistoryReplicaEndpoint, request: HistoryExchangeRequest,
   context: HistoryCheckpointContext, signal: AbortSignal): Promise<HistoryExchangeResponse> {
-  if (request.action !== 'head' && request.action !== 'read') throw new Error('Expected a history read request');
+  if (!['head', 'read', 'continuation'].includes(request.action)) throw new Error('Expected a history read request');
   const pinned = parseHistoryCheckpointContext(context), original = parseHistoryExchangeRequest(request, pinned, Date.now());
   const value = await exchangeHistoryCheckpoint(member, { request: original, envelope: null }, signal);
   if (signal.aborted) throw new Error('History exchange cancelled');

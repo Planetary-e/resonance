@@ -11,6 +11,7 @@ import { readOperatorFile, readOperatorJson, readOperatorSigningKey, readOperato
 import { openProtectedAdmissionSpendHistory } from '../packages/relay/src/protected-admission-history.js';
 import { openHistoryVolunteerService } from '../packages/relay/src/history-volunteer-service.js';
 import { listenHistoryAgreementReplica } from '../packages/relay/src/history-agreement-exchange.js';
+import { discoverHistoryContinuations } from '../packages/relay/src/history-continuation-discovery.js';
 
 const ENROLLMENT_MAX = HISTORY_ENVELOPE_MAX_BYTES + 65536;
 const cleanup: Array<() => void> = [];
@@ -62,6 +63,14 @@ try {
     writeOperatorJsonNew(output, { version: 1, kind: 'admission-history-enrollment', ...value }, ENROLLMENT_MAX);
     console.log(JSON.stringify({ result: 'enrollment-exported', contextId: historyCheckpointContextId(value.context),
       genesisId: historyCheckpointEnvelopeId(value.root), output: resolve(output), readiness: 'unverified' }));
+  } else if (command === 'owner-inspect' && raw.length === 2) {
+    const protection = loadAdmissionHistoryProtectionFile(raw[0]); cleanup.push(() => protection.signingKey.secretKey.fill(0));
+    const pinned = enrollment(raw[1]);
+    if (pinned.contextId !== historyCheckpointContextId(protection.context)) throw new Error('Enrollment and owner configuration differ');
+    const observation = await discoverHistoryContinuations({ ...protection, genesisId: pinned.genesisId });
+    console.log(JSON.stringify({ result: 'history-observed', contextId: observation.contextId, genesisId: pinned.genesisId,
+      certifiedBoundaries: observation.continuations.length, observedGeneration: observation.observedLeaf.generation,
+      readiness: 'unverified', mutation: 'none' }));
   } else if (['replica-plan', 'replica-enroll', 'replica-serve'].includes(command)) {
     const approved = command === 'replica-enroll' && raw[0] === '--approve' ? raw[1] : undefined;
     const args = approved ? raw.slice(2) : raw;
@@ -98,6 +107,7 @@ try {
   console.error('Usage: node --import tsx scripts/admission-history.ts');
   console.error('  owner-config owner-private.json authority.pub policy.json members.json owner-config.json');
   console.error('  owner-prepare|owner-export|owner-resume-setup owner-config.json policy.json owner-storage.hex owner-directory enrollment.json');
+  console.error('  owner-inspect owner-config.json enrollment.json');
   console.error('  replica-plan enrollment.json member-private.json member-storage.hex replica-directory');
   console.error('  replica-enroll --approve <digest> enrollment.json member-private.json member-storage.hex replica-directory');
   console.error('  replica-serve enrollment.json member-private.json member-storage.hex replica-directory <port>');

@@ -79,6 +79,7 @@ it('prepares and enrolls five volunteer processes through the CLI, refuses three
   const members = n.context.members.map((publicKey, i) => ({ publicKey, endpoint: volunteers[i].checkpointEndpoint }));
   writeFileSync(n.configFile, JSON.stringify({ ...n.config, members }));
   await volunteers[3].close(); await volunteers[4].close();
+  expect((await command('owner-inspect', n.configFile, n.enrollment)).code).not.toBe(0);
   const protection = loadAdmissionHistoryProtectionFile(n.configFile); cleanup.push(() => { protection.signingKey.secretKey.fill(0); });
   const options = { directory: n.ownerDirectory, policy: n.policy, authority: n.context.authority, encryptionKey: n.key,
     historyProtection: protection, initializeSpendHistory: false };
@@ -102,6 +103,10 @@ it('prepares and enrolls five volunteer processes through the CLI, refuses three
   expect((await command('owner-resume-setup', ...recovery)).code).not.toBe(0);
   expect(readFileSync(join(damaged, 'admission-spends-v2.jsonl'))).toEqual(retained);
   expect(existsSync(join(damaged, 'admission-history-writer'))).toBe(false);
+  rmSync(n.ownerDirectory, { recursive: true });
+  expect(await succeed('owner-inspect', n.configFile, n.enrollment)).toEqual({ result: 'history-observed', contextId: exported.contextId,
+    genesisId: exported.genesisId, certifiedBoundaries: 0, observedGeneration: 0, readiness: 'unverified', mutation: 'none' });
+  expect(existsSync(n.ownerDirectory)).toBe(false);
 }, 60000);
 
 it('binds enrollment approval to member, destination and local key, and never resets existing or missing owner history', async () => {

@@ -8,7 +8,7 @@ import {
 } from './history-checkpoint.js';
 
 export interface HistoryExchangeRequest {
-  version: 1; kind: 'history-request'; action: 'append' | 'head' | 'read' | 'freeze' | 'repair' | 'seal';
+  version: 1; kind: 'history-request'; action: 'append' | 'head' | 'read' | 'freeze' | 'repair' | 'seal' | 'continuation';
   contextId: string; rootId: string; generation: number; replica: string;
   challenge: string; issuedAt: number; expiresAt: number;
   /** Block sequence, or the requested successor barrier for a freeze. */
@@ -19,7 +19,7 @@ export interface HistoryReplicaHead {
 }
 export interface HistoryExchangeResponse {
   version: 1; kind: 'history-response'; request: HistoryExchangeRequest;
-  status: 'stored' | 'head' | 'block' | 'missing' | 'frozen' | 'repaired' | 'sealed'; head: HistoryReplicaHead;
+  status: 'stored' | 'head' | 'block' | 'missing' | 'frozen' | 'repaired' | 'sealed' | 'continuation' | 'no-continuation'; head: HistoryReplicaHead;
   envelope: HistoryCheckpointEnvelope | null; signature: string;
 }
 export interface HistoryWriteCertificate { version: 1; receipts: HistoryExchangeResponse[] }
@@ -45,11 +45,11 @@ const requestBytes = (r: HistoryExchangeRequest) => Buffer.from(`${DOMAIN}:reque
 /** Omit now only when validating historical evidence, never when accepting a network request. */
 export function parseHistoryExchangeRequest(value: unknown, context: HistoryCheckpointContext, now?: number): HistoryExchangeRequest {
   if (!exactWitnessFields(value, requestFields) || value.version !== 1 || value.kind !== 'history-request'
-    || !['append', 'head', 'read', 'freeze', 'repair', 'seal'].includes(value.action as string) || value.contextId !== historyCheckpointContextId(context)
+    || !['append', 'head', 'read', 'freeze', 'repair', 'seal', 'continuation'].includes(value.action as string) || value.contextId !== historyCheckpointContextId(context)
     || !isHistoryDigest(value.rootId) || !integer(value.generation) || !context.members.includes(value.replica as string)
     || !witnessBytes(value.challenge, 32) || !integer(value.issuedAt) || !integer(value.expiresAt)
     || value.expiresAt <= value.issuedAt || value.expiresAt - value.issuedAt > HISTORY_REQUEST_MAX_LIFETIME_MS
-    || !integer(value.sequence) || (value.action === 'head' && value.sequence !== 0)
+    || !integer(value.sequence) || (['head', 'continuation'].includes(value.action as string) && value.sequence !== 0)
     || (value.action === 'freeze' && value.sequence <= value.generation)
     || (['append', 'repair', 'seal'].includes(value.action as string) ? !isHistoryDigest(value.envelopeId) : value.envelopeId !== null)
     || !witnessBytes(value.signature, 64)
@@ -97,6 +97,13 @@ function responseBody(value: unknown, request: HistoryExchangeRequest, context: 
       || (head.sequence === echoed.sequence && head.envelopeId !== echoed.envelopeId)) throw new Error('Invalid durable history acknowledgement');
   } else if (echoed.action === 'head') {
     if (value.status !== 'head' || envelope !== null) throw new Error('Invalid history head response');
+  } else if (echoed.action === 'continuation') {
+    if (value.status === 'no-continuation') {
+      if (envelope !== null) throw new Error('Unexpected continuation payload');
+    } else if (value.status !== 'continuation' || envelope?.kind !== 'continuation'
+      || envelope.proposal.rootId !== echoed.rootId || envelope.proposal.generation !== echoed.generation
+      || envelope.proposal.sequence !== head.sequence || envelope.proposal.envelopeId !== head.envelopeId
+      || envelope.generation !== head.freeze?.nextGeneration) throw new Error('Invalid activated history continuation');
   } else if (echoed.action === 'freeze') {
     if (value.status !== 'frozen' || envelope !== null || head.freeze?.nextGeneration !== echoed.sequence) {
       throw new Error('Invalid history freeze response');
