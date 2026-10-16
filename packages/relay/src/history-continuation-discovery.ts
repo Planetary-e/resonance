@@ -57,7 +57,9 @@ export async function discoverHistoryContinuations(options: {
           if (settled) return; live();
           const request = createHistoryExchangeRequest({ action: 'continuation', rootId, generation, replica: member.publicKey,
             challenge, issuedAt, expiresAt, sequence: 0, envelopeId: null }, context, key);
-          const raw = await transport(member, { request: structuredClone(request), envelope: null }, group.signal);
+          const frame = { request: structuredClone(request), envelope: null };
+          live(); // Signing/copying can consume the final deadline budget; never dispatch afterward.
+          const raw = await transport(member, frame, group.signal);
           if (settled) return; live();
           if (Buffer.byteLength(JSON.stringify(raw) ?? '') > HISTORY_CONTINUATION_RESPONSE_MAX_BYTES) throw new Error('Oversized continuation response');
           const response = parseHistoryExchangeResponse(raw, request, context);
@@ -65,7 +67,10 @@ export async function discoverHistoryContinuations(options: {
           if (response.envelope?.kind === 'continuation') finish(response.envelope);
           else { receipts.push(response); if (receipts.length === 4) finish(receipts); }
         }).catch(() => {}).finally(() => {
-          if (!settled && --remaining === 0) finish(undefined, new Error('Four continuation observations or a certified child are unavailable'));
+          if (!settled && --remaining === 0) {
+            try { live(); finish(undefined, new Error('Four continuation observations or a certified child are unavailable')); }
+            catch { finish(undefined, new Error('History discovery cancelled or timed out')); }
+          }
         });
       });
     });

@@ -160,12 +160,17 @@ it('bounds silent peers, closes attempts on cancellation and ignores late replie
   await Promise.resolve(); expect(started).toBe(5); controller.abort();
   await expect(run).rejects.toThrow('cancelled'); expect(aborted).toBe(5);
   pending.splice(0).forEach(resolve => resolve()); await Promise.resolve();
+  const beforeDeadline = started;
   const deadline = discoverHistoryContinuations({ ...options, transport, timeoutMs: 100 });
-  await expect(deadline).rejects.toThrow('timed out'); expect(aborted).toBe(10);
+  await expect(deadline).rejects.toThrow('timed out');
+  // Real signing/verification may exhaust 100 ms before every (or even the first) member is dispatched.
+  // Every attempt that actually started must be aborted, including that partial fan-out.
+  expect(started - beforeDeadline).toBeLessThanOrEqual(5);
+  expect(aborted).toBe(started); const atDeadline = started;
   pending.splice(0).forEach(resolve => resolve());
   const alreadyCancelled = new AbortController(); alreadyCancelled.abort();
   await expect(discoverHistoryContinuations({ ...options, transport, signal: alreadyCancelled.signal })).rejects.toThrow('cancelled');
-  expect(started).toBe(10); expect(n.owner.signingKey.secretKey.some(byte => byte !== 0)).toBe(true);
+  expect(started).toBe(atDeadline); expect(n.owner.signingKey.secretKey.some(byte => byte !== 0)).toBe(true);
 });
 
 it.each(['missing-slot', 'missing-child', 'corrupt-slot', 'unregistered-contents'])(

@@ -74,7 +74,7 @@ it.each(['gap', 'fork', 'longer', 'corrupt'] as const)('rejects a %s retained pr
   await expect(writer.replicate(b)).rejects.toThrow();
   expect(calls).toBe(0); expect(writer.read().pending).toEqual(b); expect(writer.read().committed?.envelope).toEqual(a);
   source = n.retained; await writer.replicate(b); expect(writer.read().pending).toBeNull();
-});
+}, 30000); // Multiple real quorum writes/fsyncs; this is a safety test, not a five-second latency benchmark.
 
 it.each(['fork', 'newer', 'frozen'] as const)('never changes a %s replica or counts its head as a durable write receipt', async kind => {
   const n = fixture(); let offline = 4; const actions: string[] = [];
