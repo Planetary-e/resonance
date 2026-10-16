@@ -15,11 +15,9 @@ import { createRelayClient } from '../relay-client.js';
 import { openPrivateRequestOutbox, type PrivateRequestOutbox } from '../private-request-outbox.js';
 import { openPublicationOutbox, type PublicationOutbox } from '../publication-outbox.js';
 
-const BASE_PORT = 46_000 + Math.floor(Math.random() * 1_000);
-const ENTRY = `ws://127.0.0.1:${BASE_PORT}/`;
-const DESTINATION = `ws://[::1]:${BASE_PORT + 1}/`;
-const SAME_DOMAIN = `ws://127.0.0.1:${BASE_PORT + 2}/`;
-const dirs = [0, 1, 2].map(index => `/tmp/resonance-private-client-${Date.now()}-${BASE_PORT}-${index}`);
+let ENTRY: string, DESTINATION: string, SAME_DOMAIN: string;
+const directoryId = randomBytes(8).toString('hex');
+const dirs = [0, 1, 2].map(index => `/tmp/resonance-private-client-${directoryId}-${index}`);
 const servers: RelayServer[] = [];
 
 function relay(port: number, host: string, endpoint: string, persistDir: string): RelayServer {
@@ -35,11 +33,14 @@ function relay(port: number, host: string, endpoint: string, persistDir: string)
 
 beforeAll(async () => {
   servers.push(
-    relay(BASE_PORT, '127.0.0.1', ENTRY, dirs[0]),
-    relay(BASE_PORT + 1, '::1', DESTINATION, dirs[1]),
-    relay(BASE_PORT + 2, '127.0.0.1', SAME_DOMAIN, dirs[2]),
+    relay(0, '127.0.0.1', 'ws://127.0.0.1:0/', dirs[0]),
+    relay(0, '::1', 'ws://[::1]:0/', dirs[1]),
+    relay(0, '127.0.0.1', 'ws://127.0.0.1:0/', dirs[2]),
   );
   for (const server of servers) await server.start();
+  ENTRY = `ws://127.0.0.1:${servers[0].getListeningPort()}/`;
+  DESTINATION = `ws://[::1]:${servers[1].getListeningPort()}/`;
+  SAME_DOMAIN = `ws://127.0.0.1:${servers[2].getListeningPort()}/`;
   const destinationDescriptor = servers[1].getRelayDescriptor();
   const sameDomainDescriptor = servers[2].getRelayDescriptor();
   expect(destinationDescriptor).toBeDefined();
@@ -93,7 +94,7 @@ describe('personal client private transport', () => {
     let connections = 0;
     stalledEntry.on('connection', () => { connections++; });
     const client = createRelayClient({
-      relayUrl: DESTINATION, fallbackUrls: [SAME_DOMAIN, `ws://[::1]:${BASE_PORT + 9}/`],
+      relayUrl: DESTINATION, fallbackUrls: [SAME_DOMAIN, 'ws://[::1]:0/'],
       privateEntryUrls: [`ws://127.0.0.1:${address.port}/`],
       privateTraffic: { batchWindowMs: reason === 'deadline' ? 1_000 : 10, jitterMs: 0 },
     });
@@ -174,8 +175,9 @@ describe('personal client private transport', () => {
     box.close(); box = openPrivateRequestOutbox(options); expect(bindings).toHaveLength(0);
     const originalSend = WebSocket.prototype.send; let lostReply = false;
     const spy = vi.spyOn(WebSocket.prototype, 'send').mockImplementation(function (this: WebSocket, data, ...args) {
-      const port = (this as WebSocket & { _socket?: { localPort: number } })._socket?.localPort;
-      if (port === BASE_PORT && typeof data === 'string' && JSON.parse(data).type === 'private_response') { lostReply = true; return; }
+      const socket = (this as WebSocket & { _socket?: { localPort: number; localAddress: string } })._socket;
+      if (socket?.localAddress === '127.0.0.1' && socket.localPort === servers[0].getListeningPort()
+        && typeof data === 'string' && JSON.parse(data).type === 'private_response') { lostReply = true; return; }
       return Reflect.apply(originalSend, this, [data, ...args]);
     });
     try {
@@ -190,8 +192,6 @@ describe('personal client private transport', () => {
   }, 16_000);
 
   it('preserves an accepted publication and exact blind-token retry after the shared deadline loses its reply', async () => {
-    const entryEndpoint = `ws://127.0.0.1:${BASE_PORT + 3}/`;
-    const destinationEndpoint = `ws://[::1]:${BASE_PORT + 4}/`;
     const entryDir = `${dirs[0]}-blind-entry`;
     const destinationDir = `${dirs[0]}-blind-destination`;
     const scope = { issuer: 'community-test', community: 'public', epoch: '2026-09' };
@@ -210,17 +210,19 @@ describe('personal client private transport', () => {
     const verifier = createLocalBlindAdmissionVerifierV2({
       directory: destinationDir, scope, issuerPublicKey: keys.publicKey,
     });
-    const entry = relay(BASE_PORT + 3, '127.0.0.1', entryEndpoint, entryDir);
+    const entry = relay(0, '127.0.0.1', 'ws://127.0.0.1:0/', entryDir);
     const destination = createRelayServer({
-      port: BASE_PORT + 4, host: '::1', persistDir: destinationDir,
+      port: 0, host: '::1', persistDir: destinationDir,
       admissionVerifier: verifier,
       relayDiscovery: {
-        endpoints: [destinationEndpoint], reachability: 'direct', supportedGroups: ['public'],
+        endpoints: ['ws://[::1]:0/'], reachability: 'direct', supportedGroups: ['public'],
         storage: { capacityBytes: 1_000_000, availableBytes: 900_000 }, maxKnownRelays: 8,
       },
     });
     await entry.start();
     await destination.start();
+    const entryEndpoint = `ws://127.0.0.1:${entry.getListeningPort()}/`;
+    const destinationEndpoint = `ws://[::1]:${destination.getListeningPort()}/`;
     let replySpy: ReturnType<typeof vi.spyOn> | undefined;
     let outbox: PublicationOutbox | undefined;
     try {
@@ -244,8 +246,9 @@ describe('personal client private transport', () => {
       let heldSocket: WebSocket | undefined;
       let heldCallback: ((error?: Error) => void) | undefined;
       replySpy = vi.spyOn(WebSocket.prototype, 'send').mockImplementation(function (this: WebSocket, data, ...args) {
-        const port = (this as WebSocket & { _socket?: { localPort: number } })._socket?.localPort;
-        if (port === BASE_PORT + 3 && typeof data === 'string' && JSON.parse(data).type === 'private_response') {
+        const socket = (this as WebSocket & { _socket?: { localPort: number; localAddress: string } })._socket;
+        if (socket?.localAddress === '127.0.0.1' && socket.localPort === entry.getListeningPort()
+          && typeof data === 'string' && JSON.parse(data).type === 'private_response') {
           // Destination accepted the record; hold the entry's final write to the client.
           heldSocket = this;
           heldCallback = args.find(value => typeof value === 'function');
@@ -287,5 +290,5 @@ describe('personal client private transport', () => {
       rmSync(entryDir, { recursive: true, force: true });
       rmSync(destinationDir, { recursive: true, force: true });
     }
-  }, 20_000);
+  }, 30_000); // RSA setup, one intentional ten-second timeout, then an independent ten-second retry budget.
 });

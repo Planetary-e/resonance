@@ -4208,8 +4208,15 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       });
       wss.on('connection', handleConnection);
 
-      await new Promise<void>((resolve) => {
+      await new Promise<void>((resolve, reject) => {
+        // ws forwards HTTP listener errors. Handle both emitters so a bind
+        // failure rejects startup instead of crashing or leaving it pending.
+        const failed = (error: Error) => reject(error);
+        httpServer.once('error', failed);
+        wss.once('error', failed);
         httpServer.listen(cfg.port, cfg.host, () => {
+          httpServer.removeListener('error', failed);
+          wss.removeListener('error', failed);
           const address = httpServer.address();
           const boundPort = address && typeof address !== 'string' ? address.port : cfg.port;
           if (cfg.port === 0 && cfg.relayDiscovery) {
@@ -4225,6 +4232,9 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           log('info', 'started', { port: boundPort, host: cfg.host, did: relayIdentity.did });
           resolve();
         });
+      }).catch(async error => {
+        await this.stop({ graceful: false });
+        throw error;
       });
 
       // Periodic cleanup
