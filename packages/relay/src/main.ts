@@ -14,6 +14,7 @@ import { OwnerResourcePolicy } from './owner-resource-policy.js';
 import { RelayTrafficMeter } from './relay-resource-meter.js';
 import { createRelayServer } from './server.js';
 import { createConfiguredAdmissionVerifier } from './configured-admission-verifier.js';
+import { loadAdmissionHistoryProtectionFile } from './admission-history-config.js';
 import type { AdmissionCapabilityVerifierV2 } from './admission.js';
 import type { AdmissionWitness } from './admission-witness.js';
 import { createLocalBlindAdmissionVerifierV2 } from './blind-admission-verifier.js';
@@ -118,6 +119,8 @@ const policyFiles = [process.env.RELAY_ADMISSION_AUTHORITY_FILE, process.env.REL
 if (policyFiles.some(Boolean) && (!policyFiles.every(Boolean) || admissionSettings.some(Boolean))) {
   throw new Error('Supply all three signed admission policy files and omit the manual issuer settings');
 }
+const historyFile = process.env.RELAY_ADMISSION_HISTORY_FILE;
+if (historyFile && !policyFiles.every(Boolean)) throw new Error('Protected history requires all three signed admission policy files');
 function policyFile(path: string, maximum = 64 * 1024) { if (statSync(path).size > maximum) throw new Error('Admission policy input is too large'); return readFileSync(path, 'utf8'); }
 const policyKeyHex = policyFiles.every(Boolean) ? policyFile(policyFiles[2]!).trim() : undefined;
 if (policyKeyHex !== undefined && !/^[a-f0-9]{64}$/.test(policyKeyHex)) throw new Error('Policy storage key must be 32 bytes encoded as lowercase hex');
@@ -136,23 +139,30 @@ function signingKeyFile(path: string) {
 const witnessKey = witnessKeyFile ? signingKeyFile(witnessKeyFile) : undefined;
 const coordinatorKey = coordinatorKeyFile ? signingKeyFile(coordinatorKeyFile) : undefined;
 const resourceMeter = new RelayTrafficMeter(relayDataDir);
-const admissionVerifier: (AdmissionCapabilityVerifierV2 & { close(): void; witness?: AdmissionWitness }) | undefined = policyFiles.every(Boolean)
-  ? await createConfiguredAdmissionVerifier({ directory: relayDataDir, authority: policyFile(policyFiles[0]!).trim(),
-    policy: JSON.parse(policyFile(policyFiles[1]!, MAX_ADMISSION_POLICY_BYTES)), encryptionKey: Buffer.from(policyKeyHex!, 'hex'),
-    initialize: process.env.RELAY_ADMISSION_POLICY_INITIALIZE === 'true', witnessKey, coordinatorKey,
-    onWitnessSocket: socket => resourceMeter.observe(socket),
-    initializeWitnessState: process.env.RELAY_ADMISSION_WITNESS_INITIALIZE === 'true' ? true : undefined })
-  : admissionSettings.every(Boolean)
-  ? createLocalBlindAdmissionVerifierV2({
-    directory: relayDataDir,
-    scope: {
-      issuer: process.env.RELAY_ADMISSION_ISSUER!,
-      community: process.env.RELAY_ADMISSION_COMMUNITY!,
-      epoch: process.env.RELAY_ADMISSION_EPOCH!,
-    },
-    issuerPublicKey: await importAdmissionPublicKey(process.env.RELAY_ADMISSION_PUBLIC_KEY_FILE!),
-  }) : undefined;
-witnessKey?.secretKey.fill(0); coordinatorKey?.secretKey.fill(0);
+let historyProtection: ReturnType<typeof loadAdmissionHistoryProtectionFile> | undefined;
+let admissionVerifier: (AdmissionCapabilityVerifierV2 & { close(): void; witness?: AdmissionWitness }) | undefined;
+try {
+  historyProtection = historyFile ? loadAdmissionHistoryProtectionFile(historyFile, socket => resourceMeter.observe(socket)) : undefined;
+  admissionVerifier = policyFiles.every(Boolean)
+    ? await createConfiguredAdmissionVerifier({ directory: relayDataDir, authority: policyFile(policyFiles[0]!).trim(),
+      policy: JSON.parse(policyFile(policyFiles[1]!, MAX_ADMISSION_POLICY_BYTES)), encryptionKey: Buffer.from(policyKeyHex!, 'hex'),
+      initialize: process.env.RELAY_ADMISSION_POLICY_INITIALIZE === 'true', witnessKey, coordinatorKey,
+      historyProtection, initializeSpendHistory: historyProtection ? false : undefined,
+      onWitnessSocket: socket => resourceMeter.observe(socket),
+      initializeWitnessState: process.env.RELAY_ADMISSION_WITNESS_INITIALIZE === 'true' ? true : undefined })
+    : admissionSettings.every(Boolean)
+    ? createLocalBlindAdmissionVerifierV2({
+      directory: relayDataDir,
+      scope: {
+        issuer: process.env.RELAY_ADMISSION_ISSUER!,
+        community: process.env.RELAY_ADMISSION_COMMUNITY!,
+        epoch: process.env.RELAY_ADMISSION_EPOCH!,
+      },
+      issuerPublicKey: await importAdmissionPublicKey(process.env.RELAY_ADMISSION_PUBLIC_KEY_FILE!),
+    }) : undefined;
+} finally {
+  witnessKey?.secretKey.fill(0); coordinatorKey?.secretKey.fill(0); historyProtection?.signingKey.secretKey.fill(0);
+}
 const ownerPolicy = ownerBandwidth !== undefined || ownerTotalBandwidth !== undefined || ownerCpu !== undefined
   || ownerSchedule !== undefined || ownerExternalPower
   ? new OwnerResourcePolicy({
