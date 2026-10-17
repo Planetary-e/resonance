@@ -278,6 +278,7 @@ The five-target placement goal remains conditional on enough eligible volunteers
   - [x] Add bounded encrypted local hold/release controls; never send held work or reserve capabilities on restart, expiry, cancellation, or outbox overflow
     - [x] Publications: encrypted 64-entry / 16 MiB outbox, explicit desktop Send/Cancel, pinned private routes, crash recovery without replay, and exact retry after an uncertain delivery; exclude held publications from mailbox sync
     - [x] Searches and per-mailbox checks: encrypted 24-hour intents, fresh signed requests only on explicit Run, persistent pause across all automatic mailbox paths, bounded releases, and uncertain-outcome recovery without automatic retry; a selected mailbox run includes its required acknowledgements, connection responses, and pending messages
+  - [x] Replace heap-delta HNSW memory evidence with isolated native-process absolute/peak RSS; retain reproducible 10K/100K measurements and explicit full-application exclusions (`docs/evals/hnsw-process-memory-2026-10-17.md`)
   - [ ] Measure stronger observers, total traffic, and CPU/energy costs before selecting production timing defaults; quiet-period observer protection remains unresolved
   - [ ] Run colluding-operator, multi-domain Sybil, and timing-correlation adversaries with quantitative privacy targets
 - [ ] Define group-specific, rotating fingerprint epochs to limit correlation across communities and time
