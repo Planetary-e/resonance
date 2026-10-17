@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { existsSync, readFileSync, readdirSync, renameSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHistoryFreeze, historyCheckpointContextId, historyCheckpointEnvelopeId } from '@resonance/core/history-checkpoint';
 import { openStorageReservationAuthority, STORAGE_RESERVATION_CONTROL_BYTES as CONTROL, withStorageReservationAuthority } from '@resonance/core/storage-reservations';
@@ -91,4 +91,22 @@ it('rechecks a captured download lease after asynchronous network delivery befor
   const { download } = n.open(true);
   await expect(download.run({ maxBlocks: 1 })).rejects.toThrow();
   expect(readdirSync(n.downloadOptions.directory).filter(name => name.endsWith('.block'))).toEqual([]);
+});
+
+it('adopts retained encrypted history and unknown files conservatively before reopening at the new exact ceiling', async () => {
+  const n = fixture(), writers = n.open(true); writers.archive.retainPending(); writers.store.append(n.delta);
+  await writers.download.run({ maxBlocks: 1 }); writers.close();
+  const unknown = join(n.directory, 'legacy-unclassified'); writeFileSync(unknown, 'preserve this unclassified obligation');
+  const targets = [n.archiveOptions.directory, n.storeOptions.directory, n.downloadOptions.directory].map(path => ({ path, scope: 'directory' as const }));
+  const selected = [...targets, { path: unknown, scope: 'file' as const }];
+  const review = n.authority.reviewExisting(selected);
+  expect(review.fits).toBe(false); expect(review.observedBytes).toBeGreaterThan(0);
+  expect(() => n.authority.adoptExisting(selected, review.approvalDigest)).toThrow(/exhausted/);
+  n.authority.applyLimit(review.reservedBytes, n.authority.reviewLimit(review.reservedBytes).approvalDigest);
+  n.authority.adoptExisting(selected, n.authority.reviewExisting(selected).approvalDigest);
+  const charged = n.authority.status(); expect(charged).toMatchObject({ components: 6, adoptedSelections: 4, availableBytes: 0 });
+  const reopened = n.open(false); expect(reopened.store.read().envelopes).toEqual([n.root, n.delta]);
+  const next = n.next(n.delta); reopened.store.append(next); expect((await reopened.download.run()).complete).toBe(true);
+  expect([...reopened.archive.blocks()]).toEqual([n.root]); expect([...reopened.download.blocks()]).toEqual(n.blocks);
+  expect(readFileSync(unknown, 'utf8')).toBe('preserve this unclassified obligation'); expect(n.authority.status()).toEqual(charged);
 });

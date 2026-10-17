@@ -7,6 +7,7 @@ import {
 } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
+import { inventoryStorageAdoption, type StorageAdoptionTarget, type StorageAdoptionBounds } from './storage-adoption-inventory.js';
 import { acquireLocalStateLock } from './local-encrypted-state.js';
 import { assertNoStorageReservationContext, type StorageReservationLease, type StorageReservationRequest } from './storage-reservation-context.js';
 
@@ -14,7 +15,8 @@ export const STORAGE_RESERVATION_MANIFEST_BYTES = 1024 * 1024;
 export const STORAGE_RESERVATION_CONTROL_BYTES = 2 * STORAGE_RESERVATION_MANIFEST_BYTES + 8192;
 export const STORAGE_RESERVATION_MAX_ENTRIES = 512;
 interface Allocation { path: string; component: string; scope: 'file' | 'directory'; maximumBytes: number }
-interface State { version: 1; authorityId: string; revision: number; limitBytes: number; allocations: Allocation[] }
+interface Adoption { path: string; scope: 'file' | 'directory'; maximumBytes: number }
+interface State { version: 2; authorityId: string; revision: number; limitBytes: number; allocations: Allocation[]; adoptions: Adoption[] }
 const safe = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0;
 const inside = (parent: string, path: string) => { const suffix = relative(parent, path); return suffix === '' || (!isAbsolute(suffix) && suffix !== '..' && !suffix.startsWith('../') && !suffix.startsWith('..\\')); };
 function present(path: string) {
@@ -54,14 +56,16 @@ function flushDirectory(path: string) {
 }
 function total(state: State) {
   let result = STORAGE_RESERVATION_CONTROL_BYTES;
-  for (const entry of state.allocations) { result += entry.maximumBytes; if (!safe(result)) throw new Error('Storage reservations exceed safe counters'); }
+  for (const entry of [...state.allocations, ...state.adoptions]) { result += entry.maximumBytes; if (!safe(result)) throw new Error('Storage reservations exceed safe counters'); }
   return result;
 }
 function fields(value: unknown, keys: string[]): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).sort().join(',') === keys.sort().join(',');
 }
 function validate(value: unknown, directory: string): State {
-  if (!fields(value, ['version', 'authorityId', 'revision', 'limitBytes', 'allocations']) || value.version !== 1
+  const legacy = !!value && typeof value === 'object' && 'version' in value && value.version === 1;
+  if (!fields(value, ['version', 'authorityId', 'revision', 'limitBytes', 'allocations', ...(!legacy ? ['adoptions'] : [])])
+    || (legacy ? value.version !== 1 : value.version !== 2)
     || typeof value.authorityId !== 'string' || !/^[a-f0-9]{32}$/.test(value.authorityId) || !safe(value.revision)
     || !safe(value.limitBytes) || value.limitBytes < STORAGE_RESERVATION_CONTROL_BYTES
     || !Array.isArray(value.allocations) || value.allocations.length > STORAGE_RESERVATION_MAX_ENTRIES) throw new Error('Invalid storage reservation authority');
@@ -74,7 +78,18 @@ function validate(value: unknown, directory: string): State {
       || !safe(allocation.maximumBytes)) throw new Error('Invalid or redirected storage allocation');
     previous = allocation.path;
   }
-  const state = value as unknown as State;
+  const adoptions = legacy ? [] : value.adoptions;
+  if (!Array.isArray(adoptions) || adoptions.length + value.allocations.length > STORAGE_RESERVATION_MAX_ENTRIES) throw new Error('Invalid retained storage floors');
+  previous = '';
+  for (const adoption of adoptions) {
+    if (!fields(adoption, ['path', 'scope', 'maximumBytes']) || typeof adoption.path !== 'string'
+      || adoption.path <= previous || canonical(adoption.path) !== adoption.path || inside(directory, adoption.path)
+      || !['file', 'directory'].includes(adoption.scope as string) || !safe(adoption.maximumBytes)) throw new Error('Invalid or redirected retained storage floor');
+    previous = adoption.path;
+  }
+  // A v1 primary is retained unchanged until the next durable mutation. That
+  // mutation publishes v2 without resetting identity, revision or allocations.
+  const state = { ...value, version: 2, adoptions } as unknown as State;
   if (total(state) > state.limitBytes) throw new Error('Storage authority limit is below retained reservations');
   return state;
 }
@@ -130,7 +145,7 @@ export function openStorageReservationAuthority(options: { directory: string; mo
   }
   function close() { if (!closed) { closed = true; release(); } }
   try {
-    if (options.mode === 'create-new') commit({ version: 1, authorityId: randomBytes(16).toString('hex'), revision: 0, limitBytes: options.limitBytes, allocations: [] });
+    if (options.mode === 'create-new') commit({ version: 2, authorityId: randomBytes(16).toString('hex'), revision: 0, limitBytes: options.limitBytes, allocations: [], adoptions: [] });
     else {
       const before = signature(lstatSync(path)); expected = readBytes(path); expectedSignature = signature(lstatSync(path));
       if (before !== expectedSignature) throw new Error('Storage authority metadata changed');
@@ -148,7 +163,40 @@ export function openStorageReservationAuthority(options: { directory: string; mo
     return { kind: 'storage-limit-review' as const, authorityId: state.authorityId, revision: state.revision,
       previousLimitBytes: state.limitBytes, limitBytes, reservedBytes, approvalDigest };
   }
+  function adoptionReview(targets: readonly StorageAdoptionTarget[], bounds?: StorageAdoptionBounds) {
+    usable(); const observed = inventoryStorageAdoption(targets, directory, bounds); usable();
+    const retained = new Map(state.adoptions.map(entry => [entry.path, entry]));
+    for (const target of observed.targets) {
+      const previous = retained.get(target.path);
+      if (previous && previous.scope !== target.scope) throw new Error('Existing storage selection changed its retained scope');
+      retained.set(target.path, { path: target.path, scope: target.scope, maximumBytes: Math.max(previous?.maximumBytes ?? 0, target.observedBytes) });
+    }
+    const adoptions = [...retained.values()].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+    if (adoptions.length + state.allocations.length > STORAGE_RESERVATION_MAX_ENTRIES) throw new Error('Storage reservation entry capacity exhausted');
+    const next = { ...state, adoptions }, reservedBytes = total(next), previousReservedBytes = total(state);
+    const details = { kind: 'storage-adoption-review' as const, authorityId: state.authorityId, revision: state.revision,
+      targets: observed.targets, files: observed.files, directories: observed.directories, observedBytes: observed.logicalBytes,
+      previousReservedBytes, reservedBytes, additionalBytes: reservedBytes - previousReservedBytes,
+      limitBytes: state.limitBytes, fits: reservedBytes <= state.limitBytes, atomicSnapshot: false as const };
+    const approvalDigest = createHash('sha256').update('resonance:storage-adoption-review:v1\n').update(expected!)
+      .update(observed.metadataDigest).update(JSON.stringify(details)).digest('hex');
+    return { review: { ...details, approvalDigest }, adoptions };
+  }
   return {
+    /** Review/apply must run while all cooperating writers are excluded. This
+     * deliberately charges observed files in addition to future writer peaks;
+     * unknown/interrupted files never become uncharged space or recovered data. */
+    reviewExisting(targets: readonly StorageAdoptionTarget[], bounds?: StorageAdoptionBounds) { return adoptionReview(targets, bounds).review; },
+    adoptExisting(targets: readonly StorageAdoptionTarget[], approvalDigest: string, bounds?: StorageAdoptionBounds) {
+      const { review, adoptions } = adoptionReview(targets, bounds);
+      if (approvalDigest !== review.approvalDigest) throw new Error('Existing-storage approval changed; review current files and reservations again');
+      if (!review.fits) throw new Error('Combined managed storage budget exhausted by retained existing files');
+      if (JSON.stringify(adoptions) !== JSON.stringify(state.adoptions)) {
+        if (!safe(state.revision + 1)) throw new Error('Storage reservation revision capacity exhausted');
+        commit({ ...state, revision: state.revision + 1, adoptions });
+      }
+      return { ...review, appliedRevision: state.revision };
+    },
     reviewLimit: limitReview,
     applyLimit(limitBytes: number, approvalDigest: string) {
       const review = limitReview(limitBytes);
@@ -173,7 +221,7 @@ export function openStorageReservationAuthority(options: { directory: string; mo
       if (previous && (previous.component !== request.component || previous.scope !== request.scope)) throw new Error('Storage path already belongs to another component');
       if (!previous || previous.maximumBytes < request.maximumBytes) {
         const allocations = state.allocations.filter(entry => entry.path !== selected);
-        if (allocations.length >= STORAGE_RESERVATION_MAX_ENTRIES) throw new Error('Storage reservation entry capacity exhausted');
+        if (allocations.length + state.adoptions.length >= STORAGE_RESERVATION_MAX_ENTRIES) throw new Error('Storage reservation entry capacity exhausted');
         allocations.push({ path: selected, component: request.component, scope: request.scope, maximumBytes: request.maximumBytes }); allocations.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
         const next = { ...state, revision: state.revision + 1, allocations };
         if (!safe(next.revision) || total(next) > state.limitBytes) throw new Error('Combined managed storage budget exhausted');
@@ -198,7 +246,8 @@ export function openStorageReservationAuthority(options: { directory: string; mo
     },
     status() { usable(); const reservedBytes = total(state); return { authorityId: state.authorityId, revision: state.revision,
       limitBytes: state.limitBytes, reservedBytes, availableBytes: state.limitBytes - reservedBytes, components: state.allocations.length,
-      controlBytes: STORAGE_RESERVATION_CONTROL_BYTES }; },
+      controlBytes: STORAGE_RESERVATION_CONTROL_BYTES, adoptedSelections: state.adoptions.length,
+      adoptedBytes: state.adoptions.reduce((sum, entry) => sum + entry.maximumBytes, 0) }; },
     /** Local review binding only; no independent anti-rollback or durability proof. */
     reviewDigest() { usable(); return createHash('sha256').update(expected!).digest('hex'); },
     close,
@@ -207,3 +256,5 @@ export function openStorageReservationAuthority(options: { directory: string; mo
 
 export { withStorageReservationAuthority, reserveManagedStorage, captureStorageReservationOperation } from './storage-reservation-context.js';
 export type { StorageReservationRequest, StorageReservationLease, StorageReservationAuthority, StorageReservationOutput } from './storage-reservation-context.js';
+
+export type { StorageAdoptionTarget, StorageAdoptionBounds } from './storage-adoption-inventory.js';
