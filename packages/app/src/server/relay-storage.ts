@@ -48,3 +48,11 @@ export function readDesktopRelayStorage(config: { port: number; runtime?: { stor
 const active = new AsyncLocalStorage<DesktopRelayStorage | undefined>();
 export function currentDesktopRelayStorage(): DesktopRelayStorage | undefined { return active.getStore(); }
 export function withDesktopRelayStorage<T>(selected: DesktopRelayStorage | undefined, operation: () => T): T { return active.run(selected, operation); }
+
+/** Bounded immutable publication attempts. Partial files retain their allocations;
+ * a retry uses another reviewed slot rather than overwriting uncertain output. */
+export const DESKTOP_STORAGE_SELECTION_FILENAME = 'relay-storage-selection.json';
+export function desktopStorageSelectionPaths(directory: string): string[] {
+  return Array.from({ length: 8 }, (_, index) => join(directory, index === 0 ? DESKTOP_STORAGE_SELECTION_FILENAME
+    : `${DESKTOP_STORAGE_SELECTION_FILENAME}.attempt-${index}.json`));
+}

@@ -6,6 +6,9 @@ import { isAbsolute } from 'node:path';
 import { exactWitnessFields } from '@resonance/core/admission-witness';
 import type { StorageReservationRequest } from '@resonance/core/storage-reservations';
 import type { RelayStorageSelection } from './relay-storage-owner.js';
+export class UnparseableRelayStorageSelectionError extends Error {
+  constructor() { super('Relay storage selection is invalid; retain it for inspection'); this.name = 'UnparseableRelayStorageSelectionError'; }
+}
 export const RELAY_STORAGE_SELECTION_MAX_BYTES = 128 * 1024;
 export interface RelayStorageConfiguration extends RelayStorageSelection {
   version: 1; kind: 'relay-storage-selection'; runtimePort: number; runtimeHost: '127.0.0.1' | '0.0.0.0'; controls: StorageReservationRequest[];
@@ -51,7 +54,7 @@ export function readRelayStorageSnapshot(file: string) {
     }
     let value: unknown;
     try { value = JSON.parse(bytes.subarray(0, used).toString('utf8')); }
-    catch { throw new Error('Relay storage selection is invalid; retain it for inspection'); }
+    catch { throw new UnparseableRelayStorageSelectionError(); }
     return { configuration: parseRelayStorageConfiguration(value), source: { path: resolved, identity: stamp(opened), digest: createHash('sha256').update(bytes.subarray(0, used)).digest('hex') } };
   } finally { bytes.fill(0); closeSync(fd); }
 }

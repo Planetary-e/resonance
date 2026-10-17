@@ -10,7 +10,8 @@ import { relayStorageRegistryPath } from './history-storage-registry.js';
 import { relayServiceOutputPaths } from './relay-supervisor.js';
 import { DESKTOP_STORAGE_AUTHORITY_DIRECTORY, DESKTOP_STORAGE_BOOTSTRAP_DIRECTORY } from './relay-storage-bootstrap.js';
 import type { RelayConfig } from './session.js';
-export const DESKTOP_STORAGE_SELECTION_FILENAME = 'relay-storage-selection.json';
+import { DESKTOP_STORAGE_SELECTION_FILENAME, desktopStorageSelectionPaths } from './relay-storage.js';
+export { DESKTOP_STORAGE_SELECTION_FILENAME } from './relay-storage.js';
 const contains = (root: string, path: string) => { const part = relative(root, path); return part === '' || (!isAbsolute(part) && part !== '..' && !part.startsWith('../') && !part.startsWith('..\\')); };
 function present(path: string) { try { return lstatSync(path); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; } }
 
@@ -71,6 +72,8 @@ export function collectDesktopRelayStorageScopes(config: RelayConfig, dataDirect
   }
   for (const path of relayStorageOutputFiles(config, runtime)) family(path, true);
   retain(join(directory, DESKTOP_STORAGE_BOOTSTRAP_DIRECTORY), 'directory');
+  // The native service places diagnostics beside relay-data, not inside it.
+  retain(join(directory, 'relay-diagnostics'), 'directory', false);
   retain(relayStorageRegistryPath(runtime), 'directory', false);
   // Registry ownership sits beside its directory, so it needs an exact scope too.
   family(`${relayStorageRegistryPath(runtime)}.lock`, false);
@@ -83,7 +86,7 @@ export function collectDesktopRelayStorageScopes(config: RelayConfig, dataDirect
   const legacyLog = join(directory, 'relay-service.log');
   if (present(legacyLog)) family(legacyLog, true);
   for (const path of relayServiceOutputPaths(directory, options.platform ?? process.platform, options.userDirectory ?? homedir())) family(path, false);
-  family(join(directory, DESKTOP_STORAGE_SELECTION_FILENAME), false);
+  for (const path of desktopStorageSelectionPaths(directory)) family(path, false);
   function minimal(values: Map<string, StorageAdoptionTarget>, covering: StorageAdoptionTarget[] = []) {
     const all = [...values.values()];
     return all.filter(target => ![...all, ...covering].some(other => other !== target && other.scope === 'directory' && contains(other.path, target.path)))

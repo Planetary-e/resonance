@@ -91,6 +91,17 @@ export function openRelayStorageOwner(input: RelayStorageSelection, purpose: 'ru
         if (closed) throw new Error('Relay storage ownership is closed'); authority.status();
       } }, operation));
     },
+    /** Preflight distinct writer peaks without funding them or exposing the ledger. */
+    reviewWriteBudget(requests: readonly StorageReservationRequest[]) {
+      if (closed || purpose !== 'maintenance' || !Array.isArray(requests) || !requests.length || requests.length > 64) throw new Error('Review bounded writer peaks under stopped ownership');
+      const reviewed = requests.map(request => authority.reviewReservation(request));
+      if (new Set(reviewed.map(request => request.path)).size !== reviewed.length) throw new Error('Review each storage output peak only once');
+      const status = authority.status(), additionalBytes = reviewed.reduce((sum, request) => sum + request.additionalBytes, 0);
+      if (!Number.isSafeInteger(additionalBytes) || !Number.isSafeInteger(status.reservedBytes + additionalBytes)) throw new Error('Storage output peaks exceed safe byte counters');
+      return { requests: reviewed, authorityId: status.authorityId, revision: status.revision, additionalBytes,
+        reservedBytes: status.reservedBytes + additionalBytes, limitBytes: status.limitBytes,
+        fits: status.reservedBytes + additionalBytes <= status.limitBytes };
+    },
     reviewSelectionOutput(path: string, binding: RelayStorageRuntimeBinding) { return selectionReview(path, binding); },
     exportSelection(path: string, binding: RelayStorageRuntimeBinding, approvalDigest: string) {
       const review = selectionReview(path, binding);

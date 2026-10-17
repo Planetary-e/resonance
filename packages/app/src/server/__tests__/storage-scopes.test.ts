@@ -99,3 +99,11 @@ it('refuses a history root that would also adopt independently written desktop a
   const n = await fixture(); n.config.historyStorageDirectories = [n.directory];
   expect(n.collect).toThrow(/desktop account data/); expect(n.authority.status().adoptedSelections).toBe(0);
 });
+
+it('includes the separate native diagnostics root and its retained interrupted files', async () => {
+  const n = await fixture(), diagnostics = join(n.directory, 'relay-diagnostics');
+  expect(n.collect().new).toContainEqual({ path: diagnostics, scope: 'directory' });
+  mkdirSync(diagnostics); writeFileSync(join(diagnostics, 'unknown-interrupted'), 'retain diagnostic bytes');
+  const plan = n.collect(); expect(plan.existing).toContainEqual({ path: diagnostics, scope: 'directory' });
+  expect(n.authority.reviewExisting(plan.existing).targets.find(target => target.path === diagnostics)?.observedBytes).toBe(23);
+});
