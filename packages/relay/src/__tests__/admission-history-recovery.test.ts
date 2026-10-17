@@ -1,3 +1,4 @@
+import { openStorageReservationAuthority, STORAGE_RESERVATION_CONTROL_BYTES as CONTROL, withStorageReservationAuthority } from '@resonance/core/storage-reservations';
 import { afterEach, expect, it } from 'vitest';
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -252,3 +253,53 @@ it.each(['before-writer', 'after-writer', 'before-archive', 'after-archive', 'be
     try { expect(resumed.review()).toMatchObject({ appliedSpends: 2, permanentDenials: 1 }); await resumed.apply(resumed.review().approvalDigest); }
     finally { resumed.close(); }
   }, 60000);
+
+it('retains one authority across every recovery phase and offline review after the opening scope exits', async () => {
+  const n = await fixture(true), options = { ...n.options,
+    protection: { ...n.options.protection, transport: undefined }, agreementTransport: undefined, dataTransport: undefined, provisionTransport: undefined };
+  // Actual socket callbacks represent other hosts; no client reservation context
+  // is injected into the independently initialized volunteer services.
+  const authority = openStorageReservationAuthority({ directory: join(n.directory, 'quota'), mode: 'create-new', limitBytes: CONTROL + 8 * 1024 * 1024 + 8192 }); cleanup.push(authority.close);
+  const review = await prepareAdmissionHistoryRecovery(options);
+  let recovery = await withStorageReservationAuthority(authority, () => openAdmissionHistoryRecovery({ ...options, initialize: { review, approvedDigest: review.approvalDigest } })); cleanup.push(() => recovery.close());
+  const before = n.generations[1].map(s => s.describe());
+  await expect(recovery.advance()).rejects.toThrow(/exhausted/);
+  expect(n.generations[1].map(s => s.describe())).toEqual(before);
+  expect(existsSync(join(options.directory, 'freeze'))).toBe(false);
+  expect(authority.status()).toMatchObject({ components: 1, availableBytes: 0 });
+  // Workflow snapshot 8 MiB; freeze snapshot 192 MiB; agreement 4 MiB;
+  // ancestry download 256 MiB including its manifest; provision snapshot 1 MiB.
+  const limit = CONTROL + 461 * 1024 * 1024 + 5 * 8192;
+  authority.applyLimit(limit, authority.reviewLimit(limit).approvalDigest);
+  for (let i = 0; i < 8 && !recovery.status().complete; i++) await recovery.advance();
+  expect(recovery.status().complete).toBe(true);
+  const charged = authority.status(); expect(charged).toMatchObject({ components: 6, availableBytes: 0 });
+  recovery.close(); recovery = await withStorageReservationAuthority(authority, () => openAdmissionHistoryRecovery(options));
+  const prepared = await recovery.reviewRestore(join(n.directory, 'new-target'), n.policy);
+  expect(prepared.review).toMatchObject({ spends: 2, permanentDenials: 1 }); expect(authority.status()).toEqual(charged);
+  const other = openStorageReservationAuthority({ directory: join(n.directory, 'other-quota'), mode: 'create-new', limitBytes: CONTROL }); cleanup.push(other.close);
+  await expect(withStorageReservationAuthority(other, () => recovery.advance())).rejects.toThrow(/switch/);
+  await expect(withStorageReservationAuthority(other, () => recovery.reviewRestore(join(n.directory, 'wrong-target'), n.policy))).rejects.toThrow(/switch/);
+  authority.close(); await expect(recovery.advance()).rejects.toThrow(/closed/);
+}, 60_000);
+
+it('reserves writers created during reviewed readiness after its inspection scope has exited', async () => {
+  const n = await publishedWithoutWriter();
+  const authority = openStorageReservationAuthority({ directory: join(n.directory, 'readiness-quota'), mode: 'create-new', limitBytes: CONTROL + 64 * 1024 * 1024 + 8192 }); cleanup.push(authority.close);
+  // The original workflow was intentionally opened unmanaged; it cannot be
+  // adopted by a later caller scope. Obtain its independent pins offline, close
+  // that inspection, then explicitly open a separate managed readiness handle.
+  await expect(withStorageReservationAuthority(authority, () => n.recovery.reviewReadiness(n.destination, n.policy))).rejects.toThrow(/switch/);
+  const original = await n.recovery.reviewReadiness(n.destination, n.policy), pinned = original.review(); original.close();
+  const readiness = await withStorageReservationAuthority(authority, () => openAdmissionRestorationReadiness({
+    directory: n.destination, policy: n.policy, encryptionKey: n.key, protection: n.options.protection,
+    expected: { rootId: pinned.rootId, genesisId: pinned.genesisId, replayDigest: pinned.replayDigest } }));
+  cleanup.push(readiness.close);
+  const review = readiness.review();
+  await expect(readiness.apply(review.approvalDigest)).rejects.toThrow(/exhausted/);
+  expect(existsSync(n.writer)).toBe(false); expect(authority.status()).toMatchObject({ components: 1, availableBytes: 0 });
+  const limit = CONTROL + 212 * 1024 * 1024 + 3 * 8192;
+  authority.applyLimit(limit, authority.reviewLimit(limit).approvalDigest);
+  expect(await readiness.apply(review.approvalDigest)).toMatchObject({ result: 'history-ready', readiness: 'confirmed' });
+  expect(authority.status()).toMatchObject({ components: 4, availableBytes: 0 });
+}, 60_000);

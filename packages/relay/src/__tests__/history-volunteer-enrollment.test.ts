@@ -1,4 +1,5 @@
-import { afterEach, expect, it } from 'vitest';
+import { openStorageReservationAuthority, STORAGE_RESERVATION_CONTROL_BYTES as CONTROL, withStorageReservationAuthority } from '@resonance/core/storage-reservations';
+import { afterEach, expect, it, vi } from 'vitest';
 import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -112,4 +113,20 @@ it('owns reviewed keys and pins through completion and refuses another pinned ge
   supplied.signingKey.secretKey.fill(0); supplied.localKey.fill(0); supplied.context.members.reverse();
   prepared.apply(prepared.review.approvalDigest); prepared.close();
   const service = openHistoryVolunteerService(n.runtime); expect(service.describe().latest.envelopeId).toBe(n.runtime.genesisId); service.close();
+});
+
+it('keeps the enrollment authority when reviewed repair opens the volunteer service later', async () => {
+  const n = fixture(); await crash(n.args, 'after-manifest');
+  const authority = openStorageReservationAuthority({ directory: join(n.directory, 'quota'), mode: 'create-new',
+    limitBytes: CONTROL + 64 * 1024 * 1024 + 8192 + 2 * 64 * 1024 + 8192 }); cleanup.push(authority.close);
+  const reserve = vi.spyOn(authority, 'reserve'); cleanup.push(() => reserve.mockRestore());
+  const prepared = withStorageReservationAuthority(authority, () => n.open());
+  expect(prepared.review.phase).toBe('genesis-pending');
+  const charged = authority.status(), calls = reserve.mock.calls.length, before = readFileSync(n.manifest);
+  const other = openStorageReservationAuthority({ directory: join(n.directory, 'other-quota'), mode: 'create-new', limitBytes: CONTROL }); cleanup.push(other.close);
+  expect(() => withStorageReservationAuthority(other, () => prepared.apply(prepared.review.approvalDigest))).toThrow(/switch/);
+  expect(readFileSync(n.manifest)).toEqual(before); expect(existsSync(n.block)).toBe(false);
+  expect(prepared.apply(prepared.review.approvalDigest)).toMatchObject({ result: 'enrollment-resumed', retainedBlocks: 1 });
+  expect(reserve.mock.calls.length).toBeGreaterThan(calls);
+  expect(authority.status()).toEqual(charged); expect(charged).toMatchObject({ components: 3, availableBytes: 0 });
 });

@@ -1,4 +1,5 @@
 /** Reviewed reopening of an interrupted enrollment. Never initializes missing accepted history. */
+import { captureStorageReservationOperation } from '@resonance/core/storage-reservations';
 import { lstatSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { historyCheckpointContextId, historyCheckpointEnvelopeId, historyDigest, parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
@@ -12,6 +13,7 @@ import { openHistoryVolunteerService } from './history-volunteer-service.js';
 export function openHistoryVolunteerEnrollmentResume(options: {
   directory: string; localKey: Uint8Array; signingKey: SigningKeyPair; context: HistoryCheckpointContext; genesis: HistoryCheckpointEnvelope;
 }, signal?: AbortSignal) {
+  const run = captureStorageReservationOperation();
   signal?.throwIfAborted(); const directory = canonicalHistorySetupPath(options.directory), context = parseHistoryCheckpointContext(options.context);
   const genesis = parseHistoryCheckpointEnvelope(options.genesis, context), genesisId = historyCheckpointEnvelopeId(genesis);
   const member = Buffer.from(options.signingKey.publicKey).toString('base64url');
@@ -36,7 +38,7 @@ export function openHistoryVolunteerEnrollmentResume(options: {
       phase: pristine ? 'genesis-pending' as const : 'retained' as const,
       retainedBlocks: service?.health().retainedBlocks ?? 0, retainedDigest, readiness: 'unverified' as const, startsService: false as const };
     const approvalDigest = historyDigest(`resonance:volunteer-enrollment-resume:v1\n${JSON.stringify([details, historyDigest(localKey)])}`);
-    return { review: { ...details, approvalDigest }, apply(approved: string) {
+    return { review: { ...details, approvalDigest }, apply(approved: string) { return run(() => {
       signal?.throwIfAborted();
       if (closed || applied || approved !== approvalDigest || canonicalHistorySetupPath(options.directory) !== directory) throw new Error('Enrollment resumption approval changed; review again');
       try {
@@ -47,6 +49,6 @@ export function openHistoryVolunteerEnrollmentResume(options: {
         applied = true;
         return { ...details, result: 'enrollment-resumed' as const, retainedBlocks: service!.health().retainedBlocks };
       } catch (error) { close(); throw error; }
-    }, close };
+    }); }, close };
   } catch (error) { close(); throw error; }
 }

@@ -1,4 +1,5 @@
 /** Explicit, resumable composition of existing freeze/agreement/download/provision gates. */
+import { captureStorageReservationOperation } from '@resonance/core/storage-reservations';
 import { existsSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { copyAdmissionSigningKey, exactWitnessFields } from '@resonance/core/admission-witness';
@@ -96,6 +97,7 @@ export async function prepareAdmissionHistoryRecovery(options: Options & { view?
 export async function openAdmissionHistoryRecovery(options: Options & {
   initialize?: { review: AdmissionRecoveryReview; approvedDigest: string };
 }) {
+  const run = captureStorageReservationOperation();
   const pinned = await pins(options), directory = resolve(options.directory), p = options.protection;
   const key = Buffer.from(options.encryptionKey), signer = copyAdmissionSigningKey(p.signingKey);
   const contextId = pinned.contextId, genesisId = pinned.genesisId;
@@ -204,7 +206,7 @@ export async function openAdmissionHistoryRecovery(options: Options & {
   return {
     status,
     /** One bounded phase, or at most maxBlocks downloaded blocks. Reopen and status never transmit. */
-    async advance(options: { maxBlocks?: number; signal?: AbortSignal } = {}) {
+    async advance(options: { maxBlocks?: number; signal?: AbortSignal } = {}) { return run(async () => {
       if (options.maxBlocks !== undefined && (!Number.isSafeInteger(options.maxBlocks) || options.maxBlocks < 1 || options.maxBlocks > 10001)) {
         throw new Error('Invalid recovery download step size');
       }
@@ -230,9 +232,9 @@ export async function openAdmissionHistoryRecovery(options: Options & {
         }
         return status();
       } finally { options.signal?.removeEventListener('abort', close); release(); active = false; }
-    },
+    }); },
     /** Pure local semantic review; does not start admission or use cached receipts as readiness. */
-    async reviewRestore(destination: string, policy: unknown) {
+    async reviewRestore(destination: string, policy: unknown) { return run(async () => {
       live(); if (active || !storage.read().complete) throw new Error('Recovery has not completed provisioning or is active'); active = true;
       try {
         reopenRegistered();
@@ -240,10 +242,10 @@ export async function openAdmissionHistoryRecovery(options: Options & {
           continuation: storage.read().continuation!, encryptionKey: key, blocks: component('download').blocks() });
         live(); return preparation;
       } finally { release(); active = false; }
-    },
+    }); },
     /** Reconstruct the selected baseline before inspecting an occupied restore
      * target. Inspection cannot create a missing writer or transmit readiness. */
-    async reviewReadiness(destination: string, policy: unknown, signal?: AbortSignal) {
+    async reviewReadiness(destination: string, policy: unknown, signal?: AbortSignal) { return run(async () => {
       live(); if (active || !storage.read().complete) throw new Error('Recovery has not completed provisioning or is active'); active = true;
       let readiness: Awaited<ReturnType<typeof openAdmissionRestorationReadiness>> | undefined;
       try {
@@ -256,7 +258,7 @@ export async function openAdmissionHistoryRecovery(options: Options & {
         live(); return readiness;
       } catch (error) { readiness?.close(); throw error; }
       finally { release(); active = false; }
-    },
+    }); },
     close,
   };
 }

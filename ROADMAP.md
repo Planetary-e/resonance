@@ -278,6 +278,7 @@ The five-target placement goal remains conditional on enough eligible volunteers
         - [x] Reserve operator outputs, bounded settings/registry replacements, standalone ownership and pause headroom; preserve interrupted files and reuse scoped temporary allocations
         - [x] Bound and atomically publish generated macOS/Linux/Windows service files; reserve the complete output set before writes and run native commands only afterwards (native execution remains mocked)
         - [x] Preserve generation allocations through fixed child paths, authenticated legacy location migration and captured provisioning scopes; reserve child and next-slot peaks before parent activation and test full-budget SIGKILL recovery
+        - [x] Retain the opening authority in recovery, readiness, activation and enrollment apply methods; reject scope switching and test later-writer exhaustion before output
         - [ ] Persist cross-role reservations before writes, include replacement/repair headroom and prove recovery of interrupted reservations across runtime and CLI
   - [ ] Resolve authenticated policy freshness and migration beyond the bounded 64-configuration archive; never treat missing records as unused capacity or discard permanent denial evidence
   - [ ] Resolve same-key witness replacement, membership governance/freshness, and history compaction before enabling admission by default; fresh-key cohort rotation does not rescue stranded old tokens or remove finite history limits

@@ -1,4 +1,5 @@
 /** Review completion of an already published restoration, without replacing it. */
+import { captureStorageReservationOperation } from '@resonance/core/storage-reservations';
 import { lstatSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { admissionPolicyDigest, assertAdmissionPolicyCurrent, verifyAdmissionPolicy } from '@resonance/core/admission-policy';
@@ -35,6 +36,7 @@ export async function openAdmissionInitialReadiness(options: ReadinessOptions & 
   return { ...handle, review: () => handle.review() as AdmissionInitialReadinessReview };
 }
 async function openReadiness(options: ReadinessOptions & { expected: { rootId: string; genesisId: string; replayDigest: string | null } }, initial: boolean) {
+  const run = captureStorageReservationOperation();
   const check = () => { if (options.signal?.aborted) throw new Error('Readiness completion cancelled; retain restored history'); };
   check();
   if (!isHistoryDigest(options.expected.rootId) || !isHistoryDigest(options.expected.genesisId)
@@ -79,7 +81,7 @@ async function openReadiness(options: ReadinessOptions & { expected: { rootId: s
     check();
     return {
       review() { if (closed) throw new Error('Readiness review is closed'); return structuredClone(review); },
-      async apply(approved: string) {
+      async apply(approved: string) { return run(async () => {
         if (closed || busy || applied) throw new Error('Readiness review is closed, busy or already applied');
         if (approved !== review.approvalDigest) throw new Error('Readiness approval changed; review retained restoration again');
         check(); busy = true;
@@ -91,7 +93,7 @@ async function openReadiness(options: ReadinessOptions & { expected: { rootId: s
           check(); await history.ready(); check(); applied = true;
           return { result: 'history-ready' as const, generation: history.read().root.generation, readiness: 'confirmed' as const, startsService: false as const };
         } finally { busy = false; }
-      }, close,
+      }); }, close,
     };
   } catch (error) { close(); throw error; }
 }

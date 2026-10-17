@@ -1,5 +1,6 @@
 /** Reviewed owner-policy preparation. The caller holds stopped-runtime exclusion
  * through review/apply and any subsequent desktop configuration write. */
+import { captureStorageReservationOperation } from '@resonance/core/storage-reservations';
 import { lstatSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { acquireLocalStateLock } from '@resonance/core/local-state';
@@ -30,6 +31,7 @@ function present(path: string) {
 }
 
 export async function openAdmissionHistoryActivation(options: AdmissionHistoryActivationOptions) {
+  const run = captureStorageReservationOperation();
   const cancelled = () => { if (options.signal?.aborted) throw new Error('Owner activation cancelled; retain prepared policy and history'); };
   cancelled();
   if (options.protection.initializeWriter || options.protection.initializeArchive || options.protection.resumePristineArchive || options.protection.promoteLocalHistory || options.protection.restore) {
@@ -83,7 +85,7 @@ export async function openAdmissionHistoryActivation(options: AdmissionHistoryAc
     cancelled();
     return {
       review: () => { if (closed) throw new Error('Activation review is closed'); return structuredClone(review); },
-      async apply(approvedDigest: string) {
+      async apply(approvedDigest: string) { return run(async () => {
         if (closed || busy || applied) throw new Error('Activation is closed, busy or already applied');
         if (approvedDigest !== review.approvalDigest) throw new Error('Activation approval does not match; review current history and settings again');
         cancelled(); busy = true;
@@ -106,7 +108,7 @@ export async function openAdmissionHistoryActivation(options: AdmissionHistoryAc
           return { result: 'owner-policy-prepared' as const, contextId, generation: current.root.generation,
             readiness: 'confirmed' as const, startsService: false as const, initializesWitnessState: false as const };
         } finally { busy = false; }
-      }, close,
+      }); }, close,
     };
   } catch (error) { close(); throw error; }
 }

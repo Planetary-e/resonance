@@ -1,3 +1,4 @@
+import { openStorageReservationAuthority, STORAGE_RESERVATION_CONTROL_BYTES as CONTROL, withStorageReservationAuthority } from '@resonance/core/storage-reservations';
 import { afterEach, expect, it } from 'vitest';
 import { cpSync, existsSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -87,3 +88,18 @@ it.each(['before-1', 'after-1', 'before-2', 'after-2', 'before-3', 'after-3'])('
   try { expect(store.protectedHistoryContext()).toBe(historyCheckpointContextId(n.context)); } finally { store.close(); }
   expect(readFileSync(join(n.historyDirectory, 'admission-spends-v2.jsonl'))).toEqual(bytes);
 }, 20000);
+
+it('reserves a later-created policy store under the authority retained during activation review', async () => {
+  const n = await fixture(), path = join(n.runtimeDirectory, 'admission-community-policy.json');
+  const authority = openStorageReservationAuthority({ directory: join(n.directory, 'activation-quota'), mode: 'create-new', limitBytes: CONTROL + 512 * 1024 * 1024 }); cleanup.push(authority.close);
+  const activation = await withStorageReservationAuthority(authority, () => openAdmissionHistoryActivation(n.activationOptions)); cleanup.push(activation.close);
+  const before = authority.status(), bytes = readFileSync(join(n.historyDirectory, 'admission-spends-v2.jsonl'));
+  authority.applyLimit(before.reservedBytes, authority.reviewLimit(before.reservedBytes).approvalDigest);
+  await expect(activation.apply(activation.review().approvalDigest)).rejects.toThrow(/exhausted/);
+  expect(existsSync(path)).toBe(false); expect(readFileSync(join(n.historyDirectory, 'admission-spends-v2.jsonl'))).toEqual(bytes);
+  const limit = before.reservedBytes + 2 * 1024 * 1024 + 8192;
+  authority.applyLimit(limit, authority.reviewLimit(limit).approvalDigest);
+  expect(await activation.apply(activation.review().approvalDigest)).toMatchObject({ result: 'owner-policy-prepared' });
+  expect(authority.status()).toMatchObject({ components: before.components + 1, availableBytes: 0 });
+  expect(readFileSync(join(n.historyDirectory, 'admission-spends-v2.jsonl'))).toEqual(bytes);
+}, 20_000);
