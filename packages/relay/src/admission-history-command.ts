@@ -15,6 +15,7 @@ import { discoverHistoryCompactionFrontier } from './history-frontier-discovery.
 import { loadAdmissionHistoryProtectionFile, parseAdmissionHistoryConfiguration } from './admission-history-config.js';
 import { readOperatorFile, readOperatorJson, readOperatorSigningKey, readOperatorStorageKey, writeOperatorJsonNew } from './admission-operator-files.js';
 import { openProtectedAdmissionSpendHistory } from './protected-admission-history.js';
+import { openAdmissionRoleCapture } from './admission-role-capture.js';
 import { openHistoryVolunteerEnrollmentResume } from './history-volunteer-enrollment.js';
 import { openHistoryVolunteerService } from './history-volunteer-service.js';
 import { listenHistoryAgreementReplica } from './history-agreement-exchange.js';
@@ -308,6 +309,33 @@ export async function runAdmissionHistoryCommand(command: string, raw: readonly 
         checkCancelled();
         emit({ ...review, result: 'checkpoint-certificate-exported', endorsements: certificate.votes.length,
           authority: 'historical-only', remotelyRetained: false });
+      }
+    } else if (['owner-role-capture-plan', 'owner-role-capture', 'owner-role-retirement-plan', 'owner-role-retire'].includes(command)) {
+      const capturing = command === 'owner-role-capture-plan' || command === 'owner-role-capture';
+      const applying = command === 'owner-role-capture' || command === 'owner-role-retire';
+      const approved = applying && raw[0] === '--approve' ? raw[1] : undefined, args = approved ? raw.slice(2) : raw;
+      if (args.length !== 6 || (applying && !approved)) throw new Error('Invalid protected role command or missing approval');
+      const [configPath, policyPath, keyPath, directory, target, selection] = args;
+      if (capturing ? !['witness', 'coordinator', 'both'].includes(selection) : !['witness', 'coordinator'].includes(target)) throw new Error('Select an explicit admission role');
+      const loaded = loadAdmissionHistoryProtectionFile(configPath); cleanup.push(() => loaded.signingKey.secretKey.fill(0));
+      const { protection } = operatorTransport(loaded), encryptionKey = readOperatorStorageKey(keyPath); cleanup.push(() => encryptionKey.fill(0));
+      const policy = await verifyAdmissionPolicy(readOperatorJson(policyPath, MAX_ADMISSION_POLICY_BYTES), protection.context.authority);
+      const history = await openProtectedAdmissionSpendHistory({ directory, encryptionKey, authority: protection.context.authority, policy, protection });
+      cleanup.push(history.close);
+      if (admissionPolicyDigest(history.read().image.policy) !== admissionPolicyDigest(policy)) throw new Error('Role maintenance requires the retained policy; apply its successor explicitly');
+      if (capturing) {
+        const capture = await openAdmissionRoleCapture({ directory: target, encryptionKey, history,
+          roles: selection === 'both' ? ['witness', 'coordinator'] : [selection as 'witness' | 'coordinator'] });
+        cleanup.push(capture.close);
+        emit(applying ? { ...await capture.apply(approved!), result: 'admission-roles-protected' }
+          : { ...await capture.review(), result: 'review-required' });
+      } else {
+        const role = target as 'witness' | 'coordinator', plan = history.planRoleRetirement(role, selection);
+        if (applying) {
+          if (approved !== plan.approvalDigest) throw new Error('Role retirement approval changed');
+          await history.ready(); await history.retireRole(role, selection, approved!);
+        }
+        emit({ ...plan, result: applying ? 'admission-role-permanently-retired' : 'review-required', durability: 'protected-four-of-five' });
       }
     } else if (['owner-retirement-plan', 'owner-retire', 'owner-legacy-plan', 'owner-legacy-recover', 'owner-checkpoint-plan', 'owner-checkpoint', 'owner-prefix-plan', 'owner-prefix-retire'].includes(command)) {
       const checkpoint = command === 'owner-checkpoint-plan' || command === 'owner-checkpoint';

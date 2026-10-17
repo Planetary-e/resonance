@@ -10,8 +10,10 @@ it('separates irreversible freeze approval, bounded steps, restoration review an
   expect(freeze).not.toContain('private-review-digest');
   expect(render({ phase: 'download-and-confirm', complete: false })).toContain('Run next recovery step');
   expect(render({ phase: 'review', complete: true })).toContain('Review restoration');
-  const restore = render({ kind: 'admission-history-restore', directory: '/restored', spends: 8, permanentDenials: 2, requestedPolicyRevision: 3 }, true);
+  const restore = render({ kind: 'admission-history-restore', directory: '/restored', spends: 8, permanentDenials: 2, requestedPolicyRevision: 3,
+    witnessVotes: 4, coordinatorCertificates: 3, rolePermanentDenials: 1 }, true);
   for (const value of ['/restored', '8 retained spends', '2 permanent denials', 'four fresh copies', 'does not start', 'disabled=""']) expect(restore).toContain(value);
+  for (const value of ['4 witness decisions', '3 quorum certificates', '1 permanent role denials']) expect(restore).toContain(value);
   const ready = render({ result: 'history-restored', generation: 1 });
   expect(ready).toContain('remains paused'); expect(ready).toContain('Activate prepared owner history');
   const resumed = render({ phase: 'review', complete: true, destinationOccupied: true });

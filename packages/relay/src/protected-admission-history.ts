@@ -19,7 +19,10 @@ import { decodeLegacyAdmissionSpendState, parseAdmissionSpendState, type Admissi
 import { checkAdmissionLegacyRecovery, type AdmissionSpendState } from './admission-legacy-recovery.js';
 import { planAdmissionHistoryRetirement } from './admission-history-retirement.js';
 import { encodeAdmissionHistoryRecord, parseAdmissionHistoryImage, reduceAdmissionHistory,
-  type AdmissionHistoryImage, type AdmissionHistoryMutation, type AdmissionHistoryRecord, type AdmissionHistoryStateCheckpoint } from './admission-history-records.js';
+  type AdmissionHistoryImage, type AdmissionHistoryMutation, type AdmissionHistoryRecord, type AdmissionHistoryStateCheckpoint,
+  type AdmissionHistoryRoleCheckpoint } from './admission-history-records.js';
+import { admissionRoleHistoriesIdentity, assertAdmissionRoleRetention, parseAdmissionRoleHistories, type AdmissionRoleHistories,
+  type AdmissionRoleMutation } from './admission-role-history.js';
 
 export type ProtectedAdmissionState = {
   context: HistoryCheckpointContext; root: HistoryCheckpointEnvelope;
@@ -144,10 +147,26 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
     storage!.write({ ...before, image, applied: { sequence: pending.sequence, id: id(pending) }, pending: null });
     return fresh;
   }
-  async function commit(value: AdmissionHistoryMutation | AdmissionHistoryStateCheckpoint): Promise<void> {
+  function recordHeadroom(header: Parameters<typeof historyCheckpointEnvelopeByteLength>[0]['header'], payloadBytes: number,
+    image: AdmissionHistoryImage, checkpoint: boolean) {
+    const usage = writer!.historyUsage(); let reservedBytes = 0;
+    if (!checkpoint) {
+      if (header.sequence >= Number.MAX_SAFE_INTEGER - 1) throw new Error('History checkpoint sequence headroom exhausted');
+      const complete = encodeAdmissionHistoryRecord({ version: 1, kind: 'admission-state-checkpoint', at: Number.MAX_SAFE_INTEGER, image });
+      try { reservedBytes = historyCheckpointEnvelopeByteLength({ context, header: { ...header, kind: 'checkpoint', sequence: header.sequence + 1 }, plaintextBytes: complete.length }); }
+      finally { complete.fill(0); }
+    }
+    const reservedHeader = checkpoint ? header : { ...header, checkpointReserveBytes: historyCheckpointReserveBucket(reservedBytes) };
+    const requiredCiphertextBytes = historyCheckpointEnvelopeByteLength({ context, header: reservedHeader, plaintextBytes: payloadBytes }) + reservedBytes;
+    const requiredBlocks = checkpoint ? 1 : 2, availableBlocks = usage.maximumBlocks - usage.retainedBlocks;
+    const availableCiphertextBytes = usage.maximumCiphertextBytes - usage.retainedCiphertextBytes;
+    return { header: reservedHeader, capacity: { requiredBlocks, requiredCiphertextBytes, availableBlocks, availableCiphertextBytes,
+      fits: requiredBlocks <= availableBlocks && requiredCiphertextBytes <= availableCiphertextBytes } };
+  }
+  async function commit(value: AdmissionHistoryMutation | AdmissionHistoryStateCheckpoint | AdmissionHistoryRoleCheckpoint): Promise<void> {
     const before = available();
     if (before.applied!.sequence >= Number.MAX_SAFE_INTEGER - 1) throw new Error('History sequence capacity exhausted');
-    const kind = value.kind === 'admission-state-checkpoint'
+    const kind = value.kind === 'admission-state-checkpoint' || value.kind === 'admission-roles-checkpoint'
       || value.kind === 'policy' && Buffer.byteLength(JSON.stringify(value)) > HISTORY_DELTA_MAX_PAYLOAD ? 'checkpoint' : 'delta';
     const record: AdmissionHistoryRecord = kind === 'checkpoint' && value.kind === 'policy'
       ? { version: 1, kind: 'admission-policy-checkpoint', at: value.at, image: { ...before.image, policy: value.policy } } : value;
@@ -156,26 +175,13 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
     const plaintext = encodeAdmissionHistoryRecord(reduced.record);
     let pending: HistoryCheckpointEnvelope;
     try {
-      const usage = writer!.historyUsage(), checkpoint = value.kind === 'admission-state-checkpoint';
-      let reservedBytes = 0;
-      if (!checkpoint) {
-        if (header.sequence >= Number.MAX_SAFE_INTEGER - 1) throw new Error('History checkpoint sequence headroom exhausted');
-        // Reserve the prospective complete image, including future timestamp
-        // width, before making an irrevocable intent. No extra crypto/I/O here.
-        const complete = encodeAdmissionHistoryRecord({ version: 1, kind: 'admission-state-checkpoint',
-          at: Number.MAX_SAFE_INTEGER, image: reduced.image });
-        try { reservedBytes = historyCheckpointEnvelopeByteLength({ context, header: { ...header,
-          kind: 'checkpoint', sequence: header.sequence + 1 }, plaintextBytes: complete.length }); }
-        finally { complete.fill(0); }
-      }
-      const reservedHeader = checkpoint ? header : { ...header, checkpointReserveBytes: historyCheckpointReserveBucket(reservedBytes) };
-      const bytes = historyCheckpointEnvelopeByteLength({ context, header: reservedHeader, plaintextBytes: plaintext.length });
-      if (usage.retainedBlocks + (checkpoint ? 1 : 2) > usage.maximumBlocks
-        || bytes + reservedBytes > usage.maximumCiphertextBytes - usage.retainedCiphertextBytes) {
+      const checkpoint = value.kind === 'admission-state-checkpoint';
+      const prepared = recordHeadroom(header, plaintext.length, reduced.image, checkpoint);
+      if (!prepared.capacity.fits) {
         throw new Error(checkpoint ? 'State checkpoint needs retained archive headroom; no checkpoint intent was written'
           : 'Admission history needs checkpoint headroom; publish, certify and retire a checkpoint or review archive limits before new work');
       }
-      pending = sealHistoryCheckpoint({ context, header: reservedHeader, plaintext, encryptionKey: key, signingKey: signer });
+      pending = sealHistoryCheckpoint({ context, header: prepared.header, plaintext, encryptionKey: key, signingKey: signer });
     } finally { plaintext.fill(0); }
     storage!.write({ ...before, pending });
     await finishPending();
@@ -194,6 +200,33 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
         participant, contextId, id(state.root), state.applied, state.image,
       ])}`),
       notice: 'Publishes an unchanged encrypted state on four volunteers. Retains all earlier history; this is not permission to prune or restore from a snapshot alone.' };
+  }
+  async function roleCapturePlan(value: AdmissionRoleHistories) {
+    const state = available(), roles = parseAdmissionRoleHistories(value, state.image.policy, limit);
+    const image: AdmissionHistoryImage & { version: 2 } = { ...state.image, version: 2, roles };
+    const record: AdmissionHistoryRoleCheckpoint = { version: 1, kind: 'admission-roles-checkpoint', at: now(), image };
+    await reduceAdmissionHistory(state.image, record, limit, 'checkpoint'); read();
+    const alreadyCaptured = state.image.version === 2 && admissionRoleHistoriesIdentity(state.image.roles) === admissionRoleHistoriesIdentity(roles);
+    let capacity = { fits: true, requiredBlocks: 0, requiredCiphertextBytes: 0, availableBlocks: 0, availableCiphertextBytes: 0 };
+    if (!alreadyCaptured) {
+      const plaintext = encodeAdmissionHistoryRecord(record);
+      try { capacity = recordHeadroom({ kind: 'checkpoint', generation: state.root.generation, sequence: state.applied!.sequence + 1,
+        previous: state.applied!.id }, plaintext.length, image, false).capacity; }
+      finally { plaintext.fill(0); }
+    }
+    return { roles, image, review: { kind: 'admission-history-role-capture' as const,
+      witnessVotes: roles.witness?.votes.length ?? 0, coordinatorCertificates: roles.coordinator?.certificates.length ?? 0,
+      witnessDenials: roles.witness?.retiredIssuerKeys.length ?? 0, coordinatorDenials: roles.coordinator?.retiredIssuerKeys.length ?? 0,
+      alreadyCaptured, ...capacity,
+      approvalDigest: historyDigest(`resonance:admission-history-role-capture:v1\n${JSON.stringify([participant, contextId, id(state.root), state.applied, state.image, roles])}`) } };
+  }
+  function roleRetirement(role: 'witness' | 'coordinator', issuerKey: string) {
+    const image = available().image, state = image.version === 2 ? image.roles[role] : null;
+    if (!state) throw new Error('Admission role has not been captured');
+    const claims = 'votes' in state ? state.votes : state.certificates.map(cert => cert.votes[0]);
+    return planAdmissionHistoryRetirement({ role, participant: 'witness' in state ? state.witness : state.coordinator,
+      policy: image.policy, issuerKey, state, retiredIssuerKeys: state.retiredIssuerKeys, entries: claims.length,
+      remove: claims.filter(claim => claim.issuerKey === issuerKey).length, maximumEntries: limit, now: now() });
   }
   function certificationCheckpoint() {
     const state = available(); writerMatches();
@@ -283,6 +316,7 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
     assertAdmissionPolicySuccessor(original.policy, image.policy);
     assertAdmissionPolicySuccessor(image.policy, policy);
     if (original.state.retiredIssuerKeys.some(key => !image.state.retiredIssuerKeys.includes(key))) throw new Error('Protected history lost a baseline denial');
+    if (original.version === 2) assertAdmissionRoleRetention(original.roles, image.version === 2 ? image.roles : { witness: null, coordinator: null });
     if (state.applied === null) {
       if (!state.pending || id(parseHistoryCheckpointEnvelope(state.pending, context)) !== id(root)
         || JSON.stringify(image) !== JSON.stringify(original)) throw new Error('Incomplete protected baseline');
@@ -327,6 +361,55 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
       return state.pending && state.pending.sequence >= status.sequenceSlots ? Buffer.byteLength(JSON.stringify(state.pending)) : 0;
     },
     policy(): SignedAdmissionPolicy { return structuredClone(serving().image.policy); },
+    /** Trusted role adapters validate membership and retry identity before signing.
+     * Pending state remains visible so an exact uncertain decision can resume. */
+    roleState() {
+      if (!readyConfirmed) throw new Error('Protected admission history needs fresh readiness confirmation');
+      const image = read().image;
+      return image.version === 2 ? structuredClone(image.roles) : { witness: null, coordinator: null };
+    },
+    pendingRoleDecision(): Exclude<AdmissionRoleMutation, { kind: 'role-retire' }> | null {
+      if (!readyConfirmed) throw new Error('Protected admission history needs fresh readiness confirmation');
+      const pending = read().pending; if (!pending) return null;
+      const record = decode(pending) as AdmissionHistoryRecord;
+      return record.kind === 'witness-vote' || record.kind === 'coordinator-certificate' ? structuredClone(record) : null;
+    },
+    planRoleCapture(value: AdmissionRoleHistories) { return exclusive(async () => (await roleCapturePlan(value)).review); },
+    captureRoles(value: AdmissionRoleHistories, approvedDigest: string) { return exclusive(async () => {
+      serving(); const captured = await roleCapturePlan(value);
+      if (captured.review.approvalDigest !== approvedDigest) throw new Error('Admission role capture approval changed');
+      if (!captured.review.fits) throw new Error('Admission role capture needs checkpoint headroom');
+      if (!captured.review.alreadyCaptured) await commit({ version: 1, kind: 'admission-roles-checkpoint', at: now(), image: captured.image });
+      return captured.review;
+    }); },
+    writeRoleDecision(value: Omit<Extract<AdmissionRoleMutation, { kind: 'witness-vote' }>, 'version' | 'at'>
+      | Omit<Extract<AdmissionRoleMutation, { kind: 'coordinator-certificate' }>, 'version' | 'at'>) {
+      const decision = structuredClone(value);
+      return exclusive(async () => {
+        if (!readyConfirmed) throw new Error('Protected admission history needs fresh readiness confirmation');
+        const state = read(), record = { version: 1 as const, at: now(), ...decision };
+        if (state.pending) {
+          const pending = decode(state.pending) as AdmissionRoleMutation;
+          const field = decision.kind === 'witness-vote' ? 'vote' : 'certificate';
+          if (!exactWitnessFields(pending, ['version', 'kind', 'at', field]) || pending.kind !== decision.kind
+            || JSON.stringify((pending as unknown as Record<string, unknown>)[field]) !== JSON.stringify((decision as unknown as Record<string, unknown>)[field])) {
+            throw new Error('Complete the pending protected history operation first');
+          }
+          await finishPending();
+        }
+        const before = available().image, reduced = await reduceAdmissionHistory(before, record, limit); read();
+        if (before.version !== 2 || reduced.image.version !== 2) throw new Error('Admission role has not been captured');
+        if (admissionRoleHistoriesIdentity(before.roles) !== admissionRoleHistoriesIdentity(reduced.image.roles)) await commit(record);
+      });
+    },
+    planRoleRetirement(role: 'witness' | 'coordinator', issuerKey: string) {
+      if (active) throw new Error('Protected admission history operation is in progress'); return roleRetirement(role, issuerKey);
+    },
+    retireRole(role: 'witness' | 'coordinator', issuerKey: string, approvedDigest: string) { return exclusive(async () => {
+      serving(); const review = roleRetirement(role, issuerKey);
+      if (review.approvalDigest !== approvedDigest) throw new Error('Admission role retirement approval changed');
+      await commit({ version: 1, kind: 'role-retire', at: now(), role, issuerKey }); return review;
+    }); },
     ready() { return exclusive(async () => {
       readyConfirmed = false;
       let fresh = await finishPending();

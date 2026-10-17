@@ -6,10 +6,12 @@ import { HISTORY_CHECKPOINT_MAX_PAYLOAD, HISTORY_DELTA_MAX_PAYLOAD } from '@reso
 import { parseAdmissionSpendState, type AdmissionSpendRecord } from './admission-spend-history.js';
 import type { AdmissionSpendState } from './admission-legacy-recovery.js';
 import { planAdmissionHistoryRetirement } from './admission-history-retirement.js';
+import { parseAdmissionRoleHistories, admissionRoleHistoriesIdentity, assertAdmissionRoleCapture, reduceAdmissionRoleHistory,
+  type AdmissionRoleHistories, type AdmissionRoleMutation } from './admission-role-history.js';
 
-export interface AdmissionHistoryImage {
-  version: 1; kind: 'admission-spend-checkpoint'; policy: SignedAdmissionPolicy; state: AdmissionSpendState;
-}
+export type AdmissionHistoryImage = {
+  kind: 'admission-spend-checkpoint'; policy: SignedAdmissionPolicy; state: AdmissionSpendState;
+} & ({ version: 1 } | { version: 2; roles: AdmissionRoleHistories });
 export interface AdmissionHistoryPolicyCheckpoint {
   version: 1; kind: 'admission-policy-checkpoint'; at: number; image: AdmissionHistoryImage;
 }
@@ -17,12 +19,17 @@ export interface AdmissionHistoryPolicyCheckpoint {
 export interface AdmissionHistoryStateCheckpoint {
   version: 1; kind: 'admission-state-checkpoint'; at: number; image: AdmissionHistoryImage;
 }
-export type AdmissionHistoryRecord = AdmissionHistoryMutation | AdmissionHistoryPolicyCheckpoint | AdmissionHistoryStateCheckpoint;
+/** Capturing a local role requires a separate same-file protection fence. */
+export interface AdmissionHistoryRoleCheckpoint {
+  version: 1; kind: 'admission-roles-checkpoint'; at: number; image: AdmissionHistoryImage & { version: 2 };
+}
+export type AdmissionHistoryRecord = AdmissionHistoryMutation | AdmissionHistoryPolicyCheckpoint | AdmissionHistoryStateCheckpoint | AdmissionHistoryRoleCheckpoint;
 export type AdmissionHistoryMutation =
   | { version: 1; kind: 'spend'; at: number; row: AdmissionSpendRecord & { issuerKey: string } }
   | { version: 1; kind: 'retire'; at: number; issuerKey: string }
   | { version: 1; kind: 'policy'; at: number; policy: SignedAdmissionPolicy }
-  | { version: 1; kind: 'legacy-recovery'; at: number; attributions: Array<{ spend: string; issuerKey: string }> };
+  | { version: 1; kind: 'legacy-recovery'; at: number; attributions: Array<{ spend: string; issuerKey: string }> }
+  | AdmissionRoleMutation;
 
 function bounded(value: unknown, maxBytes: number): unknown {
   const encoded = JSON.stringify(value);
@@ -31,13 +38,17 @@ function bounded(value: unknown, maxBytes: number): unknown {
 }
 export async function parseAdmissionHistoryImage(value: unknown, authority: string, limit = 10000): Promise<AdmissionHistoryImage> {
   const image = bounded(value, HISTORY_CHECKPOINT_MAX_PAYLOAD);
-  if (!exactWitnessFields(image, ['version', 'kind', 'policy', 'state']) || image.version !== 1
+  const version = (image as AdmissionHistoryImage | null)?.version;
+  if (!exactWitnessFields(image, ['version', 'kind', 'policy', 'state', ...(version === 2 ? ['roles'] : [])]) || (version !== 1 && version !== 2)
     || image.kind !== 'admission-spend-checkpoint') throw new Error('Invalid admission history checkpoint');
   const policy = await verifyAdmissionPolicy(image.policy, authority);
-  return { version: 1, kind: 'admission-spend-checkpoint', policy, state: parseAdmissionSpendState(image.state, policy, limit) };
+  const parsed = { kind: 'admission-spend-checkpoint' as const, policy, state: parseAdmissionSpendState(image.state, policy, limit) };
+  // Preserve the established v1 field order used by retained replay digests.
+  return version === 1 ? { version: 1, ...parsed } : { version: 2, ...parsed, roles: parseAdmissionRoleHistories(image.roles, policy, limit) };
 }
 export function encodeAdmissionHistoryRecord(value: AdmissionHistoryImage | AdmissionHistoryRecord): Buffer {
-  const checkpoint = value.kind === 'admission-spend-checkpoint' || value.kind === 'admission-policy-checkpoint' || value.kind === 'admission-state-checkpoint';
+  const checkpoint = value.kind === 'admission-spend-checkpoint' || value.kind === 'admission-policy-checkpoint'
+    || value.kind === 'admission-state-checkpoint' || value.kind === 'admission-roles-checkpoint';
   return Buffer.from(JSON.stringify(bounded(value, checkpoint ? HISTORY_CHECKPOINT_MAX_PAYLOAD : HISTORY_DELTA_MAX_PAYLOAD)));
 }
 
@@ -58,6 +69,12 @@ function spendStateIdentity(state: AdmissionSpendState): string {
     state.spends.map(row => JSON.stringify([row.spend, row.action, row.binding, row.issuerKey])).sort(),
     [...state.retiredIssuerKeys].sort()]);
 }
+const rolesOf = (image: AdmissionHistoryImage): AdmissionRoleHistories => image.version === 2 ? image.roles : { witness: null, coordinator: null };
+function preserveRoles(previous: AdmissionHistoryImage, replacement: AdmissionHistoryImage) {
+  if (previous.version !== replacement.version || admissionRoleHistoriesIdentity(rolesOf(previous)) !== admissionRoleHistoriesIdentity(rolesOf(replacement))) {
+    throw new Error('Checkpoint must preserve every admission role, decision and permanent denial');
+  }
+}
 
 /**
  * The image must come from parseAdmissionHistoryImage or a prior successful reduction.
@@ -73,10 +90,12 @@ export async function reduceAdmissionHistory(image: AdmissionHistoryImage, value
   const raw = input as Record<string, unknown>;
   const fields = raw.kind === 'spend' ? ['row'] : raw.kind === 'retire' ? ['issuerKey']
     : raw.kind === 'policy' ? ['policy'] : raw.kind === 'legacy-recovery' ? ['attributions']
-      : raw.kind === 'admission-policy-checkpoint' || raw.kind === 'admission-state-checkpoint' ? ['image'] : [];
+      : ['admission-policy-checkpoint', 'admission-state-checkpoint', 'admission-roles-checkpoint'].includes(raw.kind as string) ? ['image']
+        : raw.kind === 'witness-vote' ? ['vote'] : raw.kind === 'coordinator-certificate' ? ['certificate']
+          : raw.kind === 'role-retire' ? ['role', 'issuerKey'] : [];
   if (!fields.length || !exactWitnessFields(raw, ['version', 'kind', 'at', ...fields]) || raw.version !== 1
     || !Number.isSafeInteger(raw.at) || (raw.at as number) < 0
-    || (envelopeKind === 'checkpoint') !== (raw.kind === 'admission-policy-checkpoint' || raw.kind === 'admission-state-checkpoint')) throw new Error('Invalid admission history mutation');
+    || (envelopeKind === 'checkpoint') !== ['admission-policy-checkpoint', 'admission-state-checkpoint', 'admission-roles-checkpoint'].includes(raw.kind as string)) throw new Error('Invalid admission history mutation');
   const at = raw.at as number, state = current.state, policy = current.policy;
   let next = state, record: AdmissionHistoryRecord;
   if (raw.kind === 'admission-state-checkpoint') {
@@ -86,14 +105,31 @@ export async function reduceAdmissionHistory(image: AdmissionHistoryImage, value
       || spendStateIdentity(replacement.state) !== spendStateIdentity(state)) {
       throw new Error('State checkpoint must preserve the policy, every spend and permanent denial');
     }
+    preserveRoles(current, replacement);
     // Preserve the retained ordering as well as semantics; a checkpoint is no mutation.
     record = { version: 1, kind: 'admission-state-checkpoint', at, image: structuredClone(current) };
   } else if (raw.kind === 'admission-policy-checkpoint') {
     const replacement = await parseAdmissionHistoryImage(raw.image, policy.authority, limit);
     assertAdmissionPolicyCurrent(replacement.policy, at); assertAdmissionPolicySuccessor(policy, replacement.policy);
     if (spendStateIdentity(replacement.state) !== spendStateIdentity(state)) throw new Error('Policy checkpoint must preserve every spend and permanent denial');
+    preserveRoles(current, replacement);
     current.policy = replacement.policy; next = replacement.state;
     record = { version: 1, kind: 'admission-policy-checkpoint', at, image: replacement };
+  } else if (raw.kind === 'admission-roles-checkpoint') {
+    const replacement = await parseAdmissionHistoryImage(raw.image, policy.authority, limit);
+    assertAdmissionPolicyCurrent(policy, at);
+    if (replacement.version !== 2 || admissionPolicyDigest(replacement.policy) !== admissionPolicyDigest(policy)
+      || spendStateIdentity(replacement.state) !== spendStateIdentity(state)) throw new Error('Role capture must preserve policy and spends');
+    assertAdmissionRoleCapture(rolesOf(current), replacement.roles);
+    // This records an explicitly fenced local capture; it is not authorization
+    // to initialize a missing witness or invent a replacement membership.
+    Object.assign(current, { version: 2, roles: replacement.roles });
+    record = { version: 1, kind: 'admission-roles-checkpoint', at, image: replacement };
+  } else if (['witness-vote', 'coordinator-certificate', 'role-retire'].includes(raw.kind as string)) {
+    if (current.version !== 2 || (raw.kind === 'role-retire' && (!['witness', 'coordinator'].includes(raw.role as string)
+      || typeof raw.issuerKey !== 'string'))) throw new Error('Admission role has not been captured or is invalid');
+    record = structuredClone(raw) as unknown as AdmissionRoleMutation;
+    current.roles = reduceAdmissionRoleHistory(current.roles, record, policy, limit);
   } else if (raw.kind === 'policy') {
     const successor = await verifyAdmissionPolicy(raw.policy, policy.authority);
     assertAdmissionPolicyCurrent(successor, at); assertAdmissionPolicySuccessor(policy, successor);
@@ -139,5 +175,6 @@ export async function reduceAdmissionHistory(image: AdmissionHistoryImage, value
     }
   }
   current.state = parseAdmissionSpendState(next, current.policy, limit);
+  if (current.version === 2) current.roles = parseAdmissionRoleHistories(current.roles, current.policy, limit);
   return { record, image: current };
 }

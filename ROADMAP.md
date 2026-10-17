@@ -320,10 +320,12 @@ The five-target placement goal remains conditional on enough eligible volunteers
     - [x] Replace future generation-specific allocations with reviewed bounded reusable slots; retain existing lifetime reservations and fund interrupted successors without inferring free capacity from missing history
       - [x] Select a funded fixed pool before genesis activation, durably finish cleanup before reusing a location, preserve accepted genesis work and verify repeated recovery, full-budget refusal and process-death boundaries
       - [x] Migrate a certified current legacy generation through a reviewed, authoritative same-filesystem relocation and resumable cleanup; preserve pending successors until completion and prevent stale-layout fallback
-    - [ ] Resolve interrupted local ownership claims that lack a complete PID without guessing that another writer is dead; preserve single-writer exclusion across supported platforms
+    - [x] Resolve interrupted local ownership claims that lack a complete PID without guessing that another writer is dead; preserve single-writer exclusion across supported platforms
       - [x] Publish complete PID/nonce directory claims atomically, reclaim only known-dead owners, preserve incomplete legacy files and verify ten process-death boundaries, concurrent processes and integrated history/desktop recovery (`docs/developers/v0.4-local-ownership.md`)
-      - [ ] Pass the focused Linux/macOS/Windows ownership, encrypted-state and reservation CI matrix; no application packaging is required
+      - [x] Pass the focused Linux/macOS/Windows ownership, encrypted-state and reservation CI matrix; run `39063197304` passes all three jobs without packaging applications
     - [ ] Bound retained generation ancestry and exercise retirement across repeated recoveries before claiming indefinite compaction (`docs/developers/v0.4-history-compaction.md`)
+    - [x] Capture intact witness/coordinator state behind same-file fences, replicate decisions before responding, and restore the same keys and permanent denials through owner loss; preserve version-one images and test seven migration SIGKILL boundaries (`docs/developers/v0.4-protected-role-recovery.md`)
+    - [ ] Add reviewed desktop creation/capture controls for new and existing protected roles, and measure near-capacity signing/replication costs
   - [ ] Resolve authenticated policy freshness and migration beyond the bounded 64-configuration archive; never treat missing records as unused capacity or discard permanent denial evidence
   - [ ] Resolve same-key witness replacement, membership governance/freshness, and history compaction before enabling admission by default; fresh-key cohort rotation does not rescue stranded old tokens or remove finite history limits
 - [ ] Measure protection against a curious relay, colluding relays, Sybil relays, and a network observer

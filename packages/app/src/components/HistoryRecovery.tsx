@@ -81,6 +81,7 @@ export function HistoryRecoveryProgress({ result, busy, onAction }: {
       <h4>Review restoration</h4>
       <p style={{ overflowWrap: 'anywhere' }}>New history folder: {result.directory}</p>
       <p>{result.spends} retained spends · {result.permanentDenials} permanent denials · generation {result.generation}</p>
+      {(result.witnessVotes !== undefined || result.coordinatorCertificates !== undefined) && <p>{result.witnessVotes ?? 0} witness decisions · {result.coordinatorCertificates ?? 0} quorum certificates · {result.rolePermanentDenials ?? 0} permanent role denials</p>}
       <p>Requested policy revision: {result.requestedPolicyRevision}</p>
       <p className="text-sm">Restore writes the reviewed history into the new folder and requires four fresh copies. It does not start the relay or replace witness/coordinator state.</p>
       <button className="btn btn-primary" type="button" disabled={busy} onClick={() => onAction('restore')}>Approve restoration</button>

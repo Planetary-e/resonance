@@ -8,6 +8,7 @@ export interface RelayHistoryRecoveryResult {
   kind?: 'admission-recovery-freeze' | 'admission-history-restore' | 'admission-restoration-readiness';
   directory?: string; contextId?: string; generation?: number; nextGeneration?: number; view?: number;
   approvalDigest?: string; spends?: number; permanentDenials?: number;
+  witnessVotes?: number; coordinatorCertificates?: number; rolePermanentDenials?: number;
   requestedPolicyRevision?: number; complete?: boolean;
   destinationOccupied?: boolean;
   appliedSpends?: number; pending?: boolean; initializeWriter?: boolean; initializeArchive?: boolean;

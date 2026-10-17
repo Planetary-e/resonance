@@ -17,6 +17,7 @@ export interface PreparedAdmissionHistoryRestore {
     kind: 'admission-history-restore'; directory: string; contextId: string; genesisId: string; rootId: string; generation: number;
     authorityFingerprint: string; recoveredPolicyRevision: number; requestedPolicyRevision: number;
     spends: number; unattributedSpends: number; permanentDenials: number; blocks: number; bytes: number; generations: number;
+    witnessVotes: number; coordinatorCertificates: number; rolePermanentDenials: number;
     approvalDigest: string;
   }>;
 }
@@ -47,6 +48,10 @@ export async function prepareAdmissionHistoryRestore(options: Omit<Parameters<ty
     requestedPolicyRevision: policy.revision, spends: replay.image.state.spends.length,
     unattributedSpends: replay.image.state.spends.filter(row => row.issuerKey === null).length,
     permanentDenials: replay.image.state.retiredIssuerKeys.length,
+    witnessVotes: replay.image.version === 2 ? replay.image.roles.witness?.votes.length ?? 0 : 0,
+    coordinatorCertificates: replay.image.version === 2 ? replay.image.roles.coordinator?.certificates.length ?? 0 : 0,
+    rolePermanentDenials: replay.image.version === 2 ? (replay.image.roles.witness?.retiredIssuerKeys.length ?? 0)
+      + (replay.image.roles.coordinator?.retiredIssuerKeys.length ?? 0) : 0,
     blocks: replay.blocks, bytes: replay.bytes, generations: replay.generations, approvalDigest }) });
   prepared.set(result, { directory, contextId: replay.contextId, policyDigest, root,
     restoration: { genesis: replay.genesis, baseline: replay.image, replayDigest: replay.replayDigest }, approvalDigest });

@@ -3453,7 +3453,10 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           || !rateLimiter.check(`witness:${ip}`, 'discovery')) {
           ws.close(4008, 'admission_witness_unavailable'); return;
         }
-        try { sendClientResponse(JSON.stringify(cfg.admissionWitness.vote(frameCandidate, () => cfg.acceptNewWork?.(data.byteLength) !== false)), 'admission_witness_complete'); }
+        try {
+          const vote = await cfg.admissionWitness.vote(frameCandidate, () => cfg.acceptNewWork?.(data.byteLength) !== false);
+          if (!stopping && ws.readyState === WebSocket.OPEN) sendClientResponse(JSON.stringify(vote), 'admission_witness_complete');
+        }
         catch { ws.close(4003, 'admission_witness_refused'); }
         return;
       }

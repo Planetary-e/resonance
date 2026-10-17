@@ -8,6 +8,7 @@ import { openAdmissionSpendHistory } from './admission-spend-history.js';
 import { openProtectedAdmissionSpendHistory, type AdmissionHistoryProtection } from './protected-admission-history.js';
 import { createAdmissionWitness, createAdmissionQuorumGate, type AdmissionWitnessTransport } from './admission-witness.js';
 import { historyCheckpointContextId } from '@resonance/core/history-checkpoint';
+import { createProtectedAdmissionRoles } from './protected-admission-roles.js';
 
 export async function createConfiguredAdmissionVerifier(options: {
   directory: string; authority: string; policy: unknown; encryptionKey: Uint8Array; initialize?: boolean;
@@ -27,8 +28,9 @@ export async function createConfiguredAdmissionVerifier(options: {
   const now = options.now ?? Date.now;
   const store = await openAdmissionPolicyStore({ path: join(options.directory, 'admission-community-policy.json'),
     encryptionKey: options.encryptionKey, mode: options.initialize ? 'create-new' : 'open-existing', now });
-  let witness: ReturnType<typeof createAdmissionWitness> | undefined;
-  let quorum: ReturnType<typeof createAdmissionQuorumGate> | undefined;
+  let witness: ReturnType<typeof createAdmissionWitness> | ReturnType<typeof createProtectedAdmissionRoles>['witness'];
+  let quorum: ReturnType<typeof createAdmissionQuorumGate> | ReturnType<typeof createProtectedAdmissionRoles>['quorum'];
+  let protectedRoles: ReturnType<typeof createProtectedAdmissionRoles> | undefined;
   let history: ReturnType<typeof openAdmissionSpendHistory> | Awaited<ReturnType<typeof openProtectedAdmissionSpendHistory>> | undefined;
   try {
     const pinnedContext = store.protectedHistoryContext();
@@ -47,9 +49,15 @@ export async function createConfiguredAdmissionVerifier(options: {
     } else history = openAdmissionSpendHistory(historyOptions);
     const shared = { directory: options.directory, encryptionKey: options.encryptionKey, policy, now, maxSpends: options.maxSpends,
       initialize: options.initializeWitnessState ?? options.initialize };
-    if (options.witnessKey) witness = createAdmissionWitness({ ...shared, signingKey: options.witnessKey });
-    if (options.coordinatorKey) quorum = createAdmissionQuorumGate({ ...shared, signingKey: options.coordinatorKey, transport: options.witnessTransport,
-      timeoutMs: options.witnessTimeoutMs, onTransportSocket: options.onWitnessSocket });
+    if ('roleState' in history) {
+      protectedRoles = createProtectedAdmissionRoles({ history, witnessKey: options.witnessKey, coordinatorKey: options.coordinatorKey,
+        now, transport: options.witnessTransport, timeoutMs: options.witnessTimeoutMs, onTransportSocket: options.onWitnessSocket });
+      witness = protectedRoles.witness; quorum = protectedRoles.quorum;
+    } else {
+      if (options.witnessKey) witness = createAdmissionWitness({ ...shared, signingKey: options.witnessKey });
+      if (options.coordinatorKey) quorum = createAdmissionQuorumGate({ ...shared, signingKey: options.coordinatorKey, transport: options.witnessTransport,
+        timeoutMs: options.witnessTimeoutMs, onTransportSocket: options.onWitnessSocket });
+    }
     const entries: Array<AdmissionPolicyKey & { issuerPublicKey: CryptoKey }> = [];
     for (const entry of policy.keys) entries.push({ ...entry, issuerPublicKey: (await parseAdmissionWalletProfile(entry.profile)).publicKey });
     const verifier = createLocalBlindAdmissionVerifierV2({ directory: options.directory, maxSpends: options.maxSpends, history,
@@ -68,6 +76,6 @@ export async function createConfiguredAdmissionVerifier(options: {
     });
     return { verifyAndSpend: verifier.verifyAndSpend, witness,
       historyHealth: history && 'health' in history ? history.health : undefined,
-      close() { quorum?.close(); witness?.close(); verifier.close(); store.close(); } };
-  } catch (error) { history?.close(); quorum?.close(); witness?.close(); store.close(); throw error; }
+      close() { protectedRoles?.close(); quorum?.close(); witness?.close(); verifier.close(); store.close(); } };
+  } catch (error) { history?.close(); protectedRoles?.close(); quorum?.close(); witness?.close(); store.close(); throw error; }
 }

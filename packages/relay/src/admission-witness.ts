@@ -17,7 +17,8 @@ interface CommonOptions {
   directory: string; encryptionKey: Uint8Array; policy: SignedAdmissionPolicy; signingKey: SigningKeyPair;
   initialize?: boolean; now?: () => number; maxSpends?: number;
 }
-export interface AdmissionWitness { vote(request: unknown, acceptNew?: () => boolean): AdmissionWitnessVote; close(): void }
+export interface AdmissionWitness { vote(request: unknown, acceptNew?: () => boolean): AdmissionWitnessVote | Promise<AdmissionWitnessVote>; close(): void }
+export interface LocalAdmissionWitness extends AdmissionWitness { vote(request: unknown, acceptNew?: () => boolean): AdmissionWitnessVote }
 const indexKey = (claim: AdmissionSpendClaim) => `${claim.issuerKey}:${claim.spend}`;
 function entries(policy: SignedAdmissionPolicy) {
   return new Map(admissionPolicyKeys(policy).map(key => [admissionKeyFingerprint(key.profile.issuerPublicKey), key]));
@@ -31,7 +32,7 @@ function capacity(value = 10000) {
   return value;
 }
 
-export function createAdmissionWitness(options: CommonOptions): AdmissionWitness & AdmissionHistoryMaintenance {
+export function createAdmissionWitness(options: CommonOptions): LocalAdmissionWitness & AdmissionHistoryMaintenance {
   const limit = capacity(options.maxSpends), policy = structuredClone(options.policy), byKey = entries(policy), key = copyAdmissionSigningKey(options.signingKey);
   const publicKey = Buffer.from(key.publicKey).toString('base64url'), now = options.now ?? Date.now;
   type State = { version: 1 | 2; witness: string; votes: AdmissionWitnessVote[]; retiredIssuerKeys?: string[] };
@@ -171,7 +172,7 @@ export function createAdmissionQuorumGate(options: CommonOptions & { transport?:
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
         const request = createAdmissionWitnessRequest(claim, key);
-        const cert = await collectVotes(entry.witnesses, request, controller.signal, options.transport
+        const cert = await collectAdmissionWitnessVotes(entry.witnesses, request, controller.signal, options.transport
           ?? ((member, req, signal) => requestAdmissionWitnessVote(member, req, signal, options.onTransportSocket)));
         storage.read(); current(policy, entry, now());
         if (retired.has(issuerKey) || isArchivedAdmissionKey(policy, issuerKey)) throw new Error('Admission issuer key is permanently retired on this coordinator');
@@ -191,7 +192,7 @@ export function createAdmissionQuorumGate(options: CommonOptions & { transport?:
   };
 }
 
-function collectVotes(set: AdmissionWitnessSet, request: AdmissionWitnessRequest, signal: AbortSignal, transport: AdmissionWitnessTransport): Promise<AdmissionSpendCertificate> {
+export function collectAdmissionWitnessVotes(set: AdmissionWitnessSet, request: AdmissionWitnessRequest, signal: AbortSignal, transport: AdmissionWitnessTransport): Promise<AdmissionSpendCertificate> {
   return new Promise((resolve, reject) => {
     const votes = new Map<string, AdmissionWitnessVote>(); let remaining = 5, settled = false;
     const finish = (cert?: AdmissionSpendCertificate) => {

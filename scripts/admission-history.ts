@@ -33,6 +33,8 @@ try {
   console.error('  owner-prefix-plan|owner-prefix-retire [--approve <digest>] owner-config.json policy.json owner-storage.hex owner-directory');
   console.error('  owner-initial-readiness-plan|owner-initial-ready [--approve <digest>] owner-config.json enrollment.json policy.json owner-storage.hex owner-directory');
   console.error('  owner-retirement-plan|owner-retire [--approve <digest>] owner-config.json policy.json owner-storage.hex owner-directory <issuer-key-fingerprint>');
+  console.error('  owner-role-capture-plan|owner-role-capture [--approve <digest>] owner-config.json policy.json owner-storage.hex owner-directory local-role-directory <witness|coordinator|both>');
+  console.error('  owner-role-retirement-plan|owner-role-retire [--approve <digest>] owner-config.json policy.json owner-storage.hex owner-directory <witness|coordinator> <issuer-key-fingerprint>');
   console.error('  owner-legacy-plan|owner-legacy-recover [--approve <digest>] owner-config.json policy.json owner-storage.hex owner-directory proofs.json');
   console.error('  owner-recovery-plan|owner-recovery-start [--approve <digest>] owner-config.json enrollment.json owner-storage.hex recovery-directory <view>');
   console.error('  owner-recovery-status|owner-recovery-step owner-config.json enrollment.json owner-storage.hex recovery-directory');
