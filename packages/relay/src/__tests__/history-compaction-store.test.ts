@@ -56,6 +56,61 @@ it('retains a monotone encrypted proof atomically while preserving every block, 
   expect(reopened.genesisId).toBe(f.options.rootId);
   reopened.append(f.next(f.tail)); expect(reopened.compactionAnchor()).toEqual(later);
 });
+
+it('reviews and retires only certified prefix payloads, preserving the root, later accepted tail and a durable freeze', () => {
+  const f = fixture(), proof = f.certificate(f.second), before = f.files(), usage = f.store.storageUsage();
+  expect(() => f.store.planPrefixRetirement()).toThrow('certificate');
+  f.store.retainCompactionAnchor(proof, f.store.reviewDigest());
+  const oldReview = f.store.planPrefixRetirement();
+  const freeze = createHistoryFreeze(f.context, 0, 1, randomBytes(32).toString('base64url'), f.owner); f.store.freeze(freeze);
+  expect(() => f.store.retirePrefix(oldReview.approvalDigest)).toThrow('review'); expect(f.files()).toEqual(before);
+  const plan = f.store.planPrefixRetirement();
+  expect(plan.filesRemoved).toBe(2); expect(plan.bytesReclaimed).toBeGreaterThan(0);
+  expect(f.store.retirePrefix(plan.approvalDigest)).toEqual(plan);
+  const expected = [f.root, f.second, f.tail];
+  expect(f.store.read().envelopes).toEqual(expected); expect(f.store.compactionAnchor()).toEqual(proof);
+  expect(Object.keys(f.files())).toHaveLength(3);
+  for (const [name, bytes] of Object.entries(f.files())) expect(bytes).toEqual(before[name]);
+  expect(f.store.storageUsage()).toMatchObject({ retainedBlocks: 3,
+    retainedCiphertextBytes: usage.retainedCiphertextBytes - plan.bytesReclaimed,
+    maximumBytes: usage.maximumBytes, maximumBlocks: usage.maximumBlocks, manifestReserveBytes: usage.manifestReserveBytes });
+  expect(f.store.describe()).toMatchObject({ sequence: 4, freeze });
+  const emptyPlan = f.store.planPrefixRetirement(), manifest = readFileSync(f.path);
+  expect(f.store.retirePrefix(emptyPlan.approvalDigest).filesRemoved).toBe(0); expect(readFileSync(f.path)).toEqual(manifest);
+  f.store.close(); const reopened = f.open();
+  expect(reopened.read().envelopes).toEqual(expected); expect(reopened.describe().freeze).toEqual(freeze);
+  expect(() => reopened.append(f.next(f.tail))).toThrow('frozen');
+});
+
+it('keeps an unfrozen compacted suffix writable and preserves a second partially accepted tail through later retirement', () => {
+  const f = fixture(); f.store.retainCompactionAnchor(f.certificate(f.second), f.store.reviewDigest());
+  f.store.retirePrefix(f.store.planPrefixRetirement().approvalDigest);
+  const checkpoint = f.next(f.tail, 'later full state', 'checkpoint'), partial = f.next(checkpoint);
+  f.store.append(checkpoint); f.store.append(partial);
+  f.store.retainCompactionAnchor(f.certificate(checkpoint), f.store.reviewDigest());
+  expect(f.store.retirePrefix(f.store.planPrefixRetirement().approvalDigest).filesRemoved).toBe(2);
+  expect(f.store.read().envelopes).toEqual([f.root, checkpoint, partial]);
+  f.store.close(); const reopened = f.open(); reopened.append(f.next(partial)); expect(reopened.describe().sequence).toBe(7);
+});
+
+it.each(['before-write', 'after-file-flush', 'before-rename', 'after-rename', 'before-unlink', 'after-unlink', 'durable'] as const)(
+  'resumes prefix cleanup without restoring removed history after real SIGKILL at %s', async boundary => {
+    const f = fixture(), proof = f.certificate(f.second); f.store.retainCompactionAnchor(proof, f.store.reviewDigest());
+    const before = f.files(), retained = [f.root, f.second, f.tail]; f.store.close();
+    const child = fork(new URL('./fixtures/history-compaction-crash.ts', import.meta.url), [],
+      { execArgv: ['--import', 'tsx'], stdio: ['ignore', 'ignore', 'inherit', 'ipc'] });
+    const exited = once(child, 'exit'), messages: unknown[] = []; child.on('message', value => messages.push(value));
+    cleanup.push(async () => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); await exited; });
+    child.send({ options: { ...f.options, localKey: f.localKey.toString('hex') }, retire: true, boundary });
+    await exited; expect(messages).toEqual(['ready']); expect(child.signalCode).toBe('SIGKILL');
+    const reopened = f.open(), committed = ['after-rename', 'before-unlink', 'after-unlink', 'durable'].includes(boundary);
+    expect(reopened.read().envelopes).toHaveLength(committed ? 3 : 5);
+    expect(Object.keys(f.files())).toHaveLength(committed ? 3 : 5); expect(reopened.compactionAnchor()).toEqual(proof);
+    expect(reopened.describe().sequence).toBe(f.tail.sequence);
+    for (const [name, bytes] of Object.entries(f.files())) expect(bytes).toEqual(before[name]);
+    reopened.retirePrefix(reopened.planPrefixRetirement().approvalDigest); expect(reopened.read().envelopes).toEqual(retained);
+    reopened.append(f.next(f.tail)); expect(reopened.describe().sequence).toBe(5);
+  }, 15000);
 it('refuses stale review and unavailable/invalid checkpoints without changing retained state', () => {
   const f = fixture(), proof = f.certificate(f.first), before = readFileSync(f.path), review = f.store.reviewDigest();
   expect(() => f.store.retainCompactionAnchor(proof, 'stale')).toThrow('review');

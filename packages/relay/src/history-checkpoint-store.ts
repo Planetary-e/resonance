@@ -346,6 +346,26 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
     if (historyCheckpointEnvelopeId(envelope) !== id || envelope.generation !== generation) throw new Error('History block binding mismatch');
     blockBytes += bytes.length; return envelope;
   }
+  function prefixRetirement() {
+    ensureOpen(); const state = storage.read(), proof = state.compaction;
+    if (!proof || !genesisId) throw new Error('Prefix retirement requires a durably retained checkpoint certificate');
+    parseHistoryCompactionCertificate(proof, context, genesisId, envelopes[proof.proposal.sequence]);
+    const boundary = proof.proposal.sequence;
+    const removed = state.blocks.slice(1, boundary).flatMap((id, offset) => {
+      if (id === null) return [];
+      const stat = lstatSync(blockPath(id));
+      if (!stat.isFile() || stat.size <= 0 || stat.size > HISTORY_ENVELOPE_MAX_BYTES) throw new Error('Invalid retiring history payload');
+      return [{ sequence: offset + 1, id, bytes: stat.size }];
+    });
+    const bytesReclaimed = removed.reduce((sum, block) => sum + block.bytes, 0);
+    if (bytesReclaimed > blockBytes) throw new Error('Retiring history exceeds retained accounting');
+    const plan = { kind: 'history-replica-prefix-retirement' as const, contextId, rootId, generation,
+      checkpointSequence: boundary, checkpointId: proof.proposal.envelopeId, headSequence: state.blocks.length - 1,
+      headId: state.blocks.at(-1)!, filesRemoved: removed.length, bytesReclaimed,
+      approvalDigest: historyDigest(`resonance:history-replica-prefix-retirement:v1\n${JSON.stringify([directory, state, removed])}`),
+      notice: 'Retires ciphertext strictly before the certified checkpoint, preserving the root, suffix and all barriers. Storage promises and sequence limits remain unchanged.' };
+    return { state, removed, plan };
+  }
   try {
     if (root && preparing) {
       const state = storage.read();
@@ -399,11 +419,13 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
     }
     // Only unreferenced ciphertext is discarded. Validate the entire retained chain first.
     const retained = new Set([...state.blocks, ...(state.transfer?.blocks ?? [])].filter((id): id is string => id !== null).map(id => `${id.slice(7)}.block`));
+    let cleaned = false;
     for (const name of readdirSync(directory)) {
       if ((/^[a-f0-9]{64}\.block$/.test(name) && !retained.has(name)) || /^\.block-[a-f0-9]{32}\.tmp$/.test(name)) {
-        rmSync(join(directory, name));
+        rmSync(join(directory, name)); cleaned = true;
       }
     }
+    if (cleaned) flushDirectory(directory);
   } catch (error) { storage.close(); throw error; }
 
   return {
@@ -432,6 +454,23 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
       return structuredClone(certificate);
     },
     compactionAnchor(): HistoryCompactionCertificate | null { ensureOpen(); return structuredClone(storage.read().compaction ?? null); },
+    planPrefixRetirement() { return prefixRetirement().plan; },
+    /** Commit the authoritative boundary before unlinking redundant payloads.
+     * Reopen resumes cleanup; no accepted suffix or durable barrier is removed. */
+    retirePrefix(approvedDigest: string) {
+      const { state, removed, plan } = prefixRetirement();
+      if (approvedDigest !== plan.approvalDigest) throw new Error('History prefix changed; review retirement again');
+      if (!removed.length) return plan;
+      const blocks = [...state.blocks]; for (const block of removed) blocks[block.sequence] = null;
+      const next = { ...state, blocks };
+      if (!validManifest(next)) throw new Error('Invalid outgoing prefix retirement boundary');
+      try {
+        storage.write(next); // Only the durable manifest makes these files unnecessary.
+        for (const block of removed) { envelopes[block.sequence] = null; rmSync(blockPath(block.id)); }
+        flushDirectory(directory); blockBytes -= plan.bytesReclaimed;
+      } catch (error) { failed = true; throw error; }
+      return plan;
+    },
     /** Install a certified full-state checkpoint on an unfrozen lagging member.
      * Preserves every accepted local block; this is not a fresh writer receipt. */
     installCheckpoint(value: unknown, proof: unknown, approvedReviewDigest: string): string {

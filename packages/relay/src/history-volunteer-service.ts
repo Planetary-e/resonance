@@ -82,6 +82,11 @@ export function openHistoryVolunteerService(options: {
   function reviewDigest() {
     live(); return historyDigest(JSON.stringify([...slots.values()].map(slot => [slot.store.reviewDigest(), slot.provisioner.read()])));
   }
+  function prefixRetirement(rootId: string) {
+    const slot = select(rootId), local = slot.store.planPrefixRetirement();
+    return { slot, local, review: { ...local,
+      approvalDigest: historyDigest(`resonance:history-volunteer-prefix-retirement:v1\n${JSON.stringify([directory, reviewDigest(), local.approvalDigest])}`) } };
+  }
   function endorseCompactionCheckpoint(raw: unknown) {
     live();
     const proposal = parseHistoryCompactionProposal(raw, context, genesisId, now());
@@ -147,6 +152,13 @@ export function openHistoryVolunteerService(options: {
       return slot.store.retainCompactionAnchor(certificate, slot.store.reviewDigest());
     }); },
     retainedCompactionCheckpoint(rootId: string) { return select(rootId).store.compactionAnchor(); },
+    /** Offline local maintenance: review binds every retained generation and provisioning promise. */
+    planPrefixRetirement(rootId: string) { return prefixRetirement(rootId).review; },
+    retirePrefix(rootId: string, approvedDigest: string) { return run(() => {
+      const { slot, local, review } = prefixRetirement(rootId);
+      if (approvedDigest !== review.approvalDigest) throw new Error('Volunteer history changed; review prefix retirement again');
+      slot.store.retirePrefix(local.approvalDigest); return review;
+    }); },
     /** Attests to retained ciphertext and independently enrolled ancestry only.
      * No files, manifests, barriers or admission state are changed by this vote. */
     endorseCompactionCheckpoint,

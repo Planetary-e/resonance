@@ -131,9 +131,11 @@ it('exports a reviewed four-member checkpoint certificate through the CLI and us
   expect((await command('owner-checkpoint-certification-plan', ...n.args, output)).code).not.toBe(0);
   const publish = await succeed('owner-checkpoint-plan', ...n.args);
   await succeed('owner-checkpoint', '--approve', publish.approvalDigest, ...n.args);
+  const secondPublish = await succeed('owner-checkpoint-plan', ...n.args);
+  await succeed('owner-checkpoint', '--approve', secondPublish.approvalDigest, ...n.args);
   n.online(0); const before = readFileSync(n.stateFile), calls = n.calls();
   const plan = await succeed('owner-checkpoint-certification-plan', ...n.args, output);
-  expect(plan).toMatchObject({ sequence: 1, recordsRetained: 4, output: canonicalHistorySetupPath(output), filesRemoved: 0, bytesReclaimed: 0, readiness: 'unverified' });
+  expect(plan).toMatchObject({ sequence: 2, recordsRetained: 4, output: canonicalHistorySetupPath(output), filesRemoved: 0, bytesReclaimed: 0, readiness: 'unverified' });
   for (const secret of [n.a.row.spend, n.a.row.binding, n.a.value.capability.token]) expect(JSON.stringify(plan)).not.toContain(secret);
   expect(n.calls()).toBe(calls); expect(readFileSync(n.stateFile)).toEqual(before); expect(existsSync(output)).toBe(false);
   expect((await command('owner-checkpoint-certify', '--approve', 'wrong', ...n.args, output)).code).not.toBe(0);
@@ -162,6 +164,19 @@ it('exports a reviewed four-member checkpoint certificate through the CLI and us
   expect(readFileSync(output)).toEqual(bytes);
   expect(await succeed('owner-checkpoint-retain', '--approve', retainPlan.approvalDigest, ...retainArgs))
     .toMatchObject({ result: 'checkpoint-proof-retained', retainedCopies: 4 });
+  n.online(0); const beforePrefix = n.calls();
+  const prefix = await succeed('owner-prefix-plan', ...n.args);
+  expect(prefix).toMatchObject({ filesRemoved: 1, recordsRetained: 4, readiness: 'unverified' });
+  expect((await command('owner-prefix-retire', '--approve', 'wrong', ...n.args)).code).not.toBe(0);
+  expect(await succeed('owner-prefix-retire', '--approve', prefix.approvalDigest, ...n.args))
+    .toMatchObject({ result: 'history-prefix-retired', filesRemoved: 1, readiness: 'unverified' });
+  expect(n.calls()).toBe(beforePrefix); expect(readFileSync(n.stateFile)).toEqual(before);
+  expect(await succeed('owner-prefix-plan', ...n.args)).toMatchObject({ filesRemoved: 0 });
+  for (const service of n.services.filter(s => s.retainedCompactionCheckpoint(genesisId))) {
+    const review = service.planPrefixRetirement(genesisId);
+    expect(service.retirePrefix(genesisId, review.approvalDigest).filesRemoved).toBe(1);
+  }
+  n.online(5);
   const options = { directory: join(n.directory, 'certified-recovery'), genesis: n.genesis, encryptionKey: n.key,
     protection: n.options.protection, compaction: certificate };
   const review = await prepareAdmissionHistoryRecovery(options);
@@ -196,6 +211,32 @@ it('refuses stale approvals and implicit policy updates before contacting a volu
   const newer = await command('owner-retirement-plan', ...n.args, n.a.value.issuerKey);
   expect(newer.code).not.toBe(0); expect(newer.stderr).toContain('retained policy');
   expect(n.calls()).toBe(calls); expect(readFileSync(n.stateFile)).toEqual(before);
+}, 30000);
+
+it('reviews and retires one stopped volunteer prefix through the CLI using its independent enrollment and local keys', async () => {
+  const n = await fixture(), history = await openProtectedAdmissionSpendHistory(n.options);
+  cleanup.push(history.close); await history.ready();
+  await history.checkpoint(history.planCheckpoint().approvalDigest);
+  await history.checkpoint(history.planCheckpoint().approvalDigest);
+  const plan = history.planCheckpointCertification();
+  const certificate = await history.certifyCheckpoint(plan.approvalDigest, { transport: async (member, proposal) =>
+    n.services[n.context.members.indexOf(member.publicKey)].compaction(proposal) });
+  history.close(); const service = n.services[0], rootId = historyCheckpointEnvelopeId(n.genesis);
+  service.retainCompactionCheckpoint(certificate, service.reviewDigest());
+  const expected = service.planPrefixRetirement(rootId); service.close();
+  const enrollment = join(n.directory, 'replica-enrollment.json'), signing = join(n.directory, 'replica-signing.json'), storage = join(n.directory, 'replica-storage.hex');
+  writeFileSync(enrollment, JSON.stringify({ version: 1, kind: 'admission-history-enrollment', context: n.context, root: n.genesis }));
+  writeFileSync(signing, JSON.stringify({ publicKey: Buffer.from(n.memberKeys[0].publicKey).toString('base64url'),
+    secretKey: Buffer.from(n.memberKeys[0].secretKey).toString('base64url') }), { mode: 0o600 });
+  writeFileSync(storage, n.localKey.toString('hex'), { mode: 0o600 });
+  const args = [enrollment, signing, storage, join(n.directory, 'replica-0'), rootId];
+  const review = await succeed('replica-prefix-plan', ...args);
+  expect(review.filesRemoved).toBe(1); expect(review.approvalDigest).toBe(expected.approvalDigest);
+  const calls = n.calls();
+  expect((await command('replica-prefix-retire', '--approve', 'wrong', ...args)).code).not.toBe(0);
+  expect(await succeed('replica-prefix-retire', '--approve', review.approvalDigest, ...args))
+    .toMatchObject({ result: 'history-prefix-retired', filesRemoved: 1, readiness: 'unverified' });
+  expect(await succeed('replica-prefix-plan', ...args)).toMatchObject({ filesRemoved: 0 }); expect(n.calls()).toBe(calls);
 }, 30000);
 
 it('keeps a lost-reply legacy mutation pending, finishes it explicitly and preserves its denial through owner loss', async () => {

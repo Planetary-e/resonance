@@ -254,11 +254,12 @@ export async function runAdmissionHistoryCommand(command: string, raw: readonly 
         emit({ ...review, result: 'checkpoint-certificate-exported', endorsements: certificate.votes.length,
           authority: 'historical-only', remotelyRetained: false });
       }
-    } else if (['owner-retirement-plan', 'owner-retire', 'owner-legacy-plan', 'owner-legacy-recover', 'owner-checkpoint-plan', 'owner-checkpoint'].includes(command)) {
+    } else if (['owner-retirement-plan', 'owner-retire', 'owner-legacy-plan', 'owner-legacy-recover', 'owner-checkpoint-plan', 'owner-checkpoint', 'owner-prefix-plan', 'owner-prefix-retire'].includes(command)) {
       const checkpoint = command === 'owner-checkpoint-plan' || command === 'owner-checkpoint';
-      const mutating = command === 'owner-retire' || command === 'owner-legacy-recover' || command === 'owner-checkpoint';
+      const prefix = command === 'owner-prefix-plan' || command === 'owner-prefix-retire';
+      const mutating = command === 'owner-retire' || command === 'owner-legacy-recover' || command === 'owner-checkpoint' || command === 'owner-prefix-retire';
       const approved = mutating && raw[0] === '--approve' ? raw[1] : undefined, args = approved ? raw.slice(2) : raw;
-      if (args.length !== (checkpoint ? 4 : 5) || (mutating && !approved)) throw new Error('Invalid protected maintenance command or missing approval');
+      if (args.length !== (checkpoint || prefix ? 4 : 5) || (mutating && !approved)) throw new Error('Invalid protected maintenance command or missing approval');
       const [configPath, policyPath, keyPath, directory, target] = args;
       const loaded = loadAdmissionHistoryProtectionFile(configPath); cleanup.push(() => loaded.signingKey.secretKey.fill(0));
       const transport = operatorTransport(loaded), { protection } = transport;
@@ -271,18 +272,19 @@ export async function runAdmissionHistoryCommand(command: string, raw: readonly 
         throw new Error('Maintenance requires the retained policy; apply its successor explicitly before reviewing');
       }
       const retiring = command === 'owner-retirement-plan' || command === 'owner-retire';
-      const proofs = retiring || checkpoint ? undefined : readOperatorJson(target, 65536);
-      const plan = checkpoint ? history.planCheckpoint() : retiring ? history.planRetirement(target) : await history.planLegacyRecovery(proofs);
+      const proofs = retiring || checkpoint || prefix ? undefined : readOperatorJson(target, 65536);
+      const plan = prefix ? history.planPrefixRetirement() : checkpoint ? history.planCheckpoint() : retiring ? history.planRetirement(target) : await history.planLegacyRecovery(proofs);
       let checkpointResult: Awaited<ReturnType<typeof history.checkpoint>> | undefined;
       if (mutating) {
         if (approved !== plan.approvalDigest) throw new Error('Maintenance approval does not match; review the current history again');
-        await history.ready(); // Fresh quorum is independent of the offline review.
-        if (checkpoint) checkpointResult = await history.checkpoint(approved!);
+        if (!prefix) await history.ready(); // Prefix retirement is local maintenance, never readiness.
+        if (prefix) await history.retirePrefix(approved!);
+        else if (checkpoint) checkpointResult = await history.checkpoint(approved!);
         else if (retiring) await history.retire(target, approved!);
         else await history.recoverLegacy(proofs, approved!); // Rechecks evidence/digest after readiness.
       }
-      emit({ ...plan, ...checkpointResult, durability: 'protected-four-of-five', readiness: mutating ? 'confirmed' : 'unverified',
-        result: !mutating ? 'review-required' : checkpoint ? 'state-checkpoint-published' : retiring ? 'permanently-retired' : 'legacy-spends-recovered' });
+      emit({ ...plan, ...checkpointResult, durability: 'protected-four-of-five', readiness: mutating && !prefix ? 'confirmed' : 'unverified',
+        result: !mutating ? 'review-required' : prefix ? 'history-prefix-retired' : checkpoint ? 'state-checkpoint-published' : retiring ? 'permanently-retired' : 'legacy-spends-recovered' });
     } else if (command === 'owner-ready' && raw.length === 4) {
       const [configPath, policyPath, keyPath, directory] = raw;
       const loaded = loadAdmissionHistoryProtectionFile(configPath); cleanup.push(() => loaded.signingKey.secretKey.fill(0));
@@ -325,6 +327,19 @@ export async function runAdmissionHistoryCommand(command: string, raw: readonly 
         if (approved !== review.approvalDigest) throw new Error('Enrollment resumption approval changed; review again');
         const resumed = prepared.apply(prepared.review.approvalDigest); check(); emit(resumed);
       } else emit(review);
+    } else if (['replica-prefix-plan', 'replica-prefix-retire'].includes(command)) {
+      const applying = command === 'replica-prefix-retire', approved = applying && raw[0] === '--approve' ? raw[1] : undefined;
+      const args = approved ? raw.slice(2) : raw;
+      if (args.length !== 5 || applying && !approved) throw new Error('Invalid replica prefix retirement command or missing approval');
+      const [enrollmentPath, memberPath, keyPath, target, rootId] = args;
+      const pinned = readHistoryEnrollmentFile(enrollmentPath), signingKey = readOperatorSigningKey(memberPath);
+      cleanup.push(() => signingKey.secretKey.fill(0));
+      const localKey = readOperatorStorageKey(keyPath); cleanup.push(() => localKey.fill(0));
+      const service = openHistoryVolunteerService({ directory: resolve(target), localKey, context: pinned.context, signingKey, genesisId: pinned.genesisId });
+      cleanup.push(service.close);
+      const plan = service.planPrefixRetirement(rootId); checkCancelled();
+      if (applying) service.retirePrefix(rootId, approved!);
+      emit({ ...plan, result: applying ? 'history-prefix-retired' : 'review-required', readiness: 'unverified' });
     } else if (['replica-plan', 'replica-enroll', 'replica-serve'].includes(command)) {
       const approved = command === 'replica-enroll' && raw[0] === '--approve' ? raw[1] : undefined;
       const args = approved ? raw.slice(2) : raw;

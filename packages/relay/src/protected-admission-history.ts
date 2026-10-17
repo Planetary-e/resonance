@@ -156,7 +156,7 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
       plaintext: encodeAdmissionHistoryRecord(reduced.record), encryptionKey: key, signingKey: signer });
     if (value.kind === 'admission-state-checkpoint') {
       const usage = writer!.historyUsage();
-      if (usage.retainedBlocks >= usage.maximumBlocks
+      if (writer!.historyStatus().sequenceSlots >= usage.maximumBlocks
         || Buffer.byteLength(JSON.stringify(pending)) > usage.maximumCiphertextBytes - usage.retainedCiphertextBytes) {
         throw new Error('State checkpoint needs retained archive headroom; no checkpoint intent was written');
       }
@@ -207,6 +207,14 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
       retiredIssuerKeys: state.retiredIssuerKeys, entries: state.spends.length,
       remove: state.spends.filter(row => row.issuerKey === issuerKey).length, maximumEntries: limit, now: now() }),
       unattributedRecordsRetained: state.spends.filter(row => row.issuerKey === null).length };
+  }
+  function prefixRetirement() {
+    const { checkpoint } = certificationCheckpoint(), state = available(), proof = writer!.compactionAnchor();
+    if (!proof || proof.proposal.envelopeId !== id(checkpoint)) throw new Error('Prefix retirement requires certification of the latest complete state');
+    const archive = writer!.planPrefixRetirement();
+    return { archive, review: { ...archive, kind: 'admission-history-prefix-retirement' as const,
+      recordsRetained: state.image.state.spends.length, permanentDenialsRetained: state.image.state.retiredIssuerKeys.length,
+      approvalDigest: historyDigest(`resonance:admission-history-prefix-retirement:v1\n${JSON.stringify([participant, archive.approvalDigest, state.image])}`) } };
   }
   function close() {
     if (!closed) { closed = true; certificationController?.abort(); writer?.close(); storage?.close(); key.fill(0); signer.secretKey.fill(0); }
@@ -324,6 +332,15 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
       if (active) throw new Error('Protected admission history operation is in progress');
       return certificationCheckpoint().plan;
     },
+    planPrefixRetirement() {
+      if (active) throw new Error('Protected admission history operation is in progress');
+      return prefixRetirement().review;
+    },
+    retirePrefix(approvedDigest: string) { return exclusive(async () => {
+      const { archive, review } = prefixRetirement();
+      if (approvedDigest !== review.approvalDigest) throw new Error('History prefix changed; review retirement again');
+      writer!.retirePrefix(archive.approvalDigest); return review;
+    }); },
     certifyCheckpoint(approvedDigest: string, settings: Pick<Parameters<typeof collectHistoryCompactionCertificate>[0], 'signal' | 'timeoutMs' | 'transport'> = {}) {
       return exclusive(async () => {
         serving(); const { checkpoint, plan } = certificationCheckpoint();

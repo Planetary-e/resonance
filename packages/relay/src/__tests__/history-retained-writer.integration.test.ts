@@ -69,12 +69,18 @@ it('repairs from a durable checkpoint proof after owner reopen, survives a lost 
   expect(() => writer.retainCompactionAnchor(proof, 'stale')).toThrow('review');
   const usage = writer.historyUsage(); writer.retainCompactionAnchor(proof, writer.historyReviewDigest());
   expect(writer.historyUsage()).toEqual(usage); expect([...writer.history()]).toEqual(blocks);
+  const retirement = writer.planPrefixRetirement(); expect(retirement.filesRemoved).toBe(3);
+  const beforeRetirement = n.calls(); writer.retirePrefix(retirement.approvalDigest); expect(n.calls()).toBe(beforeRetirement);
+  expect(writer.historyUsage().retainedCiphertextBytes).toBe(usage.retainedCiphertextBytes - retirement.bytesReclaimed);
+  expect(writer.historyStatus()).toMatchObject({ blocks: 3, sequenceSlots: 6 });
+  expect([...writer.history()]).toEqual([n.root, checkpoint, block]);
   writer.close(); const before = n.calls(); writer = n.writer(false, { transport, requireCurrentHead: true });
   expect(n.calls()).toBe(before); expect(writer.compactionAnchor()).toEqual(proof);
   await n.listeners[3].close(); await n.start(4); actions.length = 0;
   const target = n.next(block); await expect(writer.replicate(target)).rejects.toThrow('Four');
   expect(actions).toEqual(['head:0', 'install:4']); expect(n.stores[4].describe().sequence).toBe(4);
   expect(n.stores[4].read().envelopes).toEqual([n.root, checkpoint]); expect(writer.read().pending).toEqual(target);
+  expect(() => writer.planPrefixRetirement()).toThrow('pending');
   loseInstall = false; refuseTarget = true; actions.length = 0;
   await expect(writer.replicate(target)).rejects.toThrow('Four');
   expect(actions).toEqual(['head:0', 'append:5', 'append:6']); expect(writer.read().committed?.envelope).toEqual(block);
@@ -84,8 +90,36 @@ it('repairs from a durable checkpoint proof after owner reopen, survives a lost 
   expect(certificate.receipts.every(r => r.request.action === 'append' && r.request.sequence === 6)).toBe(true);
   expect(certificate.receipts.some(r => r.request.replica === n.context.members[4])).toBe(true);
   expect(n.stores[4].read().envelopes).toEqual([n.root, checkpoint, block, target]);
-  expect([...writer.history()]).toEqual([...blocks, target]);
+  expect([...writer.history()]).toEqual([n.root, checkpoint, block, target]);
 }, 30000);
+
+it.each(['before-file-flush', 'after-file-flush', 'before-index', 'after-index', 'before-unlink', 'after-unlink', 'durable'] as const)(
+  'reopens the writer prefix boundary and resumes cleanup after SIGKILL at %s', async boundary => {
+    const n = await network(), initial = n.writer(true);
+    const a = n.next(n.root), b = n.next(a), checkpoint = n.next(b, 'full state', 'checkpoint'), tail = n.next(checkpoint);
+    for (const block of [n.root, a, b, checkpoint, tail]) await initial.replicate(block);
+    const issuedAt = Date.now(), proposal = createHistoryCompactionProposal({ genesisId: n.options.rootId, rootId: n.options.rootId,
+      checkpoint, issuedAt, expiresAt: issuedAt + 30000 }, n.context, n.owner);
+    initial.retainCompactionAnchor({ version: 1, kind: 'history-compaction-certificate', proposal,
+      votes: n.memberKeys.slice(0, 4).map(key => createHistoryCompactionVote(proposal, n.context, n.options.rootId, key, issuedAt)) }, initial.historyReviewDigest());
+    initial.close();
+    const child = fork(new URL('./fixtures/history-retained-writer-crash.ts', import.meta.url), [],
+      { execArgv: ['--import', 'tsx'], stdio: ['ignore', 'ignore', 'inherit', 'ipc'] });
+    const exited = once(child, 'exit'), messages: unknown[] = []; child.on('message', value => messages.push(value));
+    cleanup.push(async () => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); await exited; });
+    expect((await once(child, 'message'))[0]).toBe('ready');
+    const { localKey, signingKey, ...publicOptions } = n.options;
+    child.send({ options: publicOptions, localKey: localKey.toString('hex'), owner: {
+      publicKey: Buffer.from(signingKey.publicKey).toString('hex'), secretKey: Buffer.from(signingKey.secretKey).toString('hex') }, retire: true, boundary });
+    await exited; expect(messages).toEqual(['ready']); expect(child.signalCode).toBe('SIGKILL');
+    // An earlier fifth append may finish while the child exits. Opening itself is synchronous and offline.
+    const beforeOpen = n.calls(), writer = n.writer(); expect(n.calls()).toBe(beforeOpen);
+    const committed = ['after-index', 'before-unlink', 'after-unlink', 'durable'].includes(boundary);
+    expect([...writer.history()]).toEqual(committed ? [n.root, checkpoint, tail] : [n.root, a, b, checkpoint, tail]);
+    writer.retirePrefix(writer.planPrefixRetirement().approvalDigest);
+    expect([...writer.history()]).toEqual([n.root, checkpoint, tail]);
+    const next = n.next(tail); await writer.replicate(next); expect(writer.read().committed?.envelope).toEqual(next);
+  }, 30000);
 
 it.each(['before-pending', 'after-pending', 'before-payload', 'after-payload', 'before-index', 'after-index',
   'before-certificate', 'after-certificate', 'durable'] as const)(

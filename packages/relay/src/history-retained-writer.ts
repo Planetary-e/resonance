@@ -1,4 +1,4 @@
-/** Owner composition: exact durable intent, complete local ciphertext, then quorum replication. */
+/** Owner composition: durable intent, authenticated retained ciphertext, then quorum replication. */
 import { join } from 'node:path';
 import { createHistoryCheckpointWriter } from './history-checkpoint-quorum.js';
 import { openHistoryWriterArchive } from './history-writer-archive.js';
@@ -20,10 +20,14 @@ export function createRetainedHistoryCheckpointWriter(options: Omit<Parameters<t
       context: options.context, rootId: options.rootId, generation: options.generation, genesisId, readWriter: writer.read,
       initialize: options.initialize || initializeArchive, resumePristine: resumePristineArchive, maxBlocks: maxArchiveBlocks, maxBytes: maxArchiveBytes });
   } catch (error) { writer.close(); throw error; }
-  return { ...writer, history: () => archive.blocks(), historyStatus: () => archive.read(),
+  return { ...writer,
+    /** Retained payloads only. After retirement, compactionAnchor() authenticates the omitted prefix. */
+    history: () => archive.blocks(), historyStatus: () => archive.read(),
     historyUsage: () => archive.usage(),
     historyReviewDigest: () => archive.reviewDigest(),
     retainCompactionAnchor: archive.retainCompactionAnchor,
     compactionAnchor: archive.compactionAnchor,
+    planPrefixRetirement: archive.planPrefixRetirement,
+    retirePrefix: archive.retirePrefix,
     close() { writer.close(); archive.close(); } };
 }

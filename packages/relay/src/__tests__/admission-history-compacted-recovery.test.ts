@@ -37,6 +37,11 @@ async function fixture(ancestor = false) {
     checkpoint: anchor, issuedAt, expiresAt: issuedAt + 30000 }, n.context, n.owner);
   const certificate = { version: 1 as const, kind: 'history-compaction-certificate' as const, proposal,
     votes: n.memberKeys.slice(0, 4).map(key => createHistoryCompactionVote(proposal, n.context, genesisId, key, issuedAt)) };
+  if (!ancestor) for (const store of n.generations[1].slice(0, 4)) {
+    store.retainCompactionAnchor(certificate, store.reviewDigest());
+    expect(store.retirePrefix(store.planPrefixRetirement().approvalDigest).filesRemoved).toBe(1);
+    expect(store.envelopeAt(delta.sequence)).toBeNull();
+  }
   const roles = n.context.members.map((_, i) => createHistoryGenerationReplica({ directory: join(n.directory, `new-slot-${i}`),
     localKey: n.localKey, context: n.context, signingKey: n.memberKeys[i], parent: n.generations[1][i],
     ancestors: [n.generations[0][i]], initialize: true })); cleanup.push(() => roles.forEach(r => r.close()));

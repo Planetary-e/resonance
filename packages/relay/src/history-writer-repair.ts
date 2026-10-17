@@ -18,6 +18,7 @@ export function createHistoryWriterRepair(options: {
   const targetId = historyCheckpointEnvelopeId(block);
   const blocks: HistoryCheckpointEnvelope[] = [], ids: string[] = [];
   const source = options.retained(), indexed = isHistoryWriterPrefix(source) ? source : null;
+  const compaction = indexed?.compaction;
   let bytes = 0;
   function add(raw: HistoryCheckpointEnvelope) {
     live();
@@ -56,17 +57,20 @@ export function createHistoryWriterRepair(options: {
   function blockAt(sequence: number) {
     if (!indexed) return blocks[sequence];
     const value = parseHistoryCheckpointEnvelope(indexed.blockAt(sequence), context);
-    if (value.generation !== block.generation || value.sequence !== sequence || value.previous !== (sequence ? idAt(sequence - 1) : null)
+    const previous = sequence ? idAt(sequence - 1) : null;
+    const certifiedGap = sequence > 0 && previous === null && sequence === compaction?.certificate.proposal.sequence;
+    if (value.generation !== block.generation || value.sequence !== sequence || (!certifiedGap && value.previous !== previous)
       || historyCheckpointEnvelopeId(value) !== idAt(sequence)) throw new Error('Indexed writer payload changed');
     return value;
   }
   function position(head: HistoryReplicaHead): number {
-    if (head.freeze || head.sequence > block.sequence || idAt(head.sequence) !== head.envelopeId) {
+    const known = idAt(head.sequence);
+    if (head.freeze || head.sequence > block.sequence || (known !== null ? known !== head.envelopeId
+      : !proof || head.sequence >= proof.proposal.sequence)) {
       throw new Error('Cannot repair frozen, divergent or newer replica history');
     }
     return head.sequence + 1;
   }
-  const compaction = indexed?.compaction;
   const proof = compaction ? parseHistoryCompactionCertificate(compaction.certificate, context, compaction.genesisId,
     blockAt(compaction.certificate.proposal.sequence)) : null;
   if (proof && (proof.proposal.rootId !== rootId || proof.proposal.generation !== block.generation

@@ -48,6 +48,10 @@ describe('certified compacted agreement transfer', { timeout: 60000 }, () => {
     expect(n.stores[4].envelopeIdAt(2)).toBeNull(); expect(n.stores[4].envelopeAt(2)).toBeNull();
     expect(actions.filter(([action]) => action === 'stage').map(([, sequence]) => sequence)).toEqual([4, 3]);
     expect(actions.every(([action, sequence]) => action !== 'read' || sequence >= 3)).toBe(true);
+    const agreed = n.stores[4].agreementState(), retirement = n.stores[4].planPrefixRetirement();
+    expect(retirement.filesRemoved).toBe(1); n.stores[4].retirePrefix(retirement.approvalDigest);
+    expect(n.stores[4].agreementState()).toEqual(agreed);
+    expect(n.stores[4].read().envelopes).toEqual([n.root, ...n.blocks.slice(3)]);
     const before = n.stores[4].reviewDigest(); await n.stop(4); await n.restart(4);
     expect(n.stores[4].reviewDigest()).toBe(before); expect(n.stores[4].describe().sequence).toBe(4);
     expect(n.stores[4].agreementState()?.confirmed).not.toBeNull();

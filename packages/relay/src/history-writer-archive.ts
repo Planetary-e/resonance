@@ -14,7 +14,7 @@ import { parseHistoryCompactionAttestation, parseHistoryCompactionCertificate, t
 
 export const HISTORY_WRITER_ARCHIVE_FILENAME = 'history-writer-payloads.json';
 const MANIFEST_BYTES = 2 * 1024 * 1024;
-interface State { version: 1; contextId: string; rootId: string; generation: number; blocks: string[]; compaction?: HistoryCompactionCertificate }
+interface State { version: 1; contextId: string; rootId: string; generation: number; blocks: Array<string | null>; compaction?: HistoryCompactionCertificate }
 
 export function openHistoryWriterArchive(options: {
   directory: string; localKey: Uint8Array; context: HistoryCheckpointContext; rootId: string; generation: number;
@@ -43,13 +43,16 @@ export function openHistoryWriterArchive(options: {
     const compacted = !!raw && typeof raw === 'object' && Object.hasOwn(raw, 'compaction');
     if (!(exactWitnessFields(raw, [...Object.keys(initial), ...(compacted ? ['compaction'] : [])]) && raw.version === 1 && raw.contextId === contextId
       && raw.rootId === rootId && raw.generation === generation && Array.isArray(raw.blocks)
-      && raw.blocks.length <= maxBlocks && raw.blocks.every(isHistoryDigest) && new Set(raw.blocks).size === raw.blocks.length)) return false;
+      && raw.blocks.length <= maxBlocks && raw.blocks.every(id => id === null || isHistoryDigest(id))
+      && (!raw.blocks.length || raw.blocks[0] === rootId && isHistoryDigest(raw.blocks.at(-1)))
+      && new Set(raw.blocks.filter(id => id !== null)).size === raw.blocks.filter(id => id !== null).length)) return false;
     if (compacted) {
       try {
         const p = parseHistoryCompactionAttestation(raw.compaction, context, genesisId!).proposal;
-        if (p.rootId !== rootId || p.generation !== generation || raw.blocks[p.sequence] !== p.envelopeId) return false;
+        if (p.rootId !== rootId || p.generation !== generation || raw.blocks[p.sequence] !== p.envelopeId
+          || raw.blocks.slice(p.sequence).includes(null)) return false;
       } catch { return false; }
-    }
+    } else if (raw.blocks.includes(null)) return false;
     return true;
   }
   const path = (id: string) => join(directory, `${id.slice(7)}.block`);
@@ -64,7 +67,8 @@ export function openHistoryWriterArchive(options: {
     return { block, bytes: encoded.length };
   }
   function consecutive(block: HistoryCheckpointEnvelope, sequence: number, previous: string | null) {
-    if (block.generation !== generation || block.sequence !== sequence || block.previous !== previous
+    const certifiedGap = sequence > 0 && previous === null && sequence <= (storage.read().compaction?.proposal.sequence ?? 0);
+    if (block.generation !== generation || block.sequence !== sequence || (certifiedGap ? block.kind !== 'checkpoint' : block.previous !== previous)
       || (!sequence && historyCheckpointEnvelopeId(block) !== rootId)) throw new Error('Writer archive has a gap, fork or different root');
   }
   function anchor() {
@@ -102,22 +106,35 @@ export function openHistoryWriterArchive(options: {
       mode: options.initialize ? 'create-new' : 'open-existing' });
     const ids = storage.read().blocks;
     for (let i = 0; i < ids.length; i++) {
-      const saved = readBlock(ids[i]); consecutive(saved.block, i, i ? ids[i - 1] : null); bytes += saved.bytes;
+      const id = ids[i]; if (id === null) continue;
+      const saved = readBlock(id); consecutive(saved.block, i, i ? ids[i - 1] : null); bytes += saved.bytes;
       if (bytes > maxBytes) throw new Error('Writer archive byte capacity exceeded');
     }
     const proof = storage.read().compaction;
     if (proof) parseHistoryCompactionCertificate(proof, context, genesisId!, readBlock(proof.proposal.envelopeId).block);
     const current = anchor(), pendingId = current.pending && historyCheckpointEnvelopeId(current.pending);
-    const allowed = new Set([...ids, ...(pendingId ? [pendingId] : [])].map(id => `${id.slice(7)}.block`));
+    const allowed = new Set([...ids.filter((id): id is string => id !== null), ...(pendingId ? [pendingId] : [])].map(id => `${id.slice(7)}.block`));
     for (const name of readdirSync(directory)) {
-      if (/^[a-f0-9]{64}\.block$/.test(name) && !allowed.has(name)) throw new Error('Unregistered writer archive block');
+      if (/^[a-f0-9]{64}\.block$/.test(name) && !allowed.has(name)) {
+        // Only a validated owner-signed block in a committed retired slot may
+        // be cleaned after a crash; arbitrary extra payloads still fail closed.
+        const extra = readBlock(`sha256:${name.slice(0, -6)}`).block;
+        if (extra.generation !== generation || extra.sequence === 0 || ids[extra.sequence] !== null
+          || extra.sequence >= (proof?.proposal.sequence ?? 0)) throw new Error('Unregistered writer archive block');
+      }
     }
     if (pendingId && !ids.includes(pendingId) && existsSync(path(pendingId))) {
       const saved = readBlock(pendingId); consecutive(saved.block, ids.length, ids.at(-1) ?? null);
       if (ids.length >= maxBlocks || bytes + saved.bytes > maxBytes) throw new Error('Writer archive capacity exceeded');
     }
     // Only after authenticating indexed/pending data may uncommitted temporary files be discarded.
-    for (const name of readdirSync(directory)) if (/^\.writer-payload-[a-f0-9]{32}\.tmp$/.test(name)) rmSync(join(directory, name));
+    let cleaned = false;
+    for (const name of readdirSync(directory)) {
+      if (/^\.writer-payload-[a-f0-9]{32}\.tmp$/.test(name) || /^[a-f0-9]{64}\.block$/.test(name) && !allowed.has(name)) {
+        rmSync(join(directory, name)); cleaned = true;
+      }
+    }
+    if (cleaned) flush(directory);
   } catch (error) { storage!?.close(); throw error; }
   function open() {
     if (closed || failed) throw new Error('Writer archive closed or write failed; reopen before reuse');
@@ -147,6 +164,24 @@ export function openHistoryWriterArchive(options: {
     } catch (error) { failed = true; throw error; }
     finally { if (fd !== undefined) closeSync(fd); rmSync(temporary, { force: true }); }
   }
+  function prefixRetirement() {
+    open(); const writer = anchor(), state = storage.read(), proof = state.compaction;
+    if (!proof) throw new Error('Writer prefix retirement requires its durably retained checkpoint proof');
+    if (writer.pending) throw new Error('Complete the pending history write before retiring its prefix');
+    parseHistoryCompactionCertificate(proof, context, genesisId!, readBlock(proof.proposal.envelopeId).block);
+    const removed = state.blocks.slice(1, proof.proposal.sequence).flatMap((id, offset) => {
+      if (id === null) return [];
+      const saved = readBlock(id); consecutive(saved.block, offset + 1, state.blocks[offset]);
+      return [{ sequence: offset + 1, id, bytes: saved.bytes }];
+    });
+    const bytesReclaimed = removed.reduce((sum, block) => sum + block.bytes, 0);
+    if (bytesReclaimed > bytes) throw new Error('Retiring writer history exceeds retained accounting');
+    return { state, removed, plan: { kind: 'history-writer-prefix-retirement' as const, contextId, rootId, generation,
+      checkpointSequence: proof.proposal.sequence, checkpointId: proof.proposal.envelopeId,
+      headSequence: state.blocks.length - 1, headId: state.blocks.at(-1)!, filesRemoved: removed.length, bytesReclaimed,
+      approvalDigest: historyDigest(`resonance:history-writer-prefix-retirement:v1\n${JSON.stringify([directory, state, writer, removed])}`),
+      notice: 'Retires ciphertext strictly before the certified checkpoint, preserving the root and committed suffix. Storage promises and sequence limits remain unchanged.' } };
+  }
   return {
     retainPending,
     /** Local proof publication changes repair strategy only; all accepted bytes remain retained. */
@@ -165,9 +200,23 @@ export function openHistoryWriterArchive(options: {
     },
     reviewDigest() { open(); return historyDigest(JSON.stringify([storage.read(), anchor()])); },
     compactionAnchor() { open(); anchor(); return structuredClone(storage.read().compaction ?? null); },
-    read() { open(); anchor(); return { blocks: storage.read().blocks.length, bytes }; },
+    planPrefixRetirement() { return prefixRetirement().plan; },
+    retirePrefix(approvedDigest: string) {
+      const { state, removed, plan } = prefixRetirement();
+      if (approvedDigest !== plan.approvalDigest) throw new Error('Writer prefix changed; review retirement again');
+      if (!removed.length) return plan;
+      const blocks = [...state.blocks]; for (const block of removed) blocks[block.sequence] = null;
+      const next = { ...state, blocks }; if (!validate(next)) throw new Error('Invalid outgoing writer prefix boundary');
+      try {
+        storage.write(next);
+        for (const block of removed) rmSync(path(block.id));
+        flush(directory); bytes -= plan.bytesReclaimed;
+      } catch (error) { failed = true; throw error; }
+      return plan;
+    },
+    read() { open(); anchor(); const ids = storage.read().blocks; return { blocks: ids.filter(id => id !== null).length, sequenceSlots: ids.length, bytes }; },
     /** Cached allocation counters only; no network checks or payload/index copies. */
-    usage() { open(); return { retainedBlocks: storage.read().blocks.length, retainedCiphertextBytes: bytes,
+    usage() { open(); return { retainedBlocks: storage.read().blocks.filter(id => id !== null).length, retainedCiphertextBytes: bytes,
       maximumBlocks: maxBlocks, maximumCiphertextBytes: maxBytes }; },
     prefix() {
       open(); anchor();
@@ -177,12 +226,16 @@ export function openHistoryWriterArchive(options: {
         idAt(sequence) { open(); return Number.isSafeInteger(sequence) && sequence >= 0 ? ids[sequence] ?? null : null; },
         blockAt(sequence) {
           open(); if (!Number.isSafeInteger(sequence) || sequence < 0 || sequence >= ids.length) throw new Error('Writer archive sequence unavailable');
-          const saved = readBlock(ids[sequence]); consecutive(saved.block, sequence, sequence ? ids[sequence - 1] : null); return saved.block;
+          const id = ids[sequence]; if (id === null) throw new Error('Writer archive sequence retired');
+          const saved = readBlock(id); consecutive(saved.block, sequence, sequence ? ids[sequence - 1] : null); return saved.block;
         } });
     },
     *blocks(): Generator<HistoryCheckpointEnvelope> {
       open(); anchor(); const ids = storage.read().blocks;
-      for (let i = 0; i < ids.length; i++) { open(); const saved = readBlock(ids[i]); consecutive(saved.block, i, i ? ids[i - 1] : null); yield saved.block; }
+      for (let i = 0; i < ids.length; i++) {
+        open(); const id = ids[i]; if (id === null) continue;
+        const saved = readBlock(id); consecutive(saved.block, i, i ? ids[i - 1] : null); yield saved.block;
+      }
     },
     close() { if (!closed) { closed = true; storage.close(); } },
   };
