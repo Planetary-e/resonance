@@ -63,3 +63,13 @@ it('refuses an actual encrypted writer outside reviewed storage before creating 
   expect(() => withStorageReservationAuthority(scoped, () => openEncryptedLocalState({ path: join(path, 'state'), key: new Uint8Array(32), domain: 'test', maxBytes: 1024, initial: { n: 0 }, validate: (value: unknown): value is { n: number } => !!value && typeof value === 'object' && 'n' in value && Number.isSafeInteger(value.n) }))).toThrow(/no reviewed/);
   expect(existsSync(path)).toBe(false); expect(scoped.status().components).toBe(0);
 });
+
+it('never grants an enclosing component explicit output permission over authority metadata', () => {
+  const n = fixture(), targets = [{ path: n.directory, scope: 'directory' as const }];
+  n.authority.adoptExisting(targets, n.authority.reviewExisting(targets).approvalDigest); const scoped = n.open();
+  const lease = scoped.reserve({ path: n.directory, scope: 'directory', component: 'enclosing', maximumBytes: 100 });
+  const primary = readFileSync(join(n.ledger, 'reservations.json'));
+  expect(() => lease.assertWritable({ path: join(n.ledger, 'reservations.json'), maximumBytes: 100 })).toThrow(/scope/);
+  expect(() => lease.assertWritable({ path: join(n.ledger, 'new-output'), maximumBytes: 100 })).toThrow(/scope/);
+  expect(readFileSync(join(n.ledger, 'reservations.json'))).toEqual(primary);
+});

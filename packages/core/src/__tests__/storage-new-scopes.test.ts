@@ -102,3 +102,10 @@ it.each(['before-rename', 'after-rename', 'approved'] as const)('retains the cor
   if (boundary === 'before-rename') expect(n.open).toThrow(/Adopt existing/);
   else { const scoped = n.open(); scoped.reserve({ ...n.target, component: 'future', maximumBytes: 10240 }); expect(scoped.status().availableBytes).toBe(0); }
 }, 15000);
+
+it('does not reinterpret an approved new directory itself as a file output', () => {
+  const n = fixture(), review = n.authority.reviewNewScopes([n.target]); n.authority.approveNewScopes([n.target], review.approvalDigest);
+  const scoped = n.open();
+  expect(() => scoped.reserve({ ...n.target, scope: 'file', component: 'file', maximumBytes: 1 })).toThrow(/no reviewed/);
+  expect(existsSync(n.target.path)).toBe(false); expect(scoped.status().components).toBe(0);
+});

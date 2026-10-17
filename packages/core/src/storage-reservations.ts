@@ -101,12 +101,12 @@ function assertReservationTarget(request: StorageReservationRequest) {
   const stat = present(request.path);
   if (stat && (stat.isSymbolicLink() || (request.scope === 'file' ? !stat.isFile() || stat.nlink !== 1 : !stat.isDirectory()))) throw new Error('Reserved component path is not an ordinary unaliased target');
 }
-function reservationLease(request: StorageReservationRequest, selected: string, usable: () => void): StorageReservationLease {
+function reservationLease(request: StorageReservationRequest, selected: string, usable: () => void, authorityDirectory: string): StorageReservationLease {
   return { assertWritable(output) {
     usable(); assertReservationTarget(request); if (canonical(request.path) !== selected) throw new Error('Reserved storage path changed');
     if (output) {
       const target = canonical(output.path), stat = present(output.path);
-      if (!safe(output.maximumBytes) || output.maximumBytes > request.maximumBytes
+      if (inside(authorityDirectory, target) || !safe(output.maximumBytes) || output.maximumBytes > request.maximumBytes
         || (stat && (stat.isSymbolicLink() || !stat.isFile() || stat.nlink !== 1))) throw new Error('Output exceeds its reserved scope or capacity');
       if (output.replacement) {
         const prefix = `.${basename(selected)}.`, name = basename(target);
@@ -155,7 +155,7 @@ export function openStorageReservationAuthority(options: { directory: string; mo
   }
   function assertAdopted(request: Pick<StorageReservationRequest, 'path' | 'scope'>) {
     if (!requireAdoptedScopes) return;
-    if (!state.adoptions.some(entry => entry.scope === 'directory' ? inside(entry.path, request.path)
+    if (!state.adoptions.some(entry => entry.scope === 'directory' ? inside(entry.path, request.path) && (entry.path !== request.path || request.scope === 'directory')
       : request.scope === 'file' && entry.path === request.path)) throw new Error('Storage output has no reviewed existing-file adoption for its scope');
   }
   function commit(next: State) {
@@ -234,6 +234,28 @@ export function openStorageReservationAuthority(options: { directory: string; mo
       .update(observed.metadataDigest).update(JSON.stringify(details)).digest('hex');
     return { ...details, approvalDigest };
   }
+  function prepareReservation(request: StorageReservationRequest) {
+    // A caller may reuse its options object; an issued lease keeps its original target.
+    request = { ...request };
+    usable();
+    const selected = canonical(request.path);
+    if (inside(directory, selected) || !['file', 'directory'].includes(request.scope) || typeof request.component !== 'string' || !/^[A-Za-z0-9:._/-]{1,256}$/.test(request.component)
+      || !safe(request.maximumBytes)) throw new Error('Invalid managed storage allocation');
+    assertAdopted({ ...request, path: selected });
+    assertReservationTarget(request);
+    const previous = state.allocations.find(entry => entry.path === selected);
+    if (previous && (previous.component !== request.component || previous.scope !== request.scope)) throw new Error('Storage path already belongs to another component');
+    let next: State | undefined;
+    if (!previous || previous.maximumBytes < request.maximumBytes) {
+      const allocations = state.allocations.filter(entry => entry.path !== selected);
+      if (allocations.length + state.adoptions.length >= STORAGE_RESERVATION_MAX_ENTRIES) throw new Error('Storage reservation entry capacity exhausted');
+      allocations.push({ path: selected, component: request.component, scope: request.scope, maximumBytes: request.maximumBytes }); allocations.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+      next = { ...state, revision: state.revision + 1, allocations };
+      if (!safe(next.revision)) throw new Error('Storage reservation revision capacity exhausted');
+      if (Buffer.byteLength(JSON.stringify(next)) > STORAGE_RESERVATION_MANIFEST_BYTES) throw new Error('Storage reservation metadata capacity exhausted');
+    }
+    return { request, selected, next };
+  }
   return {
     /** Review/apply must run while all cooperating writers are excluded. This
      * deliberately charges observed files in addition to future writer peaks;
@@ -269,26 +291,18 @@ export function openStorageReservationAuthority(options: { directory: string; mo
       if (!safe(state.revision + 1)) throw new Error('Storage reservation revision capacity exhausted');
       commit({ ...state, revision: state.revision + 1, limitBytes });
     },
-    reserve(request: StorageReservationRequest): StorageReservationLease {
-      // A caller may reuse its options object; an issued lease keeps its original target.
-      request = { ...request };
-      usable();
-      const selected = canonical(request.path);
-      if (inside(directory, selected) || !['file', 'directory'].includes(request.scope) || typeof request.component !== 'string' || !/^[A-Za-z0-9:._/-]{1,256}$/.test(request.component)
-        || !safe(request.maximumBytes)) throw new Error('Invalid managed storage allocation');
-      assertAdopted({ ...request, path: selected });
-      assertReservationTarget(request);
-      const previous = state.allocations.find(entry => entry.path === selected);
-      if (previous && (previous.component !== request.component || previous.scope !== request.scope)) throw new Error('Storage path already belongs to another component');
-      if (!previous || previous.maximumBytes < request.maximumBytes) {
-        const allocations = state.allocations.filter(entry => entry.path !== selected);
-        if (allocations.length + state.adoptions.length >= STORAGE_RESERVATION_MAX_ENTRIES) throw new Error('Storage reservation entry capacity exhausted');
-        allocations.push({ path: selected, component: request.component, scope: request.scope, maximumBytes: request.maximumBytes }); allocations.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
-        const next = { ...state, revision: state.revision + 1, allocations };
-        if (!safe(next.revision) || total(next) > state.limitBytes) throw new Error('Combined managed storage budget exhausted');
+    reviewReservation(raw: StorageReservationRequest) {
+      const { request, selected, next } = prepareReservation(raw), reservedBytes = total(next ?? state);
+      return { path: selected, component: request.component, scope: request.scope, maximumBytes: request.maximumBytes,
+        revision: state.revision, reservedBytes, additionalBytes: reservedBytes - total(state), fits: reservedBytes <= state.limitBytes };
+    },
+    reserve(raw: StorageReservationRequest): StorageReservationLease {
+      const { request, selected, next } = prepareReservation(raw);
+      if (next) {
+        if (total(next) > state.limitBytes) throw new Error('Combined managed storage budget exhausted');
         commit(next);
       }
-      return reservationLease(request, selected, usable);
+      return reservationLease(request, selected, usable, directory);
     },
     status() { usable(); const reservedBytes = total(state); return { authorityId: state.authorityId, revision: state.revision,
       limitBytes: state.limitBytes, reservedBytes, availableBytes: state.limitBytes - reservedBytes, components: state.allocations.length,
@@ -304,6 +318,7 @@ export { withStorageReservationAuthority, reserveManagedStorage, captureStorageR
 export type { StorageReservationRequest, StorageReservationLease, StorageReservationAuthority, StorageReservationOutput } from './storage-reservation-context.js';
 
 export type { StorageAdoptionTarget, StorageAdoptionBounds } from './storage-adoption-inventory.js';
+export { reviewAbsentStorageScopes } from './storage-new-scopes.js';
 
 /** A narrow read-only view of already committed control reservations. It does
  * not acquire authority ownership, allocate bytes, or exclude another output
@@ -362,7 +377,7 @@ export function openReservedStorageControl(options: {
       const request = { ...raw }, selected = canonical(request.path), permitted = allowed.get(selected);
       if (!permitted || request.scope !== permitted.scope || request.component !== permitted.component
         || !safe(request.maximumBytes) || request.maximumBytes > permitted.maximumBytes) throw new Error('Control reservation is outside the selected scope or capacity');
-      committed(); return reservationLease(request, selected, committed);
+      committed(); return reservationLease(request, selected, committed, directory);
     },
     close() { closed = true; },
   };
