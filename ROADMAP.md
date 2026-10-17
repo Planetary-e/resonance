@@ -271,6 +271,7 @@ The five-target placement goal remains conditional on enough eligible volunteers
         - [x] Durably retain approved desktop history/recovery directories before apply, including previous selections; preserve them after settings failure and process death without claiming a shared byte quota
         - [x] Bound structured diagnostics for new managed-service definitions to two 1 MiB files, preserve startup errors and expose private health without unlimited supervisor stream capture (`docs/developers/v0.4-relay-diagnostics.md`)
         - [x] Bound resource-counter checkpoints to 4 KiB each plus replacement headroom; refuse uncertain writes, unsafe counters and clock rollback without resetting allowance
+        - [x] Retain exact desktop configuration/enrollment output files before creation, preserve them across settings failure and process death, and inventory them without scanning unrelated parent folders
         - [ ] Account for control metadata and explicit operator output files; retain the distinction between relay-data and whole-device budgets (`docs/developers/v0.4-storage-writer-map.md`)
         - [ ] Persist cross-role reservations before writes, include replacement/repair headroom and prove recovery of interrupted reservations across runtime and CLI
   - [ ] Resolve authenticated policy freshness and migration beyond the bounded 64-configuration archive; never treat missing records as unused capacity or discard permanent denial evidence

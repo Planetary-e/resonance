@@ -1,10 +1,10 @@
 /** Read-only, bounded metadata inventory. This is not a reservation or disk quota. */
 import { lstat, opendir, realpath } from 'node:fs/promises';
 import type { BigIntStats } from 'node:fs';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 
 export interface StorageInventory {
-  kind: 'storage-inventory'; selectedDirectories: number; scannedRoots: number; directories: number; files: number;
+  kind: 'storage-inventory'; selectedDirectories: number; selectedFiles: number; scannedRoots: number; directories: number; files: number;
   logicalBytes: number; allocatedBytes: number | null; startedAt: number; completedAt: number;
   atomicSnapshot: false; enforcesQuota: false;
 }
@@ -16,6 +16,13 @@ export function parseStorageDirectories(value: unknown): string[] {
   }
   return [...new Set((value as string[]).map(path => resolve(path)))].sort();
 }
+export function parseStorageFiles(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length > STORAGE_INVENTORY_MAX_ROOTS
+    || value.some(path => typeof path !== 'string' || !isAbsolute(path) || path.length > 4096 || /[\x00-\x1f\x7f]/.test(path))) {
+    throw new Error('Select at most 128 absolute storage files');
+  }
+  return [...new Set((value as string[]).map(path => resolve(path)))].sort();
+}
 const contains = (parent: string, child: string) => {
   const path = relative(parent, child); return path === '' || (!isAbsolute(path) && path !== '..' && !path.startsWith('../') && !path.startsWith('..\\'));
 };
@@ -23,9 +30,9 @@ const identity = (stat: BigIntStats) => `${stat.dev}:${stat.ino}`;
 const signature = (stat: BigIntStats) => `${identity(stat)}:${stat.mode}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}:${stat.nlink}:${stat.blocks}`;
 
 export async function measureStorageDirectories(input: readonly string[], options: {
-  signal?: AbortSignal; maximumEntries?: number; maximumDepth?: number; timeoutMs?: number;
+  signal?: AbortSignal; maximumEntries?: number; maximumDepth?: number; timeoutMs?: number; files?: readonly string[];
 } = {}): Promise<StorageInventory> {
-  const selected = parseStorageDirectories(input), maximumEntries = options.maximumEntries ?? 1000000;
+  const selected = parseStorageDirectories(input), selectedFiles = parseStorageFiles(options.files ?? []), maximumEntries = options.maximumEntries ?? 1000000;
   const maximumDepth = options.maximumDepth ?? 64, timeoutMs = options.timeoutMs ?? 30000;
   if (!Number.isSafeInteger(maximumEntries) || maximumEntries < 1 || maximumEntries > 1000000
     || !Number.isSafeInteger(maximumDepth) || maximumDepth < 0 || maximumDepth > 64
@@ -39,8 +46,17 @@ export async function measureStorageDirectories(input: readonly string[], option
       if (!stat.isDirectory()) throw new Error('Storage selection must contain existing directories'); roots.push(root); }
     return roots;
   };
+  const canonicalFiles = async () => {
+    const files: string[] = [];
+    for (const path of selectedFiles) {
+      check(); const file = join(await realpath(dirname(path)), basename(path)), stat = await lstat(file, { bigint: true });
+      if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('Explicit storage files must be ordinary existing files');
+      files.push(file);
+    }
+    return files;
+  };
   try {
-    check(); const selectedRoots = await canonical(), unique = [...new Set(selectedRoots)];
+    check(); const selectedRoots = await canonical(), selectedFileRoots = await canonicalFiles(), unique = [...new Set(selectedRoots)];
     const roots = unique.filter(path => !unique.some(other => path !== other && contains(other, path)));
     let entries = 0, directories = 0, files = 0, logical = 0n, allocated = 0n, allocationKnown = true;
     const seenFiles = new Set<string>();
@@ -49,9 +65,10 @@ export async function measureStorageDirectories(input: readonly string[], option
       else { allocated += stat.blocks * 512n; safeNumber(allocated); }
     };
     // Incremental traversal avoids loading an entire directory listing or any payload.
-    async function walk(path: string, depth: number): Promise<void> {
+    async function walk(path: string, depth: number, fileOnly = false): Promise<void> {
       check(); if (++entries > maximumEntries || depth > maximumDepth) throw new Error('Storage inventory exceeds entry or depth bounds');
       const before = await lstat(path, { bigint: true }); check();
+      if (fileOnly && !before.isFile()) throw new Error('Explicit storage file changed while scanning');
       if (before.isSymbolicLink() || (!before.isFile() && !before.isDirectory())) throw new Error('Storage inventory refuses links and special files inside selected directories');
       if (before.isDirectory()) {
         directories++; countAllocation(before); const directory = await opendir(path);
@@ -68,8 +85,12 @@ export async function measureStorageDirectories(input: readonly string[], option
       if (signature(before) !== signature(after)) throw new Error('Storage changed during inventory; retry while all writers are paused');
     }
     for (const root of roots) await walk(root, 0);
+    for (const file of [...new Set(selectedFileRoots)]) {
+      if (!roots.some(root => contains(root, file))) await walk(file, 0, true);
+    }
+    if (JSON.stringify(selectedFileRoots) !== JSON.stringify(await canonicalFiles())) throw new Error('Storage file selection changed during inventory');
     if (JSON.stringify(selectedRoots) !== JSON.stringify(await canonical())) throw new Error('Storage selection changed during inventory');
-    check(); return { kind: 'storage-inventory', selectedDirectories: selected.length, scannedRoots: roots.length, directories, files,
+    check(); return { kind: 'storage-inventory', selectedDirectories: selected.length, selectedFiles: selectedFiles.length, scannedRoots: roots.length, directories, files,
       logicalBytes: safeNumber(logical), allocatedBytes: allocationKnown ? safeNumber(allocated) : null,
       startedAt, completedAt: Date.now(), atomicSnapshot: false, enforcesQuota: false };
   } catch (error) {

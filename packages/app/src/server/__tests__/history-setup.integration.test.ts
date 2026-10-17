@@ -112,7 +112,7 @@ it('preserves prepared history after a settings write failure and permits a sepa
   expect(readFileSync(settings)).toEqual(previous); const retained = readHistoryEnrollmentFile(n.input.output);
   const inventory = await n.request('/api/relay/history/storage', {});
   expect(inventory.status, JSON.stringify(inventory.body)).toBe(200);
-  expect(inventory.body).toMatchObject({ selectedDirectories: 2, scannedRoots: 2 });
+  expect(inventory.body).toMatchObject({ selectedDirectories: 3, selectedFiles: 1, scannedRoots: 3 });
   await n.request('/api/lock', {}); await n.unlock();
   expect((await n.run('review', input)).status).toBe(409);
   const output = join(n.directory, 'copy.json'), exported: RelayHistorySetupInput = { ...input, mode: 'export', output };
@@ -171,7 +171,7 @@ it('retains earlier setup locations across reload and measures only saved roots 
   await n.request('/api/lock', {}); await n.unlock();
   expect(loadRelayConfig().historyStorageDirectories).toEqual(before.historyStorageDirectories);
   const measured = await n.request(path, {}); expect(measured.status, JSON.stringify(measured.body)).toBe(200);
-  expect(measured.body).toMatchObject({ scannedRoots: 4, enforcesQuota: false, atomicSnapshot: false });
+  expect(measured.body).toMatchObject({ scannedRoots: 5, selectedFiles: 1, enforcesQuota: false, atomicSnapshot: false });
   expect(measured.body.logicalBytes).toBeGreaterThan(0); expect(JSON.stringify(measured.body)).not.toContain(n.directory);
   expect((await n.request(path, { directory: n.directory })).status).toBe(409);
   const old = join(n.directory, 'inventory-member-0'); actualFs.renameSync(old, `${old}-moved`);
@@ -179,3 +179,23 @@ it('retains earlier setup locations across reload and measures only saved roots 
   expect(loadRelayConfig().historyStorageDirectories).toEqual(before.historyStorageDirectories);
   expect((await n.request('/api/relay/maintenance')).body.active).toBe(true); expect(installRelayService).not.toHaveBeenCalled();
 }, 30000);
+
+
+it('retains a reviewed configuration output after settings failure and includes it after a later configuration selection', async () => {
+  const n = await setup(); await n.init(); await n.request('/api/relay/maintenance', {});
+  const input: RelayHistorySetupInput = { ...n.configInput, role: 'configuration', historyId: '' };
+  const plan = await n.run('review', input); expect(plan.status).toBe(200);
+  const settings = join(n.desktopDirectory, 'relay-config.json'), previous = readFileSync(settings);
+  vi.mocked(renameSync).mockImplementation((from, to) => { if (String(to) === settings) throw new Error('Injected configuration settings failure'); actualFs.renameSync(from, to); });
+  try { expect((await n.run('apply', plan.body.input, plan.body.result.approvalDigest)).body.error).toContain('Injected configuration settings failure'); }
+  finally { vi.mocked(renameSync).mockImplementation(actualFs.renameSync); }
+  expect(readFileSync(settings)).toEqual(previous); const original = readFileSync(input.output);
+  const second = await n.run('review', { ...input, output: join(n.directory, 'second-config.json') }); expect(second.status).toBe(200);
+  expect((await n.run('apply', second.body.input, second.body.result.approvalDigest)).status).toBe(200);
+  await n.request('/api/lock', {}); await n.unlock();
+  const measured = await n.request('/api/relay/history/storage', {});
+  expect(measured.status, JSON.stringify(measured.body)).toBe(200);
+  expect(measured.body).toMatchObject({ selectedDirectories: 2, selectedFiles: 2, scannedRoots: 2, enforcesQuota: false });
+  expect(readFileSync(input.output)).toEqual(original); expect(JSON.stringify(measured.body)).not.toContain(n.directory);
+  expect(installRelayService).not.toHaveBeenCalled();
+});

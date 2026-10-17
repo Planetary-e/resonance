@@ -53,7 +53,18 @@ export async function runAdmissionHistoryCommand(command: string, raw: readonly 
   try {
     if (commandOptions.signal?.aborted) throw new Error('History operation cancelled');
     if (command === 'storage-inventory') {
-      emit(await measureStorageDirectories(raw.map(path => resolve(path)), { signal: commandOptions.signal }));
+      const directories: string[] = [], files: string[] = [];
+      for (let index = 0; index < raw.length; index++) {
+        if (raw[index] === '--file') {
+          const file = raw[++index];
+          if (!file || file.startsWith('--')) throw new Error('Storage inventory --file needs one explicit path');
+          files.push(resolve(file));
+        } else {
+          if (raw[index].startsWith('--')) throw new Error('Unknown storage inventory option');
+          directories.push(resolve(raw[index]));
+        }
+      }
+      emit(await measureStorageDirectories(directories, { signal: commandOptions.signal, files }));
     } else if (['owner-config-plan', 'owner-config-create', 'owner-setup-plan', 'owner-setup-apply'].includes(command)) {
       const applying = command === 'owner-config-create' || command === 'owner-setup-apply';
       const approved = applying && raw[0] === '--approve' ? raw[1] : undefined, args = approved ? raw.slice(2) : raw;

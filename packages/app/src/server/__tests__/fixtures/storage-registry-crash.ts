@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { syncBuiltinESMExports } from 'node:module';
 import { retainRelayStorageRegistry } from '../../history-storage-registry.js';
 
-process.on('message', (input: { runtime: string; target: string; boundary: string }) => {
+process.on('message', (input: { runtime: string; target: string; boundary: string; file?: boolean }) => {
   try {
     const mkdir = fs.mkdirSync, open = fs.openSync, write = fs.writeSync;
     let manifestFd: number | undefined;
@@ -29,9 +29,10 @@ process.on('message', (input: { runtime: string; target: string; boundary: strin
       if (target && input.boundary === 'after-rename') process.kill(process.pid, 'SIGKILL');
     };
     syncBuiltinESMExports();
-    retainRelayStorageRegistry(input.runtime, [input.runtime, input.target]);
+    retainRelayStorageRegistry(input.runtime, input.file ? [input.runtime] : [input.runtime, input.target], input.file ? [input.target] : []);
     if (input.boundary === 'registered') process.kill(process.pid, 'SIGKILL');
-    fs.mkdirSync(input.target); fs.writeFileSync(join(input.target, 'created-output'), 'retained output');
+    if (input.file) fs.writeFileSync(input.target, 'retained output');
+    else { fs.mkdirSync(input.target); fs.writeFileSync(join(input.target, 'created-output'), 'retained output'); }
     process.kill(process.pid, 'SIGKILL');
   } catch (error) { process.send?.({ error: String(error) }); process.exitCode = 1; process.disconnect?.(); }
 });

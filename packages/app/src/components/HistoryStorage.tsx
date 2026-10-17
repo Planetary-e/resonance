@@ -10,7 +10,7 @@ export default function HistoryStorage({ onBusyChange, blocked = false }: { onBu
   }
   return <section className="relay-section" aria-label="History storage inventory">
     <h4>Stored relay and history files</h4>
-    <p className="text-sm">Measure the relay folder and known owner, volunteer and recovery locations while paused. Locations from earlier approved operations remain included, even if the operation did not finish. Files created elsewhere must be checked separately.</p>
+    <p className="text-sm">Measure the relay folder, known owner, volunteer and recovery locations, and individual configuration and enrollment outputs while paused. Locations from earlier approved operations remain included, even if the operation did not finish. Files created elsewhere must be checked separately.</p>
     <button className="btn btn-secondary" type="button" disabled={busy || blocked} onClick={() => { void measure(); }}>Measure stored files</button>
     {busy && <button className="btn btn-secondary" type="button" onClick={() => { void cancelRelayHistoryOperation(); }}>Cancel measurement</button>}
     {result && <HistoryStorageResult result={result} />}
@@ -19,7 +19,7 @@ export default function HistoryStorage({ onBusyChange, blocked = false }: { onBu
 }
 export function HistoryStorageResult({ result }: { result: RelayStorageInventory }) {
   return <div role="status">
-    <p>{(result.logicalBytes / 1048576).toFixed(2)} MiB of file contents across {result.files} files and {result.scannedRoots} nonoverlapping roots.</p>
+    <p>{(result.logicalBytes / 1048576).toFixed(2)} MiB of file contents across {result.files} files and {result.scannedRoots} nonoverlapping folders, plus {result.selectedFiles} explicitly selected output files (duplicates counted once).</p>
     <p>{result.allocatedBytes === null ? 'Filesystem allocation is unavailable.' : `Filesystem-reported allocation: ${(result.allocatedBytes / 1048576).toFixed(2)} MiB.`}</p>
     <p className="text-sm">Measured {new Date(result.completedAt).toLocaleString()}. This observation does not reserve space or enforce a combined quota. It excludes unselected locations and future writes. Filesystem sharing and other writers can change actual disk use.</p>
   </div>;

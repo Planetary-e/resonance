@@ -424,7 +424,7 @@ export async function applyRelayVolunteerActivation(input: unknown, digest: stri
 export async function performRelayHistorySetup(action: 'review' | 'apply', input: unknown, approval?: unknown, signal?: AbortSignal) {
   return runRelayHistoryOperation(async operationSignal => {
     const previous = loadRelayConfig(), outcome = await runDesktopHistorySetup(action, input, approval, operationSignal, join(getDataDir(), 'relay-data'),
-      selection => { if (selection.role !== 'configuration') retainRelayHistoryOperationLocations({ ...previous, historySetupInput: selection }, join(getDataDir(), 'relay-data'), previous); });
+      selection => { retainRelayHistoryOperationLocations({ ...previous, historySetupInput: selection }, join(getDataDir(), 'relay-data'), previous); });
     if (action === 'apply') saveRelayConfig({ ...previous, historySetupInput: outcome.input });
     return outcome;
   }, signal);

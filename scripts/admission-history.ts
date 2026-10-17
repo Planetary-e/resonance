@@ -21,7 +21,7 @@ try {
   console.error('  owner-setup-plan|owner-setup-apply [--approve <digest>] <new|resume|export> owner-config.json policy.json owner-storage.hex owner-directory enrollment.json');
   console.error('  owner-prepare|owner-export|owner-resume-setup owner-config.json policy.json owner-storage.hex owner-directory enrollment.json');
   console.error('  owner-limits-plan|owner-limits [--approve <digest>] owner-config.json enrollment.json policy.json owner-storage.hex owner-directory new-config.json <archive-MiB> <archive-blocks>');
-  console.error('  storage-inventory runtime-directory [owner-history-directory volunteer-history-directory recovery-workspace ...]');
+  console.error('  storage-inventory runtime-directory [owner-history-directory volunteer-history-directory recovery-workspace ...] [--file exact-output-file ...]');
   console.error('  owner-inspect owner-config.json enrollment.json');
   console.error('  owner-ready owner-config.json policy.json owner-storage.hex owner-directory');
   console.error('  owner-initial-readiness-plan|owner-initial-ready [--approve <digest>] owner-config.json enrollment.json policy.json owner-storage.hex owner-directory');

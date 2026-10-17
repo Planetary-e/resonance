@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { inventoryRelayHistoryStorage, retainRelayHistoryOperationLocations } from '../history-storage.js';
 import type { RelayHistorySetupInput } from '../history-setup.js';
 import { acquireLocalStateLock } from '@resonance/core/local-state';
-import { readRelayStorageRegistry, retainRelayStorageRegistry, RELAY_STORAGE_REGISTRY_DIRECTORY } from '../history-storage-registry.js';
+import { readRelayStorageRegistry, readRelayStorageLocations, retainRelayStorageRegistry, RELAY_STORAGE_REGISTRY_DIRECTORY } from '../history-storage-registry.js';
 
 vi.mock('node:fs', async original => { const fs = await original<typeof import('node:fs')>(); return { ...fs, renameSync: vi.fn(fs.renameSync) }; });
 const actualFs = await vi.importActual<typeof import('node:fs')>('node:fs');
@@ -101,3 +101,58 @@ it.skipIf(process.platform === 'win32')('omits private path names when resolving
   const result = inventoryRelayHistoryStorage({ enabled: false, port: 12345, historyStorageDirectories: [alias] }, n.runtime, new AbortController().signal);
   await expect(result).rejects.toThrow('Storage inventory unavailable: retained locations or their registry are missing, unreadable or changed');
 });
+
+
+it('retains explicit outputs across later selections and migrates a directory-only manifest without dropping roots', async () => {
+  const n = fixture(), first = join(n.directory, 'owner-config.json'), second = join(n.directory, 'enrollment.json');
+  mkdirSync(n.registry); writeFileSync(n.manifest, JSON.stringify({ version: 1, kind: 'relay-storage-locations', directories: [n.runtime] }));
+  retainRelayStorageRegistry(n.runtime, [n.runtime], [first]);
+  expect(readRelayStorageLocations(n.runtime)).toEqual({ directories: [n.runtime], files: [first] });
+  expect(actualFs.existsSync(first)).toBe(false);
+  await expect(inventoryRelayHistoryStorage({ enabled: false, port: 12345 }, n.runtime, new AbortController().signal)).rejects.toThrow(/unavailable/);
+  writeFileSync(first, 'configuration'); retainRelayStorageRegistry(n.runtime, [n.runtime], [second]); writeFileSync(second, 'enrollment');
+  writeFileSync(join(n.directory, 'unrelated-private-file'), Buffer.alloc(1000000));
+  retainRelayStorageRegistry(n.runtime, [n.runtime]);
+  expect(readRelayStorageLocations(n.runtime).files).toEqual([first, second].sort());
+  const result = await inventoryRelayHistoryStorage({ enabled: false, port: 12345 }, n.runtime, new AbortController().signal);
+  expect(result).toMatchObject({ selectedDirectories: 2, selectedFiles: 2, files: 3, scannedRoots: 2 });
+  expect(result.logicalBytes).toBe(actualFs.statSync(n.manifest).size + 23);
+  expect(JSON.stringify(result)).not.toContain(n.directory);
+});
+it('refuses full explicit-file retention before creating an untracked output', () => {
+  const n = fixture(), files = Array.from({ length: 128 }, (_, index) => join(n.directory, `output-${index}`));
+  retainRelayStorageRegistry(n.runtime, [n.runtime], files);
+  const extra = join(n.directory, 'extra');
+  expect(() => { retainRelayStorageRegistry(n.runtime, [n.runtime], [extra]); writeFileSync(extra, 'untracked'); }).toThrow(/128/);
+  expect(readRelayStorageLocations(n.runtime).files).toEqual(files.sort()); expect(actualFs.existsSync(extra)).toBe(false);
+});
+it('preserves earlier configuration outputs when a later registry update fails', () => {
+  const n = fixture(), first = join(n.directory, 'first.json'), second = join(n.directory, 'second.json');
+  const input: RelayHistorySetupInput = { role: 'configuration', ownerKeyFile: '/owner-key', authorityFile: '/authority', policyFile: '/policy', membersFile: '/members', output: first, historyId: '' };
+  const previous = { enabled: false, port: 12345, historySetupInput: input };
+  retainRelayHistoryOperationLocations(previous, n.runtime); writeFileSync(first, 'retained output');
+  const before = readFileSync(n.manifest);
+  vi.mocked(renameSync).mockImplementation(() => { throw new Error('Output registry flush failed'); });
+  expect(() => retainRelayHistoryOperationLocations({ ...previous, historySetupInput: { ...input, output: second } }, n.runtime, previous)).toThrow(/registry flush failed/);
+  expect(readFileSync(n.manifest)).toEqual(before); expect(readRelayStorageLocations(n.runtime).files).toEqual([first]);
+  expect(readFileSync(first, 'utf8')).toBe('retained output'); expect(actualFs.existsSync(second)).toBe(false);
+});
+
+
+it.skipIf(process.platform === 'win32').each(['before-rename', 'after-rename', 'written'])(
+  'retains explicitly registered output files after SIGKILL at %s', async boundary => {
+    const n = fixture(); retainRelayStorageRegistry(n.runtime, [n.runtime]);
+    const child = fork(fileURLToPath(new URL('./fixtures/storage-registry-crash.ts', import.meta.url)), [], {
+      execArgv: ['--import', 'tsx'], stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
+    });
+    let error = ''; child.stderr?.on('data', bytes => { error += bytes.toString(); });
+    const exited = once(child, 'exit'), timer = setTimeout(() => child.kill('SIGKILL'), 15000);
+    try {
+      expect((await once(child, 'message'))[0]).toBe('ready'); child.send({ runtime: n.runtime, target: n.target, boundary, file: true });
+      expect(await exited, error).toEqual([null, 'SIGKILL']); expect(error).toBe('');
+      expect(readRelayStorageLocations(n.runtime)).toEqual({ directories: [n.runtime], files: boundary === 'before-rename' ? [] : [n.target] });
+      expect(actualFs.existsSync(n.target)).toBe(boundary === 'written');
+      retainRelayStorageRegistry(n.runtime, [n.runtime]);
+      expect(readRelayStorageLocations(n.runtime).files).toEqual(boundary === 'before-rename' ? [] : [n.target]);
+    } finally { clearTimeout(timer); if (child.exitCode === null && child.signalCode === null) { child.kill('SIGKILL'); await exited; } }
+  }, 20000);

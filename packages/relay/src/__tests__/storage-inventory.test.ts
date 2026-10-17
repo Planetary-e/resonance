@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { measureStorageDirectories } from '../storage-inventory.js';
 import { runAdmissionHistoryCommand } from '../admission-history-command.js';
-vi.mock('node:fs/promises', async original => { const fs = await original<typeof import('node:fs/promises')>(); return { ...fs, lstat: vi.fn(fs.lstat) }; });
+vi.mock('node:fs/promises', async original => { const fs = await original<typeof import('node:fs/promises')>(); return { ...fs, lstat: vi.fn(fs.lstat), opendir: vi.fn(fs.opendir) }; });
 const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
 const directories: string[] = [];
 afterEach(() => { vi.restoreAllMocks(); for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }); });
@@ -62,4 +62,41 @@ it('rejects file changes and unreadable metadata with aggregate errors that omit
   const error = await measureStorageDirectories([directory]).catch(error => error as Error);
   expect(error).toBeInstanceOf(Error); if (!(error instanceof Error)) throw new Error('Expected unavailable inventory');
   expect(error.message).toContain('unavailable'); expect(error.message).not.toContain('private-file-name');
+});
+
+
+it('counts exact output files and hard-link aliases without scanning their unrelated parent', async () => {
+  const directory = fixture(), runtime = join(directory, 'runtime'), nested = join(runtime, 'same-file'), output = join(directory, 'export.json');
+  mkdirSync(runtime); writeFileSync(nested, 'abc'); writeFileSync(output, 'output');
+  const alias = join(directory, 'export-alias'); linkSync(output, alias); writeFileSync(join(directory, 'unselected-secrets'), Buffer.alloc(1000000));
+  const result = await measureStorageDirectories([runtime], { files: [output, alias, nested, output] });
+  expect(result).toMatchObject({ selectedFiles: 3, scannedRoots: 1, files: 2, logicalBytes: 9 });
+  const command = await runAdmissionHistoryCommand('storage-inventory', [runtime, '--file', output, '--file', alias]);
+  expect(command.result).toMatchObject({ selectedFiles: 2, files: 2, logicalBytes: 9 });
+  expect(JSON.stringify(result)).not.toContain('export'); expect(JSON.stringify(result)).not.toContain(directory);
+});
+it('refuses missing or linked explicit files, unknown CLI options and excess selections', async () => {
+  const directory = fixture(), runtime = join(directory, 'runtime'), file = join(directory, 'file'); mkdirSync(runtime); writeFileSync(file, 'known');
+  await expect(measureStorageDirectories([runtime], { files: [join(directory, 'missing')] })).rejects.toThrow(/unavailable/);
+  await expect(measureStorageDirectories([runtime], { files: [runtime] })).rejects.toThrow(/ordinary existing files/);
+  await expect(measureStorageDirectories([runtime], { files: Array(129).fill(file) })).rejects.toThrow(/128/);
+  await expect(measureStorageDirectories([runtime], { files: [file], maximumEntries: 1 })).rejects.toThrow(/bounds/);
+  await expect(runAdmissionHistoryCommand('storage-inventory', [runtime, '--file'])).rejects.toThrow(/needs one explicit path/);
+  await expect(runAdmissionHistoryCommand('storage-inventory', [runtime, '--unknown', file])).rejects.toThrow(/Unknown/);
+  if (process.platform !== 'win32') {
+    const alias = join(directory, 'alias'); symlinkSync(file, alias);
+    await expect(measureStorageDirectories([runtime], { files: [alias] })).rejects.toThrow(/ordinary existing files/);
+  }
+});
+
+
+it('never traverses a selected output that is replaced with a directory during the scan', async () => {
+  const directory = fixture(), runtime = join(directory, 'runtime'), file = join(directory, 'export'); mkdirSync(runtime); writeFileSync(file, 'output');
+  let reads = 0; vi.mocked(promises.opendir).mockClear();
+  vi.mocked(promises.lstat).mockImplementation(async (...args: Parameters<typeof actual.lstat>) => {
+    if (String(args[0]) === file && ++reads === 2) { rmSync(file); mkdirSync(file); writeFileSync(join(file, 'not-selected'), 'private'); }
+    return actual.lstat(...args);
+  });
+  await expect(measureStorageDirectories([runtime], { files: [file] })).rejects.toThrow(/Explicit storage file changed/);
+  expect(vi.mocked(promises.opendir).mock.calls.some(args => String(args[0]) === file)).toBe(false);
 });
