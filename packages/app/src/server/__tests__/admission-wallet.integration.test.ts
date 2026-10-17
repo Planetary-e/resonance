@@ -11,10 +11,11 @@ import { signAdmissionPolicy, admissionKeyFingerprint, type SignedAdmissionPolic
 import { issueAdmissionBatch, openAdmissionIssuerLedger } from '@resonance/node';
 import { createAppServer, type AppServer } from '../server.js';
 import { getSession, lockSession } from '../session.js';
+import { createRelayTestEndpoints, type RelayTestEndpoint } from '../../../../relay/src/__tests__/fixtures/relay-test-endpoint.js';
 
 const directory = mkdtempSync(join(tmpdir(), 'desktop-admission-'));
-const port = 50_100 + Math.floor(Math.random() * 400);
-const entryUrl = `ws://127.0.0.1:${port}/`; const destinationUrl = `ws://[::1]:${port + 1}/`;
+let port = 0, entryUrl = '', destinationUrl = '';
+const endpoints: RelayTestEndpoint[] = [];
 const scope = { issuer: 'desktop-test-community', community: 'public', epoch: '2026-09' };
 const authorityKeys = generateSigningKeyPair(); const authority = Buffer.from(authorityKeys.publicKey).toString('base64url');
 let policy: SignedAdmissionPolicy;
@@ -35,6 +36,8 @@ async function restart() {
   expect(unlocked.status).toBe(200); auth = unlocked.body.token;
 }
 beforeAll(async () => {
+  endpoints.push(...await createRelayTestEndpoints(1, '127.0.0.1')); endpoints.push(...await createRelayTestEndpoints(1, '::1'));
+  entryUrl = `ws://127.0.0.1:${endpoints[0].port}/`; destinationUrl = `ws://[::1]:${endpoints[1].port}/`; retiredRequest.relayUrl = destinationUrl;
   vi.stubEnv('RESONANCE_DATA_DIR', join(directory, 'personal'));
   vi.stubEnv('RESONANCE_EXPERIMENTAL_PRIVATE_ROUTE_URLS', `${entryUrl},${destinationUrl}`);
   vi.spyOn(EmbeddingEngine.prototype, 'initialize').mockResolvedValue();
@@ -53,21 +56,26 @@ beforeAll(async () => {
     activeKey: admissionKeyFingerprint(profile.issuerPublicKey), keys: [{ profile, notBefore: now - 1000, issueUntil: now + 3600000, spendUntil: now + 7200000, retryUntil: now + 10800000 }] }, authority, authorityKeys.secretKey);
   verifier = await createConfiguredAdmissionVerifier({ directory: join(directory, 'destination'), authority, policy, encryptionKey: randomBytes(32), initialize: true });
   for (const [index, host, endpoint] of [[0, '127.0.0.1', entryUrl], [1, '::1', destinationUrl]] as const) {
-    const relay = createRelayServer({ port: port + index, host, persistDir: join(directory, index ? 'destination' : 'entry'),
+    const relay = createRelayServer({ port: 0, host, persistDir: join(directory, index ? 'destination' : 'entry'),
       admissionVerifier: index ? verifier : undefined,
       relayDiscovery: { endpoints: [endpoint], reachability: 'direct', supportedGroups: ['public'],
         storage: { capacityBytes: 1_000_000, availableBytes: 900_000 }, maxKnownRelays: 8 } });
-    relays.push(relay); await relay.start();
+    relays.push(relay); await relay.start(); endpoints[index].forwardTo(relay.getListeningPort()!);
   }
+  port = relays[0].getListeningPort()!;
   relays[0].observeRelayDescriptor(relays[1].getRelayDescriptor()!);
   app = createAppServer({ port: 0, relayUrl: destinationUrl }); base = `http://127.0.0.1:${await app.start()}`;
   expect((await request('/api/init', { password: 'desktop-wallet-test-password' })).status).toBe(200);
   await restart();
 }, 15_000);
 afterAll(async () => {
-  lockSession(); if (app) await app.stop();
-  for (const relay of relays.reverse()) await relay.stop();
+  lockSession();
+  const appStopped = await Promise.allSettled(app ? [app.stop()] : []);
+  const stopped = await Promise.allSettled(relays.map(relay => relay.stop()));
+  const closed = await Promise.allSettled(endpoints.map(endpoint => endpoint.close()));
   verifier?.close(); vi.restoreAllMocks(); vi.unstubAllEnvs(); rmSync(directory, { recursive: true, force: true });
+  const failures = [...appStopped, ...stopped, ...closed].filter(result => result.status === 'rejected');
+  if (failures.length) throw new AggregateError(failures.map(result => result.reason), 'Desktop wallet fixture cleanup failed');
 });
 
 it('authenticates setup and imports without network activity or spending on held requests', async () => {

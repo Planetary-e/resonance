@@ -9,9 +9,7 @@ import { createAppServer, type AppServer } from '../server.js';
 import { getSession, lockSession } from '../session.js';
 
 const directory = mkdtempSync(join(tmpdir(), 'desktop-outbox-'));
-const basePort = 49_000 + Math.floor(Math.random() * 500);
-const entryUrl = `ws://127.0.0.1:${basePort}/`;
-const destinationUrl = `ws://[::1]:${basePort + 1}/`;
+let basePort = 0, entryUrl = '', destinationUrl = '';
 let app: AppServer;
 let base: string;
 let token = '';
@@ -24,16 +22,17 @@ async function request(path: string, body?: unknown, authenticated = true) {
 }
 beforeAll(async () => {
   vi.stubEnv('RESONANCE_DATA_DIR', join(directory, 'personal'));
-  vi.stubEnv('RESONANCE_EXPERIMENTAL_PRIVATE_ROUTE_URLS', `${entryUrl},${destinationUrl}`);
   // Network/session/storage are real; a fixed vector avoids downloading the model in this regression.
   vi.spyOn(EmbeddingEngine.prototype, 'initialize').mockResolvedValue();
   vi.spyOn(EmbeddingEngine.prototype, 'embedForMatching').mockResolvedValue(new Float32Array(768).fill(1 / Math.sqrt(768)));
-  for (const [index, host, endpoint] of [[0, '127.0.0.1', entryUrl], [1, '::1', destinationUrl]] as const) {
-    const relay = createRelayServer({ port: basePort + index, host, persistDir: join(directory, `relay-${index}`),
+  for (const [index, host, endpoint] of [[0, '127.0.0.1', 'ws://127.0.0.1:0/'], [1, '::1', 'ws://[::1]:0/']] as const) {
+    const relay = createRelayServer({ port: 0, host, persistDir: join(directory, `relay-${index}`),
       relayDiscovery: { endpoints: [endpoint], reachability: 'direct', supportedGroups: ['public'],
         storage: { capacityBytes: 1_000_000, availableBytes: 900_000 }, maxKnownRelays: 8 } });
     relays.push(relay); await relay.start();
   }
+  basePort = relays[0].getListeningPort()!; entryUrl = `ws://127.0.0.1:${basePort}/`; destinationUrl = `ws://[::1]:${relays[1].getListeningPort()!}/`;
+  vi.stubEnv('RESONANCE_EXPERIMENTAL_PRIVATE_ROUTE_URLS', `${entryUrl},${destinationUrl}`);
   expect(relays[0].observeRelayDescriptor(relays[1].getRelayDescriptor()!)).toBe('accepted');
   app = createAppServer({ port: 0, relayUrl: destinationUrl });
   base = `http://127.0.0.1:${await app.start()}`;
