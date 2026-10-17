@@ -2,9 +2,10 @@
  * Parsing proves signatures and membership, not freshness or safe restoration. */
 import { admissionKeyFingerprint, admissionPolicyKeys, assertAdmissionPolicyCurrent, isArchivedAdmissionKey,
   type SignedAdmissionPolicy } from '@resonance/core/admission-policy';
-import { admissionSpendClaimId, exactWitnessFields, verifyAdmissionSpendCertificate, verifyAdmissionWitnessVote, witnessBytes,
+import { admissionSpendClaimId, exactWitnessFields, witnessBytes,
   type AdmissionSpendCertificate, type AdmissionSpendClaim, type AdmissionWitnessVote } from '@resonance/core/admission-witness';
 import { planAdmissionHistoryRetirement, validRetiredIssuerKeys } from './admission-history-retirement.js';
+import { verifyRetainedAdmissionCertificate, verifyRetainedAdmissionVote } from './admission-role-verification.js';
 
 export interface AdmissionWitnessHistoryState {
   version: 2; witness: string; votes: AdmissionWitnessVote[]; retiredIssuerKeys: string[];
@@ -40,7 +41,7 @@ export function parseAdmissionRoleHistories(value: unknown, policy: SignedAdmiss
     const seen = new Set<string>(), retired = new Set(raw.retiredIssuerKeys);
     for (const vote of raw.votes) {
       const set = byKey.get(vote?.issuerKey)?.witnesses;
-      if (!set || retired.has(vote?.issuerKey) || vote.witness !== raw.witness || !verifyAdmissionWitnessVote(vote, vote, set)
+      if (!set || retired.has(vote?.issuerKey) || vote.witness !== raw.witness || !verifyRetainedAdmissionVote(vote, vote, set)
         || seen.has(admissionRoleClaimIndex(vote))) throw new Error('Invalid or conflicting retained witness vote');
       seen.add(admissionRoleClaimIndex(vote));
     }
@@ -56,7 +57,7 @@ export function parseAdmissionRoleHistories(value: unknown, policy: SignedAdmiss
     for (const certificate of raw.certificates) {
       const claim = certificate?.votes?.[0], set = byKey.get(claim?.issuerKey)?.witnesses;
       if (!set || !claim || !set.coordinators.includes(raw.coordinator) || retired.has(claim.issuerKey)
-        || !verifyAdmissionSpendCertificate(certificate, claim, set) || seen.has(admissionRoleClaimIndex(claim))) {
+        || !verifyRetainedAdmissionCertificate(certificate, claim, set) || seen.has(admissionRoleClaimIndex(claim))) {
         throw new Error('Invalid or conflicting retained admission certificate');
       }
       seen.add(admissionRoleClaimIndex(claim));
@@ -122,8 +123,8 @@ export function reduceAdmissionRoleHistory(roles: AdmissionRoleHistories, record
     if (!state) throw new Error('Admission role has not been captured');
     const claim = witness ? record.vote : record.certificate?.votes?.[0];
     const entry = entryFor(policy, claim?.issuerKey), set = entry?.witnesses;
-    if (!set || !claim || (witness ? record.vote.witness !== next.witness!.witness || !verifyAdmissionWitnessVote(record.vote, record.vote, set)
-      : !set.coordinators.includes(next.coordinator!.coordinator) || !verifyAdmissionSpendCertificate(record.certificate, claim, set))) {
+    if (!set || !claim || (witness ? record.vote.witness !== next.witness!.witness || !verifyRetainedAdmissionVote(record.vote, record.vote, set)
+      : !set.coordinators.includes(next.coordinator!.coordinator) || !verifyRetainedAdmissionCertificate(record.certificate, claim, set))) {
       throw new Error('Invalid admission role decision');
     }
     const previous = witness ? next.witness!.votes.find(v => admissionRoleClaimIndex(v) === admissionRoleClaimIndex(claim))

@@ -22,13 +22,13 @@ if (!counts.length || counts.length > 8 || counts.some(value => value !== 'near'
   || !Number.isSafeInteger(trials) || trials < 1 || trials > 10) throw new Error('Use 1–8 counts (1–9998 or near) and 1–10 trials');
 const output = resolve(root, values.out ?? `docs/evals/protected-role-costs-${new Date().toISOString().replaceAll(':', '-')}.json`);
 const f = await witnessFixture(), results: object[] = [];
-const sources = ['packages/eval/src/protected-role-costs.ts', 'packages/relay/src/protected-admission-roles.ts', 'packages/relay/src/admission-role-history.ts', 'packages/relay/src/protected-admission-history.ts', 'packages/relay/src/admission-history-records.ts'];
+const sources = ['packages/eval/src/protected-role-costs.ts', 'packages/relay/src/protected-admission-roles.ts', 'packages/relay/src/admission-role-history.ts', 'packages/relay/src/admission-role-verification.ts', 'packages/relay/src/protected-admission-history.ts', 'packages/relay/src/admission-history-records.ts'];
 const report = {
   generatedAt: new Date().toISOString(), sourceBase: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
   sourceSha256: Object.fromEntries(sources.map(path => [path, createHash('sha256').update(readFileSync(resolve(root, path))).digest('hex')])),
   environment: { node: process.version, platform: platform(), arch: arch(), cpu: cpus()[0]?.model, logicalCpus: cpus().length },
   scope: 'Five real loopback history sockets in one process; four local durable witness peers; no independent operators, Internet, TLS or energy measurement.',
-  accounting: 'JSON application request/reply bytes across all history members, excluding witness transport, WebSocket/TCP/TLS framing. CPU is process-wide. Peak RSS is process lifetime, not per-operation allocation.',
+  accounting: 'JSON application request/reply bytes across all history members, excluding witness transport, WebSocket/TCP/TLS framing. CPU is process-wide. Peak RSS is process lifetime, not per-operation allocation. Reopen retains this process signature cache and is not a cold process restart.',
   seeded: 'Existing signed local votes/certificates are extended offline, then captured through the production reviewed/fenced four-copy workflow. Seeding is not sequential admission throughput.',
   near: '90% of the 8 MiB complete application checkpoint bound, with both witness and coordinator rows; row limits also apply.',
   deadlineMs: 3000, trials, results,
@@ -97,7 +97,7 @@ for (const requested of counts) {
         refused: outcomes.filter(v => v.status === 'rejected').length });
     });
     roles.close(); roles = undefined;
-    await measure('reopen-and-readiness', async () => { await n.reopen(); await n.history.ready(); }); save();
+    await measure('reopen-and-readiness-warm-cache', async () => { await n.reopen(); await n.history.ready(); }); save();
   } finally { roles?.close(); await n.close(); save(); }
 }
 console.log(JSON.stringify({ report: output, scenarios: results.length }));
