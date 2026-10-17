@@ -269,6 +269,7 @@ The five-target placement goal remains conditional on enough eligible volunteers
       - [ ] Finish combined history/runtime/recovery-workspace storage budgets
         - [x] Add a bounded explicit filesystem inventory, preserve previously saved history/workspace locations and refuse unknown storage; keep byte observations distinct from write reservations (`docs/developers/v0.4-combined-storage-budget.md`)
         - [x] Durably retain approved desktop history/recovery directories before apply, including previous selections; preserve them after settings failure and process death without claiming a shared byte quota
+        - [ ] Bound supervisor diagnostic logs and account for control metadata and explicit operator output files; retain the distinction between relay-data and whole-device budgets (`docs/developers/v0.4-storage-writer-map.md`)
         - [ ] Persist cross-role reservations before writes, include replacement/repair headroom and prove recovery of interrupted reservations across runtime and CLI
   - [ ] Resolve authenticated policy freshness and migration beyond the bounded 64-configuration archive; never treat missing records as unused capacity or discard permanent denial evidence
   - [ ] Resolve same-key witness replacement, membership governance/freshness, and history compaction before enabling admission by default; fresh-key cohort rotation does not rescue stranded old tokens or remove finite history limits
