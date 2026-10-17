@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import StatCard from '../components/StatCard';
 import AdmissionWallet from '../components/AdmissionWallet';
 import HistoryHealth from '../components/HistoryHealth';
+import HistoryMaintenance from '../components/HistoryMaintenance';
 import type { StatusResponse, RelayStatus, RelayOwnerControls } from '../api.client';
 
 interface Activity {
@@ -37,6 +38,7 @@ interface DashboardProps {
   onRelayToggle: (contacts: string[], controls: RelayOwnerControls) => void;
   activities: Activity[];
   onWalletChange: () => Promise<unknown>;
+  onRelayRefresh?: () => Promise<unknown>;
 }
 
 export default function Dashboard({
@@ -45,7 +47,7 @@ export default function Dashboard({
   relayStatus,
   onRelayToggle,
   activities,
-  onWalletChange,
+  onWalletChange, onRelayRefresh,
 }: DashboardProps) {
   const relayLabel = relayStatus?.running ? relayStatus.admissionReady === true ? 'Relay Active'
     : relayStatus.admissionReady === false ? 'Relay Preparing' : 'Relay Running'
@@ -166,6 +168,7 @@ export default function Dashboard({
           These limits pause new work. The relay continues handling accepted records, repairs, acknowledgements, and withdrawals.
         </p>
         {relayStatus?.enabled && <HistoryHealth health={relayStatus.stats?.history} />}
+        <HistoryMaintenance refreshRelay={onRelayRefresh} />
         {(relayStatus?.storageCommitmentFloorBytes ?? 0) > 0 && (
           <p className="text-sm text-muted">
             Minimum storage limit for accepted data: {Math.ceil(

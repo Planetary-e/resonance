@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import Dashboard from './Dashboard.js';
 import type { RelayStatus } from '../api.client.js';
 vi.mock('../components/AdmissionWallet.js', () => ({ default: () => null }));
+vi.mock('../api.client', () => ({}));
 
 it('distinguishes a listening relay from prepared admission without implying current quorum health', () => {
   const state: RelayStatus = { enabled: true, running: true, admissionReady: false, port: 9091, contacts: [], controls: {}, stats: null };

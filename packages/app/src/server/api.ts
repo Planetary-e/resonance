@@ -21,7 +21,7 @@ import {
   resetInactivityTimer,
   startRelayMode,
   stopRelayMode,
-  getRelayStats,
+  getRelayStats, getRelayMaintenanceStatus, beginRelayHistoryMaintenance, finishRelayHistoryMaintenance,
   publishItem,
   listSessionItems,
   releaseHeldPublication,
@@ -509,6 +509,16 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
   }
 
   // --- Relay mode ---
+
+  if (url === '/api/relay/maintenance' && ['GET', 'POST', 'DELETE'].includes(method!)) {
+    if (!requireAuth(req, res)) return true;
+    try {
+      const state = method === 'POST' ? await beginRelayHistoryMaintenance()
+        : method === 'DELETE' ? await finishRelayHistoryMaintenance() : getRelayMaintenanceStatus();
+      json(res, state);
+    } catch (err) { error(res, err instanceof Error ? err.message : 'Relay maintenance unavailable', 409); }
+    return true;
+  }
 
   if (url === '/api/relay/status' && method === 'GET') {
     if (!requireAuth(req, res)) return true;

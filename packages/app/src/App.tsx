@@ -312,6 +312,7 @@ export default function App() {
             channelCount={channels.channels.length}
             relayStatus={relay.relayStatus}
             onRelayToggle={handleRelayToggle}
+            onRelayRefresh={relay.refresh}
             activities={activities}
             onWalletChange={session.refresh}
           />

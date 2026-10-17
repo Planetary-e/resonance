@@ -4,6 +4,8 @@ import { dirname, resolve } from 'node:path';
 import { createRelayDescriptorV1, type Identity } from '@resonance/core';
 import { exactWitnessFields } from '@resonance/core/admission-witness';
 import type { AdmissionHistoryProtection } from './protected-admission-history.js';
+import { exchangeHistoryAgreement, exchangeHistoryAgreementData, exchangeHistoryProvision } from './history-agreement-exchange.js';
+import { exchangeHistoryCheckpoint } from './history-checkpoint-exchange.js';
 import type { HistoryAgreementTransport, HistoryAgreementDataTransport, HistoryProvisionTransport } from './history-agreement-exchange.js';
 import { readOperatorJson } from './admission-operator-files.js';
 import { readAdmissionHistoryLinksFile } from './admission-history-config.js';
@@ -40,7 +42,7 @@ export function readHistoryOperatorTransportFile(path: string, context: Admissio
     deadlineMs: value.deadlineMs as number, members: links.members, targets };
 }
 
-export function createHistoryOperatorTransport(protection: AdmissionHistoryProtection, path: string | undefined) {
+export function createHistoryOperatorTransport(protection: AdmissionHistoryProtection, path: string | undefined, signal?: AbortSignal) {
   // Parsing is offline. A supplied but invalid file must never select direct fallback.
   const config = path === undefined ? undefined : readHistoryOperatorTransportFile(path, protection.context);
   let router: HistoryRelayRouter | undefined, manager: RelayLinkManager | undefined, identity: Identity | undefined;
@@ -48,8 +50,16 @@ export function createHistoryOperatorTransport(protection: AdmissionHistoryProte
   const lifetime = new AbortController();
   function close() {
     if (closed) return; closed = true;
+    signal?.removeEventListener('abort', close);
     if (timer) clearTimeout(timer);
     router?.close(); lifetime.abort(); manager?.stop(); identity?.secretKey.fill(0);
+  }
+  signal?.addEventListener('abort', close, { once: true });
+  if (signal?.aborted) close();
+  function combined(request: AbortSignal) {
+    const joined = AbortSignal.any([request, lifetime.signal]);
+    if (joined.aborted) throw new Error('Operator history request cancelled');
+    return joined;
   }
   function session(signal: AbortSignal) {
     if (signal.aborted) throw new Error('Operator history request cancelled');
@@ -72,11 +82,13 @@ export function createHistoryOperatorTransport(protection: AdmissionHistoryProte
       return router;
     } catch (error) { close(); throw error; }
   }
-  const agreementTransport: HistoryAgreementTransport = (member, frame, signal) => session(signal).agreement(member, frame, signal);
-  const dataTransport: HistoryAgreementDataTransport = (member, frame, signal) => session(signal).transfer(member, frame, signal);
-  const provisionTransport: HistoryProvisionTransport = (member, frame, signal) => session(signal).provision(member, frame, signal);
+  const agreementTransport: HistoryAgreementTransport = (member, frame, signal) => config ? session(signal).agreement(member, frame, combined(signal)) : exchangeHistoryAgreement(member, frame, combined(signal));
+  const dataTransport: HistoryAgreementDataTransport = (member, frame, signal) => config ? session(signal).transfer(member, frame, combined(signal)) : exchangeHistoryAgreementData(member, frame, combined(signal));
+  const provisionTransport: HistoryProvisionTransport = (member, frame, signal) => config ? session(signal).provision(member, frame, combined(signal)) : exchangeHistoryProvision(member, frame, combined(signal));
   return {
-    protection: config ? { ...protection, transport: (member, frame, signal) => session(signal).checkpoint(member, frame, signal) } as AdmissionHistoryProtection : protection,
-    ...(config ? { agreementTransport, dataTransport, provisionTransport } : {}), close,
+    protection: { ...protection, transport: (member, frame, signal) => config
+      ? session(signal).checkpoint(member, frame, combined(signal))
+      : (protection.transport ?? exchangeHistoryCheckpoint)(member, frame, combined(signal)) } as AdmissionHistoryProtection,
+    agreementTransport, dataTransport, provisionTransport, close,
   };
 }

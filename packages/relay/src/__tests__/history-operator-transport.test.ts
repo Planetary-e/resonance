@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { createServer, type Socket } from 'node:net';
 import { once } from 'node:events';
 import { afterEach, expect, it } from 'vitest';
+import { WebSocketServer } from 'ws';
 import { generateIdentity } from '@resonance/core';
 import { historyCheckpointFixture } from './fixtures/history-checkpoint-fixture.js';
 import { createHistoryOperatorTransport, readHistoryOperatorTransportFile } from '../history-operator-transport.js';
@@ -29,6 +30,29 @@ function setup() {
     transport: async () => { directCalls++; throw new Error('Unexpected direct fallback'); } };
   return { ...f, directory, path, links, ids, value, save, protection, directCalls: () => directCalls };
 }
+it.each(['checkpoint', 'agreement', 'data', 'provision'] as const)('cancels a silent direct %s request through the shared operation signal', async kind => {
+  const n = setup(), server = new WebSocketServer({ port: 0, host: '127.0.0.1' });
+  await once(server, 'listening');
+  cleanup.push(async () => { for (const client of server.clients) client.terminate(); await new Promise<void>(resolve => server.close(() => resolve())); });
+  const address = server.address(); if (typeof address === 'string' || !address) throw new Error('Missing port');
+  const member = { publicKey: n.context.members[0], endpoint: `ws://127.0.0.1:${address.port}/history-${kind === 'checkpoint' ? 'checkpoint' : 'agreement'}` };
+  const controller = new AbortController();
+  const transport = createHistoryOperatorTransport({ ...n.protection, transport: undefined }, undefined, controller.signal);
+  cleanup.push(transport.close);
+  const send = () => {
+    const signal = new AbortController().signal;
+    if (kind === 'checkpoint') return transport.protection.transport!(member, { request: { replica: member.publicKey, action: 'head' } } as never, signal);
+    if (kind === 'agreement') return transport.agreementTransport(member, { request: { replica: member.publicKey, action: 'promise' } } as never, signal);
+    if (kind === 'data') return transport.dataTransport(member, { action: 'read', authorization: { request: { replica: member.publicKey } } } as never, signal);
+    return transport.provisionTransport(member, { replica: member.publicKey } as never, signal);
+  };
+  const connection = once(server, 'connection');
+  const pending = Promise.resolve().then(send), rejected = expect(pending).rejects.toThrow('cancelled');
+  const [socket] = await connection; const received = once(socket, 'message'); await received;
+  const closed = once(socket, 'close'); controller.abort(); await rejected; await closed;
+  expect(server.clients.size).toBe(0);
+  await expect(Promise.resolve().then(send)).rejects.toThrow('cancelled');
+});
 it('keeps offline adapters lazy, refuses missing identity without replacement or direct fallback', async () => {
   const n = setup(), transport = createHistoryOperatorTransport(n.protection, n.path); cleanup.push(transport.close);
   expect(existsSync(join(n.directory, 'identity'))).toBe(false);

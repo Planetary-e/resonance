@@ -16,7 +16,7 @@ export function openEncryptedLocalState<T>(options: {
   if (options.key.length !== 32) throw new Error('Encrypted local state requires a 32-byte key');
   const directory = dirname(options.path);
   mkdirSync(directory, { recursive: true, mode: 0o700 });
-  const unlock = acquireLock(options.path);
+  const unlock = acquireLocalStateLock(options.path);
   const key = Buffer.from(options.key);
   const aad = Buffer.from(options.domain);
   let closed = false;
@@ -119,7 +119,10 @@ export function openEncryptedLocalState<T>(options: {
   };
 }
 
-function acquireLock(path: string): () => void {
+/** Single-host process ownership for a local resource. A stale claim is reclaimed
+ * only when its PID is known dead. Interrupted recovery remains fail-closed.
+ * The caller creates the parent directory and holds this claim across all writes. */
+export function acquireLocalStateLock(path: string): () => void {
   const lock = `${path}.lock`;
   const recovery = `${path}.recovery`;
   const owner = JSON.stringify({ pid: process.pid, token: randomBytes(16).toString('hex') });

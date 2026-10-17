@@ -50,13 +50,15 @@ import {
   type IdentityManager,
 } from '@resonance/node';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { chmodSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { chmodSync, readFileSync, writeFileSync, existsSync, lstatSync, readdirSync, renameSync, rmSync, openSync, closeSync, fsyncSync } from 'node:fs';
 import { join } from 'node:path';
-import { parseRelayHistoryHealth, type RelayHistoryHealth } from '@resonance/relay';
+import { beginRelayMaintenance, readRelayMaintenance, assertRelayNotInMaintenance, acquireStoppedRelayMaintenance, finishRelayMaintenance, RELAY_MAINTENANCE_FILENAME,
+  readOperatorJson, writeOperatorJsonNew, parseRelayHistoryHealth, type RelayHistoryHealth } from '@resonance/relay';
 import {
-  installRelayService, relayServiceRuntime, relayServiceStats, uninstallRelayService,
+  installRelayService, relayServiceRuntime, relayServiceStats, uninstallRelayService, relayPortClosed,
   type RelayOwnerControls,
 } from './relay-supervisor.js';
+import { withRelayControl } from './relay-control.js';
 
 export interface SessionEvents {
   onMatch?: (matchId: string, partnerDID: string, similarity: number, yourItemId: string) => void;
@@ -153,17 +155,37 @@ function getRelayConfigPath(): string {
 
 export function loadRelayConfig(): RelayConfig {
   const path = getRelayConfigPath();
-  if (existsSync(path)) {
-    try { return JSON.parse(readFileSync(path, 'utf-8')); } catch { /* corrupt */ }
+  try { lstatSync(path); }
+  catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error('Saved relay settings are unavailable; retain them before changing the service');
+    // A missing settings file must not guess the port of an existing relay. A
+    // newly paused, never-configured directory contains only the pause marker.
+    let entries: string[];
+    try { entries = readdirSync(join(getDataDir(), 'relay-data')); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; entries = []; }
+    if (entries.some(name => name !== RELAY_MAINTENANCE_FILENAME)) {
+      throw new Error('Saved relay settings are missing for existing relay data; restore the settings before changing the service');
+    }
+    return { enabled: false, port: DEFAULT_RELAY_PORT };
   }
-  return { enabled: false, port: DEFAULT_RELAY_PORT };
+  try {
+    const value = readOperatorJson(path, 65536) as Partial<RelayConfig> | null;
+    if (!value || Array.isArray(value) || typeof value !== 'object' || typeof value.enabled !== 'boolean'
+      || !Number.isSafeInteger(value.port) || value.port! < 1024 || value.port! > 65535
+      || (value.adminKey !== undefined && typeof value.adminKey !== 'string')
+      || (value.contacts !== undefined && (!Array.isArray(value.contacts) || value.contacts.some(c => typeof c !== 'string')))) throw new Error('Invalid settings');
+    return value as RelayConfig;
+  } catch { throw new Error('Saved relay settings are invalid; retain them for recovery before changing the service'); }
 }
 
 function saveRelayConfig(config: RelayConfig): void {
   ensureDataDir();
-  const path = getRelayConfigPath();
-  writeFileSync(path, JSON.stringify(config), { mode: 0o600 });
-  chmodSync(path, 0o600);
+  const path = getRelayConfigPath(), temporary = `${path}.${randomBytes(8).toString('hex')}.tmp`;
+  try {
+    writeOperatorJsonNew(temporary, config, 65536);
+    renameSync(temporary, path);
+    if (process.platform !== 'win32') { const fd = openSync(getDataDir(), 'r'); try { fsyncSync(fd); } finally { closeSync(fd); } }
+  } finally { rmSync(temporary, { force: true }); }
 }
 
 function validateOwnerControls(input: RelayOwnerControls): RelayOwnerControls {
@@ -213,11 +235,18 @@ function storageCommitmentFloor(stats: Record<string, unknown> | null, fallback 
 
 // --- Relay mode ---
 
-export async function startRelayMode(
+export async function startRelayMode(port?: number, contacts?: string[], controls?: RelayOwnerControls): Promise<{ port: number }> {
+  return withRelayControl(() => {
+    assertRelayNotInMaintenance(join(getDataDir(), 'relay-data'));
+    return startRelayModeUnlocked(port, contacts, controls);
+  });
+}
+async function startRelayModeUnlocked(
   port?: number, requestedContacts?: string[], requestedControls?: RelayOwnerControls,
 ): Promise<{ port: number }> {
   const previous = loadRelayConfig();
   const p = port ?? previous.port ?? DEFAULT_RELAY_PORT;
+  if (!Number.isSafeInteger(p) || p < 1024 || p > 65535) throw new Error('Relay port must be an integer between 1024 and 65535');
   const adminKey = previous.adminKey ?? randomBytes(32).toString('base64url');
   const contacts = requestedContacts ?? previous.contacts ??
     (process.env.RESONANCE_RELAY_CONTACTS ?? process.env.RELAY_CONTACTS ?? '')
@@ -271,7 +300,8 @@ export async function startRelayMode(
   return { port: p };
 }
 
-export async function stopRelayMode(): Promise<void> {
+export async function stopRelayMode(): Promise<void> { return withRelayControl(stopRelayModeUnlocked); }
+async function stopRelayModeUnlocked(): Promise<void> {
   const previous = loadRelayConfig();
   const stats = previous.enabled && previous.adminKey
     ? await relayServiceStats(previous.port, previous.adminKey) : null;
@@ -291,6 +321,56 @@ export async function stopRelayMode(): Promise<void> {
     session.pairwiseChannelMgr = createPairwiseChannelManagerV2(session.store, remoteClient);
     wireEvents(session);
   }
+}
+
+/** Private operator state; this neither opens admission state nor starts transport. */
+export function getRelayMaintenanceStatus() {
+  const state = readRelayMaintenance(join(getDataDir(), 'relay-data'));
+  return { active: state !== null, createdAt: state?.createdAt ?? null };
+}
+async function claimStoppedRelay(signal?: AbortSignal): Promise<() => void> {
+  const directory = join(getDataDir(), 'relay-data'), port = loadRelayConfig().port;
+  const deadline = performance.now() + 10000;
+  while (performance.now() < deadline) {
+    if (signal?.aborted) throw new Error('Relay maintenance cancelled; its saved marker remains active');
+    let release: (() => void) | undefined;
+    try {
+      release = acquireStoppedRelayMaintenance(directory);
+      // Older unmanaged processes may not hold the runtime claim. A busy port
+      // cannot count as a stopped service merely because stats are unavailable.
+      if (await relayPortClosed(port)) {
+        if (signal?.aborted) throw new Error('Relay maintenance cancelled; its saved marker remains active');
+        const held = release; release = undefined; return held;
+      }
+    } catch (error) {
+      if (signal?.aborted || !String(error).includes('already open')) throw error;
+    } finally { release?.(); }
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  throw new Error('The relay has not stopped. Maintenance remains active; stop the running process before retrying');
+}
+export async function beginRelayHistoryMaintenance(signal?: AbortSignal) {
+  return withRelayControl(async () => {
+    if (signal?.aborted) throw new Error('Relay maintenance cancelled');
+    beginRelayMaintenance(join(getDataDir(), 'relay-data'));
+    await stopRelayModeUnlocked();
+    const release = await claimStoppedRelay(signal); release();
+    return getRelayMaintenanceStatus();
+  });
+}
+/** The next desktop workflow runs each bounded step inside this exclusion. */
+export async function runRelayHistoryOperation<T>(operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  return withRelayControl(async () => {
+    const release = await claimStoppedRelay(signal);
+    try { return await operation(); } finally { release(); }
+  });
+}
+export async function finishRelayHistoryMaintenance() {
+  return withRelayControl(async () => {
+    const release = await claimStoppedRelay(); release();
+    finishRelayMaintenance(join(getDataDir(), 'relay-data'));
+    return getRelayMaintenanceStatus();
+  });
 }
 
 export function isRelayMode(): boolean {

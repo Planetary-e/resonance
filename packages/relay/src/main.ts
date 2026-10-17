@@ -23,6 +23,7 @@ import { createDeferredAdmission } from './deferred-admission.js';
 import { HistoryRelayRouter } from './history-relay-router.js';
 import { createLocalBlindAdmissionVerifierV2 } from './blind-admission-verifier.js';
 import { readRelayIdentityPassphrase } from './relay-identity-config.js';
+import { acquireRelayRuntime } from './relay-maintenance.js';
 import { readRelayHistoryHealth, type HistoryOwnerHealth } from './history-health.js';
 
 const relayPort = parseNonNegativeInteger(process.env.RELAY_PORT, 9090, 'RELAY_PORT');
@@ -120,6 +121,8 @@ const ownerCpu = parseOptionalNonNegativeInteger(
 const ownerSchedule = process.env.RELAY_ACTIVE_HOURS;
 const ownerExternalPower = process.env.RELAY_ONLY_WHEN_CHARGING === 'true';
 const relayDataDir = process.env.RELAY_DATA_DIR ?? './data';
+const releaseRuntime = acquireRelayRuntime(relayDataDir);
+process.once('exit', () => { try { releaseRuntime(); } catch { /* Dead-owner recovery retains the lock on cleanup failure. */ } });
 const admissionSettings = [
   process.env.RELAY_ADMISSION_PUBLIC_KEY_FILE,
   process.env.RELAY_ADMISSION_ISSUER,

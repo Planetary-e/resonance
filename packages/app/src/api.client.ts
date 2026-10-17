@@ -388,3 +388,8 @@ export function planAdmissionWalletRetirement(keyFingerprint: string) {
 export function retireAdmissionWallet(keyFingerprint: string, approvalDigest: string) {
   return api<AdmissionWalletRetirementPlan>('POST', '/api/admission-wallet/retire', { keyFingerprint, approvalDigest });
 }
+
+export interface RelayMaintenanceStatus { active: boolean; createdAt: number | null }
+export function getRelayMaintenance() { return api<RelayMaintenanceStatus>('GET', '/api/relay/maintenance'); }
+export function beginRelayMaintenance() { return api<RelayMaintenanceStatus>('POST', '/api/relay/maintenance'); }
+export function finishRelayMaintenance() { return api<RelayMaintenanceStatus>('DELETE', '/api/relay/maintenance'); }

@@ -128,3 +128,7 @@ export type { HistoryRelayMemberRoute, HistoryRelayBridgeRoute } from './history
 export { readHistoryVolunteerConfigurationFile, openConfiguredHistoryVolunteer } from './history-volunteer-config.js';
 export { discoverHistoryContinuations, type HistoryContinuationDiscovery } from './history-continuation-discovery.js';
 export { prepareAdmissionHistoryRecovery, openAdmissionHistoryRecovery, type AdmissionRecoveryReview } from './admission-history-recovery.js';
+
+export { runAdmissionHistoryCommand, readHistoryEnrollmentFile, type AdmissionHistoryCommandOptions } from './admission-history-command.js';
+export { beginRelayMaintenance, readRelayMaintenance, assertRelayNotInMaintenance, acquireStoppedRelayMaintenance, finishRelayMaintenance, RELAY_MAINTENANCE_FILENAME, type RelayMaintenanceState } from './relay-maintenance.js';
+export { readOperatorJson, writeOperatorJsonNew } from './admission-operator-files.js';

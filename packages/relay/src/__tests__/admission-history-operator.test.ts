@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -13,6 +13,7 @@ import { createConfiguredAdmissionVerifier } from '../configured-admission-verif
 import { openProtectedAdmissionSpendHistory } from '../protected-admission-history.js';
 import { historyCheckpointFixture } from './fixtures/history-checkpoint-fixture.js';
 import { witnessFixture } from './fixtures/admission-witness-fixture.js';
+import { runAdmissionHistoryCommand } from '../admission-history-command.js';
 
 const script = fileURLToPath(new URL('../../../../scripts/admission-history.ts', import.meta.url));
 const cleanup: Array<() => void | Promise<void>> = [];
@@ -71,6 +72,27 @@ async function serve(args: string[], port = '0') {
   });
   return { ...ready, close, exited };
 }
+
+it('runs independent desktop operations without global output or environment changes and retains explicit approvals', async () => {
+  const n = await setup(), environment = { ...process.env }, log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  try {
+    const second = [...n.ownerArgs]; second[3] = join(n.directory, 'second-owner'); second[4] = join(n.directory, 'second-enrollment.json');
+    const results = await Promise.all([runAdmissionHistoryCommand('owner-prepare', n.ownerArgs), runAdmissionHistoryCommand('owner-prepare', second)]);
+    expect(results.map(r => r.result.output)).toEqual([n.enrollment, second[4]]);
+    const { result: plan } = await runAdmissionHistoryCommand('replica-plan', n.replicaArgs[0]);
+    await expect(runAdmissionHistoryCommand('replica-enroll', ['--approve', 'wrong', ...n.replicaArgs[0]])).rejects.toThrow('approval changed');
+    expect(existsSync(n.replicaArgs[0][3])).toBe(false);
+    await expect(runAdmissionHistoryCommand('replica-enroll', ['--approve', String(plan.approvalDigest), ...n.replicaArgs[0]],
+      { signal: AbortSignal.abort() })).rejects.toThrow('cancelled');
+    expect(existsSync(n.replicaArgs[0][3])).toBe(false);
+    expect((await runAdmissionHistoryCommand('replica-enroll', ['--approve', String(plan.approvalDigest), ...n.replicaArgs[0]])).result.result).toBe('enrolled');
+    const served = await runAdmissionHistoryCommand('replica-serve', [...n.replicaArgs[0], '0']);
+    expect(served.result.event).toBe('history_volunteer_listening');
+    await served.stop!();
+    const restarted = await runAdmissionHistoryCommand('replica-serve', [...n.replicaArgs[0], '0']); await restarted.stop!();
+    expect(log).not.toHaveBeenCalled(); expect(process.env).toEqual(environment);
+  } finally { log.mockRestore(); }
+}, 20000);
 
 it('enrolls five volunteer processes, refuses three copies and recovers real tokens and permanent denials through three lost-owner generations', async () => {
   const n = await setup(true), exported = await succeed('owner-prepare', ...n.ownerArgs);
