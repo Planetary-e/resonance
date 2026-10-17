@@ -1,15 +1,29 @@
 /** Install the volunteer relay as a user-level service, independent of the GUI. */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { assertSecureRelayTransportEndpoint } from '@resonance/core';
 
 const LABEL = 'earth.planetary.resonance.relay';
 
-export interface RelayServiceOptions {
+const SERVICE_FILES = {
+  identityPassphraseFile: 'RELAY_IDENTITY_PASSPHRASE_FILE',
+  historyVolunteerFile: 'RELAY_HISTORY_VOLUNTEER_FILE',
+  historyBridgeFile: 'RELAY_HISTORY_BRIDGE_FILE',
+  admissionHistoryFile: 'RELAY_ADMISSION_HISTORY_FILE',
+  admissionHistoryLinksFile: 'RELAY_ADMISSION_HISTORY_LINKS_FILE',
+  admissionAuthorityFile: 'RELAY_ADMISSION_AUTHORITY_FILE',
+  admissionPolicyFile: 'RELAY_ADMISSION_POLICY_FILE',
+  admissionPolicyKeyFile: 'RELAY_ADMISSION_POLICY_KEY_FILE',
+} as const;
+type ServiceFile = keyof typeof SERVICE_FILES;
+export type RelayServiceRoleFiles = Partial<Record<ServiceFile, string>>;
+
+export interface RelayServiceOptions extends RelayServiceRoleFiles {
   port: number;
   dataDir: string;
   adminKey: string;
@@ -19,8 +33,8 @@ export interface RelayServiceOptions {
   workingDirectory: string;
   nodePathEnv?: string;
   tsxImportPath?: string;
-  /** Explicit already-enrolled history configuration; never raw signing/storage keys. */
-  historyVolunteerFile?: string;
+  /** A separately configured TLS proxy must expose these endpoints to peers. */
+  publicEndpoints?: string[];
   controls?: RelayOwnerControls;
 }
 
@@ -33,20 +47,58 @@ export interface RelayOwnerControls {
   onlyWhenCharging?: boolean;
 }
 
-export function relayServiceRuntime(retainedHistoryVolunteerFile?: string): Pick<RelayServiceOptions,
-  'nodePath' | 'entryPath' | 'workingDirectory' | 'nodePathEnv' | 'tsxImportPath' | 'historyVolunteerFile'> {
+function validateRoleFiles(files: RelayServiceRoleFiles): void {
+  for (const key of Object.keys(SERVICE_FILES) as ServiceFile[]) {
+    const path = files[key];
+    if (path !== undefined && (typeof path !== 'string' || path.length > 4096 || /[\x00-\x1f\x7f]/.test(path))) {
+      throw new Error('Invalid relay role configuration path');
+    }
+  }
+  const policy = [files.admissionAuthorityFile, files.admissionPolicyFile, files.admissionPolicyKeyFile];
+  if ((policy.some(Boolean) && !policy.every(Boolean)) || (files.admissionHistoryFile && !policy.every(Boolean))
+    || (files.admissionHistoryLinksFile && !files.admissionHistoryFile)) {
+    throw new Error('Protected admission requires its history and all three signed-policy files; relay links also require history');
+  }
+}
+
+function validatePublicEndpoints(endpoints: string[]): void {
+  if (!Array.isArray(endpoints) || endpoints.length > 8 || new Set(endpoints).size !== endpoints.length) {
+    throw new Error('Relay public endpoints must be distinct and bounded');
+  }
+  for (const endpoint of endpoints) {
+    if (typeof endpoint !== 'string' || endpoint.length > 2048 || /[\x00-\x20\x7f]/.test(endpoint)) throw new Error('Invalid relay public endpoint');
+    assertSecureRelayTransportEndpoint(endpoint);
+  }
+  if (new Set(endpoints.map(endpoint => new URL(endpoint).href)).size !== endpoints.length) throw new Error('Duplicate relay public endpoint');
+}
+
+export function relayServiceRuntime(retained: RelayServiceRoleFiles & { publicEndpoints?: string[] } = {}): Pick<RelayServiceOptions,
+  'nodePath' | 'entryPath' | 'workingDirectory' | 'nodePathEnv' | 'tsxImportPath' | 'publicEndpoints'> & RelayServiceRoleFiles {
   const entryPath = process.env.RESONANCE_RELAY_ENTRY
     ?? resolve(process.cwd(), '../relay/src/main.ts');
   // Preserve an enrolled service across GUI launches without the original environment.
   // An explicit empty override disables participation without deleting retained state.
-  const historyVolunteerFile = process.env.RESONANCE_RELAY_HISTORY_VOLUNTEER_FILE ?? retainedHistoryVolunteerFile;
+  const files: RelayServiceRoleFiles = {};
+  for (const key of Object.keys(SERVICE_FILES) as ServiceFile[]) {
+    const value = process.env[`RESONANCE_${SERVICE_FILES[key]}`] ?? retained[key];
+    files[key] = value;
+  }
+  validateRoleFiles(files);
+  for (const key of Object.keys(SERVICE_FILES) as ServiceFile[]) if (files[key]) files[key] = resolve(files[key]!);
+  const endpointOverride = process.env.RESONANCE_RELAY_PUBLIC_ENDPOINTS;
+  const publicEndpoints = endpointOverride === undefined ? retained.publicEndpoints ?? []
+    : endpointOverride.split(',').map(value => value.trim()).filter(Boolean);
+  validatePublicEndpoints(publicEndpoints);
+  if (publicEndpoints.some(endpoint => new URL(endpoint).protocol === 'wss:') && !files.identityPassphraseFile) {
+    throw new Error('A reachable WSS service requires an identity passphrase file');
+  }
   return {
     nodePath: process.env.RESONANCE_RELAY_NODE ?? process.execPath,
     entryPath,
     workingDirectory: process.env.RESONANCE_RELAY_CWD ?? process.cwd(),
     nodePathEnv: process.env.NODE_PATH,
     tsxImportPath: entryPath.endsWith('.ts') ? createRequire(import.meta.url).resolve('tsx') : undefined,
-    historyVolunteerFile: historyVolunteerFile ? resolve(historyVolunteerFile) : historyVolunteerFile,
+    ...files, publicEndpoints: [...publicEndpoints],
   };
 }
 
@@ -56,7 +108,11 @@ function command(options: RelayServiceOptions): string[] {
     options.entryPath];
 }
 
-function environment(options: RelayServiceOptions): Record<string, string> {
+export function relayServiceEnvironment(options: RelayServiceOptions): Record<string, string> {
+  validateRoleFiles(options); validatePublicEndpoints(options.publicEndpoints ?? []);
+  if (options.publicEndpoints?.some(endpoint => new URL(endpoint).protocol === 'wss:') && !options.identityPassphraseFile) {
+    throw new Error('A reachable WSS service requires an identity passphrase file');
+  }
   const controls = options.controls ?? {};
   const publicationBytes = controls.publicationStorageMiB === undefined ? undefined
     : String(controls.publicationStorageMiB * 1_048_576);
@@ -65,7 +121,12 @@ function environment(options: RelayServiceOptions): Record<string, string> {
     RELAY_HOST: '127.0.0.1',
     RELAY_DATA_DIR: join(options.dataDir, 'relay-data'),
     RELAY_CONTACTS: options.contacts.join(','),
-    ...(options.historyVolunteerFile ? { RELAY_HISTORY_VOLUNTEER_FILE: options.historyVolunteerFile } : {}),
+    // Explicit empty values also prevent inheriting an obsolete role from the service manager.
+    ...Object.fromEntries(Object.entries(SERVICE_FILES).map(([key, variable]) => [variable, options[key as ServiceFile] ?? ''])),
+    RELAY_PUBLIC_ENDPOINTS: (options.publicEndpoints ?? []).join(','),
+    RELAY_IDENTITY_PASSPHRASE: '',
+    RELAY_ADMISSION_POLICY_INITIALIZE: 'false',
+    RELAY_ADMISSION_WITNESS_INITIALIZE: 'false',
     ...(publicationBytes ? {
       RELAY_STORAGE_CAPACITY_BYTES: publicationBytes,
       RELAY_STORAGE_AVAILABLE_BYTES: publicationBytes,
@@ -96,7 +157,7 @@ function xml(value: string): string {
 
 export function macServicePlist(options: RelayServiceOptions): string {
   const args = command(options).map(value => `    <string>${xml(value)}</string>`).join('\n');
-  const env = Object.entries(environment(options))
+  const env = Object.entries(relayServiceEnvironment(options))
     .map(([key, value]) => `    <key>${key}</key><string>${xml(value)}</string>`).join('\n');
   const logPath = join(options.dataDir, 'relay-service.log');
   return `<?xml version="1.0" encoding="UTF-8"?>\n`+
@@ -117,7 +178,7 @@ function systemdQuote(value: string): string {
 }
 
 export function linuxServiceUnit(options: RelayServiceOptions): string {
-  const env = Object.entries(environment(options))
+  const env = Object.entries(relayServiceEnvironment(options))
     .map(([key, value]) => `Environment=${systemdQuote(`${key}=${value}`)}`).join('\n');
   return `[Unit]\nDescription=Resonance volunteer relay\n`+
     `[Service]\nType=simple\nWorkingDirectory=${systemdQuote(options.workingDirectory)}\n`+
@@ -132,7 +193,7 @@ function windowsArg(value: string): string {
 
 export function windowsServiceTask(options: RelayServiceOptions): string {
   const args = command(options);
-  const env = Object.entries(environment(options))
+  const env = Object.entries(relayServiceEnvironment(options))
     .map(([key, value]) => `$env:${key}='${value.replaceAll("'", "''")}';`).join(' ');
   // The task runs a generated PowerShell script so environment values never
   // pass through cmd.exe, and it restarts the relay after crashes.
@@ -164,8 +225,10 @@ export function installRelayService(options: RelayServiceOptions): void {
   if (!existsSync(options.nodePath) || !existsSync(options.entryPath)) {
     throw new Error('The bundled relay runtime is missing');
   }
-  if (options.historyVolunteerFile && !existsSync(options.historyVolunteerFile)) {
-    throw new Error('The enrolled history volunteer configuration is missing');
+  relayServiceEnvironment(options); // Validate the complete configuration before stopping an existing service.
+  for (const key of Object.keys(SERVICE_FILES) as ServiceFile[]) {
+    const path = options[key];
+    if (path && (!existsSync(path) || !statSync(path).isFile())) throw new Error('A relay role configuration file is missing or not regular');
   }
   mkdirSync(options.dataDir, { recursive: true });
   if (process.platform === 'darwin') {
@@ -212,21 +275,34 @@ export function uninstallRelayService(): void {
 
 export async function relayServiceStats(port: number, adminKey: string): Promise<Record<string, unknown> | null> {
   return new Promise(resolve => {
+    let settled = false;
+    const finish = (value: Record<string, unknown> | null) => {
+      if (settled) return; settled = true; clearTimeout(deadline); resolve(value);
+    };
     const req = request({
       hostname: '127.0.0.1', port,
       path: `/stats?key=${encodeURIComponent(adminKey)}`,
       method: 'GET', timeout: 1_000,
     }, response => {
-      if (response.statusCode !== 200) { response.resume(); resolve(null); return; }
-      let body = '';
+      if (response.statusCode !== 200) { finish(null); response.destroy(); return; }
+      let body = '', bytes = 0;
       response.setEncoding('utf8');
-      response.on('data', chunk => { body += chunk; if (body.length > 100_000) req.destroy(); });
+      response.on('data', chunk => {
+        bytes += Buffer.byteLength(chunk);
+        if (bytes > 100_000) { finish(null); req.destroy(); } else body += chunk;
+      });
+      response.on('aborted', () => finish(null));
+      response.on('error', () => finish(null));
       response.on('end', () => {
-        try { resolve(JSON.parse(body) as Record<string, unknown>); } catch { resolve(null); }
+        try {
+          const value: unknown = JSON.parse(body);
+          finish(value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null);
+        } catch { finish(null); }
       });
     });
+    const deadline = setTimeout(() => { finish(null); req.destroy(); }, 1000);
     req.on('timeout', () => req.destroy());
-    req.on('error', () => resolve(null));
+    req.on('error', () => finish(null));
     req.end();
   });
 }

@@ -514,7 +514,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
     if (!requireAuth(req, res)) return true;
     const stats = await getRelayStats();
     json(res, stats ?? {
-      enabled: false, running: false, port: null, contacts: [], controls: {}, stats: null,
+      enabled: false, running: false, admissionReady: null, port: null, contacts: [], controls: {}, stats: null,
     });
     return true;
   }

@@ -143,7 +143,7 @@ interface RelayConfig {
   contacts?: string[];
   controls?: RelayOwnerControls;
   storageCommitmentFloorBytes?: number;
-  runtime?: { nodePath: string; entryPath: string; historyVolunteerFile?: string };
+  runtime?: ReturnType<typeof relayServiceRuntime>;
 }
 
 function getRelayConfigPath(): string {
@@ -227,7 +227,7 @@ export async function startRelayMode(
       catch { return true; }
     })) throw new Error('Relay contacts must be up to 16 distinct endpoints; public contacts require wss://');
   const controls = validateOwnerControls(requestedControls ?? previous.controls ?? {});
-  const runtime = relayServiceRuntime(previous.runtime?.historyVolunteerFile);
+  const runtime = relayServiceRuntime(previous.runtime);
   const previousStats = previous.enabled ? await relayServiceStats(previous.port, adminKey) : null;
   const minimumStorageBytes = storageCommitmentFloor(
     previousStats, previous.storageCommitmentFloorBytes ?? 0,
@@ -237,25 +237,23 @@ export async function startRelayMode(
     throw new Error(`Storage limit must be at least ${Math.ceil(minimumStorageBytes / 1_048_576)} MiB to preserve accepted relay data`);
   }
   if (previous.enabled && previous.port === p
-    && previous.runtime?.nodePath === runtime.nodePath
-    && previous.runtime?.entryPath === runtime.entryPath
-    && previous.runtime?.historyVolunteerFile === runtime.historyVolunteerFile
+    && JSON.stringify(previous.runtime) === JSON.stringify(runtime)
     && JSON.stringify(previous.contacts) === JSON.stringify(contacts)
     && JSON.stringify(previous.controls ?? {}) === JSON.stringify(controls)
     && await relayServiceStats(p, adminKey)) return { port: p };
   installRelayService({
     port: p, dataDir: getDataDir(), adminKey, contacts, controls, ...runtime,
   });
+  // Registration outlives this HTTP request and the GUI. Keep its paths even if
+  // readiness is delayed or the newly installed process fails to respond.
+  saveRelayConfig({ enabled: true, port: p, adminKey, contacts, controls, runtime,
+    storageCommitmentFloorBytes: minimumStorageBytes });
   let running = false;
   for (let attempt = 0; attempt < 40; attempt++) {
     if (await relayServiceStats(p, adminKey)) { running = true; break; }
     await new Promise(resolve => setTimeout(resolve, 250));
   }
-  if (!running) throw new Error('The supervised relay did not become ready');
-  saveRelayConfig({
-    enabled: true, port: p, adminKey, contacts, controls,
-    runtime: { nodePath: runtime.nodePath, entryPath: runtime.entryPath, historyVolunteerFile: runtime.historyVolunteerFile },
-  });
+  if (!running) throw new Error('The supervised relay is installed but has not responded; check its status and service log');
 
   // If session is active, reconnect client to local relay
   if (session) {
@@ -299,7 +297,7 @@ export function isRelayMode(): boolean {
 }
 
 export async function getRelayStats(): Promise<{
-  enabled: boolean; running: boolean; port: number; contacts: string[];
+  enabled: boolean; running: boolean; admissionReady: boolean | null; port: number; contacts: string[];
   controls: RelayOwnerControls;
   storageCommitmentFloorBytes: number;
   stats: {
@@ -329,13 +327,14 @@ export async function getRelayStats(): Promise<{
 } | null> {
   const config = loadRelayConfig();
   if (!config.enabled || !config.adminKey) return {
-    enabled: false, running: false, port: config.port,
+    enabled: false, running: false, admissionReady: null, port: config.port,
     contacts: config.contacts ?? [], controls: config.controls ?? {},
     storageCommitmentFloorBytes: config.storageCommitmentFloorBytes ?? 0, stats: null,
   };
   const stats = await relayServiceStats(config.port, config.adminKey);
   return {
-    enabled: true, running: stats !== null, port: config.port,
+    enabled: true, running: stats !== null,
+    admissionReady: typeof stats?.admission_ready === 'boolean' ? stats.admission_ready : null, port: config.port,
     contacts: config.contacts ?? [], controls: config.controls ?? {},
     storageCommitmentFloorBytes: storageCommitmentFloor(
       stats, config.storageCommitmentFloorBytes ?? 0,

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import {
   getRelayStatus,
   startRelay,
@@ -23,13 +23,19 @@ export function useRelay(): UseRelay {
     }
   }, []);
 
+  useEffect(() => {
+    if (!relayStatus?.enabled || relayStatus.admissionReady === true) return;
+    const timer = setInterval(() => { void refresh(); }, 5000);
+    return () => clearInterval(timer);
+  }, [relayStatus?.enabled, relayStatus?.admissionReady, refresh]);
+
   const toggle = useCallback(async (contacts: string[], controls: RelayOwnerControls) => {
     if (relayStatus?.enabled) {
       const result = await stopRelay();
       if (result.error) return { error: result.error };
     } else {
       const result = await startRelay(contacts, controls);
-      if (result.error) return { error: result.error };
+      if (result.error) { await refresh(); return { error: result.error }; }
     }
     await refresh();
     return {};

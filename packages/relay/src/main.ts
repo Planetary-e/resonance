@@ -22,6 +22,7 @@ import { readHistoryBridgeConfigurationFile } from './history-bridge-config.js';
 import { createDeferredAdmission } from './deferred-admission.js';
 import { HistoryRelayRouter } from './history-relay-router.js';
 import { createLocalBlindAdmissionVerifierV2 } from './blind-admission-verifier.js';
+import { readRelayIdentityPassphrase } from './relay-identity-config.js';
 
 const relayPort = parseNonNegativeInteger(process.env.RELAY_PORT, 9090, 'RELAY_PORT');
 const tlsCertFile = process.env.RELAY_TLS_CERT_FILE;
@@ -216,7 +217,7 @@ let server: ReturnType<typeof createRelayServer>;
 try {
   server = createRelayServer({
     tls,
-    identityPassphrase: process.env.RELAY_IDENTITY_PASSPHRASE,
+    identityPassphrase: readRelayIdentityPassphrase(process.env.RELAY_IDENTITY_PASSPHRASE, process.env.RELAY_IDENTITY_PASSPHRASE_FILE),
     port: relayPort,
     host: relayHost,
     persistDir: relayDataDir,

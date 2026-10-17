@@ -545,10 +545,14 @@ describe('authenticated outbound relay links', () => {
 
   it('renews the link before continuing with expired descriptors', async () => {
     const spokeId = spoke.getRelayDescriptor()!.relayId;
-    await waitFor(() => hub.getKnownRelayDescriptors()
-      .some(value => value.relayId === spokeId));
-    const initialSequence = hub.getKnownRelayDescriptors()
-      .find(value => value.relayId === spokeId)!.sequence;
+    let initialSequence = -1;
+    await waitFor(() => {
+      // Capture the observed value in the same read that satisfies the wait.
+      // A second read may legitimately prune it at the descriptor's expiry.
+      const observed = hub.getKnownRelayDescriptors().find(value => value.relayId === spokeId);
+      if (!observed) return false;
+      initialSequence = observed.sequence; return true;
+    });
 
     await waitFor(() => {
       const observed = hub.getKnownRelayDescriptors().find(value => value.relayId === spokeId);

@@ -46,7 +46,8 @@ export default function Dashboard({
   activities,
   onWalletChange,
 }: DashboardProps) {
-  const relayLabel = relayStatus?.running ? 'Relay Active'
+  const relayLabel = relayStatus?.running ? relayStatus.admissionReady === true ? 'Relay Active'
+    : relayStatus.admissionReady === false ? 'Relay Preparing' : 'Relay Running'
     : relayStatus?.enabled ? 'Relay Starting' : 'Relay Off';
   const [contactText, setContactText] = useState('');
   const [storageText, setStorageText] = useState('');
@@ -110,6 +111,15 @@ export default function Dashboard({
             <span className="switch-label">{relayLabel}</span>
           </label>
         </div>
+
+        {relayStatus?.running && relayStatus.admissionReady === false && (
+          <p className="text-sm text-muted" role="status">
+            The relay service is running and preparing protected history. New user requests are unavailable until preparation finishes.
+          </p>
+        )}
+        {relayStatus?.running && relayStatus.admissionReady === null && (
+          <p className="text-sm text-muted" role="status">Admission readiness has not been reported by this relay.</p>
+        )}
 
         <label className="text-sm" htmlFor="relay-contacts">Volunteer relay contacts</label>
         <input

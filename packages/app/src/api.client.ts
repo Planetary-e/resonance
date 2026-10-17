@@ -95,6 +95,8 @@ export interface PublishResult {
 export interface RelayStatus {
   enabled: boolean;
   running: boolean;
+  /** Initial admission readiness, not a current replica or quorum count. */
+  admissionReady: boolean | null;
   port: number | null;
   contacts: string[];
   controls: RelayOwnerControls;

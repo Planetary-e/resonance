@@ -9,15 +9,16 @@ import WebSocket from 'ws';
 import { createAdmissionRequestBindingV2, createPublicationRecord, generatePublicationKeyMaterial,
   presentBlindAdmissionTokenV2, serializePublicationOperationFrame, createPublicationOperationFrame,
   parseMessage, type Message, type AckPayload } from '@resonance/core';
-import { admissionPolicyDigest, signAdmissionPolicy } from '@resonance/core/admission-policy';
+import { admissionPolicyDigest, signAdmissionPolicy, openAdmissionPolicyStore } from '@resonance/core/admission-policy';
+import { relayServiceEnvironment } from '../relay-supervisor.js';
 import { historyCheckpointEnvelopeId } from '@resonance/core/history-checkpoint';
-import { openProtectedAdmissionSpendHistory } from '../protected-admission-history.js';
-import { openHistoryVolunteerService } from '../history-volunteer-service.js';
-import { openConfiguredHistoryVolunteer, readHistoryVolunteerConfigurationFile } from '../history-volunteer-config.js';
-import { createRelayServer, type RelayServer } from '../server.js';
-import { loadOrCreateRelayIdentity } from '../relay-identity-store.js';
-import { historyCheckpointFixture } from './fixtures/history-checkpoint-fixture.js';
-import { witnessFixture } from './fixtures/admission-witness-fixture.js';
+import { openProtectedAdmissionSpendHistory } from '../../../../relay/src/protected-admission-history.js';
+import { openHistoryVolunteerService } from '../../../../relay/src/history-volunteer-service.js';
+import { openConfiguredHistoryVolunteer, readHistoryVolunteerConfigurationFile } from '../../../../relay/src/history-volunteer-config.js';
+import { createRelayServer, type RelayServer } from '../../../../relay/src/server.js';
+import { loadOrCreateRelayIdentity } from '../../../../relay/src/relay-identity-store.js';
+import { historyCheckpointFixture } from '../../../../relay/src/__tests__/fixtures/history-checkpoint-fixture.js';
+import { witnessFixture } from '../../../../relay/src/__tests__/fixtures/admission-witness-fixture.js';
 
 const cleanup: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -27,7 +28,7 @@ async function waitFor(test: () => boolean | Promise<boolean>) {
 }
 function start(env: NodeJS.ProcessEnv) {
   const inherited = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('RELAY_')));
-  const child = spawn(process.execPath, ['--import', 'tsx', fileURLToPath(new URL('../main.ts', import.meta.url))],
+  const child = spawn(process.execPath, ['--import', 'tsx', fileURLToPath(new URL('../../../../relay/src/main.ts', import.meta.url))],
     { env: { ...inherited, RELAY_HOST: '127.0.0.1', RELAY_PORT: '0', RELAY_PUBLIC_ENDPOINTS: `ws://127.0.0.1:${env.RELAY_PORT ?? '0'}/`, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
   const exited = once(child, 'exit'); let output = '', port = 0;
   const read = (bytes: Buffer) => {
@@ -46,12 +47,12 @@ function start(env: NodeJS.ProcessEnv) {
       return port > 0;
     }); return port; } };
 }
-async function fixture(withBridge = false) {
+async function fixture(withBridge = false, desktop = false) {
   const h = historyCheckpointFixture(), f = await witnessFixture(), directory = mkdtempSync(join(tmpdir(), 'history-owner-start-'));
   cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
   const policy = await signAdmissionPolicy({ ...f.body, keys: f.body.keys.map(({ witnesses, ...key }) => key) }, f.authority, f.authorityKey.secretKey);
   const context = { ...h.context, authority: f.authority, policyDigest: `sha256:${admissionPolicyDigest(policy)}` };
-  const ownerDirectory = join(directory, 'owner'), ownerId = loadOrCreateRelayIdentity(ownerDirectory).did;
+  const ownerDirectory = join(directory, 'owner', ...(desktop ? ['relay-data'] : [])), ownerId = loadOrCreateRelayIdentity(ownerDirectory).did;
   const memberDirs = context.members.map((_, i) => join(directory, `relay-${i}`));
   const ids = memberDirs.map(path => loadOrCreateRelayIdentity(path).did);
   const members = context.members.map((publicKey, i) => ({ publicKey, endpoint: `ws://127.0.0.1:${i + 1}/history-checkpoint` }));
@@ -64,7 +65,7 @@ async function fixture(withBridge = false) {
   writeFileSync(join(directory, 'volunteer-storage.hex'), h.localKey.toString('hex'), { mode: 0o600 });
   const historyFile = json('history.json', { version: 1, context, members, ownerKeyFile: 'owner-key.json' });
   const linksFile = json('links.json', { version: 1, members: context.members.map((publicKey, i) => ({ publicKey, relayId: ids[i] })) });
-  const env: NodeJS.ProcessEnv = { RELAY_DATA_DIR: ownerDirectory, RELAY_ADMIN_API_KEY: 'test-admin', RELAY_ADMISSION_AUTHORITY_FILE: join(directory, 'authority.pub'),
+  let env: NodeJS.ProcessEnv = { RELAY_DATA_DIR: ownerDirectory, RELAY_ADMIN_API_KEY: 'test-admin', RELAY_ADMISSION_AUTHORITY_FILE: join(directory, 'authority.pub'),
     RELAY_ADMISSION_POLICY_FILE: json('policy.json', policy), RELAY_ADMISSION_POLICY_KEY_FILE: join(directory, 'storage.hex'),
     RELAY_ADMISSION_HISTORY_FILE: historyFile, RELAY_ADMISSION_HISTORY_LINKS_FILE: linksFile };
   for (let i = 0; i < 5; i++) {
@@ -72,12 +73,26 @@ async function fixture(withBridge = false) {
     const service = openHistoryVolunteerService({ directory: join(directory, `history-${i}`), context, genesisId: historyCheckpointEnvelopeId(root),
       localKey: h.localKey, signingKey: h.memberKeys[i], initialize: root }); service.close();
   }
-  const bridgeDirectory = join(directory, 'bridge'), bridgeId = loadOrCreateRelayIdentity(bridgeDirectory).did;
+  if (desktop) {
+    const store = await openAdmissionPolicyStore({ path: join(ownerDirectory, 'admission-community-policy.json'), encryptionKey: h.key, mode: 'create-new' });
+    try { await store.install(policy, f.authority); } finally { store.close(); }
+    env = relayServiceEnvironment({ port: 0, dataDir: join(directory, 'owner'), adminKey: 'test-admin', contacts: [],
+      nodePath: process.execPath, entryPath: fileURLToPath(new URL('../../../../relay/src/main.ts', import.meta.url)), workingDirectory: directory,
+      admissionAuthorityFile: env.RELAY_ADMISSION_AUTHORITY_FILE, admissionPolicyFile: env.RELAY_ADMISSION_POLICY_FILE,
+      admissionPolicyKeyFile: env.RELAY_ADMISSION_POLICY_KEY_FILE, admissionHistoryFile: historyFile, admissionHistoryLinksFile: linksFile });
+  }
+  const bridgeDirectory = join(directory, 'bridge', ...(desktop ? ['relay-data'] : [])), bridgeId = loadOrCreateRelayIdentity(bridgeDirectory).did;
+  const passphraseFile = join(directory, 'bridge-passphrase.txt');
+  if (desktop) writeFileSync(passphraseFile, 'desktop-bridge-test-passphrase\n', { mode: 0o600 });
   const bridgeFile = json('bridge.json', { version: 1, routes: ids.map(targetRelayId => ({ controllerRelayId: ownerId, targetRelayId })) });
-  const bridgeEnv = { RELAY_DATA_DIR: bridgeDirectory, RELAY_ADMIN_API_KEY: 'test-admin', RELAY_HISTORY_BRIDGE_FILE: bridgeFile };
+  const bridgeEnv = desktop ? relayServiceEnvironment({ port: 0, dataDir: join(directory, 'bridge'), adminKey: 'test-admin', contacts: [],
+    nodePath: process.execPath, entryPath: fileURLToPath(new URL('../../../../relay/src/main.ts', import.meta.url)), workingDirectory: directory,
+    historyBridgeFile: bridgeFile, identityPassphraseFile: passphraseFile, publicEndpoints: ['ws://127.0.0.1:0/'] })
+    : { RELAY_DATA_DIR: bridgeDirectory, RELAY_ADMIN_API_KEY: 'test-admin', RELAY_HISTORY_BRIDGE_FILE: bridgeFile };
   let bridge: ReturnType<typeof start> | undefined;
   if (withBridge) {
     bridge = start(bridgeEnv); const bridgePort = await bridge.listening();
+    if (desktop) expect(JSON.parse(readFileSync(join(bridgeDirectory, 'relay-identity.json'), 'utf8')).kind).toBe('relay-infrastructure-identity-encrypted');
     json('links.json', { version: 2, members: context.members.map((publicKey, i) => ({ publicKey, relayId: ids[i] })),
       bridge: { relayId: bridgeId, endpoint: `ws://127.0.0.1:${bridgePort}/` } });
     env.RELAY_PUBLIC_ENDPOINTS = '';
@@ -85,7 +100,7 @@ async function fixture(withBridge = false) {
   async function restartBridge() {
     if (!bridge) throw new Error('No bridge in direct fixture');
     const port = bridge.port(); await bridge.close(); expect((await bridge.exited)[0]).toBe(0);
-    bridge = start({ ...bridgeEnv, RELAY_PORT: String(port) }); await bridge.listening();
+    bridge = start({ ...bridgeEnv, RELAY_PORT: String(port), RELAY_PUBLIC_ENDPOINTS: `ws://127.0.0.1:${port}/` }); await bridge.listening();
   }
   const volunteers: RelayServer[] = [], runtimes: ReturnType<typeof openConfiguredHistoryVolunteer>[] = [];
   cleanup.push(async () => { for (const server of volunteers) await server.stop({ graceful: false }); for (const role of runtimes) role.close(); });
@@ -117,25 +132,26 @@ async function send(port: number, raw: string) {
   });
 }
 
-it.each(['direct', 'bridge'] as const)('starts transport before admission and preserves credentials across fourth-copy arrival/restart through %s connections', async topology => {
-  const n = await fixture(topology === 'bridge'); let owner = start({ ...n.env, RELAY_ADMISSION_POLICY_INITIALIZE: 'true' });
+it.each(['direct', 'bridge', 'desktop-bridge'] as const)('starts transport before admission and preserves credentials across fourth-copy arrival/restart through %s connections', async topology => {
+  const bridged = topology !== 'direct', desktop = topology === 'desktop-bridge';
+  const n = await fixture(bridged, desktop); let owner = start({ ...n.env, ...(!desktop ? { RELAY_ADMISSION_POLICY_INITIALIZE: 'true' } : {}) });
   const port = await owner.listening(); expect(await health(port)).toBe(503); expect((await stats(port)).admission_ready).toBe(false);
   const token = await n.f.token(), first = publication();
   const frame = (record: ReturnType<typeof publication>, credential = token) => serializePublicationOperationFrame(createPublicationOperationFrame(record,
     presentBlindAdmissionTokenV2(credential, n.f.scope, 'publication-write', createAdmissionRequestBindingV2('publication-write', record))));
   const raw = frame(first);
   expect((await send(port, raw)).payload.message).toBe('admission_unavailable');
-  for (const i of topology === 'bridge' ? [1, 2, 3] : [0, 1, 2]) await n.volunteer(i, port);
+  for (const i of bridged ? [1, 2, 3] : [0, 1, 2]) await n.volunteer(i, port);
   await waitFor(async () => await n.connectedVolunteers(port) === 3);
-  if (topology === 'bridge') expect(await (await fetch(`http://127.0.0.1:${port}/relay-descriptor`)).json()).toMatchObject({ endpoints: [], reachability: 'outbound-only' });
+  if (bridged) expect(await (await fetch(`http://127.0.0.1:${port}/relay-descriptor`)).json()).toMatchObject({ endpoints: [], reachability: 'outbound-only' });
   expect(await health(port)).toBe(503); expect((await send(port, raw)).payload.message).toBe('admission_unavailable');
   expect((await stats(port)).stored_publications).toBe(0);
-  await n.volunteer(topology === 'bridge' ? 4 : 3, port); await waitFor(async () => await health(port) === 200);
+  await n.volunteer(bridged ? 4 : 3, port); await waitFor(async () => await health(port) === 200);
   expect((await stats(port)).admission_ready).toBe(true); expect(owner.output()).toContain('"event":"admission_ready"');
   expect((await send(port, raw)).payload.message).toBe('accepted');
   expect((await send(port, raw)).payload.message).toBe('duplicate');
   expect((await send(port, frame(publication()))).payload.message).toBe('admission_rejected');
-  if (topology === 'bridge') {
+  if (bridged) {
     await n.restartBridge(); await waitFor(async () => await n.connectedVolunteers(port) === 4);
     expect((await send(port, frame(publication(), await n.f.token()))).payload.message).toBe('accepted');
   }
@@ -143,7 +159,7 @@ it.each(['direct', 'bridge'] as const)('starts transport before admission and pr
   owner = start({ ...n.env, RELAY_PORT: String(port) }); await owner.listening(); await waitFor(async () => await health(port) === 200);
   expect((await send(port, raw)).payload.message).toBe('duplicate');
   expect((await send(port, frame(publication()))).payload.message).toBe('admission_rejected');
-  expect((await stats(port)).stored_publications).toBe(topology === 'bridge' ? 2 : 1);
+  expect((await stats(port)).stored_publications).toBe(bridged ? 2 : 1);
 }, 60000);
 
 it('cancels an unready owner cleanly, reopens its exact history and refuses missing state without enabling admission', async () => {
