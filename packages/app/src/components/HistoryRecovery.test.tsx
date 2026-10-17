@@ -16,5 +16,7 @@ it('separates irreversible freeze approval, bounded steps, restoration review an
   expect(ready).toContain('remains paused'); expect(ready).toContain('Activate prepared owner history');
   const resumed = render({ phase: 'review', complete: true, destinationOccupied: true });
   expect(resumed).toContain('presence alone does not confirm'); expect(resumed).toContain('Do not restore over existing files');
-  expect(resumed).not.toContain('Review restoration'); expect(resumed).not.toContain('<button');
+  expect(resumed).not.toContain('>Review restoration<'); expect(resumed).toContain('Review retained restoration');
+  const readiness = render({ kind: 'admission-restoration-readiness', appliedSpends: 2, pending: true, initializeWriter: true, requestedPolicyRevision: 3 });
+  for (const text of ['2 locally applied spends', 'retained update still needs completion', 'does not replace the spend history', 'Missing committed state is refused', 'Approve readiness completion']) expect(readiness).toContain(text);
 });

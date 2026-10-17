@@ -12,6 +12,8 @@ import { HISTORY_AGREEMENT_MAX_VIEW } from '@resonance/core/history-agreement';
 import { discoverHistoryContinuations } from './history-continuation-discovery.js';
 import { parseAdmissionHistoryImage } from './admission-history-records.js';
 import { prepareAdmissionHistoryRestore } from './admission-history-restore.js';
+import { replayAdmissionHistory } from './admission-history-replay.js';
+import { openAdmissionRestorationReadiness } from './admission-history-readiness.js';
 import { createHistoryCheckpointRecovery, HISTORY_RECOVERY_FILENAME } from './history-checkpoint-recovery.js';
 import { createHistoryAgreementCoordinator, HISTORY_AGREEMENT_COORDINATOR_FILENAME } from './history-agreement-coordinator.js';
 import { createHistoryAncestryDownload, HISTORY_DOWNLOAD_FILENAME } from './history-ancestry-download.js';
@@ -238,6 +240,22 @@ export async function openAdmissionHistoryRecovery(options: Options & {
           continuation: storage.read().continuation!, encryptionKey: key, blocks: component('download').blocks() });
         live(); return preparation;
       } finally { release(); active = false; }
+    },
+    /** Reconstruct the selected baseline before inspecting an occupied restore
+     * target. Inspection cannot create a missing writer or transmit readiness. */
+    async reviewReadiness(destination: string, policy: unknown, signal?: AbortSignal) {
+      live(); if (active || !storage.read().complete) throw new Error('Recovery has not completed provisioning or is active'); active = true;
+      let readiness: Awaited<ReturnType<typeof openAdmissionRestorationReadiness>> | undefined;
+      try {
+        reopenRegistered(); const continuation = storage.read().continuation!;
+        const replay = await replayAdmissionHistory({ context: p.context, genesisId, proposal: continuation.proposal,
+          encryptionKey: key, blocks: component('download').blocks(), signal });
+        live();
+        readiness = await openAdmissionRestorationReadiness({ directory: destination, policy, encryptionKey: key, protection: p,
+          expected: { rootId: historyContinuationRootId(continuation), genesisId, replayDigest: replay.replayDigest }, signal });
+        live(); return readiness;
+      } catch (error) { readiness?.close(); throw error; }
+      finally { release(); active = false; }
     },
     close,
   };

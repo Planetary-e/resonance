@@ -32,7 +32,7 @@ function present(path: string) {
 export async function openAdmissionHistoryActivation(options: AdmissionHistoryActivationOptions) {
   const cancelled = () => { if (options.signal?.aborted) throw new Error('Owner activation cancelled; retain prepared policy and history'); };
   cancelled();
-  if (options.protection.initializeWriter || options.protection.initializeArchive || options.protection.promoteLocalHistory || options.protection.restore) {
+  if (options.protection.initializeWriter || options.protection.initializeArchive || options.protection.resumePristineArchive || options.protection.promoteLocalHistory || options.protection.restore) {
     throw new Error('Activation only opens already prepared history; initialization, promotion and restore require separate review');
   }
   if (options.intentDigest !== undefined && !isHistoryDigest(options.intentDigest)) throw new Error('Invalid activation intent digest');

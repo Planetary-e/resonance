@@ -91,7 +91,7 @@ export {
 } from './admission.js';
 export { createLocalBlindAdmissionVerifierV2 } from './blind-admission-verifier.js';
 export { openAdmissionSpendHistory } from './admission-spend-history.js';
-export { openProtectedAdmissionSpendHistory, type AdmissionHistoryProtection } from './protected-admission-history.js';
+export { openProtectedAdmissionSpendHistory, inspectProtectedAdmissionSpendHistory, type AdmissionHistoryProtection } from './protected-admission-history.js';
 export { replayAdmissionHistory } from './admission-history-replay.js';
 export { prepareAdmissionHistoryRestore, type PreparedAdmissionHistoryRestore } from './admission-history-restore.js';
 export { loadAdmissionHistoryProtectionFile } from './admission-history-config.js';
@@ -131,5 +131,6 @@ export { prepareAdmissionHistoryRecovery, openAdmissionHistoryRecovery, type Adm
 
 export { runAdmissionHistoryCommand, readHistoryEnrollmentFile, type AdmissionHistoryCommandOptions } from './admission-history-command.js';
 export { openAdmissionHistoryActivation, type AdmissionHistoryActivationOptions, type AdmissionHistoryActivationReview } from './admission-history-activation.js';
+export { openAdmissionRestorationReadiness, type AdmissionRestorationReadinessReview } from './admission-history-readiness.js';
 export { beginRelayMaintenance, readRelayMaintenance, assertRelayNotInMaintenance, acquireStoppedRelayMaintenance, finishRelayMaintenance, RELAY_MAINTENANCE_FILENAME, type RelayMaintenanceState } from './relay-maintenance.js';
 export { readOperatorJson, writeOperatorJsonNew } from './admission-operator-files.js';

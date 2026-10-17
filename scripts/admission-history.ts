@@ -24,6 +24,7 @@ try {
   console.error('  owner-recovery-plan|owner-recovery-start [--approve <digest>] owner-config.json enrollment.json owner-storage.hex recovery-directory <view>');
   console.error('  owner-recovery-status|owner-recovery-step owner-config.json enrollment.json owner-storage.hex recovery-directory');
   console.error('  owner-recovery-review|owner-recovery-restore [--approve <digest>] owner-config.json enrollment.json owner-storage.hex recovery-directory policy.json new-owner-directory');
+  console.error('  owner-recovery-readiness-plan|owner-recovery-ready [--approve <digest>] owner-config.json enrollment.json owner-storage.hex recovery-directory policy.json retained-owner-directory');
   console.error('  replica-plan enrollment.json member-private.json member-storage.hex replica-directory');
   console.error('  replica-enroll --approve <digest> enrollment.json member-private.json member-storage.hex replica-directory');
   console.error('  replica-serve enrollment.json member-private.json member-storage.hex replica-directory <port>');

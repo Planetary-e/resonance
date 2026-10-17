@@ -17,6 +17,8 @@ interface State { version: 1; contextId: string; rootId: string; generation: num
 export function openHistoryWriterArchive(options: {
   directory: string; localKey: Uint8Array; context: HistoryCheckpointContext; rootId: string; generation: number;
   readWriter: ReturnType<typeof createHistoryCheckpointWriter>['read']; initialize?: boolean;
+  /** Explicitly reviewed retry of first initialization; no committed/pending writer or unknown files. */
+  resumePristine?: boolean;
   maxBlocks?: number; maxBytes?: number;
 }) {
   const context = parseHistoryCheckpointContext(options.context), contextId = historyCheckpointContextId(context);
@@ -63,7 +65,17 @@ export function openHistoryWriterArchive(options: {
     const writer = writerState();
     if (options.initialize) {
       if (writer.committed) throw new Error('Cannot initialize an archive for an already committed writer');
-      if (existsSync(directory) && readdirSync(directory).length) throw new Error('Writer archive directory is not empty');
+      if (existsSync(directory)) {
+        const entries = readdirSync(directory);
+        const initialTemporary = (name: string) => name === `${HISTORY_WRITER_ARCHIVE_FILENAME}.lock`
+          || /^\.history-writer-payloads\.json\.[a-f0-9]{16}\.tmp$/.test(name);
+        if (entries.length && (!options.resumePristine || writer.pending
+          || entries.some(name => !initialTemporary(name) || !lstatSync(join(directory, name)).isFile()))) {
+          throw new Error('Writer archive directory is not empty');
+        }
+        // The encrypted-state lock still refuses live/uncertain ownership. Only
+        // that lock owner may remove recognized unpublished encrypted snapshots.
+      }
       if (!existsSync(directory)) mkdirSync(directory, { mode: 0o700 });
       flush(dirname(directory));
     }

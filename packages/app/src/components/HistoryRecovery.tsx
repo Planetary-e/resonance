@@ -25,8 +25,9 @@ export default function HistoryRecovery({ onBusyChange, blocked = false }: { onB
   const disabled = busy || blocked || loading;
   function changed(next: RelayHistoryRecoveryInput) { setInput(next); setResult(null); setError(''); }
   async function run(action: RelayHistoryRecoveryAction) {
-    const approval = action === 'start' || action === 'restore' ? result?.approvalDigest : undefined;
-    if ((action === 'start' || action === 'restore') && !approval) return;
+    const mutating = ['start', 'restore', 'ready'].includes(action);
+    const approval = mutating ? result?.approvalDigest : undefined;
+    if (mutating && !approval) return;
     setBusy(true); onBusyChange(true); setError(''); setResult(null);
     try {
       const response = await runRelayHistoryRecovery(action, input, approval);
@@ -59,7 +60,7 @@ export default function HistoryRecovery({ onBusyChange, blocked = false }: { onB
       }); }}>Cancel operation</button>
       <p className="text-sm">Cancellation retains the workspace and cannot undo a freeze already accepted by volunteers.</p>
     </div>}
-    {error && <div role="alert"><p>{error}</p><p className="text-sm">Maintenance and pending work remain. Resume the same workspace to inspect its status. If restoration published a history but readiness failed, retain that folder for readiness recovery; do not restore over it.</p></div>}
+    {error && <div role="alert"><p>{error}</p><p className="text-sm">Maintenance and pending work remain. Resume the same workspace to inspect its status. If restoration published a history but readiness failed, review the retained restoration; do not restore over it.</p></div>}
   </section>;
 }
 
@@ -83,15 +84,24 @@ export function HistoryRecoveryProgress({ result, busy, onAction }: {
       <p>Requested policy revision: {result.requestedPolicyRevision}</p>
       <p className="text-sm">Restore writes the reviewed history into the new folder and requires four fresh copies. It does not start the relay or replace witness/coordinator state.</p>
       <button className="btn btn-primary" type="button" disabled={busy} onClick={() => onAction('restore')}>Approve restoration</button>
-    </> : result.result === 'history-restored' ? <>
+    </> : result.kind === 'admission-restoration-readiness' ? <>
+      <h4>Review retained restoration</h4>
+      <p style={{ overflowWrap: 'anywhere' }}>Retained history folder: {result.directory}</p>
+      <p>{result.appliedSpends} locally applied spends · {result.permanentDenials} permanent denials · generation {result.generation}</p>
+      <p>{result.pending ? 'An exact retained update still needs completion.' : 'No local update is pending.'} Requested policy revision: {result.requestedPolicyRevision}.</p>
+      <p className="text-sm">Review is offline and verifies the restored baseline against this completed workspace. Applying completes retained work and requires four fresh copies. It does not replace the spend history, restore missing committed writer records or start the relay.</p>
+      {(result.initializeWriter || result.initializeArchive) && <p className="text-sm">Only unfinished pristine writer/archive setup may be created after approval. Missing committed state is refused.</p>}
+      <button className="btn btn-primary" type="button" disabled={busy} onClick={() => onAction('ready')}>Approve readiness completion</button>
+    </> : result.result === 'history-restored' || result.result === 'history-ready' ? <>
       <h4>Owner history restored</h4>
       <p>Generation {result.generation} passed its readiness check. The relay remains paused.</p>
       <p>Use Activate prepared owner history below with the restored folder, then leave maintenance and start explicitly. Startup checks current copies again.</p>
     </> : result.complete && result.destinationOccupied ? <>
       <h4>Restoration destination contains files</h4>
       <p>The recovery workspace is complete. Keep the destination folder; its presence alone does not confirm a completed restoration.</p>
-      <p>Review Activate prepared owner history below to validate an already completed history. If readiness was interrupted, finish the explicit owner readiness workflow before activation.</p>
+      <p>Review the retained restoration to check it against this workspace and finish readiness before activation.</p>
       <p className="text-sm">Do not restore over existing files or delete them to retry.</p>
+      <button className="btn btn-secondary" type="button" disabled={busy} onClick={() => onAction('readiness-plan')}>Review retained restoration</button>
     </> : result.phase ? <>
       <h4>{phase[result.phase]}</h4><p>Generation {result.generation} → {result.nextGeneration}, view {result.view}</p>
       <p className="text-sm">Progress is retained on disk. Closing or locking the app preserves it; a later session can resume this workspace.</p>

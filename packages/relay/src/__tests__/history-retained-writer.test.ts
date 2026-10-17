@@ -1,8 +1,9 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { fsyncSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { fsyncSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { historyCheckpointEnvelopeId } from '@resonance/core/history-checkpoint';
+import { acquireLocalStateLock } from '@resonance/core/local-state';
 import { createHistoryCheckpointWriter, HISTORY_WRITER_FILENAME } from '../history-checkpoint-quorum.js';
 import { createRetainedHistoryCheckpointWriter } from '../history-retained-writer.js';
 import { createHistoryCheckpointReplica, type HistoryCheckpointTransport } from '../history-checkpoint-exchange.js';
@@ -119,4 +120,37 @@ it('requires explicit archive initialization after interrupted initial setup and
   const writer = n.writer(false, { initializeArchive: true }); await writer.replicate(n.root); writer.close();
   rmSync(n.payloadDirectory, { recursive: true });
   expect(() => n.writer(false)).toThrow(); expect(() => n.writer(false, { initializeArchive: true })).toThrow('already committed');
+});
+
+it('resumes only explicitly reviewed pristine manifest temporaries after exclusive ownership is available', async () => {
+  const n = fixture(), raw = createHistoryCheckpointWriter({ ...n.options, initialize: true }); raw.close();
+  mkdirSync(n.payloadDirectory);
+  const path = join(n.payloadDirectory, '.history-writer-payloads.json.0123456789abcdef.tmp');
+  const encrypted = readFileSync(join(n.options.directory, HISTORY_WRITER_FILENAME)); writeFileSync(path, encrypted);
+  expect(() => n.writer(false, { initializeArchive: true })).toThrow('not empty'); expect(readFileSync(path)).toEqual(encrypted);
+  const release = acquireLocalStateLock(join(n.payloadDirectory, 'history-writer-payloads.json'));
+  try { expect(() => n.writer(false, { initializeArchive: true, resumePristineArchive: true })).toThrow('already open'); }
+  finally { release(); }
+  expect(readFileSync(path)).toEqual(encrypted); expect(n.calls()).toBe(0);
+  const writer = n.writer(false, { initializeArchive: true, resumePristineArchive: true });
+  expect(readdirSync(n.payloadDirectory).filter(name => name.endsWith('.tmp'))).toEqual([]);
+  await writer.replicate(n.root); expect([...writer.history()]).toEqual([n.root]);
+});
+
+it.each(['unknown', 'pending', 'recovery-guard'])('preserves %s evidence instead of using pristine archive resumption', async condition => {
+  const n = fixture(), raw = createHistoryCheckpointWriter({ ...n.options, initialize: true, transport: async () => { throw new Error('offline'); } });
+  if (condition === 'pending') await expect(raw.replicate(n.root)).rejects.toThrow('Four'); raw.close();
+  mkdirSync(n.payloadDirectory);
+  const name = condition === 'unknown' ? 'retained-evidence' : condition === 'recovery-guard' ? 'history-writer-payloads.json.recovery'
+    : '.history-writer-payloads.json.0123456789abcdef.tmp';
+  const path = join(n.payloadDirectory, name); writeFileSync(path, 'retain this evidence');
+  expect(() => n.writer(false, { initializeArchive: true, resumePristineArchive: true })).toThrow('not empty');
+  expect(readFileSync(path, 'utf8')).toBe('retain this evidence'); expect(n.calls()).toBe(0);
+});
+
+it.skipIf(process.platform === 'win32')('refuses a symlink posing as a pristine manifest temporary', () => {
+  const n = fixture(), raw = createHistoryCheckpointWriter({ ...n.options, initialize: true }); raw.close(); mkdirSync(n.payloadDirectory);
+  const original = join(n.options.directory, HISTORY_WRITER_FILENAME), bytes = readFileSync(original);
+  symlinkSync(original, join(n.payloadDirectory, '.history-writer-payloads.json.0123456789abcdef.tmp'));
+  expect(() => n.writer(false, { initializeArchive: true, resumePristineArchive: true })).toThrow('not empty'); expect(readFileSync(original)).toEqual(bytes);
 });

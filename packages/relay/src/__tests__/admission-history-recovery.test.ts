@@ -8,12 +8,28 @@ import { createHistorySuccessorProposal } from '@resonance/core/history-successo
 import { createHistoryContinuationRoot, historyContinuationRootId } from '@resonance/core/history-continuation';
 import { parseHistoryAgreementCertificate } from '@resonance/core/history-agreement';
 import { openAdmissionHistoryRecovery, prepareAdmissionHistoryRecovery, ADMISSION_RECOVERY_FILENAME } from '../admission-history-recovery.js';
-import { openProtectedAdmissionSpendHistory } from '../protected-admission-history.js';
+import { inspectProtectedAdmissionSpendHistory, openProtectedAdmissionSpendHistory } from '../protected-admission-history.js';
 import { createHistoryGenerationReplica } from '../history-generation-provisioner.js';
 import { createHistoryCheckpointRecovery } from '../history-checkpoint-recovery.js';
 import { createHistoryAgreementCoordinator } from '../history-agreement-coordinator.js';
 import { listenHistoryAgreementReplica } from '../history-agreement-exchange.js';
 import { admissionRestoreFixture } from './fixtures/admission-restore-fixture.js';
+import { openAdmissionRestorationReadiness } from '../admission-history-readiness.js';
+
+async function publishedWithoutWriter(sockets = false) {
+  const n = await fixture(sockets), recovery = await n.initialize();
+  for (let i = 0; i < 8 && !recovery.status().complete; i++) await recovery.advance();
+  expect(recovery.status().complete).toBe(true);
+  const destination = join(n.directory, 'published-restoration'), preparation = await recovery.reviewRestore(destination, n.policy);
+  const history = await openProtectedAdmissionSpendHistory({ directory: destination, encryptionKey: n.key, authority: n.context.authority,
+    policy: n.policy, initialize: true, protection: { ...n.options.protection, initializeWriter: true,
+      restore: { preparation, approvedDigest: preparation.review.approvalDigest } } });
+  expect(history.read().applied).toBeNull(); history.close();
+  // Reproduce the on-disk boundary after image publication but before creating
+  // the pristine writer. No accepted writer entry is removed.
+  const writer = join(destination, 'admission-history-writer'); rmSync(writer, { recursive: true });
+  return { ...n, recovery, destination, writer };
+}
 
 const cleanup: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -164,3 +180,74 @@ it('cancels an in-flight workflow without replacing its pending phase or using l
   const reopened = await openAdmissionHistoryRecovery(n.options); cleanup.push(() => reopened.close());
   expect(reopened.status().phase).toBe('freeze'); await reopened.advance(); expect(reopened.status().phase).toBe('select');
 });
+
+it('reviews a published restoration offline, preserves missing pristine setup and requires fresh approval after a failed readiness attempt', async () => {
+  const n = await publishedWithoutWriter(), before = n.calls(), path = join(n.destination, 'admission-spends-v2.jsonl'), bytes = readFileSync(path);
+  let readiness = await n.recovery.reviewReadiness(n.destination, n.policy); cleanup.push(() => readiness.close());
+  const plan = readiness.review();
+  expect(plan).toMatchObject({ pending: true, appliedSpends: 2, permanentDenials: 1, initializeWriter: true, initializeArchive: true, readiness: 'unverified' });
+  expect(existsSync(n.writer)).toBe(false); expect(n.calls()).toBe(before);
+  await expect(readiness.apply('wrong')).rejects.toThrow('approval'); expect(existsSync(n.writer)).toBe(false); expect(n.calls()).toBe(before);
+  n.online(3); await expect(readiness.apply(plan.approvalDigest)).rejects.toThrow('Four'); readiness.close();
+  expect(readFileSync(path)).toEqual(bytes); expect(existsSync(n.writer)).toBe(true);
+  readiness = await n.recovery.reviewReadiness(n.destination, n.policy);
+  expect(readiness.review().approvalDigest).not.toBe(plan.approvalDigest);
+  const retried = n.calls(); await expect(readiness.apply(plan.approvalDigest)).rejects.toThrow('approval'); expect(n.calls()).toBe(retried);
+  n.online(4); n.recovery.close(); // The review owns its key copies after its parent closes.
+  expect(await readiness.apply(readiness.review().approvalDigest)).toMatchObject({ result: 'history-ready', readiness: 'confirmed', startsService: false }); readiness.close();
+  const inspected = await inspectProtectedAdmissionSpendHistory({ directory: n.destination, encryptionKey: n.key, authority: n.context.authority,
+    policy: n.policy, protection: n.options.protection });
+  try { const state = inspected.read(); expect(state.pending).toBeNull(); expect(state.image.state.spends).toHaveLength(2); expect(state.image.state.retiredIssuerKeys).toContain(n.oldKey); }
+  finally { inspected.close(); }
+}, 60000);
+
+it('refuses a changed retained image before writer creation and never lets inspection initialize missing state', async () => {
+  const n = await publishedWithoutWriter(), before = n.calls(), path = join(n.destination, 'admission-spends-v2.jsonl'), bytes = readFileSync(path);
+  const options = { directory: n.destination, encryptionKey: n.key, authority: n.context.authority, policy: n.policy, protection: n.options.protection };
+  await expect(inspectProtectedAdmissionSpendHistory({ ...options, protection: { ...options.protection, initializeWriter: true } })).rejects.toThrow('cannot initialize');
+  await expect(openProtectedAdmissionSpendHistory({ ...options, expectedStateDigest: 'sha256:' + '0'.repeat(64),
+    protection: { ...options.protection, initializeWriter: true } })).rejects.toThrow('changed after review');
+  const missing = join(n.directory, 'not-created');
+  await expect(openProtectedAdmissionSpendHistory({ ...options, directory: missing, initialize: true,
+    expectedStateDigest: 'sha256:' + '0'.repeat(64) })).rejects.toThrow('only opens existing');
+  await expect(inspectProtectedAdmissionSpendHistory({ ...options, directory: missing })).rejects.toThrow();
+  expect(existsSync(missing)).toBe(false);
+  const verified = await n.recovery.reviewReadiness(n.destination, n.policy), review = verified.review(); verified.close();
+  for (const field of ['rootId', 'genesisId', 'replayDigest'] as const) {
+    const expected = { rootId: review.rootId, genesisId: review.genesisId, replayDigest: review.replayDigest, [field]: 'sha256:' + 'f'.repeat(64) };
+    await expect(openAdmissionRestorationReadiness({ ...options, protection: n.options.protection, expected })).rejects.toThrow('differs from');
+  }
+  await expect(n.recovery.reviewReadiness(join(n.directory, 'missing'), n.policy)).rejects.toThrow();
+  await expect(n.recovery.reviewReadiness(n.destination, n.policy, AbortSignal.abort())).rejects.toThrow();
+  expect(existsSync(n.writer)).toBe(false); expect(readFileSync(path)).toEqual(bytes); expect(n.calls()).toBe(before);
+}, 60000);
+
+it.each(['writer', 'archive'])('never recreates missing committed %s history during readiness resumption', async missing => {
+  const n = await publishedWithoutWriter(), ready = await n.recovery.reviewReadiness(n.destination, n.policy);
+  await ready.apply(ready.review().approvalDigest); ready.close();
+  const path = missing === 'writer' ? n.writer : join(n.writer, 'payloads'); rmSync(path, { recursive: true });
+  const image = readFileSync(join(n.destination, 'admission-spends-v2.jsonl')), before = n.calls();
+  await expect(n.recovery.reviewReadiness(n.destination, n.policy)).rejects.toThrow('Committed');
+  expect(existsSync(path)).toBe(false); expect(n.calls()).toBe(before);
+  expect(readFileSync(join(n.destination, 'admission-spends-v2.jsonl'))).toEqual(image);
+}, 60000);
+
+it.each(['before-writer', 'after-writer', 'before-archive', 'after-archive', 'before-apply', 'after-apply'])(
+  'retains accepted spends and denials after readiness SIGKILL at %s', async boundary => {
+    const n = await publishedWithoutWriter(true), readiness = await n.recovery.reviewReadiness(n.destination, n.policy);
+    const plan = readiness.review(); readiness.close();
+    const child = fork(new URL('./fixtures/admission-readiness-crash.ts', import.meta.url), [],
+      { execArgv: ['--import', 'tsx'], stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });
+    const exited = once(child, 'exit'); let errors = ''; child.stderr?.on('data', value => { errors += value.toString(); });
+    cleanup.push(async () => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); await exited; });
+    expect((await once(child, 'message'))[0]).toBe('ready'); child.on('message', value => { if (typeof value === 'object') errors += JSON.stringify(value); });
+    child.send({ options: { directory: n.destination, policy: n.policy, expected: { rootId: plan.rootId, genesisId: plan.genesisId, replayDigest: plan.replayDigest },
+      protection: { context: n.context, members: n.members, timeoutMs: 1500 } }, key: n.key.toString('hex'),
+      owner: { publicKey: Buffer.from(n.owner.publicKey).toString('hex'), secretKey: Buffer.from(n.owner.secretKey).toString('hex') }, boundary });
+    const timeout = setTimeout(() => child.kill('SIGTERM'), 15000);
+    try { expect((await exited)[1], errors).toBe('SIGKILL'); } finally { clearTimeout(timeout); }
+    expect(errors).toBe('');
+    const resumed = await n.recovery.reviewReadiness(n.destination, n.policy);
+    try { expect(resumed.review()).toMatchObject({ appliedSpends: 2, permanentDenials: 1 }); await resumed.apply(resumed.review().approvalDigest); }
+    finally { resumed.close(); }
+  }, 60000);

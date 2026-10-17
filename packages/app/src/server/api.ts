@@ -527,7 +527,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
     try {
       const body = await readBody(req);
       if (!body || typeof body.action !== 'string' || !historyRecoveryActions.includes(body.action as RelayHistoryRecoveryAction)
-        || !exactWitnessFields(body, ['action', 'input', ...(['start', 'restore'].includes(body.action) ? ['approvalDigest'] : [])])) {
+        || !exactWitnessFields(body, ['action', 'input', ...(['start', 'restore', 'ready'].includes(body.action) ? ['approvalDigest'] : [])])) {
         throw new Error('Supply a supported recovery action and its exact fields');
       }
       const result = await performRelayHistoryRecovery(body.action as RelayHistoryRecoveryAction,

@@ -1,10 +1,11 @@
 /** Same-file protection fence, durable pending ciphertext, four copies, then live admission state. */
 import { join, resolve } from 'node:path';
+import { realpathSync, statSync } from 'node:fs';
 import type { SigningKeyPair } from '@resonance/core';
 import { copyAdmissionSigningKey, exactWitnessFields } from '@resonance/core/admission-witness';
 import { admissionPolicyDigest, assertAdmissionPolicyCurrent, assertAdmissionPolicySuccessor,
   isArchivedAdmissionKey, verifyAdmissionPolicy, type SignedAdmissionPolicy } from '@resonance/core/admission-policy';
-import { HISTORY_DELTA_MAX_PAYLOAD, historyCheckpointContextId, historyCheckpointEnvelopeId, isHistoryDigest, openHistoryCheckpoint,
+import { HISTORY_DELTA_MAX_PAYLOAD, historyCheckpointContextId, historyCheckpointEnvelopeId, historyDigest, isHistoryDigest, openHistoryCheckpoint,
   parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, sealHistoryCheckpoint,
   type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { openEncryptedLocalState } from '@resonance/core/local-state';
@@ -28,6 +29,8 @@ export interface AdmissionHistoryProtection {
   context: HistoryCheckpointContext; signingKey: SigningKeyPair; members: WriterOptions['members'];
   /** Explicit creation/recovery of a pristine writer; never recreates committed missing history. */
   initializeWriter?: boolean; initializeArchive?: boolean;
+  /** Only explicitly reviewed completion of an unpublished pristine archive. */
+  resumePristineArchive?: boolean;
   /** Explicit same-file promotion of an intact existing local ledger. */
   promoteLocalHistory?: boolean;
   /** Creation only, into the independently reviewed new directory. Reopen omits this capability. */
@@ -35,16 +38,36 @@ export interface AdmissionHistoryProtection {
   timeoutMs?: number; transport?: WriterOptions['transport']; maxArchiveBlocks?: number; maxArchiveBytes?: number;
 }
 
-export async function openProtectedAdmissionSpendHistory(options: {
+interface ProtectedHistoryOptions {
   directory: string; encryptionKey: Uint8Array; authority: string; policy: unknown;
   initialize?: boolean; maxSpends?: number; now?: () => number; protection: AdmissionHistoryProtection;
-}) {
+  /** Reviewed local state must still match before any pristine writer creation. */
+  expectedStateDigest?: string;
+}
+export async function openProtectedAdmissionSpendHistory(options: ProtectedHistoryOptions) {
+  return openProtectedHistory(options, false);
+}
+/** Validates and locks existing encrypted owner state without opening or creating
+ * a writer/archive. This is local inspection, never network readiness evidence. */
+export async function inspectProtectedAdmissionSpendHistory(options: Omit<ProtectedHistoryOptions, 'initialize'>) {
+  const p = options.protection;
+  if (p.initializeWriter || p.initializeArchive || p.resumePristineArchive || p.promoteLocalHistory || p.restore) throw new Error('History inspection cannot initialize, promote or restore state');
+  const directory = realpathSync(options.directory);
+  if (!statSync(directory).isDirectory()) throw new Error('History inspection requires an existing directory');
+  const history = await openProtectedHistory({ ...options, directory, initialize: false }, true);
+  return { read: history.read, close: history.close };
+}
+async function openProtectedHistory(options: ProtectedHistoryOptions, inspectionOnly: boolean) {
+  if (options.expectedStateDigest !== undefined && !isHistoryDigest(options.expectedStateDigest)) throw new Error('Invalid reviewed history state digest');
   const limit = options.maxSpends ?? 10000, now = options.now ?? Date.now;
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 10000) throw new Error('Invalid admission spend history capacity');
   const policy = await verifyAdmissionPolicy(options.policy, options.authority);
   assertAdmissionPolicyCurrent(policy, now());
   const p = options.protection, context = parseHistoryCheckpointContext(p.context), contextId = historyCheckpointContextId(context);
   if (context.authority !== options.authority) throw new Error('Wrong admission history authority');
+  if (options.expectedStateDigest !== undefined && (options.initialize || p.promoteLocalHistory)) {
+    throw new Error('Reviewed state only opens existing protected history');
+  }
   if (p.restore && !options.initialize) throw new Error('Reviewed restore only initializes a new protected history');
   const key = Buffer.from(options.encryptionKey), signer = copyAdmissionSigningKey(p.signingKey);
   if (key.length !== 32 || Buffer.from(signer.publicKey).toString('base64url') !== context.owner) {
@@ -202,14 +225,19 @@ export async function openProtectedAdmissionSpendHistory(options: {
         await nextImage(state);
       }
     }
-    if (p.initializeWriter && state.applied !== null) throw new Error('Cannot initialize a writer for already applied admission history');
-    writer = createRetainedHistoryCheckpointWriter({ directory: join(participant, 'admission-history-writer'), localKey: key,
-      context, signingKey: signer, rootId: id(root), generation: root.generation, members: p.members,
-      requireCurrentHead: true,
-      ...(root.kind === 'continuation' ? { continuation: root } : {}),
-      initialize: p.initializeWriter, initializeArchive: p.initializeArchive, timeoutMs: p.timeoutMs, transport: p.transport,
-      maxArchiveBlocks: p.maxArchiveBlocks, maxArchiveBytes: p.maxArchiveBytes });
-    writerMatches();
+    if (options.expectedStateDigest !== undefined && historyDigest(JSON.stringify(state)) !== options.expectedStateDigest) {
+      throw new Error('Retained admission state changed after review');
+    }
+    if (!inspectionOnly) {
+      if (p.initializeWriter && state.applied !== null) throw new Error('Cannot initialize a writer for already applied admission history');
+      writer = createRetainedHistoryCheckpointWriter({ directory: join(participant, 'admission-history-writer'), localKey: key,
+        context, signingKey: signer, rootId: id(root), generation: root.generation, members: p.members,
+        requireCurrentHead: true,
+        ...(root.kind === 'continuation' ? { continuation: root } : {}),
+        initialize: p.initializeWriter, initializeArchive: p.initializeArchive, resumePristineArchive: p.resumePristineArchive, timeoutMs: p.timeoutMs, transport: p.transport,
+        maxArchiveBlocks: p.maxArchiveBlocks, maxArchiveBytes: p.maxArchiveBytes });
+      writerMatches();
+    }
   } catch (error) { close(); throw error; }
 
   return {

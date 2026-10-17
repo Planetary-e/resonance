@@ -84,13 +84,15 @@ export async function runAdmissionHistoryCommand(command: string, raw: readonly 
       emit({ result: 'enrollment-exported', contextId: historyCheckpointContextId(value.context),
         genesisId: historyCheckpointEnvelopeId(value.root), output: resolve(output), readiness: 'unverified' });
     } else if (command?.startsWith('owner-recovery-')) {
-      const approved = ['owner-recovery-start', 'owner-recovery-restore'].includes(command) && raw[0] === '--approve' ? raw[1] : undefined;
+      const mutation = ['owner-recovery-start', 'owner-recovery-restore', 'owner-recovery-ready'].includes(command);
+      const approved = mutation && raw[0] === '--approve' ? raw[1] : undefined;
       const args = approved ? raw.slice(2) : raw;
       const planning = ['owner-recovery-plan', 'owner-recovery-start'].includes(command);
-      const reviewing = ['owner-recovery-review', 'owner-recovery-restore'].includes(command);
+      const readiness = ['owner-recovery-readiness-plan', 'owner-recovery-ready'].includes(command);
+      const reviewing = ['owner-recovery-review', 'owner-recovery-restore'].includes(command) || readiness;
       if ((!planning && !reviewing && !['owner-recovery-status', 'owner-recovery-step'].includes(command))
         || args.length !== (planning ? 5 : reviewing ? 6 : 4)
-        || (['owner-recovery-start', 'owner-recovery-restore'].includes(command) && !approved)) throw new Error('Invalid recovery command or missing approval');
+        || (mutation && !approved)) throw new Error('Invalid recovery command or missing approval');
       const [configPath, enrollmentPath, keyPath, directory] = args;
       const loaded = loadAdmissionHistoryProtectionFile(configPath); cleanup.push(() => loaded.signingKey.secretKey.fill(0));
       const transport = operatorTransport(loaded), { protection } = transport;
@@ -113,15 +115,20 @@ export async function runAdmissionHistoryCommand(command: string, raw: readonly 
         else if (command === 'owner-recovery-step') emit(await recovery.advance({ signal: commandOptions.signal }));
         else {
           const policy = readOperatorJson(args[4], MAX_ADMISSION_POLICY_BYTES), destination = args[5];
-          const preparation = await recovery.reviewRestore(destination, policy);
-          if (command === 'owner-recovery-review') emit(preparation.review);
-          else {
-            checkCancelled();
-            const history = await openProtectedAdmissionSpendHistory({ directory: destination, encryptionKey,
-              authority: protection.context.authority, policy, initialize: true,
-              protection: { ...protection, initializeWriter: true, restore: { preparation, approvedDigest: approved! } } });
-            cleanup.push(() => history.close()); await history.ready();
-            emit({ result: 'history-restored', generation: history.read().root.generation, readiness: 'confirmed' });
+          if (readiness) {
+            const retained = await recovery.reviewReadiness(destination, policy, commandOptions.signal); cleanup.push(() => retained.close());
+            emit(command === 'owner-recovery-readiness-plan' ? retained.review() : await retained.apply(approved!));
+          } else {
+            const preparation = await recovery.reviewRestore(destination, policy);
+            if (command === 'owner-recovery-review') emit(preparation.review);
+            else {
+              checkCancelled();
+              const history = await openProtectedAdmissionSpendHistory({ directory: destination, encryptionKey,
+                authority: protection.context.authority, policy, initialize: true,
+                protection: { ...protection, initializeWriter: true, restore: { preparation, approvedDigest: approved! } } });
+              cleanup.push(() => history.close()); await history.ready();
+              emit({ result: 'history-restored', generation: history.read().root.generation, readiness: 'confirmed' });
+            }
           }
         }
       }

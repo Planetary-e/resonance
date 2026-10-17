@@ -385,7 +385,7 @@ export function getRelayHistoryRecoveryInput() { return loadRelayConfig().histor
 export async function performRelayHistoryRecovery(action: RelayHistoryRecoveryAction, input: unknown, approval?: unknown, signal?: AbortSignal) {
   return runRelayHistoryOperation(async operationSignal => {
     const previous = loadRelayConfig(), outcome = await runDesktopHistoryRecovery(action, input, approval, operationSignal, join(getDataDir(), 'relay-data'));
-    if (!['plan', 'review'].includes(action)) saveRelayConfig({ ...previous, historyRecoveryInput: outcome.input });
+    if (!['plan', 'review', 'readiness-plan'].includes(action)) saveRelayConfig({ ...previous, historyRecoveryInput: outcome.input });
     return outcome.result;
   }, signal);
 }

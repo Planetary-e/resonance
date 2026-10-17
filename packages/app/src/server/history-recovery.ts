@@ -15,7 +15,7 @@ export interface RelayHistoryRecoveryInput {
   historyConfigFile: string; enrollmentFile: string; storageKeyFile: string; workspaceDirectory: string;
   policyFile: string; historyDirectory: string; operatorTransportFile: string; view: number;
 }
-export const historyRecoveryActions = ['plan', 'start', 'status', 'step', 'review', 'restore'] as const;
+export const historyRecoveryActions = ['plan', 'start', 'status', 'step', 'review', 'restore', 'readiness-plan', 'ready'] as const;
 export type RelayHistoryRecoveryAction = typeof historyRecoveryActions[number];
 const paths = ['historyConfigFile', 'enrollmentFile', 'storageKeyFile', 'workspaceDirectory', 'policyFile', 'historyDirectory', 'operatorTransportFile'] as const;
 export function parseRelayHistoryRecoveryInput(value: unknown): RelayHistoryRecoveryInput {
@@ -49,7 +49,7 @@ function contains(parent: string, child: string) {
 }
 export async function runDesktopHistoryRecovery(action: RelayHistoryRecoveryAction, raw: unknown, approved: unknown, signal: AbortSignal, runtimeDirectory: string) {
   if (!historyRecoveryActions.includes(action)) throw new Error('Unsupported history recovery operation');
-  const input = parseRelayHistoryRecoveryInput(raw), mutating = action === 'start' || action === 'restore';
+  const input = parseRelayHistoryRecoveryInput(raw), mutating = ['start', 'restore', 'ready'].includes(action);
   if (mutating ? !isHistoryDigest(approved) : approved !== undefined) throw new Error('Supply the exact reviewed approval only when starting or restoring');
   signal.throwIfAborted();
   const directories = () => [input.workspaceDirectory, input.historyDirectory, runtimeDirectory].map(canonicalDirectory);
@@ -88,10 +88,11 @@ export async function runDesktopHistoryRecovery(action: RelayHistoryRecoveryActi
   const bind = (review: Record<string, unknown>) => ({ ...review, approvalDigest: historyDigest(
     `resonance:desktop-history-recovery:v1\n${JSON.stringify([input, layout, files, operator, review])}`) });
   let result: Record<string, unknown>;
-  if (action === 'plan' || action === 'start' || action === 'review' || action === 'restore') {
+  if (['plan', 'start', 'review', 'restore', 'readiness-plan', 'ready'].includes(action)) {
     const freeze = action === 'plan' || action === 'start';
+    const readiness = action === 'readiness-plan' || action === 'ready';
     const arguments_ = [...args, ...(freeze ? [String(input.view)] : [input.policyFile, input.historyDirectory])];
-    const original = await run(freeze ? 'plan' : 'review', arguments_); check();
+    const original = await run(freeze ? 'plan' : readiness ? 'readiness-plan' : 'review', arguments_); check();
     const review = bind(original);
     if (mutating) {
       if (review.approvalDigest !== approved) throw new Error('Recovery approval or selection changed; review again');
