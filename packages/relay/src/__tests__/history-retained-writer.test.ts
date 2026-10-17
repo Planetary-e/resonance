@@ -225,7 +225,7 @@ it.each(['unknown', 'pending', 'recovery-guard'])('preserves %s evidence instead
   const name = condition === 'unknown' ? 'retained-evidence' : condition === 'recovery-guard' ? 'history-writer-payloads.json.recovery'
     : '.history-writer-payloads.json.0123456789abcdef.tmp';
   const path = join(n.payloadDirectory, name); writeFileSync(path, 'retain this evidence');
-  expect(() => n.writer(false, { initializeArchive: true, resumePristineArchive: true })).toThrow('not empty');
+  expect(() => n.writer(false, { initializeArchive: true, resumePristineArchive: true })).toThrow(condition === 'recovery-guard' ? 'lock recovery is active or was interrupted' : 'not empty');
   expect(readFileSync(path, 'utf8')).toBe('retain this evidence'); expect(n.calls()).toBe(0);
 });
 

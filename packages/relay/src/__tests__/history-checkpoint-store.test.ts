@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { createHistoryFreeze, historyCheckpointEnvelopeId, openHistoryCheckpoint, sealHistoryCheckpoint } from '@resonance/core/history-checkpoint';
 import { HISTORY_MANIFEST_FILENAME, openHistoryCheckpointStore } from '../history-checkpoint-store.js';
 import { historyCheckpointFixture } from './fixtures/history-checkpoint-fixture.js';
+import { snapshotDirectory } from './fixtures/snapshot-directory.js';
 
 vi.mock('node:fs', async original => {
   const fs = await original<typeof import('node:fs')>();
@@ -77,7 +78,7 @@ it('appends recoverable encrypted deltas without rewriting payloads, retains lat
   store.close(); store = f.open();
   expect(store.read().envelopes).toEqual([f.root, delta, checkpoint]);
   expect(openHistoryCheckpoint(store.read().envelopes[1], f.context, f.key).toString()).toBe('a spent binding');
-  for (const name of readdirSync(f.directory)) expect(readFileSync(join(f.directory, name)).toString()).not.toContain('a spent binding');
+  for (const entry of snapshotDirectory(f.directory)) if (entry.kind === 'file') expect(entry.bytes.toString()).not.toContain('a spent binding');
   expect(statSync(f.block(id)).mode & 0o777).toBe(0o600);
 });
 

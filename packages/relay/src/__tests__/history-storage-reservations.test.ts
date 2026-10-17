@@ -8,6 +8,7 @@ import { openHistoryCheckpointStore, inspectPristineHistoryGenesis } from '../hi
 import { openHistoryWriterArchive } from '../history-writer-archive.js';
 import { createHistoryAncestryDownload } from '../history-ancestry-download.js';
 import { historyAgreementFixture } from './fixtures/history-agreement-fixture.js';
+import { snapshotDirectory } from './fixtures/snapshot-directory.js';
 vi.mock('node:fs', async original => { const fs = await original<typeof import('node:fs')>(); return { ...fs, renameSync: vi.fn(fs.renameSync) }; });
 const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
 const cleanup: Array<() => unknown> = [];
@@ -48,12 +49,12 @@ it('reserves blocks and manifest replacements together and retains writable hist
   expect(restored.status()).toMatchObject({ components: 6, availableBytes: 0 });
   expect([...reopened.archive.blocks()]).toEqual([n.root]); expect(reopened.store.read().envelopes).toEqual([n.root, n.delta]);
   expect((await reopened.download.run()).complete).toBe(true); expect([...reopened.download.blocks()]).toEqual(n.blocks);
-  const saved = readdirSync(n.downloadOptions.directory).sort().map(name => [name, readFileSync(join(n.downloadOptions.directory, name))]);
+  const saved = snapshotDirectory(n.downloadOptions.directory);
   restored.close();
   expect(() => reopened.archive.retainPending()).toThrow(/closed/);
   expect(() => reopened.store.append(n.next(n.delta))).toThrow(/closed/);
   await expect(reopened.download.run()).rejects.toThrow(/closed/);
-  expect(readdirSync(n.downloadOptions.directory).sort().map(name => [name, readFileSync(join(n.downloadOptions.directory, name))])).toEqual(saved);
+  expect(snapshotDirectory(n.downloadOptions.directory)).toEqual(saved);
 });
 it.each(['archive', 'replica', 'download'] as const)('funds both ciphertext and manifest before creating a %s directory', kind => {
   const n = fixture(BLOCK_BYTES);
