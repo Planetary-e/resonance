@@ -27,6 +27,8 @@ jobs:
         run: npx vitest run --maxWorkers=1 packages/core/src/__tests__/ed25519-vectors.test.ts packages/core/src/__tests__/crypto.test.ts packages/core/src/__tests__/identity-encryption.test.ts packages/core/src/__tests__/local-state-owner.test.ts packages/core/src/__tests__/storage-reservations.test.ts packages/node/src/__tests__/encrypted-local-state.test.ts packages/node/src/__tests__/identity.test.ts packages/node/src/__tests__/identity-file.test.ts packages/node/src/__tests__/identity-file-crash.integration.test.ts
       - name: Verify IPv4 and IPv6 TLS paths, renewal and proxy forwarding
         run: npx vitest run --maxWorkers=1 packages/relay/src/__tests__/relay-tls-identity.test.ts packages/relay/src/__tests__/tls-paths.integration.test.ts
+      - name: Verify infrastructure key migration and process interruption
+        run: npx vitest run --maxWorkers=1 packages/relay/src/__tests__/relay-identity-store.test.ts packages/relay/src/__tests__/relay-identity-crash.integration.test.ts
 
   test:
     runs-on: ubuntu-latest

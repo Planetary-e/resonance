@@ -1,5 +1,7 @@
 import {
   chmodSync,
+  existsSync,
+  linkSync,
   lstatSync,
   mkdtempSync,
   readFileSync,
@@ -18,6 +20,7 @@ import {
 } from '@resonance/core';
 import {
   loadOrCreateRelayIdentity,
+  loadExistingRelayIdentity,
   RELAY_IDENTITY_FILENAME,
 } from '../relay-identity-store.js';
 
@@ -152,6 +155,49 @@ describe('relay infrastructure identity store', () => {
 
     expect(() => loadOrCreateRelayIdentity(dir)).toThrow('regular file');
     expect(readFileSync(target, 'utf8')).toBe(source);
+  });
+
+  it.each(['other-key', 'plaintext-downgrade', 'partial', 'oversized', 'invalid-utf8'])('preserves the original and refuses ambiguous pending %s', kind => {
+    const dir = directory(), path = join(dir, RELAY_IDENTITY_FILENAME), pending = join(dir, `.${RELAY_IDENTITY_FILENAME}.pending`);
+    const password = 'relay key fixture password long enough', identity = loadOrCreateRelayIdentity(dir, password), original = readFileSync(path);
+    const other = directory(); loadOrCreateRelayIdentity(other, password).secretKey.fill(0);
+    const candidate = kind === 'other-key' ? readFileSync(join(other, RELAY_IDENTITY_FILENAME))
+      : kind === 'plaintext-downgrade' ? Buffer.from(storedIdentity(identity))
+      : kind === 'oversized' ? Buffer.alloc(4097) : kind === 'invalid-utf8' ? Buffer.from([0xff]) : Buffer.from('{');
+    writeFileSync(pending, candidate);
+    expect(() => loadOrCreateRelayIdentity(dir, password)).toThrow();
+    expect(readFileSync(path)).toEqual(original); expect(readFileSync(pending)).toEqual(candidate); identity.secretKey.fill(0);
+  });
+
+  it.each([false, true])('preserves old random temporary keys and refuses to guess (primary=%s)', primary => {
+    const dir = directory(), path = join(dir, RELAY_IDENTITY_FILENAME);
+    const original = primary ? loadOrCreateRelayIdentity(dir) : undefined;
+    const orphan = join(dir, `.${RELAY_IDENTITY_FILENAME}.123.aabb.tmp`), bytes = storedIdentity(generateIdentity());
+    writeFileSync(orphan, bytes);
+    expect(() => loadOrCreateRelayIdentity(dir)).toThrow('preserve temporary keys');
+    expect(readFileSync(orphan, 'utf8')).toBe(bytes); expect(existsSync(path)).toBe(primary); original?.secretKey.fill(0);
+  });
+
+  it('refuses hard links and dangling symlinks before generating another identity', () => {
+    const dir = directory(), path = join(dir, RELAY_IDENTITY_FILENAME);
+    const identity = loadOrCreateRelayIdentity(dir), original = readFileSync(path);
+    const other = join(dir, 'other'); linkSync(path, other);
+    expect(() => loadOrCreateRelayIdentity(dir)).toThrow('single link'); expect(readFileSync(path)).toEqual(original);
+    rmSync(other); identity.secretKey.fill(0);
+    if (process.platform === 'win32') return;
+    rmSync(path); symlinkSync(other, path);
+    expect(() => loadOrCreateRelayIdentity(dir)).toThrow('regular file'); expect(lstatSync(path).isSymbolicLink()).toBe(true);
+  });
+
+  it('reads an operator identity without migration, cleanup or permission changes', () => {
+    const dir = directory(), password = 'read only fixture long passphrase', path = join(dir, RELAY_IDENTITY_FILENAME);
+    const identity = loadOrCreateRelayIdentity(dir, password), bytes = readFileSync(path);
+    if (process.platform !== 'win32') chmodSync(path, 0o640);
+    const pending = join(dir, `.${RELAY_IDENTITY_FILENAME}.pending`); writeFileSync(pending, '{');
+    const read = loadExistingRelayIdentity(dir, password); expect(read).toEqual(identity);
+    expect(readFileSync(path)).toEqual(bytes); expect(readFileSync(pending, 'utf8')).toBe('{');
+    if (process.platform !== 'win32') expect(lstatSync(path).mode & 0o777).toBe(0o640);
+    read.secretKey.fill(0); identity.secretKey.fill(0);
   });
 });
 

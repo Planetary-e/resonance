@@ -15,7 +15,7 @@ function fixture(extra: number) {
   return { directory, ledger, authority };
 }
 it('reserves identity migration peak before creation and preserves the key at a full budget', () => {
-  const n = fixture(2 * RELAY_IDENTITY_MAX_BYTES), path = join(n.directory, 'runtime');
+  const n = fixture(2 * RELAY_IDENTITY_MAX_BYTES + 8192), path = join(n.directory, 'runtime');
   const identity = withStorageReservationAuthority(n.authority, () => loadOrCreateRelayIdentity(path));
   expect(n.authority.status()).toMatchObject({ components: 1, availableBytes: 0 });
   const passphrase = 'managed-test-identity-long-passphrase';
