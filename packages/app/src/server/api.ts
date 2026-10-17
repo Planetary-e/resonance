@@ -5,6 +5,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { localHttpBoundary } from './local-http-boundary.js';
 import { issueSessionToken, matchesSessionToken } from './local-session-auth.js';
+import { readLocalJsonBody as readBody } from './local-json-body.js';
 import { exactWitnessFields } from '@resonance/core/admission-witness';
 import { historyRecoveryActions, type RelayHistoryRecoveryAction } from './history-recovery.js';
 import {
@@ -54,7 +55,6 @@ function utcTimestamp(value: string): string {
     ? `${value.replace(' ', 'T')}Z` : value;
 }
 
-const MAX_BODY_SIZE = 1024 * 1024; // 1 MiB
 const responseOrigins = new WeakMap<Res, string>();
 
 function json(res: Res, data: unknown, status = 200): void {
@@ -70,26 +70,6 @@ function json(res: Res, data: unknown, status = 200): void {
 
 function error(res: Res, message: string, status = 400): void {
   json(res, { error: message }, status);
-}
-
-async function readBody(req: Req): Promise<Record<string, unknown>> {
-  return new Promise((resolve, reject) => {
-    let body = '';
-    let size = 0;
-    req.on('data', (chunk: Buffer) => {
-      size += chunk.length;
-      if (size > MAX_BODY_SIZE) {
-        req.destroy();
-        reject(new Error('Body too large'));
-        return;
-      }
-      body += chunk.toString();
-    });
-    req.on('end', () => {
-      try { resolve(JSON.parse(body)); } catch { resolve({}); }
-    });
-    req.on('error', () => resolve({}));
-  });
 }
 
 /** Verify the session is unlocked AND the request carries a valid Bearer token. */
@@ -156,8 +136,8 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
   if (url === '/api/init' && method === 'POST') {
     if (isInitialized()) { error(res, 'Already initialized'); return true; }
     const body = await readBody(req);
-    const password = body.password as string;
-    if (!password) { error(res, 'Password required'); return true; }
+    const password = body.password;
+    if (typeof password !== 'string' || !password) { error(res, 'Password required'); return true; }
     try {
       const result = await initSession(password);
       json(res, result);
@@ -171,8 +151,8 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
   if (url === '/api/unlock' && method === 'POST') {
     if (!isInitialized()) { error(res, 'Not initialized. POST /api/init first.'); return true; }
     const body = await readBody(req);
-    const password = body.password as string;
-    if (!password) { error(res, 'Password required'); return true; }
+    const password = body.password;
+    if (typeof password !== 'string' || !password) { error(res, 'Password required'); return true; }
     try {
       const result = await unlockSession(password, relayUrl);
       if (!isUnlocked()) throw new Error('Session locked during unlock');

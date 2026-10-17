@@ -13,6 +13,7 @@ import { isUnlocked, setSessionEvents } from './session.js';
 import { localHttpBoundary } from './local-http-boundary.js';
 import { localUiFile } from './local-ui-files.js';
 import { matchesSessionToken, onSessionTokenChange } from './local-session-auth.js';
+import { LocalJsonBodyError } from './local-json-body.js';
 
 // Resolve UI directory: works in tsx (ESM), esbuild CJS, and pkg snapshot
 function resolveUiDir(): string {
@@ -113,7 +114,12 @@ export function createAppServer(config: AppServerConfig): AppServer {
               res.writeHead(404, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ error: 'Not found' }));
             }
-          } catch {
+          } catch (error) {
+            if (error instanceof LocalJsonBodyError) {
+              if (!res.headersSent) res.writeHead(error.statusCode, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store',
+                'Access-Control-Allow-Origin': localHttpBoundary(req).origin, 'Access-Control-Allow-Credentials': 'true', 'Vary': 'Origin' });
+              res.end(JSON.stringify({ error: error.message })); return;
+            }
             // A failed durable-state read must close this request, not crash the
             // desktop process or leave the browser waiting indefinitely.
             if (!res.headersSent) {

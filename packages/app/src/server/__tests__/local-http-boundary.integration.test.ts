@@ -26,13 +26,20 @@ async function fixture() {
   vi.spyOn(EmbeddingEngine.prototype, 'initialize').mockResolvedValue();
   const app = createAppServer({ port: 0, relayUrl: 'ws://127.0.0.1:1/', uiDirectory: ui });
   cleanup.push(() => app.stop()); const port = await app.start(), base = `http://127.0.0.1:${port}`;
-  function request(path: string, body?: unknown, headers: Record<string, string> = {}, method = body === undefined ? 'GET' : 'POST') {
+  function request(path: string, body?: unknown, headers: Record<string, string> = {}, method = body === undefined ? 'GET' : 'POST', fragments?: Buffer[]) {
     return new Promise<{ status: number; headers: Record<string, unknown>; text: string; json(): any }>((resolve, reject) => {
       const request = httpRequest({ hostname: '127.0.0.1', port, path, method,
         headers: { 'content-type': 'application/json', ...headers } }, response => {
         let text = ''; response.on('data', chunk => { text += chunk.toString(); });
         response.on('end', () => resolve({ status: response.statusCode!, headers: response.headers, text, json: () => JSON.parse(text) }));
-      }); request.on('error', reject); request.end(body === undefined ? undefined : JSON.stringify(body));
+      }); request.on('error', reject);
+      if (fragments) {
+        void (async () => {
+          request.setNoDelay(true);
+          for (const chunk of fragments) { request.write(chunk); await new Promise(resolve => setTimeout(resolve, 20)); }
+          request.end();
+        })().catch(reject);
+      } else request.end(body === undefined ? undefined : Buffer.isBuffer(body) ? body : JSON.stringify(body));
     });
   }
   async function init() { expect((await request('/api/init', { password: 'local-boundary-test-password' })).status).toBe(200); }
@@ -133,4 +140,22 @@ it('serializes initial identity creation and cancels it before writing when lock
   expect(sessions.isInitialized()).toBe(false); await f.init(); const original = await f.unlock();
   expect((await f.request('/api/init', { password: 'replacement-password' })).status).toBe(400);
   expect((await f.request('/api/status', undefined, { authorization: `Bearer ${original}` })).json().unlocked).toBe(true);
+});
+
+it('rejects malformed, non-object and invalid UTF-8 JSON before initialization', async () => {
+  const f = await fixture();
+  const malformed = [Buffer.from('{'), Buffer.from('null'), Buffer.from('[]'), Buffer.from('"text"'),
+    Buffer.concat([Buffer.from('{"password":"'), Buffer.from([0xc0, 0xaf]), Buffer.from('"}')])];
+  for (const body of malformed) expect((await f.request('/api/init', body)).status).toBe(400);
+  expect((await f.request('/api/init', { password: { unexpected: true } })).status).toBe(400);
+  expect(sessions.isInitialized()).toBe(false);
+  await expect(f.request('/api/init', Buffer.alloc(1024 * 1024 + 1, 32))).rejects.toThrow();
+  expect((await f.request('/api/status')).status).toBe(200); expect(sessions.isInitialized()).toBe(false);
+});
+
+it('preserves a password whose UTF-8 character is split across actual HTTP chunks', async () => {
+  const f = await fixture(), password = 'contraseña-🙂-fragmentada', bytes = Buffer.from(JSON.stringify({ password }));
+  const split = bytes.indexOf(Buffer.from('🙂')) + 2;
+  expect((await f.request('/api/init', {}, {}, 'POST', [bytes.subarray(0, split), bytes.subarray(split)])).status).toBe(200);
+  expect((await f.request('/api/unlock', { password })).status).toBe(200);
 });
