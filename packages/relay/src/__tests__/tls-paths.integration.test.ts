@@ -16,8 +16,8 @@ async function run(mode: string) {
   } finally { clearTimeout(timer); if (child.exitCode === null && child.signalCode === null) { child.kill('SIGKILL'); await exited; } }
 }
 
-it('enforces TLS trust, hostname and certificate dates on eleven production transport paths', async () => {
-  const rows = await run('matrix'); expect(rows).toHaveLength(110);
+it('enforces TLS trust, hostname and certificate dates on twelve implemented transport paths', async () => {
+  const rows = await run('matrix'); expect(rows).toHaveLength(120);
   for (const row of rows) {
     expect(row.error, `${row.host}/${row.certificate}/${row.path}`).toBeTypeOf('string'); // The probe closes after the first application frame.
     expect(row.upgrades, `${row.host}/${row.certificate}/${row.path}`).toBe(row.certificate === 'localhost' ? 1 : 0);

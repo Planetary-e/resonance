@@ -5,7 +5,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { sign, verify, type SigningKeyPair } from './crypto.js';
 import { copyAdmissionSigningKey, exactWitnessFields, parseAdmissionWitnessSet, witnessBytes } from './admission-witness.js';
 
-export interface AdmissionPolicyHead { revision: number; digest: string }
+export interface AdmissionPolicyHead { revision: number; digest: string; transition: string }
 export interface AdmissionPolicyObservers {
   version: 1; kind: 'admission-policy-observers'; authority: string;
   genesis: AdmissionPolicyHead; quorum: 4;
@@ -27,9 +27,10 @@ export const ADMISSION_POLICY_HEAD_MAX_LIFETIME_MS = 30_000;
 const DOMAIN = 'resonance:admission-policy-head:v1';
 const integer = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0;
 export function parseAdmissionPolicyHead(value: unknown): AdmissionPolicyHead {
-  if (!exactWitnessFields(value, ['revision', 'digest']) || !integer(value.revision) || value.revision < 1
-    || typeof value.digest !== 'string' || !/^[a-f0-9]{64}$/.test(value.digest)) throw new Error('Invalid admission policy head');
-  return { revision: value.revision, digest: value.digest };
+  if (!exactWitnessFields(value, ['revision', 'digest', 'transition']) || !integer(value.revision) || value.revision < 1
+    || typeof value.digest !== 'string' || !/^[a-f0-9]{64}$/.test(value.digest)
+    || typeof value.transition !== 'string' || !/^[a-f0-9]{64}$/.test(value.transition)) throw new Error('Invalid admission policy head');
+  return { revision: value.revision, digest: value.digest, transition: value.transition };
 }
 export function parseAdmissionPolicyObservers(value: unknown): AdmissionPolicyObservers {
   if (!exactWitnessFields(value, ['version', 'kind', 'authority', 'genesis', 'quorum', 'members'])
@@ -37,7 +38,9 @@ export function parseAdmissionPolicyObservers(value: unknown): AdmissionPolicyOb
     throw new Error('Invalid admission policy observers');
   }
   const set = parseAdmissionWitnessSet({ version: 1, quorum: value.quorum, members: value.members, coordinators: [value.authority] });
-  return { version: 1, kind: 'admission-policy-observers', authority: value.authority, genesis: parseAdmissionPolicyHead(value.genesis), quorum: 4, members: set.members };
+  const genesis = parseAdmissionPolicyHead(value.genesis);
+  if (genesis.transition !== genesis.digest) throw new Error('Invalid initial policy transition anchor');
+  return { version: 1, kind: 'admission-policy-observers', authority: value.authority, genesis, quorum: 4, members: set.members };
 }
 export function admissionPolicyObserversId(value: AdmissionPolicyObservers): string {
   const context = parseAdmissionPolicyObservers(value);
@@ -59,14 +62,14 @@ export function createAdmissionPolicyHeadRequest(context: AdmissionPolicyObserve
 }
 function admittedHead(value: unknown, context: AdmissionPolicyObservers) {
   const current = parseAdmissionPolicyHead(value), genesis = parseAdmissionPolicyHead(context.genesis);
-  if (current.revision < genesis.revision || (current.revision === genesis.revision && current.digest !== genesis.digest)) {
+  if (current.revision < genesis.revision || (current.revision === genesis.revision && (current.digest !== genesis.digest || current.transition !== genesis.transition))) {
     throw new Error('Policy head precedes or conflicts with the independently pinned genesis');
   }
   return current;
 }
 function payload(request: AdmissionPolicyHeadRequest, current: AdmissionPolicyHead, observer: string) {
   return Buffer.from(`${DOMAIN}:vote\n${JSON.stringify([request.contextId, request.challenge, request.issuedAt, request.expiresAt,
-    current.revision, current.digest, observer])}`);
+    current.revision, current.digest, current.transition, observer])}`);
 }
 /** The caller is responsible for durable head installation before signing. */
 export function createAdmissionPolicyHeadVote(requestValue: unknown, headValue: AdmissionPolicyHead,
@@ -102,7 +105,7 @@ export function parseAdmissionPolicyHeadCertificate(value: unknown, request: Adm
     || !Array.isArray(value.votes) || value.votes.length < 4 || value.votes.length > 5) throw new Error('Policy freshness needs four distinct observers');
   const votes = value.votes.map(vote => parseAdmissionPolicyHeadVote(vote, request, context, now));
   if (new Set(votes.map(vote => vote.observer)).size !== votes.length
-    || votes.some(vote => vote.head.revision !== current.revision || vote.head.digest !== current.digest)) throw new Error('Policy freshness votes disagree or repeat an observer');
+    || votes.some(vote => vote.head.revision !== current.revision || vote.head.digest !== current.digest || vote.head.transition !== current.transition)) throw new Error('Policy freshness votes disagree or repeat an observer');
   const result: AdmissionPolicyHeadCertificate = { version: 1, kind: 'admission-policy-head-certificate', votes };
   if (Buffer.byteLength(JSON.stringify(result)) > ADMISSION_POLICY_HEAD_MAX_BYTES) throw new Error('Policy freshness certificate exceeds its bound');
   return result;

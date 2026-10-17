@@ -16,6 +16,7 @@ import { createHistoryAgreementDataFrame } from '@resonance/core/history-agreeme
 import { historyDigest } from '@resonance/core/history-checkpoint';
 import { createHistoryCompactionProposal } from '@resonance/core/history-compaction';
 import { createHistoryFrontierRequest } from '@resonance/core/history-frontier';
+import { createAdmissionPolicyHeadRequest, parseAdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
 import { discoverRelayContactV1 as relayDiscovery } from '../../relay-discovery-client.ts';
 import { discoverRelayContactV1 as nodeDiscovery } from '../../../../node/src/relay-discovery-client.ts';
 import { connectRelayLinkV1 } from '../../relay-link-client.ts';
@@ -25,6 +26,7 @@ import { exchangeHistoryAgreement, exchangeHistoryAgreementData, exchangeHistory
   exchangeHistoryCompaction, exchangeHistoryFrontier } from '../../history-agreement-exchange.ts';
 import { historyProvisionFixture } from './history-provision-fixture.ts';
 import { createRelayServer } from '../../server.ts';
+import { exchangeAdmissionPolicyObservation } from '../../admission-policy-observation-transport.ts';
 
 const read = name => readFileSync(new URL(`./tls/${name}`, import.meta.url));
 const credentials = name => name === 'untrusted'
@@ -62,6 +64,10 @@ async function matrix() {
       const frontier = createHistoryFrontierRequest({ genesisId: history.options.rootId, replica: member.publicKey,
         challenge: shared.challenge, issuedAt, expiresAt: issuedAt + 30000 }, history.context, history.owner);
       const direct = createRelayClient({ relayUrl: endpoint });
+      const observers = parseAdmissionPolicyObservers({ version: 1, kind: 'admission-policy-observers', quorum: 4,
+        authority: Buffer.from(history.owner.publicKey).toString('base64url'), genesis: { revision: 1, digest: 'a'.repeat(64), transition: 'a'.repeat(64) },
+        members: history.context.members.map((publicKey, i) => ({ publicKey, endpoint: `${endpoint}policy-${i}` })) });
+      const policyRequest = createAdmissionPolicyHeadRequest(observers);
       const calls = {
         personal: () => direct.searchV2(search),
         'node-discovery': () => nodeDiscovery(createRelayContactHintV1('configured', endpoint)),
@@ -74,6 +80,7 @@ async function matrix() {
         provision: () => exchangeHistoryProvision(member, history.request(0, Date.now()), signal),
         compaction: () => exchangeHistoryCompaction(member, compaction, signal),
         frontier: () => exchangeHistoryFrontier(member, frontier, signal),
+        'policy-observation': () => exchangeAdmissionPolicyObservation({ ...member, endpoint }, { request: policyRequest, advance: null }, signal),
       };
       try {
         for (const [path, invoke] of Object.entries(calls)) {

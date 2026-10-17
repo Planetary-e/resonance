@@ -4,7 +4,7 @@ import { openEncryptedLocalState } from '@resonance/core/local-state';
 import { copyAdmissionSigningKey, exactWitnessFields } from '@resonance/core/admission-witness';
 import { verifyAdmissionPolicy, assertAdmissionPolicyCurrent, assertAdmissionPolicySuccessor, type SignedAdmissionPolicy } from '@resonance/core/admission-policy';
 import { admissionPolicyObserversId, parseAdmissionPolicyObservers, createAdmissionPolicyHeadVote, type AdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
-import { admissionPolicyHead, sameAdmissionPolicyHead, parseAdmissionPolicyAdvance, parseAdmissionPolicyAdvanceCommitment,
+import { admissionPolicyHead, sameAdmissionPolicyHead, matchesAdmissionPolicyHead, parseAdmissionPolicyAdvance, parseAdmissionPolicyAdvanceCommitment,
   type AdmissionPolicyAdvanceCommitment } from '@resonance/core/admission-policy-advance';
 import type { SigningKeyPair } from '@resonance/core';
 
@@ -48,7 +48,7 @@ export async function openAdmissionPolicyObserver(options: {
     } else {
       const previous = await verifyAdmissionPolicy(retained.previous, context.authority);
       const advance = parseAdmissionPolicyAdvanceCommitment(retained.advance, context);
-      if (!sameAdmissionPolicyHead(advance.previous, admissionPolicyHead(previous)) || !sameAdmissionPolicyHead(advance.next, admissionPolicyHead(policy))) throw new Error('Retained policy transition differs from its signed heads');
+      if (!matchesAdmissionPolicyHead(previous, advance.previous) || !matchesAdmissionPolicyHead(policy, advance.next)) throw new Error('Retained policy transition differs from its signed heads');
       assertAdmissionPolicySuccessor(previous, policy);
       if (retained.conflict !== null) {
         const conflict = parseAdmissionPolicyAdvanceCommitment(retained.conflict, context);
@@ -56,31 +56,32 @@ export async function openAdmissionPolicyObserver(options: {
       }
     }
     const local = storage;
+    const stateHead = (state: State) => state.advance?.next ?? context.genesis;
     const usable = () => { const state = local.read(); if (state.conflict) throw new Error('Community policy authority equivocated; retain evidence and stop observations'); return state; };
     return {
       status() {
         const state = local.read();
-        return { head: admissionPolicyHead(state.policy), blocked: state.conflict !== null,
+        return { head: structuredClone(stateHead(state)), blocked: state.conflict !== null,
           evidence: state.conflict ? structuredClone([state.advance!, state.conflict]) : [] };
       },
       policy() { return structuredClone(local.read().policy); },
       observe(request: unknown) {
         const state = usable(), time = now(); assertAdmissionPolicyCurrent(state.policy, time);
-        return createAdmissionPolicyHeadVote(request, admissionPolicyHead(state.policy), context, owned, time);
+        return createAdmissionPolicyHeadVote(request, stateHead(state), context, owned, time);
       },
       async advance(value: unknown) {
         usable(); if (busy) throw new Error('Policy advance is already in progress'); busy = true;
         try {
-          const next = await parseAdmissionPolicyAdvance(value, context), current = usable(), currentHead = admissionPolicyHead(current.policy);
+          const next = await parseAdmissionPolicyAdvance(value, context), current = usable(), currentHead = stateHead(current);
           if (next.commitment.next.revision === currentHead.revision && current.advance) {
-            if (sameAdvance(next.commitment, current.advance)) return currentHead;
+            if (sameAdvance(next.commitment, current.advance)) return structuredClone(currentHead);
             local.write({ ...current, conflict: next.commitment });
             throw new Error('Community policy authority equivocated; evidence retained');
           }
           if (!sameAdmissionPolicyHead(next.commitment.previous, currentHead)) throw new Error('Policy advance skips or rolls back the retained head');
           assertAdmissionPolicySuccessor(current.policy, next.policy); assertAdmissionPolicyCurrent(next.policy, now());
           local.write({ ...current, previous: current.policy, policy: next.policy, advance: next.commitment });
-          return admissionPolicyHead(next.policy);
+          return structuredClone(next.commitment.next);
         } finally { busy = false; }
       },
       close() { local.close(); owned.secretKey.fill(0); },

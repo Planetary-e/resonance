@@ -21,12 +21,12 @@ it('installs immediate authenticated heads durably and keeps exact retries/read 
   const n = await fixture(); let observer = await open(n);
   const request = createAdmissionPolicyHeadRequest(n.context, n.now);
   expect(parseAdmissionPolicyHeadVote(observer.observe(request), request, n.context, n.now).head).toEqual(n.context.genesis);
-  expect(await observer.advance(n.advance)).toEqual(admissionPolicyHead(n.second));
+  expect(await observer.advance(n.advance)).toEqual(n.advance.commitment.next);
   const bytes = fs.readFileSync(n.options.path); observer.close(); observer = await open(n, 'open-existing');
   await observer.advance(n.advance); expect(fs.readFileSync(n.options.path)).toEqual(bytes);
-  expect(observer.status()).toMatchObject({ head: admissionPolicyHead(n.second), blocked: false, evidence: [] });
+  expect(observer.status()).toMatchObject({ head: n.advance.commitment.next, blocked: false, evidence: [] });
   expect(observer.policy()).toEqual(n.second); expect(observer.policy()).not.toBe(n.second);
-  expect(observer.observe(request).head).toEqual(admissionPolicyHead(n.second));
+  expect(observer.observe(request).head).toEqual(n.advance.commitment.next);
   expect(bytes.toString()).not.toContain(n.authority);
   await observer.advance(n.later); expect(observer.observe(request).head.revision).toBe(3);
 });
@@ -51,6 +51,7 @@ it('rejects gaps, changed bodies, false signatures and rollback without damaging
     await expect(observer.advance(value)).rejects.toThrow(); expect(fs.readFileSync(n.options.path)).toEqual(initial);
   }
   await expect(createAdmissionPolicyAdvance(n.first, n.third, n.context, n.key)).rejects.toThrow('immediate successor');
+  await expect(createAdmissionPolicyAdvance(n.second, n.third, n.context, n.key)).rejects.toThrow('retained predecessor');
   await observer.advance(n.advance); await observer.advance(n.later); const latest = fs.readFileSync(n.options.path);
   await expect(observer.advance(n.advance)).rejects.toThrow('skips or rolls back'); expect(fs.readFileSync(n.options.path)).toEqual(latest);
 });
@@ -112,8 +113,8 @@ it('collects a real four-observer new-head certificate while rejecting mixed and
   await Promise.all(observers.slice(0, 4).map(observer => observer.advance(n.advance)));
   const request = createAdmissionPolicyHeadRequest(n.context, n.now), votes = observers.map(observer => observer.observe(request));
   const certificate = { version: 1, kind: 'admission-policy-head-certificate', votes: votes.slice(0, 4) };
-  expect(parseAdmissionPolicyHeadCertificate(certificate, request, n.context, admissionPolicyHead(n.second), n.now).votes).toHaveLength(4);
-  expect(() => parseAdmissionPolicyHeadCertificate({ ...certificate, votes: [votes[0], votes[1], votes[2], votes[4]] }, request, n.context, admissionPolicyHead(n.second), n.now)).toThrow();
+  expect(parseAdmissionPolicyHeadCertificate(certificate, request, n.context, n.advance.commitment.next, n.now).votes).toHaveLength(4);
+  expect(() => parseAdmissionPolicyHeadCertificate({ ...certificate, votes: [votes[0], votes[1], votes[2], votes[4]] }, request, n.context, n.advance.commitment.next, n.now)).toThrow();
   expect(() => parseAdmissionPolicyHeadCertificate({ ...certificate, votes: oldVotes }, request, n.context, admissionPolicyHead(n.first), n.now)).toThrow();
   await expect(parseAdmissionPolicyAdvance({ ...n.advance, policy: n.first }, n.context)).rejects.toThrow('digest');
 });
