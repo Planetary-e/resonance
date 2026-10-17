@@ -22,7 +22,7 @@ export async function initCommand(options: { password?: string }): Promise<void>
   const mgr = createIdentityManager();
 
   if (mgr.exists()) {
-    console.log('Identity already exists. To reinitialize, remove ~/.resonance/ first.');
+    console.log('An identity or interrupted identity creation already exists. Unlock the existing account; preserve its files if recovery is needed.');
     return;
   }
 
@@ -39,20 +39,24 @@ export async function initCommand(options: { password?: string }): Promise<void>
 
   // 2. Generate and save identity
   const identity = await mgr.create(password);
-  console.log(`Identity created: ${identity.did}`);
+  try {
+    console.log(`Identity created: ${identity.did}`);
 
-  // 3. Initialize embedding engine (downloads model on first run)
-  console.log('Initializing embedding model (first run downloads ~90MB)...');
-  const engine = new EmbeddingEngine();
-  await engine.initialize();
-  console.log('Embedding model ready.');
+    // 3. Initialize embedding engine (downloads model on first run)
+    console.log('Initializing embedding model (first run downloads ~90MB)...');
+    const engine = new EmbeddingEngine();
+    await engine.initialize();
+    console.log('Embedding model ready.');
 
-  // 4. Create database with schema
-  const store = await openStoreAsync(getDbPath(), deriveStoreKey(identity));
-  store.close();
-  console.log('Local database created.');
+    // 4. Create database with schema
+    const store = await openStoreAsync(getDbPath(), deriveStoreKey(identity));
+    store.close();
+    console.log('Local database created.');
 
-  console.log('\nResonance initialized successfully.');
-  console.log(`  DID: ${identity.did}`);
-  console.log(`  Data: ${getDataDir()}`);
+    console.log('\nResonance initialized successfully.');
+    console.log(`  DID: ${identity.did}`);
+    console.log(`  Data: ${getDataDir()}`);
+  } finally {
+    identity.secretKey.fill(0);
+  }
 }

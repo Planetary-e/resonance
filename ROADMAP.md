@@ -195,6 +195,7 @@ The five-target placement goal remains conditional on enough eligible volunteers
   - [x] Contain socket-accounting callback failures in discovery, relay-link and witness clients; prevent post-failure sends and verify real socket closure, cancellation and disabled compression (`docs/developers/v0.4-connection-audit.md`)
 - [ ] Protect relay private keys with operating-system storage or an encrypted keystore
   - [x] Add an scrypt/AES-GCM encrypted infrastructure keystore, atomic plaintext migration, and mandatory passphrase for a reachable WSS relay
+  - [x] Validate encrypted personal identities and persist account creation/password replacement under cross-process ownership; preserve originals and exact pending writes through process death, refuse ambiguous recovery, and retain legacy compatibility (`docs/developers/v0.4-account-identity-durability.md`)
 - [ ] Use short sessions, route rotation, fixed-size padding, batching, and timing jitter
   - [x] Use one request per private connection and vary the first entry attempted when multiple entry relays are configured
   - [x] Pad encrypted destination requests and replies into bounded 8–256 KiB buckets; test equal entry-frame lengths within a bucket and a 190 KiB operation under the 512 KiB frame cap

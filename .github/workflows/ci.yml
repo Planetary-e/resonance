@@ -24,7 +24,7 @@ jobs:
       - name: Install test dependencies without native install scripts
         run: npm ci --ignore-scripts
       - name: Verify native signatures, local ownership and encrypted state
-        run: npx vitest run --maxWorkers=1 packages/core/src/__tests__/ed25519-vectors.test.ts packages/core/src/__tests__/crypto.test.ts packages/core/src/__tests__/local-state-owner.test.ts packages/core/src/__tests__/storage-reservations.test.ts packages/node/src/__tests__/encrypted-local-state.test.ts
+        run: npx vitest run --maxWorkers=1 packages/core/src/__tests__/ed25519-vectors.test.ts packages/core/src/__tests__/crypto.test.ts packages/core/src/__tests__/identity-encryption.test.ts packages/core/src/__tests__/local-state-owner.test.ts packages/core/src/__tests__/storage-reservations.test.ts packages/node/src/__tests__/encrypted-local-state.test.ts packages/node/src/__tests__/identity.test.ts packages/node/src/__tests__/identity-file.test.ts packages/node/src/__tests__/identity-file-crash.integration.test.ts
 
   test:
     runs-on: ubuntu-latest

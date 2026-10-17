@@ -309,6 +309,7 @@ export {
   secretboxDecrypt,
   exportIdentity,
   importIdentity,
+  MAX_ENCRYPTED_IDENTITY_BYTES,
   encodeBase64,
   decodeBase64,
   encodeUTF8,

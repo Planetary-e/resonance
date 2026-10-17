@@ -3,14 +3,12 @@
  * Wraps @resonance/core crypto with file system I/O.
  */
 
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import {
   generateIdentity,
-  exportIdentity,
-  importIdentity,
   type Identity,
 } from '@resonance/core';
-import { getIdentityPath, ensureDataDir } from './config.js';
+import { getIdentityPath } from './config.js';
+import { openIdentityFile, identityFileExists } from './identity-file.js';
 
 export interface IdentityManager {
   /** Generate a new identity and save it encrypted with the password. */
@@ -28,24 +26,26 @@ export function createIdentityManager(identityPath?: string): IdentityManager {
 
   return {
     async create(password: string): Promise<Identity> {
-      const identity = generateIdentity();
-      await this.save(identity, password);
-      return identity;
+      const file = openIdentityFile(filePath, true); let identity: Identity | undefined;
+      try {
+        if (file.exists()) throw new Error('Identity already exists or creation was interrupted; load it instead');
+        identity = generateIdentity(); await file.save(identity, password, true); return identity;
+      } catch (error) { identity?.secretKey.fill(0); throw error; }
+      finally { file.close(); }
     },
 
     async load(password: string): Promise<Identity> {
-      const encrypted = readFileSync(filePath, 'utf-8');
-      return importIdentity(encrypted, password);
+      const file = openIdentityFile(filePath, false);
+      try { return await file.load(password); } finally { file.close(); }
     },
 
     async save(identity: Identity, password: string): Promise<void> {
-      ensureDataDir();
-      const encrypted = await exportIdentity(identity, password);
-      writeFileSync(filePath, encrypted, 'utf-8');
+      const file = openIdentityFile(filePath, true);
+      try { await file.save(identity, password); } finally { file.close(); }
     },
 
     exists(): boolean {
-      return existsSync(filePath);
+      return identityFileExists(filePath);
     },
   };
 }
