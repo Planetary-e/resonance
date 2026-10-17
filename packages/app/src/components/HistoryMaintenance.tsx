@@ -4,6 +4,7 @@ import HistoryActivation from './HistoryActivation';
 import HistoryRecovery from './HistoryRecovery';
 import HistorySetup from './HistorySetup';
 import HistoryStorage from './HistoryStorage';
+import RelayStorage from './RelayStorage';
 import HistoryVolunteerActivation from './HistoryVolunteerActivation';
 
 export default function HistoryMaintenance({ refreshRelay }: { refreshRelay?: () => Promise<unknown> }) {
@@ -29,6 +30,7 @@ export default function HistoryMaintenance({ refreshRelay }: { refreshRelay?: ()
   }
   return <>
     <HistoryMaintenanceView state={state} busy={busy || operationBusy} operationBusy={operationBusy} error={error} checked={checked} onChange={change} />
+    <RelayStorage onBusyChange={setOperationBusy} blocked={busy || operationBusy} maintenanceActive={!!state?.active} />
     {state?.active && <>
       <HistoryStorage onBusyChange={setOperationBusy} blocked={busy || operationBusy} />
       <HistorySetup onBusyChange={setOperationBusy} blocked={busy || operationBusy} />

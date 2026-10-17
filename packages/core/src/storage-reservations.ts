@@ -60,6 +60,13 @@ function total(state: State) {
   for (const entry of [...state.allocations, ...state.adoptions]) { result += entry.maximumBytes; if (!safe(result)) throw new Error('Storage reservations exceed safe counters'); }
   return result;
 }
+function summary(state: State) {
+  const reservedBytes = total(state);
+  return { authorityId: state.authorityId, revision: state.revision, limitBytes: state.limitBytes,
+    reservedBytes, availableBytes: state.limitBytes - reservedBytes, components: state.allocations.length,
+    controlBytes: STORAGE_RESERVATION_CONTROL_BYTES, adoptedSelections: state.adoptions.length,
+    adoptedBytes: state.adoptions.reduce((sum, entry) => sum + entry.maximumBytes, 0) };
+}
 function fields(value: unknown, keys: string[]): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).sort().join(',') === keys.sort().join(',');
 }
@@ -323,10 +330,7 @@ export function openStorageReservationAuthority(options: { directory: string; mo
       }
       return reservationLease(request, selected, usable, directory);
     },
-    status() { usable(); const reservedBytes = total(state); return { authorityId: state.authorityId, revision: state.revision,
-      limitBytes: state.limitBytes, reservedBytes, availableBytes: state.limitBytes - reservedBytes, components: state.allocations.length,
-      controlBytes: STORAGE_RESERVATION_CONTROL_BYTES, adoptedSelections: state.adoptions.length,
-      adoptedBytes: state.adoptions.reduce((sum, entry) => sum + entry.maximumBytes, 0) }; },
+    status() { usable(); return summary(state); },
     /** Local review binding only; no independent anti-rollback or durability proof. */
     reviewDigest() { usable(); return createHash('sha256').update(expected!).digest('hex'); },
     close,
@@ -389,9 +393,13 @@ export function openReservedStorageControl(options: {
         throw new Error('Control output does not have its required committed reservation');
       }
     }
+    return state;
   }
   committed();
   return {
+    /** Aggregate committed accounting only: no paths, peer records or writes.
+     * Safe to inspect while the exclusive runtime owner holds its writer lock. */
+    status() { return summary(committed()); },
     reserve(raw: StorageReservationRequest): StorageReservationLease {
       const request = { ...raw }, selected = canonical(request.path), permitted = allowed.get(selected);
       if (!permitted || request.scope !== permitted.scope || request.component !== permitted.component

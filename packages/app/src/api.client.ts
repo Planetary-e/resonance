@@ -450,3 +450,15 @@ export interface RelayStorageInventory {
   logicalBytes: number; allocatedBytes: number | null; startedAt: number; completedAt: number; atomicSnapshot: false; enforcesQuota: false;
 }
 export function measureRelayStorage() { return api<RelayStorageInventory>('POST', '/api/relay/history/storage', {}); }
+
+export type { RelayStorageStatus, RelayStorageOperation, RelayStorageReview } from './relay-storage.types';
+export function getRelayStorage() { return api<import('./relay-storage.types').RelayStorageStatus>('GET', '/api/relay/storage'); }
+export function reviewRelayStorage(operation: import('./relay-storage.types').RelayStorageOperation, input: unknown) {
+  return api<import('./relay-storage.types').RelayStorageReview>('POST', `/api/relay/storage/${operation}/review`, input);
+}
+export function applyRelayStorage(operation: import('./relay-storage.types').RelayStorageOperation, approvalDigest: string) {
+  return api<{ result: string; maintenanceActive: boolean }>('POST', `/api/relay/storage/${operation}/apply`, { approvalDigest });
+}
+export function cancelRelayStorage(operation: import('./relay-storage.types').RelayStorageOperation) {
+  return api<{ active: boolean }>('POST', `/api/relay/storage/${operation}/cancel`, {});
+}

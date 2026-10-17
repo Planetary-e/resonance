@@ -103,6 +103,14 @@ export function openRelayStorageOwner(input: RelayStorageSelection, purpose: 'ru
         fits: status.reservedBytes + additionalBytes <= status.limitBytes };
     },
     reviewSelectionOutput(path: string, binding: RelayStorageRuntimeBinding) { return selectionReview(path, binding); },
+    reviewLimit(limitBytes: number) {
+      if (closed || purpose !== 'maintenance') throw new Error('Review storage limits under stopped ownership');
+      return authority.reviewLimit(limitBytes);
+    },
+    applyLimit(limitBytes: number, approvalDigest: string) {
+      if (closed || purpose !== 'maintenance') throw new Error('Change storage limits under stopped ownership');
+      authority.applyLimit(limitBytes, approvalDigest); return authority.status();
+    },
     exportSelection(path: string, binding: RelayStorageRuntimeBinding, approvalDigest: string) {
       const review = selectionReview(path, binding);
       if (approvalDigest !== review.approvalDigest) throw new Error('Storage selection approval changed; review current paths and budget again');

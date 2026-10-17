@@ -8,17 +8,20 @@ import { EmbeddingEngine } from '@resonance/core';
 import { createAppServer } from '../server.js';
 import { lockSession, loadRelayConfig } from '../session.js';
 import { installRelayService, uninstallRelayService } from '../relay-supervisor.js';
+import { stopRelayServiceForStorageActivation } from '../relay-service-stop.js';
 import { desktopRelayStorageControls } from '../relay-storage.js';
 import { DESKTOP_STORAGE_BOOTSTRAP_MINIMUM_BYTES as MINIMUM } from '../relay-storage-bootstrap.js';
 vi.mock('node:os', async original => ({ ...await original<typeof import('node:os')>(), homedir: vi.fn() }));
 vi.mock('../relay-supervisor.js', async original => ({ ...await original<typeof import('../relay-supervisor.js')>(), installRelayService: vi.fn(), uninstallRelayService: vi.fn() }));
+vi.mock('../relay-service-stop.js', () => ({ stopRelayServiceForStorageActivation: vi.fn() }));
 const cleanup: Array<() => unknown | Promise<unknown>> = [];
 afterEach(async () => { lockSession(); for (const close of cleanup.splice(0).reverse()) await close(); vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.clearAllMocks(); });
 async function fixture() {
   const directory = realpathSync(mkdtempSync(join(tmpdir(), 'desktop-bootstrap-api-'))); cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
   const home = join(directory, 'fake-home'); mkdirSync(home); vi.mocked(homedir).mockReturnValue(home);
   for (const key of Object.keys(process.env)) if (key.startsWith('RESONANCE_RELAY_')) vi.stubEnv(key, undefined);
-  vi.stubEnv('RESONANCE_DATA_DIR', directory); vi.stubEnv('RESONANCE_RELAY_ENTRY', '/opt/Resonance/relay.mjs');
+  const entry = join(directory, 'test-relay.mjs'); writeFileSync(entry, '// test runtime');
+  vi.stubEnv('RESONANCE_DATA_DIR', directory); vi.stubEnv('RESONANCE_RELAY_ENTRY', entry);
   const probe = createServer(); probe.listen(0, '127.0.0.1'); await once(probe, 'listening');
   const port = (probe.address() as { port: number }).port; await new Promise<void>(resolve => probe.close(() => resolve()));
   const config = join(directory, 'relay-config.json'); writeFileSync(config, JSON.stringify({ enabled: false, port }));
@@ -26,7 +29,8 @@ async function fixture() {
   const app = createAppServer({ port: 0, relayUrl: `ws://127.0.0.1:${port}/` }), base = `http://127.0.0.1:${await app.start()}`;
   cleanup.push(() => app.stop()); let token = '';
   const request = async (path: string, body: unknown = {}, options: { method?: string; token?: string } = {}) => {
-    const response = await fetch(base + path, { method: options.method ?? 'POST', headers: { authorization: `Bearer ${options.token ?? token}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const response = await fetch(base + path, { method: options.method ?? 'POST', headers: { authorization: `Bearer ${options.token ?? token}`, 'content-type': 'application/json' },
+      ...(options.method === 'GET' ? {} : { body: JSON.stringify(body) }) });
     return { status: response.status, body: await response.json() };
   };
   const unlock = async () => { const response = await request('/api/unlock', { password: 'bootstrap test password' }); expect(response.status).toBe(200); token = response.body.token; };
@@ -34,6 +38,51 @@ async function fixture() {
   const storage = (action: string, body: unknown = {}, token?: string) => request(`/api/relay/storage/bootstrap/${action}`, body, { token });
   return { directory, config, request, init, unlock, storage, bootstrap: join(directory, 'relay-storage-bootstrap'), ledger: join(directory, 'relay-storage-budget') };
 }
+it('activates adopted storage only through a matching authenticated unlocked approval and keeps it paused', async () => {
+  const n = await fixture(), activation = (action: string, body: unknown = {}, token?: string) => n.request(`/api/relay/storage/activation/${action}`, body, { token });
+  const status = () => n.request('/api/relay/storage', {}, { method: 'GET' });
+  expect((await status()).status).toBe(401);
+  for (const action of ['review', 'apply', 'cancel']) expect((await activation(action)).status).toBe(401);
+  await n.init(); await n.request('/api/relay/maintenance');
+  expect((await status()).body).toMatchObject({ phase: 'unconfigured', budget: null, maintenanceActive: true });
+  const bootstrap = await n.storage('review', { mode: 'new', limitBytes: 256 * 1024 * 1024 });
+  expect((await n.storage('apply', { approvalDigest: bootstrap.body.approvalDigest })).status).toBe(200);
+  expect((await status()).body.phase).toBe('preparing');
+  expect((await activation('review')).status).toBe(409);
+  const adopted = await n.request('/api/relay/storage/adoption/review');
+  expect((await n.request('/api/relay/storage/adoption/apply', { approvalDigest: adopted.body.approvalDigest })).status).toBe(200);
+  for (const action of ['review', 'apply', 'cancel']) expect((await activation(action, {}, 'wrong')).status).toBe(401);
+  expect((await activation('review', { directory: '/unreviewed' })).status).toBe(409);
+  const first = await activation('review'); expect(first.status, JSON.stringify(first.body)).toBe(200);
+  expect((await n.storage('apply', { approvalDigest: first.body.approvalDigest })).status).toBe(409);
+  expect((await n.storage('cancel')).body.active).toBe(false);
+  expect((await activation('cancel')).body.active).toBe(true);
+  expect((await activation('apply', { approvalDigest: first.body.approvalDigest })).status).toBe(409);
+  const held = await activation('review'); expect(held.status).toBe(200);
+  await n.request('/api/lock'); await n.unlock();
+  expect((await activation('apply', { approvalDigest: held.body.approvalDigest })).status).toBe(409);
+  const changed = await activation('review'); expect(changed.status).toBe(200);
+  writeFileSync(n.config, JSON.stringify({ ...loadRelayConfig(), contacts: ['wss://changed.example'] }));
+  expect((await activation('apply', { approvalDigest: changed.body.approvalDigest })).status).toBe(409);
+  expect(stopRelayServiceForStorageActivation).not.toHaveBeenCalled();
+  const review = await activation('review'), result = await activation('apply', { approvalDigest: review.body.approvalDigest });
+  expect(result.status, JSON.stringify(result.body)).toBe(200); expect(result.body).toMatchObject({ result: 'desktop-storage-activated', running: false, maintenanceActive: true });
+  expect(loadRelayConfig()).toMatchObject({ enabled: false, contacts: ['wss://changed.example'], runtime: { storageSelectionFile: result.body.selectionFile } });
+  expect(stopRelayServiceForStorageActivation).toHaveBeenCalledTimes(1); expect(installRelayService).not.toHaveBeenCalled();
+  expect((await activation('review')).status).toBe(409);
+  const selected = await status(); expect(selected.body).toMatchObject({ phase: 'selected', maintenanceActive: true, budget: { limitBytes: 256 * 1024 * 1024 } });
+  expect(JSON.stringify(selected.body)).not.toContain(n.directory);
+  const limit = (action: string, body: unknown = {}, token?: string) => n.request(`/api/relay/storage/limit/${action}`, body, { token });
+  for (const action of ['review', 'apply', 'cancel']) expect((await limit(action, {}, 'wrong')).status).toBe(401);
+  expect((await limit('review', { limitBytes: 1 })).status).toBe(409);
+  const resized = await limit('review', { limitBytes: 512 * 1024 * 1024 }); expect(resized.status, JSON.stringify(resized.body)).toBe(200);
+  expect((await status()).body.budget.limitBytes).toBe(256 * 1024 * 1024);
+  expect((await limit('apply', { approvalDigest: resized.body.approvalDigest })).body.limitBytes).toBe(512 * 1024 * 1024);
+  expect((await n.request('/api/relay/maintenance', {}, { method: 'DELETE' })).status).toBe(200);
+  expect((await limit('review', { limitBytes: 1024 * 1024 * 1024 })).status).toBe(409);
+  writeFileSync(join(n.ledger, 'reservations.json'), '{');
+  expect((await status()).body).toMatchObject({ phase: 'recovery-required', budget: null });
+}, 15000);
 it('authenticates review/apply/cancel and keeps a newly created budget paused until scope adoption', async () => {
   const n = await fixture(), input = { mode: 'new', limitBytes: MINIMUM };
   for (const action of ['review', 'apply', 'cancel']) expect((await n.storage(action, input)).status).toBe(401);

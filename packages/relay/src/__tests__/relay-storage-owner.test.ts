@@ -2,7 +2,7 @@ import { afterEach, expect, it } from 'vitest';
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { openStorageReservationAuthority, STORAGE_RESERVATION_CONTROL_BYTES as CONTROL, type StorageReservationRequest } from '@resonance/core/storage-reservations';
+import { openStorageReservationAuthority, openReservedStorageControl, STORAGE_RESERVATION_CONTROL_BYTES as CONTROL, type StorageReservationRequest } from '@resonance/core/storage-reservations';
 import { acquireLocalStateLock } from '@resonance/core/local-state';
 import { openRelayStorageOwner, withRelayStorageControls } from '../relay-storage-owner.js';
 import { acquireRelayRuntime, acquireStoppedRelayMaintenance, beginRelayMaintenance, finishRelayMaintenance, relayMaintenanceStorageRequests } from '../relay-maintenance.js';
@@ -40,6 +40,26 @@ it('pre-funds controls before runtime and hands stopped ownership to maintenance
   withRelayStorageControls(n.selection, n.controls, () => finishRelayMaintenance(n.selection.runtimeDirectory)); desktop();
   const restarted = n.open('runtime', n.controls); const release = restarted.run(() => acquireRelayRuntime(n.selection.runtimeDirectory)); release();
   expect(readFileSync(join(n.ledger, 'reservations.json'))).toEqual(primary); expect(JSON.parse(readFileSync(n.settings, 'utf8'))).toEqual({ enabled: false, maintenance: true });
+});
+it('reads aggregate committed accounting while the runtime owns the writer without changing or trusting corrupt metadata', () => {
+  const n = fixture(SETTINGS + 8192), owner = n.open('runtime', n.controls);
+  const view = openReservedStorageControl({ directory: n.ledger, authorityId: n.selection.authorityId, controls: n.controls }); cleanup.push(view.close);
+  const path = join(n.ledger, 'reservations.json'), before = readFileSync(path);
+  expect(view.status()).toEqual(owner.status()); expect(JSON.stringify(view.status())).not.toContain(n.data);
+  expect(readFileSync(path)).toEqual(before);
+  const changed = JSON.parse(before.toString()); changed.authorityId = 'f'.repeat(32); writeFileSync(path, JSON.stringify(changed));
+  expect(() => view.status()).toThrow(/independently retained/); writeFileSync(path, '{');
+  expect(() => view.status()).toThrow(/invalid/); writeFileSync(path, before);
+  view.close(); expect(() => view.status()).toThrow(/closed/);
+});
+it('changes a selected limit only in stopped maintenance and preserves committed floors', () => {
+  const n = fixture(), runtime = n.open('runtime');
+  expect(() => runtime.reviewLimit(10000000)).toThrow(/stopped/); runtime.run(() => beginRelayMaintenance(n.selection.runtimeDirectory)); runtime.close();
+  const owner = n.open('maintenance'), before = owner.status();
+  expect(() => owner.reviewLimit(before.reservedBytes - 1)).toThrow(/cannot drop/);
+  const review = owner.reviewLimit(before.limitBytes + 1024); expect(owner.status()).toEqual(before);
+  expect(() => owner.applyLimit(review.limitBytes, '0'.repeat(64))).toThrow(/approval/);
+  expect(owner.applyLimit(review.limitBytes, review.approvalDigest).availableBytes).toBe(1024);
 });
 it('refuses unpaused maintenance and paused runtime without creating a runtime directory', () => {
   const n = fixture(); expect(() => n.open('maintenance')).toThrow(/Start relay maintenance/); expect(existsSync(n.data)).toBe(false);

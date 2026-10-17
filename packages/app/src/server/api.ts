@@ -29,6 +29,8 @@ import {
   getRelayHistorySetupInput, performRelayHistorySetup, measureRelayHistoryStorage,
   planRelayStorageBootstrap, applyRelayStorageBootstrap, cancelRelayStorageBootstrap,
   planRelayStorageAdoption, applyRelayStorageAdoption, cancelRelayStorageAdoption,
+  planRelayStorageActivation, applyRelayStorageActivation, cancelRelayStorageActivation,
+  planRelayStorageLimit, applyRelayStorageLimit, cancelRelayStorageLimit, getRelayStorageStatus,
   getRelayVolunteerActivationInput, planRelayVolunteerActivation, applyRelayVolunteerActivation,
   publishItem,
   listSessionItems,
@@ -518,8 +520,17 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
 
   // --- Relay mode ---
 
+  if (url === '/api/relay/storage' && method === 'GET') {
+    if (!requireAuth(req, res)) return true;
+    try { json(res, getRelayStorageStatus()); }
+    catch { error(res, 'Storage status is unavailable; retain the saved settings and files', 409); }
+    return true;
+  }
+
   if (['/api/relay/storage/bootstrap/review', '/api/relay/storage/bootstrap/apply', '/api/relay/storage/bootstrap/cancel',
-    '/api/relay/storage/adoption/review', '/api/relay/storage/adoption/apply', '/api/relay/storage/adoption/cancel'].includes(url!) && method === 'POST') {
+    '/api/relay/storage/adoption/review', '/api/relay/storage/adoption/apply', '/api/relay/storage/adoption/cancel',
+    '/api/relay/storage/activation/review', '/api/relay/storage/activation/apply', '/api/relay/storage/activation/cancel',
+    '/api/relay/storage/limit/review', '/api/relay/storage/limit/apply', '/api/relay/storage/limit/cancel'].includes(url!) && method === 'POST') {
     if (!requireAuth(req, res)) return true;
     const owner = getSession(), controller = new AbortController();
     const disconnected = () => { if (!res.writableEnded) controller.abort(); };
@@ -529,14 +540,21 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
       // Authentication at request arrival cannot authorize a body received after
       // locking/unlocking the application into a different session.
       if (getSession() !== owner || !isUnlocked()) throw new Error('Desktop session changed; review storage setup again');
-      let result: unknown; const adopting = url!.startsWith('/api/relay/storage/adoption/');
-      if (url!.endsWith('/review')) result = await (adopting ? planRelayStorageAdoption : planRelayStorageBootstrap)(body, controller.signal);
+      let result: unknown;
+      const operation = url!.startsWith('/api/relay/storage/limit/')
+        ? { review: planRelayStorageLimit, apply: applyRelayStorageLimit, cancel: cancelRelayStorageLimit }
+        : url!.startsWith('/api/relay/storage/activation/')
+        ? { review: planRelayStorageActivation, apply: applyRelayStorageActivation, cancel: cancelRelayStorageActivation }
+        : url!.startsWith('/api/relay/storage/adoption/')
+          ? { review: planRelayStorageAdoption, apply: applyRelayStorageAdoption, cancel: cancelRelayStorageAdoption }
+          : { review: planRelayStorageBootstrap, apply: applyRelayStorageBootstrap, cancel: cancelRelayStorageBootstrap };
+      if (url!.endsWith('/review')) result = await operation.review(body, controller.signal);
       else if (url!.endsWith('/apply')) {
         if (!exactWitnessFields(body, ['approvalDigest']) || typeof body.approvalDigest !== 'string' || !/^[a-f0-9]{64}$/.test(body.approvalDigest)) throw new Error('Supply the exact storage review approval');
-        result = (adopting ? applyRelayStorageAdoption : applyRelayStorageBootstrap)(body.approvalDigest);
+        result = operation.apply(body.approvalDigest);
       } else {
         if (!exactWitnessFields(body, [])) throw new Error('Storage cancellation accepts no extra fields');
-        result = (adopting ? cancelRelayStorageAdoption : cancelRelayStorageBootstrap)();
+        result = operation.cancel();
       }
       if (!res.destroyed) json(res, result);
     } catch (err) { if (!res.destroyed) error(res, err instanceof Error ? err.message : 'Storage setup failed; retain all files and maintenance', 409); }

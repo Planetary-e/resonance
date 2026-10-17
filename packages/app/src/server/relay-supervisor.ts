@@ -11,7 +11,8 @@ import { assertNoStorageReservationContext } from '@resonance/core/storage-reser
 import { reserveOperatorAtomicOutput, writeOperatorTextAtomic, readRelayStorageSnapshot, assertStoppedRelayStorageOwner } from '@resonance/relay';
 export const RELAY_SERVICE_FILE_MAX_BYTES = 1024 * 1024;
 
-const LABEL = 'earth.planetary.resonance.relay';
+export const RELAY_SERVICE_LABEL = 'earth.planetary.resonance.relay';
+const LABEL = RELAY_SERVICE_LABEL;
 
 const SERVICE_FILES = {
   storageSelectionFile: 'RELAY_STORAGE_SELECTION_FILE',
