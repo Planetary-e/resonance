@@ -94,3 +94,8 @@ it('bounds unknown sidecar enumeration instead of silently omitting excess files
   const n = await fixture(); for (let i = 0; i < 260; i++) writeFileSync(join(n.directory, `relay-config.json.unknown-${i}`), 'retain');
   expect(n.collect).toThrow(/target bound/); expect(n.authority.status().adoptedSelections).toBe(0);
 });
+
+it('refuses a history root that would also adopt independently written desktop account data', async () => {
+  const n = await fixture(); n.config.historyStorageDirectories = [n.directory];
+  expect(n.collect).toThrow(/desktop account data/); expect(n.authority.status().adoptedSelections).toBe(0);
+});

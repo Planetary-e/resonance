@@ -65,7 +65,10 @@ export function collectDesktopRelayStorageScopes(config: RelayConfig, dataDirect
       }
     } finally { entries.closeSync(); }
   }
-  for (const path of relayStorageDirectories(config, runtime)) retain(path, 'directory');
+  for (const path of relayStorageDirectories(config, runtime)) {
+    if (contains(path, directory)) throw new Error('Retained relay history must not contain desktop account data; select separate history directories');
+    retain(path, 'directory');
+  }
   for (const path of relayStorageOutputFiles(config, runtime)) family(path, true);
   retain(join(directory, DESKTOP_STORAGE_BOOTSTRAP_DIRECTORY), 'directory');
   retain(relayStorageRegistryPath(runtime), 'directory', false);

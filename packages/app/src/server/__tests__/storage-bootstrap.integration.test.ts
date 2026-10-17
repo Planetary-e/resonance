@@ -1,19 +1,22 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { createServer } from 'node:net';
 import { once } from 'node:events';
 import { EmbeddingEngine } from '@resonance/core';
 import { createAppServer } from '../server.js';
 import { lockSession, loadRelayConfig } from '../session.js';
 import { installRelayService, uninstallRelayService } from '../relay-supervisor.js';
+import { desktopRelayStorageControls } from '../relay-storage.js';
 import { DESKTOP_STORAGE_BOOTSTRAP_MINIMUM_BYTES as MINIMUM } from '../relay-storage-bootstrap.js';
+vi.mock('node:os', async original => ({ ...await original<typeof import('node:os')>(), homedir: vi.fn() }));
 vi.mock('../relay-supervisor.js', async original => ({ ...await original<typeof import('../relay-supervisor.js')>(), installRelayService: vi.fn(), uninstallRelayService: vi.fn() }));
 const cleanup: Array<() => unknown | Promise<unknown>> = [];
 afterEach(async () => { lockSession(); for (const close of cleanup.splice(0).reverse()) await close(); vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.clearAllMocks(); });
 async function fixture() {
   const directory = realpathSync(mkdtempSync(join(tmpdir(), 'desktop-bootstrap-api-'))); cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
+  const home = join(directory, 'fake-home'); mkdirSync(home); vi.mocked(homedir).mockReturnValue(home);
   for (const key of Object.keys(process.env)) if (key.startsWith('RESONANCE_RELAY_')) vi.stubEnv(key, undefined);
   vi.stubEnv('RESONANCE_DATA_DIR', directory); vi.stubEnv('RESONANCE_RELAY_ENTRY', '/opt/Resonance/relay.mjs');
   const probe = createServer(); probe.listen(0, '127.0.0.1'); await once(probe, 'listening');
@@ -71,4 +74,39 @@ it('invalidates approvals on cancellation, locking, changed settings and wrong a
   expect(existsSync(n.bootstrap)).toBe(false); expect(existsSync(n.ledger)).toBe(false);
   const final = await n.storage('review', input); expect(final.status).toBe(200); expect((await n.storage('cancel')).body.active).toBe(true);
   expect(installRelayService).not.toHaveBeenCalled();
+}, 15000);
+
+it('binds adoption to its own authenticated review and safely retries already committed scopes', async () => {
+  const n = await fixture(), adoption = (action: string, input: unknown = {}, token?: string) => n.request(`/api/relay/storage/adoption/${action}`, input, { token });
+  for (const action of ['review', 'apply', 'cancel']) expect((await adoption(action)).status).toBe(401);
+  await n.init(); await n.request('/api/relay/maintenance');
+  const bootstrap = await n.storage('review', { mode: 'new', limitBytes: MINIMUM });
+  expect((await n.storage('apply', { approvalDigest: bootstrap.body.approvalDigest })).status).toBe(200);
+  for (const action of ['review', 'apply', 'cancel']) expect((await adoption(action, {}, 'wrong')).status).toBe(401);
+  const insufficient = await adoption('review'); expect(insufficient.body.fits).toBe(false);
+  expect((await adoption('apply', { approvalDigest: insufficient.body.approvalDigest })).status).toBe(409);
+  expect((await adoption('review', { directory: n.directory })).status).toBe(409);
+  const limit = { limitBytes: 256 * 1024 * 1024 }, held = await adoption('review', limit); expect(held.status, JSON.stringify(held.body)).toBe(200);
+  expect((await n.storage('review', { mode: 'recover' })).status).toBe(409);
+  expect((await n.storage('cancel')).body.active).toBe(false);
+  expect((await n.storage('apply', { approvalDigest: held.body.approvalDigest })).status).toBe(409);
+  await n.request('/api/lock'); await n.unlock();
+  expect((await adoption('apply', { approvalDigest: held.body.approvalDigest })).status).toBe(409);
+  const changed = await adoption('review', limit); expect(changed.status).toBe(200);
+  const primary = join(n.ledger, 'reservations.json'), before = readFileSync(primary);
+  writeFileSync(n.config, JSON.stringify({ ...loadRelayConfig(), contacts: ['wss://changed.example'] }));
+  expect((await adoption('apply', { approvalDigest: changed.body.approvalDigest })).status).toBe(409); expect(readFileSync(primary)).toEqual(before);
+  const review = await adoption('review', limit); expect(review.status, JSON.stringify(review.body)).toBe(200);
+  const applied = await adoption('apply', { approvalDigest: review.body.approvalDigest }); expect(applied.status, JSON.stringify(applied.body)).toBe(200);
+  expect(applied.body).toMatchObject({ result: 'desktop-storage-scopes-adopted', activationReady: false, maintenanceActive: true });
+  const repeated = await adoption('review'); expect(repeated.status).toBe(200); expect(repeated.body.future).toBeNull();
+  expect((await adoption('apply', { approvalDigest: repeated.body.approvalDigest })).body.authorityId).toBe(applied.body.authorityId);
+  expect((await n.request('/api/relay/maintenance', {}, { method: 'DELETE' })).status).toBe(409);
+  expect(loadRelayConfig().runtime?.storageSelectionFile).toBeUndefined(); expect(installRelayService).not.toHaveBeenCalled();
+  const foreign = join(n.directory, 'foreign-selection.json');
+  writeFileSync(foreign, JSON.stringify({ version: 1, kind: 'relay-storage-selection', authorityDirectory: join(n.directory, 'another-budget'), authorityId: 'f'.repeat(32),
+    runtimeDirectory: join(n.directory, 'relay-data'), runtimePort: loadRelayConfig().port, runtimeHost: '127.0.0.1', controls: desktopRelayStorageControls(n.directory) }));
+  vi.stubEnv('RESONANCE_RELAY_STORAGE_SELECTION_FILE', foreign);
+  const start = await n.request('/api/relay/start'); expect(start.status).toBeGreaterThanOrEqual(400); expect(start.body.error).toContain('retained bootstrap identity');
+  expect(existsSync(join(n.directory, 'another-budget'))).toBe(false); expect(installRelayService).not.toHaveBeenCalled();
 }, 15000);

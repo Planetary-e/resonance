@@ -35,14 +35,14 @@ export interface DesktopStorageBootstrapIntent {
   version: 1; kind: 'desktop-storage-bootstrap'; authorityId: string; dataDirectory: string; rootIdentity: string;
   runtimePort: number; runtimeHost: '127.0.0.1'; limitBytes: number;
 }
-function controls(directory: string): StorageReservationRequest[] {
+export function desktopStorageBootstrapRequests(directory: string): StorageReservationRequest[] {
   return [
     ...relayMaintenanceStorageRequests(join(directory, 'relay-data')),
     ...desktopRelayStorageControls(directory),
     { path: join(directory, DESKTOP_STORAGE_BOOTSTRAP_DIRECTORY), scope: 'directory', component: 'desktop-storage-bootstrap', maximumBytes: DESKTOP_STORAGE_BOOTSTRAP_BYTES },
   ];
 }
-export const DESKTOP_STORAGE_BOOTSTRAP_MINIMUM_BYTES = STORAGE_RESERVATION_CONTROL_BYTES + controls('/').reduce((sum, request) => sum + request.maximumBytes, 0);
+export const DESKTOP_STORAGE_BOOTSTRAP_MINIMUM_BYTES = STORAGE_RESERVATION_CONTROL_BYTES + desktopStorageBootstrapRequests('/').reduce((sum, request) => sum + request.maximumBytes, 0);
 function parseIntent(value: unknown, paths: ReturnType<typeof layout>, port: number): DesktopStorageBootstrapIntent {
   if (!exactWitnessFields(value, ['version', 'kind', 'authorityId', 'dataDirectory', 'rootIdentity', 'runtimePort', 'runtimeHost', 'limitBytes'])
     || value.version !== 1 || value.kind !== 'desktop-storage-bootstrap' || value.dataDirectory !== paths.dataDirectory || value.rootIdentity !== paths.rootIdentity
@@ -80,6 +80,13 @@ function retained(paths: ReturnType<typeof layout>, port: number) {
     }
   } else if (present(paths.authorityDirectory)) throw new Error('Storage authority exists without its creation attempt; preserve both for recovery');
   return { intent, attempted: !!attempt, source: `${stamp(root)}:${stamp(lstatSync(join(paths.bootstrapDirectory, 'intent.json')))}:${attempt ? stamp(attempt) : 'absent'}` };
+}
+
+/** Recover only independent bootstrap pins, never identity from ledger contents. */
+export function readDesktopStorageBootstrapIntent(dataDirectory: string, runtimePort: number) {
+  const paths = layout(dataDirectory), value = retained(paths, runtimePort);
+  if (!value.attempted) throw new Error('Finish reviewed storage initialization before adoption');
+  return { ...paths, intent: structuredClone(value.intent), source: value.source };
 }
 
 /** Local presence only, without opening or trusting a possibly partial ledger. */
@@ -156,7 +163,7 @@ export async function openDesktopStorageBootstrapReview(options: {
           } else authority = openStorageReservationAuthority({ directory: paths.authorityDirectory, authorityId: intent.authorityId, mode: 'open-existing' });
           // Recovery can finish interrupted control funding, never reduce the
           // current limit or reset reservations after adoption has begun.
-          for (const request of controls(paths.dataDirectory)) authority.reserve(request);
+          for (const request of desktopStorageBootstrapRequests(paths.dataDirectory)) authority.reserve(request);
           return { result: 'storage-budget-retained' as const, authorityDirectory: paths.authorityDirectory, runtimeDirectory: paths.runtimeDirectory,
             ...authority.status(), activationReady: false as const, maintenanceActive: true as const };
         } finally { try { authority?.close(); } finally { close(); } }

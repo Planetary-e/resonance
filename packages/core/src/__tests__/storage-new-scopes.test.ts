@@ -109,3 +109,28 @@ it('does not reinterpret an approved new directory itself as a file output', () 
   expect(() => scoped.reserve({ ...n.target, scope: 'file', component: 'file', maximumBytes: 1 })).toThrow(/no reviewed/);
   expect(existsSync(n.target.path)).toBe(false); expect(scoped.status().components).toBe(0);
 });
+
+it('exposes read-only scope coverage without turning missing retained storage into a new approval', () => {
+  const n = fixture(), before = readFileSync(join(n.ledger, 'reservations.json'));
+  expect(n.authority.reviewScope(n.target)).toMatchObject({ reviewed: false, reserved: false });
+  expect(readFileSync(join(n.ledger, 'reservations.json'))).toEqual(before);
+  const approved = n.authority.reviewNewScopes([n.target]); n.authority.approveNewScopes([n.target], approved.approvalDigest);
+  expect(n.authority.reviewScope(n.target)).toMatchObject({ reviewed: true, reserved: false });
+  n.authority.reserve({ ...n.target, maximumBytes: 100, component: 'test:retained-history' });
+  expect(n.authority.reviewScope(n.target)).toMatchObject({ reviewed: true, reserved: true });
+  expect(n.authority.reviewScope({ path: join(n.target.path, 'child'), scope: 'file' })).toMatchObject({ reviewed: true, reserved: true });
+  expect(() => n.authority.reviewNewScopes([n.target])).toThrow(/overlaps retained/);
+  expect(existsSync(n.target.path)).toBe(false);
+  n.authority.close(); expect(() => n.authority.reviewScope(n.target)).toThrow(/closed/);
+});
+it('keeps filesystem review evidence distinct from ledger revisions without relaxing approval binding', () => {
+  const n = fixture(), existing = join(n.directory, 'existing'); mkdirSync(existing); writeFileSync(join(existing, 'record'), 'retained');
+  const targets = [{ path: existing, scope: 'directory' as const }];
+  const first = n.authority.reviewExisting(targets), absent = n.authority.reviewNewScopes([n.target]);
+  n.authority.adoptExisting(targets, first.approvalDigest);
+  const second = n.authority.reviewExisting(targets), updated = n.authority.reviewNewScopes([n.target]);
+  expect(second.metadataDigest).toBe(first.metadataDigest); expect(second.approvalDigest).not.toBe(first.approvalDigest);
+  expect(updated.metadataDigest).toBe(absent.metadataDigest); expect(updated.approvalDigest).not.toBe(absent.approvalDigest);
+  expect(() => n.authority.approveNewScopes([n.target], absent.approvalDigest)).toThrow(/approval changed/);
+  writeFileSync(join(existing, 'record'), 'changed'); expect(n.authority.reviewExisting(targets).metadataDigest).not.toBe(first.metadataDigest);
+});

@@ -220,7 +220,7 @@ export function openStorageReservationAuthority(options: { directory: string; mo
     const details = { kind: 'storage-adoption-review' as const, authorityId: state.authorityId, revision: state.revision,
       targets: observed.targets, files: observed.files, directories: observed.directories, observedBytes: observed.logicalBytes,
       previousReservedBytes, reservedBytes, additionalBytes: reservedBytes - previousReservedBytes,
-      limitBytes: state.limitBytes, fits: reservedBytes <= state.limitBytes, atomicSnapshot: false as const };
+      limitBytes: state.limitBytes, fits: reservedBytes <= state.limitBytes, metadataDigest: observed.metadataDigest, atomicSnapshot: false as const };
     const approvalDigest = createHash('sha256').update('resonance:storage-adoption-review:v1\n').update(expected!)
       .update(observed.metadataDigest).update(JSON.stringify(details)).digest('hex');
     return { review: { ...details, approvalDigest }, adoptions };
@@ -235,7 +235,7 @@ export function openStorageReservationAuthority(options: { directory: string; mo
     }
     if (existing.length + observed.targets.length > STORAGE_RESERVATION_MAX_ENTRIES) throw new Error('Storage reservation entry capacity exhausted');
     const details = { kind: 'new-storage-scope-review' as const, authorityId: state.authorityId, revision: state.revision,
-      targets: observed.targets, reservedBytes: total(state), additionalBytes: 0, atomicSnapshot: false as const };
+      targets: observed.targets, reservedBytes: total(state), additionalBytes: 0, metadataDigest: observed.metadataDigest, atomicSnapshot: false as const };
     const approvalDigest = createHash('sha256').update('resonance:new-storage-scope-review:v1\n').update(expected!)
       .update(observed.metadataDigest).update(JSON.stringify(details)).digest('hex');
     return { ...details, approvalDigest };
@@ -288,6 +288,19 @@ export function openStorageReservationAuthority(options: { directory: string; mo
         .sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
       commit({ ...state, revision: state.revision + 1, adoptions });
       return { ...review, appliedRevision: state.revision };
+    },
+    /** Read-only coverage for fixed product outputs. This does not classify a
+     * missing retained path as new or authorize any output/history creation. */
+    reviewScope(target: StorageAdoptionTarget) {
+      usable();
+      if (!target || !['file', 'directory'].includes(target.scope)) throw new Error('Invalid storage scope inspection');
+      const path = canonical(target.path), scope = target.scope;
+      if (inside(directory, path)) throw new Error('Storage authority metadata has separate control headroom');
+      const reviewed = state.adoptions.some(entry => entry.scope === 'directory' ? inside(entry.path, path) && (entry.path !== path || scope === 'directory')
+        : scope === 'file' && entry.path === path);
+      const reserved = state.allocations.some(entry => entry.path === path || entry.scope === 'directory' && inside(entry.path, path)
+        || scope === 'directory' && inside(path, entry.path));
+      return { path, scope, authorityId: state.authorityId, revision: state.revision, reviewed, reserved };
     },
     reviewLimit: limitReview,
     applyLimit(limitBytes: number, approvalDigest: string) {
