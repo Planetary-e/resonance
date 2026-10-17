@@ -7,7 +7,7 @@ import { HISTORY_AGREEMENT_MAX_FRAME_BYTES } from '@resonance/core/history-agree
 import { HISTORY_AGREEMENT_DATA_MAX_BYTES } from '@resonance/core/history-agreement-data';
 import { HISTORY_ENVELOPE_MAX_BYTES } from '@resonance/core/history-checkpoint';
 import { HISTORY_PROVISION_MAX_BYTES } from '@resonance/core/history-provision';
-import { HISTORY_COMPACTION_MAX_BYTES } from '@resonance/core/history-compaction';
+import { HISTORY_COMPACTION_CONTROL_MAX_BYTES } from '@resonance/core/history-compaction-control';
 import { HISTORY_EXCHANGE_MAX_BYTES } from './history-checkpoint-exchange.js';
 import { HISTORY_AGREEMENT_MAX_RESPONSE_BYTES } from './history-agreement-exchange.js';
 
@@ -20,7 +20,7 @@ export const HISTORY_ROLE_LIMITS = {
   agreement: [HISTORY_AGREEMENT_MAX_FRAME_BYTES, HISTORY_AGREEMENT_MAX_RESPONSE_BYTES],
   transfer: [HISTORY_AGREEMENT_DATA_MAX_BYTES, HISTORY_ENVELOPE_MAX_BYTES + 4096],
   provision: [HISTORY_PROVISION_MAX_BYTES, 1024],
-  compaction: [HISTORY_COMPACTION_MAX_BYTES, 1024],
+  compaction: [HISTORY_COMPACTION_CONTROL_MAX_BYTES, HISTORY_COMPACTION_CONTROL_MAX_BYTES],
 } as const;
 export type HistoryRoleMethod = keyof typeof HISTORY_ROLE_LIMITS;
 const LIMITS = { ...HISTORY_ROLE_LIMITS, bridge: [

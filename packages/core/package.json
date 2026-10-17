@@ -13,6 +13,7 @@
     "./history-checkpoint": "./src/history-checkpoint.ts",
     "./history-exchange": "./src/history-exchange.ts",
     "./history-compaction": "./src/history-compaction.ts",
+    "./history-compaction-control": "./src/history-compaction-control.ts",
     "./history-compacted-chain": "./src/history-compacted-chain.ts",
     "./history-successor": "./src/history-successor.ts",
     "./history-agreement": "./src/history-agreement.ts",

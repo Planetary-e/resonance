@@ -13,7 +13,8 @@ import { admissionPolicyDigest, signAdmissionPolicy } from '@resonance/core/admi
 import { historyCheckpointEnvelopeId } from '@resonance/core/history-checkpoint';
 import { createHistoryExchangeRequest, parseHistoryExchangeResponse } from '@resonance/core/history-exchange';
 import { createHistoryCompactionProposal } from '@resonance/core/history-compaction';
-import { collectHistoryCompactionCertificate } from '../history-compaction-coordinator.js';
+import { createHistoryCompactionControlRequest, historyCompactionCertificateId } from '@resonance/core/history-compaction-control';
+import { collectHistoryCompactionCertificate, requestHistoryCompactionControl } from '../history-compaction-coordinator.js';
 import { HistoryRelayRouter } from '../history-relay-router.js';
 import { HISTORY_LINK_FRAME_TYPE } from '../history-relay-link.js';
 import { createRelayServer, type RelayServer } from '../server.js';
@@ -65,8 +66,7 @@ async function fixture(withBridge = false) {
   cleanup.push(() => services.forEach(service => service.close()));
   const routers = services.map(service => new HistoryRelayRouter({ acceptedRelayIds: [hubId], handler(method, value) {
     calls.set(method, (calls.get(method) ?? 0) + 1);
-    return method === 'agreement' ? service.exchange(value)
-      : method === 'compaction' ? service.endorseCompactionCheckpoint(value) : service[method](value);
+    return method === 'agreement' ? service.exchange(value) : service[method](value);
   } })); cleanup.push(() => routers.forEach(r => r.close()));
   const volunteers: RelayServer[] = [];
   function createVolunteer(i: number) {
@@ -141,6 +141,18 @@ it.each(['direct', 'bridge'] as const)('certifies a complete state checkpoint ov
     members: n.options.protection.members, transport: n.router.compaction, timeoutMs: 10000 });
   expect(certificate.votes).toHaveLength(4); expect(n.calls.get('compaction')).toBeGreaterThanOrEqual(4);
   expect(n.services.map(s => s.reviewDigest())).toEqual(reviews); expect(history.read()).toEqual(state); expect(history.get(row.spend)).toEqual(row);
+  const retainedHeads = n.services.map(s => s.describe().latest);
+  for (const member of n.options.protection.members.filter(m => certificate.votes.some(v => v.replica === m.publicKey))) {
+    for (const action of ['retain', 'read'] as const) {
+      const time = Date.now(), request = createHistoryCompactionControlRequest({ action, genesisId, rootId: genesisId, generation: 0,
+        replica: member.publicKey, certificateId: action === 'retain' ? historyCompactionCertificateId(certificate, n.context, genesisId) : null,
+        challenge: randomBytes(32).toString('base64url'), issuedAt: time, expiresAt: time + 30000 }, n.context, n.owner);
+      const frame = { request, certificate: action === 'retain' ? certificate : null };
+      const response = await requestHistoryCompactionControl({ context: n.context, genesisId, member, frame, transport: n.router.compactionControl });
+      expect(response.certificate).toEqual(certificate);
+    }
+  }
+  expect(history.read()).toEqual(state); expect(n.services.map(s => s.describe().latest)).toEqual(retainedHeads);
   await waitFor(() => n.router.usage().operations === 0 && n.routers.every(r => r.usage().operations === 0) && (!n.bridgeRouter || n.bridgeRouter.usage().operations === 0));
   expect(n.router.usage().bytes).toBe(0); expect(n.routers.every(r => r.usage().bytes === 0)).toBe(true);
 }, 30000);

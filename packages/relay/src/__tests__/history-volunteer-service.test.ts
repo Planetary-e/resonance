@@ -11,9 +11,10 @@ import { createHistorySuccessorProposal } from '@resonance/core/history-successo
 import { createHistoryContinuationRoot, historyContinuationRootId, type HistoryContinuationRoot } from '@resonance/core/history-continuation';
 import { createHistoryProvisionRequest, parseHistoryProvisionReceipt } from '@resonance/core/history-provision';
 import { createHistoryCompactionProposal, parseHistoryCompactionCertificate } from '@resonance/core/history-compaction';
-import { collectHistoryCompactionCertificate } from '../history-compaction-coordinator.js';
+import { createHistoryCompactionControlRequest, historyCompactionCertificateId, parseHistoryCompactionControlResponse } from '@resonance/core/history-compaction-control';
+import { collectHistoryCompactionCertificate, requestHistoryCompactionControl } from '../history-compaction-coordinator.js';
 import { openHistoryVolunteerService } from '../history-volunteer-service.js';
-import { listenHistoryAgreementReplica, exchangeHistoryProvision } from '../history-agreement-exchange.js';
+import { listenHistoryAgreementReplica, exchangeHistoryProvision, exchangeHistoryCompactionControl } from '../history-agreement-exchange.js';
 import { exchangeHistoryCheckpoint } from '../history-checkpoint-exchange.js';
 import { createHistoryCheckpointWriter } from '../history-checkpoint-quorum.js';
 import { createHistoryAgreementCoordinator } from '../history-agreement-coordinator.js';
@@ -34,7 +35,7 @@ async function fixture(maxGenerations = 65) {
   for (let i = 0; i < 5; i++) {
     const listener = await listenHistoryAgreementReplica({ exchange: raw => services[i].exchange(raw), transfer: raw => services[i].transfer(raw),
       provision: raw => services[i].provision(raw), checkpoint: raw => services[i].checkpoint(raw),
-      endorseCompactionCheckpoint: raw => services[i].endorseCompactionCheckpoint(raw) });
+      endorseCompactionCheckpoint: raw => services[i].endorseCompactionCheckpoint(raw), compaction: raw => services[i].compaction(raw) });
     listeners.push(listener); cleanup.push(() => listener.close());
   }
   const members = f.context.members.map((publicKey, i) => ({ publicKey, endpoint: listeners[i].checkpointEndpoint }));
@@ -98,7 +99,7 @@ it('endorses retained checkpoints under independent genesis pins while preservin
   append(checkpoint, genesisId); const tail = n.next(checkpoint); append(tail, genesisId);
   const heads = n.services.map(s => s.describe()), reviews = n.services.map(s => s.reviewDigest()), health = n.services.map(s => s.health());
   const votes = n.services.slice(0, 4).map(s => s.endorseCompactionCheckpoint(p));
-  const certificate = { version: 1, kind: 'history-compaction-certificate', proposal: p, votes };
+  const certificate = { version: 1 as const, kind: 'history-compaction-certificate' as const, proposal: p, votes };
   expect(parseHistoryCompactionCertificate(certificate, n.context, genesisId, checkpoint).votes).toHaveLength(4);
   const networkCertificate = await collectHistoryCompactionCertificate({ context: n.context, genesisId, proposal: p, checkpoint, members: n.members });
   expect(networkCertificate.votes).toHaveLength(4);
@@ -106,7 +107,17 @@ it('endorses retained checkpoints under independent genesis pins while preservin
   expect(n.services.map(s => s.health())).toEqual(health);
   expect(n.reopen(0).endorseCompactionCheckpoint(p)).toEqual(votes[0]);
   expect(() => n.services[0].retainCompactionCheckpoint(certificate, 'stale')).toThrow('whole-service review');
-  for (const service of n.services) service.retainCompactionCheckpoint(certificate, service.reviewDigest());
+  for (let i = 0; i < 5; i++) {
+    const issuedAt = Date.now(), request = createHistoryCompactionControlRequest({ action: 'retain', genesisId, rootId: genesisId, generation: 0,
+      replica: n.members[i].publicKey, certificateId: historyCompactionCertificateId(certificate, n.context, genesisId),
+      challenge: randomBytes(32).toString('base64url'), issuedAt, expiresAt: issuedAt + 30000 }, n.context, n.owner.signingKey);
+    const frame = { request, certificate };
+    expect(() => n.services[i].compaction({ ...frame, request: { ...request, signature: 'forged' } })).toThrow();
+    const response = await requestHistoryCompactionControl({ context: n.context, genesisId, member: n.members[i], frame });
+    expect(response.certificate).toEqual(certificate);
+    // Repeated delivery after an uncertain reply returns the original durable proof.
+    expect(parseHistoryCompactionControlResponse(await exchangeHistoryCompactionControl(n.members[i], frame, new AbortController().signal), frame, n.context, genesisId).certificate).toEqual(certificate);
+  }
   expect(n.services.map(s => s.describe())).toEqual(heads); expect(n.services.map(s => s.health())).toEqual(health);
   for (let i = 0; i < 5; i++) expect(n.reopen(i).retainedCompactionCheckpoint(genesisId)).toEqual(certificate);
   const child = await n.decide([...blocks, checkpoint, tail]); await n.provision(child);
@@ -129,6 +140,31 @@ it('endorses retained checkpoints under independent genesis pins while preservin
   const foreign = createHistoryCompactionProposal({ genesisId: `sha256:${'b'.repeat(64)}`, rootId: childId, checkpoint: childCheckpoint,
     issuedAt: Date.now(), expiresAt: Date.now() + 10000 }, n.context, n.owner.signingKey);
   expect(() => n.services[0].endorseCompactionCheckpoint(foreign)).toThrow();
+}, 30000);
+
+it('keeps a committed compaction certificate when its control request expires during persistence and recovers through a fresh read', async () => {
+  const n = await fixture(), genesisId = historyCheckpointEnvelopeId(n.root), blocks = await n.append(n.root), checkpoint = n.next(blocks[1], 'state', 'checkpoint');
+  const issuedAt = Date.now();
+  for (let i = 0; i < 5; i++) {
+    const request = createHistoryExchangeRequest({ action: 'append', rootId: genesisId, generation: 0, sequence: checkpoint.sequence,
+      envelopeId: historyCheckpointEnvelopeId(checkpoint), replica: n.members[i].publicKey, challenge: randomBytes(32).toString('base64url'),
+      issuedAt, expiresAt: issuedAt + 30000 }, n.context, n.owner.signingKey);
+    n.services[i].checkpoint({ request, envelope: checkpoint });
+  }
+  const proposal = createHistoryCompactionProposal({ genesisId, rootId: genesisId, checkpoint, issuedAt, expiresAt: issuedAt + 30000 }, n.context, n.owner.signingKey);
+  const certificate = await collectHistoryCompactionCertificate({ context: n.context, genesisId, checkpoint, proposal, members: n.members });
+  const request = createHistoryCompactionControlRequest({ action: 'retain', genesisId, rootId: genesisId, generation: 0,
+    replica: n.members[0].publicKey, certificateId: historyCompactionCertificateId(certificate, n.context, genesisId),
+    challenge: randomBytes(32).toString('base64url'), issuedAt, expiresAt: issuedAt + 30000 }, n.context, n.owner.signingKey);
+  expect(() => n.services[1].compaction({ request, certificate })).toThrow('another volunteer');
+  n.services[0].close(); let calls = 0;
+  n.services[0] = openHistoryVolunteerService({ ...n.options(0), now: () => calls++ === 0 ? issuedAt : issuedAt + 30000 });
+  expect(() => n.services[0].compaction({ request, certificate })).toThrow('expired');
+  expect(n.services[0].retainedCompactionCheckpoint(genesisId)).toEqual(certificate); n.reopen(0);
+  const time = Date.now(), read = createHistoryCompactionControlRequest({ action: 'read', genesisId, rootId: genesisId, generation: 0,
+    replica: n.members[0].publicKey, certificateId: null, challenge: randomBytes(32).toString('base64url'), issuedAt: time, expiresAt: time + 30000 }, n.context, n.owner.signingKey);
+  const response = await requestHistoryCompactionControl({ context: n.context, genesisId, member: n.members[0], frame: { request: read, certificate: null } });
+  expect(response.certificate).toEqual(certificate); expect(response.head.sequence).toBe(checkpoint.sequence);
 }, 30000);
 
 it('runs freeze, agreement, provisioning and retained reads across three generations on five real sockets and reopens the whole chain', async () => {

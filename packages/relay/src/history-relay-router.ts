@@ -8,7 +8,7 @@ import { HistoryLinkBudget, HistoryRelayLink, type HistoryRoleHandler, type Hist
 import { isHistoryRelayId, parseHistoryBridgeFrame, historyRoleResponseLimit,
   type HistoryRelayMemberRoute, type HistoryRelayBridgeRoute } from './history-relay-bridge.js';
 import type { HistoryCheckpointTransport } from './history-checkpoint-exchange.js';
-import type { HistoryAgreementTransport, HistoryAgreementDataTransport, HistoryProvisionTransport, HistoryCompactionTransport } from './history-agreement-exchange.js';
+import type { HistoryAgreementTransport, HistoryAgreementDataTransport, HistoryProvisionTransport, HistoryCompactionTransport, HistoryCompactionControlTransport } from './history-agreement-exchange.js';
 
 export class HistoryRelayRouter {
   private readonly pins = new Map<string, HistoryRelayMemberRoute>();
@@ -107,6 +107,10 @@ export class HistoryRelayRouter {
   };
   readonly compaction: HistoryCompactionTransport = (member, proposal, signal) =>
     this.request(member.publicKey, 'compaction', proposal, signal);
+  readonly compactionControl: HistoryCompactionControlTransport = (member, frame, signal) => {
+    if (frame.request.replica !== member.publicKey) return Promise.reject(new Error('Wrong compaction control target'));
+    return this.request(member.publicKey, 'compaction', frame, signal);
+  };
 
   private request(member: string, method: HistoryRoleMethod, frame: unknown, signal: AbortSignal) {
     const pin = this.pins.get(member);

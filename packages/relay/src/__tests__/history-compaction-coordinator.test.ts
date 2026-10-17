@@ -1,8 +1,9 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { historyCheckpointEnvelopeId, historyDigest } from '@resonance/core/history-checkpoint';
 import { createHistoryCompactionProposal, createHistoryCompactionVote } from '@resonance/core/history-compaction';
+import { createHistoryCompactionControlRequest, createHistoryCompactionControlResponse } from '@resonance/core/history-compaction-control';
 import { historyCheckpointFixture } from './fixtures/history-checkpoint-fixture.js';
-import { collectHistoryCompactionCertificate } from '../history-compaction-coordinator.js';
+import { collectHistoryCompactionCertificate, requestHistoryCompactionControl } from '../history-compaction-coordinator.js';
 import type { HistoryCompactionTransport } from '../history-agreement-exchange.js';
 
 afterEach(() => vi.restoreAllMocks());
@@ -79,4 +80,34 @@ it('rechecks signed request expiration after receiving otherwise valid votes', a
     vi.spyOn(Date, 'now').mockReturnValue(f.proposal.expiresAt);
     return f.votes[f.context.members.indexOf(member.publicKey)];
   } })).rejects.toThrow('Four authenticated');
+});
+
+function controlFixture() {
+  const f = fixture(), issuedAt = Date.now(), request = createHistoryCompactionControlRequest({ action: 'read', genesisId: f.genesisId,
+    rootId: f.genesisId, generation: 0, replica: f.members[0].publicKey, certificateId: null, challenge: f.proposal.challenge,
+    issuedAt, expiresAt: issuedAt + 30000 }, f.context, f.owner);
+  const frame = { request, certificate: null }, head = { rootId: f.genesisId, generation: 0, sequence: 0, envelopeId: f.genesisId, freeze: null };
+  const response = createHistoryCompactionControlResponse(frame, head, null, f.context, f.memberKeys[0]);
+  return { ...f, frame, response, input: { context: f.context, genesisId: f.genesisId, member: f.members[0], frame, timeoutMs: 500 } };
+}
+it('verifies one fresh control response against the retained member pin', async () => {
+  const f = controlFixture(); let signal: AbortSignal | undefined;
+  expect(await requestHistoryCompactionControl({ ...f.input, transport: async (_m, _f, s) => { signal = s; return f.response; } })).toEqual(f.response);
+  expect(signal?.aborted).toBe(true);
+  await expect(requestHistoryCompactionControl({ ...f.input, member: f.members[1], transport: async () => f.response })).rejects.toThrow('member');
+  await expect(requestHistoryCompactionControl({ ...f.input, transport: async () => ({ ...f.response, signature: 'bad' }) })).rejects.toThrow();
+});
+it('bounds a silent control transport even if an injected implementation ignores cancellation', async () => {
+  const f = controlFixture(); let signal: AbortSignal | undefined;
+  await expect(requestHistoryCompactionControl({ ...f.input, timeoutMs: 50, transport: async (_m, _f, s) => {
+    signal = s; return new Promise(() => {});
+  } })).rejects.toThrow('timed out'); expect(signal?.aborted).toBe(true);
+});
+it('refuses cancelled and late control responses despite valid historical signatures', async () => {
+  const f = controlFixture(), controller = new AbortController(); controller.abort(); const transport = vi.fn(async () => f.response);
+  await expect(requestHistoryCompactionControl({ ...f.input, signal: controller.signal, transport })).rejects.toThrow('cancelled');
+  expect(transport).not.toHaveBeenCalled();
+  await expect(requestHistoryCompactionControl({ ...f.input, transport: async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(f.frame.request.expiresAt); return f.response;
+  } })).rejects.toThrow('expired');
 });

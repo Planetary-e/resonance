@@ -30,7 +30,7 @@ function setup() {
     transport: async () => { directCalls++; throw new Error('Unexpected direct fallback'); } };
   return { ...f, directory, path, links, ids, value, save, protection, directCalls: () => directCalls };
 }
-it.each(['checkpoint', 'agreement', 'data', 'provision', 'compaction'] as const)('cancels a silent direct %s request through the shared operation signal', async kind => {
+it.each(['checkpoint', 'agreement', 'data', 'provision', 'compaction', 'compaction-control'] as const)('cancels a silent direct %s request through the shared operation signal', async kind => {
   const n = setup(), server = new WebSocketServer({ port: 0, host: '127.0.0.1' });
   await once(server, 'listening');
   cleanup.push(async () => { for (const client of server.clients) client.terminate(); await new Promise<void>(resolve => server.close(() => resolve())); });
@@ -45,6 +45,7 @@ it.each(['checkpoint', 'agreement', 'data', 'provision', 'compaction'] as const)
     if (kind === 'agreement') return transport.agreementTransport(member, { request: { replica: member.publicKey, action: 'promise' } } as never, signal);
     if (kind === 'data') return transport.dataTransport(member, { action: 'read', authorization: { request: { replica: member.publicKey } } } as never, signal);
     if (kind === 'compaction') return transport.compactionTransport(member, {} as never, signal);
+    if (kind === 'compaction-control') return transport.compactionControlTransport(member, { request: { replica: member.publicKey } } as never, signal);
     return transport.provisionTransport(member, { replica: member.publicKey } as never, signal);
   };
   const connection = once(server, 'connection');

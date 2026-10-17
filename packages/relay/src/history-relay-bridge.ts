@@ -2,6 +2,7 @@
  * unchanged; the bridge is neither a history member nor a signature authority. */
 import { exactWitnessFields } from '@resonance/core/admission-witness';
 import { HISTORY_ENVELOPE_MAX_BYTES } from '@resonance/core/history-checkpoint';
+import { HISTORY_COMPACTION_CONTROL_MAX_BYTES } from '@resonance/core/history-compaction-control';
 import { HISTORY_ROLE_LIMITS, type HistoryRoleMethod } from './history-relay-link.js';
 import { HISTORY_CONTINUATION_RESPONSE_MAX_BYTES, HISTORY_EXCHANGE_MAX_BYTES } from './history-checkpoint-exchange.js';
 import { HISTORY_AGREEMENT_MAX_RESPONSE_BYTES } from './history-agreement-exchange.js';
@@ -21,13 +22,13 @@ export function parseHistoryBridgeFrame(raw: unknown) {
 }
 /** Preserve the same action-specific response cap even when using a bridge. */
 export function historyRoleResponseLimit(method: HistoryRoleMethod, value: unknown) {
-  const frame = value as { request?: { action?: unknown }; action?: unknown } | null;
+  const frame = value as { request?: { action?: unknown }; action?: unknown; kind?: unknown } | null;
   switch (method) {
     case 'checkpoint': return frame?.request?.action === 'read' ? HISTORY_EXCHANGE_MAX_BYTES
       : frame?.request?.action === 'continuation' ? HISTORY_CONTINUATION_RESPONSE_MAX_BYTES : 4096;
     case 'agreement': return frame?.request?.action === 'promise' ? HISTORY_AGREEMENT_MAX_RESPONSE_BYTES : 4096;
     case 'transfer': return frame?.action === 'read' ? HISTORY_ENVELOPE_MAX_BYTES + 4096 : 4096;
     case 'provision': return 1024;
-    case 'compaction': return 1024;
+    case 'compaction': return frame?.kind === 'history-compaction-proposal' ? 1024 : HISTORY_COMPACTION_CONTROL_MAX_BYTES;
   }
 }

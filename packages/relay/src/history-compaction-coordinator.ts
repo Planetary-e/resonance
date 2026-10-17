@@ -5,8 +5,49 @@ import { parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, historyC
   type HistoryCheckpointContext } from '@resonance/core/history-checkpoint';
 import { parseHistoryCompactionProposal, parseHistoryCompactionVote, parseHistoryCompactionCertificate,
   type HistoryCompactionVote, type HistoryCompactionCertificate } from '@resonance/core/history-compaction';
-import { exchangeHistoryCompaction, type HistoryCompactionTransport } from './history-agreement-exchange.js';
+import { parseHistoryCompactionControlFrame, parseHistoryCompactionControlRequest, parseHistoryCompactionControlResponse } from '@resonance/core/history-compaction-control';
+import { exchangeHistoryCompaction, exchangeHistoryCompactionControl, type HistoryCompactionTransport, type HistoryCompactionControlTransport } from './history-agreement-exchange.js';
 import type { HistoryReplicaEndpoint } from './history-checkpoint-exchange.js';
+
+/** Fresh owner-authorized request and one authenticated historical result. A
+ * retention receipt is not a four-copy commit or current admission readiness. */
+export async function requestHistoryCompactionControl(options: {
+  context: HistoryCheckpointContext; genesisId: string; member: HistoryReplicaEndpoint; frame: unknown;
+  signal?: AbortSignal; timeoutMs?: number; transport?: HistoryCompactionControlTransport;
+}) {
+  const started = performance.now(), context = parseHistoryCheckpointContext(options.context), genesisId = options.genesisId;
+  const frame = parseHistoryCompactionControlFrame(options.frame, context, genesisId, Date.now());
+  const member = { ...options.member }, timeoutMs = options.timeoutMs ?? 10000, external = options.signal;
+  const transport = options.transport ?? exchangeHistoryCompactionControl;
+  if (frame.request.replica !== member.publicKey || !Number.isSafeInteger(timeoutMs) || timeoutMs < 50 || timeoutMs > 30000) {
+    throw new Error('Invalid compaction control member or timeout');
+  }
+  assertSecureRelayTransportEndpoint(member.endpoint);
+  if (!['/history-checkpoint', '/history-agreement'].includes(new URL(member.endpoint).pathname)) throw new Error('Invalid compaction control endpoint');
+  const controller = new AbortController(), cancel = () => controller.abort();
+  external?.addEventListener('abort', cancel, { once: true }); if (external?.aborted) cancel();
+  const timer = setTimeout(cancel, Math.max(0, Math.min(timeoutMs - (performance.now() - started), frame.request.expiresAt - Date.now())));
+  const live = () => {
+    if (controller.signal.aborted || performance.now() - started >= timeoutMs) throw new Error('Compaction control cancelled or timed out');
+    parseHistoryCompactionControlRequest(frame.request, context, genesisId, Date.now());
+  };
+  try {
+    live();
+    const raw = await new Promise<unknown>((resolve, reject) => {
+      let settled = false;
+      const finish = (value?: unknown, error?: unknown) => {
+        if (settled) return; settled = true; controller.signal.removeEventListener('abort', aborted);
+        if (error) reject(error); else resolve(value);
+      };
+      const aborted = () => finish(undefined, new Error('Compaction control cancelled or timed out'));
+      controller.signal.addEventListener('abort', aborted, { once: true });
+      void Promise.resolve().then(() => {
+        live(); return transport(member, structuredClone(frame), controller.signal);
+      }).then(value => finish(value), error => finish(undefined, error));
+    });
+    live(); const response = parseHistoryCompactionControlResponse(raw, frame, context, genesisId); live(); return response;
+  } finally { clearTimeout(timer); external?.removeEventListener('abort', cancel); controller.abort(); }
+}
 
 export async function collectHistoryCompactionCertificate(options: {
   context: HistoryCheckpointContext; genesisId: string; proposal: unknown; checkpoint: unknown;

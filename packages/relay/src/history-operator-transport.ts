@@ -4,9 +4,9 @@ import { dirname, resolve } from 'node:path';
 import { createRelayDescriptorV1, type Identity } from '@resonance/core';
 import { exactWitnessFields } from '@resonance/core/admission-witness';
 import type { AdmissionHistoryProtection } from './protected-admission-history.js';
-import { exchangeHistoryAgreement, exchangeHistoryAgreementData, exchangeHistoryProvision, exchangeHistoryCompaction } from './history-agreement-exchange.js';
+import { exchangeHistoryAgreement, exchangeHistoryAgreementData, exchangeHistoryProvision, exchangeHistoryCompaction, exchangeHistoryCompactionControl } from './history-agreement-exchange.js';
 import { exchangeHistoryCheckpoint } from './history-checkpoint-exchange.js';
-import type { HistoryAgreementTransport, HistoryAgreementDataTransport, HistoryProvisionTransport, HistoryCompactionTransport } from './history-agreement-exchange.js';
+import type { HistoryAgreementTransport, HistoryAgreementDataTransport, HistoryProvisionTransport, HistoryCompactionTransport, HistoryCompactionControlTransport } from './history-agreement-exchange.js';
 import { readOperatorJson } from './admission-operator-files.js';
 import { readAdmissionHistoryLinksFile } from './admission-history-config.js';
 import { parseHistoryBridgeContact } from './history-bridge-config.js';
@@ -86,10 +86,11 @@ export function createHistoryOperatorTransport(protection: AdmissionHistoryProte
   const dataTransport: HistoryAgreementDataTransport = (member, frame, signal) => config ? session(signal).transfer(member, frame, combined(signal)) : exchangeHistoryAgreementData(member, frame, combined(signal));
   const provisionTransport: HistoryProvisionTransport = (member, frame, signal) => config ? session(signal).provision(member, frame, combined(signal)) : exchangeHistoryProvision(member, frame, combined(signal));
   const compactionTransport: HistoryCompactionTransport = (member, frame, signal) => config ? session(signal).compaction(member, frame, combined(signal)) : exchangeHistoryCompaction(member, frame, combined(signal));
+  const compactionControlTransport: HistoryCompactionControlTransport = (member, frame, signal) => config ? session(signal).compactionControl(member, frame, combined(signal)) : exchangeHistoryCompactionControl(member, frame, combined(signal));
   return {
     protection: { ...protection, transport: (member, frame, signal) => config
       ? session(signal).checkpoint(member, frame, combined(signal))
       : (protection.transport ?? exchangeHistoryCheckpoint)(member, frame, combined(signal)) } as AdmissionHistoryProtection,
-    agreementTransport, dataTransport, provisionTransport, compactionTransport, close,
+    agreementTransport, dataTransport, provisionTransport, compactionTransport, compactionControlTransport, close,
   };
 }

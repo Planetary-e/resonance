@@ -73,7 +73,8 @@ export function createHistoryExchangeRequest(body: Omit<HistoryExchangeRequest, 
   } finally { key.secretKey.fill(0); }
 }
 
-function parseHead(value: unknown, context: HistoryCheckpointContext, request: HistoryExchangeRequest): HistoryReplicaHead {
+export function parseHistoryReplicaHead(value: unknown, context: HistoryCheckpointContext,
+  request: Pick<HistoryExchangeRequest, 'rootId' | 'generation'>): HistoryReplicaHead {
   if (!exactWitnessFields(value, ['generation', 'rootId', 'sequence', 'envelopeId', 'freeze'])
     || value.generation !== request.generation || value.rootId !== request.rootId || !integer(value.sequence)
     || !isHistoryDigest(value.envelopeId) || (value.sequence === 0 && value.envelopeId !== value.rootId)) throw new Error('Invalid history replica head');
@@ -90,7 +91,7 @@ function responseBody(value: unknown, request: HistoryExchangeRequest, context: 
     || value.version !== 1 || value.kind !== 'history-response' || !witnessBytes(value.signature, 64)) throw new Error('Invalid history response');
   const echoed = parseHistoryExchangeRequest(value.request, context);
   if (JSON.stringify(echoed) !== JSON.stringify(parseHistoryExchangeRequest(request, context))) throw new Error('History reply belongs to another request');
-  const head = parseHead(value.head, context, echoed);
+  const head = parseHistoryReplicaHead(value.head, context, echoed);
   const envelope = value.envelope === null ? null : parseHistoryCheckpointEnvelope(value.envelope, context);
   if (echoed.action === 'append') {
     if (value.status !== 'stored' || envelope !== null || head.freeze !== null || head.sequence < echoed.sequence

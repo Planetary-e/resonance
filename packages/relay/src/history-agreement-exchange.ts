@@ -11,6 +11,7 @@ import type { createHistoryAgreementReplica } from './history-checkpoint-agreeme
 import { HISTORY_PROVISION_MAX_BYTES, type HistoryProvisionRequest } from '@resonance/core/history-provision';
 import { HISTORY_EXCHANGE_MAX_BYTES } from './history-checkpoint-exchange.js';
 import { HISTORY_COMPACTION_MAX_BYTES, type HistoryCompactionProposal } from '@resonance/core/history-compaction';
+import { HISTORY_COMPACTION_CONTROL_MAX_BYTES, type HistoryCompactionControlFrame } from '@resonance/core/history-compaction-control';
 
 export type HistoryAgreementTransport = (member: HistoryReplicaEndpoint, frame: HistoryAgreementFrame, signal: AbortSignal) => Promise<unknown>;
 const PATH = '/history-agreement', DATA_PATH = '/history-agreement-data';
@@ -21,7 +22,7 @@ export const HISTORY_AGREEMENT_MAX_RESPONSE_BYTES = 64 * 1024;
 
 /** Loopback only. Remote deployment needs an explicitly configured TLS proxy. */
 export async function listenHistoryAgreementReplica(role: Pick<ReturnType<typeof createHistoryAgreementReplica>, 'exchange' | 'transfer'> & {
-  provision?(value: unknown): unknown; checkpoint?(value: unknown): unknown; endorseCompactionCheckpoint?(value: unknown): unknown;
+  provision?(value: unknown): unknown; checkpoint?(value: unknown): unknown; endorseCompactionCheckpoint?(value: unknown): unknown; compaction?(value: unknown): unknown;
 }, options: {
   port?: number; maxConnections?: number; connectionTimeoutMs?: number;
 } = {}) {
@@ -33,7 +34,7 @@ export async function listenHistoryAgreementReplica(role: Pick<ReturnType<typeof
   const dataWss = new WebSocketServer({ noServer: true, maxPayload: HISTORY_AGREEMENT_DATA_MAX_BYTES, perMessageDeflate: false });
   const provisionWss = new WebSocketServer({ noServer: true, maxPayload: HISTORY_PROVISION_MAX_BYTES, perMessageDeflate: false });
   const checkpointWss = new WebSocketServer({ noServer: true, maxPayload: HISTORY_EXCHANGE_MAX_BYTES, perMessageDeflate: false });
-  const compactionWss = new WebSocketServer({ noServer: true, maxPayload: HISTORY_COMPACTION_MAX_BYTES, perMessageDeflate: false });
+  const compactionWss = new WebSocketServer({ noServer: true, maxPayload: HISTORY_COMPACTION_CONTROL_MAX_BYTES, perMessageDeflate: false });
   const servers = [wss, dataWss, provisionWss, checkpointWss, compactionWss];
   const sockets = new Set<Socket>(), deadlines = new WeakMap<object, number>();
   let closing = false;
@@ -48,7 +49,9 @@ export async function listenHistoryAgreementReplica(role: Pick<ReturnType<typeof
       : request.url === DATA_PATH ? { server: dataWss, max: HISTORY_AGREEMENT_DATA_MAX_BYTES, reply: HISTORY_ENVELOPE_MAX_BYTES + 4096, run: (v: unknown) => role.transfer(v) }
       : request.url === PROVISION_PATH && role.provision ? { server: provisionWss, max: HISTORY_PROVISION_MAX_BYTES, reply: 1024, run: (v: unknown) => role.provision!(v) }
       : request.url === CHECKPOINT_PATH && role.checkpoint ? { server: checkpointWss, max: HISTORY_EXCHANGE_MAX_BYTES, reply: HISTORY_EXCHANGE_MAX_BYTES, run: (v: unknown) => role.checkpoint!(v) }
-      : request.url === COMPACTION_PATH && role.endorseCompactionCheckpoint ? { server: compactionWss, max: HISTORY_COMPACTION_MAX_BYTES, reply: 1024, run: (v: unknown) => role.endorseCompactionCheckpoint!(v) } : null;
+      : request.url === COMPACTION_PATH && (role.compaction || role.endorseCompactionCheckpoint) ? { server: compactionWss,
+        max: HISTORY_COMPACTION_CONTROL_MAX_BYTES, reply: HISTORY_COMPACTION_CONTROL_MAX_BYTES,
+        run: (v: unknown) => role.compaction ? role.compaction(v) : role.endorseCompactionCheckpoint!(v) } : null;
     if (closing || !route || servers.reduce((sum, s) => sum + s.clients.size, 0) >= limit) { socket.destroy(); return; }
     const { server, max: maxRequest } = route;
     server.handleUpgrade(request, socket, head, ws => {
@@ -89,6 +92,15 @@ export async function listenHistoryAgreementReplica(role: Pick<ReturnType<typeof
 
 export type HistoryProvisionTransport = (member: HistoryReplicaEndpoint, request: HistoryProvisionRequest, signal: AbortSignal) => Promise<unknown>;
 export type HistoryCompactionTransport = (member: HistoryReplicaEndpoint, proposal: HistoryCompactionProposal, signal: AbortSignal) => Promise<unknown>;
+export type HistoryCompactionControlTransport = (member: HistoryReplicaEndpoint, frame: HistoryCompactionControlFrame, signal: AbortSignal) => Promise<unknown>;
+export function exchangeHistoryCompactionControl(member: HistoryReplicaEndpoint, frame: HistoryCompactionControlFrame, signal: AbortSignal): Promise<unknown> {
+  assertSecureRelayTransportEndpoint(member.endpoint);
+  const encoded = JSON.stringify(frame), endpoint = new URL(member.endpoint);
+  if (frame.request.replica !== member.publicKey || Buffer.byteLength(encoded) > HISTORY_COMPACTION_CONTROL_MAX_BYTES
+    || ![PATH, CHECKPOINT_PATH].includes(endpoint.pathname)) return Promise.reject(new Error('Invalid compaction control transport request'));
+  endpoint.pathname = COMPACTION_PATH;
+  return exchange(endpoint.href, encoded, HISTORY_COMPACTION_CONTROL_MAX_BYTES, signal);
+}
 /** Bounded transport only. Its caller must verify each vote against the original proposal and member pin. */
 export function exchangeHistoryCompaction(member: HistoryReplicaEndpoint, proposal: HistoryCompactionProposal, signal: AbortSignal): Promise<unknown> {
   assertSecureRelayTransportEndpoint(member.endpoint);
