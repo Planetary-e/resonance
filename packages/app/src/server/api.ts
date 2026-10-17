@@ -27,6 +27,7 @@ import {
   getRelayHistoryActivationInput, planRelayHistoryActivation, applyRelayHistoryActivation, cancelRelayHistoryOperation,
   getRelayHistoryRecoveryInput, performRelayHistoryRecovery,
   getRelayHistorySetupInput, performRelayHistorySetup, measureRelayHistoryStorage,
+  planRelayStorageBootstrap, applyRelayStorageBootstrap, cancelRelayStorageBootstrap,
   getRelayVolunteerActivationInput, planRelayVolunteerActivation, applyRelayVolunteerActivation,
   publishItem,
   listSessionItems,
@@ -515,6 +516,31 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
   }
 
   // --- Relay mode ---
+
+  if (['/api/relay/storage/bootstrap/review', '/api/relay/storage/bootstrap/apply', '/api/relay/storage/bootstrap/cancel'].includes(url!) && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    const owner = getSession(), controller = new AbortController();
+    const disconnected = () => { if (!res.writableEnded) controller.abort(); };
+    res.once('close', disconnected);
+    try {
+      const body = await readBody(req); controller.signal.throwIfAborted();
+      // Authentication at request arrival cannot authorize a body received after
+      // locking/unlocking the application into a different session.
+      if (getSession() !== owner || !isUnlocked()) throw new Error('Desktop session changed; review storage setup again');
+      let result: unknown;
+      if (url!.endsWith('/review')) result = await planRelayStorageBootstrap(body, controller.signal);
+      else if (url!.endsWith('/apply')) {
+        if (!exactWitnessFields(body, ['approvalDigest']) || typeof body.approvalDigest !== 'string' || !/^[a-f0-9]{64}$/.test(body.approvalDigest)) throw new Error('Supply the exact storage review approval');
+        result = applyRelayStorageBootstrap(body.approvalDigest);
+      } else {
+        if (!exactWitnessFields(body, [])) throw new Error('Storage cancellation accepts no extra fields');
+        result = cancelRelayStorageBootstrap();
+      }
+      if (!res.destroyed) json(res, result);
+    } catch (err) { if (!res.destroyed) error(res, err instanceof Error ? err.message : 'Storage setup failed; retain all files and maintenance', 409); }
+    finally { res.removeListener('close', disconnected); }
+    return true;
+  }
 
   if (url === '/api/relay/history/volunteer-activation' && method === 'GET') {
     if (!requireAuth(req, res)) return true;

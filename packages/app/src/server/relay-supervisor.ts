@@ -249,14 +249,19 @@ export function validateRelayServicePaths(options: RelayServiceOptions): void {
   relayServiceOutputFiles(options); // Rendering/encoded limits are part of read-only preparation too.
 }
 
+/** Exact native paths, without rendering configuration or touching the filesystem. */
+export function relayServiceOutputPaths(dataDir: string, platform: NodeJS.Platform = process.platform, userDirectory = homedir()): string[] {
+  if (platform === 'darwin') return [join(userDirectory, 'Library/LaunchAgents', `${LABEL}.plist`)];
+  if (platform === 'linux') return [join(userDirectory, '.config/systemd/user', 'resonance-relay.service')];
+  if (platform === 'win32') return [join(dataDir, 'relay-service.ps1'), join(dataDir, 'relay-service.xml')];
+  throw new Error(`Unsupported relay service platform: ${platform}`);
+}
 /** Exact generated files only; operating-system service databases are outside this budget. */
 export function relayServiceOutputFiles(options: RelayServiceOptions, platform: NodeJS.Platform = process.platform, userDirectory = homedir()) {
-  let files: Array<{ path: string; text: string }>;
-  if (platform === 'darwin') files = [{ path: join(userDirectory, 'Library/LaunchAgents', `${LABEL}.plist`), text: macServicePlist(options) }];
-  else if (platform === 'linux') files = [{ path: join(userDirectory, '.config/systemd/user', 'resonance-relay.service'), text: linuxServiceUnit(options) }];
-  else if (platform === 'win32') files = [{ path: join(options.dataDir, 'relay-service.ps1'), text: windowsServiceScript(options) },
-    { path: join(options.dataDir, 'relay-service.xml'), text: windowsServiceTask(options) }];
-  else throw new Error(`Unsupported relay service platform: ${platform}`);
+  const paths = relayServiceOutputPaths(options.dataDir, platform, userDirectory);
+  const texts = platform === 'darwin' ? [macServicePlist(options)] : platform === 'linux' ? [linuxServiceUnit(options)]
+    : [windowsServiceScript(options), windowsServiceTask(options)];
+  const files = paths.map((path, i) => ({ path, text: texts[i] }));
   if (files.some(file => Buffer.byteLength(file.text) > RELAY_SERVICE_FILE_MAX_BYTES)) throw new Error('Relay service definition exceeds its encoded byte limit');
   return files;
 }
