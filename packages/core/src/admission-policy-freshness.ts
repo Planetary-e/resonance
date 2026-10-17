@@ -26,7 +26,7 @@ export const ADMISSION_POLICY_HEAD_MAX_BYTES = 8192;
 export const ADMISSION_POLICY_HEAD_MAX_LIFETIME_MS = 30_000;
 const DOMAIN = 'resonance:admission-policy-head:v1';
 const integer = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0;
-function head(value: unknown): AdmissionPolicyHead {
+export function parseAdmissionPolicyHead(value: unknown): AdmissionPolicyHead {
   if (!exactWitnessFields(value, ['revision', 'digest']) || !integer(value.revision) || value.revision < 1
     || typeof value.digest !== 'string' || !/^[a-f0-9]{64}$/.test(value.digest)) throw new Error('Invalid admission policy head');
   return { revision: value.revision, digest: value.digest };
@@ -37,7 +37,7 @@ export function parseAdmissionPolicyObservers(value: unknown): AdmissionPolicyOb
     throw new Error('Invalid admission policy observers');
   }
   const set = parseAdmissionWitnessSet({ version: 1, quorum: value.quorum, members: value.members, coordinators: [value.authority] });
-  return { version: 1, kind: 'admission-policy-observers', authority: value.authority, genesis: head(value.genesis), quorum: 4, members: set.members };
+  return { version: 1, kind: 'admission-policy-observers', authority: value.authority, genesis: parseAdmissionPolicyHead(value.genesis), quorum: 4, members: set.members };
 }
 export function admissionPolicyObserversId(value: AdmissionPolicyObservers): string {
   const context = parseAdmissionPolicyObservers(value);
@@ -58,7 +58,7 @@ export function createAdmissionPolicyHeadRequest(context: AdmissionPolicyObserve
     challenge: randomBytes(32).toString('base64url'), issuedAt: now, expiresAt: now + lifetimeMs }, context, now);
 }
 function admittedHead(value: unknown, context: AdmissionPolicyObservers) {
-  const current = head(value), genesis = head(context.genesis);
+  const current = parseAdmissionPolicyHead(value), genesis = parseAdmissionPolicyHead(context.genesis);
   if (current.revision < genesis.revision || (current.revision === genesis.revision && current.digest !== genesis.digest)) {
     throw new Error('Policy head precedes or conflicts with the independently pinned genesis');
   }

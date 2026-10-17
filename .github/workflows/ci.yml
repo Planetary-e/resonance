@@ -29,6 +29,8 @@ jobs:
         run: npx vitest run --maxWorkers=1 packages/relay/src/__tests__/relay-tls-identity.test.ts packages/relay/src/__tests__/tls-paths.integration.test.ts
       - name: Verify infrastructure key migration and process interruption
         run: npx vitest run --maxWorkers=1 packages/relay/src/__tests__/relay-identity-store.test.ts packages/relay/src/__tests__/relay-identity-crash.integration.test.ts
+      - name: Verify experimental policy observers and interruption
+        run: npx vitest run --maxWorkers=1 packages/core/src/__tests__/admission-policy-freshness.test.ts packages/core/src/__tests__/policy-freshness-model.test.ts packages/relay/src/__tests__/admission-policy-observer.test.ts packages/relay/src/__tests__/admission-policy-observer-crash.integration.test.ts
 
   test:
     runs-on: ubuntu-latest
