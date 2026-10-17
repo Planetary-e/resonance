@@ -270,7 +270,7 @@ it('blocks configured admission until four real socket replicas store the spend;
   expect(await restarted.verifyAndSpend(another, context)).toEqual({ status: 'accepted' });
   expect(n.stores.filter(s => s.describe().sequence === 2)).toHaveLength(4);
   expect(await restarted.verifyAndSpend(another, context)).toEqual({ status: 'replay' });
-  restarted.close(); await expect(createConfiguredAdmissionVerifier(n.options)).rejects.toThrow('state is invalid');
+  restarted.close(); await expect(createConfiguredAdmissionVerifier(n.options)).rejects.toThrow('local fallback is forbidden');
 }, 20000);
 it('does not return accepted when the new-spend cutoff passes while durable replication is awaited', async () => {
   const n = await fixture(), verifier = await n.verifier(); let release!: () => void;

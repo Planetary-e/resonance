@@ -7,6 +7,7 @@ import { createLocalBlindAdmissionVerifierV2 } from './blind-admission-verifier.
 import { openAdmissionSpendHistory } from './admission-spend-history.js';
 import { openProtectedAdmissionSpendHistory, type AdmissionHistoryProtection } from './protected-admission-history.js';
 import { createAdmissionWitness, createAdmissionQuorumGate, type AdmissionWitnessTransport } from './admission-witness.js';
+import { historyCheckpointContextId } from '@resonance/core/history-checkpoint';
 
 export async function createConfiguredAdmissionVerifier(options: {
   directory: string; authority: string; policy: unknown; encryptionKey: Uint8Array; initialize?: boolean;
@@ -15,9 +16,14 @@ export async function createConfiguredAdmissionVerifier(options: {
   initializeWitnessState?: boolean; witnessTransport?: AdmissionWitnessTransport; witnessTimeoutMs?: number;
   onWitnessSocket?: (socket: Socket) => void;
   historyProtection?: AdmissionHistoryProtection;
+  /** Explicit protected spend/writer location; policy and witness state stay in directory. */
+  historyDirectory?: string;
   /** An explicitly prepared protected spend history can precede policy/witness initialization. */
   initializeSpendHistory?: boolean;
 }) {
+  if (options.historyDirectory !== undefined && (!options.historyProtection || !options.historyDirectory.trim())) {
+    throw new Error('A separate admission history directory requires protected history');
+  }
   const now = options.now ?? Date.now;
   const store = await openAdmissionPolicyStore({ path: join(options.directory, 'admission-community-policy.json'),
     encryptionKey: options.encryptionKey, mode: options.initialize ? 'create-new' : 'open-existing', now });
@@ -25,13 +31,19 @@ export async function createConfiguredAdmissionVerifier(options: {
   let quorum: ReturnType<typeof createAdmissionQuorumGate> | undefined;
   let history: ReturnType<typeof openAdmissionSpendHistory> | Awaited<ReturnType<typeof openProtectedAdmissionSpendHistory>> | undefined;
   try {
+    const pinnedContext = store.protectedHistoryContext();
+    const contextId = options.historyProtection ? historyCheckpointContextId(options.historyProtection.context) : undefined;
+    if (pinnedContext && pinnedContext !== contextId) throw new Error('Retained policy requires its original protected history context; local fallback is forbidden');
+    if (options.historyDirectory && !pinnedContext) throw new Error('A separate history location requires a reviewed policy/history binding before startup');
     const policy = await store.install(options.policy, options.authority);
     const historyOptions = { directory: options.directory, encryptionKey: options.encryptionKey, policy, now,
       initialize: options.initializeSpendHistory ?? options.initialize, maxSpends: options.maxSpends };
     if (options.historyProtection) {
-      const protectedHistory = await openProtectedAdmissionSpendHistory({ ...historyOptions, authority: options.authority, protection: options.historyProtection });
+      const protectedHistory = await openProtectedAdmissionSpendHistory({ ...historyOptions,
+        directory: options.historyDirectory ?? options.directory, authority: options.authority, protection: options.historyProtection });
       history = protectedHistory;
       await protectedHistory.ready();
+      store.bindProtectedHistory(contextId!); // Durable before any admission can be returned to the caller.
     } else history = openAdmissionSpendHistory(historyOptions);
     const shared = { directory: options.directory, encryptionKey: options.encryptionKey, policy, now, maxSpends: options.maxSpends,
       initialize: options.initializeWitnessState ?? options.initialize };

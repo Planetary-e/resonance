@@ -16,6 +16,7 @@ const SERVICE_FILES = {
   historyVolunteerFile: 'RELAY_HISTORY_VOLUNTEER_FILE',
   historyBridgeFile: 'RELAY_HISTORY_BRIDGE_FILE',
   admissionHistoryFile: 'RELAY_ADMISSION_HISTORY_FILE',
+  admissionHistoryDirectory: 'RELAY_ADMISSION_HISTORY_DIRECTORY',
   admissionHistoryLinksFile: 'RELAY_ADMISSION_HISTORY_LINKS_FILE',
   admissionAuthorityFile: 'RELAY_ADMISSION_AUTHORITY_FILE',
   admissionPolicyFile: 'RELAY_ADMISSION_POLICY_FILE',
@@ -57,7 +58,7 @@ function validateRoleFiles(files: RelayServiceRoleFiles): void {
   }
   const policy = [files.admissionAuthorityFile, files.admissionPolicyFile, files.admissionPolicyKeyFile];
   if ((policy.some(Boolean) && !policy.every(Boolean)) || (files.admissionHistoryFile && !policy.every(Boolean))
-    || (files.admissionHistoryLinksFile && !files.admissionHistoryFile)) {
+    || ((files.admissionHistoryLinksFile || files.admissionHistoryDirectory) && !files.admissionHistoryFile)) {
     throw new Error('Protected admission requires its history and all three signed-policy files; relay links also require history');
   }
 }
@@ -222,15 +223,23 @@ function run(program: string, args: string[]): void {
   execFileSync(program, args, { timeout: 15_000, stdio: 'pipe' });
 }
 
-export function installRelayService(options: RelayServiceOptions): void {
-  if (!existsSync(options.nodePath) || !existsSync(options.entryPath)) {
+/** Read-only preparation shared with reviewed desktop activation. */
+export function validateRelayServicePaths(options: RelayServiceOptions): void {
+  if (![options.nodePath, options.entryPath].every(path => existsSync(path) && statSync(path).isFile())) {
     throw new Error('The bundled relay runtime is missing');
   }
   relayServiceEnvironment(options); // Validate the complete configuration before stopping an existing service.
   for (const key of Object.keys(SERVICE_FILES) as ServiceFile[]) {
     const path = options[key];
-    if (path && (!existsSync(path) || !statSync(path).isFile())) throw new Error('A relay role configuration file is missing or not regular');
+    if (!path) continue;
+    if (key === 'admissionHistoryDirectory') {
+      if (!existsSync(path) || !statSync(path).isDirectory()) throw new Error('The prepared protected history directory is missing or is not a directory');
+    } else if (!existsSync(path) || !statSync(path).isFile()) throw new Error('A relay role configuration file is missing or not regular');
   }
+}
+
+export function installRelayService(options: RelayServiceOptions): void {
+  validateRelayServicePaths(options);
   mkdirSync(options.dataDir, { recursive: true });
   if (process.platform === 'darwin') {
     const path = join(homedir(), 'Library/LaunchAgents', `${LABEL}.plist`);

@@ -9,6 +9,7 @@ import { generateSigningKeyPair, sign } from '../crypto.js';
 import { admissionKeyFingerprint, signAdmissionPolicy, verifyAdmissionPolicy, assertAdmissionPolicySuccessor,
   parseAdmissionPolicyBody, openAdmissionPolicyStore, type AdmissionPolicyBody, type AdmissionPolicyKey, type SignedAdmissionPolicy } from '../admission-policy.js';
 import { prepareAdmissionRotation, signAdmissionRotation, type AdmissionRotationRequest } from '../admission-rotation.js';
+import { openEncryptedLocalState } from '../local-encrypted-state.js';
 
 const key = generateSigningKeyPair(), authority = Buffer.from(key.publicKey).toString('base64url');
 let time: number, entries: AdmissionPolicyKey[], previous: SignedAdmissionPolicy, archived: SignedAdmissionPolicy;
@@ -29,6 +30,30 @@ beforeAll(async () => {
 function request(): AdmissionRotationRequest { return { version: 2, kind: 'admission-rotation-request', issuedAt: time,
   expiresAt: time + 86400000, archive: [previous.activeKey], retire: [], newKey: entries[8] }; }
 function body(): AdmissionPolicyBody { const { authority: _, signature: __, ...value } = archived; return structuredClone(value); }
+
+it('permanently binds protected history in the policy store across archive updates, restart and older readers', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'policy-history-binding-')), path = join(directory, 'policy.json'), encryptionKey = randomBytes(32);
+  const context = 'sha256:' + 'a'.repeat(64), different = 'sha256:' + 'b'.repeat(64);
+  let store: Awaited<ReturnType<typeof openAdmissionPolicyStore>> | undefined;
+  try {
+    store = await openAdmissionPolicyStore({ path, encryptionKey, mode: 'create-new', now: () => time });
+    expect(() => store!.bindProtectedHistory(context)).toThrow('installed policy');
+    await store.install(previous, authority);
+    expect(store.protectedHistoryContext()).toBeUndefined();
+    expect(() => store!.bindProtectedHistory('invalid')).toThrow('valid context');
+    store.bindProtectedHistory(context); store.bindProtectedHistory(context);
+    expect(() => store!.bindProtectedHistory(different)).toThrow('already pinned');
+    await store.install(archived, authority); store.close(); store = undefined;
+    const retained = readFileSync(path);
+    expect(() => openEncryptedLocalState<{ version: 1 }>({ path, key: encryptionKey, domain: 'resonance:admission-policy:v1', maxBytes: 1024 * 1024,
+      mode: 'open-existing', initial: { version: 1 }, validate: (value): value is { version: 1 } => !!value && typeof value === 'object' && 'version' in value && value.version === 1 })).toThrow();
+    expect(readFileSync(path)).toEqual(retained);
+    store = await openAdmissionPolicyStore({ path, encryptionKey, mode: 'open-existing', now: () => time });
+    expect(store.protectedHistoryContext()).toBe(context); expect(store.current()).toEqual(archived);
+    await expect(store.install(previous, authority)).rejects.toThrow();
+    expect(store.protectedHistoryContext()).toBe(context); expect(readFileSync(path)).toEqual(retained);
+  } finally { store?.close(); encryptionKey.fill(0); rmSync(directory, { recursive: true, force: true }); }
+});
 
 it('preserves the exact v1 signing payload and authenticates every v2 archive field', async () => {
   const legacyPayload = Buffer.from('resonance:admission-policy:v1\n' + JSON.stringify([

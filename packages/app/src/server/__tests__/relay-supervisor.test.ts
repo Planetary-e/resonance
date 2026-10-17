@@ -1,24 +1,41 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  linuxServiceUnit, macServicePlist, windowsServiceTask, relayServiceRuntime, relayServiceEnvironment,
+  linuxServiceUnit, macServicePlist, windowsServiceTask, relayServiceRuntime, relayServiceEnvironment, validateRelayServicePaths,
   type RelayServiceOptions,
 } from '../relay-supervisor.js';
 
 afterEach(() => vi.unstubAllEnvs());
 
 describe('desktop relay service definitions', () => {
+  it('validates prepared directory paths separately from regular files before any native service action', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'relay-role-paths-')), file = join(directory, 'fixture-file'), history = join(directory, 'history');
+    writeFileSync(file, 'path validation fixture'); mkdirSync(history);
+    const options: RelayServiceOptions = { dataDir: directory, port: 9091, adminKey: 'test-only', contacts: [],
+      nodePath: process.execPath, entryPath: file, workingDirectory: directory,
+      admissionHistoryFile: file, admissionAuthorityFile: file, admissionPolicyFile: file, admissionPolicyKeyFile: file,
+      admissionHistoryDirectory: history };
+    try {
+      expect(() => validateRelayServicePaths(options)).not.toThrow();
+      expect(() => validateRelayServicePaths({ ...options, admissionHistoryDirectory: file })).toThrow('not a directory');
+      expect(() => validateRelayServicePaths({ ...options, admissionHistoryDirectory: join(directory, 'absent') })).toThrow('missing');
+      expect(() => validateRelayServicePaths({ ...options, admissionHistoryFile: history })).toThrow('not regular');
+      expect(() => validateRelayServicePaths({ ...options, admissionHistoryFile: undefined })).toThrow('require');
+      expect(() => validateRelayServicePaths({ ...options, entryPath: history })).toThrow('runtime is missing');
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
   it('retains complete owner/bridge paths, applies only explicit overrides and refuses partial admission configuration', () => {
     vi.stubEnv('RESONANCE_RELAY_ENTRY', '/opt/Resonance/relay.mjs');
     const retained = { identityPassphraseFile: '/private/passphrase.txt', historyBridgeFile: '/private/bridge.json', admissionHistoryFile: '/private/history.json',
       admissionHistoryLinksFile: '/private/links.json', admissionAuthorityFile: '/private/authority.pub',
-      admissionPolicyFile: '/private/policy.json', admissionPolicyKeyFile: '/private/storage.hex', publicEndpoints: ['wss://bridge.example/'] };
+      admissionPolicyFile: '/private/policy.json', admissionPolicyKeyFile: '/private/storage.hex', admissionHistoryDirectory: '/private/restored history', publicEndpoints: ['wss://bridge.example/'] };
     for (const variable of ['IDENTITY_PASSPHRASE', 'HISTORY_VOLUNTEER', 'HISTORY_BRIDGE', 'ADMISSION_HISTORY', 'ADMISSION_HISTORY_LINKS', 'ADMISSION_AUTHORITY', 'ADMISSION_POLICY', 'ADMISSION_POLICY_KEY']) {
       vi.stubEnv(`RESONANCE_RELAY_${variable}_FILE`, undefined);
     }
     vi.stubEnv('RESONANCE_RELAY_PUBLIC_ENDPOINTS', undefined);
+    vi.stubEnv('RESONANCE_RELAY_ADMISSION_HISTORY_DIRECTORY', undefined);
     const runtime = relayServiceRuntime(retained);
     for (const [key, value] of Object.entries(retained)) {
       expect(runtime[key as keyof typeof retained]).toEqual(Array.isArray(value) ? value : resolve(value));
@@ -30,6 +47,7 @@ describe('desktop relay service definitions', () => {
     vi.stubEnv('RESONANCE_RELAY_ADMISSION_POLICY_KEY_FILE', '');
     expect(() => relayServiceRuntime(retained)).toThrow(/all three/);
     expect(() => relayServiceRuntime({ admissionHistoryLinksFile: '/private/links.json' })).toThrow(/require/);
+    expect(() => relayServiceRuntime({ admissionHistoryDirectory: '/private/restored' })).toThrow(/require/);
     expect(() => relayServiceRuntime({ historyVolunteerFile: '/private/config\nEnvironment=UNSAFE' })).toThrow(/path/);
     vi.stubEnv('RESONANCE_RELAY_PUBLIC_ENDPOINTS', 'ws://public.example/');
     expect(() => relayServiceRuntime()).toThrow();
@@ -56,6 +74,7 @@ describe('desktop relay service definitions', () => {
       historyBridgeFile: '/private/bridge.json', admissionHistoryFile: '/private/history.json',
       admissionHistoryLinksFile: '/private/links.json', admissionAuthorityFile: '/private/authority.pub',
       admissionPolicyFile: '/private/policy.json', admissionPolicyKeyFile: '/private/storage.hex',
+      admissionHistoryDirectory: '/private/restored history',
       publicEndpoints: ['wss://bridge.example/'],
       identityPassphraseFile: '/private/identity-passphrase.txt',
       controls: {

@@ -119,18 +119,35 @@ export function assertAdmissionPolicySuccessor(previous: AdmissionPolicyBody, ne
     }
   }
 }
-interface State { version: 1; authority: string | null; policy: SignedAdmissionPolicy | null }
+type State = { version: 1; authority: string | null; policy: SignedAdmissionPolicy | null }
+  | { version: 2; authority: string; policy: SignedAdmissionPolicy; protectedHistoryContext: string };
+const historyContextId = (value: unknown): value is string => typeof value === 'string' && /^sha256:[a-f0-9]{64}$/.test(value);
 /** The caller supplies a local storage key; signed content and the authority are public metadata. */
 export async function openAdmissionPolicyStore(options: { path: string; encryptionKey: Uint8Array; now?: () => number; mode?: 'create-new' | 'open-existing' }) {
   const storage = openEncryptedLocalState<State>({ path: options.path, key: options.encryptionKey, domain: DOMAIN, maxBytes: 1024 * 1024,
     mode: options.mode, initial: { version: 1, authority: null, policy: null },
-    validate: (value): value is State => exact(value, ['version','authority','policy']) && value.version === 1
-      && ((value.authority === null && value.policy === null) || (bytes(value.authority, 32) && !!value.policy)) });
+    validate: (value): value is State => (exact(value, ['version','authority','policy']) && value.version === 1
+      && ((value.authority === null && value.policy === null) || (bytes(value.authority, 32) && !!value.policy)))
+      || (exact(value, ['version','authority','policy','protectedHistoryContext']) && value.version === 2
+        && bytes(value.authority, 32) && !!value.policy && historyContextId(value.protectedHistoryContext)) });
   let busy = false;
   try { const state = storage.read(); if (state.policy) await verifyAdmissionPolicy(state.policy, state.authority!); }
   catch (error) { storage.close(); throw error; }
   return {
     current() { const state = storage.read(); return state.policy ? structuredClone(state.policy) : undefined; },
+    protectedHistoryContext() { const state = storage.read(); return state.version === 2 ? state.protectedHistoryContext : undefined; },
+    /** Caller must verify prepared history before permanently binding its context.
+     * This local format fence survives policy updates and rejects older readers. */
+    bindProtectedHistory(contextId: string) {
+      const state = storage.read();
+      if (busy) throw new Error('Policy update is already in progress');
+      if (!historyContextId(contextId) || !state.policy || !state.authority) throw new Error('A protected history binding requires an installed policy and valid context');
+      if (state.version === 2) {
+        if (state.protectedHistoryContext !== contextId) throw new Error('Protected history context is already pinned');
+        return;
+      }
+      storage.write({ version: 2, authority: state.authority, policy: state.policy, protectedHistoryContext: contextId });
+    },
     async install(value: unknown, authority: string) {
       const initial = storage.read(); if (busy) throw new Error('Policy update is already in progress');
       if (initial.authority && initial.authority !== authority) throw new Error('Community authority is already pinned');
@@ -140,7 +157,7 @@ export async function openAdmissionPolicyStore(options: { path: string; encrypti
         const previous = storage.read().policy;
         assertAdmissionPolicyCurrent(next, (options.now ?? Date.now)());
         if (previous) assertAdmissionPolicySuccessor(previous, next);
-        if (!previous || admissionPolicyDigest(previous) !== admissionPolicyDigest(next)) storage.write({ version: 1, authority, policy: next });
+        if (!previous || admissionPolicyDigest(previous) !== admissionPolicyDigest(next)) storage.write({ ...storage.read(), authority, policy: next });
         return structuredClone(next);
       } finally { busy = false; }
     },

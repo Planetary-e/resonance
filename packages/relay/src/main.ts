@@ -137,6 +137,10 @@ if (policyFiles.some(Boolean) && (!policyFiles.every(Boolean) || admissionSettin
   throw new Error('Supply all three signed admission policy files and omit the manual issuer settings');
 }
 const historyFile = process.env.RELAY_ADMISSION_HISTORY_FILE;
+const historyDirectory = process.env.RELAY_ADMISSION_HISTORY_DIRECTORY || undefined;
+if (historyDirectory && (!historyFile || historyDirectory.length > 4096 || /[\x00-\x1f\x7f]/.test(historyDirectory) || !historyDirectory.trim())) {
+  throw new Error('A separate admission history directory requires protected history and a valid path');
+}
 const historyLinksFile = process.env.RELAY_ADMISSION_HISTORY_LINKS_FILE;
 if (historyLinksFile && !historyFile) throw new Error('History relay links require RELAY_ADMISSION_HISTORY_FILE');
 if (historyFile && !policyFiles.every(Boolean)) throw new Error('Protected history requires all three signed admission policy files');
@@ -187,7 +191,7 @@ async function openAdmission() {
       ? await createConfiguredAdmissionVerifier({ directory: relayDataDir, authority: policyFile(policyFiles[0]!).trim(),
         policy: JSON.parse(policyFile(policyFiles[1]!, MAX_ADMISSION_POLICY_BYTES)), encryptionKey: Buffer.from(policyKeyHex!, 'hex'),
         initialize: process.env.RELAY_ADMISSION_POLICY_INITIALIZE === 'true', witnessKey, coordinatorKey,
-        historyProtection, initializeSpendHistory: historyProtection ? false : undefined,
+        historyProtection, historyDirectory, initializeSpendHistory: historyProtection ? false : undefined,
         onWitnessSocket: socket => resourceMeter.observe(socket),
         initializeWitnessState: process.env.RELAY_ADMISSION_WITNESS_INITIALIZE === 'true' ? true : undefined })
       : admissionSettings.every(Boolean)
