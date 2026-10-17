@@ -1,0 +1,103 @@
+import { afterEach, expect, it, vi } from 'vitest';
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fork } from 'node:child_process';
+import { once } from 'node:events';
+import { fileURLToPath } from 'node:url';
+import { inventoryRelayHistoryStorage, retainRelayHistoryOperationLocations } from '../history-storage.js';
+import type { RelayHistorySetupInput } from '../history-setup.js';
+import { acquireLocalStateLock } from '@resonance/core/local-state';
+import { readRelayStorageRegistry, retainRelayStorageRegistry, RELAY_STORAGE_REGISTRY_DIRECTORY } from '../history-storage-registry.js';
+
+vi.mock('node:fs', async original => { const fs = await original<typeof import('node:fs')>(); return { ...fs, renameSync: vi.fn(fs.renameSync) }; });
+const actualFs = await vi.importActual<typeof import('node:fs')>('node:fs');
+const cleanup: Array<() => unknown | Promise<unknown>> = [];
+afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); vi.mocked(renameSync).mockImplementation(actualFs.renameSync); });
+function fixture() {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'resonance-location-registry-')));
+  cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
+  const runtime = join(directory, 'relay-data'), target = join(directory, 'owner-history'); mkdirSync(runtime);
+  const registry = join(directory, RELAY_STORAGE_REGISTRY_DIRECTORY), manifest = join(registry, 'locations.json');
+  return { directory, runtime, target, registry, manifest };
+}
+it('retains committed planned roots across failed operations, later selection and aliases without creating those roots', () => {
+  const n = fixture(); expect(readRelayStorageRegistry(n.runtime)).toEqual([]);
+  retainRelayStorageRegistry(n.runtime, [n.runtime, n.target]);
+  expect(actualFs.existsSync(n.target)).toBe(false);
+  const next = join(n.directory, 'volunteer'); retainRelayStorageRegistry(n.runtime, [n.runtime, next]);
+  expect(readRelayStorageRegistry(n.runtime)).toEqual([n.target, n.runtime, next].sort());
+  if (process.platform !== 'win32') {
+    const alias = join(n.directory, 'runtime-alias'); symlinkSync(n.runtime, alias);
+    retainRelayStorageRegistry(n.runtime, [alias]);
+    expect(readRelayStorageRegistry(n.runtime)).toEqual([n.target, n.runtime, next].sort());
+  }
+});
+it('rejects competing writers and failed registry replacement before the caller can create history', () => {
+  const n = fixture(); retainRelayStorageRegistry(n.runtime, [n.runtime]); const before = readFileSync(n.manifest);
+  const release = acquireLocalStateLock(n.registry);
+  try { expect(() => retainRelayStorageRegistry(n.runtime, [n.target])).toThrow(/already open/); }
+  finally { release(); }
+  vi.mocked(renameSync).mockImplementation(() => { throw new Error('Injected registry replacement failure'); });
+  expect(() => { retainRelayStorageRegistry(n.runtime, [n.target]); mkdirSync(n.target); }).toThrow(/Injected/);
+  expect(actualFs.existsSync(n.target)).toBe(false); expect(readFileSync(n.manifest)).toEqual(before);
+  expect(readRelayStorageRegistry(n.runtime)).toEqual([n.runtime]);
+});
+it('refuses missing or malformed authoritative state and changed canonical paths without initializing again', () => {
+  const n = fixture(); mkdirSync(n.registry);
+  expect(() => retainRelayStorageRegistry(n.runtime, [n.runtime])).toThrow(/incomplete/);
+  writeFileSync(n.manifest, 'partial'); expect(() => readRelayStorageRegistry(n.runtime)).toThrow();
+  writeFileSync(n.manifest, JSON.stringify({ version: 1, kind: 'relay-storage-locations', directories: [n.runtime] }));
+  writeFileSync(join(n.registry, 'unknown'), 'retain me'); expect(() => readRelayStorageRegistry(n.runtime)).toThrow(/unexpected/);
+  rmSync(join(n.registry, 'unknown'));
+  if (process.platform !== 'win32') {
+    const moved = n.runtime + '-moved'; renameSync(n.runtime, moved); symlinkSync(moved, n.runtime);
+    expect(() => readRelayStorageRegistry(n.runtime)).toThrow(/paths changed/);
+  }
+});
+it('rejects a full location registry without dropping previous roots or creating output', () => {
+  const n = fixture(), roots = Array.from({ length: 128 }, (_, index) => join(n.directory, `kept-${index}`));
+  retainRelayStorageRegistry(n.runtime, roots);
+  expect(() => retainRelayStorageRegistry(n.runtime, [n.target])).toThrow(/128/);
+  expect(readRelayStorageRegistry(n.runtime)).toEqual(roots.sort()); expect(actualFs.existsSync(n.target)).toBe(false);
+});
+it.skipIf(process.platform === 'win32').each(['initial-directory', 'initial-partial-manifest', 'before-rename', 'after-rename', 'registered', 'written'])(
+  'preserves the correct committed locations after SIGKILL at %s', async boundary => {
+    const n = fixture(); if (!boundary.startsWith('initial-')) retainRelayStorageRegistry(n.runtime, [n.runtime]);
+    const child = fork(fileURLToPath(new URL('./fixtures/storage-registry-crash.ts', import.meta.url)), [], {
+      execArgv: ['--import', 'tsx'], stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
+    });
+    let error = ''; child.stderr?.on('data', bytes => { error += bytes.toString(); });
+    const exited = once(child, 'exit'), timer = setTimeout(() => child.kill('SIGKILL'), 15000);
+    try {
+      expect((await once(child, 'message'))[0]).toBe('ready');
+      child.send({ runtime: n.runtime, target: n.target, boundary });
+      const [code, signal] = await exited; expect(code, error).toBe(null); expect(signal, error).toBe('SIGKILL'); expect(error).toBe('');
+      if (boundary.startsWith('initial-')) {
+        expect(() => readRelayStorageRegistry(n.runtime)).toThrow();
+        expect(() => retainRelayStorageRegistry(n.runtime, [n.runtime])).toThrow();
+        expect(actualFs.existsSync(n.target)).toBe(false); return;
+      }
+      expect(readRelayStorageRegistry(n.runtime)).toEqual(boundary === 'before-rename' ? [n.runtime] : [n.target, n.runtime].sort());
+      expect(actualFs.existsSync(join(n.target, 'created-output'))).toBe(boundary === 'written');
+      // A dead registry lock can be reclaimed; the next selection preserves every
+      // previously committed root, even if settings were never saved.
+      retainRelayStorageRegistry(n.runtime, [n.runtime]);
+      expect(readRelayStorageRegistry(n.runtime)).toEqual(boundary === 'before-rename' ? [n.runtime] : [n.target, n.runtime].sort());
+    } finally { clearTimeout(timer); if (child.exitCode === null && child.signalCode === null) { child.kill('SIGKILL'); await exited; } }
+  }, 20000);
+
+it('registers older settings locations before replacing a selection from before the registry existed', () => {
+  const n = fixture(), oldDirectory = join(n.directory, 'older-history');
+  const input: RelayHistorySetupInput = { role: 'owner', directory: oldDirectory, historyConfigFile: '/config', policyFile: '/policy', storageKeyFile: '/key', output: '/enrollment', mode: 'resume' };
+  const previous = { enabled: false, port: 12345, historySetupInput: input };
+  retainRelayHistoryOperationLocations({ ...previous, historySetupInput: { ...input, directory: n.target } }, n.runtime, previous);
+  expect(readRelayStorageRegistry(n.runtime)).toEqual([oldDirectory, n.target, n.runtime].sort());
+});
+
+it.skipIf(process.platform === 'win32')('omits private path names when resolving a saved inventory location fails', async () => {
+  const n = fixture(), alias = join(n.directory, 'private-history-alias');
+  symlinkSync(join(n.directory, 'missing-private-target'), alias);
+  const result = inventoryRelayHistoryStorage({ enabled: false, port: 12345, historyStorageDirectories: [alias] }, n.runtime, new AbortController().signal);
+  await expect(result).rejects.toThrow('Storage inventory unavailable: retained locations or their registry are missing, unreadable or changed');
+});

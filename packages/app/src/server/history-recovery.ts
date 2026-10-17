@@ -47,7 +47,7 @@ function canonicalDirectory(path: string): string {
 function contains(parent: string, child: string) {
   const path = relative(parent, child); return path === '' || (path !== '..' && !path.startsWith('../') && !path.startsWith('..\\') && !isAbsolute(path));
 }
-export async function runDesktopHistoryRecovery(action: RelayHistoryRecoveryAction, raw: unknown, approved: unknown, signal: AbortSignal, runtimeDirectory: string) {
+export async function runDesktopHistoryRecovery(action: RelayHistoryRecoveryAction, raw: unknown, approved: unknown, signal: AbortSignal, runtimeDirectory: string, beforeWrite?: (input: RelayHistoryRecoveryInput) => void) {
   if (!historyRecoveryActions.includes(action)) throw new Error('Unsupported history recovery operation');
   const input = parseRelayHistoryRecoveryInput(raw), mutating = ['start', 'restore', 'ready'].includes(action);
   if (mutating ? !isHistoryDigest(approved) : approved !== undefined) throw new Error('Supply the exact reviewed approval only when starting or restoring');
@@ -96,9 +96,11 @@ export async function runDesktopHistoryRecovery(action: RelayHistoryRecoveryActi
     const review = bind(original);
     if (mutating) {
       if (review.approvalDigest !== approved) throw new Error('Recovery approval or selection changed; review again');
+      beforeWrite?.(input); check();
       result = await run(action, ['--approve', String(original.approvalDigest), ...arguments_]);
     } else result = review;
   } else {
+    beforeWrite?.(input); check();
     result = await run(action, args);
     if (result.complete === true) {
       let destinationOccupied = false;

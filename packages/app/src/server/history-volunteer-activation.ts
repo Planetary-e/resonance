@@ -58,7 +58,7 @@ export function volunteerActivationServiceFiles(previous: RelayConfig) {
 
 export async function withRelayVolunteerActivation<T>(raw: unknown, previous: RelayConfig, runtimeDirectory: string, signal: AbortSignal,
   operation: (prepared: { review: Record<string, unknown>; input: RelayVolunteerActivationInput; binding: RelayVolunteerBinding;
-    apply: (digest: string) => { result: 'volunteer-service-configured'; startsService: false; readiness: 'unverified' };
+    apply: (digest: string, beforeWrite?: () => void) => { result: 'volunteer-service-configured'; startsService: false; readiness: 'unverified' };
     runtime: ReturnType<typeof relayServiceRuntime> }) => Promise<T>): Promise<T> {
   signal.throwIfAborted(); const input = parseRelayVolunteerActivationInput(raw);
   const canonical = () => pathFields.map(field => [field, canonicalHistorySetupPath(input[field])]);
@@ -109,9 +109,10 @@ export async function withRelayVolunteerActivation<T>(raw: unknown, previous: Re
     };
     check(); let applied = false;
     return await operation({ input, binding, runtime, review,
-      apply(approved: string) {
+      apply(approved: string, beforeWrite?: () => void) {
         if (applied || approved !== review.approvalDigest) throw new Error('Volunteer activation approval changed or was already applied');
-        check(); outputAbsent(); writeOperatorJsonNew(output, rawConfig, 65536); check();
+        check(); outputAbsent(); beforeWrite?.(); check(); outputAbsent();
+        writeOperatorJsonNew(output, rawConfig, 65536); check();
         validateRelayServicePaths({ ...runtime, dataDir: getDataDir(), port: previous.port, adminKey: previous.adminKey ?? '', contacts: previous.contacts ?? [], controls: previous.controls });
         applied = true; return { result: 'volunteer-service-configured', startsService: false, readiness: 'unverified' };
       } });

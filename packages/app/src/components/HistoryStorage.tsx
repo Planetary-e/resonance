@@ -10,7 +10,7 @@ export default function HistoryStorage({ onBusyChange, blocked = false }: { onBu
   }
   return <section className="relay-section" aria-label="History storage inventory">
     <h4>Stored relay and history files</h4>
-    <p className="text-sm">Measure the relay folder and saved owner, volunteer and recovery locations while paused. Earlier saved locations remain included. Files created elsewhere must be checked separately.</p>
+    <p className="text-sm">Measure the relay folder and known owner, volunteer and recovery locations while paused. Locations from earlier approved operations remain included, even if the operation did not finish. Files created elsewhere must be checked separately.</p>
     <button className="btn btn-secondary" type="button" disabled={busy || blocked} onClick={() => { void measure(); }}>Measure stored files</button>
     {busy && <button className="btn btn-secondary" type="button" onClick={() => { void cancelRelayHistoryOperation(); }}>Cancel measurement</button>}
     {result && <HistoryStorageResult result={result} />}

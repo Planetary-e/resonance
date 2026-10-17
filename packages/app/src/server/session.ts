@@ -3,7 +3,7 @@
  * Single shared session for the app lifetime.
  */
 
-import { inventoryRelayHistoryStorage, retainRelayStorageDirectories } from './history-storage.js';
+import { inventoryRelayHistoryStorage, retainRelayStorageDirectories, retainRelayHistoryOperationLocations } from './history-storage.js';
 import { parseStorageDirectories } from '@resonance/relay';
 import {
   assertSecureRelayTransportEndpoint,
@@ -414,7 +414,8 @@ export async function applyRelayVolunteerActivation(input: unknown, digest: stri
   return runRelayHistoryOperation(async operationSignal => {
     const previous = loadRelayConfig();
     return withRelayVolunteerActivation(input, previous, join(getDataDir(), 'relay-data'), operationSignal, async prepared => {
-      const result = prepared.apply(digest);
+      const result = prepared.apply(digest, () => retainRelayHistoryOperationLocations(
+        { ...previous, historyVolunteerActivationInput: prepared.input }, join(getDataDir(), 'relay-data'), previous));
       saveRelayConfig({ ...previous, enabled: false, runtime: prepared.runtime, historyVolunteerActivationInput: prepared.input, historyVolunteerBinding: prepared.binding });
       return { ...result, maintenanceActive: true };
     });
@@ -422,14 +423,16 @@ export async function applyRelayVolunteerActivation(input: unknown, digest: stri
 }
 export async function performRelayHistorySetup(action: 'review' | 'apply', input: unknown, approval?: unknown, signal?: AbortSignal) {
   return runRelayHistoryOperation(async operationSignal => {
-    const previous = loadRelayConfig(), outcome = await runDesktopHistorySetup(action, input, approval, operationSignal, join(getDataDir(), 'relay-data'));
+    const previous = loadRelayConfig(), outcome = await runDesktopHistorySetup(action, input, approval, operationSignal, join(getDataDir(), 'relay-data'),
+      selection => { if (selection.role !== 'configuration') retainRelayHistoryOperationLocations({ ...previous, historySetupInput: selection }, join(getDataDir(), 'relay-data'), previous); });
     if (action === 'apply') saveRelayConfig({ ...previous, historySetupInput: outcome.input });
     return outcome;
   }, signal);
 }
 export async function performRelayHistoryRecovery(action: RelayHistoryRecoveryAction, input: unknown, approval?: unknown, signal?: AbortSignal) {
   return runRelayHistoryOperation(async operationSignal => {
-    const previous = loadRelayConfig(), outcome = await runDesktopHistoryRecovery(action, input, approval, operationSignal, join(getDataDir(), 'relay-data'));
+    const previous = loadRelayConfig(), outcome = await runDesktopHistoryRecovery(action, input, approval, operationSignal, join(getDataDir(), 'relay-data'),
+      selection => retainRelayHistoryOperationLocations({ ...previous, historyRecoveryInput: selection }, join(getDataDir(), 'relay-data'), previous));
     if (!['plan', 'review', 'readiness-plan'].includes(action)) saveRelayConfig({ ...previous, historyRecoveryInput: outcome.input });
     return outcome.result;
   }, signal);
@@ -446,6 +449,8 @@ export async function applyRelayHistoryActivation(input: unknown, approvalDigest
     const previous = loadRelayConfig();
     return withRelayHistoryActivation(input, previous, join(getDataDir(), 'relay-data'), operationSignal,
       async ({ activation, runtime, input: selection, checkInputs }) => {
+        if (approvalDigest !== activation.review().approvalDigest) throw new Error('Activation approval does not match; review current history and settings again');
+        retainRelayHistoryOperationLocations({ ...previous, historyActivationInput: selection }, join(getDataDir(), 'relay-data'), previous);
         const result = await activation.apply(approvalDigest); checkInputs();
         saveRelayConfig({ ...previous, enabled: false, runtime, historyActivationInput: selection });
         return { ...result, result: 'owner-service-configured' as const, maintenanceActive: true as const };

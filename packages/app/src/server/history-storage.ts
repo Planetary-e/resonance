@@ -2,9 +2,10 @@
 import { canonicalHistorySetupPath, measureStorageDirectories, parseStorageDirectories } from '@resonance/relay';
 import { readHistoryVolunteerConfigurationFile } from '../../../relay/src/history-volunteer-config.js';
 import type { RelayConfig } from './session.js';
+import { readRelayStorageRegistry, retainRelayStorageRegistry } from './history-storage-registry.js';
 
 export function relayStorageDirectories(config: RelayConfig, runtimeDirectory: string): string[] {
-  const directories = [runtimeDirectory, ...(config.historyStorageDirectories ?? [])];
+  const directories = [runtimeDirectory, ...(config.historyStorageDirectories ?? []), ...readRelayStorageRegistry(runtimeDirectory)];
   if (config.runtime?.admissionHistoryDirectory) directories.push(config.runtime.admissionHistoryDirectory);
   if (config.historyActivationInput) directories.push(config.historyActivationInput.historyDirectory);
   if (config.historyVolunteerActivationInput) directories.push(config.historyVolunteerActivationInput.directory);
@@ -21,5 +22,15 @@ export function retainRelayStorageDirectories(next: RelayConfig, previous: Relay
   return { ...next, historyStorageDirectories: parseStorageDirectories(directories) };
 }
 export async function inventoryRelayHistoryStorage(config: RelayConfig, runtimeDirectory: string, signal: AbortSignal) {
-  return measureStorageDirectories(relayStorageDirectories(config, runtimeDirectory), { signal });
+  try { return await measureStorageDirectories(relayStorageDirectories(config, runtimeDirectory), { signal }); }
+  catch (error) {
+    signal.throwIfAborted();
+    if ((error as NodeJS.ErrnoException).code) throw new Error('Storage inventory unavailable: retained locations or their registry are missing, unreadable or changed');
+    throw error;
+  }
+}
+
+export function retainRelayHistoryOperationLocations(config: RelayConfig, runtimeDirectory: string, previous?: RelayConfig) {
+  const directories = [...relayStorageDirectories(config, runtimeDirectory), ...(previous ? relayStorageDirectories(previous, runtimeDirectory) : [])];
+  retainRelayStorageRegistry(runtimeDirectory, [...new Set(directories)]);
 }

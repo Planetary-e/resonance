@@ -45,7 +45,7 @@ export function parseRelayHistorySetupInput(value: unknown): RelayHistorySetupIn
   return input as unknown as RelayHistorySetupInput;
 }
 
-export async function runDesktopHistorySetup(action: 'review' | 'apply', raw: unknown, approved: unknown, signal: AbortSignal, runtimeDirectory: string) {
+export async function runDesktopHistorySetup(action: 'review' | 'apply', raw: unknown, approved: unknown, signal: AbortSignal, runtimeDirectory: string, beforeWrite?: (input: RelayHistorySetupInput) => void) {
   if (!['review', 'apply'].includes(action) || (action === 'apply' ? !isHistoryDigest(approved) : approved !== undefined)) throw new Error('Setup apply needs the exact reviewed approval');
   let input = parseRelayHistorySetupInput(raw); signal.throwIfAborted();
   const target = input.role === 'configuration' ? input.output : input.directory;
@@ -104,6 +104,7 @@ export async function runDesktopHistorySetup(action: 'review' | 'apply', raw: un
     let result: object = review;
     if (action === 'apply') {
       if (approved !== review.approvalDigest) throw new Error('Setup approval or selection changed; review again');
+      beforeWrite?.(input); check();
       result = await apply(String(original.approvalDigest)); check();
       if ('approvalDigest' in result) { const { approvalDigest: _, ...completed } = result; result = completed; }
     }

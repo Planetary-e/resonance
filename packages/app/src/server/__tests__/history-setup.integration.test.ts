@@ -98,6 +98,7 @@ it('rejects arbitrary commands, changed selection, runtime overlap, aliases and 
   expect((await n.request('/api/relay/history/setup', { action: 'owner-ready', input })).status).toBe(409);
   expect((await n.request('/api/relay/history/setup', { action: 'apply', input, approvalDigest: review.body.result.approvalDigest, command: 'owner-ready' })).status).toBe(409);
   expect((await n.run('apply', { ...input, output: join(n.directory, 'different.json') }, review.body.result.approvalDigest)).status).toBe(409);
+  expect(existsSync(join(n.desktopDirectory, 'relay-storage-locations'))).toBe(false);
   expect(existsSync(n.input.directory)).toBe(false); expect(existsSync(n.input.output)).toBe(false);
 });
 
@@ -109,6 +110,9 @@ it('preserves prepared history after a settings write failure and permits a sepa
   try { expect((await n.run('apply', input, plan.body.result.approvalDigest)).body.error).toContain('Injected setup settings failure'); }
   finally { vi.mocked(renameSync).mockImplementation(actualFs.renameSync); }
   expect(readFileSync(settings)).toEqual(previous); const retained = readHistoryEnrollmentFile(n.input.output);
+  const inventory = await n.request('/api/relay/history/storage', {});
+  expect(inventory.status, JSON.stringify(inventory.body)).toBe(200);
+  expect(inventory.body).toMatchObject({ selectedDirectories: 2, scannedRoots: 2 });
   await n.request('/api/lock', {}); await n.unlock();
   expect((await n.run('review', input)).status).toBe(409);
   const output = join(n.directory, 'copy.json'), exported: RelayHistorySetupInput = { ...input, mode: 'export', output };
