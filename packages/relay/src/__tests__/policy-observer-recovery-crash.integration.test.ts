@@ -1,7 +1,7 @@
 import { afterEach, expect, it } from 'vitest';
 import { fork } from 'node:child_process';
 import { once } from 'node:events';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { openPolicyObserverRecovery, preparePolicyObserverRecovery, POLICY_OBSERVER_RECOVERY_FILENAME } from '../policy-observer-recovery.js';
 import { openProtectedPolicyObserver } from '../protected-policy-observer.js';
@@ -28,8 +28,12 @@ it.each(boundaries)('preserves the source floor and resumable policy recovery af
   expect((await Promise.race([once(child, 'message'), exited.then(() => { throw new Error('Child exited before ready'); })]))[0]).toBe('ready');
   const { now: _, transport: __, ...observerOptions } = n.options;
   const { transport: ___, agreementTransport: ____, dataTransport: _____, provisionTransport: ______, ...recoveryOptions } = n.recoveryOptions;
-  child.send({ boundary, now: n.now, observerOptions, recoveryOptions }); await exited;
-  expect(messages).toEqual(['ready']); expect(child.signalCode).toBe('SIGKILL');
+  const marker = join(n.directory, 'recovery-crash-marker');
+  child.send({ boundary, marker, now: n.now, observerOptions, recoveryOptions }); await exited;
+  expect(messages).toEqual(['ready']); expect(readFileSync(marker, 'utf8')).toBe(boundary);
+  // Windows implements forced termination without a Unix signalCode.
+  if (process.platform !== 'win32') expect(child.signalCode).toBe('SIGKILL');
+  else expect(child.exitCode).not.toBe(0);
   const source = await openProtectedPolicyObserver({ ...n.options, mode: 'open-existing' }); cleanup.push(source.close);
   expect(source.recoveryState()).toEqual(minimum); expect(source.status().fenced).toBe(boundary !== 'before-fence');
   const published = existsSync(join(recoveryOptions.directory, POLICY_OBSERVER_RECOVERY_FILENAME));

@@ -19,11 +19,12 @@ process.once('message', async (input: any) => {
     const target = boundary.includes('fence') ? join(observerDirectory, POLICY_OBSERVER_RECOVERY_FENCE) : join(directory, POLICY_OBSERVER_RECOVERY_FILENAME);
     const nth = setup || boundary.includes('intent') || boundary === 'after-confirm' ? 1 : boundary.includes('register') ? 2 : 3;
     const before = boundary.startsWith('before-'); let calls = 0;
+    const stop = () => { fs.writeFileSync(input.marker, boundary); process.kill(process.pid, 'SIGKILL'); };
     fs.renameSync = (from, to) => {
-      const stop = String(to) === target && ++calls === nth;
-      if (stop && before) process.kill(process.pid, 'SIGKILL');
+      const atBoundary = String(to) === target && ++calls === nth;
+      if (atBoundary && before) stop();
       original(from, to);
-      if (stop && !before) process.kill(process.pid, 'SIGKILL');
+      if (atBoundary && !before) stop();
     };
     syncBuiltinESMExports();
     const recovery = await openPolicyObserverRecovery({ ...input.recoveryOptions, directory,
