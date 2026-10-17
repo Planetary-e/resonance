@@ -8,6 +8,7 @@ import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointContextId, historyCheckpoi
   parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { HISTORY_RECOVERY_MAX_BLOCKS, HISTORY_RECOVERY_MAX_BYTES } from '@resonance/core/history-exchange';
 import type { createHistoryCheckpointWriter } from './history-checkpoint-quorum.js';
+import { reserveHistoryStorage } from './history-storage-reservation.js';
 import { registerHistoryWriterPrefix } from './history-writer-prefix.js';
 
 export const HISTORY_WRITER_ARCHIVE_FILENAME = 'history-writer-payloads.json';
@@ -61,8 +62,11 @@ export function openHistoryWriterArchive(options: {
     }
     return writer;
   }
+  let reservation: ReturnType<typeof reserveHistoryStorage>;
   try {
     const writer = writerState();
+    reservation = reserveHistoryStorage({ directory, component: 'history-writer-ciphertext', ciphertextBytes: maxBytes,
+      manifestFilename: HISTORY_WRITER_ARCHIVE_FILENAME, manifestBytes: MANIFEST_BYTES });
     if (options.initialize) {
       if (writer.committed) throw new Error('Cannot initialize an archive for an already committed writer');
       if (existsSync(directory)) {
@@ -102,7 +106,7 @@ export function openHistoryWriterArchive(options: {
   } catch (error) { storage!?.close(); throw error; }
   function open() {
     if (closed || failed) throw new Error('Writer archive closed or write failed; reopen before reuse');
-    storage.read();
+    reservation.assertWritable(); storage.read();
   }
   function retainPending() {
     open(); const writer = anchor(), pending = writer.pending;

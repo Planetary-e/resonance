@@ -1,6 +1,7 @@
 /** Fsynced, short-lived replay evidence for private entry and destination layers. */
 
 import { createHash, randomUUID } from 'node:crypto';
+import { reserveManagedStorage, type StorageReservationLease } from '@resonance/core/storage-reservations';
 import {
   closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync,
   renameSync, rmSync, truncateSync, writeFileSync,
@@ -18,6 +19,7 @@ interface LogLine extends PrivateReplayRecordV1 {
 
 export class PrivateReplayLog {
   private readonly path: string;
+  private readonly reservation: StorageReservationLease | undefined;
   private readonly active = new Map<string, number>();
   private byteLength = 0;
   private failed = false;
@@ -26,11 +28,13 @@ export class PrivateReplayLog {
     if (!Number.isSafeInteger(maxBytes) || maxBytes < 512 || maxBytes > DEFAULT_MAX_BYTES) {
       throw new Error('Invalid private replay log capacity');
     }
-    mkdirSync(directory, { recursive: true });
     this.path = join(directory, PRIVATE_REPLAY_LOG_FILENAME);
+    this.reservation = reserveManagedStorage({ path: this.path, component: 'private-replay-log', scope: 'file', maximumBytes: 2 * maxBytes });
+    mkdirSync(directory, { recursive: true });
   }
 
   load(now = Date.now()): PrivateReplayRecordV1[] {
+    this.reservation?.assertWritable();
     if (!Number.isSafeInteger(now) || now < 0) throw new Error('Invalid replay load time');
     this.failed = false;
     this.active.clear();
@@ -67,6 +71,7 @@ export class PrivateReplayLog {
 
   append(record: PrivateReplayRecordV1, now = Date.now()): void {
     if (this.failed) throw new Error('Private replay log requires restart after a write failure');
+    this.reservation?.assertWritable();
     if (!validRecord(record) || !Number.isSafeInteger(now) || now < 0
       || record.expiresAt <= now) throw new Error('Invalid private replay log append');
     this.prune(now);
@@ -92,6 +97,7 @@ export class PrivateReplayLog {
   }
 
   private compact(now: number): void {
+    this.reservation?.assertWritable();
     this.prune(now);
     const serialized = [...this.active].map(([id, expiresAt]) =>
       serialize({ id, expiresAt })).join('');

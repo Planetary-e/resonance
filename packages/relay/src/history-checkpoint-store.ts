@@ -6,6 +6,7 @@ import {
 import { dirname, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { openEncryptedLocalState } from '@resonance/core/local-state';
+import { reserveHistoryStorage } from './history-storage-reservation.js';
 import { exactWitnessFields } from '@resonance/core/admission-witness';
 import type { SigningKeyPair } from '@resonance/core';
 import { HISTORY_AGREEMENT_MAX_VIEW, parseHistoryAgreementFrame, parseHistoryAgreementRequest } from '@resonance/core/history-agreement';
@@ -104,6 +105,8 @@ export function inspectPristineHistoryGenesis(options: Pick<HistoryCheckpointSto
     return historyDigest(JSON.stringify(fingerprints));
   }
   contents();
+  const reservation = reserveHistoryStorage({ directory, component: 'history-replica-ciphertext',
+    ciphertextBytes: Buffer.byteLength(JSON.stringify(root)), manifestFilename: HISTORY_MANIFEST_FILENAME, manifestBytes: MAX_MANIFEST_BYTES });
   const storage = openEncryptedLocalState<Manifest>({ path: manifest, key: options.localKey, domain: DOMAIN, maxBytes: MAX_MANIFEST_BYTES,
     mode: 'open-existing', initial, validate: (value): value is Manifest => JSON.stringify(value) === JSON.stringify(initial) });
   let closed = false, completed = false;
@@ -112,7 +115,7 @@ export function inspectPristineHistoryGenesis(options: Pick<HistoryCheckpointSto
     return {
       reviewDigest() { storage.read(); return digest; },
       complete(expected: string) {
-        storage.read();
+        reservation.assertWritable(); storage.read();
         if (closed || completed || expected !== digest || contents() !== digest) throw new Error('Interrupted enrollment changed; inspect again');
         if (!existsSync(block)) {
           const temporary = join(directory, `.block-${randomBytes(16).toString('hex')}.tmp`), bytes = Buffer.from(JSON.stringify(root));
@@ -231,6 +234,8 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
       }
     }
   }
+  const reservation = reserveHistoryStorage({ directory, component: 'history-replica-ciphertext', ciphertextBytes: maxBytes - 2 * MAX_MANIFEST_BYTES,
+    manifestFilename: HISTORY_MANIFEST_FILENAME, manifestBytes: MAX_MANIFEST_BYTES });
   let root: HistoryCheckpointEnvelope | undefined;
   if (options.initialize) {
     root = parseHistoryCheckpointEnvelope(options.initialize, context);
@@ -261,7 +266,7 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
   let staged: HistoryCheckpointEnvelope[] = [];
   const blockPath = (id: string) => join(directory, `${id.slice(7)}.block`);
   function ensureOpen() {
-    storage.read();
+    reservation.assertWritable(); storage.read();
     if (failed) throw new Error('History storage write failed; close and reopen before reuse');
   }
   function fits(bytes: number, count: number) {
@@ -269,6 +274,7 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
       || ancestorBytes + blockBytes + bytes + 2 * MAX_MANIFEST_BYTES > MAX_ANCESTRY_BYTES) throw new Error('History storage capacity exceeded');
   }
   function writeImmutable(envelope: HistoryCheckpointEnvelope): number {
+    reservation.assertWritable();
     const bytes = Buffer.from(JSON.stringify(envelope)), id = historyCheckpointEnvelopeId(envelope);
     const temporary = join(directory, `.block-${randomBytes(16).toString('hex')}.tmp`);
     let fd: number | undefined;

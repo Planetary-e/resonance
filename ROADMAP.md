@@ -274,6 +274,7 @@ The five-target placement goal remains conditional on enough eligible volunteers
         - [x] Retain exact desktop configuration/enrollment output files before creation, preserve them across settings failure and process death, and inventory them without scanning unrelated parent folders
         - [ ] Account for control metadata and explicit operator output files; retain the distinction between relay-data and whole-device budgets (`docs/developers/v0.4-storage-writer-map.md`)
         - [x] Implement a durable shared reservation authority and optional encrypted-snapshot leases; reserve lifetime replacement peaks, retain allocations through process death and bind limit changes to current review
+        - [x] Add optional shared leases to journals, counters, diagnostics, history ciphertext, identity and manual spend writers; reserve block and manifest peaks before initialization and preserve existing work at full capacity
         - [ ] Persist cross-role reservations before writes, include replacement/repair headroom and prove recovery of interrupted reservations across runtime and CLI
   - [ ] Resolve authenticated policy freshness and migration beyond the bounded 64-configuration archive; never treat missing records as unused capacity or discard permanent denial evidence
   - [ ] Resolve same-key witness replacement, membership governance/freshness, and history compaction before enabling admission by default; fresh-key cohort rotation does not rescue stranded old tokens or remove finite history limits

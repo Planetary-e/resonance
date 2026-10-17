@@ -2,10 +2,12 @@
 import { closeSync, constants, fstatSync, ftruncateSync, lstatSync, mkdirSync, openSync, opendirSync, readSync, renameSync, writeSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { acquireLocalStateLock } from '@resonance/core/local-state';
+import { reserveManagedStorage } from '@resonance/core/storage-reservations';
 
 export const DIAGNOSTIC_FILE_BYTES = 1024 * 1024;
 export function openBoundedDiagnostics(directory: string, maximumFileBytes = DIAGNOSTIC_FILE_BYTES) {
   if (!isAbsolute(directory) || !Number.isSafeInteger(maximumFileBytes) || maximumFileBytes < 256 || maximumFileBytes > DIAGNOSTIC_FILE_BYTES) throw new Error('Invalid diagnostic storage bounds');
+  const reservation = reserveManagedStorage({ path: directory, component: 'relay-diagnostics', scope: 'directory', maximumBytes: 2 * maximumFileBytes + 8192 });
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   if (!lstatSync(directory).isDirectory() || lstatSync(directory).isSymbolicLink()) throw new Error('Diagnostic storage must be an ordinary directory');
   const names = new Set(['current.ndjson', 'previous.ndjson', 'writer.lock', 'writer.recovery']);
@@ -49,6 +51,7 @@ export function openBoundedDiagnostics(directory: string, maximumFileBytes = DIA
         bytes = Buffer.from(JSON.stringify({ event: 'diagnostic_record_dropped', originalBytes: bytes.length }) + '\n');
       }
       try {
+        reservation?.assertWritable();
         const stat = fstatSync(fd!), path = lstatSync(current);
         if (stat.size !== length || stat.nlink !== 1 || path.isSymbolicLink() || path.dev !== stat.dev || path.ino !== stat.ino) throw new Error('Diagnostic output changed');
         if (length + bytes.length > maximumFileBytes) {

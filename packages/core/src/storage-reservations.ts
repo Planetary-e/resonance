@@ -158,6 +158,8 @@ export function openStorageReservationAuthority(options: { directory: string; mo
       commit({ ...state, revision: state.revision + 1, limitBytes });
     },
     reserve(request: StorageReservationRequest): StorageReservationLease {
+      // A caller may reuse its options object; an issued lease keeps its original target.
+      request = { ...request };
       usable();
       const selected = canonical(request.path);
       if (inside(directory, selected) || !['file', 'directory'].includes(request.scope) || typeof request.component !== 'string' || !/^[A-Za-z0-9:._/-]{1,256}$/.test(request.component)

@@ -9,6 +9,7 @@ import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointContextId, historyCheckpoi
   parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { historySuccessorProposalId, parseHistorySuccessorProposal, type HistorySuccessorProposal } from '@resonance/core/history-successor';
 import { createHistoryExchangeRequest, parseHistoryExchangeRequest, parseHistoryExchangeResponse } from '@resonance/core/history-exchange';
+import { reserveHistoryStorage } from './history-storage-reservation.js';
 import { exchangeHistoryCheckpoint, type HistoryCheckpointTransport, type HistoryReplicaEndpoint } from './history-checkpoint-exchange.js';
 
 export const HISTORY_DOWNLOAD_FILENAME = 'history-download.json';
@@ -70,9 +71,11 @@ export function createHistoryAncestryDownload(options: {
     if (historyCheckpointEnvelopeId(block) !== id) throw new Error('Cached history digest mismatch');
     return { block, size: bytes.length };
   }
-  let storage: ReturnType<typeof openEncryptedLocalState<State>>;
+  let storage: ReturnType<typeof openEncryptedLocalState<State>>, reservation: ReturnType<typeof reserveHistoryStorage>;
   try {
     if (Buffer.from(key.publicKey).toString('base64url') !== context.owner) throw new Error('Wrong history download owner');
+    reservation = reserveHistoryStorage({ directory, component: 'history-download-ciphertext', ciphertextBytes: maxBytes - 2 * MANIFEST_BYTES,
+      manifestFilename: HISTORY_DOWNLOAD_FILENAME, manifestBytes: MANIFEST_BYTES });
     if (options.initialize) {
       if (existsSync(directory) && readdirSync(directory).length) throw new Error('History download directory is not empty');
       if (!existsSync(directory)) mkdirSync(directory, { mode: 0o700 });
@@ -101,7 +104,7 @@ export function createHistoryAncestryDownload(options: {
   } catch (error) { storage!?.close(); key.secretKey.fill(0); throw error; }
   function ensureOpen() {
     if (closed || failed) throw new Error('History download closed or write failed; reopen before reuse');
-    storage.read();
+    reservation.assertWritable(); storage.read();
   }
   function status() {
     ensureOpen();

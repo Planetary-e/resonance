@@ -5,6 +5,7 @@ import {
   openSync, readSync, renameSync, writeSync, type Stats,
 } from 'node:fs';
 import { dirname } from 'node:path';
+import { reserveManagedStorage } from '@resonance/core/storage-reservations';
 
 export const RESOURCE_CHECKPOINT_BYTES = 4096;
 function present(path: string) {
@@ -37,6 +38,7 @@ function readBytes(path: string): Buffer | undefined {
 /** The previous file remains authoritative if a replacement was interrupted.
  * A partial first write cannot be mistaken for unused/reset counters. */
 export function openResourceCheckpoint<T>(path: string, validate: (value: unknown) => value is T) {
+  const reservation = reserveManagedStorage({ path, component: 'resource-checkpoint', scope: 'file', maximumBytes: 2 * RESOURCE_CHECKPOINT_BYTES });
   const temporary = `${path}.next`;
   let expected = readBytes(path), value: T | undefined, failed = false;
   const pending = present(temporary);
@@ -52,6 +54,7 @@ export function openResourceCheckpoint<T>(path: string, validate: (value: unknow
     read() { if (failed) throw new Error('Resource checkpoint write failed; reopen before reading'); return value; },
     write(next: T) {
       if (failed) throw new Error('Resource checkpoint write failed; reopen before granting new work');
+      reservation?.assertWritable();
       if (!validate(next)) throw new Error('Resource checkpoint has invalid counters');
       const bytes = Buffer.from(JSON.stringify(next));
       if (bytes.length > RESOURCE_CHECKPOINT_BYTES) throw new Error('Resource checkpoint exceeds its byte limit');

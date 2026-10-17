@@ -152,3 +152,14 @@ it('retains a zero-byte component in control headroom without authorizing later 
   expect(authority.status()).toMatchObject({ availableBytes: 0, components: 1, reservedBytes: CONTROL });
   expect(() => authority.reserve({ ...request, maximumBytes: 1 })).toThrow(/exhausted/);
 });
+
+it('keeps issued lease targets immutable when callers change the reservation request', () => {
+  const n = fixture(), authority = fresh(n, 100), path = join(n.directory, 'original'), request = file(path, 100);
+  writeFileSync(path, 'retained');
+  const lease = authority.reserve(request);
+  request.path = join(n.directory, 'changed'); request.maximumBytes = 1000000;
+  lease.assertWritable();
+  linkSync(path, join(n.directory, 'alias'));
+  expect(() => lease.assertWritable()).toThrow(/unaliased/);
+  expect(authority.status()).toMatchObject({ availableBytes: 0, reservedBytes: CONTROL + 100 });
+});

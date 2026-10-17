@@ -21,6 +21,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import { reserveManagedStorage } from '@resonance/core/storage-reservations';
 import {
   decodeBase64,
   encodeBase64,
@@ -32,6 +33,7 @@ import {
 } from '@resonance/core';
 
 export const RELAY_IDENTITY_FILENAME = 'relay-identity.json';
+export const RELAY_IDENTITY_MAX_BYTES = 4096;
 
 interface StoredRelayIdentityV1 {
   version: 1;
@@ -69,8 +71,9 @@ export function loadOrCreateRelayIdentity(directory: string, passphrase?: string
   if (passphrase !== undefined && (typeof passphrase !== 'string' || passphrase.length < 16)) {
     throw new Error('Relay identity passphrase must contain at least 16 characters');
   }
-  mkdirSync(directory, { recursive: true, mode: 0o700 });
   const path = join(directory, RELAY_IDENTITY_FILENAME);
+  reserveManagedStorage({ path, component: 'relay-identity', scope: 'file', maximumBytes: 2 * RELAY_IDENTITY_MAX_BYTES });
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
 
   try {
     const existing = readIdentity(path, passphrase);
@@ -123,15 +126,15 @@ function readIdentity(path: string, passphrase?: string, readonly = false): Read
   let source: string;
   try {
     const stat = fstatSync(descriptor);
-    if (!stat.isFile() || stat.size > 4096) {
+    if (!stat.isFile() || stat.size > RELAY_IDENTITY_MAX_BYTES) {
       throw new Error('Relay infrastructure identity must be a regular file');
     }
     if (!readonly) fchmodSync(descriptor, 0o600);
-    const bytes = Buffer.alloc(4097);
+    const bytes = Buffer.alloc(RELAY_IDENTITY_MAX_BYTES + 1);
     try {
       let used = 0;
       while (used < bytes.length) { const count = readSync(descriptor, bytes, used, bytes.length - used, null); if (!count) break; used += count; }
-      if (used > 4096) throw new Error('Relay infrastructure identity exceeds its size limit');
+      if (used > RELAY_IDENTITY_MAX_BYTES) throw new Error('Relay infrastructure identity exceeds its size limit');
       source = new TextDecoder('utf8', { fatal: true }).decode(bytes.subarray(0, used));
     } finally { bytes.fill(0); }
   } finally {
@@ -225,18 +228,22 @@ function replaceIdentityFile(directory: string, path: string, identity: Identity
 function writeTemporaryIdentity(directory: string, identity: Identity, passphrase?: string): string {
   const suffix = randomBytes(12).toString('hex');
   const path = join(directory, `.${RELAY_IDENTITY_FILENAME}.${process.pid}.${suffix}.tmp`);
-  const descriptor = openSync(path, 'wx', 0o600);
+  const stored = passphrase
+    ? encryptIdentity(serializeIdentity(identity), passphrase)
+    : serializeIdentity(identity);
+  const encoded = Buffer.from(`${JSON.stringify(stored)}\n`);
+  if (encoded.length > RELAY_IDENTITY_MAX_BYTES) { encoded.fill(0); throw new Error('Relay infrastructure identity exceeds its size limit'); }
+  let descriptor: number | undefined;
   try {
-    const stored = passphrase
-      ? encryptIdentity(serializeIdentity(identity), passphrase)
-      : serializeIdentity(identity);
-    writeFileSync(descriptor, `${JSON.stringify(stored)}\n`, 'utf8');
+    descriptor = openSync(path, 'wx', 0o600);
+    writeFileSync(descriptor, encoded);
     fsyncSync(descriptor);
   } catch (error) {
-    try { unlinkSync(path); } catch { /* best-effort temporary cleanup */ }
+    if (descriptor !== undefined) { try { unlinkSync(path); } catch { /* best-effort temporary cleanup */ } }
     throw error;
   } finally {
-    closeSync(descriptor);
+    encoded.fill(0);
+    if (descriptor !== undefined) closeSync(descriptor);
   }
   return path;
 }

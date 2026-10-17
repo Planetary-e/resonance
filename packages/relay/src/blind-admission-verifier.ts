@@ -7,6 +7,7 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { KeyObject } from 'node:crypto';
+import { reserveManagedStorage } from '@resonance/core/storage-reservations';
 import { admissionKeyFingerprint } from '@resonance/core/admission-policy';
 import { isLegacyAdmissionSpendRow, type AdmissionSpendLedger, type LegacyAdmissionSpendRow } from './admission-spend-history.js';
 import {
@@ -100,12 +101,15 @@ export function createLocalBlindAdmissionVerifierV2(options: {
 
 /** Compatibility for the manual, single-key mode; it cannot compact or retire history. */
 function openLegacySpendLog(directory: string, maxSpends: number): AdmissionSpendLedger {
-  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const maximumBytes = maxSpends * 512;
+  if (!Number.isSafeInteger(maximumBytes)) throw new Error('Invalid admission spend byte capacity');
   const path = join(directory, 'admission-spends-v2.jsonl');
+  const reservation = reserveManagedStorage({ path, component: 'legacy-admission-spends', scope: 'file', maximumBytes });
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
   const spends = new Map<string, LegacyAdmissionSpendRow>();
   if (existsSync(path)) {
     const bytes = readFileSync(path);
-    if (bytes.length > maxSpends * 512 || (bytes.length && bytes.at(-1) !== 10)) {
+    if (bytes.length > maximumBytes || (bytes.length && bytes.at(-1) !== 10)) {
       throw new Error('Admission spend log is incomplete or exceeds capacity');
     }
     for (const line of bytes.toString('utf8').split('\n')) {
@@ -124,7 +128,7 @@ function openLegacySpendLog(directory: string, maxSpends: number): AdmissionSpen
     try { fsyncSync(directoryFd); } finally { closeSync(directoryFd); }
   }
   let closed = false, poisoned = false;
-  function ensureOpen() { if (closed || poisoned) throw new Error('Admission spend log is unavailable'); }
+  function ensureOpen() { if (closed || poisoned) throw new Error('Admission spend log is unavailable'); reservation?.assertWritable(); }
   return {
     size() { ensureOpen(); return spends.size; },
     get(spend) {
@@ -135,6 +139,7 @@ function openLegacySpendLog(directory: string, maxSpends: number): AdmissionSpen
     write(value) {
       ensureOpen();
       if (spends.has(value.spend)) return;
+      if (spends.size >= maxSpends) throw new Error('Admission spend capacity exceeded');
       const row: LegacyAdmissionSpendRow = { version: 1, spend: value.spend, action: value.action, binding: value.binding };
       const bytes = Buffer.from(`${JSON.stringify(row)}\n`);
       if (bytes.length > 512) throw new Error('Admission spend row exceeds capacity');
