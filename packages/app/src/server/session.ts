@@ -72,6 +72,7 @@ import { readDesktopRelayStorage, currentDesktopRelayStorage, withDesktopRelaySt
 import { withRelayHistoryActivation, parseRelayHistoryActivationInput, historyActivationServiceFiles, type RelayHistoryActivationInput } from './history-activation.js';
 import { runDesktopHistoryRecovery, parseRelayHistoryRecoveryInput, type RelayHistoryRecoveryInput, type RelayHistoryRecoveryAction } from './history-recovery.js';
 import { runDesktopHistorySetup, parseRelayHistorySetupInput, type RelayHistorySetupInput } from './history-setup.js';
+import { revokeSessionToken } from './local-session-auth.js';
 import { withRelayVolunteerActivation, volunteerActivationServiceFiles, parseRelayVolunteerActivationInput, parseRelayVolunteerBinding,
   type RelayVolunteerActivationInput, type RelayVolunteerBinding } from './history-volunteer-activation.js';
 
@@ -145,6 +146,8 @@ async function loadEmbeddingEngine(): Promise<EmbeddingEngine> {
 }
 
 let session: Session | null = null;
+let identityOperationInProgress = false;
+let lockEpoch = {};
 let sessionEvents: SessionEvents = {};
 export type RelayActivity = 'not-checked' | 'succeeded' | 'failed';
 let relayActivity: RelayActivity = 'not-checked';
@@ -748,20 +751,34 @@ function wireEvents(s: Session): void {
 }
 
 export async function initSession(password: string): Promise<{ did: string }> {
-  ensureDataDir();
-  // A failed first model download must not leave a half-created identity.
-  await loadEmbeddingEngine();
-  const mgr = createIdentityManager();
-  const identity = await mgr.create(password);
-
-  // Create the encrypted store only after the model and identity are ready.
-  const store = await openStoreAsync(getDbPath(), deriveStoreKey(identity));
-  store.close();
-
-  return { did: identity.did };
+  if (identityOperationInProgress) throw new Error('A local identity operation is already in progress');
+  identityOperationInProgress = true;
+  const epoch = lockEpoch;
+  try {
+    ensureDataDir();
+    const mgr = createIdentityManager();
+    if (mgr.exists()) throw new Error('Identity already initialized');
+    // A failed or cancelled model load must not leave a half-created identity.
+    await loadEmbeddingEngine();
+    if (epoch !== lockEpoch) throw new Error('Session locked during initialization');
+    const identity = await mgr.create(password);
+    try {
+      const store = await openStoreAsync(getDbPath(), deriveStoreKey(identity));
+      store.close(); return { did: identity.did };
+    } finally { identity.secretKey.fill(0); }
+  } finally { identityOperationInProgress = false; }
 }
 
 export async function unlockSession(password: string, relayUrl: string): Promise<{ did: string }> {
+  if (identityOperationInProgress) throw new Error('A local identity operation is already in progress');
+  identityOperationInProgress = true;
+  try { return await unlockSessionOnce(password, relayUrl); }
+  finally { identityOperationInProgress = false; }
+}
+
+async function unlockSessionOnce(password: string, relayUrl: string): Promise<{ did: string }> {
+  const epoch = lockEpoch;
+  const currentUnlock = () => { if (epoch !== lockEpoch) throw new Error('Session locked during unlock'); };
   if (session) {
     const current = session;
     // A new browser page needs a fresh token, even when the backend is still
@@ -775,8 +792,11 @@ export async function unlockSession(password: string, relayUrl: string): Promise
 
   const mgr = createIdentityManager();
   const identity = await mgr.load(password);
-  const engine = await loadEmbeddingEngine();
-  const store = await openStoreAsync(getDbPath(), deriveStoreKey(identity));
+  let engine: EmbeddingEngine, store: LocalStore | undefined;
+  try {
+    currentUnlock(); engine = await loadEmbeddingEngine(); currentUnlock();
+    store = await openStoreAsync(getDbPath(), deriveStoreKey(identity)); currentUnlock();
+  } catch (error) { store?.close(); identity.secretKey.fill(0); throw error; }
 
   // Auto-start relay if config says enabled
   const relayConfig = loadRelayConfig();
@@ -805,11 +825,13 @@ export async function unlockSession(password: string, relayUrl: string): Promise
   let admissionWallet: ManagedAdmissionWallet | undefined;
   let relayClient: RelayClient;
   try {
+    currentUnlock();
     privatePublicationRoute = configuredPrivateRoute();
     const walletKey = deriveAdmissionWalletKey(identity);
     try { admissionWallet = await openManagedAdmissionWallet({ directory: getDataDir(), encryptionKey: walletKey }); }
     catch { throw new WalletLoadError(); }
     finally { walletKey.fill(0); }
+    currentUnlock();
     const capabilityProvider = (context: Parameters<ManagedAdmissionWallet['capabilityFor']>[0]) => admissionWallet!.capabilityFor(context);
     publicationOutbox = openPublicationOutbox({
       path: join(getDataDir(), 'publication-outbox.json'), encryptionKey: outboxKey,
@@ -873,6 +895,8 @@ export function resetInactivityTimer(): void {
 }
 
 export function lockSession(): void {
+  lockEpoch = {};
+  revokeSessionToken();
   cancelSessionStorageReview();
   relayHistoryOperationAbort?.abort();
   if (inactivityTimer) { clearTimeout(inactivityTimer); inactivityTimer = null; }

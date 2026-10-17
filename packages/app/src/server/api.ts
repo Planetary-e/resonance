@@ -2,8 +2,9 @@
  * REST API route handlers for the web UI.
  */
 
-import { randomBytes } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { localHttpBoundary } from './local-http-boundary.js';
+import { issueSessionToken, matchesSessionToken } from './local-session-auth.js';
 import { exactWitnessFields } from '@resonance/core/admission-witness';
 import { historyRecoveryActions, type RelayHistoryRecoveryAction } from './history-recovery.js';
 import {
@@ -53,36 +54,16 @@ function utcTimestamp(value: string): string {
     ? `${value.replace(' ', 'T')}Z` : value;
 }
 
-// In dev mode, Tauri WebView loads from Vite (localhost:5173) and fetches the API on :3000.
-// In production, the frontend is served from the same origin as the API.
-const ALLOWED_ORIGINS = new Set([
-  'http://127.0.0.1',
-  'http://localhost',
-  'http://localhost:5173',
-  'http://localhost:3000',
-  'http://127.0.0.1:5173',
-  'http://127.0.0.1:3000',
-  'tauri://localhost',         // Tauri production on macOS/Linux
-  'https://tauri.localhost',   // Tauri production on Windows
-]);
-
-function getAllowedOrigin(req: Req): string {
-  const origin = req.headers.origin ?? '';
-  return ALLOWED_ORIGINS.has(origin) ? origin : '';
-}
 const MAX_BODY_SIZE = 1024 * 1024; // 1 MiB
-
-// Session token for WebSocket authentication (set on unlock)
-export let sessionToken: string | null = null;
-
-// Per-request CORS origin, set at the top of handleApi()
-let _currentOrigin = '';
+const responseOrigins = new WeakMap<Res, string>();
 
 function json(res: Res, data: unknown, status = 200): void {
   res.writeHead(status, {
     'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': _currentOrigin,
+    'Access-Control-Allow-Origin': responseOrigins.get(res) ?? '',
     'Access-Control-Allow-Credentials': 'true',
+    'Vary': 'Origin',
+    'Cache-Control': 'no-store',
   });
   res.end(JSON.stringify(data));
 }
@@ -112,17 +93,20 @@ async function readBody(req: Req): Promise<Record<string, unknown>> {
 }
 
 /** Verify the session is unlocked AND the request carries a valid Bearer token. */
+function hasAuthentication(req: Req): boolean {
+  const auth = req.headers.authorization ?? '';
+  return isUnlocked() && auth.startsWith('Bearer ') && matchesSessionToken(auth.slice(7));
+}
 function requireAuth(req: Req, res: Res): boolean {
   if (!isUnlocked()) {
     error(res, 'Session locked. POST /api/unlock first.', 401);
     return false;
   }
-  const auth = req.headers.authorization ?? '';
-  const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-  if (!sessionToken || token !== sessionToken) {
+  if (!hasAuthentication(req)) {
     error(res, 'Invalid or missing authorization token.', 401);
     return false;
   }
+  resetInactivityTimer();
   return true;
 }
 
@@ -130,19 +114,18 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
   const url = req.url ?? '';
   const method = req.method ?? 'GET';
 
-  // Resolve CORS origin for this request
-  _currentOrigin = getAllowedOrigin(req);
-
-  // VULN-08: Reset inactivity timer on each request
-  if (isUnlocked()) resetInactivityTimer();
+  const boundary = localHttpBoundary(req);
+  if (!boundary.allowed) { error(res, 'Untrusted local request origin or host', 403); return true; }
+  responseOrigins.set(res, boundary.origin);
 
   // CORS preflight
   if (method === 'OPTIONS') {
     res.writeHead(204, {
-      'Access-Control-Allow-Origin': _currentOrigin,
+      'Access-Control-Allow-Origin': boundary.origin,
       'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       'Access-Control-Allow-Credentials': 'true',
+      'Vary': 'Origin',
     });
     res.end();
     return true;
@@ -152,15 +135,15 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
 
   if (url === '/api/status' && method === 'GET') {
     const initialized = isInitialized();
-    const unlocked = isUnlocked();
-    const s = getSession();
+    const unlocked = hasAuthentication(req);
+    const s = unlocked ? getSession() : null;
     json(res, {
       initialized,
       unlocked,
       did: s?.identity.did ?? null,
       relayConnected: s?.relayClient.isConnected() ?? false,
-      relayActivity: getRelayActivity(),
-      relayMode: isRelayMode(),
+      relayActivity: unlocked ? getRelayActivity() : 'not-checked',
+      relayMode: unlocked && isRelayMode(),
       privateDeliveryAvailable: !!s?.privatePublicationRoute,
       savedRequestsAvailable: !!s && (!!s.privatePublicationRoute || !s.requestOutbox.automaticMailboxes() || s.requestOutbox.list().length > 0),
       automaticMailboxes: s?.requestOutbox.automaticMailboxes() ?? true,
@@ -192,8 +175,8 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
     if (!password) { error(res, 'Password required'); return true; }
     try {
       const result = await unlockSession(password, relayUrl);
-      sessionToken = randomBytes(32).toString('hex');
-      json(res, { ...result, token: sessionToken });
+      if (!isUnlocked()) throw new Error('Session locked during unlock');
+      json(res, { ...result, token: issueSessionToken() });
     } catch (err) {
       error(res, err instanceof ModelLoadError || err instanceof WalletLoadError ? err.message : 'Wrong password or corrupted identity',
         err instanceof ModelLoadError || err instanceof WalletLoadError ? 503 : 401);
@@ -202,6 +185,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
   }
 
   if (url === '/api/lock' && method === 'POST') {
+    if (isUnlocked() && !requireAuth(req, res)) return true;
     lockSession();
     json(res, { locked: true });
     return true;
