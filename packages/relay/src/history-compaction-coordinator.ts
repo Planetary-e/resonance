@@ -63,7 +63,13 @@ export async function retainHistoryCompactionCertificate(options: {
           if (settled) return; live(); received.push(response);
           if (received.length === 4) finish();
         }).catch(() => {}).finally(() => {
-          if (!settled && received.length + --remaining < 4) finish(new Error('Four authenticated compaction retention replies unavailable'));
+          if (!settled && received.length + --remaining < 4) {
+            // Synchronous signature checks can exhaust the deadline before the
+            // timer runs. Preserve cancellation/timeout rather than reporting
+            // an unavailable quorum after those requests were refused locally.
+            try { live(); finish(new Error('Four authenticated compaction retention replies unavailable')); }
+            catch (error) { finish(error as Error); }
+          }
         });
       });
     });
@@ -90,7 +96,7 @@ export async function requestHistoryCompactionControl(options: {
   external?.addEventListener('abort', cancel, { once: true }); if (external?.aborted) cancel();
   const timer = setTimeout(cancel, Math.max(0, Math.min(timeoutMs - (performance.now() - started), frame.request.expiresAt - Date.now())));
   const live = () => {
-    if (controller.signal.aborted || performance.now() - started >= timeoutMs) throw new Error('Compaction control cancelled or timed out');
+    if (controller.signal.aborted || performance.now() - started >= timeoutMs || Date.now() >= frame.request.expiresAt) throw new Error('Compaction control cancelled or timed out');
     parseHistoryCompactionControlRequest(frame.request, context, genesisId, Date.now());
   };
   try {
@@ -138,7 +144,7 @@ export async function collectHistoryCompactionCertificate(options: {
   if (signal?.aborted) cancel();
   const timer = setTimeout(cancel, Math.max(0, Math.min(timeoutMs - (performance.now() - started), proposal.expiresAt - Date.now())));
   const live = () => {
-    if (controller.signal.aborted || performance.now() - started >= timeoutMs) throw new Error('Compaction collection cancelled or timed out');
+    if (controller.signal.aborted || performance.now() - started >= timeoutMs || Date.now() >= proposal.expiresAt) throw new Error('Compaction collection cancelled or timed out');
     parseHistoryCompactionProposal(proposal, context, genesisId, Date.now());
   };
   try {
@@ -162,7 +168,10 @@ export async function collectHistoryCompactionCertificate(options: {
           live(); received.push(vote);
           if (received.length === 4) finish();
         }).catch(() => {}).finally(() => {
-          if (!settled && received.length + --remaining < 4) finish(new Error('Four authenticated compaction votes unavailable'));
+          if (!settled && received.length + --remaining < 4) {
+            try { live(); finish(new Error('Four authenticated compaction votes unavailable')); }
+            catch (error) { finish(error as Error); }
+          }
         });
       });
     });

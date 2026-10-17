@@ -79,7 +79,7 @@ it('rechecks signed request expiration after receiving otherwise valid votes', a
   await expect(collectHistoryCompactionCertificate({ ...f.options, transport: async member => {
     vi.spyOn(Date, 'now').mockReturnValue(f.proposal.expiresAt);
     return f.votes[f.context.members.indexOf(member.publicKey)];
-  } })).rejects.toThrow('Four authenticated');
+  } })).rejects.toThrow('timed out');
 });
 
 function controlFixture() {
@@ -109,7 +109,7 @@ it('refuses cancelled and late control responses despite valid historical signat
   expect(transport).not.toHaveBeenCalled();
   await expect(requestHistoryCompactionControl({ ...f.input, transport: async () => {
     vi.spyOn(Date, 'now').mockReturnValue(f.frame.request.expiresAt); return f.response;
-  } })).rejects.toThrow('expired');
+  } })).rejects.toThrow('timed out');
 });
 
 function retentionFixture() {
@@ -146,8 +146,21 @@ it('bounds and cancels retention, and rejects invalid external pins before any m
     { members: [f.members[0], ...f.members.slice(0, 4)] }, { certificate: { ...f.certificate, votes: f.votes.slice(0, 3) } }]) {
     await expect(retainHistoryCompactionCertificate({ ...f.options, ...change, transport: spy })).rejects.toThrow();
   }
-  expect(spy).not.toHaveBeenCalled(); const signals: AbortSignal[] = [];
-  await expect(retainHistoryCompactionCertificate({ ...f.options, timeoutMs: 50, transport: async (_m, _f, signal) => {
-    signals.push(signal); return new Promise(() => {});
-  } })).rejects.toThrow('timed out'); expect(signals.length).toBeGreaterThan(0); expect(signals.every(s => s.aborted)).toBe(true);
+  expect(spy).not.toHaveBeenCalled();
+});
+
+it.each(['retention', 'collection'] as const)('preserves the %s deadline when local checks expire before the timer callback', async mode => {
+  const f = retentionFixture(), signals: AbortSignal[] = [];
+  const elapsed = vi.spyOn(performance, 'now').mockReturnValue(0);
+  vi.spyOn(Date, 'now').mockReturnValue(Date.now());
+  // Pending I/O is already open, then synchronous work consumes the whole
+  // budget. The other microtasks observe expiry before the timer gets a turn.
+  const transport = async (_member: unknown, _frame: unknown, signal: AbortSignal) => {
+    signals.push(signal); elapsed.mockReturnValue(500); return new Promise<unknown>(() => {});
+  };
+  const operation = mode === 'retention' ? retainHistoryCompactionCertificate({ ...f.options, timeoutMs: 500, transport })
+    : collectHistoryCompactionCertificate({ context: f.context, genesisId: f.genesisId, checkpoint: f.checkpoint,
+      proposal: f.proposal, members: f.members, timeoutMs: 500, transport });
+  await expect(operation).rejects.toThrow('timed out');
+  expect(signals).toHaveLength(1); expect(signals.every(signal => signal.aborted)).toBe(true);
 });
