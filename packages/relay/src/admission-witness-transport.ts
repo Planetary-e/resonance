@@ -1,7 +1,7 @@
 /** One bounded authenticated witness exchange; Internet endpoints require normal TLS validation. */
 import WebSocket from 'ws';
 import type { Socket } from 'node:net';
-import { assertSecureRelayTransportEndpoint } from '@resonance/core';
+import { assertSecureRelayTransportEndpoint, relayTlsClientOptions } from '@resonance/core';
 import type { AdmissionWitnessRequest, AdmissionWitnessSet } from '@resonance/core/admission-witness';
 
 export function requestAdmissionWitnessVote(member: AdmissionWitnessSet['members'][number], request: AdmissionWitnessRequest, signal: AbortSignal, onTransportSocket?: (socket: Socket) => void): Promise<unknown> {
@@ -16,7 +16,7 @@ export function requestAdmissionWitnessVote(member: AdmissionWitnessSet['members
     };
     const abort = () => finish(undefined, new Error('Witness request cancelled'));
     signal.addEventListener('abort', abort, { once: true });
-    try { socket = new WebSocket(member.endpoint, { handshakeTimeout: 3000, maxPayload: 4096, followRedirects: false, perMessageDeflate: false }); }
+    try { socket = new WebSocket(member.endpoint, { ...relayTlsClientOptions, handshakeTimeout: 3000, maxPayload: 4096, followRedirects: false, perMessageDeflate: false }); }
     catch { finish(undefined, new Error('Witness connection failed')); return; }
     socket.on('error', () => finish(undefined, new Error('Witness connection failed')));
     socket.on('close', () => finish(undefined, new Error('Witness connection closed')));

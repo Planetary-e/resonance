@@ -2,7 +2,7 @@
 import { createServer } from 'node:http';
 import type { AddressInfo, Socket } from 'node:net';
 import WebSocket, { WebSocketServer } from 'ws';
-import { assertSecureRelayTransportEndpoint } from '@resonance/core';
+import { assertSecureRelayTransportEndpoint, relayTlsClientOptions } from '@resonance/core';
 import { HISTORY_AGREEMENT_MAX_FRAME_BYTES, type HistoryAgreementFrame } from '@resonance/core/history-agreement';
 import { HISTORY_ENVELOPE_MAX_BYTES } from '@resonance/core/history-checkpoint';
 import { HISTORY_AGREEMENT_DATA_MAX_BYTES, type HistoryAgreementDataFrame } from '@resonance/core/history-agreement-data';
@@ -165,7 +165,7 @@ function exchange(endpoint: string, encoded: string, maxPayload: number, signal:
     const timer = setTimeout(() => finish(undefined, new Error('Agreement exchange timed out')), 30_000);
     if (signal.aborted) { abort(); return; }
     signal.addEventListener('abort', abort, { once: true });
-    try { socket = new WebSocket(endpoint, { handshakeTimeout: 10_000, maxPayload, perMessageDeflate: false, followRedirects: false }); }
+    try { socket = new WebSocket(endpoint, { ...relayTlsClientOptions, handshakeTimeout: 10_000, maxPayload, perMessageDeflate: false, followRedirects: false }); }
     catch { finish(undefined, new Error('Agreement connection failed')); return; }
     socket.on('error', () => finish(undefined, new Error('Agreement connection failed')));
     socket.on('close', () => finish(undefined, new Error('Agreement connection closed')));

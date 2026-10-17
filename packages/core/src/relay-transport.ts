@@ -1,4 +1,24 @@
 import { BlockList, isIP } from 'node:net';
+import { X509Certificate } from 'node:crypto';
+import { checkServerIdentity, type PeerCertificate } from 'node:tls';
+import type { RequestOptions } from 'node:https';
+
+/** TLS still validates trust, dates and signatures before this hostname check.
+ * Node 24.19's IDNA conversion loses IPv6 literals (nodejs/node#64144). Match
+ * those only against the authenticated certificate's exact iPAddress SAN using
+ * OpenSSL; retain Node's normal DNS/IDNA and IPv4 checks without modification. */
+export function checkRelayTlsServerIdentity(hostname: string, certificate: PeerCertificate): Error | undefined {
+  if (isIP(hostname) !== 6) return checkServerIdentity(hostname, certificate);
+  try {
+    if (certificate.raw && new X509Certificate(certificate.raw).checkIP(hostname)) return;
+  } catch { /* Missing or malformed DER cannot establish an IP identity. */ }
+  const error: NodeJS.ErrnoException = new Error('TLS certificate does not authenticate the requested IPv6 address');
+  error.code = 'ERR_TLS_CERT_ALTNAME_INVALID'; return error;
+}
+
+// Use the Node HTTPS contract: the installed @types/ws declaration incorrectly
+// types this forwarded TLS callback as accepting key material and returning boolean.
+export const relayTlsClientOptions: Readonly<RequestOptions> = Object.freeze({ checkServerIdentity: checkRelayTlsServerIdentity });
 
 const privateIpv6 = new BlockList();
 privateIpv6.addSubnet('fc00::', 7, 'ipv6');

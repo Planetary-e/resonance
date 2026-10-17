@@ -2,7 +2,7 @@
 import { createServer } from 'node:http';
 import type { AddressInfo, Socket } from 'node:net';
 import WebSocket, { WebSocketServer } from 'ws';
-import { assertSecureRelayTransportEndpoint, type SigningKeyPair } from '@resonance/core';
+import { assertSecureRelayTransportEndpoint, relayTlsClientOptions, type SigningKeyPair } from '@resonance/core';
 import { copyAdmissionSigningKey, exactWitnessFields } from '@resonance/core/admission-witness';
 import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointEnvelopeId, parseHistoryCheckpointContext,
   parseHistoryCheckpointEnvelope, parseHistoryFreeze, type HistoryFreeze,
@@ -194,7 +194,7 @@ export function exchangeHistoryCheckpoint(member: HistoryReplicaEndpoint, frame:
     const timer = setTimeout(() => finish(undefined, new Error('History exchange timed out')), 30_000);
     if (signal.aborted) { abort(); return; }
     signal.addEventListener('abort', abort, { once: true });
-    try { socket = new WebSocket(member.endpoint, { handshakeTimeout: 10_000, maxPayload: frame.request.action === 'read'
+    try { socket = new WebSocket(member.endpoint, { ...relayTlsClientOptions, handshakeTimeout: 10_000, maxPayload: frame.request.action === 'read'
       ? HISTORY_EXCHANGE_MAX_BYTES : frame.request.action === 'continuation' ? HISTORY_CONTINUATION_RESPONSE_MAX_BYTES : 4096,
       perMessageDeflate: false, followRedirects: false }); }
     catch { finish(undefined, new Error('History connection failed')); return; }

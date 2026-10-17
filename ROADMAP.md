@@ -183,6 +183,7 @@ The five-target placement goal remains conditional on enough eligible volunteers
     - [x] Support a direct HTTPS/WSS relay listener using operator-supplied PEM credentials and verify its TLS handshake in tests
     - [x] Check direct-listener certificate validity and advertised hostnames at startup; reject public-source connections to a cleartext listener
     - [x] Inventory production inbound/outbound socket paths and their remaining deployment checks in `docs/developers/v0.4-connection-audit.md`
+    - [x] Verify 110 IPv4/IPv6 TLS boundary cases, complete private WSS delivery across certificate renewal/restart, and actual loopback TLS proxy rotation; correct Node IPv6 SAN validation without bypassing trust or date checks (`docs/developers/v0.4-connection-audit.md`)
 - [ ] Add challenge-response connection authentication with nonces and replay protection
   - [x] Bind each signed relay-link opening to a fresh nonce issued on that receiving socket; reject a captured opening on a second socket
 - [ ] Verify relay and peer signatures on acknowledgements, matches, inventories, receipts, and forwarded operations

@@ -5,7 +5,7 @@ import type { Socket } from 'node:net';
 import { HISTORY_LINK_FRAME_TYPE } from './history-relay-link.js';
 import type { HistoryRelayRouter } from './history-relay-router.js';
 import {
-  assertSecureRelayTransportEndpoint,
+  assertSecureRelayTransportEndpoint, relayTlsClientOptions,
   MAX_RELAY_DISCOVERY_FRAME_BYTES,
   MAX_RELAY_REPLICA_INVENTORY_BATCH_RECEIPTS,
   RELAY_REPLICA_INVENTORY_BATCH_RESPONSE_FRAME_TYPE,
@@ -301,7 +301,7 @@ export function connectRelayLinkV1(
     }, handshakeTimeoutMs);
 
     try {
-      socket = new WebSocket(hint.endpoint, {
+      socket = new WebSocket(hint.endpoint, { ...relayTlsClientOptions,
         handshakeTimeout: handshakeTimeoutMs,
         maxPayload: MAX_RELAY_DISCOVERY_FRAME_BYTES,
         perMessageDeflate: false,

@@ -31,7 +31,7 @@ export {
 export { EmbeddingEngine, rewriteForMatching, type EmbeddingPrefix } from './embedding.js';
 
 export { BOOTSTRAP_RELAYS, DEFAULT_RELAY_PORT } from './bootstrap.js';
-export { assertSecureRelayTransportEndpoint, isPrivateRelayAddress } from './relay-transport.js';
+export { assertSecureRelayTransportEndpoint, isPrivateRelayAddress, checkRelayTlsServerIdentity, relayTlsClientOptions } from './relay-transport.js';
 export {
   selectPrivateRouteV1,
   observedNetworkDomainV1,

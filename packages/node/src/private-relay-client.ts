@@ -8,7 +8,7 @@ import {
   MAX_PRIVATE_DISCOVERY_FRAME_BYTES,
   MessageTypes,
   SEARCH_RESPONSE_MESSAGE_TYPE,
-  assertSecureRelayTransportEndpoint,
+  assertSecureRelayTransportEndpoint, relayTlsClientOptions,
   createAdmissionRequestBindingV2,
   createMailboxDepositFrame,
   createMailboxDepositRequest,
@@ -120,7 +120,7 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
     const request = createPrivateDiscoveryRequestV1(endpoint);
     const requestRaw = serializePrivateDiscoveryRequestV1(request);
     return new Promise((resolve, reject) => {
-      const socket = new WebSocket(entry.candidate.endpoint, {
+      const socket = new WebSocket(entry.candidate.endpoint, { ...relayTlsClientOptions,
         handshakeTimeout: 8_000, maxPayload: MAX_PRIVATE_DISCOVERY_FRAME_BYTES,
         followRedirects: false, perMessageDeflate: false,
       });
@@ -212,7 +212,7 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
     const requestRaw = serializePrivateRequestLayerV1(exchange.request);
     operation.check(signal);
     return new Promise((resolve, reject) => {
-      const socket = new WebSocket(entry.candidate.endpoint, {
+      const socket = new WebSocket(entry.candidate.endpoint, { ...relayTlsClientOptions,
         handshakeTimeout: 10_000, maxPayload: MAX_PRIVATE_FRAME_BYTES,
         followRedirects: false, perMessageDeflate: false,
       });

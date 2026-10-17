@@ -7,7 +7,7 @@ import { parseRelayAcknowledgement, parseRelayMailbox } from './relay-response.j
 import { createPrivateRelayClient } from './private-relay-client.js';
 import type { PrivateTrafficScheduleOptions } from './private-traffic-scheduler.js';
 import {
-  assertSecureRelayTransportEndpoint,
+  assertSecureRelayTransportEndpoint, relayTlsClientOptions,
   MAX_SIGNED_MESSAGE_BYTES,
   MessageTypes,
   MAILBOX_RESPONSE_MESSAGE_TYPE,
@@ -83,7 +83,7 @@ export interface RelayClientConfig {
 
 function openRelaySocket(url: string): WebSocket {
   assertSecureRelayTransportEndpoint(url);
-  return new WebSocket(url, {
+  return new WebSocket(url, { ...relayTlsClientOptions,
     handshakeTimeout: 10_000,
     maxPayload: MAX_SIGNED_MESSAGE_BYTES,
     followRedirects: false,

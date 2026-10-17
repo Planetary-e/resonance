@@ -14,7 +14,7 @@ import { RelayTrafficMeter, relayDataFileBytes } from './relay-resource-meter.js
 import { PrivateReplayLog } from './private-replay-log.js';
 import { DirectReachabilityObservations } from './direct-reachability.js';
 import {
-  assertSecureRelayTransportEndpoint,
+  assertSecureRelayTransportEndpoint, relayTlsClientOptions,
   isPrivateRelayAddress,
   MessageTypes,
   MAILBOX_DEPOSIT_FRAME_TYPE,
@@ -3369,7 +3369,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     if (timeoutMs <= 0) { client.close(4003, 'private_request_expired'); return; }
     const request = createRelayPrivateForwardV1(destination, ownDescriptor, relayIdentity, now);
     return new Promise<string | undefined>(resolveForward => {
-      const downstream = new WebSocket(endpoint, {
+      const downstream = new WebSocket(endpoint, { ...relayTlsClientOptions,
         handshakeTimeout: timeoutMs,
         maxPayload: MAX_RELAY_DISCOVERY_FRAME_BYTES,
         followRedirects: false,

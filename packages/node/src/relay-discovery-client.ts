@@ -3,7 +3,7 @@
 import WebSocket, { type RawData } from 'ws';
 import type { Socket } from 'node:net';
 import {
-  assertSecureRelayTransportEndpoint,
+  assertSecureRelayTransportEndpoint, relayTlsClientOptions,
   MAX_RELAY_DISCOVERY_FRAME_BYTES,
   MAX_RELAY_PEERS_PER_RESPONSE,
   createRelayPeerRequestFrameV1,
@@ -89,7 +89,7 @@ export function discoverRelayContactV1(
     }, timeoutMs);
 
     try {
-      socket = new WebSocket(hint.endpoint, {
+      socket = new WebSocket(hint.endpoint, { ...relayTlsClientOptions,
         handshakeTimeout: timeoutMs,
         maxPayload: MAX_RELAY_DISCOVERY_FRAME_BYTES,
         perMessageDeflate: false,
