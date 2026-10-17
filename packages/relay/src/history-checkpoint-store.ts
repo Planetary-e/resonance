@@ -63,8 +63,13 @@ export interface HistoryCheckpointStoreOptions {
   generation: number;
   /** Only for a new, empty directory with an intact owner-authenticated checkpoint. */
   initialize?: HistoryCheckpointEnvelope;
-  /** Required on creation AND reopen of a non-genesis generation. Never inferred from discovery. */
+  /** Required on creation and ordinary reopen of a non-genesis generation. */
   parent?: HistoryCheckpointAncestor;
+  /** Explicit local frontier for reopening an existing certified generation.
+   * The caller must independently pin genesis and durably select this boundary
+   * before retiring ancestors. Never inferred from missing files or peer discovery.
+   * Cannot initialize a store, replace its manifest or waive retained barriers. */
+  retainedFrontier?: { genesisId: string; certificate: unknown };
   /** Includes two maximum manifest copies plus all immutable encrypted blocks. */
   maxBytes?: number;
   maxBlocks?: number;
@@ -160,7 +165,15 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
   const contextId = historyCheckpointContextId(context);
   const { directory, replica, rootId, generation } = options;
   const parent = options.parent;
-  const genesisId = generation === 0 ? rootId : parent?.genesisId;
+  const frontierPins = options.retainedFrontier;
+  if (frontierPins !== undefined && (!exactWitnessFields(frontierPins, ['genesisId', 'certificate'])
+    || generation === 0 || parent || options.initialize || preparing)) throw new Error('Retained history frontier only reopens an existing non-genesis store');
+  const frontier = frontierPins === undefined ? undefined
+    : parseHistoryCompactionAttestation(frontierPins.certificate, context, frontierPins.genesisId);
+  if (frontier && (frontier.proposal.rootId !== rootId || frontier.proposal.generation !== generation)) {
+    throw new Error('Retained history frontier differs from the enrolled generation');
+  }
+  const genesisId = generation === 0 ? rootId : frontierPins?.genesisId ?? parent?.genesisId;
   let ancestryDepth = 0;
   let ancestorBytes = 0;
   const maxBytes = options.maxBytes ?? 64 * 1024 * 1024, maxBlocks = options.maxBlocks ?? MAX_BLOCKS;
@@ -212,6 +225,13 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
         // complete suffix from this latest anchor must remain contiguous.
       } catch { return false; }
     } else if (retained.hasGaps) return false;
+    if (frontier) {
+      // A later local certificate may have replaced the selected checkpoint.
+      // It must stay within this exact generation and never regress the floor.
+      const p = (value as unknown as Manifest).compaction?.proposal, selected = frontier.proposal;
+      if (!p || p.sequence < selected.sequence || p.sequence === selected.sequence && p.envelopeId !== selected.envelopeId
+        || retained.get(selected.sequence) !== null && retained.get(selected.sequence) !== selected.envelopeId) return false;
+    }
     if (value.freeze !== null) {
       try { if (parseHistoryFreeze(value.freeze, context).generation !== generation) return false; }
       catch { return false; }
@@ -262,6 +282,13 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
     if (generation === 0) {
       if (root.kind === 'continuation' || parent) throw new Error('Genesis cannot replace another history generation');
     } else {
+      if (frontier) {
+        if (root.kind !== 'continuation') throw new Error('Retained frontier requires its original continuation root');
+        // Authentication of the independently pinned full-state certificate and
+        // the actual retained checkpoint replaces traversal below this boundary.
+        // Validation below finishes before any orphan cleanup or caller access.
+        ancestryDepth = 0; ancestorBytes = 0; return;
+      }
       if (root.kind !== 'continuation' || !parent) throw new Error('Continuation requires its retained activated predecessor');
       const ancestry = parent.requireContinuation(root, replica);
       ancestryDepth = ancestry.depth; ancestorBytes = ancestry.bytes;
