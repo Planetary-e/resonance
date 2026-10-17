@@ -3,7 +3,7 @@ import { existsSync, fsyncSync, linkSync, mkdirSync, mkdtempSync, readFileSync, 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStorageReservationAuthority, STORAGE_RESERVATION_CONTROL_BYTES as CONTROL, STORAGE_RESERVATION_MANIFEST_BYTES as MANIFEST } from '../storage-reservations.js';
-import { withStorageReservationAuthority } from '../storage-reservation-context.js';
+import { withStorageReservationAuthority, captureStorageReservationOperation } from '../storage-reservation-context.js';
 import { openEncryptedLocalState } from '../local-encrypted-state.js';
 vi.mock('node:fs', async original => { const fs = await original<typeof import('node:fs')>(); return { ...fs, writeSync: vi.fn(fs.writeSync), fsyncSync: vi.fn(fs.fsyncSync) }; });
 const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
@@ -175,4 +175,26 @@ it('restricts temporary output leases to the selected file and its replacement h
   expect(() => lease.assertWritable({ path: temporary, maximumBytes: 1 })).toThrow(/scope/);
   writeFileSync(temporary, 'kept'); linkSync(temporary, join(n.directory, 'alias'));
   expect(() => lease.assertWritable({ path: temporary, maximumBytes: 100, replacement: true })).toThrow(/scope/);
+});
+
+it('carries the factory authority into later nested async writers without allowing authority switching', async () => {
+  const n = fixture(), authority = fresh(n, 2 * 512 + 8192), other = fresh(fixture(), 10000);
+  const run = withStorageReservationAuthority(authority, captureStorageReservationOperation);
+  const path = join(n.directory, 'nested', 'state');
+  expect(() => withStorageReservationAuthority(other, () => run(() => { throw new Error('must not enter'); }))).toThrow(/switch/);
+  const state = await run(async () => {
+    await Promise.resolve();
+    return openEncryptedLocalState({ path, key: Buffer.alloc(32, 1), domain: 'test:retained-scope', maxBytes: 512, initial: { text: 'nested' }, validate: validImage });
+  }); cleanup.push(state.close);
+  expect(authority.status()).toMatchObject({ availableBytes: 0, components: 1 }); expect(other.status().components).toBe(0);
+  state.write({ text: 'retained lease' }); authority.close();
+  const missing = join(n.directory, 'not-created', 'state');
+  expect(() => run(() => openEncryptedLocalState({ path: missing, key: Buffer.alloc(32, 1), domain: 'test:retained-scope', maxBytes: 512, initial: { text: '' }, validate: validImage }))).toThrow(/closed/);
+  expect(existsSync(join(n.directory, 'not-created'))).toBe(false);
+});
+it('does not silently adopt a previously unmanaged factory into an active authority', () => {
+  const n = fixture(), authority = fresh(n, 100), run = captureStorageReservationOperation(); let entered = false;
+  expect(() => withStorageReservationAuthority(authority, () => run(() => { entered = true; }))).toThrow(/switch/);
+  expect(entered).toBe(false); expect(authority.status().components).toBe(0);
+  run(() => { entered = true; }); expect(entered).toBe(true);
 });

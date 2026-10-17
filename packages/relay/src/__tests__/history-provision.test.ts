@@ -64,17 +64,18 @@ describe('bounded authenticated history generation provisioning', () => {
     expect(readdirSync(n.provisionOptions().directory).filter(name => name.startsWith('.creating-'))).toEqual([]);
   });
 
-  it.each(['unknown-file', 'corrupt-root'])('retains and refuses damaged staging contents: %s', damage => {
+  it.each(['unknown-file', 'corrupt-root'])('retains and refuses damaged unpublished contents: %s', damage => {
     const n = fixture(); let role = open(n), calls = 0;
     vi.mocked(fsyncSync).mockImplementation(fd => { if (++calls === 10) throw new Error('interrupted root flush'); actualFsync(fd); });
     expect(() => role.provision(n.request())).toThrow('interrupted root');
     vi.mocked(fsyncSync).mockImplementation(actualFsync); role.close();
-    const id = historyContinuationRootId(n.continuation).slice(7), staging = join(n.provisionOptions().directory, `.creating-${id}`);
+    const id = historyContinuationRootId(n.continuation).slice(7), staging = join(n.provisionOptions().directory, `generation-${id}`);
     const path = join(staging, damage === 'unknown-file' ? 'unrecognized-history' : `${id}.block`);
     writeFileSync(path, 'retained suspicious contents');
     role = open(n, false); expect(() => role.provision(n.request())).toThrow();
     expect(readFileSync(path, 'utf8')).toBe('retained suspicious contents');
-    expect(existsSync(join(n.provisionOptions().directory, `generation-${id}`))).toBe(false);
+    expect(role.child).toThrow('reopen');
+    expect(existsSync(staging)).toBe(true);
   });
 
   it.each(['missing', 'newer'])('refuses a predecessor with %s history without removing its accepted records', tail => {
@@ -85,14 +86,22 @@ describe('bounded authenticated history generation provisioning', () => {
     expect(n.stores[4].read()).toEqual(original); expect(n.stores[4].activatedContinuation()).toBeNull();
   });
 
-  it.each([1, 3, 7, 10, 13, 16])('recovers exact provisioning after an uncertain fsync at step %i', failure => {
-    const n = fixture(); let role = open(n), calls = 0;
-    vi.mocked(fsyncSync).mockImplementation(fd => { if (++calls === failure) throw new Error('provision disk failure'); actualFsync(fd); });
-    expect(() => role.provision(n.request())).toThrow('provision disk failure');
-    expect(() => role.child()).toThrow('reopen');
-    vi.mocked(fsyncSync).mockImplementation(actualFsync); role.close(); n.reopen(0); role = open(n, false);
-    role.provision(n.request()); expect(role.child()!.read().envelopes).toEqual([n.continuation]);
-  });
+  it('recovers exact provisioning after failure at every observed fsync boundary', () => {
+    const baseline = fixture(), initial = open(baseline); let boundaries = 0;
+    vi.mocked(fsyncSync).mockImplementation(fd => { boundaries++; actualFsync(fd); });
+    initial.provision(baseline.request());
+    vi.mocked(fsyncSync).mockImplementation(actualFsync); initial.close();
+    expect(boundaries).toBeGreaterThan(0);
+    for (let failure = 1; failure <= boundaries; failure++) {
+      const n = fixture(); let role = open(n), calls = 0;
+      vi.mocked(fsyncSync).mockImplementation(fd => { if (++calls === failure) throw new Error('provision disk failure'); actualFsync(fd); });
+      expect(() => role.provision(n.request()), `durability boundary ${failure}/${boundaries}`).toThrow('provision disk failure');
+      expect(() => role.child()).toThrow('reopen');
+      vi.mocked(fsyncSync).mockImplementation(actualFsync); role.close(); n.reopen(0); role = open(n, false);
+      role.provision(n.request()); expect(role.child()!.read().envelopes).toEqual([n.continuation]);
+      role.close();
+    }
+  }, 60_000);
 
   it('suppresses the receipt when synchronous durability work outlives authorization, then retries safely', () => {
     const n = fixture(); let now = 10_000;

@@ -137,7 +137,7 @@ export function inspectPristineHistoryGenesis(options: Pick<HistoryCheckpointSto
 }
 
 /** Internal provisioning step: ONLY an unpublished staging directory guarded by a durable creation intent.
- * This never opens an operational store. The caller must publish the directory and persist readiness
+ * This never opens an operational store. The caller must persist readiness at the pinned directory
  * before exposing append/read services. An existing manifest with accepted work is never initialized.
  */
 export function prepareHistoryContinuationStore(options: HistoryCheckpointStoreOptions & { initialize: HistoryContinuationRoot }): void {

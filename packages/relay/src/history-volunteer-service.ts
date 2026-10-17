@@ -2,12 +2,16 @@
 import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { SigningKeyPair } from '@resonance/core';
+import { captureStorageReservationOperation } from '@resonance/core/storage-reservations';
+import { historyContinuationRootId } from '@resonance/core/history-continuation';
+import { parseHistoryProvisionRequest } from '@resonance/core/history-provision';
+import { reserveHistoryStorage } from './history-storage-reservation.js';
 import { copyAdmissionSigningKey } from '@resonance/core/admission-witness';
-import { historyDigest, parseHistoryCheckpointContext, type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
-import { openHistoryCheckpointStore } from './history-checkpoint-store.js';
+import { historyDigest, historyCheckpointEnvelopeId, isHistoryDigest, parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
+import { HISTORY_MANIFEST_FILENAME, openHistoryCheckpointStore } from './history-checkpoint-store.js';
 import { createHistoryCheckpointReplica } from './history-checkpoint-exchange.js';
 import { createHistoryAgreementReplica } from './history-checkpoint-agreement.js';
-import { HISTORY_PROVISION_FILENAME, openHistoryGenerationProvisioner } from './history-generation-provisioner.js';
+import { HISTORY_PROVISION_FILENAME, openHistoryGenerationProvisioner, reserveHistoryProvisionJournal } from './history-generation-provisioner.js';
 import type { HistoryVolunteerHealth } from './history-health.js';
 
 export function openHistoryVolunteerService(options: {
@@ -16,6 +20,10 @@ export function openHistoryVolunteerService(options: {
   genesisId: string; initialize?: HistoryCheckpointEnvelope;
   maxBytes?: number; maxBlocks?: number; maxGenerations?: number; acceptNew?: () => boolean; now?: () => number;
 }) {
+  const run = captureStorageReservationOperation();
+  const maxBytes = options.maxBytes ?? 64 * 1024 * 1024, maxBlocks = options.maxBlocks ?? 10001;
+  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 4 * 1024 * 1024 || maxBytes > 256 * 1024 * 1024
+    || !Number.isSafeInteger(maxBlocks) || maxBlocks < 1 || maxBlocks > 10001) throw new Error('Invalid volunteer storage capacity');
   const context = parseHistoryCheckpointContext(options.context), maxGenerations = options.maxGenerations ?? 65;
   if (!Number.isSafeInteger(maxGenerations) || maxGenerations < 1 || maxGenerations > 65) throw new Error('Invalid volunteer generation capacity');
   const signingKey = copyAdmissionSigningKey(options.signingKey), localKey = Buffer.from(options.localKey);
@@ -25,7 +33,7 @@ export function openHistoryVolunteerService(options: {
     checkpoint: ReturnType<typeof createHistoryCheckpointReplica>; agreement: ReturnType<typeof createHistoryAgreementReplica> };
   const slots = new Map<string, Slot>(); let genesis: Store | undefined, closed = false, failed = false;
   const slotName = (rootId: string) => `successors-${rootId.slice(7)}`;
-  const shared = { context, signingKey, localKey, now: options.now, maxBytes: options.maxBytes, maxBlocks: options.maxBlocks,
+  const shared = { context, signingKey, localKey, now: options.now, maxBytes, maxBlocks,
     acceptNew: options.acceptNew };
   function live() { if (closed || failed) throw new Error('History volunteer service is closed or needs reopening'); }
   function close() {
@@ -69,6 +77,16 @@ export function openHistoryVolunteerService(options: {
   }
   try {
     if (!context.members.includes(replica) || localKey.length !== 32) throw new Error('Invalid volunteer enrollment keys');
+    if (!isHistoryDigest(options.genesisId)) throw new Error('Invalid volunteer genesis pin');
+    if (options.initialize) {
+      const root = parseHistoryCheckpointEnvelope(options.initialize, context);
+      if (root.generation !== 0 || root.sequence !== 0 || root.kind === 'continuation' || historyCheckpointEnvelopeId(root) !== options.genesisId) {
+        throw new Error('Volunteer genesis does not match enrollment pin');
+      }
+    }
+    reserveHistoryStorage({ directory: join(directory, 'genesis'), component: 'history-replica-ciphertext',
+      ciphertextBytes: maxBytes - 4 * 1024 * 1024, manifestFilename: HISTORY_MANIFEST_FILENAME, manifestBytes: 2 * 1024 * 1024 });
+    reserveHistoryProvisionJournal(join(directory, slotName(options.genesisId)));
     if (options.initialize) {
       if (existsSync(directory) && readdirSync(directory).length) throw new Error('Volunteer enrollment requires a new empty directory');
       if (!existsSync(directory)) mkdirSync(directory, { mode: 0o700 });
@@ -88,15 +106,22 @@ export function openHistoryVolunteerService(options: {
       const authorization = raw && typeof raw === 'object' && 'authorization' in raw ? raw.authorization : undefined;
       return select(requestRoot(authorization)).agreement.transfer(raw);
     },
-    provision(raw: unknown) {
-      const root = raw && typeof raw === 'object' && 'root' in raw ? raw.root : null;
-      const proposal = root && typeof root === 'object' && 'proposal' in root ? root.proposal : null;
-      const slot = select(proposal && typeof proposal === 'object' && 'rootId' in proposal ? proposal.rootId : undefined);
-      if (slot.provisioner.read().phase !== 'ready' && slots.size >= maxGenerations) throw new Error('History volunteer generation capacity exceeded');
-      const receipt = slot.provisioner.provision(raw);
-      grow(); // Route the fully published child and prepare its unactivated slot before replying.
+    provision(raw: unknown) { return run(() => {
+      live();
+      const request = parseHistoryProvisionRequest(raw, context, (options.now ?? Date.now)());
+      if (request.replica !== replica) throw new Error('History provision request belongs to another volunteer');
+      const slot = select(request.root.proposal.rootId), state = slot.provisioner.read();
+      if (state.parentGeneration !== request.root.proposal.generation) throw new Error('History provision request belongs to another generation');
+      if (state.root && historyContinuationRootId(state.root) !== historyContinuationRootId(request.root)) throw new Error('Another child already occupies this provision slot');
+      if (state.phase !== 'ready' && slots.size >= maxGenerations) throw new Error('History volunteer generation capacity exceeded');
+      if (state.phase === 'empty' && options.acceptNew?.() === false) throw new Error('History owner paused new storage');
+      // A child must also be able to retain its next empty slot before activation.
+      // Otherwise publication could succeed but leave the volunteer unable to reopen.
+      reserveHistoryProvisionJournal(join(directory, slotName(historyContinuationRootId(request.root))));
+      const receipt = slot.provisioner.provision(request);
+      grow(); // Route the ready child and open its already funded successor slot before replying.
       return receipt;
-    },
+    }); },
     /** Local maintenance approval, including promises/provisioning in every retained generation. */
     reviewDigest() {
       live(); return historyDigest(JSON.stringify([...slots.values()].map(slot => [slot.store.reviewDigest(), slot.provisioner.read()])));

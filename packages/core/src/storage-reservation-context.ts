@@ -13,6 +13,16 @@ export function withStorageReservationAuthority<T>(authority: StorageReservation
   if (inherited && inherited !== authority) throw new Error('A managed operation cannot switch its storage authority');
   return authorities.run(authority, operation);
 }
+/** Factories may open further writers long after construction. Keep the original
+ * ownership scope without adopting an unmanaged handle or switching authorities. */
+export function captureStorageReservationOperation() {
+  const retained = authorities.getStore();
+  return <T>(operation: () => T): T => {
+    const current = authorities.getStore();
+    if (current && current !== retained) throw new Error('A retained operation cannot switch its storage authority');
+    return retained ? withStorageReservationAuthority(retained, operation) : operation();
+  };
+}
 export function reserveManagedStorage(request: StorageReservationRequest): StorageReservationLease | undefined {
   return authorities.getStore()?.reserve(request);
 }

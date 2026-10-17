@@ -205,5 +205,5 @@ export function openStorageReservationAuthority(options: { directory: string; mo
   };
 }
 
-export { withStorageReservationAuthority, reserveManagedStorage } from './storage-reservation-context.js';
+export { withStorageReservationAuthority, reserveManagedStorage, captureStorageReservationOperation } from './storage-reservation-context.js';
 export type { StorageReservationRequest, StorageReservationLease, StorageReservationAuthority, StorageReservationOutput } from './storage-reservation-context.js';

@@ -15,7 +15,7 @@ const cleanup: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 function fixture() { const n = historyProvisionFixture(); cleanup.push(() => n.close()); return n; }
 
-it.each(['intent', 'directory', 'empty-manifest', 'root-block', 'root-manifest', 'before-publication', 'after-publication', 'ready-marker', 'durable'])(
+it.each(['intent', 'directory', 'empty-manifest', 'root-block', 'root-manifest', 'before-ready', 'ready-marker', 'durable'])(
   'resumes unpublished creation after SIGKILL at %s without resetting any retained directory', async boundary => {
     const n = fixture(), original = n.stores[0].read();
     openHistoryGenerationProvisioner({ ...n.provisionOptions(), initialize: true }).close(); n.roles[0].close(); n.stores[0].close();

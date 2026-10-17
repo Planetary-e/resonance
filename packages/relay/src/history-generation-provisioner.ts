@@ -1,21 +1,33 @@
 /** One locally enrolled predecessor/child slot. Never discovers paths or enrolment pins from a peer. */
-import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, renameSync } from 'node:fs';
+import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { type SigningKeyPair } from '@resonance/core';
 import { copyAdmissionSigningKey, exactWitnessFields } from '@resonance/core/admission-witness';
 import { openEncryptedLocalState } from '@resonance/core/local-state';
+import { captureStorageReservationOperation, reserveManagedStorage } from '@resonance/core/storage-reservations';
+import { reserveHistoryStorage } from './history-storage-reservation.js';
 import { historyCheckpointContextId, parseHistoryCheckpointContext, type HistoryCheckpointContext } from '@resonance/core/history-checkpoint';
 import { historyContinuationRootId, parseHistoryContinuationRoot, type HistoryContinuationRoot } from '@resonance/core/history-continuation';
 import { createHistoryProvisionReceipt, parseHistoryProvisionRequest } from '@resonance/core/history-provision';
-import { openHistoryCheckpointStore, prepareHistoryContinuationStore } from './history-checkpoint-store.js';
+import { HISTORY_MANIFEST_FILENAME, openHistoryCheckpointStore, prepareHistoryContinuationStore } from './history-checkpoint-store.js';
 import { createHistoryCheckpointReplica } from './history-checkpoint-exchange.js';
 import { createHistoryAgreementReplica } from './history-checkpoint-agreement.js';
 import { parseHistoryExchangeRequest } from '@resonance/core/history-exchange';
 
 export const HISTORY_PROVISION_FILENAME = 'history-provision.json';
-interface State {
-  version: 1; contextId: string; replica: string; parentRootId: string; parentGeneration: number;
+export const HISTORY_PROVISION_JOURNAL_BYTES = 64 * 1024;
+interface StateBase {
+  contextId: string; replica: string; parentRootId: string; parentGeneration: number;
   phase: 'empty' | 'creating' | 'ready'; root: HistoryContinuationRoot | null;
+}
+type Location = 'generation' | 'legacy-staging';
+interface State extends StateBase { version: 2; location: Location | null }
+interface LegacyState extends StateBase { version: 1 }
+type StoredState = State | LegacyState;
+/** Preflight the slot before creating its directory, including a future empty successor slot. */
+export function reserveHistoryProvisionJournal(directory: string) {
+  return reserveManagedStorage({ path: join(directory, HISTORY_PROVISION_FILENAME), component: 'encrypted-local-state', scope: 'file',
+    maximumBytes: 2 * HISTORY_PROVISION_JOURNAL_BYTES + 8192 });
 }
 export function openHistoryGenerationProvisioner(options: {
   directory: string; localKey: Uint8Array; context: HistoryCheckpointContext; signingKey: SigningKeyPair;
@@ -24,16 +36,23 @@ export function openHistoryGenerationProvisioner(options: {
   resumePristine?: boolean;
   maxBytes?: number; maxBlocks?: number; acceptNew?: () => boolean; now?: () => number;
 }) {
+  const run = captureStorageReservationOperation();
   const context = parseHistoryCheckpointContext(options.context), contextId = historyCheckpointContextId(context);
+  const maxBytes = options.maxBytes ?? 64 * 1024 * 1024, maxBlocks = options.maxBlocks ?? 10001;
+  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 4 * 1024 * 1024 || maxBytes > 256 * 1024 * 1024
+    || !Number.isSafeInteger(maxBlocks) || maxBlocks < 1 || maxBlocks > 10001) throw new Error('Invalid history provision capacity');
   const key = copyAdmissionSigningKey(options.signingKey), localKey = Buffer.from(options.localKey);
   const replica = Buffer.from(key.publicKey).toString('base64url'), parent = options.parent, head = parent.describe();
   const directory = options.directory, now = options.now ?? Date.now;
   let child: ReturnType<typeof openHistoryCheckpointStore> | undefined, closed = false, failed = false;
-  const initial: State = { version: 1, contextId, replica, parentRootId: head.rootId, parentGeneration: head.generation, phase: 'empty', root: null };
-  const validate = (raw: unknown): raw is State => {
-    if (!exactWitnessFields(raw, Object.keys(initial)) || raw.version !== 1 || raw.contextId !== contextId || raw.replica !== replica
-      || raw.parentRootId !== head.rootId || raw.parentGeneration !== head.generation) return false;
-    if (raw.phase === 'empty') return raw.root === null;
+  const initial: State = { version: 2, contextId, replica, parentRootId: head.rootId, parentGeneration: head.generation, phase: 'empty', root: null, location: null };
+  const fields = Object.keys(initial).filter(name => name !== 'location');
+  const validate = (raw: unknown): raw is StoredState => {
+    const v2 = !!raw && typeof raw === 'object' && 'version' in raw && raw.version === 2;
+    if (!exactWitnessFields(raw, v2 ? [...fields, 'location'] : fields) || ![1, 2].includes(raw.version as number)
+      || raw.contextId !== contextId || raw.replica !== replica || raw.parentRootId !== head.rootId || raw.parentGeneration !== head.generation) return false;
+    if (raw.phase === 'empty') return raw.root === null && (!v2 || raw.location === null);
+    if (v2 && raw.location !== 'generation' && raw.location !== 'legacy-staging') return false;
     try {
       const root = parseHistoryContinuationRoot(raw.root, context);
       return ['creating', 'ready'].includes(raw.phase as string) && root.proposal.rootId === head.rootId && root.proposal.generation === head.generation;
@@ -43,16 +62,32 @@ export function openHistoryGenerationProvisioner(options: {
     const id = historyContinuationRootId(root).slice(7);
     return { staging: join(directory, `.creating-${id}`), published: join(directory, `generation-${id}`) };
   };
+  const selectedPath = (state: State) => state.location === 'legacy-staging' ? paths(state.root!).staging : paths(state.root!).published;
   const childOptions = (root: HistoryContinuationRoot, path: string) => ({ directory: path, localKey, context, replica,
-    rootId: historyContinuationRootId(root), generation: root.generation, parent, maxBytes: options.maxBytes, maxBlocks: options.maxBlocks });
+    rootId: historyContinuationRootId(root), generation: root.generation, parent, maxBytes, maxBlocks });
+  function present(path: string) {
+    try { lstatSync(path); return true; } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false; throw error; }
+  }
   function checkDirectory(path: string) {
     if (!lstatSync(path).isDirectory()) throw new Error('History provision path is not a real directory');
   }
-  let journal: ReturnType<typeof openEncryptedLocalState<State>>;
+  function checkLayout(state: State) {
+    if (state.phase === 'empty') return;
+    const p = paths(state.root!), selected = selectedPath(state), other = state.location === 'legacy-staging' ? p.published : p.staging;
+    if (present(other)) throw new Error('Ambiguous history publication directories');
+    if (state.phase === 'ready' || present(selected)) checkDirectory(selected);
+  }
+  let journal: ReturnType<typeof openEncryptedLocalState<StoredState>>;
+  function readState(): State {
+    const state = journal.read();
+    if (state.version !== 2) throw new Error('History provision location must be durably selected before reuse');
+    return state;
+  }
   try {
     if (!parent.matches(context, replica)) throw new Error('Provisioner belongs to another predecessor or member');
     if (options.resumePristine && (!options.initialize || parent.activatedContinuation()
       || existsSync(join(directory, HISTORY_PROVISION_FILENAME)))) throw new Error('Cannot recreate an activated or published provision slot');
+    reserveHistoryProvisionJournal(directory);
     if (options.initialize) {
       if (existsSync(directory) && readdirSync(directory).length) {
         if (!options.resumePristine) throw new Error('History provision enrolment directory is not empty');
@@ -65,64 +100,70 @@ export function openHistoryGenerationProvisioner(options: {
       flush(dirname(directory));
     }
     checkDirectory(directory);
-    journal = openEncryptedLocalState<State>({ path: join(directory, HISTORY_PROVISION_FILENAME), key: localKey,
-      domain: 'resonance:history-provision-state:v1', maxBytes: 64 * 1024, initial, validate,
+    journal = openEncryptedLocalState<StoredState>({ path: join(directory, HISTORY_PROVISION_FILENAME), key: localKey,
+      domain: 'resonance:history-provision-state:v1', maxBytes: HISTORY_PROVISION_JOURNAL_BYTES, initial, validate,
       mode: options.initialize ? 'create-new' : 'open-existing' });
-    const state = journal.read();
-    if (state.phase === 'ready') {
-      const p = paths(state.root!); checkDirectory(p.published);
-      if (existsSync(p.staging)) throw new Error('Published history has conflicting staging state');
-      child = openHistoryCheckpointStore(childOptions(state.root!, p.published));
+    const previous = journal.read();
+    if (previous.version === 1) {
+      // An old ready marker already binds the published directory. Only a never-
+      // published creating intent may select its sole retained staging directory.
+      let location: Location | null = null;
+      if (previous.phase !== 'empty') {
+        const p = paths(previous.root!);
+        if (present(p.staging) && present(p.published)) throw new Error('Ambiguous history publication directories');
+        location = previous.phase === 'creating' && present(p.staging) ? 'legacy-staging' : 'generation';
+      }
+      const selected: State = { ...previous, version: 2, location }; checkLayout(selected);
+      journal.write(selected); // Pin before reopening/continuing; process death cannot lose the choice.
     }
+    const state = readState(); checkLayout(state);
+    if (state.phase === 'ready') child = openHistoryCheckpointStore(childOptions(state.root!, selectedPath(state)));
   } catch (error) { child?.close(); journal!?.close(); key.secretKey.fill(0); localKey.fill(0); throw error; }
   function ensureOpen() {
     if (closed || failed) throw new Error('History provisioner closed or write failed; reopen before reuse');
-    journal.read();
+    readState();
   }
   return {
-    provision(raw: unknown) {
+    provision(raw: unknown) { return run(() => {
       ensureOpen();
       const request = parseHistoryProvisionRequest(raw, context, now()), root = request.root, p = paths(root);
       if (request.replica !== replica || root.proposal.rootId !== head.rootId || root.proposal.generation !== head.generation) {
         throw new Error('History provision request does not match enrolled predecessor');
       }
-      let state = journal.read();
+      if (Buffer.byteLength(JSON.stringify(root)) > maxBytes - 4 * 1024 * 1024) throw new Error('History provision root exceeds child capacity');
+      let state = readState();
       if (state.root && historyContinuationRootId(state.root) !== historyContinuationRootId(root)) throw new Error('Another child already occupies this provision slot');
       if (state.phase === 'empty') {
         if (options.acceptNew?.() === false) throw new Error('History owner paused new storage');
         ensureOpen(); parseHistoryProvisionRequest(request, context, now());
-        if (existsSync(p.staging) || existsSync(p.published)) throw new Error('Unregistered history directory requires inspection');
-      }
+        if (present(p.staging) || present(p.published)) throw new Error('Unregistered history directory requires inspection');
+      } else checkLayout(state);
+      const path = state.phase === 'empty' ? p.published : selectedPath(state);
+      reserveHistoryStorage({ directory: path, component: 'history-replica-ciphertext', ciphertextBytes: maxBytes - 4 * 1024 * 1024,
+        manifestFilename: HISTORY_MANIFEST_FILENAME, manifestBytes: 2 * 1024 * 1024 });
+      ensureOpen(); parseHistoryProvisionRequest(request, context, now());
       try {
-        // Parent validation/activation is irreversible and keeps every old block. If the journal
-        // write then fails, an exact retry can recover the same already-activated boundary.
         const authorized = parent.activateContinuation(root);
         if (state.phase === 'empty') {
-          state = { ...state, phase: 'creating', root: authorized }; journal.write(state);
+          state = { ...state, phase: 'creating', root: authorized, location: 'generation' }; journal.write(state);
         }
         if (state.phase === 'creating') {
-          if (existsSync(p.published)) {
-            checkDirectory(p.published);
-            if (existsSync(p.staging)) throw new Error('Ambiguous history publication directories');
-          } else {
-            if (existsSync(p.staging)) checkDirectory(p.staging);
-            prepareHistoryContinuationStore({ ...childOptions(state.root!, p.staging), initialize: state.root! });
-            renameSync(p.staging, p.published); flush(directory);
-          }
-          child = openHistoryCheckpointStore(childOptions(state.root!, p.published));
-          // Nothing may append to the child until this flushed marker prevents re-creation.
+          // The fixed path is never exposed until the ready journal is durable.
+          // Preparation permits only an authenticated pristine child, never a
+          // previously operational child whose ready marker has been lost.
+          prepareHistoryContinuationStore({ ...childOptions(state.root!, path), initialize: state.root! });
+          child = openHistoryCheckpointStore(childOptions(state.root!, path));
           journal.write({ ...state, phase: 'ready' });
         }
         parent.requireContinuation(root, replica);
         if (!child?.matches(context, replica)) throw new Error('Provisioned child is unavailable');
       } catch (error) { failed = true; throw error; }
       const receipt = createHistoryProvisionReceipt(request, key);
-      parseHistoryProvisionRequest(request, context, now()); // A slow fsync never grants an expired receipt.
+      parseHistoryProvisionRequest(request, context, now());
       return receipt;
-    },
-    /** Ready stores can be routed by their pinned root, without replacing the predecessor service. */
+    }); },
     child() { ensureOpen(); return child ?? null; },
-    read(): State { ensureOpen(); return structuredClone(journal.read()); },
+    read(): State { ensureOpen(); return structuredClone(readState()); },
     close() {
       if (!closed) { closed = true; child?.close(); journal.close(); key.secretKey.fill(0); localKey.fill(0); }
     },
