@@ -49,7 +49,8 @@ it('requires a current fourth copy and refuses a coherent stale backup without c
   activation = await openAdmissionHistoryActivation(n.activationOptions);
   try { await expect(activation.apply(activation.review().approvalDigest)).rejects.toThrow(); } finally { activation.close(); }
   expect(existsSync(join(n.runtimeDirectory, 'admission-community-policy.json'))).toBe(false);
-});
+// Includes fixture key generation and two independent 1.5-second quorum failures.
+}, 15000);
 
 it('retains unrelated old ledgers, rejects implicit policy changes and requires an installed binding to match', async () => {
   const n = await fixture(), before = n.exchanges(), old = join(n.runtimeDirectory, 'admission-spends-v2.jsonl');
