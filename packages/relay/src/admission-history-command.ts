@@ -16,13 +16,14 @@ import { loadAdmissionHistoryProtectionFile, parseAdmissionHistoryConfiguration 
 import { readOperatorFile, readOperatorJson, readOperatorSigningKey, readOperatorStorageKey, writeOperatorJsonNew } from './admission-operator-files.js';
 import { openProtectedAdmissionSpendHistory } from './protected-admission-history.js';
 import { openAdmissionRoleCapture } from './admission-role-capture.js';
+import { openAdmissionRoleSetup, openAdmissionRoleKeyExport } from './admission-role-setup.js';
 import { openHistoryVolunteerEnrollmentResume } from './history-volunteer-enrollment.js';
 import { openHistoryVolunteerService } from './history-volunteer-service.js';
 import { listenHistoryAgreementReplica } from './history-agreement-exchange.js';
 import { discoverHistoryContinuations } from './history-continuation-discovery.js';
 import { createHistoryOperatorTransport } from './history-operator-transport.js';
 import { openAdmissionHistoryRecovery, prepareAdmissionHistoryRecovery } from './admission-history-recovery.js';
-import { reviewAdmissionOwnerConfiguration, openAdmissionOwnerSetup, canonicalHistorySetupPath, type AdmissionOwnerSetupMode } from './admission-history-setup.js';
+import { reviewAdmissionOwnerConfiguration, openAdmissionOwnerSetup, canonicalHistorySetupPath, historySetupContains, type AdmissionOwnerSetupMode } from './admission-history-setup.js';
 import { measureStorageDirectories } from './storage-inventory.js';
 import { openAdmissionOwnerLimits } from './admission-history-limits.js';
 import { openAdmissionInitialReadiness } from './admission-history-readiness.js';
@@ -85,6 +86,12 @@ export async function runAdmissionHistoryCommand(command: string, raw: readonly 
         const preparation = await openAdmissionOwnerSetup({ mode: mode as AdmissionOwnerSetupMode, historyConfigFile, policyFile, storageKeyFile, directory, output }, commandOptions.signal);
         cleanup.push(() => preparation.close()); emit(applying ? await preparation.apply(approved!) : preparation.review());
       }
+    } else if (['role-setup-plan', 'role-setup'].includes(command)) {
+      const applying = command === 'role-setup', approved = applying && raw[0] === '--approve' ? raw[1] : undefined, args = approved ? raw.slice(2) : raw;
+      if (args.length !== 5 || (applying && !approved)) throw new Error('Invalid fresh role setup command or missing approval');
+      const [mode, selection, storageKeyFile, directory, output] = args;
+      const prepared = openAdmissionRoleSetup({ mode: mode as 'new' | 'resume', selection: selection as 'witness' | 'coordinator', storageKeyFile, directory, output }, commandOptions.signal);
+      cleanup.push(prepared.close); emit(applying ? prepared.apply(approved!) : prepared.review);
     } else if (['owner-limits-plan', 'owner-limits'].includes(command)) {
       const applying = command === 'owner-limits', approved = applying && raw[0] === '--approve' ? raw[1] : undefined;
       const args = approved ? raw.slice(2) : raw;
@@ -310,20 +317,25 @@ export async function runAdmissionHistoryCommand(command: string, raw: readonly 
         emit({ ...review, result: 'checkpoint-certificate-exported', endorsements: certificate.votes.length,
           authority: 'historical-only', remotelyRetained: false });
       }
-    } else if (['owner-role-capture-plan', 'owner-role-capture', 'owner-role-retirement-plan', 'owner-role-retire'].includes(command)) {
+    } else if (['owner-role-capture-plan', 'owner-role-capture', 'owner-role-retirement-plan', 'owner-role-retire', 'owner-role-key-plan', 'owner-role-key-export'].includes(command)) {
       const capturing = command === 'owner-role-capture-plan' || command === 'owner-role-capture';
-      const applying = command === 'owner-role-capture' || command === 'owner-role-retire';
+      const exporting = command === 'owner-role-key-plan' || command === 'owner-role-key-export';
+      const applying = command === 'owner-role-capture' || command === 'owner-role-retire' || command === 'owner-role-key-export';
       const approved = applying && raw[0] === '--approve' ? raw[1] : undefined, args = approved ? raw.slice(2) : raw;
-      if (args.length !== 6 || (applying && !approved)) throw new Error('Invalid protected role command or missing approval');
-      const [configPath, policyPath, keyPath, directory, target, selection] = args;
-      if (capturing ? !['witness', 'coordinator', 'both'].includes(selection) : !['witness', 'coordinator'].includes(target)) throw new Error('Select an explicit admission role');
+      if (args.length !== (exporting ? 7 : 6) || (applying && !approved)) throw new Error('Invalid protected role command or missing approval');
+      const [configPath, policyPath, keyPath, directory, target, selection, output] = args;
+      if (capturing ? !['witness', 'coordinator', 'both'].includes(selection) : !['witness', 'coordinator'].includes(exporting ? selection : target)) throw new Error('Select an explicit admission role');
+      if (exporting && historySetupContains(canonicalHistorySetupPath(directory), canonicalHistorySetupPath(output))) throw new Error('Export the role signing key outside the owner history');
       const loaded = loadAdmissionHistoryProtectionFile(configPath); cleanup.push(() => loaded.signingKey.secretKey.fill(0));
       const { protection } = operatorTransport(loaded), encryptionKey = readOperatorStorageKey(keyPath); cleanup.push(() => encryptionKey.fill(0));
       const policy = await verifyAdmissionPolicy(readOperatorJson(policyPath, MAX_ADMISSION_POLICY_BYTES), protection.context.authority);
       const history = await openProtectedAdmissionSpendHistory({ directory, encryptionKey, authority: protection.context.authority, policy, protection });
       cleanup.push(history.close);
       if (admissionPolicyDigest(history.read().image.policy) !== admissionPolicyDigest(policy)) throw new Error('Role maintenance requires the retained policy; apply its successor explicitly');
-      if (capturing) {
+      if (exporting) {
+        const prepared = await openAdmissionRoleKeyExport({ directory: target, output, selection: selection as 'witness' | 'coordinator', encryptionKey, history, signal: commandOptions.signal });
+        cleanup.push(prepared.close); emit(applying ? await prepared.apply(approved!) : prepared.review);
+      } else if (capturing) {
         const capture = await openAdmissionRoleCapture({ directory: target, encryptionKey, history,
           roles: selection === 'both' ? ['witness', 'coordinator'] : [selection as 'witness' | 'coordinator'] });
         cleanup.push(capture.close);

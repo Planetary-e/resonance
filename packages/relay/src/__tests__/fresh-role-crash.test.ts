@@ -1,0 +1,31 @@
+import { afterEach, expect, it } from 'vitest';
+import { fork } from 'node:child_process';
+import { once } from 'node:events';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { randomBytes } from 'node:crypto';
+import { openAdmissionRoleSetup, type AdmissionRoleSetupInput } from '../admission-role-setup.js';
+
+const cleanup: Array<() => unknown | Promise<unknown>> = [];
+afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
+it.each(['after-journal', 'after-role', 'after-prepared', 'before-public', 'after-public'])('resumes an unpublished fresh key after actual process death %s', async boundary => {
+  const directory = mkdtempSync(join(tmpdir(), 'fresh-role-crash-')); cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
+  const input: AdmissionRoleSetupInput = { mode: 'new', selection: 'witness', directory: join(directory, 'role'), output: join(directory, 'public.json'), storageKeyFile: join(directory, 'storage.hex') };
+  writeFileSync(input.storageKeyFile, randomBytes(32).toString('hex'), { mode: 0o600 });
+  const file = join(directory, 'input.json'), marker = join(directory, 'boundary'); writeFileSync(file, JSON.stringify(input));
+  const child = fork(new URL('./fixtures/fresh-role-crash.ts', import.meta.url), [file, boundary, marker], { execArgv: ['--import', 'tsx'], stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });
+  let errors = ''; child.stderr?.on('data', value => { errors += String(value); }); const exited = once(child, 'exit');
+  const timer = setTimeout(() => child.kill('SIGKILL'), 10000);
+  cleanup.push(async () => { clearTimeout(timer); if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); await exited; });
+  await exited; clearTimeout(timer); expect(errors).toBe(''); expect(readFileSync(marker, 'utf8')).toBe(boundary);
+  if (process.platform !== 'win32') expect(child.signalCode).toBe('SIGKILL');
+  if (boundary !== 'after-public') expect(existsSync(input.output)).toBe(false);
+  const retained = boundary === 'after-public' ? JSON.parse(readFileSync(input.output, 'utf8')) : undefined;
+  const resume = openAdmissionRoleSetup({ ...input, mode: 'resume', output: join(directory, 'resumed-public.json') }); cleanup.push(resume.close);
+  const completed = resume.apply(resume.review.approvalDigest); resume.close();
+  if (retained) expect(completed.publicKey).toBe(retained.publicKey);
+  expect(JSON.parse(readFileSync(join(directory, 'resumed-public.json'), 'utf8'))).toEqual({ version: 1, kind: 'admission-role-public-key', role: 'witness', publicKey: completed.publicKey });
+  rmSync(join(input.directory, 'admission-witness-votes.json'));
+  expect(() => openAdmissionRoleSetup({ ...input, mode: 'resume', output: join(directory, 'missing-history.json') })).toThrow(/missing/);
+}, 15000);

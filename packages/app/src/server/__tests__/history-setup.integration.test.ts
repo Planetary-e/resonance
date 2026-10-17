@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:net';
 import { once } from 'node:events';
 import { EmbeddingEngine } from '@resonance/core';
+import { signAdmissionPolicy } from '@resonance/core/admission-policy';
 import { listenHistoryAgreementReplica, openHistoryVolunteerService, readHistoryEnrollmentFile } from '@resonance/relay';
 import { admissionSetupFixture } from '../../../../relay/src/__tests__/fixtures/admission-setup-fixture.js';
 import { protectedRoleFixture } from '../../../../relay/src/__tests__/fixtures/protected-role-fixture.js';
@@ -121,6 +122,47 @@ it('cancels role readiness through the API before changing either original role'
   const witness = createAdmissionWitness(n.local()); witness.close();
   expect((await n.request('/api/relay/maintenance')).body.active).toBe(true); expect(installRelayService).not.toHaveBeenCalled();
 });
+
+it('prepares a genuinely new key, enrolls its signed policy, captures it and exports the protected key through the desktop API', async () => {
+  const n = await setup(); await n.init(); await n.request('/api/relay/maintenance', {});
+  const fresh: Extract<RelayHistorySetupInput, { role: 'admission-role-setup' }> = { role: 'admission-role-setup', mode: 'new', selection: 'witness',
+    directory: join(n.directory, 'fresh-witness'), output: join(n.directory, 'fresh-public.json'), storageKeyFile: n.input.storageKeyFile };
+  const initial = await n.run('review', fresh); expect(initial.status, JSON.stringify(initial.body)).toBe(200);
+  expect(existsSync(fresh.directory)).toBe(false);
+  expect((await n.run('apply', fresh, initial.body.result.approvalDigest)).body.result.result).toBe('fresh-admission-role-prepared');
+  const publicIdentity = JSON.parse(readFileSync(fresh.output, 'utf8')); expect(Object.keys(publicIdentity)).not.toContain('secretKey');
+  const body = structuredClone(n.issuer.body); body.keys[0].witnesses!.members[0].publicKey = publicIdentity.publicKey;
+  writeFileSync(n.input.policyFile, JSON.stringify(await signAdmissionPolicy(body, n.issuer.authority, n.issuer.authorityKey.secretKey)));
+  await n.createConfig();
+  const owner: RelayHistorySetupInput = { ...n.input, role: 'owner' }, planned = await n.run('review', owner);
+  expect((await n.run('apply', owner, planned.body.result.approvalDigest)).status).toBe(200);
+  const config = JSON.parse(readFileSync(n.configInput.output, 'utf8')), enrollment = readHistoryEnrollmentFile(n.input.output);
+  for (let i = 0; i < 5; i++) {
+    const input: RelayHistorySetupInput = { role: 'volunteer', enrollmentFile: n.input.output, signingKeyFile: n.keyFile(`fresh-member-${i}.json`, n.memberKeys[i]),
+      storageKeyFile: n.input.storageKeyFile, directory: join(n.directory, `fresh-volunteer-${i}`) };
+    const review = await n.run('review', input); expect((await n.run('apply', input, review.body.result.approvalDigest)).status).toBe(200);
+    const service = openHistoryVolunteerService({ directory: input.directory, context: enrollment.context, genesisId: enrollment.genesisId, signingKey: n.memberKeys[i], localKey: n.key }); cleanup.push(service.close);
+    const listener = await listenHistoryAgreementReplica(service, { port: 0 }); cleanup.push(listener.close); config.members[i].endpoint = listener.checkpointEndpoint;
+  }
+  writeFileSync(n.configInput.output, JSON.stringify(config));
+  const ready: RelayHistorySetupInput = { role: 'readiness', historyConfigFile: n.configInput.output, enrollmentFile: n.input.output,
+    policyFile: n.input.policyFile, storageKeyFile: n.input.storageKeyFile, directory: n.input.directory, operatorTransportFile: '' };
+  const readyPlan = await n.run('review', ready); expect((await n.run('apply', ready, readyPlan.body.result.approvalDigest)).status).toBe(200);
+  const capture: Extract<RelayHistorySetupInput, { role: 'admission-role-capture' }> = { role: 'admission-role-capture', historyConfigFile: n.configInput.output,
+    policyFile: n.input.policyFile, storageKeyFile: n.input.storageKeyFile, directory: n.input.directory, localRoleDirectory: fresh.directory, selection: 'witness', operatorTransportFile: '' };
+  const exporter: RelayHistorySetupInput = { ...capture, role: 'admission-role-key-export', selection: 'witness', output: join(n.directory, 'fresh-private.json') };
+  expect((await n.run('review', exporter)).status).toBe(409); expect(existsSync(exporter.output)).toBe(false);
+  const capturePlan = await n.run('review', capture);
+  expect((await n.run('apply', capture, capturePlan.body.result.approvalDigest)).status).toBe(200);
+  const exportPlan = await n.run('review', exporter); expect(exportPlan.status, JSON.stringify(exportPlan.body)).toBe(200);
+  const done = await n.run('apply', exporter, exportPlan.body.result.approvalDigest); expect(done.status, JSON.stringify(done.body)).toBe(200);
+  expect(done.body.result).toMatchObject({ result: 'protected-admission-role-key-exported', publicKey: publicIdentity.publicKey, durableCopies: 4, startsService: false });
+  const privateIdentity = JSON.parse(readFileSync(exporter.output, 'utf8')); expect(privateIdentity.publicKey).toBe(publicIdentity.publicKey);
+  expect(JSON.stringify(done.body)).not.toContain(privateIdentity.secretKey);
+  expect((await n.run('review', { ...fresh, mode: 'resume', output: join(n.directory, 'reset.json') })).status).toBe(409);
+  expect((await n.request('/api/relay/history/storage', {})).status).toBe(200);
+  expect((await n.request('/api/relay/maintenance')).body.active).toBe(true); expect(installRelayService).not.toHaveBeenCalled();
+}, 30000);
 
 it('prepares a new owner, enrolls five local volunteers, requires four fresh copies and separately activates through the real API', async () => {
   const n = await setup();

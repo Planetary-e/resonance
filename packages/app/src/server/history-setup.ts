@@ -16,6 +16,8 @@ export type RelayHistorySetupInput =
   | { role: 'volunteer-resume'; enrollmentFile: string; signingKeyFile: string; storageKeyFile: string; directory: string }
   | { role: 'owner-limits'; historyConfigFile: string; enrollmentFile: string; policyFile: string; storageKeyFile: string; directory: string; output: string; archiveMiB: number; archiveBlocks: number }
   | { role: 'admission-role-capture'; historyConfigFile: string; policyFile: string; storageKeyFile: string; directory: string; localRoleDirectory: string; selection: 'witness' | 'coordinator' | 'both'; operatorTransportFile: string }
+  | { role: 'admission-role-setup'; storageKeyFile: string; directory: string; output: string; mode: 'new' | 'resume'; selection: 'witness' | 'coordinator' }
+  | { role: 'admission-role-key-export'; historyConfigFile: string; policyFile: string; storageKeyFile: string; directory: string; localRoleDirectory: string; output: string; selection: 'witness' | 'coordinator'; operatorTransportFile: string }
   | { role: 'readiness'; historyConfigFile: string; enrollmentFile: string; policyFile: string; storageKeyFile: string; directory: string; operatorTransportFile: string };
 const fields = {
   configuration: ['ownerKeyFile', 'authorityFile', 'policyFile', 'membersFile', 'output'],
@@ -24,13 +26,15 @@ const fields = {
   'volunteer-resume': ['enrollmentFile', 'signingKeyFile', 'storageKeyFile', 'directory'],
   'owner-limits': ['historyConfigFile', 'enrollmentFile', 'policyFile', 'storageKeyFile', 'directory', 'output'],
   'admission-role-capture': ['historyConfigFile', 'policyFile', 'storageKeyFile', 'directory', 'localRoleDirectory', 'operatorTransportFile'],
+  'admission-role-setup': ['storageKeyFile', 'directory', 'output'],
+  'admission-role-key-export': ['historyConfigFile', 'policyFile', 'storageKeyFile', 'directory', 'localRoleDirectory', 'output', 'operatorTransportFile'],
   readiness: ['historyConfigFile', 'enrollmentFile', 'policyFile', 'storageKeyFile', 'directory', 'operatorTransportFile'],
 } as const;
 export function parseRelayHistorySetupInput(value: unknown): RelayHistorySetupInput {
   const raw = value as Record<string, unknown> | null;
   if (!raw || !Object.hasOwn(fields, raw.role as string)) throw new Error('Select a supported initial setup role');
   const role = raw.role as RelayHistorySetupInput['role'];
-  if (!exactWitnessFields(raw, ['role', ...fields[role], ...(role === 'configuration' ? ['historyId'] : role === 'owner' ? ['mode'] : role === 'owner-limits' ? ['archiveMiB', 'archiveBlocks'] : role === 'admission-role-capture' ? ['selection'] : [])])) {
+  if (!exactWitnessFields(raw, ['role', ...fields[role], ...(role === 'configuration' ? ['historyId'] : role === 'owner' ? ['mode'] : role === 'owner-limits' ? ['archiveMiB', 'archiveBlocks'] : role === 'admission-role-setup' ? ['selection', 'mode'] : role.startsWith('admission-role-') ? ['selection'] : [])])) {
     throw new Error('Supply the exact fields for the selected setup role');
   }
   const input: Record<string, unknown> = { ...raw };
@@ -43,6 +47,8 @@ export function parseRelayHistorySetupInput(value: unknown): RelayHistorySetupIn
   if (role === 'configuration' && (typeof raw.historyId !== 'string' || (raw.historyId !== '' && !/^[A-Za-z0-9_-]{43}$/.test(raw.historyId)))) throw new Error('Invalid initial history identifier');
   if (role === 'owner' && !['new', 'resume', 'export'].includes(raw.mode as string)) throw new Error('Select an explicit owner preparation mode');
   if (role === 'admission-role-capture' && !['witness', 'coordinator', 'both'].includes(raw.selection as string)) throw new Error('Select the existing admission roles to protect');
+  if ((role === 'admission-role-setup' || role === 'admission-role-key-export') && !['witness', 'coordinator'].includes(raw.selection as string)) throw new Error('Select one new admission role');
+  if (role === 'admission-role-setup' && !['new', 'resume'].includes(raw.mode as string)) throw new Error('Select new or resume role preparation');
   if (role === 'owner-limits' && (!Number.isSafeInteger(raw.archiveMiB) || (raw.archiveMiB as number) < 1 || (raw.archiveMiB as number) > 64
     || !Number.isSafeInteger(raw.archiveBlocks) || (raw.archiveBlocks as number) < 1 || (raw.archiveBlocks as number) > 10001)) throw new Error('Owner archive limits are outside supported bounds');
   return input as unknown as RelayHistorySetupInput;
@@ -53,7 +59,7 @@ export async function runDesktopHistorySetup(action: 'review' | 'apply', raw: un
   let input = parseRelayHistorySetupInput(raw); signal.throwIfAborted();
   const target = input.role === 'configuration' ? input.output : input.directory;
   const layout = () => [canonicalHistorySetupPath(target), canonicalHistorySetupPath(runtimeDirectory),
-    ...(input.role === 'admission-role-capture' ? [canonicalHistorySetupPath(input.localRoleDirectory)] : [])];
+    ...('localRoleDirectory' in input ? [canonicalHistorySetupPath(input.localRoleDirectory)] : [])];
   const paths = layout();
   if (historySetupContains(paths[0], paths[1]) || historySetupContains(paths[1], paths[0])) throw new Error('Initial history setup must use a separate location from the relay runtime');
   if (input.role !== 'configuration') {
@@ -63,6 +69,7 @@ export async function runDesktopHistorySetup(action: 'review' | 'apply', raw: un
       if (historySetupContains(paths[0], canonicalHistorySetupPath(path))) throw new Error('Keep enrollment, keys and configuration outside the dedicated history directory');
     }
     if ((input.role === 'owner' || input.role === 'owner-limits') && historySetupContains(paths[1], canonicalHistorySetupPath(input.output))) throw new Error('Keep the enrollment backup outside the relay runtime');
+    if ((input.role === 'admission-role-setup' || input.role === 'admission-role-key-export') && historySetupContains(paths[1], canonicalHistorySetupPath(input.output))) throw new Error('Keep role key exports outside the relay runtime');
   }
   const digestFiles = () => fields[input.role].filter(field => !['directory', 'output', 'localRoleDirectory'].includes(field)
     && (input as unknown as Record<string, string>)[field]).map(field => {
@@ -72,7 +79,7 @@ export async function runDesktopHistorySetup(action: 'review' | 'apply', raw: un
     try { return [field, canonicalHistorySetupPath(path), historyDigest(bytes)]; } finally { bytes.fill(0); }
   });
   const files = digestFiles();
-  const routing = () => (input.role === 'readiness' || input.role === 'admission-role-capture') && input.operatorTransportFile
+  const routing = () => 'operatorTransportFile' in input && input.operatorTransportFile
     ? readHistoryOperatorTransportFile(input.operatorTransportFile, parseAdmissionHistoryConfiguration(readOperatorJson(input.historyConfigFile, 65536)).context) : null;
   const operator = routing();
   const check = () => {
@@ -97,6 +104,15 @@ export async function runDesktopHistorySetup(action: 'review' | 'apply', raw: un
       original = (await runAdmissionHistoryCommand(input.role === 'volunteer-resume' ? 'replica-resume-plan' : 'replica-plan', args, { signal })).result;
       const command = input.role === 'volunteer-resume' ? 'replica-resume' : 'replica-enroll';
       apply = async digest => (await runAdmissionHistoryCommand(command, ['--approve', digest, ...args], { signal })).result;
+    } else if (input.role === 'admission-role-setup') {
+      const args = [input.mode, input.selection, input.storageKeyFile, input.directory, input.output];
+      original = (await runAdmissionHistoryCommand('role-setup-plan', args, { signal })).result;
+      apply = async digest => (await runAdmissionHistoryCommand('role-setup', ['--approve', digest, ...args], { signal })).result;
+    } else if (input.role === 'admission-role-key-export') {
+      const args = [input.historyConfigFile, input.policyFile, input.storageKeyFile, input.directory, input.localRoleDirectory, input.selection, input.output];
+      const options = { signal, transportFile: input.operatorTransportFile || undefined };
+      original = (await runAdmissionHistoryCommand('owner-role-key-plan', args, options)).result;
+      apply = async digest => (await runAdmissionHistoryCommand('owner-role-key-export', ['--approve', digest, ...args], options)).result;
     } else if (input.role === 'admission-role-capture') {
       const args = [input.historyConfigFile, input.policyFile, input.storageKeyFile, input.directory, input.localRoleDirectory, input.selection];
       const options = { signal, transportFile: input.operatorTransportFile || undefined };
@@ -117,6 +133,6 @@ export async function runDesktopHistorySetup(action: 'review' | 'apply', raw: un
       result = await apply(String(original.approvalDigest)); check();
       if ('approvalDigest' in result) { const { approvalDigest: _, ...completed } = result; result = completed; }
     }
-    return { input, result: { ...result, readiness: (input.role === 'readiness' || input.role === 'admission-role-capture') && action === 'apply' ? 'confirmed' as const : 'unverified' as const, startsService: false as const } };
+    return { input, result: { ...result, readiness: ['readiness', 'admission-role-capture', 'admission-role-key-export'].includes(input.role) && action === 'apply' ? 'confirmed' as const : 'unverified' as const, startsService: false as const } };
   } finally { close(); }
 }

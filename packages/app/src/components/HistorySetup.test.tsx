@@ -42,3 +42,13 @@ it('shows role retention and headroom before approval and refuses an undersized 
   const done = render({ result: 'admission-roles-protected', readiness: 'confirmed', startsService: false });
   expect(done).toContain('four fresh copies'); expect(done).toContain('relay remains paused'); expect(done).not.toContain('Enrollment exported');
 });
+
+it('separates fresh public-key preparation from protected private-key export', () => {
+  const base = { approvalDigest: 'sha256:review', readiness: 'unverified', startsService: false, selection: 'witness' } as const;
+  const html = render({ ...base, kind: 'fresh-admission-role-setup', phase: 'preparing', publicKey: 'new-public' });
+  expect(html).toContain('exports only its public key'); expect(html).toContain('Missing prepared history cannot be reset');
+  expect(html).not.toContain('existing blocks remain retained'); expect(html).not.toContain('History context:');
+  expect(render({ ...base, kind: 'protected-admission-role-key-export', publicKey: 'new-public' })).toContain('requires four fresh copies');
+  expect(render({ result: 'fresh-admission-role-prepared', readiness: 'unverified', startsService: false })).toContain('Only its public key was exported');
+  expect(render({ result: 'protected-admission-role-key-exported', readiness: 'confirmed', startsService: false })).toContain('relay remains paused');
+});

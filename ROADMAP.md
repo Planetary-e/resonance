@@ -327,7 +327,8 @@ The five-target placement goal remains conditional on enough eligible volunteers
     - [x] Capture intact witness/coordinator state behind same-file fences, replicate decisions before responding, and restore the same keys and permanent denials through owner loss; preserve version-one images and test seven migration SIGKILL boundaries (`docs/developers/v0.4-protected-role-recovery.md`)
     - [ ] Add reviewed desktop creation/capture controls for new and existing protected roles, and measure near-capacity signing/replication costs
       - [x] Review and capture existing local roles from authenticated desktop maintenance; retain both locations through settings failure, bind source/policy/transport to approval, expose capacity and preserve local decisions on cancellation
-      - [ ] Create genuinely new role keys safely, export usable keys only after protected enrollment, and measure signing/replication near capacity
+      - [x] Generate genuinely new role keys behind encrypted preparation journals, expose only public keys before policy enrollment/capture, and export usable keys only with retained fences and four fresh copies; test seven process-death boundaries
+      - [ ] Measure signing/replication near capacity and address limits exposed by the measurements
   - [ ] Resolve authenticated policy freshness and migration beyond the bounded 64-configuration archive; never treat missing records as unused capacity or discard permanent denial evidence
   - [ ] Resolve same-key witness replacement, membership governance/freshness, and history compaction before enabling admission by default; fresh-key cohort rotation does not rescue stranded old tokens or remove finite history limits
 - [ ] Measure protection against a curious relay, colluding relays, Sybil relays, and a network observer

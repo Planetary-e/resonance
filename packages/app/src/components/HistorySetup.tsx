@@ -6,6 +6,8 @@ const empty = (role: RelayHistorySetupInput['role']): RelayHistorySetupInput => 
   : role === 'owner' ? { role, historyConfigFile: '', policyFile: '', storageKeyFile: '', directory: '', output: '', mode: 'new' }
     : role === 'owner-limits' ? { role, historyConfigFile: '', enrollmentFile: '', policyFile: '', storageKeyFile: '', directory: '', output: '', archiveMiB: 64, archiveBlocks: 10001 }
     : role === 'admission-role-capture' ? { role, historyConfigFile: '', policyFile: '', storageKeyFile: '', directory: '', localRoleDirectory: '', selection: 'both', operatorTransportFile: '' }
+    : role === 'admission-role-setup' ? { role, storageKeyFile: '', directory: '', output: '', mode: 'new', selection: 'witness' }
+    : role === 'admission-role-key-export' ? { role, historyConfigFile: '', policyFile: '', storageKeyFile: '', directory: '', localRoleDirectory: '', selection: 'witness', output: '', operatorTransportFile: '' }
     : (role === 'volunteer' || role === 'volunteer-resume') ? { role, enrollmentFile: '', signingKeyFile: '', storageKeyFile: '', directory: '' }
       : { role, historyConfigFile: '', enrollmentFile: '', policyFile: '', storageKeyFile: '', directory: '', operatorTransportFile: '' };
 const labels: Record<string, string> = { ownerKeyFile: 'Owner signing key file', authorityFile: 'Pinned community authority file', policyFile: 'Current signed policy file',
@@ -39,6 +41,7 @@ export default function HistorySetup({ onBusyChange, blocked = false }: { onBusy
           <option value="configuration">Create owner configuration</option><option value="owner">Prepare or export owner history</option>
           <option value="volunteer">Enroll this volunteer</option><option value="volunteer-resume">Resume interrupted volunteer enrollment</option><option value="readiness">Complete initial owner readiness</option><option value="owner-limits">Edit owner archive limits</option>
           <option value="admission-role-capture">Protect existing admission roles</option>
+          <option value="admission-role-setup">Prepare a new admission role</option><option value="admission-role-key-export">Export a protected role signing key</option>
         </select>
       </label>
       {input.role === 'owner' && <label className="form-group" style={{ display: 'block' }}>Preparation
@@ -54,8 +57,22 @@ export default function HistorySetup({ onBusyChange, blocked = false }: { onBusy
         </label>
         <p className="text-sm">Protect the decisions of existing admission roles in this owner's history. Both locations must use the selected storage key and retained signed policy. Keep the original role files: after approval they prevent the old local roles from running independently. Missing decisions require recovery.</p>
       </>}
+      {(input.role === 'admission-role-setup' || input.role === 'admission-role-key-export') && <>
+        <label className="form-group" style={{ display: 'block' }}>New role
+          <select value={input.selection} disabled={disabled} onChange={event => changed({ ...input, selection: event.target.value as 'witness' | 'coordinator' })}>
+            <option value="witness">Witness</option><option value="coordinator">Coordinator</option>
+          </select>
+        </label>
+        {input.role === 'admission-role-setup' && <label className="form-group" style={{ display: 'block' }}>Role preparation
+          <select value={input.mode} disabled={disabled} onChange={event => changed({ ...input, mode: event.target.value as 'new' | 'resume' })}>
+            <option value="new">Generate a new key in a new folder</option><option value="resume">Resume retained preparation</option>
+          </select>
+        </label>}
+        <p className="text-sm">Prepare a new role, enroll its public key in the community's signed policy, then protect its initial history. Export its signing key only after those decisions have four fresh copies. Use recovery for a lost role that has already operated.</p>
+      </>}
       {Object.entries(input).filter(([field]) => field in labels).map(([field, value]) => <label className="form-group" style={{ display: 'block' }} key={field}>
-        {field === 'output' ? (input.role === 'configuration' || input.role === 'owner-limits') ? 'New owner configuration file' : 'New enrollment backup file' : labels[field]}
+        {field === 'output' ? (input.role === 'configuration' || input.role === 'owner-limits') ? 'New owner configuration file'
+          : input.role === 'admission-role-setup' ? 'New public key file' : input.role === 'admission-role-key-export' ? 'New private signing key file' : 'New enrollment backup file' : labels[field]}
         <input type="text" value={value} required={field !== 'operatorTransportFile'} disabled={disabled} autoComplete="off" spellCheck={false}
           onChange={event => changed({ ...input, [field]: event.target.value })} />
       </label>)}
@@ -88,18 +105,23 @@ export default function HistorySetup({ onBusyChange, blocked = false }: { onBusy
 export function HistorySetupReview({ result, busy, onApply }: { result: RelayHistorySetupResult; busy: boolean; onApply: () => void }) {
   if (!result.approvalDigest) return <div role="status">
     <p>{result.result === 'owner-limits-configured' ? 'New owner archive configuration saved. Review owner activation using this file; the relay remains paused.'
+      : result.result === 'fresh-admission-role-prepared' ? 'New role prepared. Only its public key was exported. Enroll it in signed community policy and protect the role before exporting its signing key.'
+      : result.result === 'protected-admission-role-key-exported' ? 'Protected role signing key exported to the selected private file. Keep an independent backup with its storage key and history pins. The relay remains paused.'
       : result.result === 'admission-roles-protected' ? 'Admission role decisions are protected by four fresh copies. The original local roles remain blocked. Review owner activation next; the relay remains paused.'
       : result.result === 'history-ready' ? 'Initial history has four fresh copies. Review owner activation next; the relay remains paused.'
       : (result.result === 'enrolled' || result.result === 'enrollment-resumed') ? 'Volunteer history enrolled. Use Activate enrolled volunteer to review its owner connections before starting the background relay.'
         : result.result === 'new-owner-configuration' ? 'Owner configuration saved. Prepare its dedicated history next.' : 'Enrollment exported. Keep an independent backup and provide it to the five pinned volunteers.'}</p>
     {result.result === 'owner-limits-configured' && <p style={{ overflowWrap: 'anywhere' }}>New configuration: {result.output}</p>}
     {result.genesisId && <p style={{ overflowWrap: 'anywhere' }}>Genesis fingerprint: {result.genesisId}</p>}
+    {result.publicKey && <p style={{ overflowWrap: 'anywhere' }}>Role public key: {result.publicKey}</p>}
   </div>;
   const readiness = result.kind === 'admission-initial-readiness';
   const roles = result.kind === 'admission-local-role-capture';
+  const fresh = result.kind === 'fresh-admission-role-setup', exporting = result.kind === 'protected-admission-role-key-export';
   return <section className="history-activation-review" aria-label="Review initial history setup">
-    <h4>{roles ? 'Review admission role protection' : result.kind === 'owner-history-limits' ? 'Review owner archive limits' : readiness ? 'Review initial readiness' : result.kind?.startsWith('history-volunteer-') ? 'Review volunteer enrollment' : 'Review owner setup'}</h4>
-    <p style={{ overflowWrap: 'anywhere' }}>History context: {result.contextId}</p>
+    <h4>{fresh ? 'Review new role preparation' : exporting ? 'Review protected signing key export' : roles ? 'Review admission role protection' : result.kind === 'owner-history-limits' ? 'Review owner archive limits' : readiness ? 'Review initial readiness' : result.kind?.startsWith('history-volunteer-') ? 'Review volunteer enrollment' : 'Review owner setup'}</h4>
+    {result.contextId && <p style={{ overflowWrap: 'anywhere' }}>History context: {result.contextId}</p>}
+    {(fresh || exporting) && <p>Role: {result.selection}. {result.publicKey ? <>Public key: <span style={{ overflowWrap: 'anywhere' }}>{result.publicKey}</span></> : 'A new random key will be generated after approval.'}</p>}
     {result.genesisId && <p style={{ overflowWrap: 'anywhere' }}>Genesis fingerprint: {result.genesisId}</p>}
     {result.owner && <p style={{ overflowWrap: 'anywhere' }}>Owner public key: {result.owner}</p>}
     {result.authority && <p style={{ overflowWrap: 'anywhere' }}>Community authority: {result.authority}</p>}
@@ -117,12 +139,14 @@ export function HistorySetupReview({ result, busy, onApply }: { result: RelayHis
     </>}
     {result.maximumGenerations && <p className="text-sm">Up to {result.maximumGenerations} generations; {Math.round(result.generationByteLimit! / 1048576)} MiB per generation, {Math.round(result.ancestryByteLimit! / 1048576)} MiB ancestry accounting. Journals and filesystem overhead are additional.</p>}
     {result.kind === 'owner-history-limits' && <p>{result.retainedBlocks} retained archive blocks · {((result.retainedCiphertextBytes ?? 0) / 1048576).toFixed(2)} MiB ciphertext. New limits: {(result.archiveBytes ?? 0) / 1048576} MiB and {result.archiveBlocks} blocks per generation. Pending ciphertext is preserved.</p>}
-    {result.phase && <p>{result.phase === 'genesis-pending' ? 'The first history block was not fully saved. Approval finishes the original enrollment.' : `${result.retainedBlocks} existing blocks remain retained.`}</p>}
+    {result.phase && !fresh && <p>{result.phase === 'genesis-pending' ? 'The first history block was not fully saved. Approval finishes the original enrollment.' : `${result.retainedBlocks} existing blocks remain retained.`}</p>}
     {result.kind === 'history-volunteer-resumption' && <p>Resume the same pinned genesis only. A missing or corrupt manifest cannot be recreated. Existing accepted records remain retained; the relay stays paused.</p>}
-    <p>{roles ? 'This review is offline. Approval blocks the original local roles before saving their decisions on four volunteers. Keep all files if interrupted and review again. The relay remains paused.'
+    <p>{fresh ? 'Approval prepares an empty history for a genuinely new key and exports only its public key. Its signing key stays encrypted until protected enrollment. Missing prepared history cannot be reset.'
+      : exporting ? 'Approval requires four fresh copies and the retained local block before writing the private signing key. The relay remains paused. Keep the role history and independently back up the exported key.'
+      : roles ? 'This review is offline. Approval blocks the original local roles before saving their decisions on four volunteers. Keep all files if interrupted and review again. The relay remains paused.'
       : readiness ? 'Approval completes retained initial work and requires four fresh copies before activation. It does not start the relay.'
       : 'This review is offline. Approval creates only the selected setup files; it does not establish four-copy readiness or start the relay.'}</p>
     {(result.initializeWriter || result.initializeArchive) && <p className="text-sm">Approval includes only pristine writer/archive preparation. Missing committed history cannot be recreated.</p>}
-    <button className="btn btn-primary" type="button" disabled={busy || (roles && result.fits === false)} onClick={onApply}>{roles ? 'Approve role protection' : readiness ? 'Approve initial readiness' : 'Approve setup'}</button>
+    <button className="btn btn-primary" type="button" disabled={busy || (roles && result.fits === false)} onClick={onApply}>{fresh ? 'Approve new role preparation' : exporting ? 'Approve signing key export' : roles ? 'Approve role protection' : readiness ? 'Approve initial readiness' : 'Approve setup'}</button>
   </section>;
 }
