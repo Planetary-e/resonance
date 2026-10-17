@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { existsSync, readFileSync, renameSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:net';
@@ -7,6 +7,8 @@ import { once } from 'node:events';
 import { EmbeddingEngine } from '@resonance/core';
 import { listenHistoryAgreementReplica, openHistoryVolunteerService, readHistoryEnrollmentFile } from '@resonance/relay';
 import { admissionSetupFixture } from '../../../../relay/src/__tests__/fixtures/admission-setup-fixture.js';
+import { protectedRoleFixture } from '../../../../relay/src/__tests__/fixtures/protected-role-fixture.js';
+import { createAdmissionWitness } from '../../../../relay/src/admission-witness.js';
 import { createAppServer } from '../server.js';
 import { lockSession, loadRelayConfig } from '../session.js';
 import { installRelayService } from '../relay-supervisor.js';
@@ -37,6 +39,88 @@ async function setup() {
   const run = (action: 'review' | 'apply', input: RelayHistorySetupInput, approvalDigest?: string) => request('/api/relay/history/setup', { action, input, ...(approvalDigest ? { approvalDigest } : {}) });
   return { ...n, request, init, unlock, run };
 }
+
+async function roleSetup() {
+  const app = await setup(), roles = await protectedRoleFixture(app.issuer); cleanup.push(roles.close); roles.history.close();
+  const localRoleDirectory = join(app.directory, 'existing-roles'); mkdirSync(localRoleDirectory);
+  for (const name of ['admission-witness-votes.json', 'admission-witness-certificates.json']) actualFs.renameSync(join(roles.options.directory, name), join(localRoleDirectory, name));
+  const input: Extract<RelayHistorySetupInput, { role: 'admission-role-capture' }> = { role: 'admission-role-capture',
+    historyConfigFile: app.json('roles-owner.json', { version: 1, context: roles.context, members: roles.members, ownerKeyFile: app.keyFile('roles-owner-key.json', roles.owner) }),
+    policyFile: app.json('roles-policy.json', app.issuer.policy), storageKeyFile: join(app.directory, 'roles-storage.hex'),
+    directory: roles.options.directory, localRoleDirectory, selection: 'both', operatorTransportFile: '' };
+  writeFileSync(input.storageKeyFile, roles.key.toString('hex'), { mode: 0o600 });
+  const local = () => ({ ...roles.localOptions, directory: localRoleDirectory, signingKey: app.issuer.witnesses[0] });
+  return { ...app, roles, roleInput: input, local };
+}
+
+it('protects intact external admission roles through authenticated reviewed setup and retains both locations', async () => {
+  const n = await roleSetup(), input = n.roleInput;
+  expect((await n.run('review', input)).status).toBe(401);
+  await n.init(); expect((await n.run('review', input)).status).toBe(409); await n.request('/api/relay/maintenance', {});
+  const before = readFileSync(join(input.localRoleDirectory, 'admission-witness-votes.json'));
+  const review = await n.run('review', input); expect(review.status, JSON.stringify(review.body)).toBe(200);
+  expect(review.body.result).toMatchObject({ kind: 'admission-local-role-capture', witnessVotes: 1, coordinatorCertificates: 1, fits: true, fencedRoles: 0 });
+  expect(JSON.stringify(review.body)).not.toContain(n.roles.initial.spend);
+  expect(readFileSync(join(input.localRoleDirectory, 'admission-witness-votes.json'))).toEqual(before);
+  expect((await n.run('apply', { ...input, selection: 'witness' }, review.body.result.approvalDigest)).status).toBe(409);
+  // A changed retained file, even with the same parsed policy, requires a fresh review.
+  const policy = readFileSync(input.policyFile); writeFileSync(input.policyFile, Buffer.concat([policy, Buffer.from('\n')]));
+  expect((await n.run('apply', input, review.body.result.approvalDigest)).status).toBe(409); writeFileSync(input.policyFile, policy);
+  expect(readFileSync(join(input.localRoleDirectory, 'admission-witness-votes.json'))).toEqual(before);
+  for (const candidate of [{ ...input, localRoleDirectory: join(n.directory, 'missing') }, { ...input, selection: 'reset' }, { ...input, initialize: true }]) {
+    expect((await n.request('/api/relay/history/setup', { action: 'review', input: candidate })).status).toBe(409);
+  }
+  expect(existsSync(join(n.directory, 'missing'))).toBe(false);
+  const applied = await n.run('apply', input, review.body.result.approvalDigest);
+  expect(applied.status, JSON.stringify(applied.body)).toBe(200);
+  expect(applied.body.result).toMatchObject({ result: 'admission-roles-protected', readiness: 'confirmed', durableCopies: 4, startsService: false });
+  expect(() => createAdmissionWitness(n.local())).toThrow(/invalid/);
+  await n.request('/api/lock', {}); await n.unlock();
+  expect((await n.request('/api/relay/history/setup')).body.input).toEqual(input);
+  expect(loadRelayConfig().historyStorageDirectories).toContain(actualFs.realpathSync(input.localRoleDirectory));
+  expect(loadRelayConfig().historyStorageDirectories).toContain(actualFs.realpathSync(input.directory));
+  expect((await n.request('/api/relay/history/storage', {})).status).toBe(200);
+  expect((await n.request('/api/relay/maintenance')).body.active).toBe(true); expect(installRelayService).not.toHaveBeenCalled();
+  await n.roles.reopen(); await n.roles.history.ready(); expect(n.roles.history.roleState().witness!.votes[0].spend).toBe(n.roles.initial.spend);
+}, 30000);
+
+it('retains captured roles and their original files after a desktop settings failure', async () => {
+  const n = await roleSetup(), input = n.roleInput;
+  await n.init(); await n.request('/api/relay/maintenance', {});
+  const review = await n.run('review', input); expect(review.status).toBe(200);
+  const settings = join(n.desktopDirectory, 'relay-config.json'), original = readFileSync(settings);
+  vi.mocked(renameSync).mockImplementation((from, to) => { if (String(to) === settings) throw new Error('Role settings failure'); actualFs.renameSync(from, to); });
+  try { expect((await n.run('apply', input, review.body.result.approvalDigest)).body.error).toContain('Role settings failure'); }
+  finally { vi.mocked(renameSync).mockImplementation(actualFs.renameSync); }
+  expect(readFileSync(settings)).toEqual(original); expect(() => createAdmissionWitness(n.local())).toThrow(/invalid/);
+  const inventory = await n.request('/api/relay/history/storage', {});
+  expect(inventory.status, JSON.stringify(inventory.body)).toBe(200); expect(inventory.body.selectedDirectories).toBe(4);
+  expect((await n.run('apply', input, review.body.result.approvalDigest)).status).toBe(409);
+  const resume = await n.run('review', input); expect(resume.body.result).toMatchObject({ alreadyCaptured: true, fencedRoles: 2 });
+  expect((await n.run('apply', input, resume.body.result.approvalDigest)).status).toBe(200);
+  expect((await n.request('/api/relay/maintenance')).body.active).toBe(true); expect(installRelayService).not.toHaveBeenCalled();
+}, 30000);
+
+it('cancels role readiness through the API before changing either original role', async () => {
+  const n = await roleSetup(), input = n.roleInput;
+  await n.init(); await n.request('/api/relay/maintenance', {});
+  const connections = new Set<import('node:net').Socket>(), silent = createServer(socket => { connections.add(socket); socket.on('close', () => connections.delete(socket)); });
+  silent.listen(0, '127.0.0.1'); await once(silent, 'listening');
+  cleanup.push(async () => { for (const socket of connections) socket.destroy(); await new Promise<void>(r => silent.close(() => r())); });
+  const config = JSON.parse(readFileSync(input.historyConfigFile, 'utf8'));
+  config.members.forEach((member: { endpoint: string }, index: number) => { member.endpoint = `ws://127.0.0.1:${(silent.address() as { port: number }).port}/member-${index}/history-checkpoint`; });
+  writeFileSync(input.historyConfigFile, JSON.stringify(config));
+  const files = ['admission-witness-votes.json', 'admission-witness-certificates.json'].map(name => join(input.localRoleDirectory, name));
+  const before = files.map(path => readFileSync(path));
+  const review = await n.run('review', input); expect(review.status, JSON.stringify(review.body)).toBe(200); expect(connections.size).toBe(0);
+  const applying = n.run('apply', input, review.body.result.approvalDigest);
+  await vi.waitFor(() => expect(connections.size).toBeGreaterThan(0));
+  expect((await n.request('/api/relay/history/cancel', {})).body.active).toBe(true);
+  expect((await applying).status).toBe(409);
+  files.forEach((path, i) => expect(readFileSync(path)).toEqual(before[i]));
+  const witness = createAdmissionWitness(n.local()); witness.close();
+  expect((await n.request('/api/relay/maintenance')).body.active).toBe(true); expect(installRelayService).not.toHaveBeenCalled();
+});
 
 it('prepares a new owner, enrolls five local volunteers, requires four fresh copies and separately activates through the real API', async () => {
   const n = await setup();

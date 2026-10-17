@@ -30,3 +30,15 @@ it('describes owner limits as ciphertext capacity and keeps activation separate'
   const done = render({ result: 'owner-limits-configured', output: '/new-config.json', readiness: 'unverified', startsService: false });
   expect(done).toContain('Review owner activation'); expect(done).toContain('/new-config.json');
 });
+
+it('shows role retention and headroom before approval and refuses an undersized archive', () => {
+  const result: RelayHistorySetupResult = { kind: 'admission-local-role-capture', approvalDigest: 'sha256:review', readiness: 'unverified', startsService: false,
+    localRoles: ['witness', 'coordinator'], witnessVotes: 8, coordinatorCertificates: 4, witnessDenials: 2, coordinatorDenials: 3,
+    fencedRoles: 1, fits: false, requiredBlocks: 2, requiredCiphertextBytes: 1048576, availableBlocks: 1, availableCiphertextBytes: 2097152 };
+  const html = render(result);
+  expect(html).toContain('8 witness decisions'); expect(html).toContain('4 coordinator certificates'); expect(html).toContain('5 permanent denials');
+  expect(html).toContain('blocks the original local roles before saving their decisions'); expect(html).toContain('insufficient archive space'); expect(html).toContain('disabled');
+  expect(render({ ...result, fits: true })).not.toContain('disabled');
+  const done = render({ result: 'admission-roles-protected', readiness: 'confirmed', startsService: false });
+  expect(done).toContain('four fresh copies'); expect(done).toContain('relay remains paused'); expect(done).not.toContain('Enrollment exported');
+});

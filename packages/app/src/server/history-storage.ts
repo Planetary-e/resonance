@@ -13,6 +13,7 @@ export function relayStorageDirectories(config: RelayConfig, runtimeDirectory: s
   else if (config.runtime?.historyVolunteerFile) directories.push(readHistoryVolunteerConfigurationFile(config.runtime.historyVolunteerFile).directory);
   if (config.historyRecoveryInput) directories.push(config.historyRecoveryInput.workspaceDirectory, config.historyRecoveryInput.historyDirectory);
   if (config.historySetupInput && config.historySetupInput.role !== 'configuration') directories.push(config.historySetupInput.directory);
+  if (config.historySetupInput?.role === 'admission-role-capture') directories.push(config.historySetupInput.localRoleDirectory);
   return parseStorageDirectories([...new Set(directories.map(canonicalHistorySetupPath))]);
 }
 export function retainRelayStorageDirectories(next: RelayConfig, previous: RelayConfig | undefined, runtimeDirectory: string): RelayConfig {

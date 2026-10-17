@@ -66,7 +66,7 @@ export async function openAdmissionRoleCapture(options: {
       else Object.assign(roles, { [role]: state });
     }
     const capture = await history.planRoleCapture(roles); available();
-    const review = { ...capture, kind: 'admission-local-role-capture' as const,
+    const review = { ...capture, kind: 'admission-local-role-capture' as const, contextId,
       localRoles: [...stores.keys()], fencedRoles: [...stores.values()].filter(store => store.read().version === 3).length,
       approvalDigest: historyDigest(`resonance:admission-local-role-capture:v1\n${JSON.stringify([
         directory, contextId, capture.approvalDigest, [...stores].map(([role, store]) => [role, store.read()]),
