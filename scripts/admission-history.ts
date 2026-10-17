@@ -12,10 +12,22 @@ import { openProtectedAdmissionSpendHistory } from '../packages/relay/src/protec
 import { openHistoryVolunteerService } from '../packages/relay/src/history-volunteer-service.js';
 import { listenHistoryAgreementReplica } from '../packages/relay/src/history-agreement-exchange.js';
 import { discoverHistoryContinuations } from '../packages/relay/src/history-continuation-discovery.js';
+import { createHistoryOperatorTransport } from '../packages/relay/src/history-operator-transport.js';
 import { openAdmissionHistoryRecovery, prepareAdmissionHistoryRecovery } from '../packages/relay/src/admission-history-recovery.js';
 
 const ENROLLMENT_MAX = HISTORY_ENVELOPE_MAX_BYTES + 65536;
 const cleanup: Array<() => void> = [];
+const transports: Array<ReturnType<typeof createHistoryOperatorTransport>> = [];
+function operatorTransport(protection: ReturnType<typeof loadAdmissionHistoryProtectionFile>) {
+  const transport = createHistoryOperatorTransport(protection, process.env.RESONANCE_HISTORY_OPERATOR_TRANSPORT_FILE);
+  transports.push(transport); cleanup.push(() => transport.close()); return transport;
+}
+// Closing transport also cancels unfinished handshakes; workflow journals retain
+// exact pending work. Offline commands do not install or start a relay service.
+const cancelOperation = () => { for (const transport of transports) transport.close(); process.exitCode = 1; };
+if (process.env.RESONANCE_HISTORY_OPERATOR_TRANSPORT_FILE !== undefined) {
+  process.once('SIGINT', cancelOperation); process.once('SIGTERM', cancelOperation);
+}
 let serving: { service: ReturnType<typeof openHistoryVolunteerService>; listener?: Awaited<ReturnType<typeof listenHistoryAgreementReplica>> } | undefined;
 function empty(path: string) { if (existsSync(path) && readdirSync(path).length) throw new Error('New enrollment requires an empty destination'); }
 function enrollment(path: string) {
@@ -50,7 +62,8 @@ try {
     const [configPath, policyPath, keyPath, directory, output] = raw;
     if (existsSync(output)) throw new Error('Enrollment output exists; choose another output path');
     if (command === 'owner-prepare') empty(directory);
-    const protection = loadAdmissionHistoryProtectionFile(configPath); cleanup.push(() => protection.signingKey.secretKey.fill(0));
+    const loaded = loadAdmissionHistoryProtectionFile(configPath); cleanup.push(() => loaded.signingKey.secretKey.fill(0));
+    const transport = operatorTransport(loaded), { protection } = transport;
     const encryptionKey = readOperatorStorageKey(keyPath); cleanup.push(() => encryptionKey.fill(0));
     const writer = join(directory, 'admission-history-writer');
     const history = await openProtectedAdmissionSpendHistory({ directory, encryptionKey, authority: protection.context.authority,
@@ -73,11 +86,12 @@ try {
       || args.length !== (planning ? 5 : reviewing ? 6 : 4)
       || (['owner-recovery-start', 'owner-recovery-restore'].includes(command) && !approved)) throw new Error('Invalid recovery command or missing approval');
     const [configPath, enrollmentPath, keyPath, directory] = args;
-    const protection = loadAdmissionHistoryProtectionFile(configPath); cleanup.push(() => protection.signingKey.secretKey.fill(0));
+    const loaded = loadAdmissionHistoryProtectionFile(configPath); cleanup.push(() => loaded.signingKey.secretKey.fill(0));
+    const transport = operatorTransport(loaded), { protection } = transport;
     const pinned = enrollment(enrollmentPath);
     if (pinned.contextId !== historyCheckpointContextId(protection.context)) throw new Error('Enrollment and owner configuration differ');
     const encryptionKey = readOperatorStorageKey(keyPath); cleanup.push(() => encryptionKey.fill(0));
-    const options = { directory, protection, encryptionKey, genesis: pinned.root };
+    const options = { directory, ...transport, encryptionKey, genesis: pinned.root };
     if (planning) {
       if (!/^[1-9][0-9]*$/.test(args[4])) throw new Error('Recovery view must be a positive integer');
       const review = await prepareAdmissionHistoryRecovery({ ...options, view: Number(args[4]) });
@@ -108,7 +122,8 @@ try {
     const approved = mutating && raw[0] === '--approve' ? raw[1] : undefined, args = approved ? raw.slice(2) : raw;
     if (args.length !== 5 || (mutating && !approved)) throw new Error('Invalid protected maintenance command or missing approval');
     const [configPath, policyPath, keyPath, directory, target] = args;
-    const protection = loadAdmissionHistoryProtectionFile(configPath); cleanup.push(() => protection.signingKey.secretKey.fill(0));
+    const loaded = loadAdmissionHistoryProtectionFile(configPath); cleanup.push(() => loaded.signingKey.secretKey.fill(0));
+    const transport = operatorTransport(loaded), { protection } = transport;
     const encryptionKey = readOperatorStorageKey(keyPath); cleanup.push(() => encryptionKey.fill(0));
     const policy = await verifyAdmissionPolicy(readOperatorJson(policyPath, MAX_ADMISSION_POLICY_BYTES), protection.context.authority);
     const history = await openProtectedAdmissionSpendHistory({ directory, encryptionKey, authority: protection.context.authority, policy, protection });
@@ -130,7 +145,8 @@ try {
       result: !mutating ? 'review-required' : retiring ? 'permanently-retired' : 'legacy-spends-recovered' }));
   } else if (command === 'owner-ready' && raw.length === 4) {
     const [configPath, policyPath, keyPath, directory] = raw;
-    const protection = loadAdmissionHistoryProtectionFile(configPath); cleanup.push(() => protection.signingKey.secretKey.fill(0));
+    const loaded = loadAdmissionHistoryProtectionFile(configPath); cleanup.push(() => loaded.signingKey.secretKey.fill(0));
+    const transport = operatorTransport(loaded), { protection } = transport;
     const encryptionKey = readOperatorStorageKey(keyPath); cleanup.push(() => encryptionKey.fill(0));
     const writer = join(directory, 'admission-history-writer');
     const history = await openProtectedAdmissionSpendHistory({ directory, encryptionKey, authority: protection.context.authority,
@@ -140,7 +156,8 @@ try {
     cleanup.push(() => history.close()); await history.ready();
     console.log(JSON.stringify({ result: 'history-ready', generation: history.read().root.generation, readiness: 'confirmed' }));
   } else if (command === 'owner-inspect' && raw.length === 2) {
-    const protection = loadAdmissionHistoryProtectionFile(raw[0]); cleanup.push(() => protection.signingKey.secretKey.fill(0));
+    const loaded = loadAdmissionHistoryProtectionFile(raw[0]); cleanup.push(() => loaded.signingKey.secretKey.fill(0));
+    const { protection } = operatorTransport(loaded);
     const pinned = enrollment(raw[1]);
     if (pinned.contextId !== historyCheckpointContextId(protection.context)) throw new Error('Enrollment and owner configuration differ');
     const observation = await discoverHistoryContinuations({ ...protection, genesisId: pinned.genesisId });
@@ -181,6 +198,7 @@ try {
   await serving?.listener?.close(); serving?.service.close(); serving = undefined;
   console.error(error instanceof Error ? error.message : 'Admission history operation failed');
   console.error('Usage: node --import tsx scripts/admission-history.ts');
+  console.error('  Optional pinned outbound transport: RESONANCE_HISTORY_OPERATOR_TRANSPORT_FILE=operator-transport.json');
   console.error('  owner-config owner-private.json authority.pub policy.json members.json owner-config.json');
   console.error('  owner-prepare|owner-export|owner-resume-setup owner-config.json policy.json owner-storage.hex owner-directory enrollment.json');
   console.error('  owner-inspect owner-config.json enrollment.json');
@@ -194,7 +212,10 @@ try {
   console.error('  replica-enroll --approve <digest> enrollment.json member-private.json member-storage.hex replica-directory');
   console.error('  replica-serve enrollment.json member-private.json member-storage.hex replica-directory <port>');
   process.exitCode = 1;
-} finally { for (const close of cleanup.reverse()) close(); }
+} finally {
+  process.removeListener('SIGINT', cancelOperation); process.removeListener('SIGTERM', cancelOperation);
+  for (const close of cleanup.reverse()) close();
+}
 
 if (serving?.listener) {
   const running = serving; let stopping = false;

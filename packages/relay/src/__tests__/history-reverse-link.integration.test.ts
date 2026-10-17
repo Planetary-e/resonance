@@ -1,4 +1,7 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, renameSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { createHistoryOperatorTransport } from '../history-operator-transport.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
@@ -141,3 +144,54 @@ it('refuses unauthenticated history frames and an authenticated relay absent fro
   await expect(outsiderRouter.checkpoint(n.options.protection.members[0], { request, envelope: null }, new AbortController().signal)).rejects.toThrow('closed');
   expect(n.services.map(s => s.describe())).toEqual(before); expect(n.calls.size).toBe(0);
 }, 30000);
+
+
+it('runs the operator CLI recovery through a pinned bridge with no owner listener or direct history endpoints', async () => {
+  const n = await fixture(true);
+  let history = await openProtectedAdmissionSpendHistory(n.options); cleanup.push(() => history.close()); await history.ready();
+  const first = await n.row('accepted before CLI owner loss'); await history.write(first); history.close();
+  // The original controller is stopped before its retained infrastructure key is
+  // used by recovery. A second running service must not share this identity.
+  await n.controller.stop({ graceful: false }); n.router.close();
+  await waitFor(() => !n.bridge!.getRelayLinkStatus().inboundRelayIds.includes(n.controllerIdentity.did));
+  const identityDirectory = join(n.directory, 'controller'), passphrase = 'operator retained secret';
+  loadOrCreateRelayIdentity(identityDirectory, passphrase).secretKey.fill(0);
+  const file = (name: string, value: unknown) => { const path = join(n.directory, name); writeFileSync(path, JSON.stringify(value)); return path; };
+  const ownerKey = file('owner-key.json', { publicKey: Buffer.from(n.owner.publicKey).toString('base64url'), secretKey: Buffer.from(n.owner.secretKey).toString('base64url') });
+  const ownerConfig = file('owner-config.json', { version: 1, context: n.context, members: n.options.protection.members, ownerKeyFile: ownerKey });
+  const policy = file('policy.json', n.policy), enrollment = file('enrollment.json', { version: 1, kind: 'admission-history-enrollment', context: n.context, root: n.genesis });
+  const key = join(n.directory, 'owner-key.hex'); writeFileSync(key, n.key.toString('hex'));
+  const secret = join(n.directory, 'passphrase'); writeFileSync(secret, passphrase);
+  const links = file('operator-links.json', { version: 2, members: n.context.members.map((publicKey, i) => ({ publicKey, relayId: n.volunteers[i].getRelayDescriptor()!.relayId })),
+    bridge: { relayId: n.bridgeIdentity.did, endpoint: n.endpoint } });
+  const transportFile = file('operator.json', { version: 1, identityDirectory, identityPassphraseFile: secret,
+    expectedRelayId: n.controllerIdentity.did, linksFile: links, contacts: [], deadlineMs: 15000 });
+  const script = fileURLToPath(new URL('../../../../scripts/admission-history.ts', import.meta.url));
+  const command = (...args: string[]) => new Promise<any>((resolve, reject) => execFile(process.execPath, ['--import', 'tsx', script, ...args],
+    { timeout: 25000, maxBuffer: 65536, env: { ...process.env, RESONANCE_HISTORY_OPERATOR_TRANSPORT_FILE: transportFile } }, (error, stdout, stderr) => {
+      if (error || stderr) reject(new Error(`Operator command ${args[0]} failed: ${stderr || error?.message}`));
+      else { try { resolve(JSON.parse(stdout)); } catch (error) { reject(error); } }
+    }));
+  expect((await command('owner-ready', ownerConfig, policy, key, n.options.directory)).readiness).toBe('confirmed');
+  expect((await command('owner-inspect', ownerConfig, enrollment)).observedGeneration).toBe(0);
+  rmSync(n.options.directory, { recursive: true });
+  const recoveryArgs = [ownerConfig, enrollment, key, join(n.directory, 'operator-recovery')];
+  const review = await command('owner-recovery-plan', ...recoveryArgs, '1');
+  await command('owner-recovery-start', '--approve', review.approvalDigest, ...recoveryArgs, '1');
+  const beforeStatus = [...n.calls.entries()]; renameSync(secret, `${secret}.offline`);
+  let status = await command('owner-recovery-status', ...recoveryArgs);
+  expect([...n.calls.entries()]).toEqual(beforeStatus); renameSync(`${secret}.offline`, secret);
+  for (let i = 0; i < 12 && !status.complete; i++) status = await command('owner-recovery-step', ...recoveryArgs);
+  expect(status.complete).toBe(true);
+  const destination = join(n.directory, 'cli-restored'), beforeReview = [...n.calls.entries()];
+  renameSync(secret, `${secret}.offline`);
+  const restore = await command('owner-recovery-review', ...recoveryArgs, policy, destination);
+  expect([...n.calls.entries()]).toEqual(beforeReview); renameSync(`${secret}.offline`, secret);
+  expect((await command('owner-recovery-restore', '--approve', restore.approvalDigest, ...recoveryArgs, policy, destination)).readiness).toBe('confirmed');
+  const transport = createHistoryOperatorTransport(n.options.protection, transportFile); cleanup.push(transport.close);
+  history = await openProtectedAdmissionSpendHistory({ ...n.options, directory: destination, protection: transport.protection });
+  await history.ready(); expect(history.get(first.spend)).toEqual(first);
+  await history.write(await n.row('accepted after CLI recovery'));
+  expect([...n.calls.keys()].sort()).toEqual(['agreement', 'checkpoint', 'provision', 'transfer']);
+  history.close(); transport.close();
+}, 120000);

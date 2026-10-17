@@ -15,7 +15,7 @@ import {
   linkSync,
   mkdirSync,
   openSync,
-  readFileSync,
+  readSync,
   renameSync,
   unlinkSync,
   writeFileSync,
@@ -100,11 +100,21 @@ export function loadOrCreateRelayIdentity(directory: string, passphrase?: string
   }
 }
 
-function readIdentity(path: string, passphrase?: string): ReadIdentityResult {
+/** Read an independently retained encrypted identity. Never create, migrate or chmod it. */
+export function loadExistingRelayIdentity(directory: string, passphrase: string): Identity {
+  const existing = readIdentity(join(directory, RELAY_IDENTITY_FILENAME), passphrase, true);
+  if (!existing.encrypted) {
+    existing.identity.secretKey.fill(0);
+    throw new Error('Operator infrastructure identity must already be encrypted');
+  }
+  return existing.identity;
+}
+
+function readIdentity(path: string, passphrase?: string, readonly = false): ReadIdentityResult {
   let descriptor: number;
   try {
     const noFollow = process.platform === 'win32' ? 0 : constants.O_NOFOLLOW;
-    descriptor = openSync(path, constants.O_RDONLY | noFollow);
+    descriptor = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK | noFollow);
   } catch (error) {
     if (isMissing(error)) throw error;
     throw new Error('Relay infrastructure identity must be a regular file', { cause: error });
@@ -112,11 +122,18 @@ function readIdentity(path: string, passphrase?: string): ReadIdentityResult {
 
   let source: string;
   try {
-    if (!fstatSync(descriptor).isFile()) {
+    const stat = fstatSync(descriptor);
+    if (!stat.isFile() || stat.size > 4096) {
       throw new Error('Relay infrastructure identity must be a regular file');
     }
-    fchmodSync(descriptor, 0o600);
-    source = readFileSync(descriptor, 'utf8');
+    if (!readonly) fchmodSync(descriptor, 0o600);
+    const bytes = Buffer.alloc(4097);
+    try {
+      let used = 0;
+      while (used < bytes.length) { const count = readSync(descriptor, bytes, used, bytes.length - used, null); if (!count) break; used += count; }
+      if (used > 4096) throw new Error('Relay infrastructure identity exceeds its size limit');
+      source = new TextDecoder('utf8', { fatal: true }).decode(bytes.subarray(0, used));
+    } finally { bytes.fill(0); }
   } finally {
     closeSync(descriptor);
   }
