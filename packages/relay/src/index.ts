@@ -151,3 +151,9 @@ export { openSelectedRelayStorageOwner } from './selected-relay-storage.js';
 export { openRelayStorageOwner, withRelayStorageControls, assertStoppedRelayStorageOwner, type RelayStorageOwner, type RelayStorageSelection, type RelayStorageRuntimeBinding } from './relay-storage-owner.js';
 
 export { UnparseableRelayStorageSelectionError, parseRelayStorageConfiguration, RELAY_STORAGE_SELECTION_MAX_BYTES } from './relay-storage-selection.js';
+
+export { createPolicyObserverHistoryRoot, openProtectedPolicyObserver } from './protected-policy-observer.js';
+export { preparePolicyObserverRecovery, openPolicyObserverRecovery } from './policy-observer-recovery.js';
+export { parsePolicyObserverConfiguration, readPolicyObserverConfigurationFile, openConfiguredPolicyObserver, serveConfiguredPolicyObserver } from './policy-observer-config.js';
+export type { PolicyObserverConfiguration } from './policy-observer-config.js';
+export { runPolicyObserverCommand } from './policy-observer-command.js';
