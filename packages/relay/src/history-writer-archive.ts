@@ -7,7 +7,7 @@ import { openEncryptedLocalState, inspectLocalStateOwnership, isLocalStateOwners
 import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointContextId, historyCheckpointEnvelopeId, historyDigest, isHistoryDigest,
   parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { HISTORY_RECOVERY_MAX_BLOCKS, HISTORY_RECOVERY_MAX_BYTES } from '@resonance/core/history-exchange';
-import type { createHistoryCheckpointWriter } from './history-checkpoint-quorum.js';
+import type { createHistoryCheckpointWriter, HistoryCheckpointWriterState } from './history-checkpoint-quorum.js';
 import { reserveHistoryStorage } from './history-storage-reservation.js';
 import { registerHistoryWriterPrefix } from './history-writer-prefix.js';
 import { readHistorySequenceIndex, type StoredHistorySequenceIndex } from './history-sequence-index.js';
@@ -17,6 +17,20 @@ export const HISTORY_WRITER_ARCHIVE_FILENAME = 'history-writer-payloads.json';
 const MANIFEST_BYTES = 2 * 1024 * 1024;
 interface State { version: 1; contextId: string; rootId: string; generation: number; blocks: StoredHistorySequenceIndex;
   compaction?: HistoryCompactionCertificate; reclaimReplicaPrefix?: true }
+
+/** Shared read-only preflight for reviewed first initialization and its apply. */
+export function assertHistoryWriterArchiveInitialization(directory: string,
+  writer: Pick<HistoryCheckpointWriterState, 'committed' | 'pending'>, resumePristine = false) {
+  if (writer.committed) throw new Error('Cannot initialize an archive for an already committed writer');
+  if (!existsSync(directory)) return;
+  const entries = readdirSync(directory);
+  const initialTemporary = (name: string) => name === `${HISTORY_WRITER_ARCHIVE_FILENAME}.lock`
+    || /^\.history-writer-payloads\.json\.[a-f0-9]{16}\.tmp$/.test(name);
+  if (entries.length && (!resumePristine || writer.pending || entries.some(name => {
+    if (isLocalStateOwnershipName(HISTORY_WRITER_ARCHIVE_FILENAME, name)) { inspectLocalStateOwnership(join(directory, name)); return false; }
+    return !initialTemporary(name) || !lstatSync(join(directory, name)).isFile();
+  }))) throw new Error('Writer archive directory is not empty');
+}
 
 export function openHistoryWriterArchive(options: {
   directory: string; localKey: Uint8Array; context: HistoryCheckpointContext; rootId: string; generation: number;
@@ -90,21 +104,9 @@ export function openHistoryWriterArchive(options: {
     reservation = reserveHistoryStorage({ directory, component: 'history-writer-ciphertext', ciphertextBytes: maxBytes,
       manifestFilename: HISTORY_WRITER_ARCHIVE_FILENAME, manifestBytes: MANIFEST_BYTES });
     if (options.initialize) {
-      if (writer.committed) throw new Error('Cannot initialize an archive for an already committed writer');
-      if (existsSync(directory)) {
-        const entries = readdirSync(directory);
-        const initialTemporary = (name: string) => name === `${HISTORY_WRITER_ARCHIVE_FILENAME}.lock`
-          || /^\.history-writer-payloads\.json\.[a-f0-9]{16}\.tmp$/.test(name);
-        if (entries.length && (!options.resumePristine || writer.pending
-          || entries.some(name => {
-            if (isLocalStateOwnershipName(HISTORY_WRITER_ARCHIVE_FILENAME, name)) { inspectLocalStateOwnership(join(directory, name)); return false; }
-            return !initialTemporary(name) || !lstatSync(join(directory, name)).isFile();
-          }))) {
-          throw new Error('Writer archive directory is not empty');
-        }
-        // The encrypted-state lock still refuses live/uncertain ownership. Only
-        // that lock owner may remove recognized unpublished encrypted snapshots.
-      }
+      assertHistoryWriterArchiveInitialization(directory, writer, options.resumePristine);
+      // The encrypted-state lock still refuses live/uncertain ownership. Only
+      // that lock owner may remove recognized unpublished encrypted snapshots.
       if (!existsSync(directory)) mkdirSync(directory, { mode: 0o700 });
       flush(dirname(directory));
     }

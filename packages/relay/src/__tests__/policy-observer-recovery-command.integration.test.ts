@@ -1,5 +1,5 @@
 import { afterEach, expect, it } from 'vitest';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { openEncryptedLocalState } from '@resonance/core/local-state';
 import { historySuccessorProposalId } from '@resonance/core/history-successor';
 import { readPolicyObserverConfigurationFile } from '../policy-observer-config.js';
+import { runPolicyObserverCommand } from '../policy-observer-command.js';
 import { runPolicyObserverRecoveryCommand } from '../policy-observer-recovery-command.js';
 import { policyObserverReplayDigest } from '../policy-observer-history-replay.js';
 import { POLICY_OBSERVER_RESTORATION_FILENAME } from '../policy-observer-history-restore.js';
@@ -95,3 +96,49 @@ it('requires explicit source availability and preserves missing local state inst
   const review = await n.call('recovery-plan', [...n.prefix, 'unavailable', '1']); expect(review).toMatchObject({ localStateDigest: null });
   expect(existsSync(n.recoveryOptions.directory)).toBe(false);
 });
+
+it('reviews local setup offline, requires unchanged-root quorum before recreating files, then separately confirms signing readiness', async () => {
+  const n = await fixture(); await complete(n);
+  const writerPath = join(n.destination, 'history-writer.json'), payloads = join(n.destination, 'payloads');
+  // The command created local restoration files but never sent ready(). This
+  // reproduces the independently SIGKILL-tested after-baseline boundary.
+  const writer = openEncryptedLocalState<Record<string, unknown>>({ path: writerPath, key: n.key, domain: 'resonance:history-checkpoint-writer:v1',
+    maxBytes: 40 * 1024 * 1024, mode: 'open-existing', initial: {}, validate: (value): value is Record<string, unknown> => !!value && typeof value === 'object' });
+  expect(writer.read()).toMatchObject({ committed: null, pending: null }); writer.close();
+  rmSync(writerPath); rmSync(payloads, { recursive: true });
+  writeFileSync(n.configPath, JSON.stringify({ ...n.configuration, limits: { ...n.configuration.limits, archiveBytes: 1 } }));
+  await expect(n.call('recovery-resume-plan', [...n.prefix, n.destination])).rejects.toThrow('cannot retain its certified root');
+  expect(existsSync(writerPath)).toBe(false); writeFileSync(n.configPath, JSON.stringify(n.configuration));
+  // A cancelled fifth response from an earlier quorum may still reach its
+  // server. Compare fresh challenges, not late copies of the old fanout.
+  const before = n.receivedChallenges(), planned = await n.call('recovery-resume-plan', [...n.prefix, n.destination]);
+  expect(planned).toMatchObject({ initializeWriter: true, initializeArchive: true, requiresUnchangedRootQuorum: true, readiness: 'unverified' });
+  expect(n.receivedChallenges()).toEqual(before);
+  if (!('approvalDigest' in planned)) throw new Error('Missing resumption review');
+  await expect(n.call('recovery-resume', ['--approve', 'wrong', ...n.prefix, n.destination])).rejects.toThrow('reviewed');
+  expect(existsSync(writerPath)).toBe(false); expect(n.receivedChallenges()).toEqual(before);
+  expect(await n.call('recovery-resume', ['--approve', planned.approvalDigest, ...n.prefix, n.destination])).toMatchObject({ readiness: 'unverified', startsService: false });
+  const after = n.receivedChallenges(); expect(after.length).toBeGreaterThan(before.length);
+  await n.call('recovery-export', [...n.prefix, n.destination, n.output]); expect(n.receivedChallenges()).toEqual(after);
+  await runPolicyObserverCommand('ready', [n.output]); expect(n.receivedChallenges().length).toBeGreaterThan(after.length);
+}, 30000);
+
+it('does not interpret simultaneous writer/archive loss as an empty history when replicas have accepted a later update', async () => {
+  const n = await fixture(); await complete(n); await n.call('recovery-export', [...n.prefix, n.destination, n.output]);
+  await runPolicyObserverCommand('ready', [n.output]);
+  const later = join(n.directory, 'advance.json'); writeFileSync(later, JSON.stringify(n.later)); await runPolicyObserverCommand('advance', [n.output, later]);
+  const writer = join(n.destination, 'history-writer.json'), archive = join(n.destination, 'payloads'); rmSync(writer); rmSync(archive, { recursive: true });
+  const review = await n.call('recovery-resume-plan', [...n.prefix, n.destination]);
+  if (!('approvalDigest' in review)) throw new Error('Missing resumption review');
+  await expect(n.call('recovery-resume', ['--approve', review.approvalDigest, ...n.prefix, n.destination])).rejects.toThrow('Four current');
+  expect(existsSync(writer)).toBe(false); expect(existsSync(archive)).toBe(false);
+}, 30000);
+
+it.each(['writer', 'archive'])('refuses missing used %s evidence before offering pristine resumption', async missing => {
+  const n = await fixture(); await complete(n); await n.call('recovery-export', [...n.prefix, n.destination, n.output]);
+  await runPolicyObserverCommand('ready', [n.output]);
+  const path = missing === 'writer' ? join(n.destination, 'history-writer.json') : join(n.destination, 'payloads', 'history-writer-payloads.json');
+  rmSync(path); const before = n.receivedChallenges();
+  await expect(n.call('recovery-resume-plan', [...n.prefix, n.destination])).rejects.toThrow(missing === 'writer' ? 'retained archive evidence' : 'Committed policy archive');
+  expect(n.receivedChallenges()).toEqual(before); expect(existsSync(path)).toBe(false);
+}, 30000);

@@ -15,6 +15,7 @@ import { parseAdmissionPolicyObserverState, type AdmissionPolicyObserverState } 
 import { assertPolicyObserverHistoryContext, decodePolicyObserverSnapshot, replayPolicyObserverHistory } from './policy-observer-history-replay.js';
 import { fencePolicyObserverRecoverySource, openProtectedPolicyObserver, readPolicyObserverRecoverySource, type PolicyObserverRecoverySource } from './protected-policy-observer.js';
 import { preparePolicyObserverRestore } from './policy-observer-history-restore.js';
+import { openPolicyObserverRestoreResumption } from './policy-observer-restore-resumption.js';
 import { discoverHistoryContinuations } from './history-continuation-discovery.js';
 import { createHistoryCheckpointRecovery, HISTORY_RECOVERY_FILENAME } from './history-checkpoint-recovery.js';
 import { createHistoryAgreementCoordinator, HISTORY_AGREEMENT_COORDINATOR_FILENAME } from './history-agreement-coordinator.js';
@@ -270,6 +271,20 @@ export async function openPolicyObserverRecovery(options: Options & {
         live(); if (signal?.aborted) throw new Error('Policy restoration inspection cancelled');
         return { continuation: structuredClone(continuation), status: observer.status(), readiness: 'unverified' as const };
       } finally { observer?.close(); release(); active = false; }
+    }); },
+    async reviewResumption(destination: string, options: { maxArchiveBytes?: number; maxArchiveBlocks?: number; signal?: AbortSignal } = {}) { return run(async () => {
+      live(); if (active || !journal.read().complete) throw new Error('Policy recovery has not completed provisioning or is active'); active = true;
+      const limits = { maxArchiveBytes: options.maxArchiveBytes, maxArchiveBlocks: options.maxArchiveBlocks }, signal = options.signal;
+      let resumption: Awaited<ReturnType<typeof openPolicyObserverRestoreResumption>> | undefined;
+      try {
+        reopen(); const root = journal.read().continuation!;
+        const replay = await replayPolicyObserverHistory({ ...replayOptions(), proposal: root.proposal, signal }); live();
+        resumption = await openPolicyObserverRestoreResumption({ directory: destination, context: p.context, historyContext: p.historyContext,
+          root, genesis: p.genesis, signingKey: p.signer, encryptionKey: p.key, members: p.members, transport: p.transport, timeoutMs: p.timeoutMs,
+          expectedRestorationDigest: replay.replayDigest, ...limits, signal });
+        live(); return resumption;
+      } catch (error) { resumption?.close(); throw error; }
+      finally { release(); active = false; }
     }); },
     close,
   };

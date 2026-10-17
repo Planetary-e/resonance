@@ -12,6 +12,7 @@ try {
       + '       recovery-plan|recovery-start [--approve <digest>] <config.json> <workspace> <available|unavailable> <view>\n'
       + '       recovery-status|recovery-step <config.json> <workspace>\n'
       + '       recovery-review|recovery-restore [--approve <digest>] <config.json> <workspace> <destination>\n'
+      + '       recovery-resume-plan|recovery-resume [--approve <digest>] <config.json> <workspace> <restored-directory>\n'
       + '       recovery-export <config.json> <workspace> <restored-directory> <new-config.json>\n'
       + 'Only opens existing protected state. Enrollment and recovery require separate explicit preparation.\n');
   } else {

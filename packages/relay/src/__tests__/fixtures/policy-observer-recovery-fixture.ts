@@ -9,9 +9,16 @@ export async function policyObserverRecoveryFixture(register: (close: () => void
   const roles = f.stores.map((parent, i) => createHistoryGenerationReplica({ directory: join(f.directory, `slot-${i}`),
     localKey: f.localKeys[i], context, signingKey: f.signingKeys[i], parent, initialize: true }));
   roles.forEach(role => register(role.close));
-  const members = [];
+  const members = []; let received = 0; const challenges = new Set<string>();
+  function observed(value: unknown) {
+    received++; const frame = value as { request?: { challenge?: unknown }; challenge?: unknown };
+    const challenge = frame.request?.challenge ?? frame.challenge; if (typeof challenge === 'string') challenges.add(challenge);
+  }
   for (let i = 0; i < 5; i++) {
-    const listener = await listenHistoryAgreementReplica(roles[i]); register(listener.close);
+    const role = roles[i], listener = await listenHistoryAgreementReplica({
+      exchange(value) { observed(value); return role.exchange(value); }, transfer(value) { observed(value); return role.transfer(value); },
+      checkpoint(value) { observed(value); return role.checkpoint(value); }, provision(value) { observed(value); return role.provision(value); },
+    }); register(listener.close);
     members.push({ publicKey: context.members[i], endpoint: listener.checkpointEndpoint });
   }
   let online = 5, calls = 0;
@@ -23,6 +30,7 @@ export async function policyObserverRecoveryFixture(register: (close: () => void
     dataTransport: ((member, frame, signal) => { before(member); return exchangeHistoryAgreementData(member, frame, signal); }) as typeof exchangeHistoryAgreementData,
     provisionTransport: ((member, frame, signal) => { before(member); return exchangeHistoryProvision(member, frame, signal); }) as typeof exchangeHistoryProvision,
   };
-  return { ...f, recoveryOptions: options, recoveryMembers: members, calls: () => calls,
+  return { ...f, recoveryOptions: options, recoveryMembers: members, calls: () => calls, received: () => received,
+    receivedChallenges: () => [...challenges].sort(),
     online(value: number) { online = value; f.online(value); } };
 }

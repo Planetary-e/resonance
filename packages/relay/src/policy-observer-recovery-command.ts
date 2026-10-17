@@ -6,11 +6,12 @@ import { openPolicyObserverRecovery, preparePolicyObserverRecovery } from './pol
 import { openProtectedPolicyObserver } from './protected-policy-observer.js';
 
 export async function runPolicyObserverRecoveryCommand(command: string, raw: readonly string[], signal?: AbortSignal) {
-  const commands = ['recovery-plan', 'recovery-start', 'recovery-status', 'recovery-step', 'recovery-review', 'recovery-restore', 'recovery-export'];
-  const applying = command === 'recovery-start' || command === 'recovery-restore';
+  const commands = ['recovery-plan', 'recovery-start', 'recovery-status', 'recovery-step', 'recovery-review', 'recovery-restore', 'recovery-export', 'recovery-resume-plan', 'recovery-resume'];
+  const applying = command === 'recovery-start' || command === 'recovery-restore' || command === 'recovery-resume';
   const approved = applying && raw[0] === '--approve' ? raw[1] : undefined, args = approved ? raw.slice(2) : raw;
   const planning = command === 'recovery-plan' || command === 'recovery-start';
-  const length = planning || command === 'recovery-export' ? 4 : command === 'recovery-review' || command === 'recovery-restore' ? 3 : 2;
+  const resuming = command === 'recovery-resume-plan' || command === 'recovery-resume';
+  const length = planning || command === 'recovery-export' ? 4 : command === 'recovery-review' || command === 'recovery-restore' || resuming ? 3 : 2;
   if (!commands.includes(command) || applying && !approved || args.length !== length
     || args.some(arg => typeof arg !== 'string' || !arg.length || arg.startsWith('--'))) throw new Error('Invalid policy recovery command or missing approval');
   const cancelled = () => { if (signal?.aborted) throw new Error('Policy recovery command cancelled; preserve pending work'); };
@@ -20,7 +21,8 @@ export async function runPolicyObserverRecoveryCommand(command: string, raw: rea
   let source: Awaited<ReturnType<typeof openConfiguredPolicyObserver>> | undefined;
   let recovery: Awaited<ReturnType<typeof openPolicyObserverRecovery>> | undefined;
   let restored: Awaited<ReturnType<typeof openProtectedPolicyObserver>> | undefined;
-  const cancel = () => { source?.close(); recovery?.close(); restored?.close(); };
+  let resumption: { close(): void } | undefined;
+  const cancel = () => { source?.close(); recovery?.close(); restored?.close(); resumption?.close(); };
   signal?.addEventListener('abort', cancel, { once: true });
   try {
     encryptionKey = readOperatorStorageKey(config.storageKeyFile); cancelled();
@@ -39,6 +41,11 @@ export async function runPolicyObserverRecoveryCommand(command: string, raw: rea
     if (command === 'recovery-status') return { result: recovery.status() };
     if (command === 'recovery-step') return { result: await recovery.advance({ signal }) };
     const destination = resolve(args[2]);
+    if (resuming) {
+      const handle = await recovery.reviewResumption(destination, { maxArchiveBytes: config.limits.archiveBytes, maxArchiveBlocks: config.limits.archiveBlocks, signal });
+      resumption = handle; cancelled();
+      return { result: command === 'recovery-resume-plan' ? handle.review() : await handle.apply(approved!) };
+    }
     if (command === 'recovery-export') {
       const inspected = await recovery.inspectRestored(destination, signal); cancelled();
       const output = resolve(args[3]);

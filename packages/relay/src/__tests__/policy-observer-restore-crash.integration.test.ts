@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import { createAdmissionPolicyHeadRequest } from '@resonance/core/admission-policy-freshness';
 import { openProtectedPolicyObserver } from '../protected-policy-observer.js';
 import { preparePolicyObserverRestore } from '../policy-observer-history-restore.js';
+import { replayPolicyObserverHistory } from '../policy-observer-history-replay.js';
+import { openPolicyObserverRestoreResumption } from '../policy-observer-restore-resumption.js';
 import { policyObserverRestoreFixture } from './fixtures/policy-observer-restore-fixture.js';
 
 const cleanup: Array<() => void | Promise<void>> = [], children: ChildProcess[] = [];
@@ -35,9 +37,12 @@ for (const blocked of [false, true]) it.each(['before-baseline', 'after-baseline
     observer = await openProtectedPolicyObserver({ ...selected.openOptions, directory, mode: 'create-new', restore: { preparation, approvedDigest: preparation.review.approvalDigest } });
     expect(readdirSync(selected.openOptions.directory).sort()).toEqual(unchanged);
   } else {
-    observer = await openProtectedPolicyObserver({ ...selected.openOptions, mode: 'open-existing',
-      initializeWriter: !existsSync(join(selected.openOptions.directory, 'history-writer.json')),
-      initializeArchive: !existsSync(join(selected.openOptions.directory, 'payloads', 'history-writer-payloads.json')) });
+    const replay = await replayPolicyObserverHistory(selected.replayOptions);
+    const resume = await openPolicyObserverRestoreResumption({ ...selected.openOptions, expectedRestorationDigest: replay.replayDigest }); cleanup.push(resume.close);
+    const reviewed = resume.review(); expect(reviewed.readiness).toBe('unverified');
+    await expect(resume.apply('wrong')).rejects.toThrow('reviewed');
+    expect((await resume.apply(reviewed.approvalDigest)).readiness).toBe('unverified'); resume.close();
+    observer = await openProtectedPolicyObserver({ ...selected.openOptions, mode: 'open-existing' });
   }
   cleanup.push(observer.close); expect(observer.policy()).toEqual(n.second); expect(observer.status().blocked).toBe(blocked);
   if (blocked) {
