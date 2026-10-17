@@ -7,6 +7,7 @@ import { exactWitnessFields } from '@resonance/core/admission-witness';
 import { isAbsolute, resolve } from 'node:path';
 import { openStorageReservationAuthority, openReservedStorageControl, withStorageReservationAuthority, reviewAbsentStorageScopes,
   type StorageReservationRequest } from '@resonance/core/storage-reservations';
+import type { StorageAdoptionTarget } from '@resonance/core/storage-reservations';
 import { parseRelayStorageConfiguration, RELAY_STORAGE_SELECTION_MAX_BYTES } from './relay-storage-selection.js';
 import { writeOperatorJsonNew } from './admission-operator-files.js';
 import { acquireStoppedRelayMaintenance, assertRelayNotInMaintenance, relayMaintenanceStorageRequests } from './relay-maintenance.js';
@@ -103,6 +104,14 @@ export function openRelayStorageOwner(input: RelayStorageSelection, purpose: 'ru
         fits: status.reservedBytes + additionalBytes <= status.limitBytes };
     },
     reviewSelectionOutput(path: string, binding: RelayStorageRuntimeBinding) { return selectionReview(path, binding); },
+    reviewScopeAdoption(kind: 'existing' | 'new', targets: readonly StorageAdoptionTarget[]) {
+      if (closed || purpose !== 'maintenance' || !['existing', 'new'].includes(kind)) throw new Error('Review storage locations under stopped ownership');
+      return kind === 'existing' ? authority.reviewExisting(targets) : authority.reviewNewScopes(targets);
+    },
+    applyScopeAdoption(kind: 'existing' | 'new', targets: readonly StorageAdoptionTarget[], approvalDigest: string) {
+      if (closed || purpose !== 'maintenance' || !['existing', 'new'].includes(kind)) throw new Error('Adopt storage locations under stopped ownership');
+      return kind === 'existing' ? authority.adoptExisting(targets, approvalDigest) : authority.approveNewScopes(targets, approvalDigest);
+    },
     reviewLimit(limitBytes: number) {
       if (closed || purpose !== 'maintenance') throw new Error('Review storage limits under stopped ownership');
       return authority.reviewLimit(limitBytes);

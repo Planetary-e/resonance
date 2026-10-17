@@ -6,7 +6,7 @@ export interface RelayStorageBudget {
 export interface RelayStorageStatus {
   phase: 'unconfigured' | 'preparing' | 'selected' | 'recovery-required'; maintenanceActive: boolean; budget: RelayStorageBudget | null;
 }
-export type RelayStorageOperation = 'bootstrap' | 'adoption' | 'activation' | 'limit';
+export type RelayStorageOperation = 'bootstrap' | 'adoption' | 'activation' | 'limit' | 'scope';
 interface Target { path: string; scope: 'file' | 'directory' }
 export type RelayStorageReview = { approvalDigest: string } & (
   { kind: 'desktop-storage-bootstrap-review'; mode: 'new' | 'recover'; intent: { limitBytes: number } }
@@ -15,4 +15,6 @@ export type RelayStorageReview = { approvalDigest: string } & (
     reservedBytesAfterAdoption: number; limit: { limitBytes: number } }
   | { kind: 'desktop-storage-activation-review'; fits: boolean; budget: { reservedBytes: number; limitBytes: number } }
   | { kind: 'desktop-storage-limit-review'; limit: { previousLimitBytes: number; limitBytes: number; reservedBytes: number } }
+  | { kind: 'desktop-storage-scope-review'; mode: 'existing' | 'new'; targets: Target[]; observedBytes: number;
+    reservedBytes: number; limitBytes: number; fits: boolean; createsFiles: false }
 );

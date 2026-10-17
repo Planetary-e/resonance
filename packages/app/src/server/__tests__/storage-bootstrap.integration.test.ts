@@ -5,6 +5,8 @@ import { homedir, tmpdir } from 'node:os';
 import { createServer } from 'node:net';
 import { once } from 'node:events';
 import { EmbeddingEngine } from '@resonance/core';
+import { openSelectedRelayStorageOwner, writeOperatorJsonAtomic, readHistoryEnrollmentFile } from '@resonance/relay';
+import { admissionSetupFixture } from '../../../../relay/src/__tests__/fixtures/admission-setup-fixture.js';
 import { createAppServer } from '../server.js';
 import { lockSession, loadRelayConfig } from '../session.js';
 import { installRelayService, uninstallRelayService } from '../relay-supervisor.js';
@@ -83,6 +85,76 @@ it('activates adopted storage only through a matching authenticated unlocked app
   writeFileSync(join(n.ledger, 'reservations.json'), '{');
   expect((await status()).body).toMatchObject({ phase: 'recovery-required', budget: null });
 }, 15000);
+it('reviews later locations under the selected authority and never treats missing retained history as new', async () => {
+  const n = await fixture(), scope = (action: string, input: unknown = {}, token?: string) => n.request(`/api/relay/storage/scope/${action}`, input, { token });
+  for (const action of ['review', 'apply', 'cancel']) expect((await scope(action)).status).toBe(401);
+  await n.init(); await n.request('/api/relay/maintenance');
+  const boot = await n.storage('review', { mode: 'new', limitBytes: 256 * 1024 * 1024 });
+  await n.storage('apply', { approvalDigest: boot.body.approvalDigest });
+  const adopted = await n.request('/api/relay/storage/adoption/review');
+  await n.request('/api/relay/storage/adoption/apply', { approvalDigest: adopted.body.approvalDigest });
+  const activation = await n.request('/api/relay/storage/activation/review');
+  const activated = await n.request('/api/relay/storage/activation/apply', { approvalDigest: activation.body.approvalDigest });
+  expect(activated.status).toBe(200);
+  const primary = join(n.ledger, 'reservations.json'), previous = readFileSync(primary), settings = readFileSync(n.config);
+  const path = join(n.directory, 'later-role'), input = { path, kind: 'new', scope: 'directory' };
+  for (const action of ['review', 'apply', 'cancel']) expect((await scope(action, input, 'wrong')).status).toBe(401);
+  for (const invalid of [{ ...input, extra: true }, { ...input, path: 'relative' }, { ...input, kind: 'existing' },
+    { ...input, kind: 'existing', path: n.directory }]) expect((await scope('review', invalid)).status).toBe(409);
+  expect(readFileSync(primary)).toEqual(previous);
+  const cancelled = await scope('review', input); expect(cancelled.status).toBe(200);
+  expect((await n.request('/api/relay/storage/limit/cancel')).body.active).toBe(false);
+  await scope('cancel'); expect((await scope('apply', { approvalDigest: cancelled.body.approvalDigest })).status).toBe(409);
+  const locked = await scope('review', input); expect(locked.status).toBe(200); await n.request('/api/lock'); await n.unlock();
+  expect((await scope('apply', { approvalDigest: locked.body.approvalDigest })).status).toBe(409);
+  const stale = await scope('review', input); writeFileSync(join(n.directory, 'intervening-sibling'), 'keep');
+  expect((await scope('apply', { approvalDigest: stale.body.approvalDigest })).status).toBe(409); expect(existsSync(path)).toBe(false);
+  const expired = await scope('review', input), now = performance.now();
+  const clock = vi.spyOn(performance, 'now').mockReturnValue(now + 61000);
+  try { expect((await scope('apply', { approvalDigest: expired.body.approvalDigest })).status).toBe(409); }
+  finally { clock.mockRestore(); }
+  const reviewed = await scope('review', input); expect(reviewed.body).toMatchObject({ mode: 'new', fits: true, createsFiles: false });
+  const applied = await scope('apply', { approvalDigest: reviewed.body.approvalDigest });
+  expect(applied.status, JSON.stringify(applied.body)).toBe(200); expect(applied.body.authorityId).toBe(activated.body.authorityId);
+  expect(existsSync(path)).toBe(false); expect(readFileSync(n.config)).toEqual(settings);
+  // A fresh owner consumes the approved scope through a real reserved writer.
+  const owner = await openSelectedRelayStorageOwner(activated.body.selectionFile, { purpose: 'maintenance' });
+  try { owner.run(() => writeOperatorJsonAtomic(join(path, 'role-output.json'), { accepted: true }, 1024)); }
+  finally { owner.close(); }
+  expect(JSON.parse(readFileSync(join(path, 'role-output.json'), 'utf8'))).toEqual({ accepted: true });
+  const used = readFileSync(primary); rmSync(path, { recursive: true });
+  expect((await scope('review', input)).status).toBe(409); expect(readFileSync(primary)).toEqual(used);
+  const existing = join(n.directory, 'other-retained-role'); mkdirSync(existing); writeFileSync(join(existing, 'unknown'), 'preserve this history');
+  const adoptedExisting = await scope('review', { path: existing, kind: 'existing', scope: 'directory' });
+  expect(adoptedExisting.body.observedBytes).toBe(21);
+  expect((await scope('apply', { approvalDigest: adoptedExisting.body.approvalDigest })).status).toBe(200);
+  expect(readFileSync(join(existing, 'unknown'), 'utf8')).toBe('preserve this history');
+  expect(readFileSync(n.config)).toEqual(settings); expect(installRelayService).not.toHaveBeenCalled();
+}, 15000);
+it('prepares a real protected owner at later approved locations while preserving the selected desktop budget', async () => {
+  const n = await fixture(), material = await admissionSetupFixture(); cleanup.push(material.close);
+  await material.createConfig(); await n.init(); await n.request('/api/relay/maintenance');
+  const boot = await n.storage('review', { mode: 'new', limitBytes: 2048 * 1024 * 1024 });
+  await n.storage('apply', { approvalDigest: boot.body.approvalDigest });
+  const adopted = await n.request('/api/relay/storage/adoption/review');
+  await n.request('/api/relay/storage/adoption/apply', { approvalDigest: adopted.body.approvalDigest });
+  const activation = await n.request('/api/relay/storage/activation/review');
+  const activated = await n.request('/api/relay/storage/activation/apply', { approvalDigest: activation.body.approvalDigest }); expect(activated.status).toBe(200);
+  const input = { ...material.input, role: 'owner' };
+  for (const target of [{ path: input.directory, scope: 'directory' }, { path: input.output, scope: 'file' }]) {
+    const review = await n.request('/api/relay/storage/scope/review', { ...target, kind: 'new' }); expect(review.status, JSON.stringify(review.body)).toBe(200);
+    expect((await n.request('/api/relay/storage/scope/apply', { approvalDigest: review.body.approvalDigest })).status).toBe(200);
+  }
+  const reviewed = await n.request('/api/relay/history/setup', { action: 'review', input }); expect(reviewed.status, JSON.stringify(reviewed.body)).toBe(200);
+  const prepared = await n.request('/api/relay/history/setup', { action: 'apply', input, approvalDigest: reviewed.body.result.approvalDigest });
+  expect(prepared.status, JSON.stringify(prepared.body)).toBe(200); expect(prepared.body.result.readiness).toBe('unverified');
+  expect(readHistoryEnrollmentFile(input.output).context).toBeTruthy();
+  expect(loadRelayConfig()).toMatchObject({ enabled: false, runtime: { storageSelectionFile: activated.body.selectionFile }, historySetupInput: input });
+  const status = await n.request('/api/relay/storage', {}, { method: 'GET' });
+  expect(status.body).toMatchObject({ phase: 'selected', maintenanceActive: true, budget: { authorityId: activated.body.authorityId, limitBytes: 2048 * 1024 * 1024 } });
+  const registry = JSON.parse(readFileSync(join(n.directory, 'relay-storage-locations', 'locations.json'), 'utf8'));
+  expect(registry.directories).toContain(realpathSync(input.directory)); expect(registry.files).toContain(realpathSync(input.output));
+}, 20000);
 it('authenticates review/apply/cancel and keeps a newly created budget paused until scope adoption', async () => {
   const n = await fixture(), input = { mode: 'new', limitBytes: MINIMUM };
   for (const action of ['review', 'apply', 'cancel']) expect((await n.storage(action, input)).status).toBe(401);

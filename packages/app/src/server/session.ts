@@ -66,6 +66,7 @@ import { openDesktopStorageBootstrapReview, desktopStorageBootstrapPending, read
 import { openDesktopStorageAdoptionReview } from './relay-storage-adoption.js';
 import { openDesktopStorageActivationReview } from './relay-storage-activation.js';
 import { openDesktopStorageLimitReview } from './relay-storage-limit.js';
+import { openDesktopStorageScopeReview } from './relay-storage-scope.js';
 import { openReservedStorageControl } from '@resonance/core/storage-reservations';
 import { readDesktopRelayStorage, currentDesktopRelayStorage, withDesktopRelayStorage, desktopRelayStorageControls } from './relay-storage.js';
 import { withRelayHistoryActivation, parseRelayHistoryActivationInput, historyActivationServiceFiles, type RelayHistoryActivationInput } from './history-activation.js';
@@ -467,7 +468,7 @@ export function cancelRelayHistoryOperation() {
 export async function measureRelayHistoryStorage(signal?: AbortSignal) {
   return runRelayHistoryOperation(operationSignal => inventoryRelayHistoryStorage(loadRelayConfig(), join(getDataDir(), 'relay-data'), operationSignal), signal);
 }
-type StorageReviewPurpose = 'bootstrap' | 'adoption' | 'activation' | 'limit';
+type StorageReviewPurpose = 'bootstrap' | 'adoption' | 'activation' | 'limit' | 'scope';
 interface StorageReviewHandle { review(): unknown; apply(approvalDigest: string): unknown; close(): void }
 let pendingStorageReview: { purpose: StorageReviewPurpose; owner: Session; controller: AbortController; handle?: StorageReviewHandle; settings: string } | undefined;
 /** Keep approval tied to the unlocked session and held desktop/runtime claims.
@@ -478,7 +479,7 @@ async function planSessionStorageReview(purpose: StorageReviewPurpose,
   if (pendingStorageReview) throw new Error('A storage review is already active; finish or cancel it');
   const config = loadRelayConfig();
   const selected = readDesktopRelayStorage(config);
-  if (purpose === 'limit') { if (!selected) throw new Error('Storage must be selected before changing its active limit'); assertBootstrapSelection(selected); }
+  if (purpose === 'limit' || purpose === 'scope') { if (!selected) throw new Error('Select storage before changing its limit or locations'); assertBootstrapSelection(selected); }
   else if (selected) throw new Error('Storage is already selected; use its reviewed maintenance controls');
   const operation = { purpose, owner: session, controller: new AbortController(), settings: JSON.stringify(config), handle: undefined as StorageReviewHandle | undefined };
   pendingStorageReview = operation;
@@ -507,8 +508,8 @@ function applySessionStorageReview(purpose: StorageReviewPurpose, approvalDigest
   if (!operation?.handle || operation.purpose !== purpose || !session || operation.owner !== session) throw new Error('Review this storage operation in the current unlocked session before applying');
   pendingStorageReview = undefined;
   try {
-    if (JSON.stringify(loadRelayConfig()) !== operation.settings || purpose !== 'limit' && readDesktopRelayStorage(loadRelayConfig())) throw new Error('Desktop settings changed; review storage setup again');
-    if (purpose === 'limit') assertBootstrapSelection(readDesktopRelayStorage(loadRelayConfig()));
+    if (JSON.stringify(loadRelayConfig()) !== operation.settings || !['limit', 'scope'].includes(purpose) && readDesktopRelayStorage(loadRelayConfig())) throw new Error('Desktop settings changed; review storage setup again');
+    if (purpose === 'limit' || purpose === 'scope') assertBootstrapSelection(readDesktopRelayStorage(loadRelayConfig()));
     return operation.handle.apply(approvalDigest);
   } finally { operation.controller.abort(); operation.handle.close(); }
 }
@@ -550,6 +551,11 @@ export function planRelayStorageLimit(input: unknown, signal?: AbortSignal) {
 }
 export function applyRelayStorageLimit(approvalDigest: string) { return applySessionStorageReview('limit', approvalDigest); }
 export function cancelRelayStorageLimit() { return cancelSessionStorageReview('limit'); }
+export function planRelayStorageScope(input: unknown, signal?: AbortSignal) {
+  return planSessionStorageReview('scope', (config, combined) => openDesktopStorageScopeReview({ dataDirectory: getDataDir(), config, input, signal: combined }), signal);
+}
+export function applyRelayStorageScope(approvalDigest: string) { return applySessionStorageReview('scope', approvalDigest); }
+export function cancelRelayStorageScope() { return cancelSessionStorageReview('scope'); }
 export function getRelayStorageStatus() {
   const config = loadRelayConfig(), directory = getDataDir(), maintenanceActive = !!readRelayMaintenance(join(directory, 'relay-data'));
   const pending = desktopStorageBootstrapPending(directory);

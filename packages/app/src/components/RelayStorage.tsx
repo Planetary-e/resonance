@@ -8,6 +8,7 @@ export default function RelayStorage({ onBusyChange, blocked = false, maintenanc
   const [state, setState] = useState<RelayStorageStatus | null>(null), [limit, setLimit] = useState('4096');
   const [plan, setPlan] = useState<{ operation: RelayStorageOperation; review: RelayStorageReview } | null>(null);
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [message, setMessage] = useState('');
+  const [location, setLocation] = useState({ kind: 'new', scope: 'directory', path: '' });
   const active = useRef<RelayStorageOperation | null>(null), mounted = useRef(true), deadline = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   async function refresh() {
     const value = await getRelayStorage(); if (!mounted.current) return;
@@ -27,9 +28,9 @@ export default function RelayStorage({ onBusyChange, blocked = false, maintenanc
     setBusy(true); onBusyChange(true); setError(''); setMessage(''); active.current = operation;
     try {
       const limitBytes = Number(limit) * 1048576;
-      if (operation !== 'activation' && !recover && (!Number.isSafeInteger(limitBytes) || limitBytes < 1)) throw new Error('Enter a positive limit in MiB.');
+      if (!['activation', 'scope'].includes(operation) && !recover && (!Number.isSafeInteger(limitBytes) || limitBytes < 1)) throw new Error('Enter a positive limit in MiB.');
       const input = operation === 'bootstrap' ? recover ? { mode: 'recover' } : { mode: 'new', limitBytes }
-        : operation === 'activation' ? {} : { limitBytes };
+        : operation === 'activation' ? {} : operation === 'scope' ? { ...location } : { limitBytes };
       const value = await reviewRelayStorage(operation, input);
       if (!mounted.current) { await cancelRelayStorage(operation); return; }
       if (value.error) throw new Error(value.error);
@@ -53,6 +54,7 @@ export default function RelayStorage({ onBusyChange, blocked = false, maintenanc
       setMessage(plan.operation === 'activation' ? 'Combined storage is selected. The relay remains paused. Leave maintenance and start it when ready.'
         : plan.operation === 'adoption' ? 'Existing files and future output locations are accounted for. Review activation next.'
           : plan.operation === 'limit' ? 'Storage limit saved. Existing reservations and files are preserved.'
+            : plan.operation === 'scope' ? 'The location is retained in the existing budget. Continue role setup using that location; this does not initialize or validate history.'
             : 'Storage budget retained. Review existing files and locations next.');
     } catch (cause) { if (mounted.current) setError(cause instanceof Error ? cause.message : 'Storage update failed.'); }
     finally { if (mounted.current) { clear(); setBusy(false); await refresh().catch(() => setState(null)); } }
@@ -83,6 +85,24 @@ export default function RelayStorage({ onBusyChange, blocked = false, maintenanc
         </>}
         {state?.phase === 'selected' && <button className="btn btn-secondary" disabled={disabled} onClick={() => void review('limit')}>Review limit change</button>}
       </div>
+      {state?.phase === 'selected' && <details>
+        <summary>Add a location for later relay work</summary>
+        <p className="text-sm">Use this before role setup writes outside the reviewed locations. Stop any other process using this location. Existing files remain retained. A future output must be absent and have an existing parent folder; missing retained history cannot be declared new.</p>
+        <label className="form-group">Location state
+          <select disabled={disabled} value={location.kind} onChange={event => setLocation({ ...location, kind: event.target.value })}>
+            <option value="new">Future output</option><option value="existing">Existing files</option>
+          </select>
+        </label>
+        <label className="form-group">Location type
+          <select disabled={disabled} value={location.scope} onChange={event => setLocation({ ...location, scope: event.target.value })}>
+            <option value="directory">Folder</option><option value="file">One file</option>
+          </select>
+        </label>
+        <label className="form-group" style={{ display: 'block' }}>Full local path
+          <input type="text" value={location.path} disabled={disabled} autoComplete="off" spellCheck={false} style={{ width: '100%' }} onChange={event => setLocation({ ...location, path: event.target.value })} />
+        </label>
+        <button className="btn btn-secondary" disabled={disabled || !location.path} onClick={() => void review('scope')}>Review additional location</button>
+      </details>}
     </>}
     {plan && <RelayStorageReviewView plan={plan.review} busy={busy} onApply={() => void apply()} onCancel={() => void cancel()} />}
     {busy && <p role="status">Checking storage…</p>}
@@ -110,6 +130,11 @@ export function RelayStorageReviewView({ plan, busy, onApply, onCancel }: { plan
     </>}
     {plan.kind === 'desktop-storage-activation-review' && <p>Save the storage selection and background service settings. Total reserved after preparing the outputs: {mib(plan.budget.reservedBytes)} MiB of {mib(plan.budget.limitBytes)} MiB. The service stays stopped.</p>}
     {plan.kind === 'desktop-storage-limit-review' && <p>Change the limit from {mib(plan.limit.previousLimitBytes)} to {mib(plan.limit.limitBytes)} MiB. Preserve {mib(plan.limit.reservedBytes)} MiB of existing reservations.</p>}
+    {plan.kind === 'desktop-storage-scope-review' && <>
+      <p>{plan.mode === 'existing' ? `Retain ${mib(plan.observedBytes)} MiB of observed files in the budget.` : 'Allow later managed writers at this currently absent location. This approval creates no files and grants no extra bytes.'}</p>
+      <ul>{plan.targets.map(target => <li key={target.path}>{target.path} ({target.scope})</li>)}</ul>
+      <p>Reserved after approval: {mib(plan.reservedBytes)} MiB of {mib(plan.limitBytes)} MiB. Role setup and history validation remain separate.</p>
+    </>}
     {!fits && <p role="alert">This selection exceeds the proposed budget. Cancel and review a sufficient limit.</p>}
     <p className="text-sm">Approval expires after one minute. Applying preserves maintenance and existing files. Interrupted changes may require a fresh review.</p>
     <button className="btn btn-primary" type="button" disabled={busy || !fits} onClick={onApply}>Apply reviewed storage change</button>

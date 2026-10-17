@@ -28,3 +28,9 @@ it('shows retained and future locations as escaped text and preserves a limit ch
   const limit: RelayStorageReview = { kind: 'desktop-storage-limit-review', approvalDigest: 'b'.repeat(64), limit: { previousLimitBytes: 10485760, limitBytes: 8388608, reservedBytes: 8388608 } };
   expect(renderToStaticMarkup(<RelayStorageReviewView plan={limit} busy={false} onApply={() => {}} onCancel={() => {}} />)).toContain('Preserve 8.00 MiB');
 });
+it('explains that adding a future location does not initialize history or grant more bytes', () => {
+  const plan: RelayStorageReview = { kind: 'desktop-storage-scope-review', mode: 'new', targets: [{ path: '/later-role', scope: 'directory' }],
+    observedBytes: 0, reservedBytes: 1048576, limitBytes: 2097152, fits: true, createsFiles: false, approvalDigest: 'a'.repeat(64) };
+  const html = renderToStaticMarkup(<RelayStorageReviewView plan={plan} busy={false} onApply={() => {}} onCancel={() => {}} />);
+  expect(html).toContain('creates no files and grants no extra bytes'); expect(html).toContain('Role setup and history validation remain separate'); expect(html).toContain('/later-role');
+});
