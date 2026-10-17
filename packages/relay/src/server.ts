@@ -4340,8 +4340,10 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       inboundRelayLinks.clear();
 
       wss?.close();
-      await new Promise<void>((resolve) => {
-        httpServer?.close(() => resolve());
+      // Group startup can fail before this relay reaches listen(). Cleanup must
+      // still settle for members that were constructed but never started.
+      if (httpServer) await new Promise<void>((resolve) => {
+        httpServer.close(() => resolve());
       });
 
       trafficMeter.checkpoint();

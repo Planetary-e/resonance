@@ -9,25 +9,29 @@ import { createRelayClient } from '../relay-client.js';
 
 it('shares one deadline across queued mailbox destinations and keeps replies validated before expiry', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'resonance-mailbox-deadline-'));
-  const basePort = 51_000 + Math.floor(Math.random() * 1_000);
-  const endpoints = [`ws://127.0.0.1:${basePort}/`, `ws://[::1]:${basePort + 1}/`, `ws://[::1]:${basePort + 2}/`];
+  // Reserve actual listener ports atomically; random fixed ports can collide
+  // with another process or with the runner's ephemeral client connections.
+  const endpoints = ['ws://127.0.0.1:0/', 'ws://[::1]:0/', 'ws://[::1]:0/'];
   const relays = endpoints.map((endpoint, index) => createRelayServer({
-    port: basePort + index, host: index === 0 ? '127.0.0.1' : '::1', persistDir: join(directory, String(index)),
+    port: 0, host: index === 0 ? '127.0.0.1' : '::1', persistDir: join(directory, String(index)),
     relayDiscovery: {
       endpoints: [endpoint], reachability: 'direct', supportedGroups: ['public'],
       storage: { capacityBytes: 1_000_000, availableBytes: 900_000 }, maxKnownRelays: 8,
     },
   }));
-  const clients = [0, 1].map(() => createRelayClient({
-    relayUrl: endpoints[1], fallbackUrls: [endpoints[2]], privateEntryUrls: [endpoints[0]],
-    privateTraffic: { maxConcurrent: 1, maxQueueWaitMs: 10_000 },
-  }));
+  const clients: ReturnType<typeof createRelayClient>[] = [];
   const blockedIds = new Set<string>();
   const requestSockets = new Map<string, WebSocket>();
   const originalEmit = WebSocket.prototype.emit;
   const originalSend = WebSocket.prototype.send;
   try {
-    for (const relay of relays) await relay.start();
+    for (const [index, relay] of relays.entries()) {
+      await relay.start(); endpoints[index] = relay.getRelayDescriptor()!.endpoints[0];
+    }
+    clients.push(...[0, 1].map(() => createRelayClient({
+      relayUrl: endpoints[1], fallbackUrls: [endpoints[2]], privateEntryUrls: [endpoints[0]],
+      privateTraffic: { maxConcurrent: 1, maxQueueWaitMs: 10_000 },
+    })));
     for (const relay of relays.slice(1)) expect(relays[0].observeRelayDescriptor(relay.getRelayDescriptor()!)).toBe('accepted');
     vi.spyOn(WebSocket.prototype, 'emit').mockImplementation(function (this: WebSocket, event, ...args) {
       if (event === 'message' && this.url === endpoints[2]) {
