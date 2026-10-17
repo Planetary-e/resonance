@@ -31,7 +31,8 @@
     "eval:witness-availability": "npm run eval:witness-availability --workspace=@resonance/eval --",
     "eval:witness-reconfiguration": "npm run eval:witness-reconfiguration --workspace=@resonance/eval --",
     "eval:history-checkpoints": "npm run eval:history-checkpoints --workspace=@resonance/eval --",
-    "eval:history-successors": "npm run eval:history-successors --workspace=@resonance/eval --"
+    "eval:history-successors": "npm run eval:history-successors --workspace=@resonance/eval --",
+    "eval:protected-roles": "npm run eval:protected-roles --workspace=@resonance/eval --"
   },
   "devDependencies": {
     "@types/sql.js": "^1.4.11"

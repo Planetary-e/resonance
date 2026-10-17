@@ -15,7 +15,8 @@
     "eval:witness-availability": "node --import tsx src/witness-quorum.ts",
     "eval:witness-reconfiguration": "node --import tsx src/witness-reconfiguration.ts",
     "eval:history-checkpoints": "node --import tsx src/history-checkpoints.ts",
-    "eval:history-successors": "node --import tsx src/history-successors.ts"
+    "eval:history-successors": "node --import tsx src/history-successors.ts",
+    "eval:protected-roles": "node --import tsx src/protected-role-costs.ts"
   },
   "dependencies": {
     "@resonance/core": "*",

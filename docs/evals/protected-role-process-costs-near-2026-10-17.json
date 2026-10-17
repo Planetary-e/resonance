@@ -1,0 +1,89 @@
+{
+  "generatedAt": "2026-10-17T20:38:31.532Z",
+  "sourceBase": "d4ddda9fd0f8521e1fadf57040799d1ec0356454",
+  "sourceSha256": {
+    "packages/eval/src/protected-role-costs.ts": "b0ea437529f6fd45e088c783d4f2e47564a14aa6b7e0e0581d055b3ef6b6362e",
+    "packages/eval/src/fixtures/protected-role-cost-worker.ts": "e734727c6a3e9c775347ca1337fca540e7aa63bc791364dc16acc1c1b0c79f78",
+    "packages/relay/src/protected-admission-roles.ts": "cdb74773dbb60fd7c4e7d4a8b078750fdb37505b4b36451ff73eace0560dbdcf",
+    "packages/relay/src/admission-role-history.ts": "5aedf291c9ff8cfdc516d0c9a30de48c5a14e7a963fdfbf236170c429d3da1a8",
+    "packages/relay/src/admission-role-verification.ts": "0dbc51e6025d6d47e485ed7d6ce7f86d0ac929ec9cfeed458679b4222c773498",
+    "packages/relay/src/protected-admission-history.ts": "646bedc903ed0484350c62831e3626bc447681a6e910a4fae6fafd495b9b0ec1",
+    "packages/relay/src/admission-history-records.ts": "94133cb80883bac2b8db7f4094406d1aeb6a7d2ec0ef725e679078836a212772"
+  },
+  "environment": {
+    "node": "v24.19.0",
+    "platform": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Pro",
+    "logicalCpus": 11
+  },
+  "scope": "Five real loopback history sockets in five separate volunteer processes; four local durable witness peers; no independent operators, Internet, TLS or energy measurement.",
+  "accounting": "JSON application request/reply bytes across all history members, excluding witness transport, WebSocket/TCP/TLS framing. CPU is process-wide. Peak RSS is process lifetime, not per-operation allocation. Reopen retains this process signature cache and is not a cold process restart.",
+  "seeded": "Existing signed local votes/certificates are extended offline, then captured through the production reviewed/fenced four-copy workflow. Seeding is not sequential admission throughput.",
+  "near": "90% of the 8 MiB complete application checkpoint bound, with both witness and coordinator rows; row limits also apply.",
+  "deadlineMs": 3000,
+  "trials": 3,
+  "results": [
+    {
+      "requested": "near",
+      "retainedRowsPerRole": 2691,
+      "checkpointPlaintextBytes": 7548300,
+      "operations": [
+        {
+          "name": "capture",
+          "ok": false,
+          "error": "Four durable history acknowledgements unavailable",
+          "wallMs": 30026.787,
+          "cpuMs": 34199.419,
+          "requestBytes": 50351200,
+          "replyBytes": 15462,
+          "exchanges": 20,
+          "rssMiB": 456.609375,
+          "lifetimePeakRssMiB": 944.359375,
+          "volunteers": [
+            {
+              "cpuMs": 633.41,
+              "receivedBytes": 10070240,
+              "sentBytes": 2890,
+              "exchanges": 4,
+              "rssMiB": 275.515625,
+              "peakRssMiB": 288.984375
+            },
+            {
+              "cpuMs": 660.193,
+              "receivedBytes": 10070240,
+              "sentBytes": 3902,
+              "exchanges": 4,
+              "rssMiB": 280.640625,
+              "peakRssMiB": 281.25
+            },
+            {
+              "cpuMs": 635.263,
+              "receivedBytes": 10070240,
+              "sentBytes": 2890,
+              "exchanges": 4,
+              "rssMiB": 285.578125,
+              "peakRssMiB": 285.921875
+            },
+            {
+              "cpuMs": 654.124,
+              "receivedBytes": 10070240,
+              "sentBytes": 3902,
+              "exchanges": 4,
+              "rssMiB": 221.34375,
+              "peakRssMiB": 295.984375
+            },
+            {
+              "cpuMs": 653.466,
+              "receivedBytes": 10070240,
+              "sentBytes": 2890,
+              "exchanges": 4,
+              "rssMiB": 292.21875,
+              "peakRssMiB": 296.65625
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
