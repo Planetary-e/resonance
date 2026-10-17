@@ -2,8 +2,12 @@ import { afterEach, expect, it } from 'vitest';
 import { once } from 'node:events';
 import { randomBytes } from 'node:crypto';
 import type { Socket, AddressInfo } from 'node:net';
-import { WebSocketServer } from 'ws';
-import { createRelayContactHintV1, createRelayDescriptorV1, generateIdentity, generateSigningKeyPair } from '@resonance/core';
+import WebSocket, { WebSocketServer } from 'ws';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createRelayContactHintV1, createRelayDescriptorV1, createPrivateRequestV1, generateRelayTransportKeyV1,
+  serializePrivateRequestLayerV1, generateIdentity, generateSigningKeyPair } from '@resonance/core';
 import { createAdmissionWitnessRequest } from '@resonance/core/admission-witness';
 import { createHistoryExchangeRequest } from '@resonance/core/history-exchange';
 import { createHistoryAgreementRequest } from '@resonance/core/history-agreement';
@@ -14,6 +18,8 @@ import { requestAdmissionWitnessVote } from '../admission-witness-transport.js';
 import { exchangeHistoryCheckpoint } from '../history-checkpoint-exchange.js';
 import { exchangeHistoryAgreement } from '../history-agreement-exchange.js';
 import { historyCheckpointFixture } from './fixtures/history-checkpoint-fixture.js';
+import { createRelayServer } from '../server.js';
+import { RelayTrafficMeter } from '../relay-resource-meter.js';
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -71,4 +77,49 @@ it('does not send a witness claim when its owner cancels inside the accounting c
   const p = await peer(), controller = new AbortController();
   await expect(witness(p.endpoint, controller.signal, () => controller.abort())).rejects.toThrow('cancelled');
   await p.closed; expect(p.messages).toEqual([]);
+});
+
+it('contains a private-forward accounting failure before sending encrypted work to the destination', async () => {
+  const p = await peer(), port = Number(new URL(p.endpoint).port), directory = mkdtempSync(join(tmpdir(), 'forward-accounting-'));
+  cleanup.push(async () => rmSync(directory, { recursive: true, force: true }));
+  let refused = 0;
+  class Meter extends RelayTrafficMeter {
+    override observe(socket: Socket) {
+      if (socket.remotePort === port) { refused++; throw new Error('Accounting failed'); }
+      super.observe(socket);
+    }
+  }
+  const entry = createRelayServer({ port: 0, host: '127.0.0.1', persistDir: directory,
+    resourceMeter: new Meter(), privateEntryMix: false, privateReplyMix: false,
+    relayDiscovery: { endpoints: ['ws://127.0.0.1:0/'], reachability: 'direct', supportedGroups: ['public'],
+      storage: { capacityBytes: 1000000, availableBytes: 1000000 } } });
+  cleanup.push(() => entry.stop({ graceful: false })); await entry.start();
+  const endpoint = `ws://127.0.0.1:${entry.getListeningPort()}/`, identity = generateIdentity(), now = Date.now();
+  const descriptor = createRelayDescriptorV1({ sequence: 1, endpoints: [p.endpoint], reachability: 'direct',
+    capabilities: { storesPublications: true, storesMailboxes: true, answersQueries: true, forwardsQueries: true, replicaExchange: true },
+    supportedGroups: ['public'], storage: { capacityBytes: 1000000, availableBytes: 1000000 }, issuedAt: now, expiresAt: now + 60000 }, identity);
+  expect(entry.observeRelayDescriptor(descriptor)).toBe('accepted');
+  const contact = await discoverRelayContactV1(createRelayContactHintV1('configured', endpoint));
+  const destination = await generateRelayTransportKeyV1(identity);
+  const envelope = await createPrivateRequestV1(Buffer.from('{}'), contact.transportKey!, destination.attestation);
+  const socket = new WebSocket(endpoint); socket.on('error', () => {});
+  cleanup.push(async () => socket.terminate());
+  const closed = new Promise<number>(resolve => socket.once('close', code => resolve(code)));
+  await once(socket, 'open'); socket.send(serializePrivateRequestLayerV1(envelope.request));
+  expect(await closed).toBe(1011); await p.closed;
+  expect(refused).toBe(1); expect(p.messages).toEqual([]); expect(p.extensions).toEqual([undefined]);
+});
+
+it('closes an inbound socket when its accounting registration fails', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'inbound-accounting-')); let calls = 0;
+  cleanup.push(async () => rmSync(directory, { recursive: true, force: true }));
+  class Meter extends RelayTrafficMeter {
+    override observe() { calls++; throw new Error('Accounting failed'); }
+  }
+  const relay = createRelayServer({ port: 0, host: '127.0.0.1', persistDir: directory, resourceMeter: new Meter() });
+  cleanup.push(() => relay.stop({ graceful: false })); await relay.start();
+  const socket = new WebSocket(`ws://127.0.0.1:${relay.getListeningPort()}/`);
+  const closed = new Promise<void>(resolve => socket.once('close', () => resolve()));
+  await expect(once(socket, 'open')).rejects.toThrow(); await closed;
+  expect(calls).toBe(1); expect(relay.getStats().stored_publications).toBe(0);
 });

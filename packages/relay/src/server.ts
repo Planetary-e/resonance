@@ -3359,6 +3359,8 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       const downstream = new WebSocket(endpoint, {
         handshakeTimeout: timeoutMs,
         maxPayload: MAX_RELAY_DISCOVERY_FRAME_BYTES,
+        followRedirects: false,
+        perMessageDeflate: false,
       });
       let done = false;
       const finish = (reply?: string): void => {
@@ -3381,13 +3383,21 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         if (stopping) client.terminate();
       };
       signal.addEventListener('abort', abort, { once: true });
-      downstream.on('upgrade', response => trafficMeter.observe(response.socket));
+      downstream.on('upgrade', response => {
+        if (done) return;
+        try { trafficMeter.observe(response.socket); }
+        catch { finish(); }
+      });
       downstream.on('open', () => {
-        downstream.send(serializeRelayPrivateForwardV1(request), error => {
-          if (error) finish();
-        });
+        if (done || signal.aborted || stopping) return;
+        try {
+          downstream.send(serializeRelayPrivateForwardV1(request), error => {
+            if (error) finish();
+          });
+        } catch { finish(); }
       });
       downstream.on('message', (data, isBinary) => {
+        if (done || signal.aborted) return;
         if (isBinary) { finish(); return; }
         const raw = data.toString('utf8');
         try {
@@ -4228,11 +4238,13 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           socket.destroy();
           return;
         }
-        trafficMeter.observe(socket);
+        try { trafficMeter.observe(socket); }
+        catch { socket.destroy(); }
       });
       wss = new WebSocketServer({
         server: httpServer,
         maxPayload: MAX_RELAY_DISCOVERY_FRAME_BYTES,
+        perMessageDeflate: false,
       });
       wss.on('connection', handleConnection);
 

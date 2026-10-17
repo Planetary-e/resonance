@@ -123,6 +123,7 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
     return new Promise((resolve, reject) => {
       const socket = new WebSocket(entry.candidate.endpoint, {
         handshakeTimeout: 8_000, maxPayload: MAX_PRIVATE_DISCOVERY_FRAME_BYTES,
+        followRedirects: false, perMessageDeflate: false,
       });
       let settled = false;
       let receivedResponse = false;
@@ -213,6 +214,7 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
     return new Promise((resolve, reject) => {
       const socket = new WebSocket(entry.candidate.endpoint, {
         handshakeTimeout: 10_000, maxPayload: MAX_PRIVATE_FRAME_BYTES,
+        followRedirects: false, perMessageDeflate: false,
       });
       let settled = false;
       let receivedResponse = false;

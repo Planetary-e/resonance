@@ -87,6 +87,8 @@ function openRelaySocket(url: string): WebSocket {
   return new WebSocket(url, {
     handshakeTimeout: 10_000,
     maxPayload: MAX_SIGNED_MESSAGE_BYTES,
+    followRedirects: false,
+    perMessageDeflate: false,
   });
 }
 
