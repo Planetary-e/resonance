@@ -34,11 +34,11 @@ import { discoverRelayContactV1 } from '../relay-discovery-client.js';
 import { PrivateReplayLog, PRIVATE_REPLAY_LOG_FILENAME } from '../private-replay-log.js';
 import { createRelayServer, type RelayServer } from '../server.js';
 
-const BASE_PORT = 42_000 + Math.floor(Math.random() * 1_000);
-const ENTRY_ENDPOINT = `ws://127.0.0.1:${BASE_PORT}/`;
-const DESTINATION_ENDPOINT = `ws://127.0.0.1:${BASE_PORT + 1}/`;
-const ENTRY_DIR = `/tmp/resonance-private-entry-${Date.now()}-${BASE_PORT}`;
-const DESTINATION_DIR = `/tmp/resonance-private-destination-${Date.now()}-${BASE_PORT}`;
+const RUN_ID = `${Date.now()}-${process.pid}`;
+let ENTRY_ENDPOINT: string;
+let DESTINATION_ENDPOINT: string;
+const ENTRY_DIR = `/tmp/resonance-private-entry-${RUN_ID}`;
+const DESTINATION_DIR = `/tmp/resonance-private-destination-${RUN_ID}`;
 let entry: RelayServer;
 let destination: RelayServer;
 
@@ -82,10 +82,12 @@ function send(raw: string): Promise<string> {
 }
 
 beforeAll(async () => {
-  entry = relay(BASE_PORT, ENTRY_DIR);
-  destination = relay(BASE_PORT + 1, DESTINATION_DIR);
+  entry = relay(0, ENTRY_DIR);
+  destination = relay(0, DESTINATION_DIR);
   await entry.start();
   await destination.start();
+  ENTRY_ENDPOINT = `ws://127.0.0.1:${entry.getListeningPort()!}/`;
+  DESTINATION_ENDPOINT = `ws://127.0.0.1:${destination.getListeningPort()!}/`;
 });
 
 afterAll(async () => {
@@ -99,11 +101,11 @@ describe('private request forwarding over live volunteer relays', () => {
   it.each(['disconnect', 'shutdown'] as const)(
     'does not forward a queued publication after %s', async reason => {
       const directory = `${ENTRY_DIR}-${reason}`;
-      const endpoint = `ws://127.0.0.1:${BASE_PORT + 2}/`;
-      const queuedEntry = relay(BASE_PORT + 2, directory);
+      const queuedEntry = relay(0, directory);
       let stopped = false;
       let client: WebSocket | undefined;
       await queuedEntry.start();
+      const endpoint = `ws://127.0.0.1:${queuedEntry.getListeningPort()!}/`;
       try {
         const entryContact = await discoverRelayContactV1(createRelayContactHintV1('configured', endpoint));
         const destinationContact = await discoverRelayContactV1(

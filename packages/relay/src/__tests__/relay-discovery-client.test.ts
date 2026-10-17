@@ -9,11 +9,11 @@ import {
 import { discoverRelayContactV1 } from '../relay-discovery-client.js';
 import { createRelayServer, type RelayServer } from '../server.js';
 
-const SOURCE_PORT = 22_000 + Math.floor(Math.random() * 1_000);
-const COLLECTOR_PORT = SOURCE_PORT + 1_100;
+let SOURCE_PORT = 0;
+const COLLECTOR_PORT = 0;
 const SOURCE_DIR = `/tmp/resonance-discovery-source-${Date.now()}`;
 const COLLECTOR_DIR = `/tmp/resonance-discovery-collector-${Date.now()}`;
-const SOURCE_ENDPOINT = `ws://127.0.0.1:${SOURCE_PORT}/`;
+let SOURCE_ENDPOINT = `ws://127.0.0.1:${SOURCE_PORT}/`;
 
 let source: RelayServer;
 let collector: RelayServer;
@@ -63,7 +63,7 @@ beforeAll(async () => {
     expiresAt: now + 60_000,
   }, peerIdentity), now)).toBe('accepted');
 
-  await source.start();
+  await source.start(); SOURCE_PORT = source.getListeningPort()!; SOURCE_ENDPOINT = `ws://127.0.0.1:${SOURCE_PORT}/`;
   await collector.start();
 });
 

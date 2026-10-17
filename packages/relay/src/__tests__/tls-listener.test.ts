@@ -13,7 +13,7 @@ import { createRelayServer, type RelayServer } from '../server.js';
 const cert = readFileSync(new URL('./fixtures/localhost-test.crt', import.meta.url));
 const key = readFileSync(new URL('./fixtures/localhost-test.key', import.meta.url));
 const passphrase = 'local-test-relay-keystore-passphrase';
-const port = 41_000 + Math.floor(Math.random() * 1_000);
+let port = 0;
 const persistDir = `/tmp/resonance-tls-listener-${Date.now()}-${port}`;
 let server: RelayServer | undefined;
 
@@ -46,7 +46,7 @@ describe('direct TLS relay listener', () => {
         storage: { capacityBytes: 1_000_000, availableBytes: 800_000 },
       },
     });
-    await server.start();
+    await server.start(); port = server.getListeningPort()!;
 
     const socket = new WebSocket(`wss://127.0.0.1:${port}/`, { ca: cert });
     await new Promise<void>((resolve, reject) => {

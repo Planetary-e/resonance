@@ -14,7 +14,6 @@ import { createRelayServer, type RelayServer } from '../server.js';
 import { discoverRelayContactV1 } from '../relay-discovery-client.js';
 import type { PrivateEntryMixOptions } from '../private-entry-mix.js';
 
-const BASE_PORT = 50_000 + Math.floor(Math.random() * 1_000);
 let entry: RelayServer | undefined;
 let destination: RelayServer | undefined;
 let directory: string;
@@ -30,17 +29,17 @@ afterEach(async () => {
 
 async function setup(replyMix: PrivateEntryMixOptions) {
   directory = mkdtempSync(join(tmpdir(), 'resonance-reply-mix-'));
-  const entryEndpoint = `ws://127.0.0.1:${BASE_PORT}/`;
-  const destinationEndpoint = `ws://127.0.0.1:${BASE_PORT + 1}/`;
-  const makeRelay = (port: number, endpoint: string, name: string) => createRelayServer({
-    port, host: '127.0.0.1', persistDir: join(directory, name),
+  const makeRelay = (name: string) => createRelayServer({
+    port: 0, host: '127.0.0.1', persistDir: join(directory, name),
     privateEntryMix: false, privateReplyMix: replyMix,
-    relayDiscovery: { endpoints: [endpoint], reachability: 'direct', supportedGroups: ['public'],
+    relayDiscovery: { endpoints: ['ws://127.0.0.1:0/'], reachability: 'direct', supportedGroups: ['public'],
       storage: { capacityBytes: 1_000_000, availableBytes: 900_000 }, maxKnownRelays: 8 },
   });
-  entry = makeRelay(BASE_PORT, entryEndpoint, 'entry');
-  destination = makeRelay(BASE_PORT + 1, destinationEndpoint, 'destination');
+  entry = makeRelay('entry');
+  destination = makeRelay('destination');
   await entry.start(); await destination.start();
+  const entryEndpoint = `ws://127.0.0.1:${entry.getListeningPort()!}/`;
+  const destinationEndpoint = `ws://127.0.0.1:${destination.getListeningPort()!}/`;
   const entryContact = await discoverRelayContactV1(createRelayContactHintV1('configured', entryEndpoint));
   const destinationContact = await discoverRelayContactV1(createRelayContactHintV1('configured', destinationEndpoint));
   expect(entry.observeRelayDescriptor(destinationContact.responder)).toBe('accepted');

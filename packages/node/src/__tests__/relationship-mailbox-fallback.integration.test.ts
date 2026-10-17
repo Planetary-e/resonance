@@ -8,15 +8,14 @@ import {
 import { createRelayServer, type RelayServer } from '@resonance/relay';
 import { createRelayClient } from '../relay-client.js';
 
-const BASE_PORT = 42_000 + Math.floor(Math.random() * 1_000);
 const RUN_ID = `${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
 const DIRS = [0, 1].map(index => `/tmp/resonance-relationship-client-${RUN_ID}-${index}`);
 let relays: RelayServer[] = [];
-const url = (index: number): string => `ws://127.0.0.1:${BASE_PORT + index}/`;
+const url = (index: number): string => `ws://127.0.0.1:${relays[index].getListeningPort()!}/`;
 
 beforeAll(async () => {
   relays = [0, 1].map(index => createRelayServer({
-    port: BASE_PORT + index, host: '127.0.0.1', persistDir: DIRS[index],
+    port: 0, host: '127.0.0.1', persistDir: DIRS[index],
   }));
   await Promise.all(relays.map(relay => relay.start()));
 });

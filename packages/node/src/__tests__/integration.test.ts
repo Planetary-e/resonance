@@ -22,7 +22,7 @@ import { createRelayClient } from '../relay-client.js';
 import { createPairwiseChannelManagerV2 } from '../pairwise-channel-v2.js';
 import { openStoreAsync } from '../store.js';
 
-const PORT = 39090 + Math.floor(Math.random() * 1000);
+let PORT = 0;
 const PERSIST_DIR = `/tmp/resonance-e2e-${Date.now()}`;
 let server: RelayServer;
 
@@ -36,7 +36,7 @@ beforeAll(async () => {
     maxSearchesPerMin: 100,
     persistIntervalMs: 999_999,
   });
-  await server.start();
+  await server.start(); PORT = server.getListeningPort()!;
 });
 
 afterAll(async () => {
@@ -342,14 +342,14 @@ describe('protocol v2 node-to-relay flow', () => {
   });
 
   it('shows one notification when two independent relays match the same pair', async () => {
-    const secondPort = PORT + 1;
+    let secondPort = 0;
     const secondDir = `/tmp/resonance-duplicate-match-${Date.now()}`;
     const secondRelay = createRelayServer({
       port: secondPort, host: '127.0.0.1', persistDir: secondDir,
     });
     const store = await openStoreAsync(':memory:', nacl.randomBytes(nacl.secretbox.keyLength));
     try {
-      await secondRelay.start();
+      await secondRelay.start(); secondPort = secondRelay.getListeningPort()!;
       const offerKeys = generatePublicationKeyMaterial();
       const needKeys = generatePublicationKeyMaterial();
       const now = Date.now();
