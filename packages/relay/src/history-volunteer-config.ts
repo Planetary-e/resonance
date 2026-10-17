@@ -60,7 +60,8 @@ export function openConfiguredHistoryVolunteer(config: ReturnType<typeof readHis
         // All enrolled role methods are synchronous. Charge logical request bytes
         // only when that role asks to admit new storage; reads/retries remain available.
         requestBytes = Buffer.byteLength(JSON.stringify(value));
-        try { return method === 'agreement' ? enrolled.exchange(value) : enrolled[method](value); }
+        try { return method === 'agreement' ? enrolled.exchange(value)
+          : method === 'compaction' ? enrolled.endorseCompactionCheckpoint(value) : enrolled[method](value); }
         finally { requestBytes = 0; }
       } });
     return { router, describe: () => enrolled.describe(), health: () => enrolled.health(), close() { router.close(); enrolled.close(); } };

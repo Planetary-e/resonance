@@ -1,0 +1,70 @@
+/** Explicit, read-only collection of historical checkpoint ancestry evidence.
+ * No retry, state mutation, prefix deletion or writer activation is implied. */
+import { assertSecureRelayTransportEndpoint } from '@resonance/core';
+import { parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, historyCheckpointEnvelopeId,
+  type HistoryCheckpointContext } from '@resonance/core/history-checkpoint';
+import { parseHistoryCompactionProposal, parseHistoryCompactionVote, parseHistoryCompactionCertificate,
+  type HistoryCompactionVote, type HistoryCompactionCertificate } from '@resonance/core/history-compaction';
+import { exchangeHistoryCompaction, type HistoryCompactionTransport } from './history-agreement-exchange.js';
+import type { HistoryReplicaEndpoint } from './history-checkpoint-exchange.js';
+
+export async function collectHistoryCompactionCertificate(options: {
+  context: HistoryCheckpointContext; genesisId: string; proposal: unknown; checkpoint: unknown;
+  members: readonly HistoryReplicaEndpoint[]; signal?: AbortSignal; timeoutMs?: number; transport?: HistoryCompactionTransport;
+}): Promise<HistoryCompactionCertificate> {
+  const started = performance.now(), context = parseHistoryCheckpointContext(options.context), genesisId = options.genesisId;
+  const proposal = parseHistoryCompactionProposal(options.proposal, context, genesisId, Date.now());
+  const checkpoint = parseHistoryCheckpointEnvelope(options.checkpoint, context), timeoutMs = options.timeoutMs ?? 10000;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 50 || timeoutMs > 30000 || options.members.length !== 5
+    || checkpoint.kind !== 'checkpoint' || checkpoint.generation !== proposal.generation || checkpoint.sequence !== proposal.sequence
+    || historyCheckpointEnvelopeId(checkpoint) !== proposal.envelopeId) throw new Error('Invalid compaction collection bounds or checkpoint');
+  const members = options.members.map(member => {
+    if (!context.members.includes(member.publicKey)) throw new Error('Unknown compaction member');
+    assertSecureRelayTransportEndpoint(member.endpoint);
+    const endpoint = new URL(member.endpoint);
+    if (!['/history-checkpoint', '/history-agreement'].includes(endpoint.pathname)) throw new Error('Invalid compaction endpoint');
+    return { publicKey: member.publicKey, endpoint: endpoint.href };
+  });
+  if (new Set(members.map(m => m.publicKey)).size !== 5 || new Set(members.map(m => m.endpoint)).size !== 5) {
+    throw new Error('Compaction needs five distinct pinned members and endpoints');
+  }
+  const controller = new AbortController(), cancel = () => controller.abort();
+  const transport = options.transport ?? exchangeHistoryCompaction;
+  const signal = options.signal;
+  signal?.addEventListener('abort', cancel, { once: true });
+  if (signal?.aborted) cancel();
+  const timer = setTimeout(cancel, Math.max(0, Math.min(timeoutMs - (performance.now() - started), proposal.expiresAt - Date.now())));
+  const live = () => {
+    if (controller.signal.aborted || performance.now() - started >= timeoutMs) throw new Error('Compaction collection cancelled or timed out');
+    parseHistoryCompactionProposal(proposal, context, genesisId, Date.now());
+  };
+  try {
+    live();
+    const votes = await new Promise<HistoryCompactionVote[]>((resolve, reject) => {
+      const received: HistoryCompactionVote[] = [];
+      let remaining = 5, settled = false;
+      const finish = (error?: Error) => {
+        if (settled) return; settled = true; controller.signal.removeEventListener('abort', aborted);
+        if (error) reject(error); else resolve(received);
+      };
+      const aborted = () => finish(new Error('Compaction collection cancelled or timed out'));
+      controller.signal.addEventListener('abort', aborted, { once: true });
+      members.forEach(member => {
+        void Promise.resolve().then(() => {
+          live(); return transport(member, structuredClone(proposal), controller.signal);
+        }).then(raw => {
+          if (settled) return; live();
+          const vote = parseHistoryCompactionVote(raw, proposal, context, genesisId);
+          if (vote.replica !== member.publicKey) throw new Error('Compaction response belongs to another member');
+          live(); received.push(vote);
+          if (received.length === 4) finish();
+        }).catch(() => {}).finally(() => {
+          if (!settled && received.length + --remaining < 4) finish(new Error('Four authenticated compaction votes unavailable'));
+        });
+      });
+    });
+    live();
+    const certificate = parseHistoryCompactionCertificate({ version: 1, kind: 'history-compaction-certificate', proposal, votes }, context, genesisId, checkpoint);
+    live(); return certificate;
+  } finally { clearTimeout(timer); signal?.removeEventListener('abort', cancel); controller.abort(); }
+}

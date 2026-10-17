@@ -51,7 +51,7 @@ export async function admissionRestoreFixture(sockets = false, tail?: (image: Ad
   }
   if (tail) {
     const record = tail(structuredClone(image), time + 10000), previous = genesisBlocks.at(-1)!;
-    genesisBlocks.push(sealHistoryCheckpoint({ context, header: { kind: (record as { kind?: string })?.kind === 'admission-policy-checkpoint' ? 'checkpoint' : 'delta',
+    genesisBlocks.push(sealHistoryCheckpoint({ context, header: { kind: ['admission-policy-checkpoint', 'admission-state-checkpoint'].includes((record as { kind: string })?.kind) ? 'checkpoint' : 'delta',
       generation: 0, sequence: previous.sequence + 1, previous: historyCheckpointEnvelopeId(previous) },
       plaintext: Buffer.from(JSON.stringify(record)), encryptionKey: h.key, signingKey: h.owner }));
   }

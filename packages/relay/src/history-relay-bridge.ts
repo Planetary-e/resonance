@@ -28,5 +28,6 @@ export function historyRoleResponseLimit(method: HistoryRoleMethod, value: unkno
     case 'agreement': return frame?.request?.action === 'promise' ? HISTORY_AGREEMENT_MAX_RESPONSE_BYTES : 4096;
     case 'transfer': return frame?.action === 'read' ? HISTORY_ENVELOPE_MAX_BYTES + 4096 : 4096;
     case 'provision': return 1024;
+    case 'compaction': return 1024;
   }
 }

@@ -8,7 +8,7 @@ import { HistoryLinkBudget, HistoryRelayLink, type HistoryRoleHandler, type Hist
 import { isHistoryRelayId, parseHistoryBridgeFrame, historyRoleResponseLimit,
   type HistoryRelayMemberRoute, type HistoryRelayBridgeRoute } from './history-relay-bridge.js';
 import type { HistoryCheckpointTransport } from './history-checkpoint-exchange.js';
-import type { HistoryAgreementTransport, HistoryAgreementDataTransport, HistoryProvisionTransport } from './history-agreement-exchange.js';
+import type { HistoryAgreementTransport, HistoryAgreementDataTransport, HistoryProvisionTransport, HistoryCompactionTransport } from './history-agreement-exchange.js';
 
 export class HistoryRelayRouter {
   private readonly pins = new Map<string, HistoryRelayMemberRoute>();
@@ -105,6 +105,8 @@ export class HistoryRelayRouter {
     if (frame.replica !== member.publicKey) throw new Error('Wrong history relay target');
     return this.request(member.publicKey, 'provision', frame, signal);
   };
+  readonly compaction: HistoryCompactionTransport = (member, proposal, signal) =>
+    this.request(member.publicKey, 'compaction', proposal, signal);
 
   private request(member: string, method: HistoryRoleMethod, frame: unknown, signal: AbortSignal) {
     const pin = this.pins.get(member);

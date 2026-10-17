@@ -10,6 +10,8 @@ import { createHistoryExchangeRequest, createHistoryExchangeResponse, parseHisto
 import { createHistorySuccessorProposal } from '@resonance/core/history-successor';
 import { createHistoryContinuationRoot, historyContinuationRootId, type HistoryContinuationRoot } from '@resonance/core/history-continuation';
 import { createHistoryProvisionRequest, parseHistoryProvisionReceipt } from '@resonance/core/history-provision';
+import { createHistoryCompactionProposal, parseHistoryCompactionCertificate } from '@resonance/core/history-compaction';
+import { collectHistoryCompactionCertificate } from '../history-compaction-coordinator.js';
 import { openHistoryVolunteerService } from '../history-volunteer-service.js';
 import { listenHistoryAgreementReplica, exchangeHistoryProvision } from '../history-agreement-exchange.js';
 import { exchangeHistoryCheckpoint } from '../history-checkpoint-exchange.js';
@@ -31,7 +33,8 @@ async function fixture(maxGenerations = 65) {
   const listeners: Awaited<ReturnType<typeof listenHistoryAgreementReplica>>[] = [];
   for (let i = 0; i < 5; i++) {
     const listener = await listenHistoryAgreementReplica({ exchange: raw => services[i].exchange(raw), transfer: raw => services[i].transfer(raw),
-      provision: raw => services[i].provision(raw), checkpoint: raw => services[i].checkpoint(raw) });
+      provision: raw => services[i].provision(raw), checkpoint: raw => services[i].checkpoint(raw),
+      endorseCompactionCheckpoint: raw => services[i].endorseCompactionCheckpoint(raw) });
     listeners.push(listener); cleanup.push(() => listener.close());
   }
   const members = f.context.members.map((publicKey, i) => ({ publicKey, endpoint: listeners[i].checkpointEndpoint }));
@@ -74,6 +77,51 @@ async function fixture(maxGenerations = 65) {
   return { ...f, directory, options, services, listeners, members, owner, append, freeze, decide, request, provision,
     reopen(i: number) { services[i].close(); services[i] = openHistoryVolunteerService(options(i)); return services[i]; } };
 }
+
+it('endorses retained checkpoints under independent genesis pins while preserving suffixes and frozen ancestors', async () => {
+  const n = await fixture(), genesisId = historyCheckpointEnvelopeId(n.root), blocks = await n.append(n.root);
+  function append(block: HistoryCheckpointEnvelope, rootId: string) {
+    const issuedAt = Date.now();
+    for (let i = 0; i < 5; i++) {
+      const request = createHistoryExchangeRequest({ action: 'append', rootId, generation: block.generation,
+        replica: n.context.members[i], challenge: randomBytes(32).toString('base64url'), issuedAt, expiresAt: issuedAt + 30000,
+        sequence: block.sequence, envelopeId: historyCheckpointEnvelopeId(block) }, n.context, n.owner.signingKey);
+      n.services[i].checkpoint({ request, envelope: block });
+    }
+  }
+  function proposal(block: HistoryCheckpointEnvelope, rootId = genesisId) {
+    const issuedAt = Date.now();
+    return createHistoryCompactionProposal({ genesisId, rootId, checkpoint: block, issuedAt, expiresAt: issuedAt + 30000 }, n.context, n.owner.signingKey);
+  }
+  const checkpoint = n.next(blocks[1], 'complete opaque image', 'checkpoint'), p = proposal(checkpoint);
+  expect(() => n.services[0].endorseCompactionCheckpoint(p)).toThrow('complete retained');
+  append(checkpoint, genesisId); const tail = n.next(checkpoint); append(tail, genesisId);
+  const heads = n.services.map(s => s.describe()), reviews = n.services.map(s => s.reviewDigest()), health = n.services.map(s => s.health());
+  const votes = n.services.slice(0, 4).map(s => s.endorseCompactionCheckpoint(p));
+  const certificate = { version: 1, kind: 'history-compaction-certificate', proposal: p, votes };
+  expect(parseHistoryCompactionCertificate(certificate, n.context, genesisId, checkpoint).votes).toHaveLength(4);
+  const networkCertificate = await collectHistoryCompactionCertificate({ context: n.context, genesisId, proposal: p, checkpoint, members: n.members });
+  expect(networkCertificate.votes).toHaveLength(4);
+  expect(n.services.map(s => s.describe())).toEqual(heads); expect(n.services.map(s => s.reviewDigest())).toEqual(reviews);
+  expect(n.services.map(s => s.health())).toEqual(health);
+  expect(n.reopen(0).endorseCompactionCheckpoint(p)).toEqual(votes[0]);
+  const child = await n.decide([...blocks, checkpoint, tail]); await n.provision(child);
+  expect(() => n.services[0].endorseCompactionCheckpoint(p)).toThrow('current unfrozen');
+  // Historical evidence remains valid; it cannot remove the frozen tail or reactivate its owner.
+  expect(parseHistoryCompactionCertificate(certificate, n.context, genesisId, checkpoint).proposal.envelopeId).toBe(historyCheckpointEnvelopeId(checkpoint));
+  const childBlocks = await n.append(child), childCheckpoint = n.next(childBlocks[1], 'complete successor image', 'checkpoint');
+  const childId = historyCheckpointEnvelopeId(child); append(childCheckpoint, childId);
+  const current = proposal(childCheckpoint, childId);
+  expect((await collectHistoryCompactionCertificate({ context: n.context, genesisId, proposal: current, checkpoint: childCheckpoint, members: n.members })).votes).toHaveLength(4);
+  const retained = n.services.map(s => s.reviewDigest());
+  for (let i = 0; i < 5; i++) n.reopen(i);
+  const successorVotes = n.services.slice(0, 4).map(s => s.endorseCompactionCheckpoint(current));
+  expect(parseHistoryCompactionCertificate({ ...certificate, proposal: current, votes: successorVotes }, n.context, genesisId, childCheckpoint).proposal.generation).toBe(1);
+  expect(n.services.map(s => s.reviewDigest())).toEqual(retained);
+  const foreign = createHistoryCompactionProposal({ genesisId: `sha256:${'b'.repeat(64)}`, rootId: childId, checkpoint: childCheckpoint,
+    issuedAt: Date.now(), expiresAt: Date.now() + 10000 }, n.context, n.owner.signingKey);
+  expect(() => n.services[0].endorseCompactionCheckpoint(foreign)).toThrow();
+}, 30000);
 
 it('runs freeze, agreement, provisioning and retained reads across three generations on five real sockets and reopens the whole chain', async () => {
   const n = await fixture(); let root: HistoryCheckpointEnvelope = n.root; const ancestry: HistoryCheckpointEnvelope[] = [];

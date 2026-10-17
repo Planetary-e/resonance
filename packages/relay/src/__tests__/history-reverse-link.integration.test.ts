@@ -11,7 +11,9 @@ import { afterEach, expect, it } from 'vitest';
 import { createAdmissionRequestBindingV2, createRelayContactHintV1, presentBlindAdmissionTokenV2, verifyBlindAdmissionTokenV2 } from '@resonance/core';
 import { admissionPolicyDigest, signAdmissionPolicy } from '@resonance/core/admission-policy';
 import { historyCheckpointEnvelopeId } from '@resonance/core/history-checkpoint';
-import { createHistoryExchangeRequest } from '@resonance/core/history-exchange';
+import { createHistoryExchangeRequest, parseHistoryExchangeResponse } from '@resonance/core/history-exchange';
+import { createHistoryCompactionProposal } from '@resonance/core/history-compaction';
+import { collectHistoryCompactionCertificate } from '../history-compaction-coordinator.js';
 import { HistoryRelayRouter } from '../history-relay-router.js';
 import { HISTORY_LINK_FRAME_TYPE } from '../history-relay-link.js';
 import { createRelayServer, type RelayServer } from '../server.js';
@@ -63,7 +65,8 @@ async function fixture(withBridge = false) {
   cleanup.push(() => services.forEach(service => service.close()));
   const routers = services.map(service => new HistoryRelayRouter({ acceptedRelayIds: [hubId], handler(method, value) {
     calls.set(method, (calls.get(method) ?? 0) + 1);
-    return method === 'agreement' ? service.exchange(value) : service[method](value);
+    return method === 'agreement' ? service.exchange(value)
+      : method === 'compaction' ? service.endorseCompactionCheckpoint(value) : service[method](value);
   } })); cleanup.push(() => routers.forEach(r => r.close()));
   const volunteers: RelayServer[] = [];
   function createVolunteer(i: number) {
@@ -121,6 +124,26 @@ it.each(['direct', 'bridge'] as const)('preserves accepted tokens through partit
   await waitFor(() => n.router.usage().operations === 0 && n.routers.every(r => r.usage().operations === 0) && (!n.bridgeRouter || n.bridgeRouter.usage().operations === 0));
   expect(n.router.usage().bytes).toBe(0);
 }, 60000);
+
+it.each(['direct', 'bridge'] as const)('certifies a complete state checkpoint over %s outbound relay links without changing retained state', async topology => {
+  const n = await fixture(topology === 'bridge');
+  const history = await openProtectedAdmissionSpendHistory(n.options); cleanup.push(history.close); await history.ready();
+  const row = await n.row('before a certified checkpoint'); await history.write(row);
+  await history.checkpoint(history.planCheckpoint().approvalDigest);
+  const state = history.read(), head = n.services[0].describe().latest, genesisId = historyCheckpointEnvelopeId(n.genesis), issuedAt = Date.now();
+  const request = createHistoryExchangeRequest({ action: 'read', rootId: genesisId, generation: 0, sequence: head.sequence,
+    envelopeId: null, replica: n.context.members[0], challenge: randomBytes(32).toString('base64url'), issuedAt, expiresAt: issuedAt + 30000 }, n.context, n.owner);
+  const response = parseHistoryExchangeResponse(n.services[0].checkpoint({ request, envelope: null }), request, n.context);
+  const checkpoint = response.envelope!;
+  const proposal = createHistoryCompactionProposal({ genesisId, rootId: genesisId, checkpoint, issuedAt, expiresAt: issuedAt + 30000 }, n.context, n.owner);
+  const reviews = n.services.map(s => s.reviewDigest());
+  const certificate = await collectHistoryCompactionCertificate({ context: n.context, genesisId, proposal, checkpoint,
+    members: n.options.protection.members, transport: n.router.compaction, timeoutMs: 10000 });
+  expect(certificate.votes).toHaveLength(4); expect(n.calls.get('compaction')).toBeGreaterThanOrEqual(4);
+  expect(n.services.map(s => s.reviewDigest())).toEqual(reviews); expect(history.read()).toEqual(state); expect(history.get(row.spend)).toEqual(row);
+  await waitFor(() => n.router.usage().operations === 0 && n.routers.every(r => r.usage().operations === 0) && (!n.bridgeRouter || n.bridgeRouter.usage().operations === 0));
+  expect(n.router.usage().bytes).toBe(0); expect(n.routers.every(r => r.usage().bytes === 0)).toBe(true);
+}, 30000);
 
 it('refuses unauthenticated history frames and an authenticated relay absent from the explicit pins', async () => {
   const n = await fixture(), before = n.services.map(s => s.describe());

@@ -7,6 +7,7 @@ import { historyContinuationRootId } from '@resonance/core/history-continuation'
 import { parseHistoryProvisionRequest } from '@resonance/core/history-provision';
 import { reserveHistoryStorage } from './history-storage-reservation.js';
 import { copyAdmissionSigningKey } from '@resonance/core/admission-witness';
+import { createHistoryCompactionVote, parseHistoryCompactionProposal } from '@resonance/core/history-compaction';
 import { historyDigest, historyCheckpointEnvelopeId, isHistoryDigest, parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { HISTORY_MANIFEST_FILENAME, openHistoryCheckpointStore } from './history-checkpoint-store.js';
 import { createHistoryCheckpointReplica } from './history-checkpoint-exchange.js';
@@ -25,6 +26,7 @@ export function openHistoryVolunteerService(options: {
   if (!Number.isSafeInteger(maxBytes) || maxBytes <= 4 * 1024 * 1024 || maxBytes > 256 * 1024 * 1024
     || !Number.isSafeInteger(maxBlocks) || maxBlocks < 1 || maxBlocks > 10001) throw new Error('Invalid volunteer storage capacity');
   const context = parseHistoryCheckpointContext(options.context), maxGenerations = options.maxGenerations ?? 65;
+  const genesisId = options.genesisId, now = options.now ?? Date.now;
   if (!Number.isSafeInteger(maxGenerations) || maxGenerations < 1 || maxGenerations > 65) throw new Error('Invalid volunteer generation capacity');
   const signingKey = copyAdmissionSigningKey(options.signingKey), localKey = Buffer.from(options.localKey);
   const replica = Buffer.from(signingKey.publicKey).toString('base64url'), directory = options.directory;
@@ -100,6 +102,24 @@ export function openHistoryVolunteerService(options: {
     add(genesis); grow();
   } catch (error) { close(); throw error; }
   return {
+    /** Attests to retained ciphertext and independently enrolled ancestry only.
+     * No files, manifests, barriers or admission state are changed by this vote. */
+    endorseCompactionCheckpoint(raw: unknown) {
+      live();
+      const proposal = parseHistoryCompactionProposal(raw, context, genesisId, now());
+      const slot = select(proposal.rootId), head = slot.store.describe();
+      if (slot !== [...slots.values()].at(-1) || head.freeze || head.generation !== proposal.generation) {
+        throw new Error('Compaction endorsement requires the current unfrozen generation');
+      }
+      const checkpoint = slot.store.envelopeAt(proposal.sequence);
+      if (!checkpoint || checkpoint.kind !== 'checkpoint' || historyCheckpointEnvelopeId(checkpoint) !== proposal.envelopeId) {
+        throw new Error('Compaction endorsement requires its complete retained checkpoint');
+      }
+      // grow/open validated every activated predecessor against the independent
+      // genesis; the store permits append only after the block and index are durable.
+      live();
+      return createHistoryCompactionVote(proposal, context, genesisId, signingKey, now());
+    },
     checkpoint(raw: unknown) { return select(requestRoot(raw)).checkpoint.exchange(raw); },
     exchange(raw: unknown) { return select(requestRoot(raw)).agreement.exchange(raw); },
     transfer(raw: unknown) {

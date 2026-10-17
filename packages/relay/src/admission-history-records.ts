@@ -41,6 +41,18 @@ export function encodeAdmissionHistoryRecord(value: AdmissionHistoryImage | Admi
   return Buffer.from(JSON.stringify(bounded(value, checkpoint ? HISTORY_CHECKPOINT_MAX_PAYLOAD : HISTORY_DELTA_MAX_PAYLOAD)));
 }
 
+/** Decode a full owner-authenticated state record. A caller replacing omitted
+ * history must independently authenticate its checkpoint ancestry certificate;
+ * this parser alone proves neither prior-state preservation nor freshness. */
+export async function parseAdmissionStateCheckpoint(value: unknown, authority: string, limit = 10000): Promise<AdmissionHistoryStateCheckpoint> {
+  const raw = bounded(value, HISTORY_CHECKPOINT_MAX_PAYLOAD);
+  if (!exactWitnessFields(raw, ['version', 'kind', 'at', 'image']) || raw.version !== 1 || raw.kind !== 'admission-state-checkpoint'
+    || !Number.isSafeInteger(raw.at) || (raw.at as number) < 0) throw new Error('Invalid complete admission state checkpoint');
+  const image = await parseAdmissionHistoryImage(raw.image, authority, limit), at = raw.at as number;
+  assertAdmissionPolicyCurrent(image.policy, at);
+  return { version: 1, kind: 'admission-state-checkpoint', at, image };
+}
+
 function spendStateIdentity(state: AdmissionSpendState): string {
   return JSON.stringify([state.version, state.authority,
     state.spends.map(row => JSON.stringify([row.spend, row.action, row.binding, row.issuerKey])).sort(),
@@ -68,7 +80,7 @@ export async function reduceAdmissionHistory(image: AdmissionHistoryImage, value
   const at = raw.at as number, state = current.state, policy = current.policy;
   let next = state, record: AdmissionHistoryRecord;
   if (raw.kind === 'admission-state-checkpoint') {
-    const replacement = await parseAdmissionHistoryImage(raw.image, policy.authority, limit);
+    const replacement = (await parseAdmissionStateCheckpoint(raw, policy.authority, limit)).image;
     assertAdmissionPolicyCurrent(policy, at);
     if (admissionPolicyDigest(replacement.policy) !== admissionPolicyDigest(policy)
       || spendStateIdentity(replacement.state) !== spendStateIdentity(state)) {
