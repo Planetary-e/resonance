@@ -14,10 +14,12 @@ import { OwnerResourcePolicy } from './owner-resource-policy.js';
 import { RelayTrafficMeter } from './relay-resource-meter.js';
 import { createRelayServer } from './server.js';
 import { createConfiguredAdmissionVerifier } from './configured-admission-verifier.js';
-import { loadAdmissionHistoryProtectionFile } from './admission-history-config.js';
+import { loadAdmissionHistoryProtectionFile, readAdmissionHistoryLinksFile } from './admission-history-config.js';
 import { readHistoryVolunteerConfigurationFile, openConfiguredHistoryVolunteer } from './history-volunteer-config.js';
 import type { AdmissionCapabilityVerifierV2 } from './admission.js';
 import type { AdmissionWitness } from './admission-witness.js';
+import { createDeferredAdmission } from './deferred-admission.js';
+import { HistoryRelayRouter } from './history-relay-router.js';
 import { createLocalBlindAdmissionVerifierV2 } from './blind-admission-verifier.js';
 
 const relayPort = parseNonNegativeInteger(process.env.RELAY_PORT, 9090, 'RELAY_PORT');
@@ -55,6 +57,7 @@ const bootstrapHints = parseList(process.env.RELAY_BOOTSTRAP_CONTACTS).map(endpo
   createRelayContactHintV1('bootstrap', endpoint)
 ));
 const discoveryEnabled = process.env.RELAY_DISCOVERY === 'true'
+  || Boolean(process.env.RELAY_ADMISSION_HISTORY_LINKS_FILE)
   || publicEndpoints.length > 0
   || configuredHints.length > 0
   || bootstrapHints.length > 0;
@@ -126,6 +129,8 @@ if (policyFiles.some(Boolean) && (!policyFiles.every(Boolean) || admissionSettin
   throw new Error('Supply all three signed admission policy files and omit the manual issuer settings');
 }
 const historyFile = process.env.RELAY_ADMISSION_HISTORY_FILE;
+const historyLinksFile = process.env.RELAY_ADMISSION_HISTORY_LINKS_FILE;
+if (historyLinksFile && !historyFile) throw new Error('History relay links require RELAY_ADMISSION_HISTORY_FILE');
 if (historyFile && !policyFiles.every(Boolean)) throw new Error('Protected history requires all three signed admission policy files');
 function policyFile(path: string, maximum = 64 * 1024) { if (statSync(path).size > maximum) throw new Error('Admission policy input is too large'); return readFileSync(path, 'utf8'); }
 const policyKeyHex = policyFiles.every(Boolean) ? policyFile(policyFiles[2]!).trim() : undefined;
@@ -145,30 +150,6 @@ function signingKeyFile(path: string) {
 const witnessKey = witnessKeyFile ? signingKeyFile(witnessKeyFile) : undefined;
 const coordinatorKey = coordinatorKeyFile ? signingKeyFile(coordinatorKeyFile) : undefined;
 const resourceMeter = new RelayTrafficMeter(relayDataDir);
-let historyProtection: ReturnType<typeof loadAdmissionHistoryProtectionFile> | undefined;
-let admissionVerifier: (AdmissionCapabilityVerifierV2 & { close(): void; witness?: AdmissionWitness }) | undefined;
-try {
-  historyProtection = historyFile ? loadAdmissionHistoryProtectionFile(historyFile, socket => resourceMeter.observe(socket)) : undefined;
-  admissionVerifier = policyFiles.every(Boolean)
-    ? await createConfiguredAdmissionVerifier({ directory: relayDataDir, authority: policyFile(policyFiles[0]!).trim(),
-      policy: JSON.parse(policyFile(policyFiles[1]!, MAX_ADMISSION_POLICY_BYTES)), encryptionKey: Buffer.from(policyKeyHex!, 'hex'),
-      initialize: process.env.RELAY_ADMISSION_POLICY_INITIALIZE === 'true', witnessKey, coordinatorKey,
-      historyProtection, initializeSpendHistory: historyProtection ? false : undefined,
-      onWitnessSocket: socket => resourceMeter.observe(socket),
-      initializeWitnessState: process.env.RELAY_ADMISSION_WITNESS_INITIALIZE === 'true' ? true : undefined })
-    : admissionSettings.every(Boolean)
-    ? createLocalBlindAdmissionVerifierV2({
-      directory: relayDataDir,
-      scope: {
-        issuer: process.env.RELAY_ADMISSION_ISSUER!,
-        community: process.env.RELAY_ADMISSION_COMMUNITY!,
-        epoch: process.env.RELAY_ADMISSION_EPOCH!,
-      },
-      issuerPublicKey: await importAdmissionPublicKey(process.env.RELAY_ADMISSION_PUBLIC_KEY_FILE!),
-    }) : undefined;
-} finally {
-  witnessKey?.secretKey.fill(0); coordinatorKey?.secretKey.fill(0); historyProtection?.signingKey.secretKey.fill(0);
-}
 const ownerPolicy = ownerBandwidth !== undefined || ownerTotalBandwidth !== undefined || ownerCpu !== undefined
   || ownerSchedule !== undefined || ownerExternalPower
   ? new OwnerResourcePolicy({
@@ -183,8 +164,43 @@ const ownerPolicy = ownerBandwidth !== undefined || ownerTotalBandwidth !== unde
     persistDir: relayDataDir,
   }) : null;
 
-const historyVolunteer = historyVolunteerConfig
-  ? openConfiguredHistoryVolunteer(historyVolunteerConfig, ownerPolicy ? bytes => ownerPolicy.allowNewWork(bytes) : undefined) : undefined;
+let historyProtection: ReturnType<typeof loadAdmissionHistoryProtectionFile> | undefined;
+let admissionVerifier: (AdmissionCapabilityVerifierV2 & { close(): void; witness?: AdmissionWitness }) | undefined;
+let historyVolunteer: ReturnType<typeof openConfiguredHistoryVolunteer> | undefined;
+let historyRouter: HistoryRelayRouter | undefined;
+const deferred = historyLinksFile ? createDeferredAdmission() : undefined;
+function clearAdmissionKeys() {
+  witnessKey?.secretKey.fill(0); coordinatorKey?.secretKey.fill(0); historyProtection?.signingKey.secretKey.fill(0);
+}
+async function openAdmission() {
+  try {
+    return policyFiles.every(Boolean)
+      ? await createConfiguredAdmissionVerifier({ directory: relayDataDir, authority: policyFile(policyFiles[0]!).trim(),
+        policy: JSON.parse(policyFile(policyFiles[1]!, MAX_ADMISSION_POLICY_BYTES)), encryptionKey: Buffer.from(policyKeyHex!, 'hex'),
+        initialize: process.env.RELAY_ADMISSION_POLICY_INITIALIZE === 'true', witnessKey, coordinatorKey,
+        historyProtection, initializeSpendHistory: historyProtection ? false : undefined,
+        onWitnessSocket: socket => resourceMeter.observe(socket),
+        initializeWitnessState: process.env.RELAY_ADMISSION_WITNESS_INITIALIZE === 'true' ? true : undefined })
+      : admissionSettings.every(Boolean)
+      ? createLocalBlindAdmissionVerifierV2({
+        directory: relayDataDir,
+        scope: { issuer: process.env.RELAY_ADMISSION_ISSUER!, community: process.env.RELAY_ADMISSION_COMMUNITY!, epoch: process.env.RELAY_ADMISSION_EPOCH! },
+        issuerPublicKey: await importAdmissionPublicKey(process.env.RELAY_ADMISSION_PUBLIC_KEY_FILE!),
+      }) : undefined;
+  } finally { clearAdmissionKeys(); }
+}
+try {
+  historyProtection = historyFile ? loadAdmissionHistoryProtectionFile(historyFile, socket => resourceMeter.observe(socket)) : undefined;
+  const ownerMembers = historyLinksFile ? readAdmissionHistoryLinksFile(historyLinksFile, historyProtection!.context) : undefined;
+  historyVolunteer = historyVolunteerConfig ? openConfiguredHistoryVolunteer(historyVolunteerConfig,
+    ownerPolicy ? bytes => ownerPolicy.allowNewWork(bytes) : undefined, ownerMembers) : undefined;
+  historyRouter = historyVolunteer?.router ?? (ownerMembers ? new HistoryRelayRouter({ members: ownerMembers, waitForConnection: true }) : undefined);
+  if (ownerMembers) historyProtection!.transport = historyRouter!.checkpoint;
+  // Direct history keeps its eager startup contract. Reverse links need the
+  // listener first; their deferred verifier rejects every user credential meanwhile.
+  if (!deferred) admissionVerifier = await openAdmission();
+} catch (error) { clearAdmissionKeys(); historyRouter?.close(); historyVolunteer?.close(); throw error; }
+
 let server: ReturnType<typeof createRelayServer>;
 try {
   server = createRelayServer({
@@ -193,10 +209,10 @@ try {
     port: relayPort,
     host: relayHost,
     persistDir: relayDataDir,
-    admissionVerifier,
-    admissionWitness: admissionVerifier?.witness,
+    admissionVerifier: deferred?.verifier ?? admissionVerifier,
+    admissionWitness: deferred && witnessKey ? deferred.witness : admissionVerifier?.witness,
     resourceMeter,
-    historyLinks: historyVolunteer?.router,
+    historyLinks: historyRouter,
     adminApiKey: process.env.RELAY_ADMIN_API_KEY || null,
     acceptNewWork: ownerPolicy ? bytes => ownerPolicy.allowNewWork(bytes) : undefined,
     maxPublishesPerMin: parseNonNegativeInteger(
@@ -228,17 +244,32 @@ try {
   });
 
   await server.start();
-} catch (error) { historyVolunteer?.close(); admissionVerifier?.close(); throw error; }
+} catch (error) { clearAdmissionKeys(); historyRouter?.close(); historyVolunteer?.close(); deferred?.close(); admissionVerifier?.close(); throw error; }
 
 let lan: Awaited<ReturnType<typeof startLanDiscovery>> | null = null;
 let shuttingDown = false;
-// Register before contact discovery: a silent contact must not prevent graceful shutdown.
-for (const signal of ['SIGTERM', 'SIGINT'] as const) {
-  process.on(signal, async () => {
-    if (shuttingDown) return; shuttingDown = true;
-    try { await lan?.stop(); await server.stop(); }
-    finally { historyVolunteer?.close(); admissionVerifier?.close(); }
-    process.exit(0);
+let opening: Promise<void> | undefined;
+async function shutdown(code: number) {
+  if (shuttingDown) return; shuttingDown = true;
+  // Closing the router cancels connection waits before waiting on admission open.
+  deferred?.close(); historyRouter?.close();
+  try { await lan?.stop(); await server.stop(); await opening?.catch(() => {}); }
+  finally { historyVolunteer?.close(); admissionVerifier?.close(); clearAdmissionKeys(); }
+  process.exit(code);
+}
+// Register before readiness/contact discovery; neither can delay signal handling.
+for (const signal of ['SIGTERM', 'SIGINT'] as const) process.on(signal, () => { void shutdown(0); });
+if (deferred) {
+  opening = openAdmission().then(ready => {
+    if (!ready) throw new Error('Protected admission verifier is missing');
+    deferred.install(ready);
+    log('info', 'admission_ready');
+  });
+  void opening.catch(error => {
+    if (!shuttingDown) {
+      log('error', 'admission_startup_failed', { error: String(error) });
+      void shutdown(1);
+    }
   });
 }
 

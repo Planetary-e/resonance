@@ -313,6 +313,7 @@ export interface RelayConfig {
 
 export interface RelayStats {
   relay_id: string;
+  admission_ready: boolean;
   transport_ingress_bytes: number;
   transport_egress_bytes: number;
   lan_ingress_bytes: number;
@@ -978,6 +979,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     }
     if (seenSearches.has(request.search.searchId)) return { status: 'duplicate', results: [] };
     if (cfg.admissionVerifier) {
+      if (cfg.admissionVerifier.isReady?.() === false) return { status: 'unavailable', results: [] };
       if (!request.admission) return { status: 'admission-required', results: [] };
       try {
         const decision = await cfg.admissionVerifier.verifyAndSpend(request.admission, {
@@ -2390,8 +2392,9 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     end: (body?: string) => void;
   }): void {
     if (req.url === '/health' && req.method === 'GET') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: 'ok' }));
+      const ready = !stopping && cfg.admissionVerifier?.isReady?.() !== false;
+      res.writeHead(ready ? 200 : 503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: ready ? 'ok' : 'admission_starting' }));
       return;
     }
     if (req.url === '/relay-descriptor' && req.method === 'GET') {
@@ -2429,6 +2432,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         relay_id: relayIdentity.did,
+        admission_ready: !stopping && cfg.admissionVerifier?.isReady?.() !== false,
         ...resourceMetrics(),
         indexed_embeddings: stats.total,
         stored_publications: publicationStore.size,
@@ -4129,6 +4133,9 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       now = Date.now(),
     ): Promise<boolean> {
       if (!cfg.admissionVerifier) return true;
+      if (cfg.admissionVerifier.isReady?.() === false) {
+        sendOperationAck(socket, ref, 'error', 'admission_unavailable'); return false;
+      }
       if (!capability) {
         sendOperationAck(socket, ref, 'error', 'admission_required');
         return false;
@@ -4348,6 +4355,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       const placement = replicaPlacementMetrics();
       return {
         relay_id: relayIdentity.did,
+        admission_ready: !stopping && cfg.admissionVerifier?.isReady?.() !== false,
         ...resourceMetrics(),
         indexed_embeddings: stats.total,
         stored_publications: publicationStore.size,

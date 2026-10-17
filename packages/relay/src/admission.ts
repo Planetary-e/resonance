@@ -23,6 +23,8 @@ export type AdmissionDecisionV2 =
  * is allowed; reuse for different content returns `rejected`.
  */
 export interface AdmissionCapabilityVerifierV2 {
+  /** Optional startup boundary. Omission means the constructed verifier is ready. */
+  isReady?(): boolean;
   verifyAndSpend(
     capability: AdmissionCapabilityV2,
     context: AdmissionVerificationContextV2,

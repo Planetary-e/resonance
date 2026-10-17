@@ -75,13 +75,13 @@ export class HistoryRelayLink {
     socket.once('close', this.onClose);
   }
 
-  request(method: HistoryLinkMethod, value: unknown, signal: AbortSignal, maxResponse = LIMITS[method]?.[1]): Promise<unknown> {
+  request(method: HistoryLinkMethod, value: unknown, signal: AbortSignal, maxResponse = LIMITS[method]?.[1], deadline?: number): Promise<unknown> {
     return new Promise((resolve, reject) => {
       let state: Exchange | undefined;
       try {
         if (signal.aborted || this.closed || !Object.hasOwn(LIMITS, method)
           || !Number.isSafeInteger(maxResponse) || maxResponse < 1 || maxResponse > LIMITS[method][1]) throw new Error('History link request refused');
-        state = this.begin(randomBytes(24).toString('base64url'), true, method, maxResponse);
+        state = this.begin(randomBytes(24).toString('base64url'), true, method, maxResponse, deadline);
         state.resolve = resolve; state.reject = reject;
         const original = state;
         const abort = () => this.finish(original, new Error('History link request cancelled'), true);
@@ -169,10 +169,12 @@ export class HistoryRelayLink {
     for (const state of this.exchanges.values()) this.finish(state, new Error('History relay link closed'));
   }
 
-  private begin(id: string, local: boolean, method: HistoryLinkMethod, maxResponse: number): Exchange {
+  private begin(id: string, local: boolean, method: HistoryLinkMethod, maxResponse: number, cutoff?: number): Exchange {
     if (this.closed || this.exchanges.has(id) || [...this.exchanges.values()].some(s => s.local === local)) throw new Error('History link busy');
-    const release = this.options.budget.acquire(), deadline = performance.now() + this.timeoutMs;
-    const timer = setTimeout(() => this.finish(state, new Error('History link exchange timed out'), true), this.timeoutMs);
+    const now = performance.now(), deadline = Math.min(cutoff ?? Infinity, now + this.timeoutMs);
+    if (!Number.isFinite(deadline) || deadline <= now) throw new Error('History link deadline expired');
+    const release = this.options.budget.acquire();
+    const timer = setTimeout(() => this.finish(state, new Error('History link exchange timed out'), true), deadline - now);
     timer.unref?.();
     const state: Exchange = { id, local, method, maxResponse, deadline, timer, release, requestSent: false, runningHandler: false };
     this.exchanges.set(id, state); return state;

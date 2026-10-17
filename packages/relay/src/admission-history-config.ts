@@ -35,3 +35,20 @@ export function loadAdmissionHistoryProtectionFile(path: string, onTransportSock
       transport: (member, frame, signal) => exchangeHistoryCheckpoint(member, frame, signal, onTransportSocket) };
   } catch (error) { signingKey.secretKey.fill(0); throw error; }
 }
+
+/** Optional reverse-link routing. It can neither select a new member nor initialize history. */
+export function readAdmissionHistoryLinksFile(path: string, context: AdmissionHistoryProtection['context']) {
+  const value = readOperatorJson(path, 64 * 1024);
+  if (!exactWitnessFields(value, ['version', 'members']) || value.version !== 1 || !Array.isArray(value.members)
+    || value.members.length !== 5) throw new Error('Invalid admission history relay links');
+  const members = value.members.map(member => {
+    if (!exactWitnessFields(member, ['publicKey', 'relayId']) || typeof member.publicKey !== 'string'
+      || !context.members.includes(member.publicKey) || typeof member.relayId !== 'string'
+      || !/^did:key:z[1-9A-HJ-NP-Za-km-z]{32,64}$/.test(member.relayId)) throw new Error('Invalid admission history relay pin');
+    return { publicKey: member.publicKey, relayId: member.relayId };
+  });
+  if (new Set(members.map(m => m.publicKey)).size !== 5 || new Set(members.map(m => m.relayId)).size !== 5) {
+    throw new Error('Admission history relay pins must be distinct');
+  }
+  return members;
+}

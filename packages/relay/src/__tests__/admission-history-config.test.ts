@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
-import { loadAdmissionHistoryProtectionFile } from '../admission-history-config.js';
+import { generateIdentity } from '@resonance/core';
+import { loadAdmissionHistoryProtectionFile, readAdmissionHistoryLinksFile } from '../admission-history-config.js';
 import { openProtectedAdmissionSpendHistory } from '../protected-admission-history.js';
 import { prepareAdmissionHistoryRestore } from '../admission-history-restore.js';
 import { historyCheckpointFixture } from './fixtures/history-checkpoint-fixture.js';
@@ -104,3 +105,18 @@ it('gates the real relay process on four copies, resumes exact pending state and
   const noPolicy = startRelay({ RELAY_DATA_DIR: join(n.directory, 'no-policy'), RELAY_ADMISSION_HISTORY_FILE: files.path });
   expect((await noPolicy.exited)[0]).not.toBe(0); expect(noPolicy.output()).toContain('requires all three');
 }, 60000);
+
+it('requires all five existing history members and distinct explicit infrastructure pins for reverse startup', () => {
+  const n = fixture(), path = join(n.directory, 'links.json');
+  const value = { version: 1, members: n.f.context.members.map(publicKey => ({ publicKey, relayId: generateIdentity().did })) };
+  writeFileSync(path, JSON.stringify(value)); expect(readAdmissionHistoryLinksFile(path, n.f.context)).toEqual(value.members);
+  const invalid = [{ ...value, initialize: true }, { ...value, members: value.members.slice(1) },
+    { ...value, members: value.members.map((m, i) => i === 4 ? value.members[0] : m) },
+    { ...value, members: value.members.map(m => ({ ...m, relayId: value.members[0].relayId })) },
+    { ...value, members: value.members.map((m, i) => i === 4 ? { ...m, publicKey: n.f.context.owner } : m) },
+    { ...value, members: value.members.map(m => ({ ...m, relayId: 'not-a-pin' })) },
+    { ...value, members: value.members.map(m => ({ ...m, endpoint: 'wss://implicit.example/' })) }];
+  for (const raw of invalid) { writeFileSync(path, JSON.stringify(raw)); expect(() => readAdmissionHistoryLinksFile(path, n.f.context)).toThrow(); }
+  writeFileSync(path, ' '.repeat(65537)); expect(() => readAdmissionHistoryLinksFile(path, n.f.context)).toThrow('regular file');
+  expect(() => readAdmissionHistoryLinksFile(n.directory, n.f.context)).toThrow('regular file');
+});

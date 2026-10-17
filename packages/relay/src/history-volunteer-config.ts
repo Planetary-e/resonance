@@ -39,7 +39,8 @@ export function readHistoryVolunteerConfigurationFile(path: string) {
 }
 
 /** Opens existing state only. Enrollment/initialization remains an explicit operator operation. */
-export function openConfiguredHistoryVolunteer(config: ReturnType<typeof readHistoryVolunteerConfigurationFile>, acceptNew?: (bytes: number) => boolean) {
+export function openConfiguredHistoryVolunteer(config: ReturnType<typeof readHistoryVolunteerConfigurationFile>, acceptNew?: (bytes: number) => boolean,
+  ownerMembers?: readonly { publicKey: string; relayId: string }[]) {
   const signingKey = readOperatorSigningKey(config.signingKeyFile);
   let localKey: Buffer | undefined, service: ReturnType<typeof openHistoryVolunteerService> | undefined;
   try {
@@ -49,7 +50,8 @@ export function openConfiguredHistoryVolunteer(config: ReturnType<typeof readHis
       localKey, signingKey, maxBytes: config.maxBytes, maxBlocks: config.maxBlocks, maxGenerations: config.maxGenerations,
       acceptNew: acceptNew ? () => acceptNew(requestBytes) : undefined });
     const enrolled = service;
-    const router = new HistoryRelayRouter({ acceptedRelayIds: config.contacts.map(c => c.expectedRelayId!),
+    const router = new HistoryRelayRouter({ members: ownerMembers, waitForConnection: !!ownerMembers,
+      acceptedRelayIds: config.contacts.map(c => c.expectedRelayId!),
       handler(method, value) {
         // All enrolled role methods are synchronous. Charge logical request bytes
         // only when that role asks to admit new storage; reads/retries remain available.
