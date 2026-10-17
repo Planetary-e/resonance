@@ -3,7 +3,7 @@
 import { lstatSync, mkdirSync, openSync, closeSync, fsyncSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { acquireLocalStateLock } from '@resonance/core/local-state';
-import { reserveManagedStorage } from '@resonance/core/storage-reservations';
+import { reserveManagedStorage, type StorageReservationRequest } from '@resonance/core/storage-reservations';
 import { exactWitnessFields } from '@resonance/core/admission-witness';
 import { readOperatorJson, writeOperatorJsonNew } from './admission-operator-files.js';
 
@@ -14,13 +14,20 @@ function present(path: string) {
   try { lstatSync(path); return true; }
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false; throw error; }
 }
+/** Exact headroom shared by runtime opening and an independent pause writer. */
+export function relayMaintenanceStorageRequests(directory: string): StorageReservationRequest[] {
+  return [
+    { path: join(directory, `${RELAY_RUNTIME_RESOURCE}.lock`), component: 'local-state-lock', scope: 'file', maximumBytes: 8192 },
+    { path: join(directory, RELAY_MAINTENANCE_FILENAME), component: 'operator-output', scope: 'file', maximumBytes: 1024 },
+  ];
+}
 function reserveControl(directory: string) {
-  const claim = reserveManagedStorage({ path: join(directory, `${RELAY_RUNTIME_RESOURCE}.lock`), component: 'local-state-lock', scope: 'file', maximumBytes: 8192 });
   // Reserve pausing before accepting runtime work, so reaching capacity cannot
   // consume the marker's headroom. Removing a marker never releases its peak.
-  reserveManagedStorage({ path: join(directory, RELAY_MAINTENANCE_FILENAME), component: 'operator-output', scope: 'file', maximumBytes: 1024 });
+  const [claim] = relayMaintenanceStorageRequests(directory).map(reserveManagedStorage);
   return claim;
 }
+
 function runtimeClaim(directory: string) {
   const reservation = reserveControl(directory);
   mkdirSync(directory, { recursive: true, mode: 0o700 });

@@ -8,6 +8,7 @@ import {
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
 import { inventoryStorageAdoption, type StorageAdoptionTarget, type StorageAdoptionBounds } from './storage-adoption-inventory.js';
+import { reviewAbsentStorageScopes } from './storage-new-scopes.js';
 import { acquireLocalStateLock } from './local-encrypted-state.js';
 import { assertNoStorageReservationContext, type StorageReservationLease, type StorageReservationRequest } from './storage-reservation-context.js';
 
@@ -122,8 +123,10 @@ function reservationLease(request: StorageReservationRequest, selected: string, 
 /** One host process owns the ledger for the complete runtime/maintenance operation.
  * Explicit initialization never reuses an existing directory. Reopening never
  * repairs a missing primary from an uncommitted temporary or resets allocations. */
-export function openStorageReservationAuthority(options: { directory: string; mode: 'create-new'; limitBytes: number } | { directory: string; mode: 'open-existing'; authorityId: string }) {
+export function openStorageReservationAuthority(options: { directory: string; mode: 'create-new'; limitBytes: number } | { directory: string; mode: 'open-existing'; authorityId: string; requireAdoptedScopes?: boolean }) {
   assertNoStorageReservationContext();
+  const requireAdoptedScopes = options.mode === 'open-existing' && options.requireAdoptedScopes === true;
+  if (options.mode === 'open-existing' && options.requireAdoptedScopes !== undefined && typeof options.requireAdoptedScopes !== 'boolean') throw new Error('Invalid adopted storage scope requirement');
   const directory = canonical(options.directory), path = join(directory, 'reservations.json'), temporary = `${path}.next`;
   if (options.mode !== 'create-new' && options.mode !== 'open-existing') throw new Error('Select explicit storage authority initialization or reopening');
   if (options.mode === 'create-new') {
@@ -149,6 +152,11 @@ export function openStorageReservationAuthority(options: { directory: string; mo
       if (canonical(options.directory) !== directory || now.isSymbolicLink() || now.dev !== root.dev || now.ino !== root.ino) throw new Error('Storage authority directory changed');
       if (expectedSignature && signature(lstatSync(path)) !== expectedSignature) throw new Error('Storage authority metadata changed; reopen without resetting reservations');
     } catch (error) { failed = true; throw error; }
+  }
+  function assertAdopted(request: Pick<StorageReservationRequest, 'path' | 'scope'>) {
+    if (!requireAdoptedScopes) return;
+    if (!state.adoptions.some(entry => entry.scope === 'directory' ? inside(entry.path, request.path)
+      : request.scope === 'file' && entry.path === request.path)) throw new Error('Storage output has no reviewed existing-file adoption for its scope');
   }
   function commit(next: State) {
     usable(); const bytes = Buffer.from(JSON.stringify(next));
@@ -178,6 +186,10 @@ export function openStorageReservationAuthority(options: { directory: string; mo
       try { parsed = JSON.parse(expected.toString('utf8')); } catch { throw new Error('Storage authority metadata is invalid; retain it for inspection'); }
       state = validate(parsed, directory);
       if (state.authorityId !== options.authorityId) throw new Error('Storage authority does not match its independently retained selection');
+      if (requireAdoptedScopes) {
+        if (!state.adoptions.length) throw new Error('Adopt existing storage before opening a scoped writer');
+        for (const allocation of state.allocations) assertAdopted(allocation);
+      }
       usable();
     }
   } catch (error) { close(); throw error; }
@@ -207,6 +219,21 @@ export function openStorageReservationAuthority(options: { directory: string; mo
       .update(observed.metadataDigest).update(JSON.stringify(details)).digest('hex');
     return { review: { ...details, approvalDigest }, adoptions };
   }
+  function newScopesReview(targets: readonly StorageAdoptionTarget[]) {
+    usable(); const observed = reviewAbsentStorageScopes(targets, directory); usable();
+    const existing = [...state.allocations, ...state.adoptions];
+    for (const target of observed.targets) if (existing.some(entry => target.path === entry.path
+      || target.scope === 'directory' && inside(target.path, entry.path)
+      || entry.scope === 'directory' && inside(entry.path, target.path))) {
+      throw new Error('New storage scope overlaps retained storage; missing history cannot be declared new');
+    }
+    if (existing.length + observed.targets.length > STORAGE_RESERVATION_MAX_ENTRIES) throw new Error('Storage reservation entry capacity exhausted');
+    const details = { kind: 'new-storage-scope-review' as const, authorityId: state.authorityId, revision: state.revision,
+      targets: observed.targets, reservedBytes: total(state), additionalBytes: 0, atomicSnapshot: false as const };
+    const approvalDigest = createHash('sha256').update('resonance:new-storage-scope-review:v1\n').update(expected!)
+      .update(observed.metadataDigest).update(JSON.stringify(details)).digest('hex');
+    return { ...details, approvalDigest };
+  }
   return {
     /** Review/apply must run while all cooperating writers are excluded. This
      * deliberately charges observed files in addition to future writer peaks;
@@ -220,6 +247,18 @@ export function openStorageReservationAuthority(options: { directory: string; mo
         if (!safe(state.revision + 1)) throw new Error('Storage reservation revision capacity exhausted');
         commit({ ...state, revision: state.revision + 1, adoptions });
       }
+      return { ...review, appliedRevision: state.revision };
+    },
+    /** Approve an explicitly absent scope; later writers still reserve every
+     * peak before creation. This does not authorize history initialization. */
+    reviewNewScopes(targets: readonly StorageAdoptionTarget[]) { return newScopesReview(targets); },
+    approveNewScopes(targets: readonly StorageAdoptionTarget[], approvalDigest: string) {
+      const review = newScopesReview(targets);
+      if (approvalDigest !== review.approvalDigest) throw new Error('New storage approval changed; review current paths and reservations again');
+      if (!safe(state.revision + 1)) throw new Error('Storage reservation revision capacity exhausted');
+      const adoptions = [...state.adoptions, ...review.targets.map(target => ({ ...target, maximumBytes: 0 }))]
+        .sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+      commit({ ...state, revision: state.revision + 1, adoptions });
       return { ...review, appliedRevision: state.revision };
     },
     reviewLimit: limitReview,
@@ -237,6 +276,7 @@ export function openStorageReservationAuthority(options: { directory: string; mo
       const selected = canonical(request.path);
       if (inside(directory, selected) || !['file', 'directory'].includes(request.scope) || typeof request.component !== 'string' || !/^[A-Za-z0-9:._/-]{1,256}$/.test(request.component)
         || !safe(request.maximumBytes)) throw new Error('Invalid managed storage allocation');
+      assertAdopted({ ...request, path: selected });
       assertReservationTarget(request);
       const previous = state.allocations.find(entry => entry.path === selected);
       if (previous && (previous.component !== request.component || previous.scope !== request.scope)) throw new Error('Storage path already belongs to another component');
