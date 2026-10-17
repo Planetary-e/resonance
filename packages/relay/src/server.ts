@@ -8,7 +8,7 @@ import type { AdmissionWitness } from './admission-witness.js';
 import { createHash, X509Certificate } from 'node:crypto';
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
 import { createServer as createHttpsServer, type Server as HttpsServer } from 'node:https';
-import { isIP } from 'node:net';
+import { isIP, type Socket } from 'node:net';
 import { WebSocket, WebSocketServer } from 'ws';
 import { RelayTrafficMeter, relayDataFileBytes } from './relay-resource-meter.js';
 import { PrivateReplayLog } from './private-replay-log.js';
@@ -270,6 +270,10 @@ export interface RelayConfig {
   maxPeerRequestsPerMin: number;
   maxReplicaRequestsPerMin: number;
   maxInboundRelayLinks: number;
+  /** Total accepted TCP sockets, including incomplete HTTP/TLS openings. */
+  maxInboundConnections: number;
+  /** HTTP/TLS opening and first WebSocket request bounds; never extended by input. */
+  inboundHandshakeTimeoutMs: number;
   relayLinkHeartbeatIntervalMs: number;
   relayLinkHeartbeatTimeoutMs: number;
   /** Desired number of configured, authenticated relay copies per publication. */
@@ -401,6 +405,8 @@ const DEFAULT_CONFIG: RelayConfig = {
   maxPeerRequestsPerMin: 60,
   maxReplicaRequestsPerMin: 120,
   maxInboundRelayLinks: 64,
+  maxInboundConnections: 256,
+  inboundHandshakeTimeoutMs: 10_000,
   relayLinkHeartbeatIntervalMs: 30_000,
   relayLinkHeartbeatTimeoutMs: 90_000,
   desiredReplicaCount: DEFAULT_DESIRED_REPLICA_COUNT,
@@ -496,6 +502,10 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     || cfg.maxInboundRelayLinks < 1
     || cfg.maxInboundRelayLinks > 4_096) {
     throw new Error('Inbound relay link limit must be between 1 and 4096');
+  }
+  if (!Number.isSafeInteger(cfg.maxInboundConnections) || cfg.maxInboundConnections < 1 || cfg.maxInboundConnections > 4096
+    || !Number.isSafeInteger(cfg.inboundHandshakeTimeoutMs) || cfg.inboundHandshakeTimeoutMs < 250 || cfg.inboundHandshakeTimeoutMs > 10_000) {
+    throw new Error('Invalid inbound connection or handshake bounds');
   }
   if (!Number.isSafeInteger(cfg.maxReplicaRequestsPerMin)
     || cfg.maxReplicaRequestsPerMin < 1
@@ -665,6 +675,8 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
 
   let httpServer: HttpServer | HttpsServer;
   let wss: WebSocketServer;
+  const inboundSockets = new Set<Socket>();
+  const inboundOperations = new Set<Promise<void>>();
   let publicationExpiryTimer: ReturnType<typeof setTimeout> | null = null;
   let cleanupTimer: ReturnType<typeof setInterval> | null = null;
   let resourceCheckpointTimer: ReturnType<typeof setInterval> | null = null;
@@ -678,6 +690,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   let replicaRepairQueued = false;
   let replicaRepairRunning = false;
   let stopping = false;
+  let stopPromise: Promise<void> | undefined;
   const replicaRefreshes = new Map<string, { operationSignature: string; targets: Set<string> }>();
   const startTime = Date.now();
   const placementTracker = new ReplicaPlacementTracker(relayIdentity.did);
@@ -3437,11 +3450,12 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     }
 
     const authTimeout = setTimeout(() => {
-      ws.close(4001, 'request_timeout');
-    }, 10_000);
+      ws.terminate();
+    }, cfg.inboundHandshakeTimeoutMs);
 
     let receivedPrivateForward = false;
     async function handleRawMessage(data: Buffer, isBinary: boolean, internal = false): Promise<void> {
+      if (isBinary) { ws.close(4000, 'message_must_be_json'); return; }
       if ((receivedPrivateForward || receivedPrivateEntry) && !internal) {
         ws.close(4000, 'unexpected_private_forward_message');
         return;
@@ -4110,15 +4124,17 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     }
     let clientMessageInFlight = false;
     ws.on('message', (data, isBinary) => {
+      if (ws.readyState !== WebSocket.OPEN || (stopping && !linkedRelayId)) { ws.terminate(); return; }
       const clientMessage = !linkedRelayId;
       if (clientMessage && clientMessageInFlight) {
         ws.close(4008, 'concurrent_client_message');
         return;
       }
       if (clientMessage) clientMessageInFlight = true;
-      void handleRawMessage(data as Buffer, isBinary)
+      const operation = handleRawMessage(data as Buffer, isBinary)
         .catch(() => ws.close(4000, 'request_failed'))
-        .finally(() => { if (clientMessage) clientMessageInFlight = false; });
+        .finally(() => { if (clientMessage) clientMessageInFlight = false; inboundOperations.delete(operation); });
+      inboundOperations.add(operation);
     });
 
     ws.on('close', () => {
@@ -4192,6 +4208,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
 
   return {
     async start(): Promise<void> {
+      if (stopPromise) { await stopPromise; stopPromise = undefined; }
       stopping = false;
       privateReplay = new PrivateRequestReplayCacheV1(
         4096, privateReplayLog.load(), record => privateReplayLog.append(record),
@@ -4228,10 +4245,18 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       scheduleNextPublicationExpiry(now);
       log('info', 'journal_replayed', { dir: cfg.persistDir, entries: operationLog.length });
 
+      const httpBounds = { maxHeaderSize: 8192, headersTimeout: cfg.inboundHandshakeTimeoutMs,
+        requestTimeout: cfg.inboundHandshakeTimeoutMs, connectionsCheckingInterval: Math.min(1000, cfg.inboundHandshakeTimeoutMs) };
       httpServer = cfg.tls
-        ? createHttpsServer(cfg.tls, handleHttpRequest)
-        : createHttpServer(handleHttpRequest);
+        ? createHttpsServer({ ...cfg.tls, ...httpBounds, handshakeTimeout: cfg.inboundHandshakeTimeoutMs }, handleHttpRequest)
+        : createHttpServer(httpBounds, handleHttpRequest);
+      httpServer.maxConnections = cfg.maxInboundConnections;
+      // ws clears this HTTP idle timeout when it takes ownership of an upgraded
+      // socket; its first-frame deadline and authenticated heartbeat then apply.
+      httpServer.setTimeout(cfg.inboundHandshakeTimeoutMs, socket => socket.destroy());
       httpServer.on('connection', socket => {
+        inboundSockets.add(socket);
+        socket.once('close', () => inboundSockets.delete(socket));
         // A wildcard-bound development/LAN listener must not become a public
         // cleartext relay if a port is forwarded or a firewall is relaxed.
         if (!cfg.tls && !isPrivateRelayAddress(socket.remoteAddress)) {
@@ -4328,44 +4353,53 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     },
 
     async stop(options = {}): Promise<void> {
-      stopping = true;
-      privateEntryMix?.cancelAll();
-      privateReplyMix?.cancelAll();
-      for (const controller of privateForwardControllers) controller.abort();
-      if (publicationExpiryTimer) clearTimeout(publicationExpiryTimer);
-      if (cleanupTimer) clearInterval(cleanupTimer);
-      if (resourceCheckpointTimer) clearInterval(resourceCheckpointTimer);
-      if (relayLinkHeartbeatTimer) clearInterval(relayLinkHeartbeatTimer);
-      if (replicaRepairTimer) clearInterval(replicaRepairTimer);
-      if (replicaRepairWakeupTimer) clearTimeout(replicaRepairWakeupTimer);
-      replicaRepairTimer = null;
-      replicaRepairWakeupTimer = null;
-      replicaRepairQueued = false;
-      if (options.graceful !== false) await handoffHostedReplicas();
-      for (const pending of pendingReplicaHandoffs.values()) {
-        clearTimeout(pending.timer);
-        pending.reject(new Error('Relay stopped before replica handoff completed'));
-      }
-      pendingReplicaHandoffs.clear();
-      for (const pending of pendingInboundQueries.values()) {
-        clearTimeout(pending.timer);
-        pending.reject(new Error('Relay stopped before query response'));
-      }
-      pendingInboundQueries.clear();
-      outboundRelayLinks?.stop();
-      for (const link of inboundRelayLinks.values()) link.socket.close(1001, 'relay_stopping');
-      inboundRelayLinks.clear();
+      if (stopPromise) return stopPromise;
+      stopPromise = (async () => {
+        stopping = true;
+        privateEntryMix?.cancelAll();
+        privateReplyMix?.cancelAll();
+        for (const controller of privateForwardControllers) controller.abort();
+        if (publicationExpiryTimer) clearTimeout(publicationExpiryTimer);
+        if (cleanupTimer) clearInterval(cleanupTimer);
+        if (resourceCheckpointTimer) clearInterval(resourceCheckpointTimer);
+        if (relayLinkHeartbeatTimer) clearInterval(relayLinkHeartbeatTimer);
+        if (replicaRepairTimer) clearInterval(replicaRepairTimer);
+        if (replicaRepairWakeupTimer) clearTimeout(replicaRepairWakeupTimer);
+        replicaRepairTimer = null;
+        replicaRepairWakeupTimer = null;
+        replicaRepairQueued = false;
+        if (options.graceful !== false) await handoffHostedReplicas();
+        for (const pending of pendingReplicaHandoffs.values()) {
+          clearTimeout(pending.timer);
+          pending.reject(new Error('Relay stopped before replica handoff completed'));
+        }
+        pendingReplicaHandoffs.clear();
+        for (const pending of pendingInboundQueries.values()) {
+          clearTimeout(pending.timer);
+          pending.reject(new Error('Relay stopped before query response'));
+        }
+        pendingInboundQueries.clear();
+        outboundRelayLinks?.stop();
+        for (const link of inboundRelayLinks.values()) link.socket.close(1001, 'relay_stopping');
+        inboundRelayLinks.clear();
 
-      wss?.close();
-      // Group startup can fail before this relay reaches listen(). Cleanup must
-      // still settle for members that were constructed but never started.
-      if (httpServer) await new Promise<void>((resolve) => {
-        httpServer.close(() => resolve());
-      });
+        wss?.close();
+        // Admission/persistence already in progress must finish before the owner
+        // closes its stores. Socket closure cannot roll back an accepted decision.
+        for (const socket of wss?.clients ?? []) socket.terminate();
+        for (const socket of inboundSockets) socket.destroy();
+        await Promise.allSettled([...inboundOperations]);
+        // Group startup can fail before this relay reaches listen(). Cleanup must
+        // still settle for members that were constructed but never started.
+        if (httpServer) await new Promise<void>((resolve) => {
+          httpServer.close(() => resolve());
+        });
 
-      trafficMeter.checkpoint();
+        trafficMeter.checkpoint();
 
-      log('info', 'stopped');
+        log('info', 'stopped');
+      })();
+      return stopPromise;
     },
 
     getListeningPort(): number | null {
