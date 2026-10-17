@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { historyCheckpointEnvelopeId, historyDigest, sealHistoryCheckpoint } from '@resonance/core/history-checkpoint';
 import { createHistoryCompactionProposal, createHistoryCompactionVote } from '@resonance/core/history-compaction';
-import { openAdmissionHistoryRecovery, prepareAdmissionHistoryRecovery } from '../admission-history-recovery.js';
+import { openEncryptedLocalState } from '@resonance/core/local-state';
+import { ADMISSION_RECOVERY_FILENAME, openAdmissionHistoryRecovery, prepareAdmissionHistoryRecovery } from '../admission-history-recovery.js';
 import { openProtectedAdmissionSpendHistory } from '../protected-admission-history.js';
 import { createHistoryGenerationReplica } from '../history-generation-provisioner.js';
 import { listenHistoryAgreementReplica } from '../history-agreement-exchange.js';
@@ -54,13 +55,17 @@ async function fixture(ancestor = false, checkpointSequence = 2) {
     localKey: n.localKey, context: n.context, signingKey: n.memberKeys[i], parent: n.generations[1][i],
     ancestors: [n.generations[0][i]], initialize: true })); cleanup.push(() => roles.forEach(r => r.close()));
   let online = new Set([0, 1, 2, 4]), calls = 0;
-  const reads: Array<[number, number]> = [];
+  const reads: Array<[number, number]> = [], continuationReads: number[] = [];
   const omitted = (generation: number, sequence: number) => generation < anchor.generation || (generation === anchor.generation && sequence < anchor.sequence);
   for (let i = 0; i < 5; i++) {
     const listener = await listenHistoryAgreementReplica({ ...roles[i],
       checkpoint(raw) {
         calls++; if (!online.has(i)) throw new Error('Offline replica');
         const request = (raw as { request: { action: string; generation: number; sequence: number } }).request;
+        if (request.action === 'continuation') {
+          continuationReads.push(request.generation);
+          if (request.generation < anchor.generation) throw new Error('Retired generation routing unavailable');
+        }
         if (request.action === 'read') {
           reads.push([request.generation, request.sequence]);
           if (omitted(request.generation, request.sequence)) throw new Error('Omitted history unavailable');
@@ -79,13 +84,37 @@ async function fixture(ancestor = false, checkpointSequence = 2) {
   }
   const options = { directory: join(n.directory, 'compacted-workflow'), encryptionKey: n.key, genesis: n.root, compaction: certificate,
     protection: { context: n.context, signingKey: n.owner, members: n.members } };
-  return { ...n, options, certificate, anchor, delta, checkpoint, tail, later, partial, reads, calls: () => calls,
+  return { ...n, options, certificate, anchor, delta, checkpoint, tail, later, partial, reads, continuationReads, calls: () => calls,
     online: (members: number[]) => { online = new Set(members); } };
 }
 
 describe('composed compacted admission recovery', { timeout: 60000 }, () => {
+  it('binds a persisted shortened discovery anchor while reopening older complete-chain workspaces offline', async () => {
+    const n = await fixture(), review = await prepareAdmissionHistoryRecovery(n.options);
+    const initial = await openAdmissionHistoryRecovery({ ...n.options, initialize: { review, approvedDigest: review.approvalDigest } });
+    initial.close();
+    const path = join(n.options.directory, ADMISSION_RECOVERY_FILENAME);
+    const journal = () => openEncryptedLocalState<any>({ path, key: n.key, domain: 'resonance:admission-recovery:v1',
+      maxBytes: 4 * 1024 * 1024, mode: 'open-existing', initial: null, validate: (_value): _value is any => true });
+    let storage = journal(); const saved = storage.read(); storage.close();
+    expect(saved.anchor).toEqual({ rootId: n.certificate.proposal.rootId, generation: 1 }); expect(saved.chain).toEqual([]);
+    for (const anchor of [{ ...saved.anchor, rootId: historyDigest('foreign root') }, { ...saved.anchor, generation: 2 },
+      { ...saved.anchor, permission: true }, null]) {
+      storage = journal(); storage.write({ ...saved, anchor }); storage.close(); const before = readFileSync(path), calls = n.calls();
+      await expect(openAdmissionHistoryRecovery(n.options)).rejects.toThrow('state is invalid');
+      expect(readFileSync(path)).toEqual(before); expect(n.calls()).toBe(calls);
+    }
+    const { anchor: _anchor, ...legacy } = saved;
+    storage = journal(); storage.write({ ...legacy, chain: [n.continuation()] }); storage.close();
+    const before = readFileSync(path), calls = n.calls(), reopened = await openAdmissionHistoryRecovery(n.options); cleanup.push(reopened.close);
+    expect(reopened.status()).toMatchObject({ generation: 1, phase: 'freeze' });
+    expect(readFileSync(path)).toEqual(before); expect(n.calls()).toBe(calls);
+  });
+
   it.each([[false, 2], [true, 2], [false, 1_000_000_000]] as const)('recovers, repairs, activates and restores through real sockets with ancestor anchor=%s and checkpoint=%i', async (ancestor, checkpointSequence) => {
     const n = await fixture(ancestor, checkpointSequence), review = await prepareAdmissionHistoryRecovery(n.options);
+    expect(n.continuationReads.length).toBeGreaterThanOrEqual(4);
+    expect(n.continuationReads.every(generation => generation >= n.anchor.generation)).toBe(true);
     expect(review.compactionId).toMatch(/^sha256:/);
     let recovery = await openAdmissionHistoryRecovery({ ...n.options, initialize: { review, approvedDigest: review.approvalDigest } }); cleanup.push(recovery.close);
     for (let steps = 0; steps < 20 && !recovery.status().complete; steps++) {

@@ -34,7 +34,8 @@ const names = ['freeze', 'agreement', 'download', 'provision'] as const;
 type Name = typeof names[number];
 const filenames = { freeze: HISTORY_RECOVERY_FILENAME, agreement: HISTORY_AGREEMENT_COORDINATOR_FILENAME,
   download: HISTORY_DOWNLOAD_FILENAME, provision: HISTORY_PROVISION_OWNER_FILENAME };
-interface Source { chain: HistoryContinuationRoot[]; nextGeneration: number; view: number }
+interface Source { chain: HistoryContinuationRoot[]; nextGeneration: number; view: number;
+  anchor?: { rootId: string; generation: number } }
 interface State extends Source {
   version: 1; contextId: string; genesisId: string; registered: Name[]; creating: Name | null;
   preferred: HistorySuccessorProposal | null; selected: HistorySuccessorProposal | null;
@@ -70,11 +71,17 @@ async function pins(options: Options) {
   return { contextId: historyCheckpointContextId(p.context), genesisId, genesis, agreementMembers: members, compaction,
     compactionId: compaction && historyDigest(JSON.stringify(compaction)) };
 }
-function sourceRoot(source: Source, genesisId: string, protection: AdmissionHistoryProtection) {
+function sourceRoot(source: Source, genesisId: string, protection: AdmissionHistoryProtection, certificate?: HistoryCompactionCertificate) {
   // Reserve room for the new child before authorizing an irreversible freeze.
   if (!Array.isArray(source.chain) || source.chain.length >= 64 || !Number.isSafeInteger(source.view)
     || source.view < 1 || source.view > HISTORY_AGREEMENT_MAX_VIEW) throw new Error('Invalid recovery source');
   let rootId = genesisId, generation = 0;
+  if (source.anchor !== undefined) {
+    if (!certificate || !exactWitnessFields(source.anchor, ['rootId', 'generation'])
+      || source.anchor.rootId !== certificate.proposal.rootId || source.anchor.generation !== certificate.proposal.generation
+      || source.anchor.generation === 0) throw new Error('Recovery source anchor needs its exact independent checkpoint proof');
+    rootId = source.anchor.rootId; generation = source.anchor.generation;
+  }
   for (const raw of source.chain) {
     const root = parseHistoryContinuationRoot(raw, protection.context);
     if (root.proposal.rootId !== rootId || root.proposal.generation !== generation) throw new Error('Recovery source is not connected to genesis');
@@ -85,6 +92,9 @@ function sourceRoot(source: Source, genesisId: string, protection: AdmissionHist
 }
 function assertCompactionSource(source: Source, genesisId: string, certificate?: HistoryCompactionCertificate) {
   if (!certificate) return;
+  // sourceRoot separately authenticates this exact anchor against the pinned
+  // certificate. Older workspaces still retain their full chain from genesis.
+  if (source.anchor) return;
   const p = certificate.proposal, rootId = p.generation === 0 ? genesisId
     : source.chain.find(root => root.generation === p.generation);
   if ((typeof rootId === 'string' ? rootId : rootId && historyContinuationRootId(rootId)) !== p.rootId) {
@@ -98,12 +108,13 @@ function digest(review: Omit<AdmissionRecoveryReview, 'approvalDigest'>, key: Ui
 /** No history mutation. Approval authorizes the later irreversible freeze, not restoration. */
 export async function prepareAdmissionHistoryRecovery(options: Options & { view?: number; signal?: AbortSignal }): Promise<AdmissionRecoveryReview> {
   const pinned = await pins(options), directory = resolve(options.directory); empty(directory);
-  const observation = await discoverHistoryContinuations({ ...options.protection, genesisId: pinned.genesisId, signal: options.signal });
+  const observation = await discoverHistoryContinuations({ ...options.protection, genesisId: pinned.genesisId,
+    compaction: pinned.compaction, signal: options.signal });
   const barriers = new Set(observation.observedLeaf.receipts.flatMap(r => r.head.freeze ? [r.head.freeze.nextGeneration] : []));
   if (barriers.size > 1) throw new Error('Observed recovery barriers differ; preserve evidence and inspect before proceeding');
   const source: Source = { chain: observation.continuations, nextGeneration: [...barriers][0] ?? observation.observedLeaf.generation + 1,
-    view: options.view ?? 1 };
-  const root = sourceRoot(source, pinned.genesisId, options.protection);
+    view: options.view ?? 1, ...(observation.anchor ? { anchor: observation.anchor } : {}) };
+  const root = sourceRoot(source, pinned.genesisId, options.protection, pinned.compaction);
   assertCompactionSource(source, pinned.genesisId, pinned.compaction);
   const review = { kind: 'admission-recovery-freeze' as const, directory, contextId: pinned.contextId, genesisId: pinned.genesisId,
     ...root, view: source.view, ...(pinned.compactionId ? { compactionId: pinned.compactionId } : {}) };
@@ -120,14 +131,15 @@ export async function openAdmissionHistoryRecovery(options: Options & {
   const contextId = pinned.contextId, genesisId = pinned.genesisId;
   let storage: ReturnType<typeof openEncryptedLocalState<State>>;
   function valid(raw: unknown): raw is State {
+    const anchored = !!raw && typeof raw === 'object' && Object.hasOwn(raw, 'anchor');
     if (!exactWitnessFields(raw, ['version', 'contextId', 'genesisId', 'chain', 'nextGeneration', 'view', 'registered', 'creating',
-      'preferred', 'selected', 'continuation', 'complete', ...(pinned.compaction ? ['compaction'] : [])]) || raw.version !== 1 || raw.contextId !== contextId || raw.genesisId !== genesisId
+      'preferred', 'selected', 'continuation', 'complete', ...(pinned.compaction ? ['compaction'] : []), ...(anchored ? ['anchor'] : [])]) || raw.version !== 1 || raw.contextId !== contextId || raw.genesisId !== genesisId
       || JSON.stringify(raw.compaction) !== JSON.stringify(pinned.compaction)
       || !Array.isArray(raw.registered) || new Set(raw.registered).size !== raw.registered.length
       || raw.registered.some(n => !names.includes(n as Name)) || (raw.creating !== null && (!names.includes(raw.creating as Name)
         || raw.registered.includes(raw.creating))) || typeof raw.complete !== 'boolean') return false;
     try {
-      const source = sourceRoot(raw as unknown as Source, genesisId, p);
+      const source = sourceRoot(raw as unknown as Source, genesisId, p, pinned.compaction);
       assertCompactionSource(raw as unknown as Source, genesisId, pinned.compaction);
       for (const candidate of [raw.preferred, raw.selected]) if (candidate !== null) {
         const proposal = parseHistorySuccessorProposal(candidate, p.context);
@@ -177,7 +189,7 @@ export async function openAdmissionHistoryRecovery(options: Options & {
   const common = { context: p.context, localKey: key, signingKey: signer };
   function component<N extends Name>(name: N): Components[N] {
     live(); if (handles[name]) return handles[name]!;
-    const state = storage.read(), slot = sourceRoot(state, genesisId, p), registered = state.registered.includes(name);
+    const state = storage.read(), slot = sourceRoot(state, genesisId, p, pinned.compaction), registered = state.registered.includes(name);
     if (!registered) {
       if (state.creating && state.creating !== name) throw new Error('Finish the pending recovery artifact first');
       if (!state.creating) storage.write({ ...state, creating: name });
@@ -221,7 +233,7 @@ export async function openAdmissionHistoryRecovery(options: Options & {
   function close() { if (!closed) { closed = true; release(); storage.close(); signer.secretKey.fill(0); key.fill(0); } }
   function status() {
     live(); const state = storage.read();
-    return { rootId: sourceRoot(state, genesisId, p).rootId, generation: sourceRoot(state, genesisId, p).generation,
+    return { rootId: sourceRoot(state, genesisId, p, pinned.compaction).rootId, generation: sourceRoot(state, genesisId, p, pinned.compaction).generation,
       nextGeneration: state.nextGeneration, view: state.view, phase: state.complete ? 'review' : state.continuation ? 'provision'
         : state.selected ? 'download-and-confirm' : state.preferred ? 'select' : 'freeze', complete: state.complete };
   }

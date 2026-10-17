@@ -4,11 +4,14 @@ import { assertSecureRelayTransportEndpoint, type SigningKeyPair } from '@resona
 import { copyAdmissionSigningKey } from '@resonance/core/admission-witness';
 import { historyCheckpointContextId, isHistoryDigest, parseHistoryCheckpointContext, type HistoryCheckpointContext } from '@resonance/core/history-checkpoint';
 import { historyContinuationRootId, type HistoryContinuationRoot } from '@resonance/core/history-continuation';
+import { parseHistoryCompactionAttestation } from '@resonance/core/history-compaction';
 import { createHistoryExchangeRequest, parseHistoryExchangeRequest, parseHistoryExchangeResponse, type HistoryExchangeResponse } from '@resonance/core/history-exchange';
 import { exchangeHistoryCheckpoint, HISTORY_CONTINUATION_RESPONSE_MAX_BYTES, type HistoryCheckpointTransport, type HistoryReplicaEndpoint } from './history-checkpoint-exchange.js';
 
 export interface HistoryContinuationDiscovery {
   version: 1; contextId: string; genesisId: string; continuations: HistoryContinuationRoot[];
+  /** Explicit historically certified start; subsequent observations are still fresh. */
+  anchor?: { rootId: string; generation: number };
   /** Four observations of no activated child, not proof that no prepared/confirmed decision exists. */
   observedLeaf: { rootId: string; generation: number; receipts: HistoryExchangeResponse[] };
 }
@@ -16,6 +19,8 @@ export interface HistoryContinuationDiscovery {
 export async function discoverHistoryContinuations(options: {
   context: HistoryCheckpointContext; genesisId: string; signingKey: SigningKeyPair; members: HistoryReplicaEndpoint[];
   transport?: HistoryCheckpointTransport; signal?: AbortSignal; timeoutMs?: number; maxGenerations?: number;
+  /** Independent caller-supplied proof, never inferred from a missing ancestor. */
+  compaction?: unknown;
 }): Promise<HistoryContinuationDiscovery> {
   const context = parseHistoryCheckpointContext(options.context), timeoutMs = options.timeoutMs ?? 30_000;
   const maxGenerations = options.maxGenerations ?? 65;
@@ -31,6 +36,10 @@ export async function discoverHistoryContinuations(options: {
   if (new Set(members.map(m => m.publicKey)).size !== 5 || new Set(members.map(m => m.endpoint)).size !== 5) {
     throw new Error('History discovery needs five distinct pinned members and endpoints');
   }
+  const proof = options.compaction === undefined ? undefined
+    : parseHistoryCompactionAttestation(options.compaction, context, options.genesisId);
+  const anchor = proof && proof.proposal.generation > 0
+    ? { rootId: proof.proposal.rootId, generation: proof.proposal.generation } : undefined;
   const key = copyAdmissionSigningKey(options.signingKey), transport = options.transport ?? exchangeHistoryCheckpoint;
   const controller = new AbortController(), cancel = () => controller.abort();
   const deadline = performance.now() + timeoutMs, expiresAt = Date.now() + timeoutMs;
@@ -78,12 +87,12 @@ export async function discoverHistoryContinuations(options: {
   try {
     live();
     if (Buffer.from(key.publicKey).toString('base64url') !== context.owner) throw new Error('Wrong history discovery owner');
-    const continuations: HistoryContinuationRoot[] = [], visited = new Set([options.genesisId]);
-    let rootId = options.genesisId, generation = 0;
+    const continuations: HistoryContinuationRoot[] = [], visited = new Set([anchor?.rootId ?? options.genesisId]);
+    let rootId = anchor?.rootId ?? options.genesisId, generation = anchor?.generation ?? 0;
     while (true) {
       const result = await lookup(rootId, generation); live();
       if (Array.isArray(result)) return { version: 1, contextId: historyCheckpointContextId(context), genesisId: options.genesisId,
-        continuations, observedLeaf: { rootId, generation, receipts: result } };
+        continuations, ...(anchor ? { anchor } : {}), observedLeaf: { rootId, generation, receipts: result } };
       const childId = historyContinuationRootId(result);
       if (continuations.length + 1 >= maxGenerations || visited.has(childId)) throw new Error('History discovery ancestry capacity exceeded');
       continuations.push(result); visited.add(childId); rootId = childId; generation = result.generation;
