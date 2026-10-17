@@ -66,6 +66,7 @@ export async function openProtectedPolicyObserver(options: {
   /** Mandatory original anchor when root is a certified later generation. */
   genesis?: HistoryCheckpointEnvelope;
   restore?: { preparation: PreparedPolicyObserverRestore; approvedDigest: string };
+  expectedRestorationDigest?: string;
   timeoutMs?: number; transport?: WriterOptions['transport']; maxArchiveBlocks?: number; maxArchiveBytes?: number;
   now?: () => number;
 }) {
@@ -76,6 +77,8 @@ export async function openProtectedPolicyObserver(options: {
   const root = parseHistoryCheckpointEnvelope(options.root, historyContext), rootId = historyCheckpointEnvelopeId(root);
   const genesis = parseHistoryCheckpointEnvelope(options.genesis ?? root, historyContext), genesisId = historyCheckpointEnvelopeId(genesis);
   const mode = options.mode, restore = options.restore && { ...options.restore }, initializeWriter = options.initializeWriter;
+  const expectedReplayDigest = options.expectedRestorationDigest;
+  if (expectedReplayDigest !== undefined && (mode !== 'open-existing' || root.kind !== 'continuation')) throw new Error('Expected restoration digest requires an existing certified generation');
   const signer = copyAdmissionSigningKey(options.signingKey), key = Uint8Array.from(options.encryptionKey), now = options.now ?? Date.now;
   const writerOptions = { directory: options.directory, localKey: key, context: historyContext, signingKey: signer, rootId, generation: root.generation, genesisId,
     ...(root.kind === 'continuation' ? { continuation: root } : {}),
@@ -137,7 +140,7 @@ export async function openProtectedPolicyObserver(options: {
     let baseline = initial;
     if (root.kind === 'continuation') {
       restoration = await openPolicyObserverRestoration({ directory: writerOptions.directory, encryptionKey: key, context,
-        historyContext, genesisId, root, mode, restore });
+        historyContext, genesisId, root, mode, restore, expectedReplayDigest });
       baseline = restoration.state;
     } else if (rootId !== genesisId || root.generation !== 0 || root.sequence !== 0 || restore) throw new Error('Invalid policy observer root or restoration');
     states.set(rootId, baseline);

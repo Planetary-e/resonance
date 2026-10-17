@@ -2,8 +2,10 @@
 import { ADMISSION_POLICY_ADVANCE_MAX_BYTES } from '@resonance/core/admission-policy-advance';
 import { readOperatorFile } from './admission-operator-files.js';
 import { openConfiguredPolicyObserver, readPolicyObserverConfigurationFile, serveConfiguredPolicyObserver } from './policy-observer-config.js';
+import { runPolicyObserverRecoveryCommand } from './policy-observer-recovery-command.js';
 
 export async function runPolicyObserverCommand(command: string, args: readonly string[], signal?: AbortSignal) {
+  if (command.startsWith('recovery-')) return { ...await runPolicyObserverRecoveryCommand(command, args, signal), close: undefined };
   if (!['status', 'ready', 'advance', 'serve'].includes(command) || args.length !== (command === 'advance' ? 2 : 1)
     || args.some(arg => typeof arg !== 'string' || !arg.length || arg.startsWith('--'))) throw new Error('Invalid policy observer command');
   if (signal?.aborted) throw new Error('Policy observer command cancelled');

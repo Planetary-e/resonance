@@ -13,7 +13,7 @@ import { createHistoryContinuationRoot, historyContinuationRootId, parseHistoryC
 import { HISTORY_AGREEMENT_MAX_VIEW } from '@resonance/core/history-agreement';
 import { parseAdmissionPolicyObserverState, type AdmissionPolicyObserverState } from './admission-policy-observer-state.js';
 import { assertPolicyObserverHistoryContext, decodePolicyObserverSnapshot, replayPolicyObserverHistory } from './policy-observer-history-replay.js';
-import { fencePolicyObserverRecoverySource, readPolicyObserverRecoverySource, type PolicyObserverRecoverySource } from './protected-policy-observer.js';
+import { fencePolicyObserverRecoverySource, openProtectedPolicyObserver, readPolicyObserverRecoverySource, type PolicyObserverRecoverySource } from './protected-policy-observer.js';
 import { preparePolicyObserverRestore } from './policy-observer-history-restore.js';
 import { discoverHistoryContinuations } from './history-continuation-discovery.js';
 import { createHistoryCheckpointRecovery, HISTORY_RECOVERY_FILENAME } from './history-checkpoint-recovery.js';
@@ -256,6 +256,20 @@ export async function openPolicyObserverRecovery(options: Options & {
         const preparation = await preparePolicyObserverRestore({ ...replayOptions(), directory: destination, continuation, signal });
         live(); return { preparation, continuation: structuredClone(continuation) };
       } finally { release(); active = false; }
+    }); },
+    /** Compare an occupied destination with independently replayed selected
+     * ancestry. This cannot create a missing writer or transmit readiness. */
+    async inspectRestored(destination: string, signal?: AbortSignal) { return run(async () => {
+      live(); if (active || !journal.read().complete) throw new Error('Policy recovery has not completed provisioning or is active'); active = true;
+      let observer: Awaited<ReturnType<typeof openProtectedPolicyObserver>> | undefined;
+      try {
+        reopen(); const continuation = journal.read().continuation!;
+        const replay = await replayPolicyObserverHistory({ ...replayOptions(), proposal: continuation.proposal, signal }); live();
+        observer = await openProtectedPolicyObserver({ directory: destination, context: p.context, historyContext: p.historyContext, root: continuation,
+          genesis: p.genesis, signingKey: p.signer, encryptionKey: p.key, members: p.members, mode: 'open-existing', expectedRestorationDigest: replay.replayDigest });
+        live(); if (signal?.aborted) throw new Error('Policy restoration inspection cancelled');
+        return { continuation: structuredClone(continuation), status: observer.status(), readiness: 'unverified' as const };
+      } finally { observer?.close(); release(); active = false; }
     }); },
     close,
   };
