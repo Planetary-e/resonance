@@ -117,3 +117,34 @@ it('preserves prepared history after a settings write failure and permits a sepa
   expect(readHistoryEnrollmentFile(output)).toEqual(retained); expect(loadRelayConfig().historySetupInput).toEqual(exported);
   expect(installRelayService).not.toHaveBeenCalled();
 });
+
+
+it('reviews interrupted volunteer enrollment, preserves completed history after a settings failure and resumes the saved selection', async () => {
+  const n = await setup(); await n.init(); await n.request('/api/relay/maintenance', {}); await n.createConfig();
+  const owner: RelayHistorySetupInput = { ...n.input, role: 'owner' }, plan = await n.run('review', owner);
+  expect((await n.run('apply', owner, plan.body.result.approvalDigest)).status).toBe(200);
+  const input: Extract<RelayHistorySetupInput, { role: 'volunteer' }> = { role: 'volunteer', enrollmentFile: n.input.output,
+    signingKeyFile: n.keyFile('resuming-member.json', n.memberKeys[0]), storageKeyFile: join(n.directory, 'member-storage.hex'), directory: join(n.directory, 'resuming-member') };
+  writeFileSync(input.storageKeyFile, n.localKey.toString('hex'));
+  const initial = await n.run('review', input);
+  vi.mocked(renameSync).mockImplementation((from, to) => { if (String(to).endsWith('.block')) throw new Error('Interrupted initial block'); actualFs.renameSync(from, to); });
+  try { expect((await n.run('apply', input, initial.body.result.approvalDigest)).body.error).toContain('Interrupted initial block'); }
+  finally { vi.mocked(renameSync).mockImplementation(actualFs.renameSync); }
+  const resume: RelayHistorySetupInput = { ...input, role: 'volunteer-resume' }, review = await n.run('review', resume);
+  expect(review.status, JSON.stringify(review.body)).toBe(200); expect(review.body.result.phase).toBe('genesis-pending');
+  expect((await n.run('apply', resume, 'sha256:' + '0'.repeat(64))).status).toBe(409);
+  const settings = join(n.desktopDirectory, 'relay-config.json'), before = readFileSync(settings);
+  vi.mocked(renameSync).mockImplementation((from, to) => { if (String(to) === settings) throw new Error('Interrupted resumption settings'); actualFs.renameSync(from, to); });
+  try { expect((await n.run('apply', resume, review.body.result.approvalDigest)).body.error).toContain('Interrupted resumption settings'); }
+  finally { vi.mocked(renameSync).mockImplementation(actualFs.renameSync); }
+  expect(readFileSync(settings)).toEqual(before);
+  expect((await n.run('apply', resume, review.body.result.approvalDigest)).status).toBe(409);
+  const retained = await n.run('review', resume); expect(retained.body.result).toMatchObject({ phase: 'retained', retainedBlocks: 1 });
+  expect((await n.run('apply', resume, retained.body.result.approvalDigest)).body.result).toMatchObject({ result: 'enrollment-resumed', startsService: false, readiness: 'unverified' });
+  await n.request('/api/lock', {}); await n.unlock();
+  expect((await n.request('/api/relay/history/setup')).body.input).toEqual(resume);
+  expect((await n.request('/api/relay/maintenance')).body.active).toBe(true); expect(installRelayService).not.toHaveBeenCalled();
+  const enrollment = readHistoryEnrollmentFile(input.enrollmentFile), service = openHistoryVolunteerService({ directory: input.directory,
+    context: enrollment.context, genesisId: enrollment.genesisId, signingKey: n.memberKeys[0], localKey: n.localKey });
+  expect(service.describe().latest.envelopeId).toBe(enrollment.genesisId); service.close();
+});

@@ -9,12 +9,13 @@ import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointContextId, historyCheckpoi
 import { loadAdmissionHistoryProtectionFile, parseAdmissionHistoryConfiguration } from './admission-history-config.js';
 import { readOperatorFile, readOperatorJson, readOperatorSigningKey, readOperatorStorageKey, writeOperatorJsonNew } from './admission-operator-files.js';
 import { openProtectedAdmissionSpendHistory } from './protected-admission-history.js';
+import { openHistoryVolunteerEnrollmentResume } from './history-volunteer-enrollment.js';
 import { openHistoryVolunteerService } from './history-volunteer-service.js';
 import { listenHistoryAgreementReplica } from './history-agreement-exchange.js';
 import { discoverHistoryContinuations } from './history-continuation-discovery.js';
 import { createHistoryOperatorTransport } from './history-operator-transport.js';
 import { openAdmissionHistoryRecovery, prepareAdmissionHistoryRecovery } from './admission-history-recovery.js';
-import { reviewAdmissionOwnerConfiguration, openAdmissionOwnerSetup, type AdmissionOwnerSetupMode } from './admission-history-setup.js';
+import { reviewAdmissionOwnerConfiguration, openAdmissionOwnerSetup, canonicalHistorySetupPath, type AdmissionOwnerSetupMode } from './admission-history-setup.js';
 import { openAdmissionInitialReadiness } from './admission-history-readiness.js';
 
 
@@ -206,6 +207,27 @@ export async function runAdmissionHistoryCommand(command: string, raw: readonly 
       emit({ result: 'history-observed', contextId: observation.contextId, genesisId: pinned.genesisId,
         certifiedBoundaries: observation.continuations.length, observedGeneration: observation.observedLeaf.generation,
         readiness: 'unverified', mutation: 'none' });
+    } else if (['replica-resume-plan', 'replica-resume'].includes(command)) {
+      const applying = command === 'replica-resume', approved = applying && raw[0] === '--approve' ? raw[1] : undefined;
+      const args = approved ? raw.slice(2) : raw;
+      if (args.length !== 4 || (applying && !approved)) throw new Error('Invalid enrollment resumption or missing approval');
+      const [enrollmentPath, memberPath, keyPath, target] = args;
+      const capture = () => args.slice(0, 3).map((path, i) => {
+        const bytes = readOperatorFile(path, i === 0 ? ENROLLMENT_MAX : 65536);
+        try { return [resolve(path), canonicalHistorySetupPath(path), historyDigest(bytes)]; } finally { bytes.fill(0); }
+      });
+      const files = capture(), pinned = readHistoryEnrollmentFile(enrollmentPath), signingKey = readOperatorSigningKey(memberPath);
+      cleanup.push(() => signingKey.secretKey.fill(0));
+      const localKey = readOperatorStorageKey(keyPath); cleanup.push(() => localKey.fill(0));
+      const prepared = openHistoryVolunteerEnrollmentResume({ directory: target, context: pinned.context, genesis: pinned.root, signingKey, localKey }, commandOptions.signal);
+      cleanup.push(prepared.close);
+      const review = { ...prepared.review, approvalDigest: historyDigest(`resonance:replica-resume-files:v1\n${JSON.stringify([prepared.review, files])}`) };
+      const check = () => { checkCancelled(); if (JSON.stringify(files) !== JSON.stringify(capture())) throw new Error('Enrollment files changed; review again'); };
+      check();
+      if (applying) {
+        if (approved !== review.approvalDigest) throw new Error('Enrollment resumption approval changed; review again');
+        const resumed = prepared.apply(prepared.review.approvalDigest); check(); emit(resumed);
+      } else emit(review);
     } else if (['replica-plan', 'replica-enroll', 'replica-serve'].includes(command)) {
       const approved = command === 'replica-enroll' && raw[0] === '--approve' ? raw[1] : undefined;
       const args = approved ? raw.slice(2) : raw;

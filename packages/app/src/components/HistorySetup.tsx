@@ -4,7 +4,7 @@ import { getRelayHistorySetupInput, runRelayHistorySetup, cancelRelayHistoryOper
 const empty = (role: RelayHistorySetupInput['role']): RelayHistorySetupInput => role === 'configuration'
   ? { role, ownerKeyFile: '', authorityFile: '', policyFile: '', membersFile: '', output: '', historyId: '' }
   : role === 'owner' ? { role, historyConfigFile: '', policyFile: '', storageKeyFile: '', directory: '', output: '', mode: 'new' }
-    : role === 'volunteer' ? { role, enrollmentFile: '', signingKeyFile: '', storageKeyFile: '', directory: '' }
+    : (role === 'volunteer' || role === 'volunteer-resume') ? { role, enrollmentFile: '', signingKeyFile: '', storageKeyFile: '', directory: '' }
       : { role, historyConfigFile: '', enrollmentFile: '', policyFile: '', storageKeyFile: '', directory: '', operatorTransportFile: '' };
 const labels: Record<string, string> = { ownerKeyFile: 'Owner signing key file', authorityFile: 'Pinned community authority file', policyFile: 'Current signed policy file',
   membersFile: 'Five verified volunteer contacts file', output: 'New output file', historyConfigFile: 'Owner configuration file', storageKeyFile: 'Local storage key file',
@@ -35,7 +35,7 @@ export default function HistorySetup({ onBusyChange, blocked = false }: { onBusy
       <label className="form-group" style={{ display: 'block' }}>Operation
         <select value={input.role} disabled={disabled} onChange={event => changed(empty(event.target.value as RelayHistorySetupInput['role']))}>
           <option value="configuration">Create owner configuration</option><option value="owner">Prepare or export owner history</option>
-          <option value="volunteer">Enroll this volunteer</option><option value="readiness">Complete initial owner readiness</option>
+          <option value="volunteer">Enroll this volunteer</option><option value="volunteer-resume">Resume interrupted volunteer enrollment</option><option value="readiness">Complete initial owner readiness</option>
         </select>
       </label>
       {input.role === 'owner' && <label className="form-group" style={{ display: 'block' }}>Preparation
@@ -59,20 +59,20 @@ export default function HistorySetup({ onBusyChange, blocked = false }: { onBusy
         storageKeyFile: input.storageKeyFile, directory: input.directory, operatorTransportFile: '' })}>Review readiness after volunteers enroll</button>}
     {busy && <div role="status"><p>History operation in progress…</p><button className="btn btn-secondary" type="button"
       onClick={() => { void cancelRelayHistoryOperation().then(response => { if (response.error) setError(response.error); }); }}>Cancel operation</button></div>}
-    {error && <div role="alert"><p>{error}</p><p className="text-sm">Keep any created files. If owner setup published a baseline, review resumption with the same configuration and a new export path. Use recovery for a lost accepted history. An interrupted volunteer enrollment must be inspected before retrying; do not clear its directory.</p></div>}
+    {error && <div role="alert"><p>{error}</p><p className="text-sm">Keep any created files. If owner setup published a baseline, review resumption with the same configuration and a new export path. Use recovery for a lost accepted history. Use Resume interrupted volunteer enrollment to inspect retained genesis state; do not clear its directory. Missing accepted history needs recovery.</p></div>}
   </section>;
 }
 
 export function HistorySetupReview({ result, busy, onApply }: { result: RelayHistorySetupResult; busy: boolean; onApply: () => void }) {
   if (!result.approvalDigest) return <div role="status">
     <p>{result.result === 'history-ready' ? 'Initial history has four fresh copies. Review owner activation next; the relay remains paused.'
-      : result.result === 'enrolled' ? 'Volunteer history enrolled. Use Activate enrolled volunteer to review its owner connections before starting the background relay.'
+      : (result.result === 'enrolled' || result.result === 'enrollment-resumed') ? 'Volunteer history enrolled. Use Activate enrolled volunteer to review its owner connections before starting the background relay.'
         : result.result === 'new-owner-configuration' ? 'Owner configuration saved. Prepare its dedicated history next.' : 'Enrollment exported. Keep an independent backup and provide it to the five pinned volunteers.'}</p>
     {result.genesisId && <p style={{ overflowWrap: 'anywhere' }}>Genesis fingerprint: {result.genesisId}</p>}
   </div>;
   const readiness = result.kind === 'admission-initial-readiness';
   return <section className="history-activation-review" aria-label="Review initial history setup">
-    <h4>{readiness ? 'Review initial readiness' : result.kind === 'history-volunteer-enrollment' ? 'Review volunteer enrollment' : 'Review owner setup'}</h4>
+    <h4>{readiness ? 'Review initial readiness' : result.kind?.startsWith('history-volunteer-') ? 'Review volunteer enrollment' : 'Review owner setup'}</h4>
     <p style={{ overflowWrap: 'anywhere' }}>History context: {result.contextId}</p>
     {result.genesisId && <p style={{ overflowWrap: 'anywhere' }}>Genesis fingerprint: {result.genesisId}</p>}
     {result.owner && <p style={{ overflowWrap: 'anywhere' }}>Owner public key: {result.owner}</p>}
@@ -83,6 +83,8 @@ export function HistorySetupReview({ result, busy, onApply }: { result: RelayHis
     {result.output && <p style={{ overflowWrap: 'anywhere' }}>New output: {result.output}</p>}
     {result.spends !== undefined && <p>{result.spends} retained spends · {result.permanentDenials} permanent denials.</p>}
     {result.maximumGenerations && <p className="text-sm">Up to {result.maximumGenerations} generations; {Math.round(result.generationByteLimit! / 1048576)} MiB per generation, {Math.round(result.ancestryByteLimit! / 1048576)} MiB ancestry accounting. Journals and filesystem overhead are additional.</p>}
+    {result.phase && <p>{result.phase === 'genesis-pending' ? 'The first history block was not fully saved. Approval finishes the original enrollment.' : `${result.retainedBlocks} existing blocks remain retained.`}</p>}
+    {result.kind === 'history-volunteer-resumption' && <p>Resume the same pinned genesis only. A missing or corrupt manifest cannot be recreated. Existing accepted records remain retained; the relay stays paused.</p>}
     <p>{readiness ? 'Approval completes retained initial work and requires four fresh copies before activation. It does not start the relay.'
       : 'This review is offline. Approval creates only the selected setup files; it does not establish four-copy readiness or start the relay.'}</p>
     {(result.initializeWriter || result.initializeArchive) && <p className="text-sm">Approval includes only pristine writer/archive preparation. Missing committed history cannot be recreated.</p>}

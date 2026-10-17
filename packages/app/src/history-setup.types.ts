@@ -2,9 +2,11 @@ export type RelayHistorySetupInput =
   | { role: 'configuration'; ownerKeyFile: string; authorityFile: string; policyFile: string; membersFile: string; output: string; historyId: string }
   | { role: 'owner'; historyConfigFile: string; policyFile: string; storageKeyFile: string; directory: string; output: string; mode: 'new' | 'resume' | 'export' }
   | { role: 'volunteer'; enrollmentFile: string; signingKeyFile: string; storageKeyFile: string; directory: string }
+  | { role: 'volunteer-resume'; enrollmentFile: string; signingKeyFile: string; storageKeyFile: string; directory: string }
   | { role: 'readiness'; historyConfigFile: string; enrollmentFile: string; policyFile: string; storageKeyFile: string; directory: string; operatorTransportFile: string };
 export interface RelayHistorySetupResult {
-  kind?: 'new-owner-configuration' | 'owner-history-setup' | 'history-volunteer-enrollment' | 'admission-initial-readiness';
+  kind?: 'new-owner-configuration' | 'owner-history-setup' | 'history-volunteer-enrollment' | 'history-volunteer-resumption' | 'admission-initial-readiness';
+  phase?: 'genesis-pending' | 'retained'; retainedBlocks?: number;
   result?: string; approvalDigest?: string; contextId?: string; genesisId?: string | null; historyId?: string;
   owner?: string; authority?: string; member?: string; members?: Array<{ publicKey: string; endpoint: string }>;
   directory?: string; output?: string; mode?: 'new' | 'resume' | 'export'; spends?: number; permanentDenials?: number;

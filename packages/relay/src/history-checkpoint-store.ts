@@ -66,6 +66,73 @@ export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOption
   return openStore(options, false);
 }
 
+/** Explicit repair of an authenticated, still-empty genesis manifest. This is
+ * not an operational store and never creates/replaces a missing manifest. */
+export function inspectPristineHistoryGenesis(options: Pick<HistoryCheckpointStoreOptions, 'directory' | 'localKey' | 'context' | 'replica'> & {
+  genesis: HistoryCheckpointEnvelope;
+}) {
+  const context = parseHistoryCheckpointContext(options.context), root = parseHistoryCheckpointEnvelope(options.genesis, context);
+  const rootId = historyCheckpointEnvelopeId(root), directory = options.directory;
+  if (root.kind !== 'checkpoint' || root.generation !== 0 || root.sequence !== 0 || !context.members.includes(options.replica)) {
+    throw new Error('Pristine enrollment needs independently pinned genesis and member');
+  }
+  const manifest = join(directory, HISTORY_MANIFEST_FILENAME), block = join(directory, `${rootId.slice(7)}.block`);
+  const initial: Manifest = { version: 1, contextId: historyCheckpointContextId(context), replica: options.replica,
+    rootId, generation: 0, blocks: [], freeze: null, successor: null };
+  const allowed = new RegExp(`^(?:${HISTORY_MANIFEST_FILENAME.replace('.', '\\.')}(?:\\.lock|\\.recovery)?|\\.${HISTORY_MANIFEST_FILENAME.replace('.', '\\.')}\\.[a-f0-9]{16}\\.tmp|${rootId.slice(7)}\\.block|\\.block-[a-f0-9]{32}\\.tmp)$`);
+  function contents() {
+    if (!lstatSync(directory).isDirectory() || !lstatSync(manifest).isFile()) throw new Error('Retain the missing or nonregular genesis manifest for recovery');
+    const entries = readdirSync(directory).sort();
+    if (entries.length > 64) throw new Error('Too many interrupted enrollment files; inspect before resuming');
+    const fingerprints: Array<[string, string]> = [];
+    for (const name of entries) {
+      const path = join(directory, name), stat = lstatSync(path);
+      if (!allowed.test(name) || !stat.isFile() || stat.size > Math.max(MAX_MANIFEST_BYTES, HISTORY_ENVELOPE_MAX_BYTES)) {
+        throw new Error('Unexpected interrupted enrollment contents');
+      }
+      // Lock ownership is checked by the encrypted-state store, not approved as data.
+      if (name.endsWith('.lock') || name.endsWith('.recovery')) continue;
+      const bytes = readFileSync(path);
+      try {
+        if (bytes.length !== stat.size) throw new Error('Interrupted enrollment file changed during inspection');
+        fingerprints.push([name, historyDigest(bytes)]);
+        if (path === block && historyCheckpointEnvelopeId(parseHistoryCheckpointEnvelope(JSON.parse(bytes.toString('utf8')), context)) !== rootId) {
+          throw new Error('Interrupted genesis block differs from enrollment');
+        }
+      } finally { bytes.fill(0); }
+    }
+    return historyDigest(JSON.stringify(fingerprints));
+  }
+  contents();
+  const storage = openEncryptedLocalState<Manifest>({ path: manifest, key: options.localKey, domain: DOMAIN, maxBytes: MAX_MANIFEST_BYTES,
+    mode: 'open-existing', initial, validate: (value): value is Manifest => JSON.stringify(value) === JSON.stringify(initial) });
+  let closed = false, completed = false;
+  try {
+    const digest = contents();
+    return {
+      reviewDigest() { storage.read(); return digest; },
+      complete(expected: string) {
+        storage.read();
+        if (closed || completed || expected !== digest || contents() !== digest) throw new Error('Interrupted enrollment changed; inspect again');
+        if (!existsSync(block)) {
+          const temporary = join(directory, `.block-${randomBytes(16).toString('hex')}.tmp`), bytes = Buffer.from(JSON.stringify(root));
+          let fd: number | undefined;
+          try {
+            fd = openSync(temporary, 'wx', 0o600); let offset = 0;
+            while (offset < bytes.length) { const written = writeSync(fd, bytes, offset, bytes.length - offset); if (written <= 0) throw new Error('Incomplete genesis write'); offset += written; }
+            fsyncSync(fd); closeSync(fd); fd = undefined;
+            renameSync(temporary, block); flushDirectory(directory);
+          } finally { if (fd !== undefined) closeSync(fd); rmSync(temporary, { force: true }); bytes.fill(0); }
+        }
+        // The initial manifest proves no append, promise or barrier was accepted.
+        // Publish the original root only; ordinary reopening validates it next.
+        storage.write({ ...initial, blocks: [rootId] }); completed = true;
+      },
+      close() { if (!closed) { closed = true; storage.close(); } },
+    };
+  } catch (error) { storage.close(); throw error; }
+}
+
 /** Internal provisioning step: ONLY an unpublished staging directory guarded by a durable creation intent.
  * This never opens an operational store. The caller must publish the directory and persist readiness
  * before exposing append/read services. An existing manifest with accepted work is never initialized.

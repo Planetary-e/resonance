@@ -136,3 +136,5 @@ export { beginRelayMaintenance, readRelayMaintenance, assertRelayNotInMaintenanc
 export { readOperatorJson, writeOperatorJsonNew } from './admission-operator-files.js';
 export { reviewAdmissionOwnerConfiguration, openAdmissionOwnerSetup, canonicalHistorySetupPath, historySetupContains } from './admission-history-setup.js';
 export type { AdmissionOwnerConfigurationInput, AdmissionOwnerSetupInput, AdmissionOwnerSetupMode } from './admission-history-setup.js';
+
+export { openHistoryVolunteerEnrollmentResume } from './history-volunteer-enrollment.js';

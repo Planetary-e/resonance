@@ -31,6 +31,7 @@ try {
   console.error('  owner-recovery-readiness-plan|owner-recovery-ready [--approve <digest>] owner-config.json enrollment.json owner-storage.hex recovery-directory policy.json retained-owner-directory');
   console.error('  replica-plan enrollment.json member-private.json member-storage.hex replica-directory');
   console.error('  replica-enroll --approve <digest> enrollment.json member-private.json member-storage.hex replica-directory');
+  console.error('  replica-resume-plan|replica-resume [--approve <digest>] enrollment.json member-private.json member-storage.hex replica-directory');
   console.error('  replica-serve enrollment.json member-private.json member-storage.hex replica-directory <port>');
   process.exitCode = 1;
 } finally {

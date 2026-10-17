@@ -15,3 +15,10 @@ it('distinguishes offline enrollment from fresh-copy readiness and later activat
   const done = render({ result: 'history-ready', readiness: 'confirmed', startsService: false });
   expect(done).toContain('relay remains paused'); expect(done).not.toContain('Approve');
 });
+
+it('explains interrupted volunteer resumption without offering a missing-history reset', () => {
+  const html = render({ kind: 'history-volunteer-resumption', phase: 'genesis-pending', approvalDigest: 'sha256:review', readiness: 'unverified', startsService: false });
+  expect(html).toContain('finishes the original enrollment'); expect(html).toContain('missing or corrupt manifest cannot be recreated');
+  expect(html).toContain('relay stays paused');
+  expect(render({ result: 'enrollment-resumed', readiness: 'unverified', startsService: false })).toContain('Activate enrolled volunteer');
+});

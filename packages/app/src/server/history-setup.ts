@@ -13,16 +13,18 @@ export type RelayHistorySetupInput =
   | { role: 'configuration'; ownerKeyFile: string; authorityFile: string; policyFile: string; membersFile: string; output: string; historyId: string }
   | { role: 'owner'; historyConfigFile: string; policyFile: string; storageKeyFile: string; directory: string; output: string; mode: 'new' | 'resume' | 'export' }
   | { role: 'volunteer'; enrollmentFile: string; signingKeyFile: string; storageKeyFile: string; directory: string }
+  | { role: 'volunteer-resume'; enrollmentFile: string; signingKeyFile: string; storageKeyFile: string; directory: string }
   | { role: 'readiness'; historyConfigFile: string; enrollmentFile: string; policyFile: string; storageKeyFile: string; directory: string; operatorTransportFile: string };
 const fields = {
   configuration: ['ownerKeyFile', 'authorityFile', 'policyFile', 'membersFile', 'output'],
   owner: ['historyConfigFile', 'policyFile', 'storageKeyFile', 'directory', 'output'],
   volunteer: ['enrollmentFile', 'signingKeyFile', 'storageKeyFile', 'directory'],
+  'volunteer-resume': ['enrollmentFile', 'signingKeyFile', 'storageKeyFile', 'directory'],
   readiness: ['historyConfigFile', 'enrollmentFile', 'policyFile', 'storageKeyFile', 'directory', 'operatorTransportFile'],
 } as const;
 export function parseRelayHistorySetupInput(value: unknown): RelayHistorySetupInput {
   const raw = value as Record<string, unknown> | null;
-  if (!raw || !['configuration', 'owner', 'volunteer', 'readiness'].includes(raw.role as string)) throw new Error('Select a supported initial setup role');
+  if (!raw || !['configuration', 'owner', 'volunteer', 'volunteer-resume', 'readiness'].includes(raw.role as string)) throw new Error('Select a supported initial setup role');
   const role = raw.role as RelayHistorySetupInput['role'];
   if (!exactWitnessFields(raw, ['role', ...fields[role], ...(role === 'configuration' ? ['historyId'] : role === 'owner' ? ['mode'] : [])])) {
     throw new Error('Supply the exact fields for the selected setup role');
@@ -79,10 +81,11 @@ export async function runDesktopHistorySetup(action: 'review' | 'apply', raw: un
     } else if (input.role === 'owner') {
       const preparation = await openAdmissionOwnerSetup(input, signal); close = preparation.close;
       original = preparation.review(); apply = preparation.apply;
-    } else if (input.role === 'volunteer') {
+    } else if (input.role === 'volunteer' || input.role === 'volunteer-resume') {
       const args = [input.enrollmentFile, input.signingKeyFile, input.storageKeyFile, input.directory];
-      original = (await runAdmissionHistoryCommand('replica-plan', args, { signal })).result;
-      apply = async digest => (await runAdmissionHistoryCommand('replica-enroll', ['--approve', digest, ...args], { signal })).result;
+      original = (await runAdmissionHistoryCommand(input.role === 'volunteer-resume' ? 'replica-resume-plan' : 'replica-plan', args, { signal })).result;
+      const command = input.role === 'volunteer-resume' ? 'replica-resume' : 'replica-enroll';
+      apply = async digest => (await runAdmissionHistoryCommand(command, ['--approve', digest, ...args], { signal })).result;
     } else {
       const args = [input.historyConfigFile, input.enrollmentFile, input.policyFile, input.storageKeyFile, input.directory];
       const options = { signal, transportFile: input.operatorTransportFile || undefined };
