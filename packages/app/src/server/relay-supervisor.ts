@@ -3,18 +3,18 @@
 import { execFileSync } from 'node:child_process';
 import { closeSync, constants, existsSync, fstatSync, lstatSync, openSync, readSync, realpathSync, rmSync, statSync, type Stats } from 'node:fs';
 import { request } from 'node:http';
-import { connect } from 'node:net';
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { assertSecureRelayTransportEndpoint } from '@resonance/core';
 import { assertNoStorageReservationContext } from '@resonance/core/storage-reservations';
-import { reserveOperatorAtomicOutput, writeOperatorTextAtomic } from '@resonance/relay';
+import { reserveOperatorAtomicOutput, writeOperatorTextAtomic, readRelayStorageSnapshot, assertStoppedRelayStorageOwner } from '@resonance/relay';
 export const RELAY_SERVICE_FILE_MAX_BYTES = 1024 * 1024;
 
 const LABEL = 'earth.planetary.resonance.relay';
 
 const SERVICE_FILES = {
+  storageSelectionFile: 'RELAY_STORAGE_SELECTION_FILE',
   identityPassphraseFile: 'RELAY_IDENTITY_PASSPHRASE_FILE',
   historyVolunteerFile: 'RELAY_HISTORY_VOLUNTEER_FILE',
   historyBridgeFile: 'RELAY_HISTORY_BRIDGE_FILE',
@@ -86,7 +86,7 @@ export function relayServiceRuntime(retained: RelayServiceRoleFiles & { publicEn
   const files: RelayServiceRoleFiles = {};
   for (const key of Object.keys(SERVICE_FILES) as ServiceFile[]) {
     const value = Object.hasOwn(reviewed, key) ? reviewed[key] : process.env[`RESONANCE_${SERVICE_FILES[key]}`] ?? retained[key];
-    files[key] = value;
+    files[key] = key === 'storageSelectionFile' && value === '' ? undefined : value;
   }
   validateRoleFiles(files);
   for (const key of Object.keys(SERVICE_FILES) as ServiceFile[]) if (files[key]) files[key] = resolve(files[key]!);
@@ -117,6 +117,11 @@ export function relayServiceEnvironment(options: RelayServiceOptions): Record<st
   validateRoleFiles(options); validatePublicEndpoints(options.publicEndpoints ?? []);
   if (options.publicEndpoints?.some(endpoint => new URL(endpoint).protocol === 'wss:') && !options.identityPassphraseFile) {
     throw new Error('A reachable WSS service requires an identity passphrase file');
+  }
+  if (options.storageSelectionFile) {
+    const selected = readRelayStorageSnapshot(options.storageSelectionFile).configuration;
+    if (resolve(selected.runtimeDirectory) !== resolve(join(options.dataDir, 'relay-data'))
+      || selected.runtimePort !== options.port || selected.runtimeHost !== '127.0.0.1') throw new Error('Service settings differ from their storage selection');
   }
   const controls = options.controls ?? {};
   const publicationBytes = controls.publicationStorageMiB === undefined ? undefined
@@ -283,6 +288,9 @@ function servicePublication(file: { path: string; text: string }): string {
  * Native commands do not establish runtime/admission readiness. */
 export function prepareRelayServiceInstallation(options: RelayServiceOptions): { start(): void } {
   validateRelayServicePaths(options);
+  const selectionFile = options.storageSelectionFile, selected = selectionFile ? readRelayStorageSnapshot(selectionFile) : undefined;
+  if (selected) assertStoppedRelayStorageOwner(selected.configuration);
+  const selection = selected?.source;
   const host = process.platform, domain = `gui/${process.getuid?.()}`, files = relayServiceOutputFiles(options);
   // A later file cannot exhaust the shared budget after an earlier one was written.
   const reserved = files.map(file => ({ ...file, reservation: reserveOperatorAtomicOutput(file.path, RELAY_SERVICE_FILE_MAX_BYTES) }));
@@ -294,6 +302,9 @@ export function prepareRelayServiceInstallation(options: RelayServiceOptions): {
     if (started) throw new Error('Relay service start was already attempted; prepare and review the current configuration again');
     if (process.platform !== host) throw new Error('Prepared relay service platform changed');
     for (const file of published) if (servicePublication(file) !== file.stamp) throw new Error('Prepared relay service definition changed');
+    if (selectionFile && JSON.stringify(readRelayStorageSnapshot(selectionFile).source) !== JSON.stringify(selection)) {
+      throw new Error('Prepared relay storage selection changed');
+    }
     // Partial native registration can have effects even if its command throws.
     // Never retry a stale handle after a start attempt.
     started = true;
@@ -372,15 +383,4 @@ export async function relayServiceStats(port: number, adminKey: string): Promise
   });
 }
 
-/** A refused loopback connection is evidence of a closed configured listener.
- * Timeout, a live but unauthenticated listener and other errors remain unknown. */
-export function relayPortClosed(port: number): Promise<boolean> {
-  return new Promise(resolve => {
-    const socket = connect({ host: '127.0.0.1', port });
-    let settled = false;
-    const finish = (closed: boolean) => { if (settled) return; settled = true; clearTimeout(timer); socket.destroy(); resolve(closed); };
-    const timer = setTimeout(() => finish(false), 500);
-    socket.once('connect', () => finish(false));
-    socket.once('error', error => finish((error as NodeJS.ErrnoException).code === 'ECONNREFUSED'));
-  });
-}
+export { relayPortClosed } from '@resonance/relay';

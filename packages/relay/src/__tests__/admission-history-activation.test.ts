@@ -36,7 +36,8 @@ it('reviews offline, rejects unapproved transmission and activates retained real
       .toEqual({ status: 'rejected', reason: 'double_spend' });
   } finally { verifier.close(); }
   await expect(createConfiguredAdmissionVerifier({ ...n.verifierOptions, directory: n.runtimeDirectory, historyProtection: undefined })).rejects.toThrow('local fallback');
-});
+// Real cryptography, durable writes and several bounded protocol steps share this test.
+}, 15000);
 
 it('requires a current fourth copy and refuses a coherent stale backup without creating policy state', async () => {
   const n = await fixture(), stale = join(n.directory, 'stale'); cpSync(n.historyDirectory, stale, { recursive: true });

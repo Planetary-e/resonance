@@ -6,6 +6,9 @@ import { createServer } from 'node:net';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { WebSocketServer } from 'ws';
+import { openStorageReservationAuthority, STORAGE_RESERVATION_CONTROL_BYTES as CONTROL } from '@resonance/core/storage-reservations';
+import { openRelayStorageOwner, withRelayStorageControls, writeOperatorJsonAtomic } from '@resonance/relay';
+import { desktopRelayStorageControls } from '../relay-storage.js';
 import { EmbeddingEngine } from '@resonance/core';
 import { openAdmissionPolicyStore } from '@resonance/core/admission-policy';
 import { historyCheckpointContextId } from '@resonance/core/history-checkpoint';
@@ -122,3 +125,22 @@ it.each(['cancel', 'lock', 'disconnect'] as const)('cancels outstanding history 
   expect(existsSync(join(n.runtimeDirectory, 'admission-community-policy.json'))).toBe(false);
   expect(loadRelayConfig().enabled).toBe(false); expect(installRelayService).not.toHaveBeenCalled();
 }, 15000);
+
+it('retains reviewed role paths when managed activation coexists with obsolete environment overrides', async () => {
+  const n = await setup(); await n.init(); await n.pause();
+  const authorityDirectory = join(n.directory, 'authority'), authority = openStorageReservationAuthority({ directory: authorityDirectory, mode: 'create-new', limitBytes: CONTROL + 2 * 1024 ** 3 });
+  cleanup.push(authority.close);
+  const targets = [n.desktopDirectory, n.historyDirectory].map(path => ({ path, scope: 'directory' as const }));
+  authority.adoptExisting(targets, authority.reviewExisting(targets).approvalDigest);
+  const pins = { authorityDirectory, authorityId: authority.status().authorityId, runtimeDirectory: n.runtimeDirectory }; authority.close();
+  const controls = desktopRelayStorageControls(n.desktopDirectory), selected = join(n.desktopDirectory, 'selected-storage.json');
+  const owner = openRelayStorageOwner(pins, 'maintenance', controls), binding = { runtimePort: loadRelayConfig().port, runtimeHost: '127.0.0.1' as const };
+  owner.exportSelection(selected, binding, owner.reviewSelectionOutput(selected, binding).approvalDigest); owner.close();
+  withRelayStorageControls(pins, controls, () => writeOperatorJsonAtomic(n.settingsPath,
+    { ...loadRelayConfig(), runtime: { ...relayServiceRuntime(), storageSelectionFile: selected } }, 65536));
+  vi.stubEnv('RESONANCE_RELAY_ADMISSION_HISTORY_FILE', '/obsolete/history.json');
+  const review = await n.review(); expect(review.status, JSON.stringify(review.body)).toBe(200);
+  const applied = await n.apply(review.body.approvalDigest); expect(applied.status, JSON.stringify(applied.body)).toBe(200);
+  expect(loadRelayConfig().runtime).toMatchObject({ admissionHistoryFile: n.input.historyConfigFile, storageSelectionFile: selected });
+  expect(installRelayService).not.toHaveBeenCalled();
+}, 20000);

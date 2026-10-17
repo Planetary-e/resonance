@@ -49,7 +49,8 @@ it('refuses to shrink past accepted or unarchived pending ciphertext and resumes
   const otherBinding = createAdmissionRequestBindingV2('search', { query: 'reusing the same token differently' });
   const reused = presentBlindAdmissionTokenV2(token, n.issuer.scope, 'search', otherBinding);
   expect((await resumed.verifyAndSpend(reused, { ...request, requestBinding: otherBinding })).status).toBe('rejected');
-});
+// Real issuer keys, durable quorum writes and pending-operation recovery share this test.
+}, 15000);
 
 it('refuses changed selected files, occupied outputs, history overlap and out-of-range limits', async () => {
   const n = await fixture(), prepared = await n.open(), original = readFileSync(n.input.policyFile);

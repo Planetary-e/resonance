@@ -1,3 +1,4 @@
+import { openSelectedRelayStorageOwner } from '../packages/relay/src/selected-relay-storage.js';
 /** Offline maintenance of an existing role. Stop its relay before review or retirement. */
 import { closeSync, constants, fstatSync, openSync, readSync } from 'node:fs';
 import { join } from 'node:path';
@@ -28,7 +29,7 @@ function privateKey(path: string) {
   value.secretKey = ''; return key;
 }
 
-try {
+async function runMaintenance() {
   const [command, ...raw] = process.argv.slice(2);
   const approved = command === 'retire' && raw[0] === '--approve' ? raw[1] : undefined;
   const args = approved ? raw.slice(2) : raw;
@@ -58,6 +59,13 @@ try {
   } finally {
     history?.close(); policyStore?.close(); encryptionKey.fill(0); participant?.secretKey.fill(0);
   }
+}
+try {
+  const selected = process.env.RESONANCE_RELAY_STORAGE_SELECTION_FILE;
+  if (selected) {
+    const owner = await openSelectedRelayStorageOwner(selected, { purpose: 'maintenance' });
+    try { await owner.run(runMaintenance); } finally { owner.close(); }
+  } else await runMaintenance();
 } catch (error) {
   console.error(error instanceof Error ? error.message : 'Admission history maintenance failed');
   console.error('Usage: node --import tsx scripts/retire-admission-history.ts');

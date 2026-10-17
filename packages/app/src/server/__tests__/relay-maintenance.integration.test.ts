@@ -97,15 +97,17 @@ it('does not treat a closed listener as a stopped runtime and retains all files 
 
 it('refuses damaged settings and dangling paths without a default-port stop or overwriting evidence', async () => {
   const n = await setup(); await n.close();
-  for (const value of ['{', 'null', JSON.stringify({ enabled: false, port: 0 }), 'x'.repeat(65537)]) {
+  for (const value of ['{', 'null', JSON.stringify({ enabled: false, port: 0 }), JSON.stringify({ enabled: false, port: n.port, runtime: 'bad' }),
+    JSON.stringify({ enabled: false, port: n.port, runtime: { storageSelectionFile: 42 } }),
+    JSON.stringify({ enabled: false, port: n.port, runtime: { storageSelectionFile: '' } }), 'x'.repeat(65537)]) {
     writeFileSync(n.config, value);
     await expect(startRelayMode()).rejects.toThrow('settings are invalid');
     await expect(stopRelayMode()).rejects.toThrow('settings are invalid');
     await expect(beginRelayHistoryMaintenance()).rejects.toThrow('settings are invalid');
     await expect(finishRelayHistoryMaintenance()).rejects.toThrow('settings are invalid');
     expect(readFileSync(n.config, 'utf8')).toBe(value);
-    expect(getRelayMaintenanceStatus().active).toBe(true);
-    rmSync(join(n.history, 'relay-maintenance.json')); // Reset only this deliberately corrupt test fixture.
+    // Invalid settings cannot identify a funded control scope. Refuse before writing.
+    expect(getRelayMaintenanceStatus().active).toBe(false);
   }
   if (process.platform !== 'win32') {
     rmSync(n.config); symlinkSync(join(n.directory, 'missing'), n.config);

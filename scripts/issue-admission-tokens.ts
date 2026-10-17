@@ -4,6 +4,7 @@ import { existsSync, readFileSync, writeFileSync, statSync } from 'node:fs';
 import { openAdmissionIssuerLedger } from '../packages/node/src/admission-issuer-ledger.js';
 
 async function main() {
+  if (process.env.RESONANCE_RELAY_STORAGE_SELECTION_FILE) throw new Error('Offline authority and issuer tools do not use the relay storage budget; prepare their files separately before reviewed adoption');
   const args = process.argv.slice(2);
   const command = args.shift();
   let retirementApproval: string | undefined;

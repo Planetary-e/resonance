@@ -1,15 +1,31 @@
 /** Shared storage ownership for explicitly selected relay operations. Product
  * selection/persistence is separate; these APIs never discover or initialize it. */
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 import { realpathSync } from 'node:fs';
-import { isAbsolute } from 'node:path';
+import { exactWitnessFields } from '@resonance/core/admission-witness';
+import { isAbsolute, resolve } from 'node:path';
 import { openStorageReservationAuthority, openReservedStorageControl, withStorageReservationAuthority, reviewAbsentStorageScopes,
   type StorageReservationRequest } from '@resonance/core/storage-reservations';
 import { parseRelayStorageConfiguration, RELAY_STORAGE_SELECTION_MAX_BYTES } from './relay-storage-selection.js';
 import { writeOperatorJsonNew } from './admission-operator-files.js';
 import { acquireStoppedRelayMaintenance, assertRelayNotInMaintenance, relayMaintenanceStorageRequests } from './relay-maintenance.js';
 
+export interface RelayStorageRuntimeBinding { runtimePort: number; runtimeHost: '127.0.0.1' | '0.0.0.0' }
 export interface RelayStorageSelection { authorityDirectory: string; authorityId: string; runtimeDirectory: string }
+const ownership = new AsyncLocalStorage<{ selection: RelayStorageSelection; purpose: 'runtime' | 'maintenance'; check(): void }>();
+/** Selected native definitions must be charged by the same stopped owner that
+ * their future process will open. Unmanaged or unrelated scopes cannot prepare them. */
+export function assertStoppedRelayStorageOwner(input: RelayStorageSelection): void {
+  const held = ownership.getStore();
+  if (!held || held.purpose !== 'maintenance' || held.selection.authorityId !== input.authorityId
+    || resolve(held.selection.authorityDirectory) !== resolve(input.authorityDirectory)
+    || resolve(held.selection.runtimeDirectory) !== resolve(input.runtimeDirectory)) {
+    throw new Error('Prepare the selected relay service under its stopped storage ownership');
+  }
+  held.check();
+}
+
 function selection(input: RelayStorageSelection): RelayStorageSelection {
   if (!input || typeof input !== 'object') throw new Error('Select the existing relay storage authority explicitly');
   const copy = { authorityDirectory: input.authorityDirectory, authorityId: input.authorityId, runtimeDirectory: input.runtimeDirectory };
@@ -22,11 +38,17 @@ function selection(input: RelayStorageSelection): RelayStorageSelection {
 function controls(selected: RelayStorageSelection, extra: readonly StorageReservationRequest[]) {
   if (!Array.isArray(extra) || extra.length > 14) throw new Error('Select at most 14 additional relay controls');
   const copied = [...relayMaintenanceStorageRequests(selected.runtimeDirectory), ...extra.map(request => ({ ...request }))];
-  for (const request of copied) if (!request || typeof request.path !== 'string' || !isAbsolute(request.path)
+  const paths = new Set<string>();
+  for (const request of copied) {
+    if (!exactWitnessFields(request as unknown, ['path', 'scope', 'component', 'maximumBytes']) || typeof request.path !== 'string' || !isAbsolute(request.path)
     || request.path.length > 4096 || /[\x00-\x1f\x7f]/.test(request.path) || request.scope !== 'file'
     || !['local-state-lock', 'operator-output', 'operator-atomic-output'].includes(request.component)
     || !Number.isSafeInteger(request.maximumBytes) || request.maximumBytes < 1 || request.maximumBytes > 1024 * 1024) {
-    throw new Error('Invalid prepaid relay control scope');
+      throw new Error('Invalid prepaid relay control scope');
+    }
+    const path = resolve(request.path);
+    if (paths.has(path)) throw new Error('Duplicate prepaid relay control scope');
+    paths.add(path);
   }
   return copied;
 }
@@ -37,7 +59,6 @@ function controls(selected: RelayStorageSelection, extra: readonly StorageReserv
 export function openRelayStorageOwner(input: RelayStorageSelection, purpose: 'runtime' | 'maintenance', extraControls: readonly StorageReservationRequest[] = []) {
   if (!['runtime', 'maintenance'].includes(purpose)) throw new Error('Select runtime or stopped maintenance storage ownership');
   const selected = selection(input), requests = controls(selected, extraControls);
-  const configuration = parseRelayStorageConfiguration({ version: 1, kind: 'relay-storage-selection', ...selected, controls: requests.slice(2) });
   const authority = openStorageReservationAuthority({ directory: selected.authorityDirectory, authorityId: selected.authorityId,
     mode: 'open-existing', requireAdoptedScopes: true });
   let release: (() => void) | undefined, closed = false;
@@ -50,8 +71,10 @@ export function openRelayStorageOwner(input: RelayStorageSelection, purpose: 'ru
     // Reuse the independent control validator too; it grants no writer ownership.
     const proof = openReservedStorageControl({ directory: selected.authorityDirectory, authorityId: selected.authorityId, controls: requests }); proof.close();
   } catch (error) { try { release?.(); } finally { authority.close(); } throw error; }
-  function selectionReview(path: string) {
+  function selectionReview(path: string, binding: RelayStorageRuntimeBinding) {
     if (closed || purpose !== 'maintenance') throw new Error('Storage selection export requires stopped maintenance ownership');
+    const configuration = parseRelayStorageConfiguration({ version: 1, kind: 'relay-storage-selection', ...selected,
+      runtimePort: binding?.runtimePort, runtimeHost: binding?.runtimeHost, controls: requests.slice(2) });
     const absent = reviewAbsentStorageScopes([{ path, scope: 'file' }], realpathSync(selected.authorityDirectory));
     const status = authority.status(), output = absent.targets[0].path;
     const reservation = authority.reviewReservation({ path: output, scope: 'file', component: 'operator-output', maximumBytes: RELAY_STORAGE_SELECTION_MAX_BYTES });
@@ -64,13 +87,15 @@ export function openRelayStorageOwner(input: RelayStorageSelection, purpose: 'ru
   return {
     run<T>(operation: () => T): T {
       if (closed) throw new Error('Relay storage ownership is closed');
-      authority.status(); return withStorageReservationAuthority(authority, operation);
+      authority.status(); return withStorageReservationAuthority(authority, () => ownership.run({ selection: selected, purpose, check: () => {
+        if (closed) throw new Error('Relay storage ownership is closed'); authority.status();
+      } }, operation));
     },
-    reviewSelectionOutput(path: string) { return selectionReview(path); },
-    exportSelection(path: string, approvalDigest: string) {
-      const review = selectionReview(path);
+    reviewSelectionOutput(path: string, binding: RelayStorageRuntimeBinding) { return selectionReview(path, binding); },
+    exportSelection(path: string, binding: RelayStorageRuntimeBinding, approvalDigest: string) {
+      const review = selectionReview(path, binding);
       if (approvalDigest !== review.approvalDigest) throw new Error('Storage selection approval changed; review current paths and budget again');
-      withStorageReservationAuthority(authority, () => writeOperatorJsonNew(review.output, configuration, RELAY_STORAGE_SELECTION_MAX_BYTES));
+      withStorageReservationAuthority(authority, () => writeOperatorJsonNew(review.output, review.configuration, RELAY_STORAGE_SELECTION_MAX_BYTES));
       return { result: 'relay-storage-selection-exported' as const, output: review.output };
     },
     status() { return authority.status(); },
@@ -88,3 +113,5 @@ export function withRelayStorageControls<T>(input: RelayStorageSelection, extraC
   const view = openReservedStorageControl({ directory: selected.authorityDirectory, authorityId: selected.authorityId, controls: requests });
   try { return withStorageReservationAuthority(view, operation); } finally { view.close(); }
 }
+
+export type RelayStorageOwner = ReturnType<typeof openRelayStorageOwner>;

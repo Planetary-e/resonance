@@ -58,6 +58,8 @@ it('validates controls before taking ownership or charging any reservation', () 
   const n = fixture(SETTINGS);
   expect(() => n.open('runtime', [{ ...n.controls[0], maximumBytes: 2 * 1024 * 1024 }])).toThrow(/control scope/);
   expect(() => n.open('runtime', [{ ...n.controls[0], component: 'history' }])).toThrow(/control scope/);
+  expect(() => n.open('runtime', [n.controls[0], n.controls[0]])).toThrow(/Duplicate/);
+  expect(() => n.open('runtime', [{ ...n.controls[0], extra: true } as typeof n.controls[0]])).toThrow(/control scope/);
   const authority = openStorageReservationAuthority({ directory: n.ledger, authorityId: n.selection.authorityId, mode: 'open-existing' }); cleanup.push(authority.close);
   expect(authority.status().components).toBe(0); expect(existsSync(n.data)).toBe(false);
 });

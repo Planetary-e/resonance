@@ -1,4 +1,5 @@
 /** Reviewed history operations. Shared implementation also serves the desktop. */
+import { runSelectedAdmissionHistoryCommand } from '../packages/relay/src/selected-admission-history-command.js';
 import { runAdmissionHistoryCommand } from '../packages/relay/src/admission-history-command.js';
 
 const controller = new AbortController();
@@ -7,9 +8,10 @@ process.once('SIGINT', cancel); process.once('SIGTERM', cancel);
 let stop: (() => Promise<void>) | undefined;
 try {
   const [command, ...args] = process.argv.slice(2);
-  const operation = await runAdmissionHistoryCommand(command ?? '', args, {
-    transportFile: process.env.RESONANCE_HISTORY_OPERATOR_TRANSPORT_FILE, signal: controller.signal,
-  });
+  const options = { transportFile: process.env.RESONANCE_HISTORY_OPERATOR_TRANSPORT_FILE, signal: controller.signal };
+  const selected = process.env.RESONANCE_RELAY_STORAGE_SELECTION_FILE;
+  const operation = selected ? await runSelectedAdmissionHistoryCommand(selected, command ?? '', args, options)
+    : await runAdmissionHistoryCommand(command ?? '', args, options);
   stop = operation.stop; console.log(JSON.stringify(operation.result));
 } catch (error) {
   console.error(error instanceof Error ? error.message : 'Admission history operation failed');

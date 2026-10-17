@@ -40,6 +40,7 @@ function writeExclusive(path: string, value: unknown, prettyPlan = false) {
 }
 
 try {
+  if (process.env.RESONANCE_RELAY_STORAGE_SELECTION_FILE) throw new Error('Offline authority and issuer tools do not use the relay storage budget; prepare their files separately before reviewed adoption');
   const [command, ...args] = process.argv.slice(2);
   if (command === 'prepare' && args.length === 4) {
     const [authorityPath, previousPath, requestPath, outputPath] = args;

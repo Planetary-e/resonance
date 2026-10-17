@@ -5,6 +5,7 @@ import { generateSigningKeyPair } from '@resonance/core';
 import { signAdmissionPolicy, admissionAuthorityFingerprint, MAX_ADMISSION_POLICY_BYTES } from '@resonance/core/admission-policy';
 
 try {
+  if (process.env.RESONANCE_RELAY_STORAGE_SELECTION_FILE) throw new Error('Offline authority and issuer tools do not use the relay storage budget; prepare their files separately before reviewed adoption');
   const [command, first, second, third, ...extra] = process.argv.slice(2);
   if (extra.length || !first) throw new Error('Invalid policy command');
   const read = (path: string, maximum = 65536) => { if (statSync(path).size > maximum) throw new Error('Policy input exceeds its byte limit'); return readFileSync(path, 'utf8'); };

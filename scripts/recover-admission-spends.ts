@@ -1,3 +1,4 @@
+import { openSelectedRelayStorageOwner } from '../packages/relay/src/selected-relay-storage.js';
 /** Explicit offline recovery of complete legacy rows using expired, cryptographically verified tokens. */
 import { closeSync, constants, fstatSync, openSync, readSync } from 'node:fs';
 import { join } from 'node:path';
@@ -19,7 +20,7 @@ function proofs(path: string): unknown {
   try { return JSON.parse(read(path, 65536)); }
   catch (error) { if (error instanceof SyntaxError) throw new Error('Recovery proof file is not valid JSON'); throw error; }
 }
-try {
+async function runMaintenance() {
   const [command, ...raw] = process.argv.slice(2);
   const approved = command === 'recover' && raw[0] === '--approve' ? raw[1] : undefined;
   const args = approved ? raw.slice(2) : raw;
@@ -40,6 +41,13 @@ try {
     const result = command === 'plan' ? await history.planLegacyRecovery(input) : await history.recoverLegacy(input, approved!);
     console.log(JSON.stringify({ ...result, result: command === 'plan' ? 'review-required' : 'legacy-spends-recovered' }, null, 2));
   } finally { history?.close(); store?.close(); encryptionKey.fill(0); }
+}
+try {
+  const selected = process.env.RESONANCE_RELAY_STORAGE_SELECTION_FILE;
+  if (selected) {
+    const owner = await openSelectedRelayStorageOwner(selected, { purpose: 'maintenance' });
+    try { await owner.run(runMaintenance); } finally { owner.close(); }
+  } else await runMaintenance();
 } catch (error) {
   console.error(error instanceof Error ? error.message : 'Legacy spend recovery failed');
   console.error('Usage: node --import tsx scripts/recover-admission-spends.ts');

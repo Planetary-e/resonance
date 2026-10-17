@@ -142,3 +142,8 @@ export { openAdmissionOwnerLimits, type AdmissionOwnerLimitsInput } from './admi
 
 export { measureStorageDirectories, parseStorageDirectories, parseStorageFiles } from "./storage-inventory.js";
 export type { StorageInventory } from "./storage-inventory.js";
+
+export { relayPortClosed } from './relay-listener.js';
+export { readRelayStorageSnapshot, readRelayStorageConfiguration, type RelayStorageConfiguration } from './relay-storage-selection.js';
+export { openSelectedRelayStorageOwner } from './selected-relay-storage.js';
+export { openRelayStorageOwner, withRelayStorageControls, assertStoppedRelayStorageOwner, type RelayStorageOwner } from './relay-storage-owner.js';

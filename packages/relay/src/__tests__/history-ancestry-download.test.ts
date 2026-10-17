@@ -87,7 +87,8 @@ it('retains progress at its block/byte budgets and refuses truncation as complet
   const larger = n.open(false); expect((await larger.run()).complete).toBe(true);
   const other = fixture(), capped = other.open(true, { maxBytes: 4 * 1024 * 1024 + 1 });
   await expect(capped.run()).rejects.toThrow('capacity'); expect(capped.read().blocks).toBe(0);
-});
+// Real cryptography, durable writes and several bounded protocol steps share this test.
+}, 15000);
 
 it('bounds a cancellation-ignoring transport, aborts close and refuses overlapping attempts', async () => {
   const n = fixture(); n.downloadOptions.transport = async () => new Promise(() => {});

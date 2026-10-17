@@ -2,6 +2,8 @@ import { afterEach, expect, it } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { createServer } from 'node:net';
+import { openRelayStorageOwner, withRelayStorageControls } from '../relay-storage-owner.js';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
@@ -12,7 +14,9 @@ import { beginRelayMaintenance, finishRelayMaintenance } from '../relay-maintena
 import { RELAY_OPERATION_LOG_FILENAME } from '../operation-log.js';
 const cleanup: Array<() => unknown | Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
-function fixture() {
+async function fixture() {
+  const holder = createServer(); holder.listen(0, '127.0.0.1'); await once(holder, 'listening');
+  const port = (holder.address() as { port: number }).port; await new Promise<void>(resolve => holder.close(() => resolve()));
   const directory = realpathSync(mkdtempSync(join(tmpdir(), 'adopted-runtime-'))); cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
   const ledger = join(directory, 'authority'), managed = join(directory, 'managed'), data = join(managed, 'runtime'), diagnostics = join(managed, 'diagnostics');
   mkdirSync(managed); writeFileSync(join(managed, 'unknown-retained'), 'retain old work');
@@ -20,12 +24,17 @@ function fixture() {
   const targets = [{ path: managed, scope: 'directory' as const }], review = authority.reviewExisting(targets); authority.adoptExisting(targets, review.approvalDigest);
   const id = authority.status().authorityId; authority.close();
   const open = () => { const value = openStorageReservationAuthority({ directory: ledger, authorityId: id, mode: 'open-existing', requireAdoptedScopes: true }); cleanup.push(value.close); return value; };
-  return { directory, ledger, managed, data, diagnostics, id, open };
+  const pins = { authorityDirectory: ledger, authorityId: id, runtimeDirectory: data }, binding = { runtimePort: port, runtimeHost: '127.0.0.1' as const };
+  const runtime = openRelayStorageOwner(pins, 'runtime'); runtime.run(() => beginRelayMaintenance(data)); runtime.close();
+  const stopped = openRelayStorageOwner(pins, 'maintenance'), selected = join(managed, 'selection.json');
+  stopped.exportSelection(selected, binding, stopped.reviewSelectionOutput(selected, binding).approvalDigest); stopped.close();
+  withRelayStorageControls(pins, [], () => finishRelayMaintenance(data));
+  return { directory, ledger, managed, data, diagnostics, id, open, port, selected };
 }
-function start(n: ReturnType<typeof fixture>, overrides: NodeJS.ProcessEnv = {}) {
+function start(n: Awaited<ReturnType<typeof fixture>>, overrides: NodeJS.ProcessEnv = {}) {
   const inherited = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('RELAY_')));
-  const child = spawn(process.execPath, ['--import', 'tsx', fileURLToPath(new URL('./fixtures/adopted-storage-runtime.ts', import.meta.url)), n.ledger, n.id], {
-    env: { ...inherited, RELAY_DATA_DIR: n.data, RELAY_DIAGNOSTICS_DIRECTORY: n.diagnostics, RELAY_HOST: '127.0.0.1', RELAY_PORT: '0',
+  const child = spawn(process.execPath, ['--import', 'tsx', fileURLToPath(new URL('../main.ts', import.meta.url))], {
+    env: { ...inherited, RELAY_DATA_DIR: n.data, RELAY_DIAGNOSTICS_DIRECTORY: n.diagnostics, RELAY_HOST: '127.0.0.1', RELAY_PORT: String(n.port), RELAY_STORAGE_SELECTION_FILE: n.selected,
       RELAY_STORAGE_CAPACITY_BYTES: '1048576', RELAY_STORAGE_AVAILABLE_BYTES: '1048576', RELAY_JOURNAL_STORAGE_QUOTA_BYTES: '1048576',
       RELAY_CONTACTS: '', RELAY_PUBLIC_ENDPOINTS: '', ...overrides }, stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -51,8 +60,8 @@ async function publish(port: number, record: ReturnType<typeof publication>) {
     expect(parseMessage((await response)[0].toString()).payload).toMatchObject({ status: 'ok' });
   } finally { clearTimeout(timer); socket.terminate(); }
 }
-it('runs the real entry point, accepts work and preserves it across a full-budget pause, SIGKILL and restart', async () => {
-  const n = fixture(), first = start(n), record = publication(); await publish(await first.listening(), record);
+it('runs the real selected entry point, accepts work and preserves it across a full-budget pause, SIGKILL and restart', async () => {
+  const n = await fixture(), first = start(n), record = publication(); await publish(await first.listening(), record);
   const identity = readFileSync(join(n.data, 'relay-identity.json'));
   expect(n.open).toThrow(/already open/); first.child.kill('SIGTERM'); expect((await first.exited)[0]).toBe(0);
   const authority = n.open(), full = authority.status().reservedBytes, review = authority.reviewLimit(full); authority.applyLimit(full, review.approvalDigest); authority.close();
@@ -71,15 +80,25 @@ it('runs the real entry point, accepts work and preserves it across a full-budge
   expect(readFileSync(join(n.managed, 'unknown-retained'), 'utf8')).toBe('retain old work'); expect(readFileSync(join(n.ledger, 'reservations.json'))).toEqual(primary);
 }, 45000);
 it('refuses unadopted diagnostics before creating any runtime or external output', async () => {
-  const n = fixture(), outside = join(n.directory, 'outside'), child = start(n, { RELAY_DIAGNOSTICS_DIRECTORY: outside });
+  const n = await fixture(), outside = join(n.directory, 'outside'), child = start(n, { RELAY_DIAGNOSTICS_DIRECTORY: outside });
   expect((await child.exited)[0]).toBe(1); expect(child.output()).toContain('no reviewed existing-file adoption');
-  expect(existsSync(outside)).toBe(false); expect(existsSync(n.data)).toBe(false); expect(n.open().status().components).toBe(2);
+  expect(existsSync(outside)).toBe(false); expect(existsSync(join(n.data, 'relay-identity.json'))).toBe(false); expect(n.open().status().components).toBe(3);
 }, 15000);
 it('refuses missing or corrupt selected authority before loading diagnostics or runtime', async () => {
-  const n = fixture(), path = join(n.ledger, 'reservations.json'), original = readFileSync(path);
+  const n = await fixture(), path = join(n.ledger, 'reservations.json'), original = readFileSync(path);
   for (const value of [null, Buffer.from('corrupt private metadata')]) {
     if (value) writeFileSync(path, value); else rmSync(path);
     const child = start(n); expect((await child.exited)[0]).not.toBe(0); expect(child.output()).not.toContain('"event":"started"');
-    expect(existsSync(n.diagnostics)).toBe(false); expect(existsSync(n.data)).toBe(false); writeFileSync(path, original);
+    expect(existsSync(n.diagnostics)).toBe(false); expect(existsSync(join(n.data, 'relay-identity.json'))).toBe(false); writeFileSync(path, original);
+  }
+}, 20000);
+
+it('refuses changed endpoint pins and a missing selected document before loading runtime writers', async () => {
+  const n = await fixture();
+  for (const overrides of [{ RELAY_PORT: String(n.port === 65535 ? n.port - 1 : n.port + 1) },
+    { RELAY_HOST: '0.0.0.0' }, { RELAY_DATA_DIR: join(n.managed, 'different-runtime') }, { RELAY_STORAGE_SELECTION_FILE: n.selected + '-missing' }]) {
+    const child = start(n, overrides); expect((await child.exited)[0]).toBe(1);
+    expect(child.output()).not.toContain('"event":"started"'); expect(existsSync(n.diagnostics)).toBe(false);
+    expect(existsSync(join(n.data, 'relay-identity.json'))).toBe(false);
   }
 }, 20000);

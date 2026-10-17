@@ -53,14 +53,15 @@ import {
 } from '@resonance/node';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { chmodSync, readFileSync, writeFileSync, existsSync, lstatSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { beginRelayMaintenance, readRelayMaintenance, assertRelayNotInMaintenance, acquireStoppedRelayMaintenance, finishRelayMaintenance, RELAY_MAINTENANCE_FILENAME,
   readOperatorJson, writeOperatorJsonAtomic, parseRelayHistoryHealth, type RelayHistoryHealth } from '@resonance/relay';
 import {
-  installRelayService, relayServiceRuntime, relayServiceStats, uninstallRelayService, relayPortClosed,
+  installRelayService, prepareRelayServiceInstallation, validateRelayServicePaths, relayServiceRuntime, relayServiceStats, uninstallRelayService, relayPortClosed,
   type RelayOwnerControls,
 } from './relay-supervisor.js';
 import { withRelayControl } from './relay-control.js';
+import { readDesktopRelayStorage, currentDesktopRelayStorage, withDesktopRelayStorage } from './relay-storage.js';
 import { withRelayHistoryActivation, parseRelayHistoryActivationInput, historyActivationServiceFiles, type RelayHistoryActivationInput } from './history-activation.js';
 import { runDesktopHistoryRecovery, parseRelayHistoryRecoveryInput, type RelayHistoryRecoveryInput, type RelayHistoryRecoveryAction } from './history-recovery.js';
 import { runDesktopHistorySetup, parseRelayHistorySetupInput, type RelayHistorySetupInput } from './history-setup.js';
@@ -188,6 +189,10 @@ export function loadRelayConfig(): RelayConfig {
       || !Number.isSafeInteger(value.port) || value.port! < 1024 || value.port! > 65535
       || (value.adminKey !== undefined && typeof value.adminKey !== 'string')
       || (value.contacts !== undefined && (!Array.isArray(value.contacts) || value.contacts.some(c => typeof c !== 'string')))) throw new Error('Invalid settings');
+    if (value.runtime !== undefined && (!value.runtime || typeof value.runtime !== 'object' || Array.isArray(value.runtime))) throw new Error('Invalid saved relay runtime');
+    const storageSelection = value.runtime?.storageSelectionFile;
+    if (storageSelection !== undefined && (typeof storageSelection !== 'string' || !isAbsolute(storageSelection) || storageSelection.length > 4096
+      || /[\x00-\x1f\x7f]/.test(storageSelection))) throw new Error('Invalid saved relay storage selection');
     if (value.historyStorageDirectories !== undefined) parseStorageDirectories(value.historyStorageDirectories);
     if (value.historyActivationInput !== undefined) parseRelayHistoryActivationInput(value.historyActivationInput);
     if (value.historyRecoveryInput !== undefined) parseRelayHistoryRecoveryInput(value.historyRecoveryInput);
@@ -200,6 +205,11 @@ export function loadRelayConfig(): RelayConfig {
 }
 
 function saveRelayConfig(config: RelayConfig): void {
+  const selected = currentDesktopRelayStorage();
+  if (selected) {
+    selected.assertCurrent();
+    config = { ...config, runtime: { ...(config.runtime ?? relayServiceRuntime()), storageSelectionFile: selected.file } };
+  }
   ensureDataDir();
   const path = getRelayConfigPath();
   config = retainRelayStorageDirectories(config, existsSync(path) ? loadRelayConfig() : undefined, join(getDataDir(), 'relay-data'));
@@ -251,10 +261,24 @@ function storageCommitmentFloor(stats: Record<string, unknown> | null, fallback 
     Number(stats.journal_commitment_floor_bytes) || 0);
 }
 
+/** Recheck selection after locking so a concurrent settings change cannot select
+ * an unmanaged operation after its control lock was acquired. */
+function withConfiguredRelayControl<T>(operation: () => T | Promise<T>): Promise<T> {
+  const selected = readDesktopRelayStorage(loadRelayConfig());
+  return withRelayControl(() => {
+    const current = readDesktopRelayStorage(loadRelayConfig());
+    if (JSON.stringify(current?.source) !== JSON.stringify(selected?.source)) throw new Error('Relay storage selection changed before control acquisition');
+    return withDesktopRelayStorage(selected, operation);
+  }, selected);
+}
+function withPrepaidRelayControls<T>(operation: () => T & (T extends PromiseLike<unknown> ? never : unknown)): T {
+  const selected = currentDesktopRelayStorage(); return selected ? selected.controls(operation) : operation();
+}
+
 // --- Relay mode ---
 
 export async function startRelayMode(port?: number, contacts?: string[], controls?: RelayOwnerControls): Promise<{ port: number }> {
-  return withRelayControl(() => {
+  return withConfiguredRelayControl(() => {
     assertRelayNotInMaintenance(join(getDataDir(), 'relay-data'));
     return startRelayModeUnlocked(port, contacts, controls);
   });
@@ -277,6 +301,10 @@ async function startRelayModeUnlocked(
   const controls = validateOwnerControls(requestedControls ?? previous.controls ?? {});
   const runtime = relayServiceRuntime(previous.runtime, { ...(previous.historyActivationInput ? historyActivationServiceFiles(previous.historyActivationInput) : {}),
     ...volunteerActivationServiceFiles(previous) });
+  const selectedStorage = currentDesktopRelayStorage();
+  if (selectedStorage && (p !== selectedStorage.configuration.runtimePort || runtime.storageSelectionFile !== selectedStorage.file)) {
+    throw new Error('Changing the selected relay endpoint requires a separately reviewed storage selection');
+  }
   const previousStats = previous.enabled ? await relayServiceStats(previous.port, adminKey) : null;
   const minimumStorageBytes = storageCommitmentFloor(
     previousStats, previous.storageCommitmentFloorBytes ?? 0,
@@ -290,18 +318,35 @@ async function startRelayModeUnlocked(
     && JSON.stringify(previous.contacts) === JSON.stringify(contacts)
     && JSON.stringify(previous.controls ?? {}) === JSON.stringify(controls)
     && await relayServiceStats(p, adminKey)) return { port: p };
-  installRelayService({
-    port: p, dataDir: getDataDir(), adminKey, contacts, controls, ...runtime,
-  });
-  // Registration outlives this HTTP request and the GUI. Keep its paths even if
-  // readiness is delayed or the newly installed process fails to respond.
-  saveRelayConfig({ enabled: true, port: p, adminKey, contacts, controls, runtime,
+  const service = { port: p, dataDir: getDataDir(), adminKey, contacts, controls, ...runtime };
+  const next: RelayConfig = { enabled: true, port: p, adminKey, contacts, controls, runtime,
     ...(previous.historyActivationInput ? { historyActivationInput: previous.historyActivationInput } : {}),
     ...(previous.historyRecoveryInput ? { historyRecoveryInput: previous.historyRecoveryInput } : {}),
     ...(previous.historySetupInput ? { historySetupInput: previous.historySetupInput } : {}),
     ...(previous.historyVolunteerActivationInput ? { historyVolunteerActivationInput: previous.historyVolunteerActivationInput,
       historyVolunteerBinding: previous.historyVolunteerBinding } : {}),
-    storageCommitmentFloorBytes: minimumStorageBytes });
+    storageCommitmentFloorBytes: minimumStorageBytes };
+  if (selectedStorage) {
+    validateRelayServicePaths(service);
+    withPrepaidRelayControls(() => beginRelayMaintenance(join(getDataDir(), 'relay-data')));
+    uninstallRelayService();
+    const stopped = await claimStoppedRelay();
+    let prepared: ReturnType<typeof prepareRelayServiceInstallation>;
+    try { prepared = stopped.run(() => { const value = prepareRelayServiceInstallation(service); saveRelayConfig(next); return value; }); }
+    finally { stopped.close(); }
+    selectedStorage.assertCurrent();
+    withPrepaidRelayControls(() => finishRelayMaintenance(join(getDataDir(), 'relay-data')));
+    try { prepared.start(); }
+    catch (error) {
+      // A partial native start may already have effects. Persist the pause again
+      // before reporting failure; it prevents subsequent supervised restarts.
+      withPrepaidRelayControls(() => beginRelayMaintenance(join(getDataDir(), 'relay-data')));
+      throw error;
+    }
+  } else {
+    installRelayService(service);
+    saveRelayConfig(next);
+  }
   let running = false;
   for (let attempt = 0; attempt < 40; attempt++) {
     if (await relayServiceStats(p, adminKey)) { running = true; break; }
@@ -324,17 +369,23 @@ async function startRelayModeUnlocked(
   return { port: p };
 }
 
-export async function stopRelayMode(): Promise<void> { return withRelayControl(stopRelayModeUnlocked); }
-async function stopRelayModeUnlocked(): Promise<void> {
+export async function stopRelayMode(): Promise<void> { return withConfiguredRelayControl(stopRelayModeUnlocked); }
+async function stopRelayModeUnlocked(keepMaintenance = false): Promise<void> {
+  keepMaintenance ||= !!readRelayMaintenance(join(getDataDir(), 'relay-data'));
   const previous = loadRelayConfig();
   const stats = previous.enabled && previous.adminKey
     ? await relayServiceStats(previous.port, previous.adminKey) : null;
+  if (currentDesktopRelayStorage()) withPrepaidRelayControls(() => beginRelayMaintenance(join(getDataDir(), 'relay-data')));
   uninstallRelayService();
-  saveRelayConfig({ ...previous, enabled: false,
+  withPrepaidRelayControls(() => saveRelayConfig({ ...previous, enabled: false,
     storageCommitmentFloorBytes: storageCommitmentFloor(
       stats, previous.storageCommitmentFloorBytes ?? 0,
     ),
-  });
+  }));
+  if (currentDesktopRelayStorage() && !keepMaintenance) {
+    const stopped = await claimStoppedRelay(); stopped.close();
+    withPrepaidRelayControls(() => finishRelayMaintenance(join(getDataDir(), 'relay-data')));
+  }
   if (session) {
     session.relayClient.disconnect();
     const urls = session.remoteRelayUrls;
@@ -352,44 +403,46 @@ export function getRelayMaintenanceStatus() {
   const state = readRelayMaintenance(join(getDataDir(), 'relay-data'));
   return { active: state !== null, createdAt: state?.createdAt ?? null };
 }
-async function claimStoppedRelay(signal?: AbortSignal): Promise<() => void> {
+async function claimStoppedRelay(signal?: AbortSignal): Promise<{ run<T>(operation: () => T): T; close(): void }> {
   const directory = join(getDataDir(), 'relay-data'), port = loadRelayConfig().port;
   const deadline = performance.now() + 10000;
   while (performance.now() < deadline) {
     if (signal?.aborted) throw new Error('Relay maintenance cancelled; its saved marker remains active');
     let release: (() => void) | undefined;
     try {
+      const selected = currentDesktopRelayStorage();
+      if (selected) return await selected.stopped(signal);
       release = acquireStoppedRelayMaintenance(directory);
       // Older unmanaged processes may not hold the runtime claim. A busy port
       // cannot count as a stopped service merely because stats are unavailable.
       if (await relayPortClosed(port)) {
         if (signal?.aborted) throw new Error('Relay maintenance cancelled; its saved marker remains active');
-        const held = release; release = undefined; return held;
+        const held = release; release = undefined; return { run: operation => operation(), close: held };
       }
     } catch (error) {
-      if (signal?.aborted || !String(error).includes('already open')) throw error;
+      if (signal?.aborted || !String(error).includes('already open') && !String(error).includes('listener is not closed')) throw error;
     } finally { release?.(); }
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   throw new Error('The relay has not stopped. Maintenance remains active; stop the running process before retrying');
 }
 export async function beginRelayHistoryMaintenance(signal?: AbortSignal) {
-  return withRelayControl(async () => {
+  return withConfiguredRelayControl(async () => {
     if (signal?.aborted) throw new Error('Relay maintenance cancelled');
-    beginRelayMaintenance(join(getDataDir(), 'relay-data'));
-    await stopRelayModeUnlocked();
-    const release = await claimStoppedRelay(signal); release();
+    withPrepaidRelayControls(() => beginRelayMaintenance(join(getDataDir(), 'relay-data')));
+    await stopRelayModeUnlocked(true);
+    const stopped = await claimStoppedRelay(signal); stopped.close();
     return getRelayMaintenanceStatus();
   });
 }
 /** The next desktop workflow runs each bounded step inside this exclusion. */
 export async function runRelayHistoryOperation<T>(operation: (signal: AbortSignal) => Promise<T>, signal?: AbortSignal): Promise<T> {
-  return withRelayControl(async () => {
+  return withConfiguredRelayControl(async () => {
     const controller = new AbortController(); relayHistoryOperationAbort = controller;
     const combined = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
-    let release: (() => void) | undefined;
-    try { release = await claimStoppedRelay(combined); return await operation(combined); }
-    finally { release?.(); if (relayHistoryOperationAbort === controller) relayHistoryOperationAbort = undefined; }
+    let stopped: Awaited<ReturnType<typeof claimStoppedRelay>> | undefined;
+    try { stopped = await claimStoppedRelay(combined); return await stopped.run(() => operation(combined)); }
+    finally { stopped?.close(); if (relayHistoryOperationAbort === controller) relayHistoryOperationAbort = undefined; }
   });
 }
 export function cancelRelayHistoryOperation() {
@@ -454,9 +507,9 @@ export async function applyRelayHistoryActivation(input: unknown, approvalDigest
   }, signal);
 }
 export async function finishRelayHistoryMaintenance() {
-  return withRelayControl(async () => {
-    const release = await claimStoppedRelay(); release();
-    finishRelayMaintenance(join(getDataDir(), 'relay-data'));
+  return withConfiguredRelayControl(async () => {
+    const stopped = await claimStoppedRelay(); stopped.close();
+    withPrepaidRelayControls(() => finishRelayMaintenance(join(getDataDir(), 'relay-data')));
     return getRelayMaintenanceStatus();
   });
 }
