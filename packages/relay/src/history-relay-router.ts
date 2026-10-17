@@ -1,6 +1,7 @@
 /** Explicit history-key → infrastructure-identity routing. No advertisements,
  * fallback identity, automatic membership change or transparent mutation retry. */
 import WebSocket from 'ws';
+import { HistoryRelayTurns } from './history-relay-turns.js';
 import { HISTORY_ENVELOPE_MAX_BYTES } from '@resonance/core/history-checkpoint';
 import { HistoryLinkBudget, HistoryRelayLink, type HistoryLinkHandler, type HistoryLinkMethod } from './history-relay-link.js';
 import { HISTORY_CONTINUATION_RESPONSE_MAX_BYTES, HISTORY_EXCHANGE_MAX_BYTES,
@@ -15,6 +16,7 @@ export class HistoryRelayRouter {
   private readonly budget = new HistoryLinkBudget();
   private readonly waiting = new Set<{ relayId: string; finish(error?: Error): void }>();
   private readonly timeoutMs: number;
+  private readonly turns = new HistoryRelayTurns();
   private closed = false;
   constructor(private readonly options: {
     members?: readonly { publicKey: string; relayId: string }[];
@@ -23,6 +25,8 @@ export class HistoryRelayRouter {
     handler?: HistoryLinkHandler;
     /** Wait within the same RPC deadline for an authenticated pinned link. */
     waitForConnection?: boolean;
+    /** Serialize unsent requests sharing one pinned socket within their original deadline. */
+    serializeRequests?: boolean;
     timeoutMs?: number;
   }) {
     this.timeoutMs = options.timeoutMs ?? 30_000;
@@ -38,7 +42,7 @@ export class HistoryRelayRouter {
       || this.allowed.some(id => typeof id !== 'string' || !/^did:key:z[1-9A-HJ-NP-Za-km-z]{32,64}$/.test(id))
       || (!!options.handler !== (accepted.length > 0))) throw new Error('Invalid history relay routing configuration');
     // Copy authorizations; changing the caller's arrays later cannot widen them.
-    this.options = { handler: options.handler, acceptedRelayIds: [...accepted], waitForConnection: options.waitForConnection };
+    this.options = { handler: options.handler, acceptedRelayIds: [...accepted], waitForConnection: options.waitForConnection, serializeRequests: options.serializeRequests };
   }
 
   /** Called only after both directions of the signed relay handshake are checked. */
@@ -81,7 +85,7 @@ export class HistoryRelayRouter {
 
   usage() { return this.budget.usage(); }
   close(): void {
-    if (this.closed) return; this.closed = true;
+    if (this.closed) return; this.closed = true; this.turns.close();
     for (const waiter of this.waiting) waiter.finish(new Error('History routing closed'));
     for (const { peer } of this.links.values()) peer.close();
     this.links.clear();
@@ -92,15 +96,17 @@ export class HistoryRelayRouter {
     const controller = new AbortController(), deadline = performance.now() + this.timeoutMs;
     const cancel = () => controller.abort(), timer = setTimeout(cancel, this.timeoutMs);
     signal.addEventListener('abort', cancel, { once: true });
+    let releaseReservation: (() => void) | undefined, releaseTurn: (() => void) | undefined;
     try {
+      releaseReservation = this.budget.acquire();
+      if (this.options.serializeRequests) releaseTurn = await this.turns.enter(relayId, controller.signal);
       if (!this.links.has(relayId)) {
         if (!this.options.waitForConnection) throw new Error('Pinned history relay link unavailable');
-        const release = this.budget.acquire();
         await new Promise<void>((resolve, reject) => {
           const abort = () => waiter.finish(new Error('History link wait cancelled or timed out'));
           const waiter = { relayId, finish: (error?: Error) => {
             if (!this.waiting.delete(waiter)) return;
-            controller.signal.removeEventListener('abort', abort); release();
+            controller.signal.removeEventListener('abort', abort);
             if (error) reject(error); else resolve();
           } };
           this.waiting.add(waiter); controller.signal.addEventListener('abort', abort, { once: true });
@@ -110,7 +116,10 @@ export class HistoryRelayRouter {
       const link = this.links.get(relayId);
       if (this.closed || !link || controller.signal.aborted || performance.now() >= deadline) throw new Error('History link request cancelled or timed out');
       // The outer timer remains active; connecting cannot renew the exchange budget.
+      releaseReservation();
       return await link.peer.request(method, frame, controller.signal, maximum, deadline);
-    } finally { clearTimeout(timer); signal.removeEventListener('abort', cancel); }
+    } finally {
+      releaseReservation?.(); releaseTurn?.(); clearTimeout(timer); signal.removeEventListener('abort', cancel);
+    }
   }
 }

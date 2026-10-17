@@ -146,3 +146,21 @@ it('requires distinct explicit member routes and never dials an endpoint as fall
     { request: { replica: publicKey } } as Parameters<typeof router.checkpoint>[1], signal())).rejects.toThrow('unavailable');
   expect(router.usage()).toEqual({ bytes: 0, operations: 0 });
 });
+
+it.each(['cancel', 'deadline', 'disconnect', 'role-close'])('propagates %s to asynchronous history handlers and releases their retained slot after completion', async reason => {
+  let context: { signal: AbortSignal; deadline: number } | undefined, aborted = 0;
+  const n = await pair({ timeoutMs: reason === 'deadline' ? 500 : 30000,
+    handler: (_method, _value, current) => {
+      context = current;
+      return new Promise(resolve => current.signal.addEventListener('abort', () => { aborted++; resolve({ late: true }); }, { once: true }));
+    } });
+  const controller = new AbortController(), pending = n.a.request('checkpoint', {}, controller.signal);
+  const rejected = expect(pending).rejects.toThrow(); await waitFor(() => context !== undefined);
+  expect(context!.signal.aborted).toBe(false); expect(context!.deadline).toBeGreaterThan(performance.now());
+  if (reason === 'cancel') controller.abort();
+  else if (reason === 'disconnect') n.remote.terminate();
+  else if (reason === 'role-close') { n.b.close(); n.a.close(); }
+  await rejected; await waitFor(() => aborted === 1 && n.bBudget.usage().operations === 0);
+  expect(context!.signal.aborted).toBe(true); expect(n.aBudget.usage()).toEqual({ bytes: 0, operations: 0 });
+  expect(n.bBudget.usage()).toEqual({ bytes: 0, operations: 0 });
+});

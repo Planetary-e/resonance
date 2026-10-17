@@ -21,7 +21,8 @@ const LIMITS = {
   provision: [HISTORY_PROVISION_MAX_BYTES, 1024],
 } as const;
 export type HistoryLinkMethod = keyof typeof LIMITS;
-export type HistoryLinkHandler = (method: HistoryLinkMethod, value: unknown) => unknown | Promise<unknown>;
+export interface HistoryLinkContext { signal: AbortSignal; deadline: number }
+export type HistoryLinkHandler = (method: HistoryLinkMethod, value: unknown, context: HistoryLinkContext) => unknown | Promise<unknown>;
 
 /** Shared across all a relay's history links. These are buffer/operation caps,
  * not a claim about total JS heap: JSON parsing and protocol validation also cost memory. */
@@ -54,6 +55,7 @@ interface Exchange {
   deadline: number; timer: ReturnType<typeof setTimeout>; release: () => void;
   sending?: Payload; receiving?: Payload; requestSent: boolean; runningHandler: boolean;
   resolve?: (value: unknown) => void; reject?: (error: Error) => void; removeAbort?: () => void;
+  controller: AbortController;
 }
 
 /** Construct only after the signed socket handshake, never for an unverified descriptor.
@@ -149,7 +151,10 @@ export class HistoryRelayLink {
         else {
           state.runningHandler = true;
           // Any signature/authorization/storage failure returns only a generic refusal.
-          Promise.resolve().then(() => { this.live(state); return this.options.handler!(state.method, value); })
+          Promise.resolve().then(() => {
+            this.live(state);
+            return this.options.handler!(state.method, value, { signal: state.controller.signal, deadline: state.deadline });
+          })
             .then(response => { this.live(state); this.startPayload(state, 'response', response); })
             .catch(() => this.finish(state, new Error('History service refused the exchange'), true))
             .finally(() => {
@@ -176,7 +181,8 @@ export class HistoryRelayLink {
     const release = this.options.budget.acquire();
     const timer = setTimeout(() => this.finish(state, new Error('History link exchange timed out'), true), deadline - now);
     timer.unref?.();
-    const state: Exchange = { id, local, method, maxResponse, deadline, timer, release, requestSent: false, runningHandler: false };
+    const state: Exchange = { id, local, method, maxResponse, deadline, timer, release, requestSent: false, runningHandler: false,
+      controller: new AbortController() };
     this.exchanges.set(id, state); return state;
   }
 
@@ -236,6 +242,7 @@ export class HistoryRelayLink {
   private finish(state: Exchange, error?: Error, notify = false) {
     if (this.exchanges.get(state.id) !== state) return;
     this.exchanges.delete(state.id); clearTimeout(state.timer); state.removeAbort?.();
+    state.controller.abort();
     state.sending?.release(); state.receiving?.release(); state.sending = undefined; state.receiving = undefined;
     if (!state.runningHandler) state.release();
     if (error) state.reject?.(error);
