@@ -10,7 +10,7 @@ import { createAdmissionRequestBindingV2, presentBlindAdmissionTokenV2, verifyBl
   createPublicationRecord, generatePublicationKeyMaterial, serializePublicationOperationFrame, createPublicationOperationFrame,
   parseMessage, type Message, type AckPayload } from '@resonance/core';
 import { admissionKeyFingerprint, admissionPolicyDigest, signAdmissionPolicy } from '@resonance/core/admission-policy';
-import { createHistoryFreeze, historyCheckpointEnvelopeId, historyCheckpointEnvelopeByteLength, openHistoryCheckpoint } from '@resonance/core/history-checkpoint';
+import { createHistoryFreeze, historyCheckpointEnvelopeId, historyCheckpointEnvelopeByteLength, historyCheckpointReserveBucket, openHistoryCheckpoint } from '@resonance/core/history-checkpoint';
 import { createHistoryCompactionVote, parseHistoryCompactionAttestation, type HistoryCompactionProposal } from '@resonance/core/history-compaction';
 import { openProtectedAdmissionSpendHistory, type AdmissionHistoryProtection } from '../protected-admission-history.js';
 import { openAdmissionSpendHistory, type AdmissionSpendRecord } from '../admission-spend-history.js';
@@ -120,10 +120,11 @@ it.each([-1, 0])('reserves the next complete checkpoint at the exact byte bounda
   const record = { version: 1 as const, kind: 'spend' as const, at: f.time, row: next };
   const reduced = await reduceAdmissionHistory(before.image, record);
   const header = { kind: 'delta' as const, generation: 0, sequence: 1, previous: before.applied!.id };
-  const deltaBytes = historyCheckpointEnvelopeByteLength({ context: n.context, header,
-    plaintextBytes: encodeAdmissionHistoryRecord(record).length });
   const checkpointBytes = historyCheckpointEnvelopeByteLength({ context: n.context, header: { ...header, kind: 'checkpoint', sequence: 2 },
     plaintextBytes: encodeAdmissionHistoryRecord({ version: 1, kind: 'admission-state-checkpoint', at: Number.MAX_SAFE_INTEGER, image: reduced.image }).length });
+  const deltaBytes = historyCheckpointEnvelopeByteLength({ context: n.context,
+    header: { ...header, checkpointReserveBytes: historyCheckpointReserveBucket(checkpointBytes) },
+    plaintextBytes: encodeAdmissionHistoryRecord(record).length });
   n.history.close();
   const maximum = usage.retainedCiphertextBytes + deltaBytes + checkpointBytes + adjustment;
   const history = await openProtectedAdmissionSpendHistory({ ...n.options, protection: { ...n.options.protection, maxArchiveBytes: maximum } });

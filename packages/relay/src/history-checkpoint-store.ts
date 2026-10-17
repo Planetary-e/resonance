@@ -330,9 +330,9 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
       return bytes.length;
     } finally { if (fd !== undefined) closeSync(fd); rmSync(temporary, { force: true }); }
   }
-  function writeBlock(envelope: HistoryCheckpointEnvelope): void {
+  function writeBlock(envelope: HistoryCheckpointEnvelope, checkpointReserveBytes = 0): void {
     const state = storage.read(), ids = index(state), next = { ...state, blocks: ids.extend(envelope.sequence, historyCheckpointEnvelopeId(envelope)) };
-    fits(Buffer.byteLength(JSON.stringify(envelope)), ids.count + 1);
+    fits(Buffer.byteLength(JSON.stringify(envelope)) + checkpointReserveBytes, ids.count + 1 + (checkpointReserveBytes ? 1 : 0));
     if (!validManifest(next)) throw new Error('Invalid outgoing history manifest');
     try {
       const size = writeImmutable(envelope);
@@ -409,7 +409,9 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
     const state = storage.read(), ids = index(state);
     validateParent(envelopes.get(0)!);
     if (state.compaction) parseHistoryCompactionCertificate(state.compaction, context, genesisId!, envelopes.get(state.compaction.proposal.sequence));
-    fits(0, envelopes.size + staged.length);
+    const head = envelopes.get(ids.headSequence)!;
+    const reserve = !state.freeze && head.kind !== 'continuation' ? head.checkpointReserveBytes ?? 0 : 0;
+    fits(reserve, envelopes.size + staged.length + (reserve ? 1 : 0));
     if (minimum && (ids.get(minimum.sequence) !== minimum.id
       || (state.freeze?.nextGeneration ?? generation) < minimum.generationBarrier
       || (minimum.successorId !== undefined && (!state.successor || historySuccessorProposalId(state.successor) !== minimum.successorId))
@@ -495,7 +497,9 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
       if (block.sequence !== head && ids.count >= maxBlocks) throw new Error('History storage capacity exceeded');
       const next: Manifest = { ...state, compaction: certificate, blocks: block.sequence === head ? state.blocks
         : ids.extend(block.sequence, id) };
-      fits(block.sequence === head ? 0 : Buffer.byteLength(JSON.stringify(block)), ids.count + (block.sequence === head ? 0 : 1));
+      const reserve = block.kind === 'continuation' ? 0 : block.checkpointReserveBytes ?? 0;
+      fits((block.sequence === head ? 0 : Buffer.byteLength(JSON.stringify(block))) + reserve,
+        ids.count + (block.sequence === head ? 0 : 1) + (reserve ? 1 : 0));
       if (!validManifest(next)) throw new Error('Invalid outgoing checkpoint installation');
       try {
         const bytes = block.sequence === head ? 0 : writeImmutable(block);
@@ -709,7 +713,7 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
       if (envelope.sequence !== ids.headSequence + 1 || envelope.previous !== ids.headId) {
         throw new Error('History append has a gap, fork or stale predecessor');
       }
-      writeBlock(envelope);
+      writeBlock(envelope, envelope.kind === 'continuation' ? 0 : envelope.checkpointReserveBytes ?? 0);
       return id;
     },
     /** One-way local barrier; an activated continuation permanently pins its successor. */

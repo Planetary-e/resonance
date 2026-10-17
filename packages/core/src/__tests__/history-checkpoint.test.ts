@@ -2,9 +2,9 @@ import { expect, it } from 'vitest';
 import { randomBytes } from 'node:crypto';
 import { generateSigningKeyPair } from '../crypto.js';
 import {
-  createHistoryFreeze, historyCheckpointContextId, historyCheckpointEnvelopeId, historyCheckpointEnvelopeByteLength, historyDigest,
+  createHistoryFreeze, historyCheckpointContextId, historyCheckpointEnvelopeId, historyCheckpointEnvelopeByteLength, historyCheckpointReserveBucket, historyDigest,
   openHistoryCheckpoint, parseHistoryCheckpointEnvelope, parseHistoryFreeze, sealHistoryCheckpoint,
-  HISTORY_DELTA_MAX_PAYLOAD, HISTORY_CHECKPOINT_MAX_PAYLOAD, type HistoryCheckpointContext,
+  HISTORY_DELTA_MAX_PAYLOAD, HISTORY_CHECKPOINT_MAX_PAYLOAD, HISTORY_ENVELOPE_MAX_BYTES, type HistoryCheckpointContext,
 } from '../history-checkpoint.js';
 
 function fixture() {
@@ -71,7 +71,7 @@ it('sizes real encrypted envelopes exactly across base64 boundaries and maximum 
   const f = fixture();
   for (const bytes of [1, 2, 3, 4, HISTORY_DELTA_MAX_PAYLOAD, HISTORY_CHECKPOINT_MAX_PAYLOAD]) {
     const header = { kind: 'checkpoint' as const, generation: Number.MAX_SAFE_INTEGER - 1,
-      sequence: Number.MAX_SAFE_INTEGER - 1, previous: historyDigest('previous') };
+      sequence: Number.MAX_SAFE_INTEGER - 1, previous: historyDigest('previous'), checkpointReserveBytes: HISTORY_ENVELOPE_MAX_BYTES };
     const actual = sealHistoryCheckpoint({ context: f.context, header, plaintext: Buffer.alloc(bytes, 7), encryptionKey: f.key, signingKey: f.owner });
     expect(historyCheckpointEnvelopeByteLength({ context: f.context, header, plaintextBytes: bytes }))
       .toBe(Buffer.byteLength(JSON.stringify(actual)));
@@ -82,6 +82,24 @@ it('sizes real encrypted envelopes exactly across base64 boundaries and maximum 
   for (const plaintextBytes of [0, -1, 1.5, NaN, Infinity, HISTORY_CHECKPOINT_MAX_PAYLOAD + 1]) {
     expect(() => historyCheckpointEnvelopeByteLength({ context: f.context, header, plaintextBytes })).toThrow('capacity');
   }
+});
+
+it('authenticates bounded checkpoint reservations and rounds their public byte ceilings', () => {
+  const f = fixture(), header = { kind: 'delta' as const, generation: 0, sequence: 1,
+    previous: historyDigest('previous'), checkpointReserveBytes: 4096 };
+  const input = { context: f.context, header, plaintext: Buffer.from('private record'), encryptionKey: f.key, signingKey: f.owner };
+  const envelope = sealHistoryCheckpoint(input);
+  expect(openHistoryCheckpoint(envelope, f.context, f.key).toString()).toBe('private record');
+  expect(() => parseHistoryCheckpointEnvelope({ ...envelope, checkpointReserveBytes: 8192 }, f.context)).toThrow('signature');
+  const { checkpointReserveBytes, ...stripped } = envelope;
+  expect(() => parseHistoryCheckpointEnvelope(stripped, f.context)).toThrow('signature');
+  for (const value of [undefined, 0, -1, 1.5, Infinity, NaN, HISTORY_ENVELOPE_MAX_BYTES + 1]) {
+    expect(() => sealHistoryCheckpoint({ ...input, header: { ...header, checkpointReserveBytes: value } })).toThrow();
+  }
+  expect(historyCheckpointReserveBucket(4096)).toBe(4096);
+  expect(historyCheckpointReserveBucket(4097)).toBe(8192);
+  expect(historyCheckpointReserveBucket(HISTORY_ENVELOPE_MAX_BYTES)).toBe(HISTORY_ENVELOPE_MAX_BYTES);
+  expect(() => historyCheckpointReserveBucket(HISTORY_ENVELOPE_MAX_BYTES + 1)).toThrow();
 });
 
 it('authenticates a strictly increasing owner-authorized generation barrier', () => {

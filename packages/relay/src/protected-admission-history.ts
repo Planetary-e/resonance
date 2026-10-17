@@ -5,7 +5,7 @@ import type { SigningKeyPair } from '@resonance/core';
 import { copyAdmissionSigningKey, exactWitnessFields } from '@resonance/core/admission-witness';
 import { admissionPolicyDigest, assertAdmissionPolicyCurrent, assertAdmissionPolicySuccessor,
   isArchivedAdmissionKey, verifyAdmissionPolicy, type SignedAdmissionPolicy } from '@resonance/core/admission-policy';
-import { HISTORY_DELTA_MAX_PAYLOAD, historyCheckpointContextId, historyCheckpointEnvelopeId, historyCheckpointEnvelopeByteLength, historyDigest, isHistoryDigest, openHistoryCheckpoint,
+import { HISTORY_DELTA_MAX_PAYLOAD, historyCheckpointContextId, historyCheckpointEnvelopeId, historyCheckpointEnvelopeByteLength, historyCheckpointReserveBucket, historyDigest, isHistoryDigest, openHistoryCheckpoint,
   parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, sealHistoryCheckpoint,
   type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { openEncryptedLocalState } from '@resonance/core/local-state';
@@ -157,7 +157,6 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
     let pending: HistoryCheckpointEnvelope;
     try {
       const usage = writer!.historyUsage(), checkpoint = value.kind === 'admission-state-checkpoint';
-      const bytes = historyCheckpointEnvelopeByteLength({ context, header, plaintextBytes: plaintext.length });
       let reservedBytes = 0;
       if (!checkpoint) {
         if (header.sequence >= Number.MAX_SAFE_INTEGER - 1) throw new Error('History checkpoint sequence headroom exhausted');
@@ -169,12 +168,14 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
           kind: 'checkpoint', sequence: header.sequence + 1 }, plaintextBytes: complete.length }); }
         finally { complete.fill(0); }
       }
+      const reservedHeader = checkpoint ? header : { ...header, checkpointReserveBytes: historyCheckpointReserveBucket(reservedBytes) };
+      const bytes = historyCheckpointEnvelopeByteLength({ context, header: reservedHeader, plaintextBytes: plaintext.length });
       if (usage.retainedBlocks + (checkpoint ? 1 : 2) > usage.maximumBlocks
         || bytes + reservedBytes > usage.maximumCiphertextBytes - usage.retainedCiphertextBytes) {
         throw new Error(checkpoint ? 'State checkpoint needs retained archive headroom; no checkpoint intent was written'
           : 'Admission history needs checkpoint headroom; publish, certify and retire a checkpoint or review archive limits before new work');
       }
-      pending = sealHistoryCheckpoint({ context, header, plaintext, encryptionKey: key, signingKey: signer });
+      pending = sealHistoryCheckpoint({ context, header: reservedHeader, plaintext, encryptionKey: key, signingKey: signer });
     } finally { plaintext.fill(0); }
     storage!.write({ ...before, pending });
     await finishPending();

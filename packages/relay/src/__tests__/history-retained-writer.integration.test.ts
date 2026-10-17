@@ -18,10 +18,11 @@ import { historyCheckpointFixture } from './fixtures/history-checkpoint-fixture.
 
 const cleanup: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
-async function network() {
+async function network(blockLimits?: number[]) {
   const f = historyCheckpointFixture(), directory = mkdtempSync(join(tmpdir(), 'retained-writer-network-'));
   cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
-  const stores = f.context.members.map((replica, i) => openHistoryCheckpointStore({ ...f.options, replica, directory: join(directory, `r${i}`), initialize: f.root }));
+  const stores = f.context.members.map((replica, i) => openHistoryCheckpointStore({ ...f.options, replica,
+    directory: join(directory, `r${i}`), initialize: f.root, maxBlocks: blockLimits?.[i] }));
   stores.forEach(s => cleanup.push(() => s.close()));
   const roles = stores.map((store, i) => createHistoryCheckpointReplica({ context: f.context, store, signingKey: f.memberKeys[i] }));
   roles.forEach(r => cleanup.push(() => r.close()));
@@ -33,13 +34,37 @@ async function network() {
     listeners[i] = listener; members[i].endpoint = listener.endpoint; cleanup.push(() => listener.close());
   }
   for (let i = 0; i < 5; i++) await start(i);
+  async function resize(i: number, maxBlocks: number) {
+    await listeners[i].close(); roles[i].close(); stores[i].close();
+    stores[i] = openHistoryCheckpointStore({ ...f.options, replica: f.context.members[i], directory: join(directory, `r${i}`), maxBlocks });
+    const store = stores[i]; cleanup.push(() => store.close());
+    roles[i] = createHistoryCheckpointReplica({ context: f.context, store, signingKey: f.memberKeys[i] });
+    const role = roles[i]; cleanup.push(() => role.close()); await start(i);
+  }
   const options = { directory: join(directory, 'writer'), context: f.context, localKey: f.localKey, signingKey: f.owner,
     rootId: f.options.rootId, generation: 0, members, timeoutMs: 30000 };
   function writer(initialize = false, changes: Partial<Parameters<typeof createRetainedHistoryCheckpointWriter>[0]> = {}) {
     const w = createRetainedHistoryCheckpointWriter({ ...options, initialize, ...changes }); cleanup.push(() => w.close()); return w;
   }
-  return { ...f, directory, stores, listeners, options, writer, start, calls: () => calls };
+  return { ...f, directory, stores, listeners, options, writer, start, resize, calls: () => calls };
 }
+
+it('requires four volunteers with checkpoint headroom and consumes their retained reservation after exact pending retry', async () => {
+  const n = await network([3, 3, 3, 2, 2]); let writer = n.writer(true); await writer.replicate(n.root);
+  const delta = sealHistoryCheckpoint({ context: n.context, header: { kind: 'delta', generation: 0, sequence: 1,
+    previous: n.options.rootId, checkpointReserveBytes: 4096 }, plaintext: Buffer.from('accepted record'), encryptionKey: n.key, signingKey: n.owner });
+  await expect(writer.replicate(delta)).rejects.toThrow('Four');
+  expect(writer.read().committed?.envelope).toEqual(n.root); expect(writer.read().pending).toEqual(delta);
+  expect(n.stores.map(store => store.describe().sequence)).toEqual([1, 1, 1, 0, 0]); writer.close();
+  await n.resize(3, 3); writer = n.writer();
+  const receipt = await writer.replicate(delta); expect(receipt.receipts).toHaveLength(4);
+  expect(receipt.receipts.some(r => r.request.replica === n.context.members[3])).toBe(true);
+  const checkpoint = n.next(delta, 'complete state'.repeat(100), 'checkpoint');
+  expect(Buffer.byteLength(JSON.stringify(checkpoint))).toBeLessThan(4096);
+  await writer.replicate(checkpoint);
+  expect(n.stores.slice(0, 4).map(store => store.describe().sequence)).toEqual([2, 2, 2, 2]);
+  expect(writer.read().pending).toBeNull(); expect([...writer.history()]).toEqual([n.root, delta, checkpoint]);
+}, 30000);
 
 it('reopens the complete owner ciphertext and repairs a different fourth volunteer over real sockets', async () => {
   const n = await network(); await n.listeners[4].close(); let writer = n.writer(true);

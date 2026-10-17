@@ -23,6 +23,9 @@ export interface HistoryCheckpointHeader {
   generation: number;
   sequence: number;
   previous: string | null;
+  /** Owner-signed space for one next complete checkpoint on an unfrozen replica.
+   * Absent on historical envelopes and the complete checkpoint consuming it. */
+  checkpointReserveBytes?: number;
 }
 export interface HistoryEncryptedEnvelope extends HistoryCheckpointHeader {
   nonce: string;
@@ -65,13 +68,16 @@ export function historyCheckpointContextId(context: HistoryCheckpointContext): s
   return historyDigest(`${DOMAIN}:context\n${JSON.stringify(parseHistoryCheckpointContext(context))}`);
 }
 function header(h: HistoryCheckpointHeader): HistoryCheckpointHeader {
+  const reserved = Object.hasOwn(h, 'checkpointReserveBytes');
   if (h.version !== 1 || !['checkpoint', 'delta'].includes(h.kind) || !isHistoryDigest(h.contextId)
     || !integer(h.generation) || !integer(h.sequence)
+    || (reserved && (!integer(h.checkpointReserveBytes) || h.checkpointReserveBytes < 1
+      || h.checkpointReserveBytes > HISTORY_ENVELOPE_MAX_BYTES || h.sequence === 0))
     || (h.sequence === 0 ? h.kind !== 'checkpoint' || h.generation !== 0 || h.previous !== null : !isHistoryDigest(h.previous))) {
     throw new Error('Invalid history envelope header');
   }
   return { version: 1, kind: h.kind, contextId: h.contextId, generation: h.generation,
-    sequence: h.sequence, previous: h.previous };
+    sequence: h.sequence, previous: h.previous, ...(reserved ? { checkpointReserveBytes: h.checkpointReserveBytes } : {}) };
 }
 const aad = (h: HistoryCheckpointHeader) => Buffer.from(`${DOMAIN}:payload\n${JSON.stringify(header(h))}`);
 const signedBytes = (h: HistoryEncryptedEnvelope) => Buffer.from(`${DOMAIN}:envelope\n${JSON.stringify([
@@ -94,6 +100,14 @@ export function historyCheckpointEnvelopeByteLength(options: {
   }
   return Buffer.byteLength(JSON.stringify({ ...h, nonce: '', ciphertext: '', tag: '', signature: '' }))
     + 16 + Math.ceil(options.plaintextBytes * 4 / 3) + 22 + 86;
+}
+
+/** Coarse public resource ceiling, avoiding an exact plaintext-state-size field. */
+export function historyCheckpointReserveBucket(envelopeBytes: number): number {
+  if (!Number.isSafeInteger(envelopeBytes) || envelopeBytes < 1 || envelopeBytes > HISTORY_ENVELOPE_MAX_BYTES) {
+    throw new Error('Invalid checkpoint reservation size');
+  }
+  return Math.min(HISTORY_ENVELOPE_MAX_BYTES, 2 ** Math.ceil(Math.log2(Math.max(4096, envelopeBytes))));
 }
 
 /** Caller retains the exact returned envelope for retries; re-encryption creates a different chain entry. */
@@ -124,7 +138,8 @@ export function parseHistoryCheckpointEnvelope(value: unknown, context: HistoryC
   if (value !== null && typeof value === 'object' && 'kind' in value && value.kind === 'continuation') {
     return parseHistoryContinuationRoot(value, context);
   }
-  if (!exactWitnessFields(value, [...headerFields, 'nonce', 'ciphertext', 'tag', 'signature'])) throw new Error('Invalid history envelope');
+  const reserved = value !== null && typeof value === 'object' && Object.hasOwn(value, 'checkpointReserveBytes');
+  if (!exactWitnessFields(value, [...headerFields, 'nonce', 'ciphertext', 'tag', 'signature', ...(reserved ? ['checkpointReserveBytes'] : [])])) throw new Error('Invalid history envelope');
   const h = header(value as unknown as HistoryCheckpointHeader);
   const c = parseHistoryCheckpointContext(context);
   const limit = h.kind === 'checkpoint' ? HISTORY_CHECKPOINT_MAX_PAYLOAD : HISTORY_DELTA_MAX_PAYLOAD;

@@ -33,6 +33,35 @@ function fixture(extra: { maxBlocks?: number; maxBytes?: number } = {}) {
   return { ...f, directory, options, open, block };
 }
 
+it.each(['blocks', 'bytes'] as const)('preserves signed checkpoint %s headroom across refusal, reopen and consumption', dimension => {
+  const f = fixture(), delta = sealHistoryCheckpoint({ context: f.context, header: { kind: 'delta', generation: 0, sequence: 1,
+    previous: f.options.rootId, checkpointReserveBytes: 4096 }, plaintext: Buffer.from('accepted record'), encryptionKey: f.key, signingKey: f.owner });
+  const required = 4 * 1024 * 1024 + Buffer.byteLength(JSON.stringify(f.root)) + Buffer.byteLength(JSON.stringify(delta)) + 4096;
+  const tight = dimension === 'blocks' ? { maxBlocks: 2 } : { maxBytes: required - 1 };
+  const enough = dimension === 'blocks' ? { maxBlocks: 3 } : { maxBytes: required };
+  let store = f.open(true, tight), before = store.reviewDigest();
+  expect(() => store.append(delta)).toThrow('capacity'); expect(store.reviewDigest()).toBe(before);
+  expect(existsSync(f.block(historyCheckpointEnvelopeId(delta)))).toBe(false); store.close();
+  store = f.open(false, enough); store.append(delta); store.close();
+  // The saved envelope carries the promise: reopening cannot silently drop it
+  // merely because the two existing payloads alone fit a smaller configuration.
+  expect(() => f.open(false, tight)).toThrow('capacity');
+  store = f.open(false, enough);
+  const checkpoint = f.next(delta, 'complete unchanged state', 'checkpoint');
+  expect(Buffer.byteLength(JSON.stringify(checkpoint))).toBeLessThan(4096);
+  store.append(checkpoint); store.close(); store = f.open(false, enough);
+  expect(store.read().envelopes).toEqual([f.root, delta, checkpoint]);
+});
+
+it('retains accepted ciphertext when a durable freeze ends its unused live checkpoint reservation', () => {
+  const f = fixture(), store = f.open(true, { maxBlocks: 3 });
+  const delta = sealHistoryCheckpoint({ context: f.context, header: { kind: 'delta', generation: 0, sequence: 1,
+    previous: f.options.rootId, checkpointReserveBytes: 4096 }, plaintext: Buffer.from('accepted record'), encryptionKey: f.key, signingKey: f.owner });
+  store.append(delta); store.freeze(createHistoryFreeze(f.context, 0, 1, randomBytes(32).toString('base64url'), f.owner)); store.close();
+  const frozen = f.open(false, { maxBlocks: 2 }); expect(frozen.read().envelopes).toEqual([f.root, delta]);
+  expect(() => frozen.append(f.next(delta, 'snapshot', 'checkpoint'))).toThrow('frozen');
+});
+
 it('appends recoverable encrypted deltas without rewriting payloads, retains later checkpoints and retries exactly', () => {
   const f = fixture(); let store = f.open(true);
   const before = statSync(f.block(f.options.rootId)), bytes = readFileSync(f.block(f.options.rootId));
