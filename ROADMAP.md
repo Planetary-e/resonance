@@ -195,6 +195,7 @@ The five-target placement goal remains conditional on enough eligible volunteers
   - [x] Bound all inbound relay TCP sockets and HTTP/TLS openings, reject binary application frames, and wait for in-flight admission on idempotent shutdown; verify slow connections, capacity reuse and durable replay (`docs/developers/v0.4-connection-audit.md`)
   - [x] Bound signed reply envelopes to 1 MiB, reject extra envelope fields, and cap personal-client WebSocket replies at the same limit
   - [x] Contain socket-accounting callback failures in discovery, relay-link and witness clients; prevent post-failure sends and verify real socket closure, cancellation and disabled compression (`docs/developers/v0.4-connection-audit.md`)
+  - [x] Enforce monotonic discovery/link-opening deadlines, terminate failed short sockets without peer cooperation, snapshot bounded witness requests before dialing, and contain opening send failures; test elapsed-time stalls and uncooperative peers (`docs/developers/v0.4-connection-audit.md`)
 - [ ] Protect relay private keys with operating-system storage or an encrypted keystore
   - [x] Add an scrypt/AES-GCM encrypted infrastructure keystore, atomic plaintext migration, and mandatory passphrase for a reachable WSS relay
   - [x] Serialize infrastructure-key creation/migration across processes, recover exact complete candidates, preserve ambiguous interrupted writes, and test SIGKILL/concurrent writers plus funded storage (`docs/developers/v0.4-relay-key-durability.md`)

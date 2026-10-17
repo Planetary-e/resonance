@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { once } from 'node:events';
 import { randomBytes } from 'node:crypto';
 import type { Socket, AddressInfo } from 'node:net';
@@ -22,7 +22,7 @@ import { createRelayServer } from '../server.js';
 import { RelayTrafficMeter } from '../relay-resource-meter.js';
 
 const cleanup: Array<() => Promise<void>> = [];
-afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
+afterEach(async () => { vi.restoreAllMocks(); for (const close of cleanup.splice(0).reverse()) await close(); });
 async function peer() {
   const server = new WebSocketServer({ port: 0, host: '127.0.0.1', perMessageDeflate: true });
   cleanup.push(async () => { for (const socket of server.clients) socket.terminate(); await new Promise<void>(resolve => server.close(() => resolve())); });
@@ -42,11 +42,18 @@ function witness(endpoint: string, signal: AbortSignal, onSocket: (socket: Socke
   return requestAdmissionWitnessVote({ publicKey: Buffer.from(key.publicKey).toString('base64url'), endpoint }, request, signal, onSocket);
 }
 
-it.each(['discovery', 'link', 'witness', 'checkpoint', 'agreement'] as const)(
-  'contains a throwing %s accounting callback, closes the real socket and sends no application request', async kind => {
+for (const fault of ['exception', 'elapsed'] as const) it.each(['discovery', 'link', 'witness', 'checkpoint', 'agreement'] as const)(
+  `contains ${fault} in a %s accounting callback, closes the real socket and sends no application request`, async kind => {
     const p = await peer(), hint = createRelayContactHintV1('configured', p.endpoint);
     let calls = 0;
-    const onSocket = () => { calls++; throw new Error('Private accounting failure details'); };
+    const onSocket = () => {
+      calls++;
+      if (fault === 'exception') throw new Error('Private accounting failure details');
+      // Keep actual sockets/event delivery; move only the elapsed-time clock so
+      // the open event runs before the overdue timer callback can fire.
+      const original = performance.now.bind(performance);
+      vi.spyOn(performance, 'now').mockImplementation(() => original() + 30001);
+    };
     let attempt: Promise<unknown>;
     if (kind === 'discovery') attempt = discoverRelayContactV1(hint, { onTransportSocket: onSocket, timeoutMs: 1000 });
     else if (kind === 'link') {
@@ -68,10 +75,52 @@ it.each(['discovery', 'link', 'witness', 'checkpoint', 'agreement'] as const)(
         attempt = exchangeHistoryAgreement(member, { request, proposal: null, viewCertificate: null, preparedCertificate: null }, new AbortController().signal, onSocket);
       }
     }
-    await expect(attempt).rejects.toThrow('socket accounting failed'); await p.closed;
+    await expect(attempt).rejects.toThrow(fault === 'exception' ? 'socket accounting failed' : 'timed out');
+    vi.restoreAllMocks(); await p.closed;
     expect(calls).toBe(1); expect(p.messages).toEqual([]); expect(p.extensions).toEqual([undefined]);
   },
 );
+
+it.each(['discovery', 'link'] as const)('destroys a rejected %s socket without waiting for an uncooperative peer close', async kind => {
+  const server = new WebSocketServer({ port: 0, host: '127.0.0.1' });
+  cleanup.push(async () => { for (const socket of server.clients) socket.terminate(); await new Promise<void>(resolve => server.close(() => resolve())); });
+  await once(server, 'listening');
+  server.on('connection', socket => { socket.on('error', () => {}); socket.once('message', () => { socket.pause(); socket.send('{}'); }); });
+  const hint = createRelayContactHintV1('configured', `ws://127.0.0.1:${(server.address() as AddressInfo).port}/`);
+  let closed: Promise<unknown> | undefined;
+  const onTransportSocket = (socket: Socket) => { closed = once(socket, 'close'); };
+  let attempt: Promise<unknown>;
+  if (kind === 'discovery') attempt = discoverRelayContactV1(hint, { onTransportSocket });
+  else {
+    const identity = generateIdentity(), now = Date.now();
+    const descriptor = createRelayDescriptorV1({ sequence: 1, endpoints: [], reachability: 'outbound-only',
+      capabilities: { storesPublications: true, storesMailboxes: true, answersQueries: true, forwardsQueries: true, replicaExchange: true },
+      supportedGroups: ['public'], storage: { capacityBytes: 1000000, availableBytes: 1000000 }, issuedAt: now, expiresAt: now + 60000 }, identity);
+    attempt = connectRelayLinkV1(hint, descriptor, identity, { onTransportSocket });
+  }
+  await expect(attempt).rejects.toThrow(); expect(closed).toBeDefined();
+  let timer: ReturnType<typeof setTimeout>;
+  try { await Promise.race([closed!, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Local socket still retained')), 500); })]); }
+  finally { clearTimeout(timer!); }
+});
+
+it('bounds and snapshots witness requests before opening a connection', async () => {
+  const server = new WebSocketServer({ port: 0, host: '127.0.0.1' });
+  cleanup.push(async () => { for (const socket of server.clients) socket.terminate(); await new Promise<void>(resolve => server.close(() => resolve())); });
+  await once(server, 'listening'); let connections = 0;
+  const received = new Promise<unknown>(resolve => server.on('connection', socket => {
+    connections++; socket.on('error', () => {}); socket.once('message', data => { resolve(JSON.parse(data.toString())); socket.send('{}'); });
+  }));
+  const member = { endpoint: `ws://127.0.0.1:${(server.address() as AddressInfo).port}/`, publicKey: '' }, signal = new AbortController().signal;
+  const oversized = { value: 'x'.repeat(4097) }, cyclic: any = {}; cyclic.self = cyclic;
+  for (const invalid of [oversized, cyclic]) await expect(requestAdmissionWitnessVote(member, invalid as any, signal)).rejects.toThrow('witness request');
+  expect(connections).toBe(0);
+  const key = generateSigningKeyPair(), request = createAdmissionWitnessRequest({ setId: historyDigest('set'), issuerKey: historyDigest('issuer'),
+    spend: randomBytes(32).toString('base64url'), action: 'search', requestBinding: `admreq_${randomBytes(64).toString('base64url')}` }, key);
+  const original = structuredClone(request), attempt = requestAdmissionWitnessVote(member, request, signal);
+  request.spend = randomBytes(32).toString('base64url');
+  await attempt; expect(await received).toEqual(original); expect(connections).toBe(1);
+});
 
 it('does not send a witness claim when its owner cancels inside the accounting callback', async () => {
   const p = await peer(), controller = new AbortController();

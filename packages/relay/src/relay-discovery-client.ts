@@ -78,13 +78,14 @@ export function discoverRelayContactV1(
   return new Promise((resolve, reject) => {
     let settled = false;
     let socket: WebSocket;
+    const deadline = performance.now() + timeoutMs;
 
     const finish = (error?: Error, result?: RelayContactDiscoveryResult): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      if (socket.readyState === WebSocket.OPEN) socket.close(1000, 'discovery_complete');
-      else if (socket.readyState === WebSocket.CONNECTING) socket.terminate();
+      socket.terminate();
+      if (!error && performance.now() >= deadline) error = new Error('Relay discovery timed out');
       if (error) reject(error);
       else resolve(result!);
     };
@@ -111,9 +112,14 @@ export function discoverRelayContactV1(
       try { options.onTransportSocket?.(response.socket); }
       catch { finish(new Error('Relay discovery socket accounting failed')); }
     });
-    socket.on('open', () => { if (!settled) socket.send(serializedRequest); });
+    socket.on('open', () => {
+      if (settled) return;
+      if (performance.now() >= deadline) { finish(new Error('Relay discovery timed out')); return; }
+      try { socket.send(serializedRequest); } catch { finish(new Error('Relay discovery send failed')); }
+    });
     socket.on('message', (data: RawData, isBinary: boolean) => {
       if (settled) return;
+      if (performance.now() >= deadline) { finish(new Error('Relay discovery timed out')); return; }
       if (isBinary) {
         finish(new Error('Relay discovery response must be UTF-8 JSON'));
         return;

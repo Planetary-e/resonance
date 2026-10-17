@@ -7,7 +7,7 @@ import { discoverRelayContactV1 } from '../relay-discovery-client.js';
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
-it.each(['throw', 'cancel'] as const)('sends no discovery request after an accounting callback causes %s', async kind => {
+it.each(['throw', 'cancel', 'elapsed'] as const)('sends no discovery request after an accounting callback causes %s', async kind => {
   const server = new WebSocketServer({ port: 0, host: '127.0.0.1', perMessageDeflate: true });
   cleanup.push(async () => { for (const socket of server.clients) socket.terminate(); await new Promise<void>(resolve => server.close(() => resolve())); });
   const messages: string[] = [], extensions: Array<string | undefined> = [];
@@ -18,10 +18,11 @@ it.each(['throw', 'cancel'] as const)('sends no discovery request after an accou
   await once(server, 'listening');
   const hint = createRelayContactHintV1('configured', `ws://127.0.0.1:${(server.address() as AddressInfo).port}/`);
   const controller = new AbortController(); let calls = 0;
-  const attempt = discoverRelayContactV1(hint, { timeoutMs: 1000, signal: controller.signal, onTransportSocket() {
+  const attempt = discoverRelayContactV1(hint, { timeoutMs: kind === 'elapsed' ? 100 : 1000, signal: controller.signal, onTransportSocket() {
     calls++; if (kind === 'throw') throw new Error('Private accounting details');
+    if (kind === 'elapsed') { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 120); return; }
     controller.abort(new Error('Owner cancelled discovery'));
   } });
-  await expect(attempt).rejects.toThrow(kind === 'throw' ? 'socket accounting failed' : 'cancelled');
+  await expect(attempt).rejects.toThrow(kind === 'throw' ? 'socket accounting failed' : kind === 'elapsed' ? 'timed out' : 'cancelled');
   await closed; expect(calls).toBe(1); expect(messages).toEqual([]); expect(extensions).toEqual([undefined]);
 });

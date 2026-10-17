@@ -175,7 +175,9 @@ function exchange(endpoint: string, encoded: string, maxPayload: number, signal:
     });
     socket.on('open', () => {
       if (performance.now() >= deadline) finish(undefined, new Error('Agreement exchange timed out'));
-      else if (!settled) socket!.send(encoded);
+      else if (!settled) {
+        try { socket!.send(encoded); } catch { finish(undefined, new Error('Agreement request send failed')); }
+      }
     });
     socket.on('message', (data, binary) => {
       if (settled) return;

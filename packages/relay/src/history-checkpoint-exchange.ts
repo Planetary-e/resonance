@@ -206,7 +206,9 @@ export function exchangeHistoryCheckpoint(member: HistoryReplicaEndpoint, frame:
     });
     socket.on('open', () => {
       if (performance.now() >= deadline) finish(undefined, new Error('History exchange timed out'));
-      else if (!settled) socket!.send(encoded);
+      else if (!settled) {
+        try { socket!.send(encoded); } catch { finish(undefined, new Error('History request send failed')); }
+      }
     });
     socket.on('message', (data, binary) => {
       if (settled) return;

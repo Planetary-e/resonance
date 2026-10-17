@@ -232,6 +232,7 @@ export function connectRelayLinkV1(
 
   return new Promise((resolve, reject) => {
     let socket: WebSocket;
+    const handshakeDeadline = performance.now() + handshakeTimeoutMs;
     let accepted = false;
     let request: RelayLinkOpenV1 | null = null;
     let acceptedRemoteDescriptor: RelayDescriptorV1 | null = null;
@@ -291,8 +292,7 @@ export function connectRelayLinkV1(
       if (settled) return;
       settled = true;
       clearTimeout(handshakeTimer);
-      if (socket.readyState === WebSocket.OPEN) socket.close(4000, 'invalid_link_handshake');
-      else if (socket.readyState === WebSocket.CONNECTING) socket.terminate();
+      socket.terminate();
       reject(error);
     };
 
@@ -327,11 +327,16 @@ export function connectRelayLinkV1(
       try { options.onTransportSocket?.(response.socket); }
       catch { failHandshake(new Error('Relay link socket accounting failed')); }
     });
-    socket.on('open', () => { if (!settled) socket.send(serializeRelayLinkChallengeRequestV1()); });
+    socket.on('open', () => {
+      if (settled) return;
+      if (performance.now() >= handshakeDeadline) { failHandshake(new Error('Relay link handshake timed out')); return; }
+      try { socket.send(serializeRelayLinkChallengeRequestV1()); } catch { failHandshake(new Error('Relay link handshake send failed')); }
+    });
     socket.on('message', (data: RawData, isBinary: boolean) => {
       // A timed-out/rejected dial no longer has an owner. Buffered messages
       // must not revive it or install timers after its caller starts a retry.
       if (options.signal?.aborted || (settled && !accepted)) return;
+      if (!accepted && performance.now() >= handshakeDeadline) { failHandshake(new Error('Relay link handshake timed out')); return; }
       if (accepted) {
         if (isBinary) {
           socket.close(4000, 'relay_message_must_be_json');
@@ -586,6 +591,7 @@ export function connectRelayLinkV1(
           throw new Error('Relay link responder descriptor does not bind the contacted endpoint');
         }
 
+        if (performance.now() >= handshakeDeadline) throw new Error('Relay link handshake timed out');
         options.historyLinks?.attach(remoteDescriptor.relayId, socket);
         accepted = true;
         acceptedRemoteDescriptor = remoteDescriptor;
