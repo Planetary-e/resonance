@@ -273,6 +273,7 @@ The five-target placement goal remains conditional on enough eligible volunteers
         - [x] Bound resource-counter checkpoints to 4 KiB each plus replacement headroom; refuse uncertain writes, unsafe counters and clock rollback without resetting allowance
         - [x] Retain exact desktop configuration/enrollment output files before creation, preserve them across settings failure and process death, and inventory them without scanning unrelated parent folders
         - [ ] Account for control metadata and explicit operator output files; retain the distinction between relay-data and whole-device budgets (`docs/developers/v0.4-storage-writer-map.md`)
+        - [x] Implement a durable shared reservation authority and optional encrypted-snapshot leases; reserve lifetime replacement peaks, retain allocations through process death and bind limit changes to current review
         - [ ] Persist cross-role reservations before writes, include replacement/repair headroom and prove recovery of interrupted reservations across runtime and CLI
   - [ ] Resolve authenticated policy freshness and migration beyond the bounded 64-configuration archive; never treat missing records as unused capacity or discard permanent denial evidence
   - [ ] Resolve same-key witness replacement, membership governance/freshness, and history compaction before enabling admission by default; fresh-key cohort rotation does not rescue stranded old tokens or remove finite history limits

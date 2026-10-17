@@ -5,6 +5,7 @@ import {
 } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+import { reserveManagedStorage } from './storage-reservation-context.js';
 
 export function openEncryptedLocalState<T>(options: {
   path: string; key: Uint8Array; domain: string; maxBytes: number;
@@ -14,9 +15,11 @@ export function openEncryptedLocalState<T>(options: {
   decodeLegacy?: (bytes: Buffer) => T | undefined;
 }) {
   if (options.key.length !== 32) throw new Error('Encrypted local state requires a 32-byte key');
-  const directory = dirname(options.path);
+  const statePath = options.path, maximumBytes = options.maxBytes;
+  const reservation = reserveManagedStorage({ path: statePath, component: 'encrypted-local-state', scope: 'file', maximumBytes: 2 * maximumBytes + 8192 });
+  const directory = dirname(statePath);
   mkdirSync(directory, { recursive: true, mode: 0o700 });
-  const unlock = acquireLocalStateLock(options.path);
+  const unlock = acquireLocalStateLock(statePath);
   const key = Buffer.from(options.key);
   const aad = Buffer.from(options.domain);
   let closed = false;
@@ -32,7 +35,7 @@ export function openEncryptedLocalState<T>(options: {
       const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
       const bytes = Buffer.from(JSON.stringify({ version: 1, nonce: nonce.toString('base64url'),
         ciphertext: ciphertext.toString('base64url'), tag: cipher.getAuthTag().toString('base64url') }));
-      if (bytes.length > options.maxBytes) throw new Error('Encrypted outbox byte capacity exceeded');
+      if (bytes.length > maximumBytes) throw new Error('Encrypted outbox byte capacity exceeded');
       return bytes;
     } finally { plaintext.fill(0); }
   }
@@ -40,14 +43,14 @@ export function openEncryptedLocalState<T>(options: {
   function write(value: T): void {
     ensureOpen();
     const bytes = encode(value); // Capacity refusal does not poison the previous snapshot.
-    const temporary = join(directory, `.${basename(options.path)}.${randomBytes(8).toString('hex')}.tmp`);
+    const temporary = join(directory, `.${basename(statePath)}.${randomBytes(8).toString('hex')}.tmp`);
     let fd: number | undefined;
     try {
       fd = openSync(temporary, 'wx', 0o600);
       writeAll(fd, bytes);
       fsyncSync(fd);
       closeSync(fd); fd = undefined;
-      renameSync(temporary, options.path);
+      renameSync(temporary, statePath);
       fsyncDirectory(directory);
       state = value;
     } catch (error) {
@@ -60,21 +63,21 @@ export function openEncryptedLocalState<T>(options: {
   }
 
   try {
-    if (options.mode === 'create-new' && existsSync(options.path)) throw new Error('Encrypted local state already exists');
-    if (options.mode === 'open-existing' && !existsSync(options.path)) throw new Error('Encrypted local state is missing; restore its history');
+    if (options.mode === 'create-new' && existsSync(statePath)) throw new Error('Encrypted local state already exists');
+    if (options.mode === 'open-existing' && !existsSync(statePath)) throw new Error('Encrypted local state is missing; restore its history');
     // An interrupted replacement can leave encrypted temporary snapshots. Only the lock owner cleans them.
-    const prefix = `.${basename(options.path)}.`;
+    const prefix = `.${basename(statePath)}.`;
     for (const file of readdirSync(directory)) {
       if (file.startsWith(prefix) && /^[a-f0-9]{16}\.tmp$/.test(file.slice(prefix.length))) {
         rmSync(join(directory, file));
       }
     }
-    if (!existsSync(options.path)) write(options.initial);
+    if (!existsSync(statePath)) write(options.initial);
     else {
-      const size = statSync(options.path).size;
-      if ((!size && !options.decodeLegacy) || size > options.maxBytes) throw new Error('Encrypted outbox file exceeds capacity or is empty');
-      const bytes = readFileSync(options.path);
-      if (bytes.length > options.maxBytes) throw new Error('Encrypted outbox file exceeds capacity');
+      const size = statSync(statePath).size;
+      if ((!size && !options.decodeLegacy) || size > maximumBytes) throw new Error('Encrypted outbox file exceeds capacity or is empty');
+      const bytes = readFileSync(statePath);
+      if (bytes.length > maximumBytes) throw new Error('Encrypted outbox file exceeds capacity');
       let legacy: T | undefined;
       let encoded: string | undefined;
       try { legacy = options.decodeLegacy?.(bytes); if (legacy === undefined) encoded = bytes.toString('utf8'); }
@@ -110,6 +113,7 @@ export function openEncryptedLocalState<T>(options: {
   function ensureOpen(): void {
     if (closed) throw new Error('Encrypted outbox is closed');
     if (poisoned) throw new Error('Encrypted outbox write failed; close and reopen before reuse');
+    reservation?.assertWritable();
   }
 
   return {
