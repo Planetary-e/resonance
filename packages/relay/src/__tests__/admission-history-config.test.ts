@@ -109,7 +109,7 @@ it('gates the real relay process on four copies, resumes exact pending state and
 it('requires all five existing history members and distinct explicit infrastructure pins for reverse startup', () => {
   const n = fixture(), path = join(n.directory, 'links.json');
   const value = { version: 1, members: n.f.context.members.map(publicKey => ({ publicKey, relayId: generateIdentity().did })) };
-  writeFileSync(path, JSON.stringify(value)); expect(readAdmissionHistoryLinksFile(path, n.f.context)).toEqual(value.members);
+  writeFileSync(path, JSON.stringify(value)); expect(readAdmissionHistoryLinksFile(path, n.f.context)).toEqual({ members: value.members, contacts: [] });
   const invalid = [{ ...value, initialize: true }, { ...value, members: value.members.slice(1) },
     { ...value, members: value.members.map((m, i) => i === 4 ? value.members[0] : m) },
     { ...value, members: value.members.map(m => ({ ...m, relayId: value.members[0].relayId })) },

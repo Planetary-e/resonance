@@ -25,7 +25,7 @@ async function waitFor(test: () => boolean) {
   const deadline = Date.now() + 15000;
   while (!test()) { if (Date.now() > deadline) throw new Error('History reverse links did not settle'); await new Promise(r => setTimeout(r, 10)); }
 }
-async function fixture() {
+async function fixture(withBridge = false) {
   const h = historyCheckpointFixture(), f = await witnessFixture(), directory = mkdtempSync(join(tmpdir(), 'history-reverse-'));
   cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
   const policy = await signAdmissionPolicy({ ...f.body, keys: f.body.keys.map(({ witnesses, ...key }) => key) }, f.authority, f.authorityKey.secretKey);
@@ -33,22 +33,32 @@ async function fixture() {
   const controllerDir = join(directory, 'controller'), controllerIdentity = loadOrCreateRelayIdentity(controllerDir);
   const volunteerDirs = context.members.map((_, i) => join(directory, `relay-${i}`));
   const ids = volunteerDirs.map(path => loadOrCreateRelayIdentity(path).did);
-  const router = new HistoryRelayRouter({ members: context.members.map((publicKey, i) => ({ publicKey, relayId: ids[i] })) }); cleanup.push(() => router.close());
+  const bridgeDir = join(directory, 'bridge'), bridgeIdentity = loadOrCreateRelayIdentity(bridgeDir);
+  const bridgeRouter = withBridge ? new HistoryRelayRouter({ waitForConnection: true,
+    bridgeRoutes: ids.map(targetRelayId => ({ controllerRelayId: controllerIdentity.did, targetRelayId })) }) : undefined;
+  cleanup.push(() => bridgeRouter?.close());
+  const router = new HistoryRelayRouter({ members: context.members.map((publicKey, i) => ({ publicKey, relayId: ids[i], ...(withBridge ? { viaRelayId: bridgeIdentity.did } : {}) })) }); cleanup.push(() => router.close());
   // Deliberately unreachable direct history endpoints: every operation must use a pinned relay link.
   const members = context.members.map((publicKey, i) => ({ publicKey, endpoint: `ws://127.0.0.1:${9 + i}/history-checkpoint` }));
   const options = { directory: join(directory, 'owner'), policy, authority: policy.authority, encryptionKey: h.key,
-    protection: { context, signingKey: h.owner, members, transport: router.checkpoint, timeoutMs: 2000 } };
+    protection: { context, signingKey: h.owner, members, transport: router.checkpoint, timeoutMs: withBridge ? 10000 : 2000 } };
   const initial = await openProtectedAdmissionSpendHistory({ ...options, initialize: true, protection: { ...options.protection, initializeWriter: true } });
   const genesis = initial.enrollment().root; initial.close(); if (genesis.kind !== 'checkpoint') throw new Error('Expected genesis');
-  const controller = createRelayServer({ host: '127.0.0.1', port: 0, persistDir: controllerDir, historyLinks: router,
+  const bridge = withBridge ? createRelayServer({ host: '127.0.0.1', port: 0, persistDir: bridgeDir, historyLinks: bridgeRouter,
     relayDiscovery: { endpoints: ['ws://127.0.0.1:0/'], reachability: 'direct', supportedGroups: ['public'],
+      descriptorLifetimeMs: 120000, storage: { capacityBytes: 1000000, availableBytes: 1000000 } } }) : undefined;
+  if (bridge) { await bridge.start(); cleanup.push(() => bridge.stop({ graceful: false })); }
+  const controller = createRelayServer({ host: '127.0.0.1', port: 0, persistDir: controllerDir, historyLinks: router,
+    relayLinks: bridge ? { targets: [createRelayContactHintV1('configured', bridge.getRelayDescriptor()!.endpoints[0], bridgeIdentity.did)], reconnectBaseMs: 50, reconnectMaxMs: 100 } : undefined,
+    relayDiscovery: { endpoints: withBridge ? [] : ['ws://127.0.0.1:0/'], reachability: withBridge ? 'outbound-only' : 'direct', supportedGroups: ['public'],
       descriptorLifetimeMs: 120000, storage: { capacityBytes: 1000000, availableBytes: 1000000 } } });
   await controller.start(); cleanup.push(() => controller.stop({ graceful: false }));
-  const endpoint = controller.getRelayDescriptor()!.endpoints[0], calls = new Map<string, number>();
+  const hub = bridge ?? controller, hubId = withBridge ? bridgeIdentity.did : controllerIdentity.did;
+  const endpoint = hub.getRelayDescriptor()!.endpoints[0], calls = new Map<string, number>();
   const services = context.members.map((_, i) => openHistoryVolunteerService({ directory: join(directory, `history-${i}`), context,
     localKey: h.localKey, signingKey: h.memberKeys[i], genesisId: historyCheckpointEnvelopeId(genesis), initialize: genesis }));
   cleanup.push(() => services.forEach(service => service.close()));
-  const routers = services.map(service => new HistoryRelayRouter({ acceptedRelayIds: [controllerIdentity.did], handler(method, value) {
+  const routers = services.map(service => new HistoryRelayRouter({ acceptedRelayIds: [hubId], handler(method, value) {
     calls.set(method, (calls.get(method) ?? 0) + 1);
     return method === 'agreement' ? service.exchange(value) : service[method](value);
   } })); cleanup.push(() => routers.forEach(r => r.close()));
@@ -57,12 +67,13 @@ async function fixture() {
     return createRelayServer({ host: '127.0.0.1', port: 0, persistDir: volunteerDirs[i], historyLinks: routers[i],
       relayDiscovery: { endpoints: [], reachability: 'outbound-only', supportedGroups: ['public'],
         descriptorLifetimeMs: 120000, storage: { capacityBytes: 1000000, availableBytes: 1000000 } },
-      relayLinks: { targets: [createRelayContactHintV1('configured', endpoint, controllerIdentity.did)],
+      relayLinks: { targets: [createRelayContactHintV1('configured', endpoint, hubId)],
         reconnectBaseMs: 50, reconnectMaxMs: 100 } });
   }
   cleanup.push(async () => { for (const volunteer of volunteers) await volunteer.stop({ graceful: false }); });
   for (let i = 0; i < 5; i++) { volunteers.push(createVolunteer(i)); await volunteers[i].start(); }
-  await waitFor(() => controller.getRelayLinkStatus().inboundRelayIds.length === 5);
+  const connectedVolunteers = () => hub.getRelayLinkStatus().inboundRelayIds.filter(id => ids.includes(id)).length;
+  await waitFor(() => connectedVolunteers() === 5 && (!withBridge || controller.getRelayLinkStatus().connectedRelayIds.includes(bridgeIdentity.did)));
   async function row(text: string) {
     const binding = createAdmissionRequestBindingV2('search', { text }), token = await f.token();
     const capability = presentBlindAdmissionTokenV2(token, f.scope, 'search', binding);
@@ -70,21 +81,26 @@ async function fixture() {
     return { spend, issuerKey: policy.activeKey, action: 'search', binding };
   }
   return { ...h, directory, context, policy, options, genesis, controller, controllerIdentity, endpoint, router, routers,
-    services, calls, volunteers, createVolunteer, row };
+    services, calls, volunteers, createVolunteer, row, bridge, bridgeRouter, bridgeIdentity, connectedVolunteers };
 }
 
-it('preserves accepted tokens through a partition, reconnect and lost-owner recovery using five outbound-only volunteers', async () => {
-  const n = await fixture();
+it.each(['direct', 'bridge'] as const)('preserves accepted tokens through partition/reconnect/lost-owner recovery with five outbound-only volunteers through %s links', async topology => {
+  const n = await fixture(topology === 'bridge');
   expect(n.volunteers.every(v => v.getRelayDescriptor()!.endpoints.length === 0)).toBe(true);
-  expect(n.controller.getRelayLinkStatus().connectedRelayIds).toEqual([]);
+  expect(n.controller.getRelayLinkStatus().connectedRelayIds).toEqual(topology === 'bridge' ? [n.bridgeIdentity.did] : []);
+  if (topology === 'bridge') expect(n.controller.getRelayDescriptor()!.endpoints).toEqual([]);
   let history = await openProtectedAdmissionSpendHistory(n.options); cleanup.push(() => history.close()); await history.ready();
-  const first = await n.row('accepted before partition'), second = await n.row('accepted after return'); await history.write(first);
-  for (const i of [3, 4]) await n.volunteers[i].stop({ graceful: false });
-  await waitFor(() => n.controller.getRelayLinkStatus().inboundRelayIds.length === 3);
+  const first = await n.row('accepted before partition'), second = await n.row('accepted after return');
+  // Missing member zero must not monopolize the shared bridge and block four live copies.
+  if (topology === 'bridge') { await n.volunteers[0].stop({ graceful: false }); await waitFor(() => n.connectedVolunteers() === 4); }
+  await history.write(first);
+  const stopped = topology === 'bridge' ? [4] : [3, 4], returned = topology === 'bridge' ? 4 : 3;
+  for (const i of stopped) await n.volunteers[i].stop({ graceful: false });
+  await waitFor(() => n.connectedVolunteers() === 3);
   await expect(history.write(second)).rejects.toThrow('Four'); expect(() => history.get(second.spend)).toThrow('durable completion');
   expect(history.read().pending).not.toBeNull(); history.close();
-  n.volunteers[3] = n.createVolunteer(3); await n.volunteers[3].start();
-  await waitFor(() => n.controller.getRelayLinkStatus().inboundRelayIds.length === 4);
+  n.volunteers[returned] = n.createVolunteer(returned); await n.volunteers[returned].start();
+  await waitFor(() => n.connectedVolunteers() === 4);
   history = await openProtectedAdmissionSpendHistory(n.options); await history.ready(); expect(history.get(second.spend)).toEqual(second);
   history.close(); rmSync(n.options.directory, { recursive: true });
   const recoveryOptions = { directory: join(n.directory, 'recovery'), encryptionKey: n.key, genesis: n.genesis,
@@ -99,7 +115,7 @@ it('preserves accepted tokens through a partition, reconnect and lost-owner reco
   await history.ready(); expect(history.get(first.spend)).toEqual(first); expect(history.get(second.spend)).toEqual(second);
   await history.write(await n.row('accepted on restored history'));
   expect([...n.calls.keys()].sort()).toEqual(['agreement', 'checkpoint', 'provision', 'transfer']);
-  await waitFor(() => n.router.usage().operations === 0 && n.routers.every(r => r.usage().operations === 0));
+  await waitFor(() => n.router.usage().operations === 0 && n.routers.every(r => r.usage().operations === 0) && (!n.bridgeRouter || n.bridgeRouter.usage().operations === 0));
   expect(n.router.usage().bytes).toBe(0);
 }, 60000);
 

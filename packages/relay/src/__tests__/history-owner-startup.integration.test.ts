@@ -46,7 +46,7 @@ function start(env: NodeJS.ProcessEnv) {
       return port > 0;
     }); return port; } };
 }
-async function fixture() {
+async function fixture(withBridge = false) {
   const h = historyCheckpointFixture(), f = await witnessFixture(), directory = mkdtempSync(join(tmpdir(), 'history-owner-start-'));
   cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
   const policy = await signAdmissionPolicy({ ...f.body, keys: f.body.keys.map(({ witnesses, ...key }) => key) }, f.authority, f.authorityKey.secretKey);
@@ -64,7 +64,7 @@ async function fixture() {
   writeFileSync(join(directory, 'volunteer-storage.hex'), h.localKey.toString('hex'), { mode: 0o600 });
   const historyFile = json('history.json', { version: 1, context, members, ownerKeyFile: 'owner-key.json' });
   const linksFile = json('links.json', { version: 1, members: context.members.map((publicKey, i) => ({ publicKey, relayId: ids[i] })) });
-  const env = { RELAY_DATA_DIR: ownerDirectory, RELAY_ADMIN_API_KEY: 'test-admin', RELAY_ADMISSION_AUTHORITY_FILE: join(directory, 'authority.pub'),
+  const env: NodeJS.ProcessEnv = { RELAY_DATA_DIR: ownerDirectory, RELAY_ADMIN_API_KEY: 'test-admin', RELAY_ADMISSION_AUTHORITY_FILE: join(directory, 'authority.pub'),
     RELAY_ADMISSION_POLICY_FILE: json('policy.json', policy), RELAY_ADMISSION_POLICY_KEY_FILE: join(directory, 'storage.hex'),
     RELAY_ADMISSION_HISTORY_FILE: historyFile, RELAY_ADMISSION_HISTORY_LINKS_FILE: linksFile };
   for (let i = 0; i < 5; i++) {
@@ -72,12 +72,27 @@ async function fixture() {
     const service = openHistoryVolunteerService({ directory: join(directory, `history-${i}`), context, genesisId: historyCheckpointEnvelopeId(root),
       localKey: h.localKey, signingKey: h.memberKeys[i], initialize: root }); service.close();
   }
+  const bridgeDirectory = join(directory, 'bridge'), bridgeId = loadOrCreateRelayIdentity(bridgeDirectory).did;
+  const bridgeFile = json('bridge.json', { version: 1, routes: ids.map(targetRelayId => ({ controllerRelayId: ownerId, targetRelayId })) });
+  const bridgeEnv = { RELAY_DATA_DIR: bridgeDirectory, RELAY_ADMIN_API_KEY: 'test-admin', RELAY_HISTORY_BRIDGE_FILE: bridgeFile };
+  let bridge: ReturnType<typeof start> | undefined;
+  if (withBridge) {
+    bridge = start(bridgeEnv); const bridgePort = await bridge.listening();
+    json('links.json', { version: 2, members: context.members.map((publicKey, i) => ({ publicKey, relayId: ids[i] })),
+      bridge: { relayId: bridgeId, endpoint: `ws://127.0.0.1:${bridgePort}/` } });
+    env.RELAY_PUBLIC_ENDPOINTS = '';
+  }
+  async function restartBridge() {
+    if (!bridge) throw new Error('No bridge in direct fixture');
+    const port = bridge.port(); await bridge.close(); expect((await bridge.exited)[0]).toBe(0);
+    bridge = start({ ...bridgeEnv, RELAY_PORT: String(port) }); await bridge.listening();
+  }
   const volunteers: RelayServer[] = [], runtimes: ReturnType<typeof openConfiguredHistoryVolunteer>[] = [];
   cleanup.push(async () => { for (const server of volunteers) await server.stop({ graceful: false }); for (const role of runtimes) role.close(); });
   async function volunteer(i: number, port: number) {
     const path = json(`volunteer-${i}.json`, { version: 1, context, genesisId: historyCheckpointEnvelopeId(root), directory: `history-${i}`,
       signingKeyFile: `member-${i}.json`, storageKeyFile: 'volunteer-storage.hex',
-      controllers: [{ relayId: ownerId, endpoint: `ws://127.0.0.1:${port}/` }],
+      controllers: [{ relayId: withBridge ? bridgeId : ownerId, endpoint: `ws://127.0.0.1:${bridge?.port() ?? port}/` }],
       limits: { bytesPerGeneration: 16 * 1024 * 1024, blocksPerGeneration: 100, generations: 8 } });
     const config = readHistoryVolunteerConfigurationFile(path), runtime = openConfiguredHistoryVolunteer(config); runtimes.push(runtime);
     const server = createRelayServer({ port: 0, host: '127.0.0.1', persistDir: memberDirs[i], historyLinks: runtime.router,
@@ -85,7 +100,9 @@ async function fixture() {
       relayLinks: { targets: config.contacts, reconnectBaseMs: 50, reconnectMaxMs: 100 } });
     volunteers.push(server); await server.start(); return server;
   }
-  return { f, directory, ownerDirectory, env, volunteer, volunteers };
+  return { f, directory, ownerDirectory, env, volunteer, volunteers, restartBridge,
+    async connectedVolunteers(port: number) { return Number((await stats(bridge?.port() ?? port)).inbound_authenticated_relays) - (withBridge ? 1 : 0); } };
+
 }
 async function stats(port: number) { return await (await fetch(`http://127.0.0.1:${port}/stats?key=test-admin`)).json() as Record<string, unknown>; }
 async function health(port: number) { return (await fetch(`http://127.0.0.1:${port}/health`)).status; }
@@ -100,28 +117,33 @@ async function send(port: number, raw: string) {
   });
 }
 
-it('starts transport before admission, rejects at three copies without spending and accepts the same credential after a fourth reverse connection', async () => {
-  const n = await fixture(); let owner = start({ ...n.env, RELAY_ADMISSION_POLICY_INITIALIZE: 'true' });
+it.each(['direct', 'bridge'] as const)('starts transport before admission and preserves credentials across fourth-copy arrival/restart through %s connections', async topology => {
+  const n = await fixture(topology === 'bridge'); let owner = start({ ...n.env, RELAY_ADMISSION_POLICY_INITIALIZE: 'true' });
   const port = await owner.listening(); expect(await health(port)).toBe(503); expect((await stats(port)).admission_ready).toBe(false);
   const token = await n.f.token(), first = publication();
-  const frame = (record: ReturnType<typeof publication>) => serializePublicationOperationFrame(createPublicationOperationFrame(record,
-    presentBlindAdmissionTokenV2(token, n.f.scope, 'publication-write', createAdmissionRequestBindingV2('publication-write', record))));
+  const frame = (record: ReturnType<typeof publication>, credential = token) => serializePublicationOperationFrame(createPublicationOperationFrame(record,
+    presentBlindAdmissionTokenV2(credential, n.f.scope, 'publication-write', createAdmissionRequestBindingV2('publication-write', record))));
   const raw = frame(first);
   expect((await send(port, raw)).payload.message).toBe('admission_unavailable');
-  for (let i = 0; i < 3; i++) await n.volunteer(i, port);
-  await waitFor(async () => (await stats(port)).inbound_authenticated_relays === 3);
+  for (const i of topology === 'bridge' ? [1, 2, 3] : [0, 1, 2]) await n.volunteer(i, port);
+  await waitFor(async () => await n.connectedVolunteers(port) === 3);
+  if (topology === 'bridge') expect(await (await fetch(`http://127.0.0.1:${port}/relay-descriptor`)).json()).toMatchObject({ endpoints: [], reachability: 'outbound-only' });
   expect(await health(port)).toBe(503); expect((await send(port, raw)).payload.message).toBe('admission_unavailable');
   expect((await stats(port)).stored_publications).toBe(0);
-  await n.volunteer(3, port); await waitFor(async () => await health(port) === 200);
+  await n.volunteer(topology === 'bridge' ? 4 : 3, port); await waitFor(async () => await health(port) === 200);
   expect((await stats(port)).admission_ready).toBe(true); expect(owner.output()).toContain('"event":"admission_ready"');
   expect((await send(port, raw)).payload.message).toBe('accepted');
   expect((await send(port, raw)).payload.message).toBe('duplicate');
   expect((await send(port, frame(publication()))).payload.message).toBe('admission_rejected');
+  if (topology === 'bridge') {
+    await n.restartBridge(); await waitFor(async () => await n.connectedVolunteers(port) === 4);
+    expect((await send(port, frame(publication(), await n.f.token()))).payload.message).toBe('accepted');
+  }
   await owner.close(); expect((await owner.exited)[0]).toBe(0);
   owner = start({ ...n.env, RELAY_PORT: String(port) }); await owner.listening(); await waitFor(async () => await health(port) === 200);
   expect((await send(port, raw)).payload.message).toBe('duplicate');
   expect((await send(port, frame(publication()))).payload.message).toBe('admission_rejected');
-  expect((await stats(port)).stored_publications).toBe(1);
+  expect((await stats(port)).stored_publications).toBe(topology === 'bridge' ? 2 : 1);
 }, 60000);
 
 it('cancels an unready owner cleanly, reopens its exact history and refuses missing state without enabling admission', async () => {

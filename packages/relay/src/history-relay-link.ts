@@ -14,14 +14,20 @@ export const HISTORY_LINK_FRAME_TYPE = 'relay_history_v1';
 export const HISTORY_LINK_CHUNK_BYTES = 128 * 1024;
 export const HISTORY_LINK_MAX_FRAME_BYTES = Math.ceil(HISTORY_LINK_CHUNK_BYTES * 4 / 3) + 1024;
 const MAX_BUFFERED_BYTES = 256 * 1024;
-const LIMITS = {
+export const HISTORY_ROLE_LIMITS = {
   checkpoint: [HISTORY_EXCHANGE_MAX_BYTES, HISTORY_EXCHANGE_MAX_BYTES],
   agreement: [HISTORY_AGREEMENT_MAX_FRAME_BYTES, HISTORY_AGREEMENT_MAX_RESPONSE_BYTES],
   transfer: [HISTORY_AGREEMENT_DATA_MAX_BYTES, HISTORY_ENVELOPE_MAX_BYTES + 4096],
   provision: [HISTORY_PROVISION_MAX_BYTES, 1024],
 } as const;
+export type HistoryRoleMethod = keyof typeof HISTORY_ROLE_LIMITS;
+const LIMITS = { ...HISTORY_ROLE_LIMITS, bridge: [
+  Math.max(...Object.values(HISTORY_ROLE_LIMITS).map(v => v[0])) + 4096,
+  Math.max(...Object.values(HISTORY_ROLE_LIMITS).map(v => v[1])),
+] as const };
 export type HistoryLinkMethod = keyof typeof LIMITS;
 export interface HistoryLinkContext { signal: AbortSignal; deadline: number }
+export type HistoryRoleHandler = (method: HistoryRoleMethod, value: unknown, context: HistoryLinkContext) => unknown | Promise<unknown>;
 export type HistoryLinkHandler = (method: HistoryLinkMethod, value: unknown, context: HistoryLinkContext) => unknown | Promise<unknown>;
 
 /** Shared across all a relay's history links. These are buffer/operation caps,
@@ -29,6 +35,7 @@ export type HistoryLinkHandler = (method: HistoryLinkMethod, value: unknown, con
 export class HistoryLinkBudget {
   private bytes = 0;
   private operations = 0;
+  private readonly waiting = new Set<() => void>();
   constructor(readonly maxBytes = 64 * 1024 * 1024, readonly maxOperations = 8) {
     if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > 64 * 1024 * 1024
       || !Number.isSafeInteger(maxOperations) || maxOperations < 1 || maxOperations > 8) throw new Error('Invalid history link budget');
@@ -36,7 +43,22 @@ export class HistoryLinkBudget {
   acquire(): () => void {
     if (this.operations >= this.maxOperations) throw new Error('History link capacity reached');
     this.operations++; let released = false;
-    return () => { if (!released) { released = true; this.operations--; } };
+    return () => { if (!released) { released = true; this.operations--; this.waiting.values().next().value?.(); } };
+  }
+  /** Only forwarded work already charged to an incoming handler may wait here. */
+  async acquireForward(signal: AbortSignal): Promise<() => void> {
+    while (true) {
+      if (signal.aborted) throw new Error('History forwarding cancelled');
+      if (this.operations < this.maxOperations) return this.acquire();
+      if (this.waiting.size >= 8) throw new Error('History forwarding queue full');
+      await new Promise<void>((resolve, reject) => {
+        const cleanup = () => { this.waiting.delete(wake); signal.removeEventListener('abort', abort); };
+        const wake = () => { cleanup(); resolve(); };
+        const abort = () => { cleanup(); reject(new Error('History forwarding cancelled')); };
+        this.waiting.add(wake); signal.addEventListener('abort', abort, { once: true });
+        if (signal.aborted) abort();
+      });
+    }
   }
   reserve(bytes: number): () => void {
     if (!Number.isSafeInteger(bytes) || bytes < 1 || this.bytes + bytes > this.maxBytes) throw new Error('History link buffer capacity reached');
@@ -55,12 +77,13 @@ interface Exchange {
   deadline: number; timer: ReturnType<typeof setTimeout>; release: () => void;
   sending?: Payload; receiving?: Payload; requestSent: boolean; runningHandler: boolean;
   resolve?: (value: unknown) => void; reject?: (error: Error) => void; removeAbort?: () => void;
-  controller: AbortController;
+  controller: AbortController; releaseIngress?: () => void;
 }
 
 /** Construct only after the signed socket handshake, never for an unverified descriptor.
  * Pins are checked again here before any history allocation. One request in each
- * direction is permitted on a socket; reconnection never resumes transport chunks. */
+ * direction is the default; explicit bridge links permit up to four. Reconnection
+ * never resumes transport chunks. */
 export class HistoryRelayLink {
   private readonly exchanges = new Map<string, Exchange>();
   private closed = false;
@@ -68,9 +91,13 @@ export class HistoryRelayLink {
   private readonly timeoutMs: number;
   constructor(private readonly socket: WebSocket, readonly remoteRelayId: string, private readonly options: {
     allowedRelayIds: readonly string[]; budget: HistoryLinkBudget; handler?: HistoryLinkHandler; timeoutMs?: number;
+    maxOutgoing?: number; maxIncoming?: number;
+    /** Optional global ingress quota leaves room for bridge forwarding in the shared budget. */
+    incomingBudget?: HistoryLinkBudget;
   }) {
     this.timeoutMs = options.timeoutMs ?? 30_000;
     if (!options.allowedRelayIds.includes(remoteRelayId) || socket.readyState !== WebSocket.OPEN
+      || [options.maxOutgoing ?? 1, options.maxIncoming ?? 1].some(n => !Number.isSafeInteger(n) || n < 1 || n > 4)
       || !Number.isSafeInteger(this.timeoutMs) || this.timeoutMs < 50 || this.timeoutMs > 30_000) {
       throw new Error('History relay link is not authorized');
     }
@@ -171,18 +198,31 @@ export class HistoryRelayLink {
 
   close(): void {
     if (this.closed) return; this.closed = true; this.socket.removeListener('close', this.onClose);
-    for (const state of this.exchanges.values()) this.finish(state, new Error('History relay link closed'));
+    for (const state of this.exchanges.values()) {
+      // A router can detach while the shared relay socket stays open. Propagate
+      // cancellation without depending on the order in which bridge peers close.
+      if (this.socket.readyState === WebSocket.OPEN && this.socket.bufferedAmount <= MAX_BUFFERED_BYTES) {
+        try { this.socket.send(JSON.stringify({ type: HISTORY_LINK_FRAME_TYPE, id: state.id, kind: state.local ? 'cancel' : 'error' }),
+          error => { if (error) this.socket.terminate(); }); } catch { /* Socket loss still bounds the remote deadline. */ }
+      }
+      this.finish(state, new Error('History relay link closed'));
+    }
   }
 
   private begin(id: string, local: boolean, method: HistoryLinkMethod, maxResponse: number, cutoff?: number): Exchange {
-    if (this.closed || this.exchanges.has(id) || [...this.exchanges.values()].some(s => s.local === local)) throw new Error('History link busy');
+    const limit = local ? this.options.maxOutgoing ?? 1 : this.options.maxIncoming ?? 1;
+    if (this.closed || this.exchanges.has(id) || [...this.exchanges.values()].filter(s => s.local === local).length >= limit) throw new Error('History link busy');
     const now = performance.now(), deadline = Math.min(cutoff ?? Infinity, now + this.timeoutMs);
     if (!Number.isFinite(deadline) || deadline <= now) throw new Error('History link deadline expired');
-    const release = this.options.budget.acquire();
+    const releaseIncoming = !local ? this.options.incomingBudget?.acquire() : undefined;
+    let releaseShared: () => void;
+    try { releaseShared = this.options.budget.acquire(); }
+    catch (error) { releaseIncoming?.(); throw error; }
+    const release = releaseShared;
     const timer = setTimeout(() => this.finish(state, new Error('History link exchange timed out'), true), deadline - now);
     timer.unref?.();
     const state: Exchange = { id, local, method, maxResponse, deadline, timer, release, requestSent: false, runningHandler: false,
-      controller: new AbortController() };
+      controller: new AbortController(), releaseIngress: releaseIncoming };
     this.exchanges.set(id, state); return state;
   }
 
@@ -242,7 +282,7 @@ export class HistoryRelayLink {
   private finish(state: Exchange, error?: Error, notify = false) {
     if (this.exchanges.get(state.id) !== state) return;
     this.exchanges.delete(state.id); clearTimeout(state.timer); state.removeAbort?.();
-    state.controller.abort();
+    state.releaseIngress?.(); state.controller.abort();
     state.sending?.release(); state.receiving?.release(); state.sending = undefined; state.receiving = undefined;
     if (!state.runningHandler) state.release();
     if (error) state.reject?.(error);

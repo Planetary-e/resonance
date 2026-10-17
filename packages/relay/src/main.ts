@@ -18,6 +18,7 @@ import { loadAdmissionHistoryProtectionFile, readAdmissionHistoryLinksFile } fro
 import { readHistoryVolunteerConfigurationFile, openConfiguredHistoryVolunteer } from './history-volunteer-config.js';
 import type { AdmissionCapabilityVerifierV2 } from './admission.js';
 import type { AdmissionWitness } from './admission-witness.js';
+import { readHistoryBridgeConfigurationFile } from './history-bridge-config.js';
 import { createDeferredAdmission } from './deferred-admission.js';
 import { HistoryRelayRouter } from './history-relay-router.js';
 import { createLocalBlindAdmissionVerifierV2 } from './blind-admission-verifier.js';
@@ -47,6 +48,8 @@ const publicEndpoints = [...new Set([
 const configuredContacts = parseList(process.env.RELAY_CONTACTS);
 const historyVolunteerConfig = process.env.RELAY_HISTORY_VOLUNTEER_FILE
   ? readHistoryVolunteerConfigurationFile(process.env.RELAY_HISTORY_VOLUNTEER_FILE) : undefined;
+const historyBridgeConfig = process.env.RELAY_HISTORY_BRIDGE_FILE
+  ? readHistoryBridgeConfigurationFile(process.env.RELAY_HISTORY_BRIDGE_FILE) : undefined;
 const hintMap = new Map(configuredContacts.map(endpoint => (
   createRelayContactHintV1('configured', endpoint)
 )).map(hint => [hint.endpoint, hint]));
@@ -57,7 +60,7 @@ const bootstrapHints = parseList(process.env.RELAY_BOOTSTRAP_CONTACTS).map(endpo
   createRelayContactHintV1('bootstrap', endpoint)
 ));
 const discoveryEnabled = process.env.RELAY_DISCOVERY === 'true'
-  || Boolean(process.env.RELAY_ADMISSION_HISTORY_LINKS_FILE)
+  || Boolean(process.env.RELAY_ADMISSION_HISTORY_LINKS_FILE) || !!historyBridgeConfig
   || publicEndpoints.length > 0
   || configuredHints.length > 0
   || bootstrapHints.length > 0;
@@ -191,10 +194,18 @@ async function openAdmission() {
 }
 try {
   historyProtection = historyFile ? loadAdmissionHistoryProtectionFile(historyFile, socket => resourceMeter.observe(socket)) : undefined;
-  const ownerMembers = historyLinksFile ? readAdmissionHistoryLinksFile(historyLinksFile, historyProtection!.context) : undefined;
+  const ownerRouting = historyLinksFile ? readAdmissionHistoryLinksFile(historyLinksFile, historyProtection!.context) : undefined;
+  for (const hint of ownerRouting?.contacts ?? []) {
+    const existing = hintMap.get(hint.endpoint);
+    if (existing?.expectedRelayId && existing.expectedRelayId !== hint.expectedRelayId) throw new Error('Conflicting history controller and bridge pins');
+    hintMap.set(hint.endpoint, hint);
+  }
+  configuredHints.splice(0, configuredHints.length, ...hintMap.values());
+  const ownerMembers = ownerRouting?.members;
   historyVolunteer = historyVolunteerConfig ? openConfiguredHistoryVolunteer(historyVolunteerConfig,
-    ownerPolicy ? bytes => ownerPolicy.allowNewWork(bytes) : undefined, ownerMembers) : undefined;
-  historyRouter = historyVolunteer?.router ?? (ownerMembers ? new HistoryRelayRouter({ members: ownerMembers, waitForConnection: true }) : undefined);
+    ownerPolicy ? bytes => ownerPolicy.allowNewWork(bytes) : undefined, ownerMembers, historyBridgeConfig?.routes) : undefined;
+  historyRouter = historyVolunteer?.router ?? (ownerMembers || historyBridgeConfig ? new HistoryRelayRouter({ members: ownerMembers,
+    bridgeRoutes: historyBridgeConfig?.routes, acceptForward: ownerPolicy ? bytes => ownerPolicy.allowNewWork(bytes) : undefined, waitForConnection: true }) : undefined);
   if (ownerMembers) historyProtection!.transport = historyRouter!.checkpoint;
   // Direct history keeps its eager startup contract. Reverse links need the
   // listener first; their deferred verifier rejects every user credential meanwhile.

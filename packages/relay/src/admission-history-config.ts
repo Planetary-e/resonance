@@ -1,6 +1,7 @@
 /** Operator-selected pins for reopening a prepared history. This file never authorizes initialization. */
 import { dirname, resolve } from 'node:path';
 import type { Socket } from 'node:net';
+import { parseHistoryBridgeContact } from './history-bridge-config.js';
 import { assertSecureRelayTransportEndpoint } from '@resonance/core';
 import { exactWitnessFields } from '@resonance/core/admission-witness';
 import { parseHistoryCheckpointContext } from '@resonance/core/history-checkpoint';
@@ -39,8 +40,9 @@ export function loadAdmissionHistoryProtectionFile(path: string, onTransportSock
 /** Optional reverse-link routing. It can neither select a new member nor initialize history. */
 export function readAdmissionHistoryLinksFile(path: string, context: AdmissionHistoryProtection['context']) {
   const value = readOperatorJson(path, 64 * 1024);
-  if (!exactWitnessFields(value, ['version', 'members']) || value.version !== 1 || !Array.isArray(value.members)
-    || value.members.length !== 5) throw new Error('Invalid admission history relay links');
+  const bridged = value && typeof value === 'object' && 'version' in value && value.version === 2;
+  if (!exactWitnessFields(value, bridged ? ['version', 'members', 'bridge'] : ['version', 'members'])
+    || value.version !== (bridged ? 2 : 1) || !Array.isArray(value.members) || value.members.length !== 5) throw new Error('Invalid admission history relay links');
   const members = value.members.map(member => {
     if (!exactWitnessFields(member, ['publicKey', 'relayId']) || typeof member.publicKey !== 'string'
       || !context.members.includes(member.publicKey) || typeof member.relayId !== 'string'
@@ -50,5 +52,7 @@ export function readAdmissionHistoryLinksFile(path: string, context: AdmissionHi
   if (new Set(members.map(m => m.publicKey)).size !== 5 || new Set(members.map(m => m.relayId)).size !== 5) {
     throw new Error('Admission history relay pins must be distinct');
   }
-  return members;
+  const contact = bridged ? parseHistoryBridgeContact(value.bridge) : undefined;
+  if (contact && members.some(m => m.relayId === contact.expectedRelayId)) throw new Error('History bridge must differ from its target members');
+  return { members: members.map(m => ({ ...m, ...(contact ? { viaRelayId: contact.expectedRelayId! } : {}) })), contacts: contact ? [contact] : [] };
 }

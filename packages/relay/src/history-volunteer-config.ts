@@ -5,6 +5,7 @@ import { exactWitnessFields } from '@resonance/core/admission-witness';
 import { isHistoryDigest, parseHistoryCheckpointContext } from '@resonance/core/history-checkpoint';
 import { readOperatorJson, readOperatorSigningKey, readOperatorStorageKey } from './admission-operator-files.js';
 import { openHistoryVolunteerService } from './history-volunteer-service.js';
+import type { HistoryRelayMemberRoute, HistoryRelayBridgeRoute } from './history-relay-bridge.js';
 import { HistoryRelayRouter } from './history-relay-router.js';
 
 /** Read-only. Every path is relative to this configuration, never the process cwd. */
@@ -40,7 +41,7 @@ export function readHistoryVolunteerConfigurationFile(path: string) {
 
 /** Opens existing state only. Enrollment/initialization remains an explicit operator operation. */
 export function openConfiguredHistoryVolunteer(config: ReturnType<typeof readHistoryVolunteerConfigurationFile>, acceptNew?: (bytes: number) => boolean,
-  ownerMembers?: readonly { publicKey: string; relayId: string }[]) {
+  ownerMembers?: readonly HistoryRelayMemberRoute[], bridgeRoutes?: readonly HistoryRelayBridgeRoute[]) {
   const signingKey = readOperatorSigningKey(config.signingKeyFile);
   let localKey: Buffer | undefined, service: ReturnType<typeof openHistoryVolunteerService> | undefined;
   try {
@@ -50,7 +51,7 @@ export function openConfiguredHistoryVolunteer(config: ReturnType<typeof readHis
       localKey, signingKey, maxBytes: config.maxBytes, maxBlocks: config.maxBlocks, maxGenerations: config.maxGenerations,
       acceptNew: acceptNew ? () => acceptNew(requestBytes) : undefined });
     const enrolled = service;
-    const router = new HistoryRelayRouter({ members: ownerMembers, waitForConnection: !!ownerMembers,
+    const router = new HistoryRelayRouter({ members: ownerMembers, bridgeRoutes, acceptForward: acceptNew, waitForConnection: !!ownerMembers || !!bridgeRoutes,
       acceptedRelayIds: config.contacts.map(c => c.expectedRelayId!),
       handler(method, value) {
         // All enrolled role methods are synchronous. Charge logical request bytes

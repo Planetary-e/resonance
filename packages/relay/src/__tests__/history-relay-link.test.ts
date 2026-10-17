@@ -14,7 +14,7 @@ async function waitFor(test: () => boolean) {
   while (!test()) { if (performance.now() >= deadline) throw new Error('History link did not settle'); await new Promise(r => setTimeout(r, 5)); }
 }
 async function pair(options: { handler?: HistoryLinkHandler; clientHandler?: HistoryLinkHandler; rawServer?: boolean;
-  timeoutMs?: number; serverBudget?: HistoryLinkBudget; clientBudget?: HistoryLinkBudget } = {}) {
+  timeoutMs?: number; serverBudget?: HistoryLinkBudget; clientBudget?: HistoryLinkBudget; serverIncomingBudget?: HistoryLinkBudget } = {}) {
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0, maxPayload: HISTORY_LINK_MAX_FRAME_BYTES, perMessageDeflate: false });
   await once(server, 'listening');
   cleanup.push(async () => { for (const socket of server.clients) socket.terminate(); await new Promise<void>(r => server.close(() => r())); });
@@ -25,7 +25,7 @@ async function pair(options: { handler?: HistoryLinkHandler; clientHandler?: His
   const a = new HistoryRelayLink(client, 'pinned-server', { allowedRelayIds: ['pinned-server'], budget: aBudget,
     handler: options.clientHandler, timeoutMs: options.timeoutMs });
   const b = new HistoryRelayLink(remote, 'pinned-client', { allowedRelayIds: ['pinned-client'], budget: bBudget,
-    handler: options.handler ?? ((_method, value) => value), timeoutMs: options.timeoutMs });
+    handler: options.handler ?? ((_method, value) => value), timeoutMs: options.timeoutMs, incomingBudget: options.serverIncomingBudget });
   cleanup.push(() => { a.close(); b.close(); });
   const received: Record<string, unknown>[] = [], sizes: number[] = [];
   client.on('message', raw => { sizes.push(Buffer.byteLength(raw.toString())); a.handle(raw.toString()); });
@@ -163,4 +163,20 @@ it.each(['cancel', 'deadline', 'disconnect', 'role-close'])('propagates %s to as
   await rejected; await waitFor(() => aborted === 1 && n.bBudget.usage().operations === 0);
   expect(context!.signal.aborted).toBe(true); expect(n.aBudget.usage()).toEqual({ bytes: 0, operations: 0 });
   expect(n.bBudget.usage()).toEqual({ bytes: 0, operations: 0 });
+});
+
+it('shares the live ingress cap across sockets without uncharging a cancelled but still-running handler', async () => {
+  const shared = new HistoryLinkBudget(), ingress = new HistoryLinkBudget(1024, 1);
+  let reply: (() => void) | undefined;
+  const first = await pair({ serverBudget: shared, serverIncomingBudget: ingress,
+    handler: () => new Promise(resolve => { reply = () => resolve({}); }) });
+  const second = await pair({ serverBudget: shared, serverIncomingBudget: ingress });
+  const controller = new AbortController(), pending = first.a.request('checkpoint', {}, controller.signal);
+  const refusal = expect(pending).rejects.toThrow('cancelled'); await waitFor(() => !!reply);
+  expect(ingress.usage().operations).toBe(1);
+  await expect(second.a.request('checkpoint', {}, signal())).rejects.toThrow('refused');
+  controller.abort(); await refusal; await waitFor(() => ingress.usage().operations === 0);
+  expect(shared.usage().operations).toBe(1);
+  expect(await second.a.request('checkpoint', { next: true }, signal())).toEqual({ next: true });
+  await waitFor(() => shared.usage().operations === 1); reply!(); await waitFor(() => shared.usage().operations === 0);
 });

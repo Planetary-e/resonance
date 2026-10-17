@@ -1,15 +1,17 @@
 /** Bounded FIFO turns for several member requests sharing one history socket.
  * The router retains the shared operation reservation while a turn is queued. */
 export class HistoryRelayTurns {
-  private readonly active = new Set<string>();
+  private readonly active = new Map<string, number>();
+  private readonly limits = new Map<string, number>();
   private readonly pending = new Map<string, Set<{ start(): void; cancel(): void }>>();
   private count = 0;
   private closed = false;
 
-  enter(relayId: string, signal: AbortSignal): Promise<() => void> {
+  enter(relayId: string, signal: AbortSignal, parallelism = 1): Promise<() => void> {
     return new Promise((resolve, reject) => {
-      if (this.closed || signal.aborted || this.count >= 8) { reject(new Error('History send queue unavailable')); return; }
-      this.count++;
+      if (this.closed || signal.aborted || this.count >= 8 || !Number.isSafeInteger(parallelism) || parallelism < 1 || parallelism > 4
+        || (this.limits.has(relayId) && this.limits.get(relayId) !== parallelism)) { reject(new Error('History send queue unavailable')); return; }
+      this.limits.set(relayId, parallelism); this.count++;
       let settled = false;
       const remove = () => {
         signal.removeEventListener('abort', entry.cancel);
@@ -20,9 +22,9 @@ export class HistoryRelayTurns {
         start: () => {
           if (settled) return;
           if (this.closed || signal.aborted) { entry.cancel(); return; }
-          settled = true; remove(); this.active.add(relayId); let released = false;
+          settled = true; remove(); this.active.set(relayId, (this.active.get(relayId) ?? 0) + 1); let released = false;
           resolve(() => {
-            if (released) return; released = true; this.count--; this.active.delete(relayId);
+            if (released) return; released = true; this.count--; this.active.set(relayId, this.active.get(relayId)! - 1);
             if (!this.closed) this.pending.get(relayId)?.values().next().value?.start();
           });
         },
@@ -31,7 +33,7 @@ export class HistoryRelayTurns {
           settled = true; remove(); this.count--; reject(new Error('History send queue cancelled or closed'));
         },
       };
-      if (!this.active.has(relayId)) entry.start();
+      if ((this.active.get(relayId) ?? 0) < parallelism) entry.start();
       else {
         const queue = this.pending.get(relayId) ?? new Set(); queue.add(entry); this.pending.set(relayId, queue);
         signal.addEventListener('abort', entry.cancel, { once: true });
