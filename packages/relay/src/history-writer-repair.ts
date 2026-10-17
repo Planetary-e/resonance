@@ -35,10 +35,13 @@ export function createHistoryWriterRepair(options: {
   // The writer separately persists the exact pending block. A retained source may
   // already include that block, but must never contain a later speculative tail.
   if (indexed) {
-    const included = indexed.count === block.sequence + 1;
+    const included = indexed.count === block.sequence + 1, start = compaction?.certificate.proposal.sequence ?? 0;
     if (indexed.contextId !== historyCheckpointContextId(context) || indexed.rootId !== rootId || indexed.generation !== block.generation
       || !Number.isSafeInteger(indexed.bytes) || indexed.bytes < 0
-      || (!included && indexed.count !== block.sequence) || block.sequence >= HISTORY_RECOVERY_MAX_BLOCKS
+      || !Number.isSafeInteger(indexed.count) || indexed.count < 0 || (!included && indexed.count !== block.sequence)
+      || !Number.isSafeInteger(indexed.retainedCount) || indexed.retainedCount < 0
+      || indexed.retainedCount + (included ? 0 : 1) > HISTORY_RECOVERY_MAX_BLOCKS
+      || !Number.isSafeInteger(start) || start < 0 || start > block.sequence || block.sequence - start >= HISTORY_RECOVERY_MAX_BLOCKS
       || indexed.bytes + (included ? 0 : Buffer.byteLength(JSON.stringify(block))) > HISTORY_RECOVERY_MAX_BYTES
       || (indexed.count && indexed.idAt(0) !== rootId)
       || indexed.idAt(indexed.count - 1) !== (included ? targetId : block.previous)) {

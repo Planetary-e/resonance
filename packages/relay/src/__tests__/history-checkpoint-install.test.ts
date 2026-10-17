@@ -5,7 +5,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createHistoryFreeze, historyCheckpointEnvelopeId, sealHistoryCheckpoint, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
+import { createHistoryFreeze, historyCheckpointEnvelopeId, historyDigest, sealHistoryCheckpoint, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { createHistoryCompactionProposal, createHistoryCompactionVote, type HistoryCompactionCertificate } from '@resonance/core/history-compaction';
 import { historyCompactionCertificateId } from '@resonance/core/history-compaction-control';
 import { createHistoryExchangeRequest, createHistoryExchangeResponse, parseHistoryExchangeRequest,
@@ -79,14 +79,28 @@ it('refuses stale review, insufficient proofs and conflicting adjacent blocks', 
   expect(() => f.store.installCheckpoint(f.blocks[4], f.first, f.store.reviewDigest())).toThrow('predecessor');
 });
 
-it('checks absolute slot capacity before writing checkpoint bytes', () => {
-  const f = fixture(4), before = f.files();
+it('checks retained payload capacity before writing checkpoint bytes or growing its index', () => {
+  const f = fixture(2), before = f.files();
   expect(() => f.store.installCheckpoint(f.blocks[4], f.first, f.store.reviewDigest())).toThrow('capacity');
   expect(f.files()).toEqual(before); expect(f.store.describe().sequence).toBe(1);
   const distant = sealHistoryCheckpoint({ context: f.context, encryptionKey: f.key, signingKey: f.owner,
-    header: { kind: 'checkpoint', generation: 0, sequence: 1_000_000_000, previous: f.options.rootId }, plaintext: Buffer.from('far checkpoint') });
+    header: { kind: 'checkpoint', generation: 0, sequence: 1_000_000_000, previous: historyDigest('omitted predecessor') }, plaintext: Buffer.from('far checkpoint') });
   expect(() => f.store.installCheckpoint(distant, f.certificate(distant), f.store.reviewDigest())).toThrow('capacity');
   expect(f.files()).toEqual(before);
+});
+
+it('stores a certified distant head in bounded space and reopens after prefix retirement without allocating intervening positions', () => {
+  const f = fixture(4), checkpoint = sealHistoryCheckpoint({ context: f.context, encryptionKey: f.key, signingKey: f.owner,
+    header: { kind: 'checkpoint', generation: 0, sequence: 1_000_000_000, previous: historyDigest('omitted predecessor') }, plaintext: Buffer.from('far full state') });
+  const proof = f.certificate(checkpoint), tail = f.next(checkpoint);
+  f.store.installCheckpoint(checkpoint, proof, f.store.reviewDigest()); f.store.append(tail);
+  expect(f.store.storageUsage().retainedBlocks).toBe(4);
+  expect(f.store.retirePrefix(f.store.planPrefixRetirement().approvalDigest).filesRemoved).toBe(1);
+  expect(readFileSync(join(f.directory, HISTORY_MANIFEST_FILENAME)).length).toBeLessThan(16384);
+  f.store.close(); const reopened = f.open();
+  expect(reopened.describe().sequence).toBe(1_000_000_001); expect(reopened.read().envelopes).toEqual([f.root, checkpoint, tail]);
+  expect(reopened.envelopeAt(999_999_999)).toBeNull(); expect(reopened.compactionAnchor()).toEqual(proof);
+  reopened.append(f.next(tail)); expect(reopened.storageUsage().retainedBlocks).toBe(4);
 });
 
 it('retains a durable freeze across restart and refuses even an exact installation retry after freeze', () => {

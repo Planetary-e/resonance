@@ -49,7 +49,7 @@ export function createHistoryCheckpointWriter(options: {
   }
   function envelope(value: unknown): HistoryCheckpointEnvelope {
     const parsed = parseHistoryCheckpointEnvelope(value, context);
-    if (parsed.generation !== generation || (parsed.sequence === 0 && historyCheckpointEnvelopeId(parsed) !== rootId)) {
+    if (parsed.sequence >= Number.MAX_SAFE_INTEGER || parsed.generation !== generation || (parsed.sequence === 0 && historyCheckpointEnvelopeId(parsed) !== rootId)) {
       throw new Error('History envelope does not match writer pins');
     }
     return parsed;

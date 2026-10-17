@@ -4,7 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, writeFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { historyCheckpointEnvelopeId, sealHistoryCheckpoint } from '@resonance/core/history-checkpoint';
+import { historyCheckpointEnvelopeId, historyDigest, sealHistoryCheckpoint } from '@resonance/core/history-checkpoint';
 import { createHistoryCompactionProposal, createHistoryCompactionVote } from '@resonance/core/history-compaction';
 import { openAdmissionHistoryRecovery, prepareAdmissionHistoryRecovery } from '../admission-history-recovery.js';
 import { openProtectedAdmissionSpendHistory } from '../protected-admission-history.js';
@@ -15,7 +15,7 @@ import { admissionRestoreFixture } from './fixtures/admission-restore-fixture.js
 
 const cleanup: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
-async function fixture(ancestor = false) {
+async function fixture(ancestor = false, checkpointSequence = 2) {
   const n = await admissionRestoreFixture(false, (image, at) => ({ version: 1, kind: 'admission-state-checkpoint', image, at }));
   cleanup.push(n.close);
   const current = n.continuation(), later = { ...n.currentRow, spend: randomBytes(32).toString('base64url') };
@@ -25,18 +25,26 @@ async function fixture(ancestor = false) {
     header: { kind: 'delta', generation: 1, sequence: 1, previous: historyCheckpointEnvelopeId(current) }, plaintext: encodeAdmissionHistoryRecord(deltaRecord) });
   const image = (await reduceAdmissionHistory(n.image, deltaRecord)).image;
   const checkpoint = sealHistoryCheckpoint({ context: n.context, signingKey: n.owner, encryptionKey: n.key,
-    header: { kind: 'checkpoint', generation: 1, sequence: 2, previous: historyCheckpointEnvelopeId(delta) },
+    header: { kind: 'checkpoint', generation: 1, sequence: checkpointSequence,
+      previous: checkpointSequence === 2 ? historyCheckpointEnvelopeId(delta) : historyDigest('omitted immediate predecessor') },
     plaintext: encodeAdmissionHistoryRecord({ version: 1, kind: 'admission-state-checkpoint', image, at }) });
   const tail = sealHistoryCheckpoint({ context: n.context, signingKey: n.owner, encryptionKey: n.key,
-    header: { kind: 'delta', generation: 1, sequence: 3, previous: historyCheckpointEnvelopeId(checkpoint) },
+    header: { kind: 'delta', generation: 1, sequence: checkpointSequence + 1, previous: historyCheckpointEnvelopeId(checkpoint) },
     plaintext: encodeAdmissionHistoryRecord({ version: 1, kind: 'spend', row: partial, at }) });
-  n.generations[1].slice(0, 4).forEach(s => { s.append(delta); s.append(checkpoint); }); n.generations[1][0].append(tail);
   const anchor = ancestor ? n.generations[0][0].read().envelopes.at(-1)! : checkpoint;
   const genesisId = historyCheckpointEnvelopeId(n.root), issuedAt = Date.now();
   const proposal = createHistoryCompactionProposal({ genesisId, rootId: ancestor ? genesisId : historyCheckpointEnvelopeId(current),
     checkpoint: anchor, issuedAt, expiresAt: issuedAt + 30000 }, n.context, n.owner);
   const certificate = { version: 1 as const, kind: 'history-compaction-certificate' as const, proposal,
     votes: n.memberKeys.slice(0, 4).map(key => createHistoryCompactionVote(proposal, n.context, genesisId, key, issuedAt)) };
+  for (const store of n.generations[1].slice(0, 4)) {
+    store.append(delta);
+    // A signed checkpoint seeds a distant history without manufacturing a billion payloads.
+    // This tests bounded storage/transport/recovery, not the cost of those omitted writes.
+    if (checkpointSequence === 2) store.append(checkpoint);
+    else store.installCheckpoint(checkpoint, certificate, store.reviewDigest());
+  }
+  n.generations[1][0].append(tail);
   if (!ancestor) for (const store of n.generations[1].slice(0, 4)) {
     store.retainCompactionAnchor(certificate, store.reviewDigest());
     expect(store.retirePrefix(store.planPrefixRetirement().approvalDigest).filesRemoved).toBe(1);
@@ -76,8 +84,8 @@ async function fixture(ancestor = false) {
 }
 
 describe('composed compacted admission recovery', { timeout: 60000 }, () => {
-  it.each([false, true])('recovers, repairs, activates and restores through real sockets with an ancestor anchor=%s', async ancestor => {
-    const n = await fixture(ancestor), review = await prepareAdmissionHistoryRecovery(n.options);
+  it.each([[false, 2], [true, 2], [false, 1_000_000_000]] as const)('recovers, repairs, activates and restores through real sockets with ancestor anchor=%s and checkpoint=%i', async (ancestor, checkpointSequence) => {
+    const n = await fixture(ancestor, checkpointSequence), review = await prepareAdmissionHistoryRecovery(n.options);
     expect(review.compactionId).toMatch(/^sha256:/);
     let recovery = await openAdmissionHistoryRecovery({ ...n.options, initialize: { review, approvedDigest: review.approvalDigest } }); cleanup.push(recovery.close);
     for (let steps = 0; steps < 20 && !recovery.status().complete; steps++) {
@@ -87,7 +95,7 @@ describe('composed compacted admission recovery', { timeout: 60000 }, () => {
     }
     expect(recovery.status().complete).toBe(true);
     expect(n.reads.every(([g, s]) => g > n.anchor.generation || (g === n.anchor.generation && s >= n.anchor.sequence))).toBe(true);
-    expect(n.generations[1][4].describe().sequence).toBe(3);
+    expect(n.generations[1][4].describe().sequence).toBe(n.tail.sequence);
     expect(n.generations[1][4].activatedContinuation()?.generation).toBe(2);
     expect(n.generations[1][4].envelopeAt(1)).toEqual(ancestor ? n.delta : null);
     const destination = join(n.directory, 'compacted-owner'), before = n.calls();

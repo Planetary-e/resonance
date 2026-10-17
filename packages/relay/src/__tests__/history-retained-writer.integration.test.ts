@@ -1,10 +1,15 @@
 import { afterEach, expect, it } from 'vitest';
 import { fork } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { historyCheckpointEnvelopeId } from '@resonance/core/history-checkpoint';
+import { historyCheckpointEnvelopeId, historyDigest, sealHistoryCheckpoint } from '@resonance/core/history-checkpoint';
+import { createHistoryExchangeRequest, parseHistoryWriteCertificate } from '@resonance/core/history-exchange';
+import { openEncryptedLocalState } from '@resonance/core/local-state';
+import { HISTORY_WRITER_FILENAME } from '../history-checkpoint-quorum.js';
+import { HISTORY_WRITER_ARCHIVE_FILENAME } from '../history-writer-archive.js';
+import { randomBytes } from 'node:crypto';
 import { createHistoryCompactionProposal, createHistoryCompactionVote } from '@resonance/core/history-compaction';
 import { createRetainedHistoryCheckpointWriter } from '../history-retained-writer.js';
 import { createHistoryCheckpointReplica, exchangeHistoryCheckpoint, listenHistoryCheckpointReplica, type HistoryCheckpointTransport } from '../history-checkpoint-exchange.js';
@@ -44,6 +49,50 @@ it('reopens the complete owner ciphertext and repairs a different fourth volunte
   const c = n.next(b), certificate = await writer.replicate(c);
   expect(certificate.receipts.some(r => r.request.replica === n.context.members[4])).toBe(true);
   expect(n.stores[4].read().envelopes).toEqual([n.root, a, b, c]); expect([...writer.history()]).toEqual([n.root, a, b, c]);
+}, 30000);
+
+it.each([1_000_000_000, Number.MAX_SAFE_INTEGER - 1])('bounds repair and numeric exhaustion from a seeded high-sequence writer at %s', async sequence => {
+  const n = await network(), initial = n.writer(true); await initial.replicate(n.root); initial.close();
+  const checkpoint = sealHistoryCheckpoint({ context: n.context, encryptionKey: n.key, signingKey: n.owner,
+    header: { kind: 'checkpoint', generation: 0, sequence, previous: historyDigest('omitted immediate predecessor') },
+    plaintext: Buffer.from('certified complete state fixture') });
+  const issuedAt = Date.now(), proposal = createHistoryCompactionProposal({ genesisId: n.options.rootId, rootId: n.options.rootId,
+    checkpoint, issuedAt, expiresAt: issuedAt + 30000 }, n.context, n.owner);
+  const proof = { version: 1, kind: 'history-compaction-certificate', proposal,
+    votes: n.memberKeys.slice(0, 4).map(key => createHistoryCompactionVote(proposal, n.context, n.options.rootId, key, issuedAt)) };
+  for (const store of n.stores.slice(0, 4)) store.installCheckpoint(checkpoint, proof, store.reviewDigest());
+  const challenge = randomBytes(32).toString('base64url'), receipts = [];
+  for (const member of n.options.members.slice(0, 4)) {
+    const request = createHistoryExchangeRequest({ action: 'append', rootId: n.options.rootId, generation: 0,
+      replica: member.publicKey, challenge, issuedAt, expiresAt: issuedAt + 30000,
+      sequence: checkpoint.sequence, envelopeId: historyCheckpointEnvelopeId(checkpoint) }, n.context, n.owner);
+    receipts.push(await exchangeHistoryCheckpoint(member, { request, envelope: checkpoint }, AbortSignal.timeout(10000)));
+  }
+  const certificate = parseHistoryWriteCertificate({ version: 1, receipts }, checkpoint, n.options.rootId, n.context);
+  // Seed an authenticated retained snapshot instead of issuing a billion writes.
+  // Production opening still validates the exact payload, proof and writer certificate.
+  for (const [path, domain, update] of [
+    [join(n.options.directory, HISTORY_WRITER_FILENAME), 'resonance:history-checkpoint-writer:v1',
+      (state: any) => ({ ...state, committed: { envelope: checkpoint, certificate }, pending: null })],
+    [join(n.options.directory, 'payloads', HISTORY_WRITER_ARCHIVE_FILENAME), 'resonance:history-writer-archive:v1',
+      (state: any) => ({ ...state, blocks: { version: 1, entries: [[0, n.options.rootId], [checkpoint.sequence, historyCheckpointEnvelopeId(checkpoint)]] }, compaction: proof })],
+  ] as const) {
+    const state = openEncryptedLocalState<any>({ path, key: n.localKey, domain, maxBytes: 40 * 1024 * 1024,
+      mode: 'open-existing', initial: null, validate: (_v): _v is any => true });
+    state.write(update(state.read())); state.close();
+  }
+  writeFileSync(join(n.options.directory, 'payloads', `${historyCheckpointEnvelopeId(checkpoint).slice(7)}.block`), JSON.stringify(checkpoint));
+  await n.listeners[3].close(); const writer = n.writer(false, { maxArchiveBlocks: 4, requireCurrentHead: true });
+  const tail = n.next(checkpoint);
+  if (sequence === Number.MAX_SAFE_INTEGER - 1) {
+    const before = n.calls(); await expect(writer.replicate(tail)).rejects.toThrow('writer pins');
+    expect(n.calls()).toBe(before); expect(writer.read().pending).toBeNull();
+    expect(writer.read().committed?.envelope).toEqual(checkpoint); return;
+  }
+  const result = await writer.replicate(tail);
+  expect(result.receipts).toHaveLength(4); expect(result.receipts.some(r => r.request.replica === n.context.members[4])).toBe(true);
+  expect(n.stores[4].read().envelopes).toEqual([n.root, checkpoint, tail]);
+  expect(writer.historyUsage().retainedBlocks).toBe(3); expect(writer.read().committed?.envelope).toEqual(tail);
 }, 30000);
 
 it('repairs from a durable checkpoint proof after owner reopen, survives a lost install reply, and still requires four fresh target appends', async () => {

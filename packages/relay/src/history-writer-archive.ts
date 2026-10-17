@@ -223,7 +223,7 @@ export function openHistoryWriterArchive(options: {
     prefix() {
       open(); anchor();
       const state = storage.read(), ids = index(state);
-      return registerHistoryWriterPrefix({ contextId, rootId, generation, count: ids.headSequence + 1, bytes,
+      return registerHistoryWriterPrefix({ contextId, rootId, generation, count: ids.headSequence + 1, retainedCount: ids.count, bytes,
         ...(state.compaction ? { compaction: { genesisId: genesisId!, certificate: structuredClone(state.compaction) } } : {}),
         idAt(sequence) { open(); return ids.get(sequence); },
         blockAt(sequence) {

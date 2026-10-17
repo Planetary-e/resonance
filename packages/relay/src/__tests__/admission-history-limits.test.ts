@@ -7,17 +7,46 @@ import { openAdmissionOwnerLimits, type AdmissionOwnerLimitsInput } from '../adm
 import { loadAdmissionHistoryProtectionFile } from '../admission-history-config.js';
 import { createConfiguredAdmissionVerifier } from '../configured-admission-verifier.js';
 import { runAdmissionHistoryCommand } from '../admission-history-command.js';
+import { openProtectedAdmissionSpendHistory } from '../protected-admission-history.js';
 
 const cleanup: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
-async function fixture() {
-  const n = await admissionActivationFixture(); cleanup.push(n.close);
+async function fixture(recovery = false) {
+  const n = await admissionActivationFixture({ recovery }); cleanup.push(n.close);
   const input: AdmissionOwnerLimitsInput = { historyConfigFile: n.input.historyConfigFile, enrollmentFile: n.input.enrollmentFile,
     policyFile: n.input.policyFile, storageKeyFile: n.input.storageKeyFile, directory: n.historyDirectory,
     output: join(n.directory, 'owner-limits.json'), archiveMiB: 1, archiveBlocks: 3 };
   const open = async (selection = input) => { const value = await openAdmissionOwnerLimits(selection); cleanup.push(value.close); return value; };
   return { ...n, input, open };
 }
+
+it('counts archived pending ciphertext once after certified prefix retirement', async () => {
+  const n = await fixture(true);
+  const history = await openProtectedAdmissionSpendHistory({ directory: n.historyDirectory, authority: n.issuer.authority,
+    policy: n.policy, encryptionKey: n.key, protection: { ...n.protection, transport: async (member, frame, signal) => {
+      const reply = await n.protection.transport(member, frame, signal);
+      if (frame.request.action === 'append' && frame.request.sequence === 3) throw new Error('lost append reply');
+      return reply;
+    } } });
+  try {
+    await history.ready(); await history.checkpoint(history.planCheckpoint().approvalDigest);
+    await history.certifyCheckpoint(history.planCheckpointCertification().approvalDigest);
+    await history.retirePrefix(history.planPrefixRetirement().approvalDigest);
+    expect(history.health().retainedBlocks).toBe(2);
+    await expect(history.write({ ...history.read().image.state.spends[0], spend: 'a'.repeat(43), issuerKey: n.policy.activeKey }))
+      .rejects.toThrow('Four');
+    expect(history.read().pending?.sequence).toBe(3);
+    expect(history.health().retainedBlocks).toBe(3);
+  } finally { history.close(); }
+  const prepared = await n.open();
+  expect(prepared.review).toMatchObject({ retainedBlocks: 3, archiveBlocks: 3, pending: true, pendingUnarchivedBytes: 0 });
+  prepared.apply(prepared.review.approvalDigest); prepared.close();
+  const protection = loadAdmissionHistoryProtectionFile(n.input.output); cleanup.push(() => { protection.signingKey.secretKey.fill(0); });
+  const resumed = await openProtectedAdmissionSpendHistory({ directory: n.historyDirectory, authority: n.issuer.authority,
+    policy: n.policy, encryptionKey: n.key, protection }); cleanup.push(resumed.close);
+  await resumed.ready(); expect(resumed.read().pending).toBeNull(); expect(resumed.size()).toBe(2);
+  expect(resumed.health().retainedBlocks).toBe(3);
+}, 15000);
 
 it('reviews limits offline and writes a new configuration that retains the same history and owner key', async () => {
   const n = await fixture(), before = n.exchanges(), original = readFileSync(n.input.historyConfigFile);

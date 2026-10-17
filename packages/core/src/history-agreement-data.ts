@@ -24,7 +24,7 @@ export interface HistoryAgreementDataResponse {
 export const HISTORY_AGREEMENT_DATA_MAX_BYTES = HISTORY_ENVELOPE_MAX_BYTES + HISTORY_AGREEMENT_MAX_FRAME_BYTES + HISTORY_COMPACTION_MAX_BYTES + 4096;
 const domain = 'resonance:history-agreement-data:v2';
 const bytes = (purpose: string, body: unknown) => Buffer.from(`${domain}:${purpose}\n${JSON.stringify(body)}`);
-const integer = (n: unknown): n is number => Number.isSafeInteger(n) && (n as number) >= 0 && (n as number) <= 10_000;
+const integer = (n: unknown): n is number => Number.isSafeInteger(n) && (n as number) >= 0 && (n as number) < Number.MAX_SAFE_INTEGER;
 const body = (f: HistoryAgreementDataFrame) => [f.version, f.kind, f.action, f.authorization.request.signature, f.sequence, f.envelopeId,
   ...(f.compaction ? [historyDigest(JSON.stringify(f.compaction))] : [])];
 export const historyAgreementDataId = (f: HistoryAgreementDataFrame) => historyDigest(bytes('request-id', [...body(f), f.signature]));

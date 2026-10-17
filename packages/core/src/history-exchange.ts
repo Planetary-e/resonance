@@ -58,7 +58,7 @@ export function parseHistoryExchangeRequest(value: unknown, context: HistoryChec
     || value.expiresAt <= value.issuedAt || value.expiresAt - value.issuedAt > HISTORY_REQUEST_MAX_LIFETIME_MS
     || !integer(value.sequence) || (['head', 'continuation'].includes(value.action as string) && value.sequence !== 0)
     || (value.action === 'freeze' && value.sequence <= value.generation)
-    || (install && (!isHistoryDigest(value.certificateId) || value.sequence < 1 || value.sequence >= HISTORY_RECOVERY_MAX_BLOCKS))
+    || (install && (!isHistoryDigest(value.certificateId) || value.sequence < 1 || value.sequence >= Number.MAX_SAFE_INTEGER))
     || (['append', 'install', 'repair', 'seal'].includes(value.action as string) ? !isHistoryDigest(value.envelopeId) : value.envelopeId !== null)
     || !witnessBytes(value.signature, 64)
     || (now !== undefined && (!integer(now) || now < value.issuedAt || now >= value.expiresAt))) {
@@ -196,7 +196,7 @@ export function parseHistoryRecoveryPreparation(value: unknown, context: History
     bytes += Buffer.byteLength(JSON.stringify(raw));
     if (bytes > HISTORY_RECOVERY_MAX_BYTES) throw new Error('History recovery byte capacity exceeded');
     const block = parseHistoryCheckpointEnvelope(raw, context), id = historyCheckpointEnvelopeId(block);
-    if (block.generation !== value.generation || block.sequence !== sequence || sequence >= HISTORY_RECOVERY_MAX_BLOCKS
+    if (block.generation !== value.generation || block.sequence !== sequence || !Number.isSafeInteger(sequence) || sequence >= Number.MAX_SAFE_INTEGER
       || (offset ? block.previous !== ids[offset - 1] : !compaction && (block.previous !== null || id !== value.rootId))) {
       throw new Error('Incomplete or conflicting recovery chain');
     }

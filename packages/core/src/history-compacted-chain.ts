@@ -3,6 +3,7 @@
 import { isHistoryDigest, type HistoryCheckpointContext } from './history-checkpoint.js';
 import { parseHistoryCompactionAttestation, parseHistoryCompactionCertificate } from './history-compaction.js';
 import { parseHistorySuccessorProposal } from './history-successor.js';
+import { HISTORY_RECOVERY_MAX_BLOCKS } from './history-exchange.js';
 
 export function assertHistoryCompactedSuccessorChain(options: {
   proposal: unknown; ids: readonly string[]; certificate: unknown; checkpoint: unknown;
@@ -21,7 +22,7 @@ export function assertHistoryCompactedSuccessorIds(options: {
   const p = parseHistorySuccessorProposal(options.proposal, options.context);
   const certificate = parseHistoryCompactionAttestation(options.certificate, options.context, options.genesisId);
   const anchor = certificate.proposal, ids = options.ids;
-  if (p.rootId !== anchor.rootId || p.generation !== anchor.generation || p.sequence < anchor.sequence
+  if (ids.length > HISTORY_RECOVERY_MAX_BLOCKS || p.rootId !== anchor.rootId || p.generation !== anchor.generation || p.sequence < anchor.sequence
     || ids.length !== p.sequence - anchor.sequence + 1 || ids[0] !== anchor.envelopeId || ids.at(-1) !== p.envelopeId
     || !ids.every(isHistoryDigest) || new Set(ids).size !== ids.length
     || p.freezes.some(r => r.head.sequence >= anchor.sequence && ids[r.head.sequence - anchor.sequence] !== r.head.envelopeId)) {

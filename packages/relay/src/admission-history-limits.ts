@@ -48,7 +48,7 @@ export async function openAdmissionOwnerLimits(input: AdmissionOwnerLimitsInput,
     if (historyCheckpointEnvelopeId(retainedGenesis) !== enrollment.genesisId) throw new Error('Owner limit history differs from independent genesis');
     const usage = history.health();
     // Pending intent may be durable locally before its ciphertext reaches the archive.
-    const pendingBytes = state.pending && state.pending.sequence >= usage.retainedBlocks ? Buffer.byteLength(JSON.stringify(state.pending)) : 0;
+    const pendingBytes = history.pendingUnarchivedBytes();
     if (usage.retainedBlocks + (pendingBytes ? 1 : 0) > limits.archiveBlocks || usage.retainedCiphertextBytes + pendingBytes > limits.archiveBytes) {
       throw new Error('Owner archive limits must retain pending ciphertext as well as accepted records');
     }

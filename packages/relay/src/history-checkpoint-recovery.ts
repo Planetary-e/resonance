@@ -136,7 +136,7 @@ export function createHistoryCheckpointRecovery(options: {
               return response;
             }
             const receipt = await request('freeze', nextGeneration), head = receipt.head;
-            if (head.sequence >= HISTORY_RECOVERY_MAX_BLOCKS) throw new Error('History recovery block capacity exceeded');
+            if (head.sequence - start >= HISTORY_RECOVERY_MAX_BLOCKS) throw new Error('History recovery block capacity exceeded');
             const envelopes: HistoryCheckpointEnvelope[] = [], ids: string[] = [];
             let bytes = 0;
             for (let sequence = start; sequence <= head.sequence; sequence++) {

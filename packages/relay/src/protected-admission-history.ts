@@ -146,6 +146,7 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
   }
   async function commit(value: AdmissionHistoryMutation | AdmissionHistoryStateCheckpoint): Promise<void> {
     const before = available();
+    if (before.applied!.sequence >= Number.MAX_SAFE_INTEGER - 1) throw new Error('History sequence capacity exhausted');
     const kind = value.kind === 'admission-state-checkpoint'
       || value.kind === 'policy' && Buffer.byteLength(JSON.stringify(value)) > HISTORY_DELTA_MAX_PAYLOAD ? 'checkpoint' : 'delta';
     const record: AdmissionHistoryRecord = kind === 'checkpoint' && value.kind === 'policy'
@@ -156,7 +157,7 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
       plaintext: encodeAdmissionHistoryRecord(reduced.record), encryptionKey: key, signingKey: signer });
     if (value.kind === 'admission-state-checkpoint') {
       const usage = writer!.historyUsage();
-      if (writer!.historyStatus().sequenceSlots >= usage.maximumBlocks
+      if (usage.retainedBlocks >= usage.maximumBlocks
         || Buffer.byteLength(JSON.stringify(pending)) > usage.maximumCiphertextBytes - usage.retainedCiphertextBytes) {
         throw new Error('State checkpoint needs retained archive headroom; no checkpoint intent was written');
       }
@@ -166,7 +167,7 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
   }
   function checkpointPlan() {
     const state = available(), at = now(); assertAdmissionPolicyCurrent(state.image.policy, at);
-    if (state.applied!.sequence >= Number.MAX_SAFE_INTEGER) throw new Error('History sequence capacity exhausted');
+    if (state.applied!.sequence >= Number.MAX_SAFE_INTEGER - 1) throw new Error('History sequence capacity exhausted');
     const plaintext = encodeAdmissionHistoryRecord({ version: 1, kind: 'admission-state-checkpoint', at, image: state.image });
     const payloadBytes = plaintext.length; plaintext.fill(0);
     return { kind: 'admission-history-state-checkpoint' as const, generation: state.root.generation,
@@ -304,6 +305,12 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
     /** Current-generation accounting only; neither a fresh audit nor a remote copy count. */
     health() { const state = read(); return { initialized: readyConfirmed, busy: active, pending: state.pending !== null,
       ...writer!.historyUsage() }; },
+    /** Local limit review: absolute position distinguishes archived intent from
+     * retained payload count after prefix retirement. No peer data is exposed. */
+    pendingUnarchivedBytes() {
+      const state = read(), status = writer!.historyStatus();
+      return state.pending && state.pending.sequence >= status.sequenceSlots ? Buffer.byteLength(JSON.stringify(state.pending)) : 0;
+    },
     policy(): SignedAdmissionPolicy { return structuredClone(serving().image.policy); },
     ready() { return exclusive(async () => {
       readyConfirmed = false;

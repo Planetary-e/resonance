@@ -35,7 +35,8 @@ afterEach(async () => {
 });
 let f: Awaited<ReturnType<typeof witnessFixture>>;
 beforeAll(async () => { f = await witnessFixture(); });
-async function fixture(sockets = false, legacy: boolean | AdmissionSpendRecord = false) {
+async function fixture(sockets = false, legacy: boolean | AdmissionSpendRecord = false,
+  limits: { maxArchiveBlocks?: number; maxReplicaBlocks?: number } = {}) {
   const h = historyCheckpointFixture(), directory = mkdtempSync(join(tmpdir(), 'protected-admission-'));
   cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
   const policy = await signAdmissionPolicy({ ...f.body, keys: f.body.keys.map(({ witnesses, ...entry }) => entry) }, f.authority, f.authorityKey.secretKey);
@@ -52,7 +53,8 @@ async function fixture(sockets = false, legacy: boolean | AdmissionSpendRecord =
     if (loseReplies && frame.request.action === 'append') throw new Error('reply lost');
     return response;
   };
-  const protection: AdmissionHistoryProtection = { context, signingKey: h.owner, members, transport, timeoutMs: 2000 };
+  const protection: AdmissionHistoryProtection = { context, signingKey: h.owner, members, transport, timeoutMs: 2000,
+    maxArchiveBlocks: limits.maxArchiveBlocks };
   const options = { directory: join(directory, 'owner'), encryptionKey: h.key, authority: f.authority, policy, now: () => time, protection };
   const old = { spend: randomBytes(32).toString('base64url'), action: 'search', binding: `admreq_${'x'.repeat(86)}`, issuerKey: policy.activeKey };
   if (legacy === true) { const ledger = openAdmissionSpendHistory({ ...options, initialize: true }); ledger.write(old); ledger.close(); }
@@ -66,7 +68,7 @@ async function fixture(sockets = false, legacy: boolean | AdmissionSpendRecord =
   const { root } = history.enrollment();
   for (let i = 0; i < 5; i++) {
     const store = openHistoryCheckpointStore({ directory: join(directory, `r${i}`), context, replica: context.members[i],
-      localKey: h.localKey, rootId: historyCheckpointEnvelopeId(root), generation: 0, initialize: root });
+      localKey: h.localKey, rootId: historyCheckpointEnvelopeId(root), generation: 0, initialize: root, maxBlocks: limits.maxReplicaBlocks });
     stores.push(store); cleanup.push(() => store.close());
     const role = createHistoryCheckpointReplica({ context, store, signingKey: h.memberKeys[i] }); roles.push(role); cleanup.push(() => role.close());
     if (sockets) { const listener = await listenHistoryCheckpointReplica(role, { port: 0 }); listeners.push(listener); members[i].endpoint = listener.endpoint; cleanup.push(() => listener.close()); }
@@ -83,6 +85,29 @@ async function fixture(sockets = false, legacy: boolean | AdmissionSpendRecord =
     gate: (v?: Promise<void>) => { gate = v; }, time: (n: number) => { time = n; } };
 }
 const row = (issuerKey: string) => ({ issuerKey, spend: randomBytes(32).toString('base64url'), action: 'search', binding: `admreq_${'a'.repeat(86)}` });
+
+it('preserves all spends across repeated checkpoint retirement with four-payload owner and volunteer budgets', async () => {
+  const n = await fixture(false, false, { maxArchiveBlocks: 4, maxReplicaBlocks: 4 });
+  let history = n.history; await history.ready(); const accepted = [];
+  for (let cycle = 0; cycle < 6; cycle++) {
+    const next = row(n.policy.activeKey); accepted.push(next); await history.write(next);
+    await history.checkpoint(history.planCheckpoint().approvalDigest);
+    const review = history.planCheckpointCertification();
+    const proof = await history.certifyCheckpoint(review.approvalDigest, { transport: async (member, proposal) => {
+      const i = n.context.members.indexOf(member.publicKey);
+      if (n.stores[i].envelopeIdAt(proposal.sequence) !== proposal.envelopeId) throw new Error('Checkpoint unavailable');
+      return createHistoryCompactionVote(proposal, n.context, review.genesisId, n.memberKeys[i], Date.now());
+    } });
+    await history.retirePrefix(history.planPrefixRetirement().approvalDigest);
+    for (const store of n.stores) {
+      store.retainCompactionAnchor(proof, store.reviewDigest()); store.retirePrefix(store.planPrefixRetirement().approvalDigest);
+      expect(store.storageUsage().retainedBlocks).toBe(2);
+    }
+    expect(history.health().retainedBlocks).toBe(2); history = await n.reopen(); await history.ready();
+    for (const value of accepted) expect(history.get(value.spend)).toEqual(value);
+  }
+  expect(history.read().applied!.sequence).toBe(12); expect(history.size()).toBe(6);
+}, 30000);
 
 it('reviews and certifies only the latest complete state without changing accepted work or treating three endorsements as a quorum', async () => {
   const n = await fixture(false, true); await n.history.ready();

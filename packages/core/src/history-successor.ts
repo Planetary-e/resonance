@@ -6,7 +6,7 @@ import { copyAdmissionSigningKey, exactWitnessFields, witnessBytes } from './adm
 import { historyCheckpointContextId, historyCheckpointEnvelopeId, historyDigest, isHistoryDigest,
   type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from './history-checkpoint.js';
 import { parseHistoryExchangeRequest, parseHistoryExchangeResponse, parseHistoryRecoveryPreparation,
-  HISTORY_RECOVERY_MAX_BLOCKS, type HistoryExchangeResponse, type HistoryRecoveryPreparation } from './history-exchange.js';
+  type HistoryExchangeResponse, type HistoryRecoveryPreparation } from './history-exchange.js';
 
 export interface HistorySuccessorProposal {
   version: 1; kind: 'history-successor'; contextId: string; rootId: string;
@@ -26,7 +26,7 @@ export function parseHistorySuccessorProposal(value: unknown, context: HistoryCh
   if (!exactWitnessFields(value, fields) || value.version !== 1 || value.kind !== 'history-successor'
     || value.contextId !== historyCheckpointContextId(context) || !isHistoryDigest(value.rootId)
     || !integer(value.generation) || !integer(value.nextGeneration) || value.nextGeneration <= value.generation
-    || !integer(value.sequence) || value.sequence >= HISTORY_RECOVERY_MAX_BLOCKS || !isHistoryDigest(value.envelopeId)
+    || !integer(value.sequence) || value.sequence >= Number.MAX_SAFE_INTEGER || !isHistoryDigest(value.envelopeId)
     || (value.sequence === 0 && value.envelopeId !== value.rootId) || !witnessBytes(value.nonce, 32)
     || !witnessBytes(value.signature, 64) || !Array.isArray(value.freezes) || value.freezes.length !== 4
     || Buffer.byteLength(JSON.stringify(value)) > HISTORY_SUCCESSOR_MAX_BYTES) throw new Error('Invalid successor proposal');

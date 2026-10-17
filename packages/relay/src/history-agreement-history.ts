@@ -27,8 +27,8 @@ export function createHistoryAgreementHistory(options: {
   const start = compaction?.proposal.sequence ?? 0;
   const blocks: HistoryCheckpointEnvelope[] = [], ids: string[] = [];
   function verify() {
-    if (compaction) assertHistoryCompactedSuccessorChain({ proposal, certificate: compaction, checkpoint: blocks[start],
-      context, genesisId: genesisId!, ids: ids.slice(start) });
+    if (compaction) assertHistoryCompactedSuccessorChain({ proposal, certificate: compaction, checkpoint: blocks[0],
+      context, genesisId: genesisId!, ids });
     else assertHistorySuccessorChain(proposal, ids);
   }
   async function send(member: HistoryReplicaEndpoint, action: HistoryAgreementDataFrame['action'], sequence: number,
@@ -44,7 +44,7 @@ export function createHistoryAgreementHistory(options: {
   return {
     /** Follow authenticated predecessor hashes backwards, trying every pinned source. */
     async download() {
-      if (proposal.sequence > 10_000) throw new Error('History transfer block capacity exceeded');
+      if (proposal.sequence - start > 10_000) throw new Error('History transfer block capacity exceeded');
       if (options.retained) {
         let count = 0, bytes = 0, generationBytes = 0;
         for (const raw of options.retained()) {
@@ -54,9 +54,9 @@ export function createHistoryAgreementHistory(options: {
           const block = parseHistoryCheckpointEnvelope(raw, context);
           if (block.generation !== proposal.generation || block.sequence < start) continue;
           generationBytes += size;
-          if (generationBytes > 64 * 1024 * 1024 || block.sequence !== Math.max(start, blocks.length)
+          if (generationBytes > 64 * 1024 * 1024 || block.sequence !== start + blocks.length
             || (!(compaction && block.sequence === start) && block.previous !== (ids.at(-1) ?? null))) throw new Error('Retained history is incomplete or out of order');
-          blocks[block.sequence] = block; ids[block.sequence] = historyCheckpointEnvelopeId(block);
+          blocks.push(block); ids.push(historyCheckpointEnvelopeId(block));
         }
         verify(); live(); return;
       }
@@ -76,7 +76,7 @@ export function createHistoryAgreementHistory(options: {
         });
         size += Buffer.byteLength(JSON.stringify(envelope));
         if (size > 64 * 1024 * 1024) throw new Error('History transfer byte capacity exceeded');
-        blocks[sequence] = envelope; ids[sequence] = historyCheckpointEnvelopeId(envelope); expected = envelope.previous!;
+        blocks[sequence - start] = envelope; ids[sequence - start] = historyCheckpointEnvelopeId(envelope); expected = envelope.previous!;
       }
       verify(); live();
     },
@@ -84,9 +84,9 @@ export function createHistoryAgreementHistory(options: {
       let response = await send(member, 'head', proposal.sequence, proposal.envelopeId, group);
       function position() {
         const { head, pending } = response;
-        if (head.sequence > proposal.sequence || (head.sequence >= start && ids[head.sequence] !== head.envelopeId)
+        if (head.sequence > proposal.sequence || (head.sequence >= start && ids[head.sequence - start] !== head.envelopeId)
           || (head.sequence === 0 && head.envelopeId !== proposal.rootId)) throw new Error('Replica retains different or newer history');
-        if (pending && (pending.sequence <= head.sequence || pending.sequence < start || pending.sequence > proposal.sequence || ids[pending.sequence] !== pending.envelopeId)) {
+        if (pending && (pending.sequence <= head.sequence || pending.sequence < start || pending.sequence > proposal.sequence || ids[pending.sequence - start] !== pending.envelopeId)) {
           throw new Error('Invalid staged history position');
         }
         return head.sequence === proposal.sequence ? null : pending?.sequence ?? proposal.sequence;
@@ -94,7 +94,7 @@ export function createHistoryAgreementHistory(options: {
       let next = position();
       while (next !== null) {
         const before = next;
-        response = await send(member, 'stage', next, ids[next], group, blocks[next]);
+        response = await send(member, 'stage', next, ids[next - start], group, blocks[next - start]);
         next = position();
         if (next !== null && next >= before) throw new Error('History transfer made no progress');
       }
