@@ -6,6 +6,10 @@ on:
   pull_request:
     # Check development PRs as well as PRs targeting main.
 
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   local-ownership:
     # Filesystem/process compatibility checks only; no native application build.
@@ -42,6 +46,8 @@ jobs:
           packages/relay/src/__tests__/protected-policy-quorum.integration.test.ts
           packages/relay/src/__tests__/policy-observer-history-restore.integration.test.ts
           packages/relay/src/__tests__/policy-observer-restore-crash.integration.test.ts
+          packages/relay/src/__tests__/policy-observer-recovery.integration.test.ts
+          packages/relay/src/__tests__/policy-observer-recovery-crash.integration.test.ts
 
   test:
     runs-on: ubuntu-latest

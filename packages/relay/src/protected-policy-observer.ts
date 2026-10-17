@@ -2,14 +2,16 @@
  * No production admission/CLI wiring and no automatic lost-state reconstruction. */
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { SigningKeyPair } from '@resonance/core';
-import { copyAdmissionSigningKey } from '@resonance/core/admission-witness';
+import { copyAdmissionSigningKey, exactWitnessFields } from '@resonance/core/admission-witness';
+import { openEncryptedLocalState } from '@resonance/core/local-state';
+import { captureStorageReservationOperation } from '@resonance/core/storage-reservations';
 import { assertAdmissionPolicyCurrent } from '@resonance/core/admission-policy';
 import { admissionPolicyObserversId, createAdmissionPolicyHeadVote, parseAdmissionPolicyHeadRequest,
   parseAdmissionPolicyObservers, type AdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
 import { parseAdmissionPolicyAdvance } from '@resonance/core/admission-policy-advance';
-import { historyCheckpointContextId, historyCheckpointEnvelopeId, historyCheckpointEnvelopeByteLength, historyCheckpointReserveBucket,
+import { historyCheckpointContextId, historyCheckpointEnvelopeId, historyCheckpointEnvelopeByteLength, historyCheckpointReserveBucket, historyDigest,
   parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, sealHistoryCheckpoint,
   type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { createRetainedHistoryCheckpointWriter } from './history-retained-writer.js';
@@ -19,6 +21,23 @@ import { advanceAdmissionPolicyObserverState, assertPolicyObserverStateSuccessor
 import { decodePolicyObserverSnapshot, policyObserverHistoryContext } from './policy-observer-history-replay.js';
 import { openPolicyObserverRestoration, type PreparedPolicyObserverRestore } from './policy-observer-history-restore.js';
 export { policyObserverHistoryContext } from './policy-observer-history-replay.js';
+
+export const POLICY_OBSERVER_RECOVERY_FENCE = 'policy-observer-recovery-fence.json';
+export interface PolicyObserverRecoverySource {
+  readonly directory: string; readonly contextId: string; readonly genesisId: string;
+  readonly rootId: string; readonly generation: number; readonly stateDigest: string;
+}
+const recoverySources = new WeakMap<PolicyObserverRecoverySource, { state: AdmissionPolicyObserverState; fence(): Promise<void> }>();
+export function readPolicyObserverRecoverySource(source: PolicyObserverRecoverySource) {
+  const record = recoverySources.get(source);
+  if (!record) throw new Error('Policy recovery needs a live reviewed source capability');
+  return structuredClone(record.state);
+}
+export async function fencePolicyObserverRecoverySource(source: PolicyObserverRecoverySource) {
+  const record = recoverySources.get(source);
+  if (!record) throw new Error('Policy recovery needs a live reviewed source capability');
+  await record.fence();
+}
 
 type WriterOptions = Parameters<typeof createRetainedHistoryCheckpointWriter>[0];
 /** Offline preparation only. Persist and independently enroll this exact root;
@@ -50,6 +69,7 @@ export async function openProtectedPolicyObserver(options: {
   timeoutMs?: number; transport?: WriterOptions['transport']; maxArchiveBlocks?: number; maxArchiveBytes?: number;
   now?: () => number;
 }) {
+  const run = captureStorageReservationOperation();
   if (!['create-new', 'open-existing'].includes(options.mode)) throw new Error('Protected policy observer requires an explicit open mode');
   if (!(options.encryptionKey instanceof Uint8Array) || options.encryptionKey.length !== 32) throw new Error('Protected policy observer requires a 32-byte encryption key');
   const context = parseAdmissionPolicyObservers(options.context), historyContext = parseHistoryCheckpointContext(options.historyContext);
@@ -63,7 +83,7 @@ export async function openProtectedPolicyObserver(options: {
     initializeArchive: options.initializeArchive, resumePristineArchive: options.resumePristineArchive,
     timeoutMs: options.timeoutMs ?? 3000, transport: options.transport,
     maxArchiveBlocks: options.maxArchiveBlocks, maxArchiveBytes: options.maxArchiveBytes };
-  let writer: ReturnType<typeof createRetainedHistoryCheckpointWriter> | undefined, closed = false, busy = false;
+  let writer: ReturnType<typeof createRetainedHistoryCheckpointWriter> | undefined, closed = false, busy = false, fenced = false;
   let restoration: Awaited<ReturnType<typeof openPolicyObserverRestoration>> | undefined;
   // Only the committed and pending states are needed after opening. All retained
   // ciphertext is authenticated and replayed before these cached states are used.
@@ -91,11 +111,22 @@ export async function openProtectedPolicyObserver(options: {
     assertAdmissionPolicyCurrent(state.policy, now());
   }
   async function exclusive<T>(operation: () => Promise<T>): Promise<T> {
-    live(); if (busy) throw new Error('Protected policy observer operation is already in progress'); busy = true;
+    live(); if (fenced) throw new Error('Policy observer is permanently fenced for recovery');
+    if (busy) throw new Error('Protected policy observer operation is already in progress'); busy = true;
     try { return await operation(); } finally { busy = false; }
   }
   async function confirm() {
     const { block } = retained(); await writer!.replicate(block); live(); trim(); return retained();
+  }
+  const fencePath = join(writerOptions.directory, POLICY_OBSERVER_RECOVERY_FENCE);
+  const stateDigest = () => historyDigest(JSON.stringify(retained().state));
+  function fenceRecord() { return { version: 1, contextId: historyCheckpointContextId(historyContext), genesisId, rootId, stateDigest: stateDigest() }; }
+  function openFence(mode: 'create-new' | 'open-existing') {
+    const expected = fenceRecord();
+    return run(() => openEncryptedLocalState<typeof expected>({ path: fencePath, key, domain: 'resonance:policy-observer-recovery-fence:v1',
+      maxBytes: 4096, mode, initial: expected, validate: (value): value is typeof expected =>
+        exactWitnessFields(value, ['version', 'contextId', 'genesisId', 'rootId', 'stateDigest'])
+        && Object.keys(expected).every(field => value[field] === expected[field as keyof typeof expected]) }));
   }
   try {
     const expected = policyObserverHistoryContext(context, Buffer.from(signer.publicKey).toString('base64url'));
@@ -137,17 +168,44 @@ export async function openProtectedPolicyObserver(options: {
     }
     if (performance.now() - start >= 30000) throw new Error('Policy observer replay timed out');
     retained();
+    if (existsSync(fencePath)) { const marker = openFence('open-existing'); marker.close(); fenced = true; }
   } catch (error) { close(); throw error; }
   return {
     status() {
       const { state, saved } = retained();
       return { head: structuredClone(policyObserverStateHead(state, context)), blocked: state.conflict !== null,
-        pending: saved.pending !== null, evidence: state.conflict ? structuredClone([state.advance!, state.conflict]) : [], ...writer!.historyUsage() };
+        pending: saved.pending !== null, fenced, evidence: state.conflict ? structuredClone([state.advance!, state.conflict]) : [], ...writer!.historyUsage() };
     },
     policy() { return structuredClone(retained().state.policy); },
     /** Local knowledge for explicit recovery review, including an unacknowledged
      * pending head/conflict. This is neither a global view nor signing readiness. */
     recoveryState() { return structuredClone(retained().state); },
+    /** Review is read-only. Applying its capability first durably confirms all
+     * local evidence, then fences this directory before remote freeze begins. */
+    reviewRecoverySource(): PolicyObserverRecoverySource {
+      live(); if (busy) throw new Error('Cannot review an active policy observer');
+      const state = structuredClone(retained().state), digest = stateDigest();
+      const source = Object.freeze({ directory: resolve(writerOptions.directory), contextId: historyCheckpointContextId(historyContext),
+        genesisId, rootId, generation: root.generation, stateDigest: digest });
+      recoverySources.set(source, { state, async fence() {
+        live(); if (busy) throw new Error('Cannot fence an active policy observer');
+        if (stateDigest() !== digest) throw new Error('Policy observer changed since recovery review');
+        if (fenced) return;
+        busy = true;
+        try {
+          // An existing write certificate already proves four durable copies.
+          // A frozen predecessor may no longer answer a fresh write, but its
+          // committed state must still be preserved by the selected ancestry.
+          const saved = retained().saved;
+          if (saved.pending || !saved.committed) await confirm();
+          live(); // Pending conflicts are copied without asking usable() to sign them.
+          if (stateDigest() !== digest) throw new Error('Policy observer changed during recovery confirmation');
+          try { const marker = openFence('create-new'); marker.close(); fenced = true; }
+          catch (error) { close(); throw error; } // Never guess whether a failed flush published the fence.
+        } finally { busy = false; }
+      } });
+      return source;
+    },
     /** No persistent ready flag: every observation performs another fresh check. */
     ready() { return exclusive(async () => { const { state } = await confirm(); usable(state); }); },
     observe(value: unknown) { return exclusive(async () => {

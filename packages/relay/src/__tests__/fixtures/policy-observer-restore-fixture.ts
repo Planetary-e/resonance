@@ -88,6 +88,6 @@ export async function policyObserverRestoreFixture(register: (close: () => void 
         genesisId: historyCheckpointEnvelopeId(enrolled.root), continuation: root, encryptionKey: key, blocks: [...ancestry] },
       openOptions: { ...options, directory: join(f.directory, `restored-${nextGeneration}`), root, genesis: enrolled.root } };
   }
-  return { ...f, key, owner, enrolled, options, observer, stores, generations, members, transport, recover,
+  return { ...f, key, owner, enrolled, options, observer, stores, generations, members, transport, recover, localKeys, signingKeys,
     online(value: number) { online = value; }, loseReplies(value: boolean) { loseReplies = value; } };
 }
