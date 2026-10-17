@@ -81,7 +81,16 @@ export function createHistoryCheckpointReplica(options: {
         // Owner callbacks may close/freeze the role. Recheck before any write or signature escapes.
         if (closed) throw new Error('History replica is closed');
         parseHistoryExchangeRequest(request, context, now());
-        if (compaction) { options.store.installCheckpoint(incoming, compaction, options.store.reviewDigest()); status = 'installed'; }
+        if (compaction) {
+          options.store.installCheckpoint(incoming, compaction, options.store.reviewDigest());
+          if (request.reclaimPrefix) {
+            if (closed) throw new Error('History replica is closed');
+            parseHistoryExchangeRequest(request, context, now());
+            const plan = options.store.planPrefixRetirement();
+            options.store.retirePrefix(plan.approvalDigest);
+          }
+          status = 'installed';
+        }
         else if (successor) { options.store.repair(incoming, successor); status = 'repaired'; }
         else { options.store.append(incoming); status = 'stored'; } // File + manifest durability precedes signing.
       } else {

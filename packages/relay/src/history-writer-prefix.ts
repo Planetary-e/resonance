@@ -10,7 +10,7 @@ export interface HistoryWriterPrefix {
   readonly retainedCount: number;
   readonly bytes: number;
   /** Authenticated locally retained proof; no omitted prefix is inferred from peer data. */
-  readonly compaction?: { genesisId: string; certificate: HistoryCompactionCertificate };
+  readonly compaction?: { genesisId: string; certificate: HistoryCompactionCertificate; reclaimPrefix?: true };
   idAt(sequence: number): string | null;
   blockAt(sequence: number): HistoryCheckpointEnvelope;
 }

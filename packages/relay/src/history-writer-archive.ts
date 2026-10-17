@@ -15,7 +15,8 @@ import { parseHistoryCompactionAttestation, parseHistoryCompactionCertificate, t
 
 export const HISTORY_WRITER_ARCHIVE_FILENAME = 'history-writer-payloads.json';
 const MANIFEST_BYTES = 2 * 1024 * 1024;
-interface State { version: 1; contextId: string; rootId: string; generation: number; blocks: StoredHistorySequenceIndex; compaction?: HistoryCompactionCertificate }
+interface State { version: 1; contextId: string; rootId: string; generation: number; blocks: StoredHistorySequenceIndex;
+  compaction?: HistoryCompactionCertificate; reclaimReplicaPrefix?: true }
 
 export function openHistoryWriterArchive(options: {
   directory: string; localKey: Uint8Array; context: HistoryCheckpointContext; rootId: string; generation: number;
@@ -43,7 +44,9 @@ export function openHistoryWriterArchive(options: {
   }
   function validate(raw: unknown): raw is State {
     const compacted = !!raw && typeof raw === 'object' && Object.hasOwn(raw, 'compaction');
-    if (!exactWitnessFields(raw, [...Object.keys(initial), ...(compacted ? ['compaction'] : [])]) || raw.version !== 1 || raw.contextId !== contextId
+    const reclaim = !!raw && typeof raw === 'object' && Object.hasOwn(raw, 'reclaimReplicaPrefix');
+    if (!exactWitnessFields(raw, [...Object.keys(initial), ...(compacted ? ['compaction'] : []), ...(reclaim ? ['reclaimReplicaPrefix'] : [])])
+      || (reclaim && (!compacted || raw.reclaimReplicaPrefix !== true)) || raw.version !== 1 || raw.contextId !== contextId
       || raw.rootId !== rootId || raw.generation !== generation) return false;
     try {
       const ids = index(raw as unknown as State);
@@ -186,19 +189,26 @@ export function openHistoryWriterArchive(options: {
   }
   return {
     retainPending,
-    /** Local proof publication changes repair strategy only; all accepted bytes remain retained. */
-    retainCompactionAnchor(value: unknown, approvedDigest: string): HistoryCompactionCertificate {
+    /** Local publication retains owner bytes. Enabling remote prefix reclamation
+     * requires review of the current committed checkpoint, never an old tail. */
+    retainCompactionAnchor(value: unknown, approvedDigest: string, settings: { reclaimReplicaPrefix?: true } = {}): HistoryCompactionCertificate {
       open(); const writer = anchor(), state = storage.read(), ids = index(state);
+      if (!exactWitnessFields(settings, settings.reclaimReplicaPrefix === true ? ['reclaimReplicaPrefix'] : [])) throw new Error('Invalid replica prefix repair settings');
       const proof = parseHistoryCompactionAttestation(value, context, genesisId!), p = proof.proposal;
       if (writer.pending || !writer.committed || p.rootId !== rootId || p.generation !== generation
         || p.sequence > writer.committed.envelope.sequence || ids.get(p.sequence) !== p.envelopeId) {
         throw new Error('Writer checkpoint proof must match committed retained history without pending work');
       }
       parseHistoryCompactionCertificate(proof, context, genesisId!, readBlock(p.envelopeId).block);
-      if (state.compaction?.proposal.envelopeId === p.envelopeId) return structuredClone(state.compaction);
+      const same = state.compaction?.proposal.envelopeId === p.envelopeId;
+      if (same && (!settings.reclaimReplicaPrefix || state.reclaimReplicaPrefix)) return structuredClone(state.compaction!);
+      if (settings.reclaimReplicaPrefix && p.sequence !== writer.committed.envelope.sequence) throw new Error('Replica prefix reclamation requires the latest committed checkpoint');
       if (state.compaction && state.compaction.proposal.sequence > p.sequence) throw new Error('Writer checkpoint proof cannot regress');
       if (approvedDigest !== historyDigest(JSON.stringify([state, writer]))) throw new Error('Writer checkpoint proof needs current local review');
-      storage.write({ ...state, compaction: proof }); return structuredClone(proof);
+      const retained = same ? state.compaction! : proof;
+      const { reclaimReplicaPrefix: _previousPermission, ...base } = state;
+      storage.write({ ...base, compaction: retained, ...(settings.reclaimReplicaPrefix ? { reclaimReplicaPrefix: true as const } : {}) });
+      return structuredClone(retained);
     },
     reviewDigest() { open(); return historyDigest(JSON.stringify([storage.read(), anchor()])); },
     compactionAnchor() { open(); anchor(); return structuredClone(storage.read().compaction ?? null); },
@@ -224,7 +234,8 @@ export function openHistoryWriterArchive(options: {
       open(); anchor();
       const state = storage.read(), ids = index(state);
       return registerHistoryWriterPrefix({ contextId, rootId, generation, count: ids.headSequence + 1, retainedCount: ids.count, bytes,
-        ...(state.compaction ? { compaction: { genesisId: genesisId!, certificate: structuredClone(state.compaction) } } : {}),
+        ...(state.compaction ? { compaction: { genesisId: genesisId!, certificate: structuredClone(state.compaction),
+          ...(state.reclaimReplicaPrefix ? { reclaimPrefix: true as const } : {}) } } : {}),
         idAt(sequence) { open(); return ids.get(sequence); },
         blockAt(sequence) {
           open(); if (!Number.isSafeInteger(sequence) || sequence < 0 || sequence > ids.headSequence) throw new Error('Writer archive sequence unavailable');

@@ -16,6 +16,8 @@ export interface HistoryExchangeRequest {
   sequence: number; envelopeId: string | null; signature: string;
   /** Only install requests bind an independently certified checkpoint. */
   certificateId?: string;
+  /** Fresh installation authorization may also retire only its certified prefix. */
+  reclaimPrefix?: true;
 }
 export interface HistoryReplicaHead {
   generation: number; rootId: string; sequence: number; envelopeId: string; freeze: HistoryFreeze | null;
@@ -44,14 +46,17 @@ function requestBody(r: HistoryExchangeRequest): Omit<HistoryExchangeRequest, 's
   return { version: r.version, kind: r.kind, action: r.action, contextId: r.contextId, rootId: r.rootId,
     generation: r.generation, replica: r.replica, challenge: r.challenge, issuedAt: r.issuedAt,
     expiresAt: r.expiresAt, sequence: r.sequence, envelopeId: r.envelopeId,
-    ...(r.action === 'install' ? { certificateId: r.certificateId } : {}) };
+    ...(r.action === 'install' ? { certificateId: r.certificateId,
+      ...(r.reclaimPrefix === true ? { reclaimPrefix: true as const } : {}) } : {}) };
 }
 const requestBytes = (r: HistoryExchangeRequest) => Buffer.from(`${DOMAIN}:request\n${JSON.stringify(requestBody(r))}`);
 
 /** Omit now only when validating historical evidence, never when accepting a network request. */
 export function parseHistoryExchangeRequest(value: unknown, context: HistoryCheckpointContext, now?: number): HistoryExchangeRequest {
   const install = !!value && typeof value === 'object' && 'action' in value && value.action === 'install';
-  if (!exactWitnessFields(value, [...requestFields, ...(install ? ['certificateId'] : [])]) || value.version !== 1 || value.kind !== 'history-request'
+  const reclaim = install && Object.hasOwn(value, 'reclaimPrefix');
+  if (!exactWitnessFields(value, [...requestFields, ...(install ? ['certificateId'] : []), ...(reclaim ? ['reclaimPrefix'] : [])]) || value.version !== 1 || value.kind !== 'history-request'
+    || (reclaim && value.reclaimPrefix !== true)
     || !['append', 'install', 'head', 'read', 'freeze', 'repair', 'seal', 'continuation'].includes(value.action as string) || value.contextId !== historyCheckpointContextId(context)
     || !isHistoryDigest(value.rootId) || !integer(value.generation) || !context.members.includes(value.replica as string)
     || !witnessBytes(value.challenge, 32) || !integer(value.issuedAt) || !integer(value.expiresAt)

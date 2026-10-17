@@ -116,6 +116,7 @@ it('binds the exact proof and action in owner and replica signatures and never c
   const f = fixture(), frame = f.frame(), role = f.role();
   expect(() => parseHistoryExchangeRequest({ ...frame.request, certificateId: f.options.rootId }, f.context)).toThrow('signature');
   expect(() => parseHistoryExchangeRequest({ ...frame.request, certificateId: undefined }, f.context)).toThrow();
+  expect(() => parseHistoryExchangeRequest({ ...frame.request, reclaimPrefix: true }, f.context)).toThrow('signature');
   expect(() => role.exchange({ ...frame, compaction: f.later })).toThrow();
   expect(() => role.exchange({ ...frame, compaction: f.certificate(f.blocks[4]) })).toThrow('authorization');
   expect(() => role.exchange({ request: frame.request, envelope: frame.envelope })).toThrow();
@@ -126,6 +127,23 @@ it('binds the exact proof and action in owner and replica signatures and never c
   expect(() => createHistoryExchangeResponse(frame.request, 'stored', response.head, null, f.context, f.memberKeys[0])).toThrow();
   expect(() => createHistoryExchangeResponse(frame.request, 'installed', { ...response.head, sequence: 5 }, null, f.context, f.memberKeys[0])).toThrow();
   expect(() => parseHistoryExchangeResponse({ ...response, status: 'stored' }, frame.request, f.context)).toThrow();
+});
+
+it('requires explicit signed prefix retirement and resumes it after installation outlives its request deadline', () => {
+  const f = fixture(4), ordinary = f.frame();
+  const request = createHistoryExchangeRequest({ ...ordinary.request, reclaimPrefix: true }, f.context, f.owner);
+  const frame = { ...ordinary, request }, { reclaimPrefix, ...stripped } = request;
+  expect(() => parseHistoryExchangeRequest(stripped, f.context)).toThrow('signature');
+  expect(() => parseHistoryExchangeRequest({ ...request, reclaimPrefix: false }, f.context)).toThrow();
+  let reads = 0;
+  const expiring = f.role({ now: () => ++reads <= 2 ? request.issuedAt : request.expiresAt });
+  expect(() => expiring.exchange(frame)).toThrow('expired');
+  expect(f.store.read().envelopes).toEqual([f.root, f.blocks[1], f.blocks[4]]);
+  const result = f.role().exchange(frame);
+  expect(parseHistoryExchangeResponse(result, request, f.context).status).toBe('installed');
+  expect(f.store.read().envelopes).toEqual([f.root, f.blocks[4]]);
+  expect(Object.keys(f.files())).toHaveLength(2);
+  f.store.close(); const reopened = f.open(); expect(reopened.read().envelopes).toEqual([f.root, f.blocks[4]]);
 });
 
 it('honors owner pause and close callbacks and checks expiry after a durable installation', () => {
@@ -166,5 +184,25 @@ it.each(['before-write', 'after-file-flush', 'block-renamed', 'before-rename', '
     expect(f.files()).toMatchObject(before); expect(reopened.describe().sequence).toBe(installed ? 4 : 1);
     expect(reopened.compactionAnchor()).toEqual(installed ? f.first : null);
     reopened.installCheckpoint(f.blocks[4], f.first, reopened.reviewDigest());
+    reopened.append(f.blocks[5]); expect(reopened.describe().sequence).toBe(5);
+  }, 15000);
+
+it.each(['after-install', 'before-retirement', 'after-retirement', 'before-unlink', 'after-unlink', 'durable'] as const)(
+  'resumes the authenticated install/retirement boundary through SIGKILL at %s', async boundary => {
+    const f = fixture(4), ordinary = f.frame(), frame = { ...ordinary,
+      request: createHistoryExchangeRequest({ ...ordinary.request, reclaimPrefix: true }, f.context, f.owner) };
+    f.store.close();
+    const child = fork(new URL('./fixtures/history-compaction-crash.ts', import.meta.url), [],
+      { execArgv: ['--import', 'tsx'], stdio: ['ignore', 'ignore', 'inherit', 'ipc'] });
+    const exited = once(child, 'exit'), messages: unknown[] = []; child.on('message', message => messages.push(message));
+    cleanup.push(async () => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); await exited; });
+    child.send({ options: { ...f.options, localKey: f.localKey.toString('hex') }, frame, boundary,
+      signingKey: { publicKey: Buffer.from(f.memberKeys[0].publicKey).toString('hex'), secretKey: Buffer.from(f.memberKeys[0].secretKey).toString('hex') } });
+    await exited; expect(messages).toEqual(['ready']); expect(child.signalCode).toBe('SIGKILL');
+    const reopened = f.open(); expect(reopened.describe().sequence).toBe(4); expect(reopened.compactionAnchor()).toEqual(f.first);
+    const retired = !['after-install', 'before-retirement'].includes(boundary);
+    expect(reopened.read().envelopes).toEqual(retired ? [f.root, f.blocks[4]] : [f.root, f.blocks[1], f.blocks[4]]);
+    const role = f.role({ store: reopened }); expect(role.exchange(frame).status).toBe('installed');
+    expect(reopened.read().envelopes).toEqual([f.root, f.blocks[4]]); expect(Object.keys(f.files())).toHaveLength(2);
     reopened.append(f.blocks[5]); expect(reopened.describe().sequence).toBe(5);
   }, 15000);

@@ -66,6 +66,39 @@ it('requires four volunteers with checkpoint headroom and consumes their retaine
   expect(writer.read().pending).toBeNull(); expect([...writer.history()]).toEqual([n.root, delta, checkpoint]);
 }, 30000);
 
+it('reclaims a returning fourth volunteer within four slots after approved repair and a lost installation reply', async () => {
+  const n = await network([4, 4, 4, 4, 4]); await n.listeners[4].close();
+  let loseReply = true; const authorizations: boolean[] = [];
+  const transport: HistoryCheckpointTransport = async (member, frame, signal) => {
+    const result = await exchangeHistoryCheckpoint(member, frame, signal);
+    if (member.publicKey === n.context.members[4] && frame.request.action === 'install') {
+      authorizations.push(frame.request.reclaimPrefix === true);
+      if (loseReply) { loseReply = false; throw new Error('lost installation reply'); }
+    }
+    return result;
+  };
+  let writer = n.writer(true, { maxArchiveBlocks: 4, transport }); await writer.replicate(n.root);
+  const first = n.next(n.root), checkpoint = n.next(first, 'complete state', 'checkpoint');
+  await writer.replicate(first); n.stores[4].append(first); await writer.replicate(checkpoint);
+  const issuedAt = Date.now(), proposal = createHistoryCompactionProposal({ genesisId: n.options.rootId, rootId: n.options.rootId,
+    checkpoint, issuedAt, expiresAt: issuedAt + 30000 }, n.context, n.owner);
+  const proof = { version: 1, kind: 'history-compaction-certificate', proposal,
+    votes: n.memberKeys.slice(0, 4).map(key => createHistoryCompactionVote(proposal, n.context, n.options.rootId, key, issuedAt)) };
+  writer.retainCompactionAnchor(proof, writer.historyReviewDigest(), { reclaimReplicaPrefix: true });
+  writer.retirePrefix(writer.planPrefixRetirement().approvalDigest); writer.close();
+  await n.listeners[3].close(); await n.start(4); writer = n.writer(false, { maxArchiveBlocks: 4, transport });
+  const tail = sealHistoryCheckpoint({ context: n.context, header: { kind: 'delta', generation: 0, sequence: 3,
+    previous: historyCheckpointEnvelopeId(checkpoint), checkpointReserveBytes: 4096 },
+    plaintext: Buffer.from('next accepted record'), encryptionKey: n.key, signingKey: n.owner });
+  await expect(writer.replicate(tail)).rejects.toThrow('Four');
+  expect(n.stores[4].read().envelopes).toEqual([n.root, checkpoint]); expect(writer.read().pending).toEqual(tail);
+  writer.close(); writer = n.writer(false, { maxArchiveBlocks: 4, transport });
+  expect((await writer.replicate(tail)).receipts).toHaveLength(4);
+  expect(authorizations).toEqual([true, true]); expect(n.stores[4].read().envelopes).toEqual([n.root, checkpoint, tail]);
+  await writer.replicate(n.next(tail, 'next complete state', 'checkpoint'));
+  expect(n.stores[4].storageUsage().retainedBlocks).toBe(4); expect(writer.read().pending).toBeNull();
+}, 30000);
+
 it('reopens the complete owner ciphertext and repairs a different fourth volunteer over real sockets', async () => {
   const n = await network(); await n.listeners[4].close(); let writer = n.writer(true);
   const a = n.next(n.root), b = n.next(a); for (const block of [n.root, a, b]) await writer.replicate(block);

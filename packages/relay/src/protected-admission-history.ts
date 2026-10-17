@@ -210,12 +210,12 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
     const genesisId = state.version === 4 ? id(state.restoration.genesis) : id(state.root);
     const facts = { kind: 'admission-history-checkpoint-certification' as const, contextId, genesisId,
       rootId: id(state.root), generation: checkpoint.generation, sequence: checkpoint.sequence, envelopeId: id(checkpoint),
-      enableLocalCheckpointRepair: true as const };
+      enableLocalCheckpointRepair: true as const, enableReplicaPrefixRetirement: true as const };
     return { checkpoint, plan: { ...facts, recordsRetained: state.image.state.spends.length,
       permanentDenialsRetained: state.image.state.retiredIssuerKeys.length,
       filesRemoved: 0 as const, bytesReclaimed: 0 as const,
       approvalDigest: historyDigest(`resonance:admission-history-checkpoint-certification-review:v1\n${JSON.stringify([participant, facts])}`),
-      notice: 'Collects historical ancestry endorsements and retains proof locally for checkpoint repair. Does not delete history, retain certificates remotely or grant current writer authority.' } };
+      notice: 'Retains proof locally and enables authenticated checkpoint repair with certified redundant-prefix retirement on volunteers. Owner history remains retained; fresh writer acknowledgements are still required.' } };
   }
   function retirement(issuerKey: string) {
     const { image } = available(), state = image.state;
@@ -380,7 +380,7 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
           serving();
           if (certificationCheckpoint().plan.approvalDigest !== approvedDigest) throw new Error('History changed during checkpoint certification');
           if (controller.signal.aborted) throw new Error('Checkpoint certification cancelled');
-          return writer!.retainCompactionAnchor(certificate, writer!.historyReviewDigest());
+          return writer!.retainCompactionAnchor(certificate, writer!.historyReviewDigest(), { reclaimReplicaPrefix: true });
         } finally {
           external?.removeEventListener('abort', cancel); controller.abort();
           if (certificationController === controller) certificationController = undefined;

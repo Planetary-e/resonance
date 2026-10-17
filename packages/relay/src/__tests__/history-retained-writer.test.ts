@@ -103,6 +103,24 @@ it('opens an existing absolute-slot writer archive offline and changes represent
   const second = n.next(first); await writer.replicate(second); expect([...writer.history()]).toEqual([n.root, first, second]);
 });
 
+it('requires current checkpoint review to expand existing repair permission and retains that choice across restart', async () => {
+  const n = fixture(); let writer = n.writer(); await writer.replicate(n.root);
+  const checkpoint = n.next(n.root, 'complete state', 'checkpoint'); await writer.replicate(checkpoint);
+  const issuedAt = Date.now(), proposal = createHistoryCompactionProposal({ genesisId: n.options.rootId,
+    rootId: n.options.rootId, checkpoint, issuedAt, expiresAt: issuedAt + 30000 }, n.context, n.owner);
+  const proof = { version: 1, kind: 'history-compaction-certificate', proposal,
+    votes: n.memberKeys.slice(0, 4).map(key => createHistoryCompactionVote(proposal, n.context, n.options.rootId, key, issuedAt)) };
+  const oldReview = writer.historyReviewDigest(); writer.retainCompactionAnchor(proof, oldReview);
+  expect(() => writer.retainCompactionAnchor(proof, oldReview, { reclaimReplicaPrefix: true })).toThrow('review');
+  writer.retainCompactionAnchor(proof, writer.historyReviewDigest(), { reclaimReplicaPrefix: true }); writer.close();
+  const state = openEncryptedLocalState<any>({ path: join(n.payloadDirectory, HISTORY_WRITER_ARCHIVE_FILENAME), key: n.localKey,
+    domain: 'resonance:history-writer-archive:v1', maxBytes: 2 * 1024 * 1024, mode: 'open-existing', initial: null,
+    validate: (_value): _value is any => true });
+  expect(state.read().reclaimReplicaPrefix).toBe(true); state.close(); writer = n.writer(false);
+  await writer.replicate(n.next(checkpoint));
+  expect(writer.compactionAnchor()).toEqual(proof);
+});
+
 it.each(['flush', 'proof', 'payload'] as const)('fails closed on checkpoint-repair %s damage without discarding accepted ciphertext', async damage => {
   const n = fixture(); let writer = n.writer(); await writer.replicate(n.root);
   const checkpoint = n.next(n.root, 'complete state', 'checkpoint'); await writer.replicate(checkpoint);

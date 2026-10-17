@@ -92,11 +92,12 @@ export function createHistoryWriterRepair(options: {
         active(); const parsed = parseHistoryExchangeResponse(response, request, context); active(); return parsed;
       }
       let next = position((await send(null)).head);
-      if (proof && next <= proof.proposal.sequence) {
+      if (proof && (next <= proof.proposal.sequence || compaction!.reclaimPrefix && next === proof.proposal.sequence + 1)) {
         active(); const checkpoint = blockAt(proof.proposal.sequence);
         const request = createHistoryExchangeRequest({ action: 'install', rootId, generation: block.generation,
           replica: member.publicKey, challenge: options.challenge, issuedAt: options.issuedAt, expiresAt: options.expiresAt,
-          sequence: checkpoint.sequence, envelopeId: proof.proposal.envelopeId, certificateId: certificateId! }, context, key);
+          sequence: checkpoint.sequence, envelopeId: proof.proposal.envelopeId, certificateId: certificateId!,
+          ...(compaction!.reclaimPrefix ? { reclaimPrefix: true as const } : {}) }, context, key);
         const response = await transport(member, { request, envelope: structuredClone(checkpoint), compaction: structuredClone(proof) }, signal);
         active(); next = position(parseHistoryExchangeResponse(response, request, context).head); active();
       }
