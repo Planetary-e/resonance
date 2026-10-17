@@ -80,7 +80,7 @@ export function createHistoryWriterRepair(options: {
     || proof.proposal.sequence > block.sequence)) throw new Error('Writer repair checkpoint belongs to another history');
   const certificateId = proof ? historyCompactionCertificateId(proof, context, compaction!.genesisId) : null;
   return {
-    async synchronize(member: HistoryReplicaEndpoint, signal: AbortSignal) {
+    async synchronize(member: HistoryReplicaEndpoint, signal: AbortSignal, throughTarget = false) {
       function active() { live(); if (signal.aborted) throw new Error('History repair cancelled'); }
       async function send(sequence: number | null) {
         active();
@@ -91,23 +91,27 @@ export function createHistoryWriterRepair(options: {
         const response = await transport(member, { request, envelope: sequence === null ? null : structuredClone(blockAt(sequence)) }, signal);
         active(); const parsed = parseHistoryExchangeResponse(response, request, context); active(); return parsed;
       }
-      let next = position((await send(null)).head);
+      let response = await send(null), next = position(response.head);
+      // A read of an already current replica does not authorize maintenance or
+      // resend a certified checkpoint merely to reclaim an older prefix.
+      if (throughTarget && next === block.sequence + 1) { active(); return response; }
       if (proof && (next <= proof.proposal.sequence || compaction!.reclaimPrefix && next === proof.proposal.sequence + 1)) {
         active(); const checkpoint = blockAt(proof.proposal.sequence);
         const request = createHistoryExchangeRequest({ action: 'install', rootId, generation: block.generation,
           replica: member.publicKey, challenge: options.challenge, issuedAt: options.issuedAt, expiresAt: options.expiresAt,
           sequence: checkpoint.sequence, envelopeId: proof.proposal.envelopeId, certificateId: certificateId!,
           ...(compaction!.reclaimPrefix ? { reclaimPrefix: true as const } : {}) }, context, key);
-        const response = await transport(member, { request, envelope: structuredClone(checkpoint), compaction: structuredClone(proof) }, signal);
-        active(); next = position(parseHistoryExchangeResponse(response, request, context).head); active();
+        const raw = await transport(member, { request, envelope: structuredClone(checkpoint), compaction: structuredClone(proof) }, signal);
+        active(); response = parseHistoryExchangeResponse(raw, request, context); next = position(response.head); active();
       }
-      while (next < block.sequence) {
-        const before = next; next = position((await send(next)).head);
+      while (next < block.sequence || throughTarget && next === block.sequence) {
+        const before = next; response = await send(next); next = position(response.head);
         if (next <= before) throw new Error('Live history repair made no progress');
       }
-      // Even a member that already has the target must supply a fresh append
-      // receipt to the writer; a head reply or a repaired-prefix receipt cannot count.
-      active();
+      // Writes still require a fresh append receipt separately. Read observations
+      // may use this request-bound current head, repairing through the target only
+      // when necessary. A head receipt is never converted into a write certificate.
+      active(); return response;
     },
   };
 }

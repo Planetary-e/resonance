@@ -151,7 +151,8 @@ export async function openProtectedPolicyObserver(options: {
       const request = parseAdmissionPolicyHeadRequest(value, context, now()), started = performance.now(), remaining = request.expiresAt - now();
       const before = retained(); usable(before.state);
       if (before.saved.pending) throw new Error('Complete the pending policy observer history first');
-      const { state } = await confirm();
+      if (!before.saved.committed) throw new Error('Confirm the policy observer root before observing');
+      await writer!.observeCurrent(); live(); const { state } = retained();
       if (performance.now() - started >= remaining) throw new Error('Policy observation completed too late');
       usable(state); return createAdmissionPolicyHeadVote(request, policyObserverStateHead(state, context), context, signer, now());
     }); },

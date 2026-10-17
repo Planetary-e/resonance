@@ -12,6 +12,7 @@ import { createHistoryExchangeRequest, parseHistoryExchangeResponse, parseHistor
 import { exchangeHistoryCheckpoint, type HistoryCheckpointTransport, type HistoryReplicaEndpoint } from './history-checkpoint-exchange.js';
 import { createHistoryWriterRepair } from './history-writer-repair.js';
 import type { HistoryWriterRepairSource } from './history-writer-prefix.js';
+import { collectCurrentHistoryHead } from './history-current-head.js';
 
 export const HISTORY_WRITER_FILENAME = 'history-writer.json';
 export interface HistoryCheckpointWriterState {
@@ -92,6 +93,19 @@ export function createHistoryCheckpointWriter(options: {
   return {
     /** Exposes pending exact ciphertext for explicit retry after restart; never automatically sends. */
     read(): HistoryCheckpointWriterState { return structuredClone(storage.read()); },
+    /** Fresh read receipts only; unchanged replicas receive no ciphertext and no
+     * new local write certificate is persisted. Pending writes must finish first. */
+    async observeCurrent(): Promise<HistoryExchangeResponse[]> {
+      const state = storage.read();
+      if (closed) throw new Error('History writer is closed');
+      if (active) throw new Error('History writer already has an active attempt');
+      if (state.pending || !state.committed) throw new Error('Current history observation needs a committed head without pending work');
+      const controller = new AbortController(); active = controller;
+      try {
+        return await collectCurrentHistoryHead({ context, key, rootId, block: state.committed.envelope, members, transport,
+          timeoutMs, controller, isClosed: () => closed, retained: options.retained });
+      } finally { controller.abort(); if (active === controller) active = undefined; }
+    },
     async replicate(value: unknown): Promise<HistoryWriteCertificate> {
       storage.read();
       if (closed) throw new Error('History writer is closed');
