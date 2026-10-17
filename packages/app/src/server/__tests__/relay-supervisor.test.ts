@@ -1,9 +1,9 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  linuxServiceUnit, macServicePlist, windowsServiceTask, relayServiceRuntime, relayServiceEnvironment, validateRelayServicePaths,
+  linuxServiceUnit, macServicePlist, windowsServiceTask, windowsServiceScript, relayServiceRuntime, relayServiceEnvironment, validateRelayServicePaths,
   type RelayServiceOptions,
 } from '../relay-supervisor.js';
 
@@ -106,7 +106,7 @@ describe('desktop relay service definitions', () => {
       expect(linux).toContain("Environment=\"RELAY_HISTORY_VOLUNTEER_FILE=/private/owner's history/volunteer.json\"");
 
       const windows = windowsServiceTask(options);
-      const script = readFileSync(join(dataDir, 'relay-service.ps1'), 'utf8');
+      const script = windowsServiceScript(options);
       expect(windows).toContain('<RestartOnFailure><Interval>PT1M</Interval><Count>255</Count>');
       expect(windows).toContain('<LogonTrigger>');
       expect(script).toContain("$env:RELAY_ADMIN_API_KEY='private<&\"key';");

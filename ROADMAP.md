@@ -276,6 +276,7 @@ The five-target placement goal remains conditional on enough eligible volunteers
         - [x] Implement a durable shared reservation authority and optional encrypted-snapshot leases; reserve lifetime replacement peaks, retain allocations through process death and bind limit changes to current review
         - [x] Add optional shared leases to journals, counters, diagnostics, history ciphertext, identity and manual spend writers; reserve block and manifest peaks before initialization and preserve existing work at full capacity
         - [x] Reserve operator outputs, bounded settings/registry replacements, standalone ownership and pause headroom; preserve interrupted files and reuse scoped temporary allocations
+        - [x] Bound and atomically publish generated macOS/Linux/Windows service files; reserve the complete output set before writes and run native commands only afterwards (native execution remains mocked)
         - [ ] Persist cross-role reservations before writes, include replacement/repair headroom and prove recovery of interrupted reservations across runtime and CLI
   - [ ] Resolve authenticated policy freshness and migration beyond the bounded 64-configuration archive; never treat missing records as unused capacity or discard permanent denial evidence
   - [ ] Resolve same-key witness replacement, membership governance/freshness, and history compaction before enabling admission by default; fresh-key cohort rotation does not rescue stranded old tokens or remove finite history limits

@@ -1,13 +1,15 @@
 /** Install the volunteer relay as a user-level service, independent of the GUI. */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, rmSync, statSync } from 'node:fs';
 import { request } from 'node:http';
 import { connect } from 'node:net';
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { assertSecureRelayTransportEndpoint } from '@resonance/core';
+import { reserveOperatorAtomicOutput, writeOperatorTextAtomic } from '@resonance/relay';
+export const RELAY_SERVICE_FILE_MAX_BYTES = 1024 * 1024;
 
 const LABEL = 'earth.planetary.resonance.relay';
 
@@ -196,17 +198,16 @@ function windowsArg(value: string): string {
   return `"${value.replaceAll(/(\\*)"/g, '$1$1\\"').replace(/\\+$/g, match => match + match)}"`;
 }
 
-export function windowsServiceTask(options: RelayServiceOptions): string {
+export function windowsServiceScript(options: RelayServiceOptions): string {
   const args = command(options);
   const env = Object.entries(relayServiceEnvironment(options))
     .map(([key, value]) => `$env:${key}='${value.replaceAll("'", "''")}';`).join(' ');
-  // The task runs a generated PowerShell script so environment values never
-  // pass through cmd.exe, and it restarts the relay after crashes.
+  return `${env}\n& ${args.map(value => `'${value.replaceAll("'", "''")}'`).join(' ')} 1>$null 2>$null\nexit $LASTEXITCODE\n`;
+}
+export function windowsServiceTask(options: RelayServiceOptions): string {
+  relayServiceEnvironment(options);
+  // Rendering is pure: all definitions are validated and reserved before output.
   const script = join(options.dataDir, 'relay-service.ps1');
-  writeFileSync(script,
-    `${env}\n& ${args.map(value => `'${value.replaceAll("'", "''")}'`).join(' ')} 1>$null 2>$null\nexit $LASTEXITCODE\n`,
-    { mode: 0o600 },
-  );
   return `<?xml version="1.0" encoding="UTF-8"?>\n`+
     `<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">`+
     `<Triggers><LogonTrigger><Enabled>true</Enabled></LogonTrigger></Triggers>`+
@@ -239,34 +240,40 @@ export function validateRelayServicePaths(options: RelayServiceOptions): void {
       if (!existsSync(path) || !statSync(path).isDirectory()) throw new Error('The prepared protected history directory is missing or is not a directory');
     } else if (!existsSync(path) || !statSync(path).isFile()) throw new Error('A relay role configuration file is missing or not regular');
   }
+  relayServiceOutputFiles(options); // Rendering/encoded limits are part of read-only preparation too.
 }
 
+/** Exact generated files only; operating-system service databases are outside this budget. */
+export function relayServiceOutputFiles(options: RelayServiceOptions, platform: NodeJS.Platform = process.platform, userDirectory = homedir()) {
+  let files: Array<{ path: string; text: string }>;
+  if (platform === 'darwin') files = [{ path: join(userDirectory, 'Library/LaunchAgents', `${LABEL}.plist`), text: macServicePlist(options) }];
+  else if (platform === 'linux') files = [{ path: join(userDirectory, '.config/systemd/user', 'resonance-relay.service'), text: linuxServiceUnit(options) }];
+  else if (platform === 'win32') files = [{ path: join(options.dataDir, 'relay-service.ps1'), text: windowsServiceScript(options) },
+    { path: join(options.dataDir, 'relay-service.xml'), text: windowsServiceTask(options) }];
+  else throw new Error(`Unsupported relay service platform: ${platform}`);
+  if (files.some(file => Buffer.byteLength(file.text) > RELAY_SERVICE_FILE_MAX_BYTES)) throw new Error('Relay service definition exceeds its encoded byte limit');
+  return files;
+}
 export function installRelayService(options: RelayServiceOptions): void {
   validateRelayServicePaths(options);
-  mkdirSync(options.dataDir, { recursive: true });
+  const files = relayServiceOutputFiles(options);
+  // A later file cannot exhaust the shared budget after an earlier one was written.
+  const reserved = files.map(file => ({ ...file, reservation: reserveOperatorAtomicOutput(file.path, RELAY_SERVICE_FILE_MAX_BYTES) }));
+  for (const file of reserved) writeOperatorTextAtomic(file.path, file.text, RELAY_SERVICE_FILE_MAX_BYTES, file.reservation);
   if (process.platform === 'darwin') {
-    const path = join(homedir(), 'Library/LaunchAgents', `${LABEL}.plist`);
-    mkdirSync(dirname(path), { recursive: true });
-    const domain = `gui/${process.getuid?.()}`;
+    const path = files[0].path, domain = `gui/${process.getuid?.()}`;
     try { run('launchctl', ['bootout', domain, path]); } catch { /* absent */ }
-    writeFileSync(path, macServicePlist(options), { mode: 0o600 });
     run('launchctl', ['bootstrap', domain, path]);
     run('launchctl', ['kickstart', '-k', `${domain}/${LABEL}`]);
   } else if (process.platform === 'linux') {
-    const path = join(homedir(), '.config/systemd/user', 'resonance-relay.service');
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, linuxServiceUnit(options), { mode: 0o600 });
     run('systemctl', ['--user', 'daemon-reload']);
     run('systemctl', ['--user', 'enable', '--now', 'resonance-relay.service']);
     run('systemctl', ['--user', 'restart', 'resonance-relay.service']);
   } else if (process.platform === 'win32') {
-    const path = join(options.dataDir, 'relay-service.xml');
-    writeFileSync(path, windowsServiceTask(options), { mode: 0o600 });
+    const path = files.find(file => file.path.endsWith('.xml'))!.path;
     try { run('schtasks.exe', ['/End', '/TN', 'ResonanceRelay']); } catch { /* absent */ }
     run('schtasks.exe', ['/Create', '/F', '/TN', 'ResonanceRelay', '/XML', path]);
     run('schtasks.exe', ['/Run', '/TN', 'ResonanceRelay']);
-  } else {
-    throw new Error(`Unsupported relay service platform: ${process.platform}`);
   }
 }
 

@@ -46,7 +46,10 @@ export function writeOperatorJsonNew(path: string, value: unknown, maximum: numb
   if (!Number.isSafeInteger(maximum) || maximum < 1) throw new Error('Invalid operator output byte limit');
   const encoded = JSON.stringify(value);
   if (encoded === undefined) throw new Error('Operator output must encode a JSON value');
-  const bytes = Buffer.from(`${encoded}\n`);
+  writeEncodedNew(path, Buffer.from(`${encoded}\n`), maximum, included);
+}
+function writeEncodedNew(path: string, bytes: Buffer, maximum: number,
+  included?: { reservation: StorageReservationLease; replacement?: boolean }): void {
   if (bytes.length > maximum) { bytes.fill(0); throw new Error('Operator output exceeds its size limit'); }
   let fd: number | undefined;
   try {
@@ -64,13 +67,28 @@ export function writeOperatorJsonNew(path: string, value: unknown, maximum: numb
  * output is deleted just because its name matches; a full set needs inspection.
  */
 export const OPERATOR_REPLACEMENT_SLOTS = 8;
-export function writeOperatorJsonAtomic(path: string, value: unknown, maximum: number): void {
+/** Preflight an entire set of outputs before stopping or replacing a service. */
+export function reserveOperatorAtomicOutput(path: string, maximum: number): StorageReservationLease | undefined {
   if (!Number.isSafeInteger(maximum) || maximum < 1 || !Number.isSafeInteger((OPERATOR_REPLACEMENT_SLOTS + 1) * maximum + 8192)) throw new Error('Invalid operator output byte limit');
+  return reserveManagedStorage({ path, component: 'operator-atomic-output', scope: 'file', maximumBytes: (OPERATOR_REPLACEMENT_SLOTS + 1) * maximum + 8192 });
+}
+export function writeOperatorJsonAtomic(path: string, value: unknown, maximum: number): void {
   const encoded = JSON.stringify(value);
   if (encoded === undefined) throw new Error('Operator output must encode a JSON value');
-  if (Buffer.byteLength(encoded + '\n') > maximum) throw new Error('Operator output exceeds its size limit');
-  const reservation = reserveManagedStorage({ path, component: 'operator-atomic-output', scope: 'file',
-    maximumBytes: (OPERATOR_REPLACEMENT_SLOTS + 1) * maximum + 8192 });
+  writeOperatorTextAtomic(path, encoded + '\n', maximum);
+}
+/** Bounded UTF-8 configuration output, including XML, service units and launch scripts. */
+export function writeOperatorTextAtomic(path: string, text: string, maximum: number, included?: StorageReservationLease): void {
+  const bytes = Buffer.from(text, 'utf8');
+  try {
+    if (!Number.isSafeInteger(maximum) || maximum < 1 || !Number.isSafeInteger((OPERATOR_REPLACEMENT_SLOTS + 1) * maximum + 8192)) throw new Error('Invalid operator output byte limit');
+    if (bytes.length > maximum) throw new Error('Operator output exceeds its size limit');
+    const reservation = included ?? reserveOperatorAtomicOutput(path, maximum);
+    reservation?.assertWritable({ path, maximumBytes: (OPERATOR_REPLACEMENT_SLOTS + 1) * maximum + 8192 });
+    replaceEncoded(path, bytes, maximum, reservation);
+  } finally { bytes.fill(0); }
+}
+function replaceEncoded(path: string, bytes: Buffer, maximum: number, reservation?: StorageReservationLease): void {
   const directory = dirname(path);
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   const release = acquireLocalStateLock(path, reservation);
@@ -92,7 +110,7 @@ export function writeOperatorJsonAtomic(path: string, value: unknown, maximum: n
     } finally { entries.closeSync(); }
     const temporary = join(directory, `.${prefix}.${randomBytes(8).toString('hex')}.tmp`);
     try {
-      writeOperatorJsonNew(temporary, value, maximum, reservation ? { reservation, replacement: true } : undefined);
+      writeEncodedNew(temporary, bytes, maximum, reservation ? { reservation, replacement: true } : undefined);
       reservation?.assertWritable(); renameSync(temporary, path);
       if (process.platform !== 'win32') { const fd = openSync(directory, 'r'); try { fsyncSync(fd); } finally { closeSync(fd); } }
     } finally { rmSync(temporary, { force: true }); }
