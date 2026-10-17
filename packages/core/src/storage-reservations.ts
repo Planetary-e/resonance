@@ -123,8 +123,14 @@ function reservationLease(request: StorageReservationRequest, selected: string, 
 /** One host process owns the ledger for the complete runtime/maintenance operation.
  * Explicit initialization never reuses an existing directory. Reopening never
  * repairs a missing primary from an uncommitted temporary or resets allocations. */
-export function openStorageReservationAuthority(options: { directory: string; mode: 'create-new'; limitBytes: number } | { directory: string; mode: 'open-existing'; authorityId: string; requireAdoptedScopes?: boolean }) {
+export function openStorageReservationAuthority(options: { directory: string; mode: 'create-new'; limitBytes: number; authorityId?: string } | { directory: string; mode: 'open-existing'; authorityId: string; requireAdoptedScopes?: boolean }) {
   assertNoStorageReservationContext();
+  // A bootstrap caller may retain this fresh random pin independently before
+  // creation. Reopening never infers it from the ledger it is meant to identify.
+  const initialAuthorityId = options.mode === 'create-new' ? (options.authorityId === undefined ? randomBytes(16).toString('hex') : options.authorityId) : undefined;
+  if (options.mode === 'create-new' && (typeof initialAuthorityId !== 'string' || !/^[a-f0-9]{32}$/.test(initialAuthorityId))) {
+    throw new Error('Invalid independently retained new storage authority identity');
+  }
   const requireAdoptedScopes = options.mode === 'open-existing' && options.requireAdoptedScopes === true;
   if (options.mode === 'open-existing' && options.requireAdoptedScopes !== undefined && typeof options.requireAdoptedScopes !== 'boolean') throw new Error('Invalid adopted storage scope requirement');
   const directory = canonical(options.directory), path = join(directory, 'reservations.json'), temporary = `${path}.next`;
@@ -178,7 +184,7 @@ export function openStorageReservationAuthority(options: { directory: string; mo
   }
   function close() { if (!closed) { closed = true; release(); } }
   try {
-    if (options.mode === 'create-new') commit({ version: 2, authorityId: randomBytes(16).toString('hex'), revision: 0, limitBytes: options.limitBytes, allocations: [], adoptions: [] });
+    if (options.mode === 'create-new') commit({ version: 2, authorityId: initialAuthorityId!, revision: 0, limitBytes: options.limitBytes, allocations: [], adoptions: [] });
     else {
       const before = signature(lstatSync(path)); expected = readBytes(path); expectedSignature = signature(lstatSync(path));
       if (before !== expectedSignature) throw new Error('Storage authority metadata changed');

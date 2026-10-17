@@ -1,14 +1,14 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { existsSync, fsyncSync, linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync, writeSync } from 'node:fs';
+import { existsSync, fsyncSync, linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStorageReservationAuthority, STORAGE_RESERVATION_CONTROL_BYTES as CONTROL, STORAGE_RESERVATION_MANIFEST_BYTES as MANIFEST } from '../storage-reservations.js';
 import { withStorageReservationAuthority, captureStorageReservationOperation } from '../storage-reservation-context.js';
 import { openEncryptedLocalState } from '../local-encrypted-state.js';
-vi.mock('node:fs', async original => { const fs = await original<typeof import('node:fs')>(); return { ...fs, writeSync: vi.fn(fs.writeSync), fsyncSync: vi.fn(fs.fsyncSync) }; });
+vi.mock('node:fs', async original => { const fs = await original<typeof import('node:fs')>(); return { ...fs, writeSync: vi.fn(fs.writeSync), fsyncSync: vi.fn(fs.fsyncSync), renameSync: vi.fn(fs.renameSync) }; });
 const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
 const cleanup: Array<() => unknown> = [];
-afterEach(() => { vi.mocked(writeSync).mockImplementation(actual.writeSync); vi.mocked(fsyncSync).mockImplementation(actual.fsyncSync); for (const close of cleanup.splice(0).reverse()) close(); });
+afterEach(() => { vi.mocked(renameSync).mockReset().mockImplementation(actual.renameSync); vi.mocked(writeSync).mockImplementation(actual.writeSync); vi.mocked(fsyncSync).mockImplementation(actual.fsyncSync); for (const close of cleanup.splice(0).reverse()) close(); });
 function fixture() { const directory = realpathSync(mkdtempSync(join(tmpdir(), 'reservation-authority-'))); cleanup.push(() => rmSync(directory, { recursive: true, force: true })); return { directory, ledger: join(directory, 'authority') }; }
 function fresh(n: ReturnType<typeof fixture>, extra: number) { const authority = openStorageReservationAuthority({ directory: n.ledger, mode: 'create-new', limitBytes: CONTROL + extra }); cleanup.push(authority.close); return authority; }
 function reopen(n: ReturnType<typeof fixture>, authorityId: string) { const authority = openStorageReservationAuthority({ directory: n.ledger, mode: 'open-existing', authorityId }); cleanup.push(authority.close); return authority; }
@@ -197,4 +197,30 @@ it('does not silently adopt a previously unmanaged factory into an active author
   expect(() => withStorageReservationAuthority(authority, () => run(() => { entered = true; }))).toThrow(/switch/);
   expect(entered).toBe(false); expect(authority.status().components).toBe(0);
   run(() => { entered = true; }); expect(entered).toBe(true);
+});
+
+it('creates with a separately retained identity and rejects invalid pins before creating metadata', () => {
+  const n = fixture(), id = 'a'.repeat(32);
+  for (const authorityId of ['', 'ABC', 'f'.repeat(31), 42, {}, null]) {
+    expect(() => openStorageReservationAuthority({ directory: n.ledger, mode: 'create-new', limitBytes: CONTROL, authorityId: authorityId as string })).toThrow(/identity/);
+    expect(existsSync(n.ledger)).toBe(false);
+  }
+  const authority = openStorageReservationAuthority({ directory: n.ledger, mode: 'create-new', limitBytes: CONTROL, authorityId: id });
+  expect(authority.status().authorityId).toBe(id); authority.close();
+  expect(reopen(n, id).status().authorityId).toBe(id);
+});
+it.each(['before', 'after'] as const)('uses only an independently retained pin after a failed %s-publication initialization', boundary => {
+  const n = fixture(), id = 'b'.repeat(32), primary = join(n.ledger, 'reservations.json');
+  vi.mocked(renameSync).mockImplementation((from, to) => {
+    if (String(to) === primary) { if (boundary === 'after') actual.renameSync(from, to); throw new Error('uncertain initialization publication'); }
+    actual.renameSync(from, to);
+  });
+  expect(() => openStorageReservationAuthority({ directory: n.ledger, mode: 'create-new', limitBytes: CONTROL, authorityId: id })).toThrow(/uncertain initialization/);
+  vi.mocked(renameSync).mockImplementation(actual.renameSync);
+  expect(() => openStorageReservationAuthority({ directory: n.ledger, mode: 'create-new', limitBytes: CONTROL, authorityId: id })).toThrow();
+  if (boundary === 'after') expect(reopen(n, id).status()).toMatchObject({ authorityId: id, availableBytes: 0, components: 0 });
+  else {
+    expect(existsSync(primary)).toBe(false); const pending = readFileSync(primary + '.next');
+    expect(() => reopen(n, id)).toThrow(); expect(readFileSync(primary + '.next')).toEqual(pending);
+  }
 });
