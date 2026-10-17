@@ -334,6 +334,13 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
       return structuredClone({ generation, rootId, sequence: state.blocks.length - 1,
         envelopeId: state.blocks.at(-1)!, freeze: state.freeze });
     },
+    /** Cached local allocation accounting; excludes provisioner journals and temporary files. */
+    storageUsage() {
+      ensureOpen();
+      return { retainedBlocks: envelopes.length, stagedBlocks: staged.length, retainedCiphertextBytes: blockBytes,
+        manifestReserveBytes: 2 * MAX_MANIFEST_BYTES, reservedBytes: blockBytes + 2 * MAX_MANIFEST_BYTES,
+        maximumBytes: maxBytes, maximumBlocks: maxBlocks, maximumAncestryBytes: MAX_ANCESTRY_BYTES };
+    },
     envelopeAt(sequence: number): HistoryCheckpointEnvelope | null {
       ensureOpen();
       if (!integer(sequence)) throw new Error('Invalid history block sequence');

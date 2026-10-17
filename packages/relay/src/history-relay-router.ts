@@ -2,6 +2,7 @@
  * fallback identity, automatic membership change or transparent mutation retry. */
 import WebSocket from 'ws';
 import { HistoryRelayTurns } from './history-relay-turns.js';
+import type { HistoryTransportHealth } from './history-health.js';
 import { HistoryLinkBudget, HistoryRelayLink, type HistoryRoleHandler, type HistoryRoleMethod,
   type HistoryLinkMethod, type HistoryLinkContext } from './history-relay-link.js';
 import { isHistoryRelayId, parseHistoryBridgeFrame, historyRoleResponseLimit,
@@ -122,6 +123,19 @@ export class HistoryRelayRouter {
   }
 
   usage() { return this.budget.usage(); }
+  health(): HistoryTransportHealth {
+    if (this.closed) throw new Error('History router closed');
+    const connected = (id: string) => this.links.get(id)?.socket.readyState === WebSocket.OPEN;
+    const direct = [...this.pins.values()].filter(pin => !pin.viaRelayId);
+    const targets = new Set(this.bridgeRoutes.map(route => route.targetRelayId));
+    const controllers = new Set([...this.options.acceptedRelayIds!, ...this.bridgeRoutes.map(route => route.controllerRelayId)]);
+    const usage = this.budget.usage();
+    return { configuredMembers: this.pins.size, connectedDirectMembers: direct.filter(pin => connected(pin.relayId)).length,
+      configuredOwnerBridges: this.multiplexed.size, connectedOwnerBridges: [...this.multiplexed].filter(connected).length,
+      configuredBridgeRoutes: this.bridgeRoutes.length, connectedBridgeTargets: [...targets].filter(connected).length,
+      configuredControllers: controllers.size, connectedControllers: [...controllers].filter(connected).length,
+      operations: usage.operations, maximumOperations: this.budget.maxOperations, bufferBytes: usage.bytes, maximumBufferBytes: this.budget.maxBytes };
+  }
   close(): void {
     if (this.closed) return; this.closed = true; this.turns.close();
     for (const waiter of this.waiting) waiter.finish(new Error('History routing closed'));

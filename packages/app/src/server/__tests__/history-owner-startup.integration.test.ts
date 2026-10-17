@@ -136,6 +136,8 @@ it.each(['direct', 'bridge', 'desktop-bridge'] as const)('starts transport befor
   const bridged = topology !== 'direct', desktop = topology === 'desktop-bridge';
   const n = await fixture(bridged, desktop); let owner = start({ ...n.env, ...(!desktop ? { RELAY_ADMISSION_POLICY_INITIALIZE: 'true' } : {}) });
   const port = await owner.listening(); expect(await health(port)).toBe(503); expect((await stats(port)).admission_ready).toBe(false);
+  expect((await stats(port)).history).toMatchObject({ owner: { state: 'starting' },
+    transport: { state: 'available', usage: { configuredMembers: 5, configuredOwnerBridges: bridged ? 1 : 0 } } });
   const token = await n.f.token(), first = publication();
   const frame = (record: ReturnType<typeof publication>, credential = token) => serializePublicationOperationFrame(createPublicationOperationFrame(record,
     presentBlindAdmissionTokenV2(credential, n.f.scope, 'publication-write', createAdmissionRequestBindingV2('publication-write', record))));
@@ -148,7 +150,12 @@ it.each(['direct', 'bridge', 'desktop-bridge'] as const)('starts transport befor
   expect((await stats(port)).stored_publications).toBe(0);
   await n.volunteer(bridged ? 4 : 3, port); await waitFor(async () => await health(port) === 200);
   expect((await stats(port)).admission_ready).toBe(true); expect(owner.output()).toContain('"event":"admission_ready"');
+  expect((await stats(port)).history).toMatchObject({ owner: { state: 'available', usage: { initialized: true, pending: false, retainedBlocks: 1 } } });
   expect((await send(port, raw)).payload.message).toBe('accepted');
+  const history = (await stats(port)).history;
+  expect(history).toMatchObject({ owner: { state: 'available', usage: { pending: false, retainedBlocks: 2 } } });
+  expect(JSON.stringify(history)).not.toMatch(/did:key:|sha256:|replica|envelope|rootId|authority|signature|secretKey/);
+  expect((await fetch(`http://127.0.0.1:${port}/stats`)).status).toBe(401);
   expect((await send(port, raw)).payload.message).toBe('duplicate');
   expect((await send(port, frame(publication()))).payload.message).toBe('admission_rejected');
   if (bridged) {

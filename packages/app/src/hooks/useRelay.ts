@@ -13,7 +13,7 @@ export interface UseRelay {
   toggle: (contacts: string[], controls: RelayOwnerControls) => Promise<{ error?: string }>;
 }
 
-export function useRelay(): UseRelay {
+export function useRelay(unlocked = false): UseRelay {
   const [relayStatus, setRelayStatus] = useState<RelayStatus | null>(null);
 
   const refresh = useCallback(async () => {
@@ -24,10 +24,10 @@ export function useRelay(): UseRelay {
   }, []);
 
   useEffect(() => {
-    if (!relayStatus?.enabled || relayStatus.admissionReady === true) return;
+    if (!unlocked || !relayStatus?.enabled) return;
     const timer = setInterval(() => { void refresh(); }, 5000);
     return () => clearInterval(timer);
-  }, [relayStatus?.enabled, relayStatus?.admissionReady, refresh]);
+  }, [unlocked, relayStatus?.enabled, refresh]);
 
   const toggle = useCallback(async (contacts: string[], controls: RelayOwnerControls) => {
     if (relayStatus?.enabled) {

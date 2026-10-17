@@ -87,6 +87,14 @@ it('runs freeze, agreement, provisioning and retained reads across three generat
     proposal, initialize: true }); cleanup.push(() => download.close());
   expect((await download.run()).complete).toBe(true); expect([...download.blocks()]).toEqual(ancestry);
   expect(n.services.map(s => s.describe().latest.generation)).toEqual([2, 2, 2, 2, 2]);
+  const retainedBytes = ancestry.reduce((sum, block) => sum + Buffer.byteLength(JSON.stringify(block)), 0);
+  for (const service of n.services) {
+    const health = service.health();
+    expect(health).toMatchObject({ generations: 3, retainedBlocks: ancestry.length, stagedBlocks: 0,
+      retainedCiphertextBytes: retainedBytes, manifestReserveBytes: 12 * 1024 * 1024, currentGenerationBlocks: 2 });
+    expect(health.reservedBytes).toBe(retainedBytes + 12 * 1024 * 1024);
+    expect(JSON.stringify(health)).not.toMatch(/rootId|envelopeId|did:key:|sha256:/);
+  }
   const before = n.services.map(s => s.describe());
   const observed = await discoverHistoryContinuations({ ...n.owner, genesisId: historyCheckpointEnvelopeId(n.root), members: n.members });
   expect(observed.continuations.map(r => r.generation)).toEqual([1, 2]);

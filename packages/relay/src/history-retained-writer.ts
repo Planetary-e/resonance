@@ -19,5 +19,6 @@ export function createRetainedHistoryCheckpointWriter(options: Omit<Parameters<t
       initialize: options.initialize || initializeArchive, maxBlocks: maxArchiveBlocks, maxBytes: maxArchiveBytes });
   } catch (error) { writer.close(); throw error; }
   return { ...writer, history: () => archive.blocks(), historyStatus: () => archive.read(),
+    historyUsage: () => archive.usage(),
     close() { writer.close(); archive.close(); } };
 }

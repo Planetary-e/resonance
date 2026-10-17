@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import StatCard from '../components/StatCard';
 import AdmissionWallet from '../components/AdmissionWallet';
+import HistoryHealth from '../components/HistoryHealth';
 import type { StatusResponse, RelayStatus, RelayOwnerControls } from '../api.client';
 
 interface Activity {
@@ -164,6 +165,7 @@ export default function Dashboard({
         <p className="text-sm text-muted">
           These limits pause new work. The relay continues handling accepted records, repairs, acknowledgements, and withdrawals.
         </p>
+        {relayStatus?.enabled && <HistoryHealth health={relayStatus.stats?.history} />}
         {(relayStatus?.storageCommitmentFloorBytes ?? 0) > 0 && (
           <p className="text-sm text-muted">
             Minimum storage limit for accepted data: {Math.ceil(

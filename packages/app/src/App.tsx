@@ -27,7 +27,7 @@ export default function App() {
   const items = useItems();
   const matches = useMatches();
   const channels = useChannels(session.status?.automaticMailboxes ?? true);
-  const relay = useRelay();
+  const relay = useRelay(session.isUnlocked);
   const { toasts, toast, dismiss } = useToast();
 
   const wsRef = useRef<WebSocket | null>(null);

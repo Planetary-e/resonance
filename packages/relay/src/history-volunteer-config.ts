@@ -60,7 +60,7 @@ export function openConfiguredHistoryVolunteer(config: ReturnType<typeof readHis
         try { return method === 'agreement' ? enrolled.exchange(value) : enrolled[method](value); }
         finally { requestBytes = 0; }
       } });
-    return { router, describe: () => enrolled.describe(), close() { router.close(); enrolled.close(); } };
+    return { router, describe: () => enrolled.describe(), health: () => enrolled.health(), close() { router.close(); enrolled.close(); } };
   } catch (error) { service?.close(); throw error; }
   finally { localKey?.fill(0); signingKey.secretKey.fill(0); }
 }

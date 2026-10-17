@@ -54,6 +54,8 @@ export async function createConfiguredAdmissionVerifier(options: {
             : time >= entry.spendUntil ? 'replay-only' as const : 'all' as const }));
       },
     });
-    return { verifyAndSpend: verifier.verifyAndSpend, witness, close() { quorum?.close(); witness?.close(); verifier.close(); store.close(); } };
+    return { verifyAndSpend: verifier.verifyAndSpend, witness,
+      historyHealth: history && 'health' in history ? history.health : undefined,
+      close() { quorum?.close(); witness?.close(); verifier.close(); store.close(); } };
   } catch (error) { history?.close(); quorum?.close(); witness?.close(); store.close(); throw error; }
 }

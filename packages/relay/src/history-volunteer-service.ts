@@ -8,6 +8,7 @@ import { openHistoryCheckpointStore } from './history-checkpoint-store.js';
 import { createHistoryCheckpointReplica } from './history-checkpoint-exchange.js';
 import { createHistoryAgreementReplica } from './history-checkpoint-agreement.js';
 import { HISTORY_PROVISION_FILENAME, openHistoryGenerationProvisioner } from './history-generation-provisioner.js';
+import type { HistoryVolunteerHealth } from './history-health.js';
 
 export function openHistoryVolunteerService(options: {
   directory: string; localKey: Uint8Array; context: HistoryCheckpointContext; signingKey: SigningKeyPair;
@@ -101,6 +102,15 @@ export function openHistoryVolunteerService(options: {
       live(); const entries = [...slots.values()];
       return { generations: entries.length, latest: entries.at(-1)!.store.describe(),
         provisioning: entries.at(-1)!.provisioner.read().phase, maximumGenerations: maxGenerations };
+    },
+    health(): HistoryVolunteerHealth {
+      live(); const stores = [...slots.values()].map(slot => slot.store.storageUsage()), current = stores.at(-1)!;
+      const sum = (key: 'retainedBlocks' | 'stagedBlocks' | 'retainedCiphertextBytes' | 'manifestReserveBytes' | 'reservedBytes') => stores.reduce((n, value) => n + value[key], 0);
+      return { generations: stores.length, maximumGenerations: maxGenerations,
+        retainedBlocks: sum('retainedBlocks'), stagedBlocks: sum('stagedBlocks'), retainedCiphertextBytes: sum('retainedCiphertextBytes'),
+        manifestReserveBytes: sum('manifestReserveBytes'), reservedBytes: sum('reservedBytes'),
+        currentGenerationReservedBytes: current.reservedBytes, currentGenerationBlocks: current.retainedBlocks + current.stagedBlocks,
+        maximumGenerationBytes: current.maximumBytes, maximumGenerationBlocks: current.maximumBlocks, maximumAncestryBytes: current.maximumAncestryBytes };
     },
     close,
   };

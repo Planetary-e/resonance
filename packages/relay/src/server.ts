@@ -235,6 +235,7 @@ import {
   type PublicationStorageAllocationPrincipal,
 } from './replica-storage-ledger.js';
 import type { AdmissionCapabilityVerifierV2 } from './admission.js';
+import type { RelayHistoryHealth } from './history-health.js';
 import { createPrivateEntryMix, type PrivateEntryMixOptions } from './private-entry-mix.js';
 
 export interface RelayDiscoveryConfig {
@@ -309,11 +310,14 @@ export interface RelayConfig {
   acceptNewWork?: (ingressBytes: number) => boolean;
   /** Shared meter also used by the standalone owner's total-usage policy. */
   resourceMeter?: RelayTrafficMeter;
+  /** Local aggregate history state; exposed only through authenticated operational stats. */
+  historyHealth?: () => RelayHistoryHealth;
 }
 
 export interface RelayStats {
   relay_id: string;
   admission_ready: boolean;
+  history: RelayHistoryHealth | null;
   transport_ingress_bytes: number;
   transport_egress_bytes: number;
   lan_ingress_bytes: number;
@@ -2433,6 +2437,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       res.end(JSON.stringify({
         relay_id: relayIdentity.did,
         admission_ready: !stopping && cfg.admissionVerifier?.isReady?.() !== false,
+        history: cfg.historyHealth?.() ?? null,
         ...resourceMetrics(),
         indexed_embeddings: stats.total,
         stored_publications: publicationStore.size,
@@ -4356,6 +4361,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       return {
         relay_id: relayIdentity.did,
         admission_ready: !stopping && cfg.admissionVerifier?.isReady?.() !== false,
+        history: cfg.historyHealth?.() ?? null,
         ...resourceMetrics(),
         indexed_embeddings: stats.total,
         stored_publications: publicationStore.size,

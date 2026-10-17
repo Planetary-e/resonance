@@ -122,6 +122,8 @@ export { createHistoryAncestryDownload } from './history-ancestry-download.js';
 export { openHistoryVolunteerService } from './history-volunteer-service.js';
 export { HistoryRelayRouter } from './history-relay-router.js';
 export { readHistoryBridgeConfigurationFile } from './history-bridge-config.js';
+export type { RelayHistoryHealth, HistoryOwnerHealth, HistoryVolunteerHealth, HistoryTransportHealth, HistoryRoleHealth } from './history-health.js';
+export { parseRelayHistoryHealth } from './history-health.js';
 export type { HistoryRelayMemberRoute, HistoryRelayBridgeRoute } from './history-relay-bridge.js';
 export { readHistoryVolunteerConfigurationFile, openConfiguredHistoryVolunteer } from './history-volunteer-config.js';
 export { discoverHistoryContinuations, type HistoryContinuationDiscovery } from './history-continuation-discovery.js';

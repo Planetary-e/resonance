@@ -119,6 +119,9 @@ export function openHistoryWriterArchive(options: {
   return {
     retainPending,
     read() { open(); anchor(); return { blocks: storage.read().blocks.length, bytes }; },
+    /** Cached allocation counters only; no network checks or payload/index copies. */
+    usage() { open(); return { retainedBlocks: storage.read().blocks.length, retainedCiphertextBytes: bytes,
+      maximumBlocks: maxBlocks, maximumCiphertextBytes: maxBytes }; },
     prefix() {
       open(); anchor();
       const ids = storage.read().blocks; // Snapshot arrays are replaced, never mutated or exposed.

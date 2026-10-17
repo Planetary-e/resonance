@@ -23,6 +23,7 @@ import { createDeferredAdmission } from './deferred-admission.js';
 import { HistoryRelayRouter } from './history-relay-router.js';
 import { createLocalBlindAdmissionVerifierV2 } from './blind-admission-verifier.js';
 import { readRelayIdentityPassphrase } from './relay-identity-config.js';
+import { readRelayHistoryHealth, type HistoryOwnerHealth } from './history-health.js';
 
 const relayPort = parseNonNegativeInteger(process.env.RELAY_PORT, 9090, 'RELAY_PORT');
 const tlsCertFile = process.env.RELAY_TLS_CERT_FILE;
@@ -169,7 +170,8 @@ const ownerPolicy = ownerBandwidth !== undefined || ownerTotalBandwidth !== unde
   }) : null;
 
 let historyProtection: ReturnType<typeof loadAdmissionHistoryProtectionFile> | undefined;
-let admissionVerifier: (AdmissionCapabilityVerifierV2 & { close(): void; witness?: AdmissionWitness }) | undefined;
+let admissionVerifier: (AdmissionCapabilityVerifierV2 & { close(): void; witness?: AdmissionWitness; historyHealth?: () => HistoryOwnerHealth }) | undefined;
+let admissionHistoryHealth: (() => HistoryOwnerHealth) | undefined;
 let historyVolunteer: ReturnType<typeof openConfiguredHistoryVolunteer> | undefined;
 let historyRouter: HistoryRelayRouter | undefined;
 const deferred = historyLinksFile ? createDeferredAdmission() : undefined;
@@ -210,7 +212,7 @@ try {
   if (ownerMembers) historyProtection!.transport = historyRouter!.checkpoint;
   // Direct history keeps its eager startup contract. Reverse links need the
   // listener first; their deferred verifier rejects every user credential meanwhile.
-  if (!deferred) admissionVerifier = await openAdmission();
+  if (!deferred) { admissionVerifier = await openAdmission(); admissionHistoryHealth = admissionVerifier?.historyHealth; }
 } catch (error) { clearAdmissionKeys(); historyRouter?.close(); historyVolunteer?.close(); throw error; }
 
 let server: ReturnType<typeof createRelayServer>;
@@ -225,6 +227,8 @@ try {
     admissionWitness: deferred && witnessKey ? deferred.witness : admissionVerifier?.witness,
     resourceMeter,
     historyLinks: historyRouter,
+    historyHealth: () => readRelayHistoryHealth({ ownerConfigured: !!historyFile, owner: admissionHistoryHealth,
+      volunteer: historyVolunteer?.health, transport: historyRouter ? () => historyRouter!.health() : undefined }),
     adminApiKey: process.env.RELAY_ADMIN_API_KEY || null,
     acceptNewWork: ownerPolicy ? bytes => ownerPolicy.allowNewWork(bytes) : undefined,
     maxPublishesPerMin: parseNonNegativeInteger(
@@ -275,6 +279,7 @@ if (deferred) {
   opening = openAdmission().then(ready => {
     if (!ready) throw new Error('Protected admission verifier is missing');
     deferred.install(ready);
+    admissionHistoryHealth = 'historyHealth' in ready ? ready.historyHealth : undefined;
     log('info', 'admission_ready');
   });
   void opening.catch(error => {

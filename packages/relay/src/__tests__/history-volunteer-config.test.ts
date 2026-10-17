@@ -46,7 +46,14 @@ it('reopens only existing enrollment with relative paths, explicit capacity and 
   expect(config.directory).toBe(n.enrolled); expect(config.contacts[0].expectedRelayId).toBe(n.value.controllers[0].relayId);
   const runtime = openConfiguredHistoryVolunteer(config);
   expect(runtime.describe()).toMatchObject({ generations: 1, maximumGenerations: 8, latest: { sequence: 0, rootId: n.value.genesisId } });
+  const health = runtime.health();
+  expect(health).toMatchObject({ generations: 1, maximumGenerations: 8, retainedBlocks: 1, stagedBlocks: 0,
+    retainedCiphertextBytes: Buffer.byteLength(JSON.stringify(n.root)), manifestReserveBytes: 4 * 1024 * 1024,
+    maximumGenerationBytes: 16 * 1024 * 1024, maximumGenerationBlocks: 100 });
+  expect(health.reservedBytes).toBe(health.retainedCiphertextBytes + health.manifestReserveBytes);
+  expect(JSON.stringify(health)).not.toContain(n.value.genesisId);
   runtime.close(); runtime.close();
+  expect(() => runtime.health()).toThrow();
   const missing = { ...config, directory: join(n.directory, 'missing') };
   expect(() => openConfiguredHistoryVolunteer(missing)).toThrow(); expect(existsSync(missing.directory)).toBe(false);
 });

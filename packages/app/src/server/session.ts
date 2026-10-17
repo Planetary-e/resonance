@@ -52,6 +52,7 @@ import {
 import { randomBytes, randomUUID } from 'node:crypto';
 import { chmodSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { parseRelayHistoryHealth, type RelayHistoryHealth } from '@resonance/relay';
 import {
   installRelayService, relayServiceRuntime, relayServiceStats, uninstallRelayService,
   type RelayOwnerControls,
@@ -301,6 +302,7 @@ export async function getRelayStats(): Promise<{
   controls: RelayOwnerControls;
   storageCommitmentFloorBytes: number;
   stats: {
+    history: RelayHistoryHealth | null;
     relay_id: string;
     connected_relays: number;
     inbound_authenticated_relays: number;
@@ -340,6 +342,7 @@ export async function getRelayStats(): Promise<{
       stats, config.storageCommitmentFloorBytes ?? 0,
     ),
     stats: stats ? {
+      history: parseRelayHistoryHealth(stats.history),
       relay_id: String(stats.relay_id ?? ''),
       connected_relays: Number(stats.connected_relays) || 0,
       inbound_authenticated_relays: Number(stats.inbound_authenticated_relays) || 0,

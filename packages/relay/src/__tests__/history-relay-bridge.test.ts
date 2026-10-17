@@ -55,6 +55,20 @@ it('forwards only the original four protocols to an explicitly authorized target
   await until(() => n.bridge.usage().operations === 0); expect(n.bridge.usage().bytes).toBe(0);
 });
 
+it('reports aggregate transport observations without claiming bridged members are current durable copies', async () => {
+  const n = await fixture({ count: 5 });
+  const owner = n.owner.health(), bridge = n.bridge.health();
+  expect(owner).toMatchObject({ configuredMembers: 5, connectedDirectMembers: 0, configuredOwnerBridges: 1,
+    connectedOwnerBridges: 1, operations: 0, bufferBytes: 0 });
+  expect(bridge).toMatchObject({ configuredMembers: 0, configuredBridgeRoutes: 5, connectedBridgeTargets: 5,
+    configuredControllers: 1, connectedControllers: 1, maximumOperations: 8, maximumBufferBytes: 64 * 1024 * 1024 });
+  expect(n.calls).toHaveLength(0);
+  for (const id of [n.ownerId, n.bridgeId, ...n.ids]) expect(JSON.stringify([owner, bridge])).not.toContain(id);
+  const closed = once(n.ownerWire.socket, 'close'); n.ownerWire.socket.close(); await closed;
+  expect(n.owner.health().connectedOwnerBridges).toBe(0);
+  n.owner.close(); expect(() => n.owner.health()).toThrow(/closed/);
+});
+
 it('refuses unknown targets, loops, nesting, extra fields, malformed payloads and per-method excess before forwarding', async () => {
   const n = await fixture({ raw: true }), base = { version: 1, targetRelayId: n.ids[0], method: 'checkpoint', frame: n.frame() };
   const invalid = [{ ...base, targetRelayId: generateIdentity().did }, { ...base, targetRelayId: n.ownerId },

@@ -216,6 +216,9 @@ export async function openProtectedAdmissionSpendHistory(options: {
     /** Opening and enrollment are offline; the caller enrolls this exact root on the pinned replicas. */
     enrollment() { return { context: structuredClone(context), root: structuredClone(read().root) }; },
     read() { return structuredClone(read()); },
+    /** Current-generation accounting only; neither a fresh audit nor a remote copy count. */
+    health() { const state = read(); return { initialized: readyConfirmed, busy: active, pending: state.pending !== null,
+      ...writer!.historyUsage() }; },
     policy(): SignedAdmissionPolicy { return structuredClone(serving().image.policy); },
     ready() { return exclusive(async () => {
       readyConfirmed = false;

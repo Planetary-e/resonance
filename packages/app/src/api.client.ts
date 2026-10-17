@@ -102,6 +102,7 @@ export interface RelayStatus {
   controls: RelayOwnerControls;
   storageCommitmentFloorBytes?: number;
   stats: {
+    history?: import('@resonance/relay').RelayHistoryHealth | null;
     relay_id?: string;
     connected_relays?: number;
     inbound_authenticated_relays?: number;
