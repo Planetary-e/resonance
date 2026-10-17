@@ -30,7 +30,17 @@ jobs:
       - name: Verify infrastructure key migration and process interruption
         run: npx vitest run --maxWorkers=1 packages/relay/src/__tests__/relay-identity-store.test.ts packages/relay/src/__tests__/relay-identity-crash.integration.test.ts
       - name: Verify experimental policy observers, network and interruption
-        run: npx vitest run --maxWorkers=1 packages/core/src/__tests__/admission-policy-freshness.test.ts packages/core/src/__tests__/policy-freshness-model.test.ts packages/relay/src/__tests__/admission-policy-observer.test.ts packages/relay/src/__tests__/admission-policy-observer-crash.integration.test.ts packages/relay/src/__tests__/admission-policy-observation.integration.test.ts packages/relay/src/__tests__/protected-policy-observer.integration.test.ts packages/relay/src/__tests__/protected-policy-quorum.integration.test.ts
+        run: >-
+          npx vitest run --maxWorkers=1
+          packages/core/src/__tests__/admission-policy-freshness.test.ts
+          packages/core/src/__tests__/policy-freshness-model.test.ts
+          packages/relay/src/__tests__/admission-policy-observer.test.ts
+          packages/relay/src/__tests__/admission-policy-observer-crash.integration.test.ts
+          packages/relay/src/__tests__/admission-policy-observation.integration.test.ts
+          packages/relay/src/__tests__/protected-policy-observer.integration.test.ts
+          packages/relay/src/__tests__/protected-policy-quorum.integration.test.ts
+          packages/relay/src/__tests__/policy-observer-history-restore.integration.test.ts
+          packages/relay/src/__tests__/policy-observer-restore-crash.integration.test.ts
 
   test:
     runs-on: ubuntu-latest

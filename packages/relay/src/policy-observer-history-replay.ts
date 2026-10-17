@@ -1,0 +1,89 @@
+/** Offline semantic replay. Historical certificates never authorize live signing. */
+import { createHash } from 'node:crypto';
+import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
+import { admissionPolicyObserversId, parseAdmissionPolicyObservers, type AdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
+import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointContextId, historyCheckpointEnvelopeId, historyDigest, isHistoryDigest,
+  openHistoryCheckpoint, parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope,
+  type HistoryCheckpointContext, type HistoryCheckpointEnvelope, type HistoryEncryptedEnvelope } from '@resonance/core/history-checkpoint';
+import { assertHistorySuccessorChain, historySuccessorProposalId, parseHistorySuccessorProposal,
+  type HistorySuccessorProposal } from '@resonance/core/history-successor';
+import { ADMISSION_POLICY_OBSERVER_MAX_BYTES, assertPolicyObserverStateSuccessor, parseAdmissionPolicyObserverState,
+  type AdmissionPolicyObserverState } from './admission-policy-observer-state.js';
+
+/** Same pinned volunteers, a different deterministic history for each observer. */
+export function policyObserverHistoryContext(value: AdmissionPolicyObservers, observer: string): HistoryCheckpointContext {
+  const context = parseAdmissionPolicyObservers(value), contextId = admissionPolicyObserversId(context);
+  if (!context.members.some(member => member.publicKey === observer)) throw new Error('Policy observer key is not enrolled');
+  return parseHistoryCheckpointContext({ version: 1, role: 'policy-observer',
+    historyId: createHash('sha256').update(`resonance:policy-observer-history:v1\n${JSON.stringify([contextId, observer])}`).digest('base64url'),
+    owner: observer, authority: context.authority, policyDigest: contextId,
+    members: context.members.map(member => member.publicKey).sort(), quorum: 4 });
+}
+export function assertPolicyObserverHistoryContext(context: AdmissionPolicyObservers, historyContext: HistoryCheckpointContext) {
+  if (historyCheckpointContextId(historyContext) !== historyCheckpointContextId(policyObserverHistoryContext(context, historyContext.owner))) {
+    throw new Error('Wrong protected policy observer history pins');
+  }
+}
+export async function decodePolicyObserverSnapshot(block: HistoryCheckpointEnvelope, historyContext: HistoryCheckpointContext,
+  context: AdmissionPolicyObservers, key: Uint8Array) {
+  if (block.kind !== 'checkpoint') throw new Error('Policy observer needs complete snapshots');
+  const bytes = openHistoryCheckpoint(block, historyContext, key);
+  try {
+    if (bytes.length > ADMISSION_POLICY_OBSERVER_MAX_BYTES) throw new Error('Policy observer snapshot exceeds its bound');
+    return await parseAdmissionPolicyObserverState(JSON.parse(new TextDecoder('utf8', { fatal: true }).decode(bytes)), context);
+  } finally { bytes.fill(0); }
+}
+export const policyObserverReplayDigest = (contextId: string, genesisId: string, proposalId: string, state: AdmissionPolicyObserverState) =>
+  historyDigest(`resonance:policy-observer-replay:v1\n${JSON.stringify([contextId, genesisId, proposalId, state])}`);
+
+export async function replayPolicyObserverHistory(options: {
+  context: AdmissionPolicyObservers; historyContext: HistoryCheckpointContext; genesisId: string;
+  proposal: HistorySuccessorProposal; encryptionKey: Uint8Array; blocks: Iterable<unknown>;
+  maxBlocks?: number; maxBytes?: number; timeoutMs?: number; signal?: AbortSignal;
+}) {
+  const context = parseAdmissionPolicyObservers(options.context), historyContext = parseHistoryCheckpointContext(options.historyContext);
+  assertPolicyObserverHistoryContext(context, historyContext);
+  const contextId = historyCheckpointContextId(historyContext), proposal = parseHistorySuccessorProposal(options.proposal, historyContext);
+  const proposalId = historySuccessorProposalId(proposal), genesisId = options.genesisId;
+  const maxBlocks = options.maxBlocks ?? 10001, maxBytes = options.maxBytes ?? 256 * 1024 * 1024, timeoutMs = options.timeoutMs ?? 30000;
+  if (!isHistoryDigest(genesisId) || !(options.encryptionKey instanceof Uint8Array) || options.encryptionKey.length !== 32
+    || ![maxBlocks, maxBytes, timeoutMs].every(Number.isSafeInteger) || maxBlocks < 1 || maxBlocks > 10001
+    || maxBytes < 1 || maxBytes > 256 * 1024 * 1024 || timeoutMs < 50 || timeoutMs > 300000) throw new Error('Invalid policy observer replay bounds or pins');
+  const key = Uint8Array.from(options.encryptionKey), started = performance.now();
+  let state: AdmissionPolicyObserverState | undefined, genesis: HistoryEncryptedEnvelope | undefined;
+  let head: HistoryCheckpointEnvelope | undefined, rootId = '', ids: string[] = [], bytes = 0, blocks = 0, generations = 0, generationBytes = 0;
+  function live() { if (options.signal?.aborted || performance.now() - started >= timeoutMs) throw new Error('Policy observer replay cancelled or timed out'); }
+  try {
+    live();
+    for (const raw of options.blocks) {
+      live(); if (++blocks > maxBlocks) throw new Error('Policy observer replay block capacity exceeded');
+      const size = Buffer.byteLength(JSON.stringify(raw) ?? '');
+      if (!size || size > HISTORY_ENVELOPE_MAX_BYTES || (bytes += size) > maxBytes) throw new Error('Policy observer replay byte capacity exceeded');
+      const block = parseHistoryCheckpointEnvelope(raw, historyContext), id = historyCheckpointEnvelopeId(block);
+      if (!head) {
+        if (block.kind !== 'checkpoint' || block.generation !== 0 || block.sequence !== 0 || id !== genesisId) throw new Error('Policy observer replay requires its independently pinned genesis');
+        state = await decodePolicyObserverSnapshot(block, historyContext, context, key);
+        if (state.previous !== null) throw new Error('Policy observer genesis contains a noninitial policy');
+        genesis = block; rootId = id; ids = [id]; generations = 1; generationBytes = size;
+      } else if (block.kind === 'continuation') {
+        if (generations >= 65 || block.proposal.generation !== head.generation || block.generation <= head.generation) throw new Error('Invalid policy observer generation ancestry');
+        assertHistorySuccessorChain(block.proposal, ids);
+        rootId = id; ids = [id]; generations++; generationBytes = size;
+      } else {
+        if (block.generation !== head.generation || block.sequence !== head.sequence + 1 || block.previous !== historyCheckpointEnvelopeId(head)) throw new Error('Policy observer history has a gap, fork or wrong generation');
+        const next = await decodePolicyObserverSnapshot(block, historyContext, context, key);
+        assertPolicyObserverStateSuccessor(state!, next, context); state = next; ids.push(id); generationBytes += size;
+      }
+      live();
+      if (generationBytes > 64 * 1024 * 1024) throw new Error('Policy observer replay generation capacity exceeded');
+      if (block.generation > proposal.generation || block.generation === proposal.generation && block.sequence > proposal.sequence) throw new Error('Policy observer replay exceeds its selected head');
+      head = block;
+      if (blocks % 16 === 0) { await yieldToEventLoop(); live(); }
+    }
+    live();
+    if (!state || !genesis || !head || head.generation !== proposal.generation || rootId !== proposal.rootId) throw new Error('Policy observer history does not reach its selected generation');
+    assertHistorySuccessorChain(proposal, ids);
+    return { state, genesis, contextId, genesisId, proposalId, replayDigest: policyObserverReplayDigest(contextId, genesisId, proposalId, state),
+      head: { rootId, generation: head.generation, sequence: head.sequence, envelopeId: historyCheckpointEnvelopeId(head) }, blocks, bytes, generations };
+  } finally { key.fill(0); }
+}

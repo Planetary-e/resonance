@@ -1,7 +1,8 @@
 /** Experimental policy observer backed by the existing four-copy history writer.
  * No production admission/CLI wiring and no automatic lost-state reconstruction. */
-import { createHash } from 'node:crypto';
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type { SigningKeyPair } from '@resonance/core';
 import { copyAdmissionSigningKey } from '@resonance/core/admission-witness';
 import { assertAdmissionPolicyCurrent } from '@resonance/core/admission-policy';
@@ -9,23 +10,17 @@ import { admissionPolicyObserversId, createAdmissionPolicyHeadVote, parseAdmissi
   parseAdmissionPolicyObservers, type AdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
 import { parseAdmissionPolicyAdvance } from '@resonance/core/admission-policy-advance';
 import { historyCheckpointContextId, historyCheckpointEnvelopeId, historyCheckpointEnvelopeByteLength, historyCheckpointReserveBucket,
-  openHistoryCheckpoint, parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, sealHistoryCheckpoint,
+  parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, sealHistoryCheckpoint,
   type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { createRetainedHistoryCheckpointWriter } from './history-retained-writer.js';
-import { ADMISSION_POLICY_OBSERVER_MAX_BYTES, advanceAdmissionPolicyObserverState, assertPolicyObserverStateSuccessor,
+import { advanceAdmissionPolicyObserverState, assertPolicyObserverStateSuccessor,
   parseAdmissionPolicyObserverState, policyObserverStateHead, type AdmissionPolicyObserverState } from './admission-policy-observer-state.js';
 
+import { decodePolicyObserverSnapshot, policyObserverHistoryContext } from './policy-observer-history-replay.js';
+import { openPolicyObserverRestoration, type PreparedPolicyObserverRestore } from './policy-observer-history-restore.js';
+export { policyObserverHistoryContext } from './policy-observer-history-replay.js';
+
 type WriterOptions = Parameters<typeof createRetainedHistoryCheckpointWriter>[0];
-/** Same pinned volunteers, a different history for each observer. A new random
- * history identifier must never turn the same observer key into an empty role. */
-export function policyObserverHistoryContext(value: AdmissionPolicyObservers, observer: string): HistoryCheckpointContext {
-  const context = parseAdmissionPolicyObservers(value), contextId = admissionPolicyObserversId(context);
-  if (!context.members.some(member => member.publicKey === observer)) throw new Error('Policy observer key is not enrolled');
-  return parseHistoryCheckpointContext({ version: 1, role: 'policy-observer',
-    historyId: createHash('sha256').update(`resonance:policy-observer-history:v1\n${JSON.stringify([contextId, observer])}`).digest('base64url'),
-    owner: observer, authority: context.authority, policyDigest: contextId,
-    members: context.members.map(member => member.publicKey).sort(), quorum: 4 });
-}
 /** Offline preparation only. Persist and independently enroll this exact root;
  * regenerating its random ciphertext is not restoration of an existing role. */
 export async function createPolicyObserverHistoryRoot(options: {
@@ -48,7 +43,10 @@ export async function createPolicyObserverHistoryRoot(options: {
 export async function openProtectedPolicyObserver(options: {
   directory: string; encryptionKey: Uint8Array; context: AdmissionPolicyObservers; signingKey: SigningKeyPair;
   historyContext: HistoryCheckpointContext; root: HistoryCheckpointEnvelope; members: WriterOptions['members'];
-  mode: 'create-new' | 'open-existing'; initializeArchive?: boolean; resumePristineArchive?: boolean;
+  mode: 'create-new' | 'open-existing'; initializeWriter?: boolean; initializeArchive?: boolean; resumePristineArchive?: boolean;
+  /** Mandatory original anchor when root is a certified later generation. */
+  genesis?: HistoryCheckpointEnvelope;
+  restore?: { preparation: PreparedPolicyObserverRestore; approvedDigest: string };
   timeoutMs?: number; transport?: WriterOptions['transport']; maxArchiveBlocks?: number; maxArchiveBytes?: number;
   now?: () => number;
 }) {
@@ -56,25 +54,25 @@ export async function openProtectedPolicyObserver(options: {
   if (!(options.encryptionKey instanceof Uint8Array) || options.encryptionKey.length !== 32) throw new Error('Protected policy observer requires a 32-byte encryption key');
   const context = parseAdmissionPolicyObservers(options.context), historyContext = parseHistoryCheckpointContext(options.historyContext);
   const root = parseHistoryCheckpointEnvelope(options.root, historyContext), rootId = historyCheckpointEnvelopeId(root);
+  const genesis = parseHistoryCheckpointEnvelope(options.genesis ?? root, historyContext), genesisId = historyCheckpointEnvelopeId(genesis);
+  const mode = options.mode, restore = options.restore && { ...options.restore }, initializeWriter = options.initializeWriter;
   const signer = copyAdmissionSigningKey(options.signingKey), key = Uint8Array.from(options.encryptionKey), now = options.now ?? Date.now;
-  const writerOptions = { directory: options.directory, localKey: key, context: historyContext, signingKey: signer, rootId, generation: 0,
-    members: structuredClone(options.members), initialize: options.mode === 'create-new', requireCurrentHead: true,
+  const writerOptions = { directory: options.directory, localKey: key, context: historyContext, signingKey: signer, rootId, generation: root.generation, genesisId,
+    ...(root.kind === 'continuation' ? { continuation: root } : {}),
+    members: structuredClone(options.members), initialize: mode === 'create-new' || initializeWriter, requireCurrentHead: true,
     initializeArchive: options.initializeArchive, resumePristineArchive: options.resumePristineArchive,
     timeoutMs: options.timeoutMs ?? 3000, transport: options.transport,
     maxArchiveBlocks: options.maxArchiveBlocks, maxArchiveBytes: options.maxArchiveBytes };
   let writer: ReturnType<typeof createRetainedHistoryCheckpointWriter> | undefined, closed = false, busy = false;
+  let restoration: Awaited<ReturnType<typeof openPolicyObserverRestoration>> | undefined;
   // Only the committed and pending states are needed after opening. All retained
   // ciphertext is authenticated and replayed before these cached states are used.
   const states = new Map<string, AdmissionPolicyObserverState>();
-  function close() { if (!closed) { closed = true; writer?.close(); signer.secretKey.fill(0); key.fill(0); states.clear(); } }
+  function close() { if (!closed) { closed = true; writer?.close(); restoration?.close(); signer.secretKey.fill(0); key.fill(0); states.clear(); } }
   function live() { if (closed) throw new Error('Protected policy observer is closed'); }
   async function decode(block: HistoryCheckpointEnvelope) {
-    if (block.kind !== 'checkpoint' || block.generation !== 0) throw new Error('Policy observer needs complete generation-zero snapshots');
-    const bytes = openHistoryCheckpoint(block, historyContext, key);
-    try {
-      if (bytes.length > ADMISSION_POLICY_OBSERVER_MAX_BYTES) throw new Error('Policy observer snapshot exceeds its bound');
-      return await parseAdmissionPolicyObserverState(JSON.parse(new TextDecoder('utf8', { fatal: true }).decode(bytes)), context);
-    } finally { bytes.fill(0); }
+    if (block.generation !== root.generation) throw new Error('Policy observer snapshot belongs to another generation');
+    return decodePolicyObserverSnapshot(block, historyContext, context, key);
   }
   function retained() {
     live(); const saved = writer!.read(), block = saved.pending ?? saved.committed?.envelope ?? root;
@@ -102,17 +100,26 @@ export async function openProtectedPolicyObserver(options: {
   try {
     const expected = policyObserverHistoryContext(context, Buffer.from(signer.publicKey).toString('base64url'));
     if (historyCheckpointContextId(historyContext) !== historyCheckpointContextId(expected)) throw new Error('Wrong protected policy observer history pins');
-    if (root.kind !== 'checkpoint' || root.generation !== 0 || root.sequence !== 0) throw new Error('Policy observer requires its independently pinned genesis');
-    const genesis = await decode(root);
-    if (genesis.previous !== null) throw new Error('Policy observer root must contain its initial policy');
-    states.set(rootId, genesis);
+    if (genesis.kind !== 'checkpoint' || genesis.generation !== 0 || genesis.sequence !== 0) throw new Error('Policy observer requires its independently pinned genesis');
+    const initial = await decodePolicyObserverSnapshot(genesis, historyContext, context, key);
+    if (initial.previous !== null) throw new Error('Policy observer root must contain its initial policy');
+    let baseline = initial;
+    if (root.kind === 'continuation') {
+      restoration = await openPolicyObserverRestoration({ directory: writerOptions.directory, encryptionKey: key, context,
+        historyContext, genesisId, root, mode, restore });
+      baseline = restoration.state;
+    } else if (rootId !== genesisId || root.generation !== 0 || root.sequence !== 0 || restore) throw new Error('Invalid policy observer root or restoration');
+    states.set(rootId, baseline);
+    if (initializeWriter && mode === 'open-existing' && existsSync(join(writerOptions.directory, 'payloads'))) {
+      throw new Error('Cannot recreate a missing observer writer alongside retained archive evidence');
+    }
     writer = createRetainedHistoryCheckpointWriter(writerOptions);
     let previous: AdmissionPolicyObserverState | undefined, last: HistoryCheckpointEnvelope | undefined;
     const start = performance.now(); let count = 0;
     const saved = writer.read();
     for (const block of writer.history()) {
       if (performance.now() - start >= 30000) throw new Error('Policy observer replay timed out');
-      const id = historyCheckpointEnvelopeId(block), state = id === rootId ? genesis : await decode(block);
+      const id = historyCheckpointEnvelopeId(block), state = id === rootId ? baseline : await decode(block);
       if (!previous) { if (id !== rootId) throw new Error('Policy observer history lost its genesis'); }
       else {
         if (block.sequence !== last!.sequence + 1 || block.previous !== historyCheckpointEnvelopeId(last!)) throw new Error('Policy observer history has a gap');
@@ -128,6 +135,7 @@ export async function openProtectedPolicyObserver(options: {
       else if (historyCheckpointEnvelopeId(pending) !== rootId) throw new Error('Policy observer pending history lost its genesis');
       states.set(historyCheckpointEnvelopeId(pending), state);
     }
+    if (performance.now() - start >= 30000) throw new Error('Policy observer replay timed out');
     retained();
   } catch (error) { close(); throw error; }
   return {
@@ -159,7 +167,7 @@ export async function openProtectedPolicyObserver(options: {
       let pending: HistoryCheckpointEnvelope;
       try {
         if (block.sequence >= Number.MAX_SAFE_INTEGER - 2) throw new Error('Policy observer history sequence exhausted');
-        const header = { kind: 'checkpoint' as const, generation: 0, sequence: block.sequence + 1, previous: historyCheckpointEnvelopeId(block) };
+        const header = { kind: 'checkpoint' as const, generation: root.generation, sequence: block.sequence + 1, previous: historyCheckpointEnvelopeId(block) };
         // Keep room for the one terminal conflict record even at archive capacity.
         const reservedBytes = next.conflict ? 0 : historyCheckpointEnvelopeByteLength({ context: historyContext,
           header: { ...header, sequence: header.sequence + 1 }, plaintextBytes: plaintext.length + 4096 });
