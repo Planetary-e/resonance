@@ -4,16 +4,17 @@ import { dirname, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { exactWitnessFields } from '@resonance/core/admission-witness';
 import { openEncryptedLocalState } from '@resonance/core/local-state';
-import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointContextId, historyCheckpointEnvelopeId, isHistoryDigest,
+import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointContextId, historyCheckpointEnvelopeId, historyDigest, isHistoryDigest,
   parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { HISTORY_RECOVERY_MAX_BLOCKS, HISTORY_RECOVERY_MAX_BYTES } from '@resonance/core/history-exchange';
 import type { createHistoryCheckpointWriter } from './history-checkpoint-quorum.js';
 import { reserveHistoryStorage } from './history-storage-reservation.js';
 import { registerHistoryWriterPrefix } from './history-writer-prefix.js';
+import { parseHistoryCompactionAttestation, parseHistoryCompactionCertificate, type HistoryCompactionCertificate } from '@resonance/core/history-compaction';
 
 export const HISTORY_WRITER_ARCHIVE_FILENAME = 'history-writer-payloads.json';
 const MANIFEST_BYTES = 2 * 1024 * 1024;
-interface State { version: 1; contextId: string; rootId: string; generation: number; blocks: string[] }
+interface State { version: 1; contextId: string; rootId: string; generation: number; blocks: string[]; compaction?: HistoryCompactionCertificate }
 
 export function openHistoryWriterArchive(options: {
   directory: string; localKey: Uint8Array; context: HistoryCheckpointContext; rootId: string; generation: number;
@@ -21,11 +22,15 @@ export function openHistoryWriterArchive(options: {
   /** Explicitly reviewed retry of first initialization; no committed/pending writer or unknown files. */
   resumePristine?: boolean;
   maxBlocks?: number; maxBytes?: number;
+  /** Original independently pinned genesis is required for certified repair in later generations. */
+  genesisId?: string;
 }) {
   const context = parseHistoryCheckpointContext(options.context), contextId = historyCheckpointContextId(context);
   const { directory, rootId, generation } = options;
+  const genesisId = generation === 0 ? rootId : options.genesisId;
   const maxBlocks = options.maxBlocks ?? HISTORY_RECOVERY_MAX_BLOCKS, maxBytes = options.maxBytes ?? HISTORY_RECOVERY_MAX_BYTES;
   if (!isHistoryDigest(rootId) || !Number.isSafeInteger(generation) || generation < 0
+    || (options.genesisId !== undefined && (!isHistoryDigest(options.genesisId) || generation === 0 && options.genesisId !== rootId))
     || !Number.isSafeInteger(maxBlocks) || maxBlocks < 1 || maxBlocks > HISTORY_RECOVERY_MAX_BLOCKS
     || !Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > HISTORY_RECOVERY_MAX_BYTES) throw new Error('Invalid writer archive bounds or pins');
   const initial: State = { version: 1, contextId, rootId, generation, blocks: [] };
@@ -35,9 +40,17 @@ export function openHistoryWriterArchive(options: {
     return state;
   }
   function validate(raw: unknown): raw is State {
-    return exactWitnessFields(raw, Object.keys(initial)) && raw.version === 1 && raw.contextId === contextId
+    const compacted = !!raw && typeof raw === 'object' && Object.hasOwn(raw, 'compaction');
+    if (!(exactWitnessFields(raw, [...Object.keys(initial), ...(compacted ? ['compaction'] : [])]) && raw.version === 1 && raw.contextId === contextId
       && raw.rootId === rootId && raw.generation === generation && Array.isArray(raw.blocks)
-      && raw.blocks.length <= maxBlocks && raw.blocks.every(isHistoryDigest) && new Set(raw.blocks).size === raw.blocks.length;
+      && raw.blocks.length <= maxBlocks && raw.blocks.every(isHistoryDigest) && new Set(raw.blocks).size === raw.blocks.length)) return false;
+    if (compacted) {
+      try {
+        const p = parseHistoryCompactionAttestation(raw.compaction, context, genesisId!).proposal;
+        if (p.rootId !== rootId || p.generation !== generation || raw.blocks[p.sequence] !== p.envelopeId) return false;
+      } catch { return false; }
+    }
+    return true;
   }
   const path = (id: string) => join(directory, `${id.slice(7)}.block`);
   let storage: ReturnType<typeof openEncryptedLocalState<State>>, bytes = 0, closed = false, failed = false;
@@ -92,6 +105,8 @@ export function openHistoryWriterArchive(options: {
       const saved = readBlock(ids[i]); consecutive(saved.block, i, i ? ids[i - 1] : null); bytes += saved.bytes;
       if (bytes > maxBytes) throw new Error('Writer archive byte capacity exceeded');
     }
+    const proof = storage.read().compaction;
+    if (proof) parseHistoryCompactionCertificate(proof, context, genesisId!, readBlock(proof.proposal.envelopeId).block);
     const current = anchor(), pendingId = current.pending && historyCheckpointEnvelopeId(current.pending);
     const allowed = new Set([...ids, ...(pendingId ? [pendingId] : [])].map(id => `${id.slice(7)}.block`));
     for (const name of readdirSync(directory)) {
@@ -134,14 +149,31 @@ export function openHistoryWriterArchive(options: {
   }
   return {
     retainPending,
+    /** Local proof publication changes repair strategy only; all accepted bytes remain retained. */
+    retainCompactionAnchor(value: unknown, approvedDigest: string): HistoryCompactionCertificate {
+      open(); const writer = anchor(), state = storage.read();
+      const proof = parseHistoryCompactionAttestation(value, context, genesisId!), p = proof.proposal;
+      if (writer.pending || !writer.committed || p.rootId !== rootId || p.generation !== generation
+        || p.sequence > writer.committed.envelope.sequence || state.blocks[p.sequence] !== p.envelopeId) {
+        throw new Error('Writer checkpoint proof must match committed retained history without pending work');
+      }
+      parseHistoryCompactionCertificate(proof, context, genesisId!, readBlock(p.envelopeId).block);
+      if (state.compaction?.proposal.envelopeId === p.envelopeId) return structuredClone(state.compaction);
+      if (state.compaction && state.compaction.proposal.sequence > p.sequence) throw new Error('Writer checkpoint proof cannot regress');
+      if (approvedDigest !== historyDigest(JSON.stringify([state, writer]))) throw new Error('Writer checkpoint proof needs current local review');
+      storage.write({ ...state, compaction: proof }); return structuredClone(proof);
+    },
+    reviewDigest() { open(); return historyDigest(JSON.stringify([storage.read(), anchor()])); },
+    compactionAnchor() { open(); anchor(); return structuredClone(storage.read().compaction ?? null); },
     read() { open(); anchor(); return { blocks: storage.read().blocks.length, bytes }; },
     /** Cached allocation counters only; no network checks or payload/index copies. */
     usage() { open(); return { retainedBlocks: storage.read().blocks.length, retainedCiphertextBytes: bytes,
       maximumBlocks: maxBlocks, maximumCiphertextBytes: maxBytes }; },
     prefix() {
       open(); anchor();
-      const ids = storage.read().blocks; // Snapshot arrays are replaced, never mutated or exposed.
+      const state = storage.read(), ids = state.blocks; // Snapshot arrays are replaced, never mutated or exposed.
       return registerHistoryWriterPrefix({ contextId, rootId, generation, count: ids.length, bytes,
+        ...(state.compaction ? { compaction: { genesisId: genesisId!, certificate: structuredClone(state.compaction) } } : {}),
         idAt(sequence) { open(); return Number.isSafeInteger(sequence) && sequence >= 0 ? ids[sequence] ?? null : null; },
         blockAt(sequence) {
           open(); if (!Number.isSafeInteger(sequence) || sequence < 0 || sequence >= ids.length) throw new Error('Writer archive sequence unavailable');

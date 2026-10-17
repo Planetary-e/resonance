@@ -31,7 +31,7 @@ const MAX_BLOCKS = 10_001;
 const MAX_ANCESTRY_BYTES = 256 * 1024 * 1024;
 interface Manifest {
   version: 1; contextId: string; replica: string; rootId: string; generation: number;
-  /** Absolute sequence slots. Null is permitted only for an unavailable interval
+  /** Absolute sequence slots. Null is permitted only for unavailable intervals
    * below a certified checkpoint; previously accepted local blocks stay indexed. */
   blocks: Array<string | null>; freeze: HistoryFreeze | null;
   /** Missing only in pre-reservation manifests. A sealed successor is never replaced. */
@@ -204,9 +204,9 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
         const p = parseHistoryCompactionAttestation(value.compaction, context, genesisId).proposal;
         if (p.rootId !== rootId || p.generation !== generation || value.blocks[p.sequence] !== p.envelopeId
           || value.blocks.slice(p.sequence).includes(null)) return false;
-        const gap = value.blocks.indexOf(null);
-        if (gap !== -1 && (!value.freeze || !value.agreement || value.successor
-          || value.blocks.slice(gap, p.sequence).some(id => id !== null))) return false;
+        // A later certified full-state checkpoint covers earlier unavailable
+        // intervals too. All locally accepted segments remain indexed, and the
+        // complete suffix from this latest anchor must remain contiguous.
       } catch { return false; }
     } else if (value.blocks.includes(null)) return false;
     if (value.freeze !== null) {
@@ -368,10 +368,10 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
         if (id === null) { envelopes.push(null); continue; }
         const envelope = loadBlock(id);
         if (sequence === 0) validateParent(envelope);
-        if (envelope.sequence !== sequence || (sequence !== state.compaction?.proposal.sequence
-          && envelope.previous !== (sequence ? state.blocks[sequence - 1] : null))
-          || (sequence === state.compaction?.proposal.sequence && state.blocks[sequence - 1] !== null
-            && envelope.previous !== state.blocks[sequence - 1])) {
+        const previous = sequence ? state.blocks[sequence - 1] : null;
+        const certifiedGap = sequence > 0 && previous === null && !!state.compaction
+          && sequence <= state.compaction.proposal.sequence;
+        if (envelope.sequence !== sequence || (certifiedGap ? envelope.kind !== 'checkpoint' : envelope.previous !== previous)) {
           throw new Error('History chain is incomplete or conflicting');
         }
         envelopes.push(envelope);
@@ -432,6 +432,37 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
       return structuredClone(certificate);
     },
     compactionAnchor(): HistoryCompactionCertificate | null { ensureOpen(); return structuredClone(storage.read().compaction ?? null); },
+    /** Install a certified full-state checkpoint on an unfrozen lagging member.
+     * Preserves every accepted local block; this is not a fresh writer receipt. */
+    installCheckpoint(value: unknown, proof: unknown, approvedReviewDigest: string): string {
+      ensureOpen();
+      if (!genesisId) throw new Error('Checkpoint installation needs its independently retained genesis');
+      const block = parseHistoryCheckpointEnvelope(value, context), id = historyCheckpointEnvelopeId(block);
+      const certificate = parseHistoryCompactionCertificate(proof, context, genesisId, block), p = certificate.proposal;
+      const state = storage.read(), head = state.blocks.length - 1;
+      if (p.rootId !== rootId || p.generation !== generation) throw new Error('Checkpoint installation belongs to another generation');
+      if (state.freeze || state.agreement || state.transfer || state.successor || state.activation) {
+        throw new Error('Frozen or committed generation cannot install a checkpoint');
+      }
+      if (block.sequence < head || (block.sequence === head && state.blocks[head] !== id)) {
+        throw new Error('Checkpoint installation cannot replace accepted history');
+      }
+      if (state.compaction && state.compaction.proposal.sequence > block.sequence) throw new Error('Compaction anchor cannot regress');
+      if (block.sequence === head && state.compaction?.proposal.envelopeId === id) return id;
+      if (approvedReviewDigest !== historyDigest(JSON.stringify(state))) throw new Error('Checkpoint installation needs current local review');
+      if (block.sequence === head + 1 && block.previous !== state.blocks[head]) throw new Error('Checkpoint installation conflicts with retained predecessor');
+      const missing = block.sequence - head - 1;
+      const next: Manifest = { ...state, compaction: certificate, blocks: block.sequence === head ? state.blocks
+        : [...state.blocks, ...Array<string | null>(missing).fill(null), id] };
+      fits(block.sequence === head ? 0 : Buffer.byteLength(JSON.stringify(block)), next.blocks.length);
+      if (!validManifest(next)) throw new Error('Invalid outgoing checkpoint installation');
+      try {
+        const bytes = block.sequence === head ? 0 : writeImmutable(block);
+        storage.write(next);
+        if (block.sequence !== head) { blockBytes += bytes; envelopes.push(...Array<null>(missing).fill(null), block); }
+      } catch (error) { failed = true; throw error; }
+      return id;
+    },
     /** Explicit local activation only. The proof does not certify current network readiness. */
     activateContinuation(value: unknown): HistoryContinuationRoot {
       ensureOpen();

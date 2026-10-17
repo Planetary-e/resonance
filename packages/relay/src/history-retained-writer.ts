@@ -8,18 +8,22 @@ export function createRetainedHistoryCheckpointWriter(options: Omit<Parameters<t
   initializeArchive?: boolean;
   resumePristineArchive?: boolean;
   maxArchiveBlocks?: number; maxArchiveBytes?: number;
+  genesisId?: string;
 }) {
-  const { initializeArchive, resumePristineArchive, maxArchiveBlocks, maxArchiveBytes, ...writerOptions } = options;
+  const { initializeArchive, resumePristineArchive, maxArchiveBlocks, maxArchiveBytes, genesisId, ...writerOptions } = options;
   let archive: ReturnType<typeof openHistoryWriterArchive>;
   const writer = createHistoryCheckpointWriter({ ...writerOptions, retained() {
     archive.retainPending(); return archive.prefix();
   } });
   try {
     archive = openHistoryWriterArchive({ directory: join(options.directory, 'payloads'), localKey: options.localKey,
-      context: options.context, rootId: options.rootId, generation: options.generation, readWriter: writer.read,
+      context: options.context, rootId: options.rootId, generation: options.generation, genesisId, readWriter: writer.read,
       initialize: options.initialize || initializeArchive, resumePristine: resumePristineArchive, maxBlocks: maxArchiveBlocks, maxBytes: maxArchiveBytes });
   } catch (error) { writer.close(); throw error; }
   return { ...writer, history: () => archive.blocks(), historyStatus: () => archive.read(),
     historyUsage: () => archive.usage(),
+    historyReviewDigest: () => archive.reviewDigest(),
+    retainCompactionAnchor: archive.retainCompactionAnchor,
+    compactionAnchor: archive.compactionAnchor,
     close() { writer.close(); archive.close(); } };
 }

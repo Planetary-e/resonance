@@ -6,6 +6,8 @@ import { createHistoryExchangeRequest, HISTORY_RECOVERY_MAX_BLOCKS, HISTORY_RECO
   parseHistoryExchangeResponse, type HistoryReplicaHead } from '@resonance/core/history-exchange';
 import type { HistoryCheckpointTransport, HistoryReplicaEndpoint } from './history-checkpoint-exchange.js';
 import { isHistoryWriterPrefix, type HistoryWriterRepairSource } from './history-writer-prefix.js';
+import { parseHistoryCompactionCertificate } from '@resonance/core/history-compaction';
+import { historyCompactionCertificateId } from '@resonance/core/history-compaction-control';
 
 export function createHistoryWriterRepair(options: {
   context: HistoryCheckpointContext; key: SigningKeyPair; rootId: string; block: HistoryCheckpointEnvelope;
@@ -64,6 +66,12 @@ export function createHistoryWriterRepair(options: {
     }
     return head.sequence + 1;
   }
+  const compaction = indexed?.compaction;
+  const proof = compaction ? parseHistoryCompactionCertificate(compaction.certificate, context, compaction.genesisId,
+    blockAt(compaction.certificate.proposal.sequence)) : null;
+  if (proof && (proof.proposal.rootId !== rootId || proof.proposal.generation !== block.generation
+    || proof.proposal.sequence > block.sequence)) throw new Error('Writer repair checkpoint belongs to another history');
+  const certificateId = proof ? historyCompactionCertificateId(proof, context, compaction!.genesisId) : null;
   return {
     async synchronize(member: HistoryReplicaEndpoint, signal: AbortSignal) {
       function active() { live(); if (signal.aborted) throw new Error('History repair cancelled'); }
@@ -77,6 +85,14 @@ export function createHistoryWriterRepair(options: {
         active(); const parsed = parseHistoryExchangeResponse(response, request, context); active(); return parsed;
       }
       let next = position((await send(null)).head);
+      if (proof && next <= proof.proposal.sequence) {
+        active(); const checkpoint = blockAt(proof.proposal.sequence);
+        const request = createHistoryExchangeRequest({ action: 'install', rootId, generation: block.generation,
+          replica: member.publicKey, challenge: options.challenge, issuedAt: options.issuedAt, expiresAt: options.expiresAt,
+          sequence: checkpoint.sequence, envelopeId: proof.proposal.envelopeId, certificateId: certificateId! }, context, key);
+        const response = await transport(member, { request, envelope: structuredClone(checkpoint), compaction: structuredClone(proof) }, signal);
+        active(); next = position(parseHistoryExchangeResponse(response, request, context).head); active();
+      }
       while (next < block.sequence) {
         const before = next; next = position((await send(next)).head);
         if (next <= before) throw new Error('Live history repair made no progress');

@@ -1,5 +1,6 @@
 /** Internal capability for a locally authenticated immutable ciphertext index. */
 import type { HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
+import type { HistoryCompactionCertificate } from '@resonance/core/history-compaction';
 
 export interface HistoryWriterPrefix {
   readonly contextId: string;
@@ -7,6 +8,8 @@ export interface HistoryWriterPrefix {
   readonly generation: number;
   readonly count: number;
   readonly bytes: number;
+  /** Authenticated locally retained proof; no omitted prefix is inferred from peer data. */
+  readonly compaction?: { genesisId: string; certificate: HistoryCompactionCertificate };
   idAt(sequence: number): string | null;
   blockAt(sequence: number): HistoryCheckpointEnvelope;
 }

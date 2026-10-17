@@ -14,9 +14,12 @@ process.once('message', (input: any) => {
     fs.renameSync = (from, to) => {
       if (String(to).endsWith(HISTORY_MANIFEST_FILENAME) && input.boundary === 'before-rename') process.kill(process.pid, 'SIGKILL');
       rename(from, to);
+      if (String(to).endsWith('.block') && input.boundary === 'block-renamed') process.kill(process.pid, 'SIGKILL');
       if (String(to).endsWith(HISTORY_MANIFEST_FILENAME) && input.boundary === 'after-rename') process.kill(process.pid, 'SIGKILL');
     };
-    syncBuiltinESMExports(); store.retainCompactionAnchor(input.certificate, review);
+    syncBuiltinESMExports();
+    if (input.checkpoint) store.installCheckpoint(input.checkpoint, input.certificate, review);
+    else store.retainCompactionAnchor(input.certificate, review);
     if (input.boundary === 'durable') process.kill(process.pid, 'SIGKILL');
     process.exit(2);
   });

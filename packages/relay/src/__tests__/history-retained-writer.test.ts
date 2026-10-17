@@ -3,9 +3,11 @@ import { fsyncSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync,
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { historyCheckpointEnvelopeId } from '@resonance/core/history-checkpoint';
-import { acquireLocalStateLock } from '@resonance/core/local-state';
+import { createHistoryCompactionProposal, createHistoryCompactionVote } from '@resonance/core/history-compaction';
+import { acquireLocalStateLock, openEncryptedLocalState } from '@resonance/core/local-state';
 import { createHistoryCheckpointWriter, HISTORY_WRITER_FILENAME } from '../history-checkpoint-quorum.js';
 import { createRetainedHistoryCheckpointWriter } from '../history-retained-writer.js';
+import { HISTORY_WRITER_ARCHIVE_FILENAME } from '../history-writer-archive.js';
 import { createHistoryCheckpointReplica, type HistoryCheckpointTransport } from '../history-checkpoint-exchange.js';
 import { openHistoryCheckpointStore } from '../history-checkpoint-store.js';
 import { historyCheckpointFixture } from './fixtures/history-checkpoint-fixture.js';
@@ -67,6 +69,34 @@ it('uses the authenticated digest index instead of re-reading the full payload p
   writer.close(); vi.mocked(readFileSync).mockClear(); writer = n.writer(false);
   expect(localReads()).toHaveLength(13); expect(writer.read().committed?.envelope).toEqual(block);
 }, 30000);
+
+it.each(['flush', 'proof', 'payload'] as const)('fails closed on checkpoint-repair %s damage without discarding accepted ciphertext', async damage => {
+  const n = fixture(); let writer = n.writer(); await writer.replicate(n.root);
+  const checkpoint = n.next(n.root, 'complete state', 'checkpoint'); await writer.replicate(checkpoint);
+  const issuedAt = Date.now(), proposal = createHistoryCompactionProposal({ genesisId: n.options.rootId,
+    rootId: n.options.rootId, checkpoint, issuedAt, expiresAt: issuedAt + 30000 }, n.context, n.owner);
+  const proof = { version: 1, kind: 'history-compaction-certificate', proposal,
+    votes: n.memberKeys.slice(0, 4).map(key => createHistoryCompactionVote(proposal, n.context, n.options.rootId, key, issuedAt)) };
+  const before = n.calls(), files = readdirSync(n.payloadDirectory).filter(name => name.endsWith('.block'));
+  if (damage === 'flush') {
+    vi.mocked(fsyncSync).mockImplementation(() => { throw new Error('injected proof flush failure'); });
+    expect(() => writer.retainCompactionAnchor(proof, writer.historyReviewDigest())).toThrow('flush failure');
+    expect(() => writer.historyStatus()).toThrow('write failed'); writer.close();
+    vi.mocked(fsyncSync).mockImplementation(actual.fsyncSync); writer = n.writer(false);
+    expect(writer.compactionAnchor()).toBeNull(); expect([...writer.history()]).toEqual([n.root, checkpoint]);
+  } else {
+    writer.retainCompactionAnchor(proof, writer.historyReviewDigest()); writer.close();
+    if (damage === 'proof') {
+      const state = openEncryptedLocalState<any>({ path: join(n.payloadDirectory, HISTORY_WRITER_ARCHIVE_FILENAME), key: n.localKey,
+        domain: 'resonance:history-writer-archive:v1', maxBytes: 2 * 1024 * 1024, mode: 'open-existing',
+        initial: null, validate: (_v): _v is any => true });
+      state.write({ ...state.read(), compaction: { ...proof, votes: proof.votes.slice(0, 3) } }); state.close();
+    } else writeFileSync(n.payloadPath(historyCheckpointEnvelopeId(checkpoint)), JSON.stringify(n.next(checkpoint)));
+    expect(() => n.writer(false)).toThrow();
+  }
+  expect(n.calls()).toBe(before);
+  expect(readdirSync(n.payloadDirectory).filter(name => name.endsWith('.block'))).toEqual(files);
+});
 
 it.each(['payload', 'payload-directory', 'manifest', 'manifest-directory'] as const)(
   'sends nothing after an uncertain %s flush, preserves prior history and resumes the exact pending block', async boundary => {

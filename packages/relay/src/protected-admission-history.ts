@@ -193,12 +193,13 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
     assertAdmissionPolicyCurrent(state.image.policy, record.at as number);
     const genesisId = state.version === 4 ? id(state.restoration.genesis) : id(state.root);
     const facts = { kind: 'admission-history-checkpoint-certification' as const, contextId, genesisId,
-      rootId: id(state.root), generation: checkpoint.generation, sequence: checkpoint.sequence, envelopeId: id(checkpoint) };
+      rootId: id(state.root), generation: checkpoint.generation, sequence: checkpoint.sequence, envelopeId: id(checkpoint),
+      enableLocalCheckpointRepair: true as const };
     return { checkpoint, plan: { ...facts, recordsRetained: state.image.state.spends.length,
       permanentDenialsRetained: state.image.state.retiredIssuerKeys.length,
       filesRemoved: 0 as const, bytesReclaimed: 0 as const,
       approvalDigest: historyDigest(`resonance:admission-history-checkpoint-certification-review:v1\n${JSON.stringify([participant, facts])}`),
-      notice: 'Collects historical ancestry endorsements. Does not delete history, retain certificates remotely or grant current writer authority.' } };
+      notice: 'Collects historical ancestry endorsements and retains proof locally for checkpoint repair. Does not delete history, retain certificates remotely or grant current writer authority.' } };
   }
   function retirement(issuerKey: string) {
     const { image } = available(), state = image.state;
@@ -279,6 +280,7 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
       if (p.initializeWriter && state.applied !== null) throw new Error('Cannot initialize a writer for already applied admission history');
       writer = createRetainedHistoryCheckpointWriter({ directory: join(participant, 'admission-history-writer'), localKey: key,
         context, signingKey: signer, rootId: id(root), generation: root.generation, members: p.members,
+        genesisId: state.version === 4 ? id(state.restoration.genesis) : id(root),
         requireCurrentHead: true,
         ...(root.kind === 'continuation' ? { continuation: root } : {}),
         initialize: p.initializeWriter, initializeArchive: p.initializeArchive, resumePristineArchive: p.resumePristineArchive, timeoutMs: p.timeoutMs, transport: p.transport,
@@ -338,7 +340,8 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
             members: p.members, signal: controller.signal, timeoutMs, transport: settings.transport });
           serving();
           if (certificationCheckpoint().plan.approvalDigest !== approvedDigest) throw new Error('History changed during checkpoint certification');
-          return certificate;
+          if (controller.signal.aborted) throw new Error('Checkpoint certification cancelled');
+          return writer!.retainCompactionAnchor(certificate, writer!.historyReviewDigest());
         } finally {
           external?.removeEventListener('abort', cancel); controller.abort();
           if (certificationController === controller) certificationController = undefined;

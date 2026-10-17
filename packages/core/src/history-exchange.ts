@@ -9,18 +9,20 @@ import {
 } from './history-checkpoint.js';
 
 export interface HistoryExchangeRequest {
-  version: 1; kind: 'history-request'; action: 'append' | 'head' | 'read' | 'freeze' | 'repair' | 'seal' | 'continuation';
+  version: 1; kind: 'history-request'; action: 'append' | 'install' | 'head' | 'read' | 'freeze' | 'repair' | 'seal' | 'continuation';
   contextId: string; rootId: string; generation: number; replica: string;
   challenge: string; issuedAt: number; expiresAt: number;
   /** Block sequence, or the requested successor barrier for a freeze. */
   sequence: number; envelopeId: string | null; signature: string;
+  /** Only install requests bind an independently certified checkpoint. */
+  certificateId?: string;
 }
 export interface HistoryReplicaHead {
   generation: number; rootId: string; sequence: number; envelopeId: string; freeze: HistoryFreeze | null;
 }
 export interface HistoryExchangeResponse {
   version: 1; kind: 'history-response'; request: HistoryExchangeRequest;
-  status: 'stored' | 'head' | 'block' | 'missing' | 'frozen' | 'repaired' | 'sealed' | 'continuation' | 'no-continuation'; head: HistoryReplicaHead;
+  status: 'stored' | 'installed' | 'head' | 'block' | 'missing' | 'frozen' | 'repaired' | 'sealed' | 'continuation' | 'no-continuation'; head: HistoryReplicaHead;
   envelope: HistoryCheckpointEnvelope | null; signature: string;
 }
 export interface HistoryWriteCertificate { version: 1; receipts: HistoryExchangeResponse[] }
@@ -41,20 +43,23 @@ const integer = (n: unknown): n is number => Number.isSafeInteger(n) && (n as nu
 function requestBody(r: HistoryExchangeRequest): Omit<HistoryExchangeRequest, 'signature'> {
   return { version: r.version, kind: r.kind, action: r.action, contextId: r.contextId, rootId: r.rootId,
     generation: r.generation, replica: r.replica, challenge: r.challenge, issuedAt: r.issuedAt,
-    expiresAt: r.expiresAt, sequence: r.sequence, envelopeId: r.envelopeId };
+    expiresAt: r.expiresAt, sequence: r.sequence, envelopeId: r.envelopeId,
+    ...(r.action === 'install' ? { certificateId: r.certificateId } : {}) };
 }
 const requestBytes = (r: HistoryExchangeRequest) => Buffer.from(`${DOMAIN}:request\n${JSON.stringify(requestBody(r))}`);
 
 /** Omit now only when validating historical evidence, never when accepting a network request. */
 export function parseHistoryExchangeRequest(value: unknown, context: HistoryCheckpointContext, now?: number): HistoryExchangeRequest {
-  if (!exactWitnessFields(value, requestFields) || value.version !== 1 || value.kind !== 'history-request'
-    || !['append', 'head', 'read', 'freeze', 'repair', 'seal', 'continuation'].includes(value.action as string) || value.contextId !== historyCheckpointContextId(context)
+  const install = !!value && typeof value === 'object' && 'action' in value && value.action === 'install';
+  if (!exactWitnessFields(value, [...requestFields, ...(install ? ['certificateId'] : [])]) || value.version !== 1 || value.kind !== 'history-request'
+    || !['append', 'install', 'head', 'read', 'freeze', 'repair', 'seal', 'continuation'].includes(value.action as string) || value.contextId !== historyCheckpointContextId(context)
     || !isHistoryDigest(value.rootId) || !integer(value.generation) || !context.members.includes(value.replica as string)
     || !witnessBytes(value.challenge, 32) || !integer(value.issuedAt) || !integer(value.expiresAt)
     || value.expiresAt <= value.issuedAt || value.expiresAt - value.issuedAt > HISTORY_REQUEST_MAX_LIFETIME_MS
     || !integer(value.sequence) || (['head', 'continuation'].includes(value.action as string) && value.sequence !== 0)
     || (value.action === 'freeze' && value.sequence <= value.generation)
-    || (['append', 'repair', 'seal'].includes(value.action as string) ? !isHistoryDigest(value.envelopeId) : value.envelopeId !== null)
+    || (install && (!isHistoryDigest(value.certificateId) || value.sequence < 1 || value.sequence >= HISTORY_RECOVERY_MAX_BLOCKS))
+    || (['append', 'install', 'repair', 'seal'].includes(value.action as string) ? !isHistoryDigest(value.envelopeId) : value.envelopeId !== null)
     || !witnessBytes(value.signature, 64)
     || (now !== undefined && (!integer(now) || now < value.issuedAt || now >= value.expiresAt))) {
     throw new Error('Invalid or expired history request');
@@ -99,6 +104,9 @@ function responseBody(value: unknown, request: HistoryExchangeRequest, context: 
   if (echoed.action === 'append') {
     if (value.status !== 'stored' || envelope !== null || head.freeze !== null || head.sequence < echoed.sequence
       || (head.sequence === echoed.sequence && head.envelopeId !== echoed.envelopeId)) throw new Error('Invalid durable history acknowledgement');
+  } else if (echoed.action === 'install') {
+    if (value.status !== 'installed' || envelope !== null || head.freeze !== null || head.sequence !== echoed.sequence
+      || head.envelopeId !== echoed.envelopeId) throw new Error('Invalid checkpoint installation acknowledgement');
   } else if (echoed.action === 'head') {
     if (value.status !== 'head' || envelope !== null) throw new Error('Invalid history head response');
   } else if (echoed.action === 'continuation') {
