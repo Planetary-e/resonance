@@ -10,11 +10,12 @@ import { HISTORY_RECOVERY_MAX_BLOCKS, HISTORY_RECOVERY_MAX_BYTES } from '@resona
 import type { createHistoryCheckpointWriter } from './history-checkpoint-quorum.js';
 import { reserveHistoryStorage } from './history-storage-reservation.js';
 import { registerHistoryWriterPrefix } from './history-writer-prefix.js';
+import { readHistorySequenceIndex, type StoredHistorySequenceIndex } from './history-sequence-index.js';
 import { parseHistoryCompactionAttestation, parseHistoryCompactionCertificate, type HistoryCompactionCertificate } from '@resonance/core/history-compaction';
 
 export const HISTORY_WRITER_ARCHIVE_FILENAME = 'history-writer-payloads.json';
 const MANIFEST_BYTES = 2 * 1024 * 1024;
-interface State { version: 1; contextId: string; rootId: string; generation: number; blocks: Array<string | null>; compaction?: HistoryCompactionCertificate }
+interface State { version: 1; contextId: string; rootId: string; generation: number; blocks: StoredHistorySequenceIndex; compaction?: HistoryCompactionCertificate }
 
 export function openHistoryWriterArchive(options: {
   directory: string; localKey: Uint8Array; context: HistoryCheckpointContext; rootId: string; generation: number;
@@ -34,6 +35,7 @@ export function openHistoryWriterArchive(options: {
     || !Number.isSafeInteger(maxBlocks) || maxBlocks < 1 || maxBlocks > HISTORY_RECOVERY_MAX_BLOCKS
     || !Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > HISTORY_RECOVERY_MAX_BYTES) throw new Error('Invalid writer archive bounds or pins');
   const initial: State = { version: 1, contextId, rootId, generation, blocks: [] };
+  const index = (state: State) => readHistorySequenceIndex(state.blocks, maxBlocks);
   function writerState() {
     const state = options.readWriter();
     if (state.contextId !== contextId || state.rootId !== rootId || state.generation !== generation) throw new Error('Writer archive belongs to another writer');
@@ -41,19 +43,18 @@ export function openHistoryWriterArchive(options: {
   }
   function validate(raw: unknown): raw is State {
     const compacted = !!raw && typeof raw === 'object' && Object.hasOwn(raw, 'compaction');
-    if (!(exactWitnessFields(raw, [...Object.keys(initial), ...(compacted ? ['compaction'] : [])]) && raw.version === 1 && raw.contextId === contextId
-      && raw.rootId === rootId && raw.generation === generation && Array.isArray(raw.blocks)
-      && raw.blocks.length <= maxBlocks && raw.blocks.every(id => id === null || isHistoryDigest(id))
-      && (!raw.blocks.length || raw.blocks[0] === rootId && isHistoryDigest(raw.blocks.at(-1)))
-      && new Set(raw.blocks.filter(id => id !== null)).size === raw.blocks.filter(id => id !== null).length)) return false;
-    if (compacted) {
-      try {
+    if (!exactWitnessFields(raw, [...Object.keys(initial), ...(compacted ? ['compaction'] : [])]) || raw.version !== 1 || raw.contextId !== contextId
+      || raw.rootId !== rootId || raw.generation !== generation) return false;
+    try {
+      const ids = index(raw as unknown as State);
+      if (ids.count && ids.get(0) !== rootId) return false;
+      if (compacted) {
         const p = parseHistoryCompactionAttestation(raw.compaction, context, genesisId!).proposal;
-        if (p.rootId !== rootId || p.generation !== generation || raw.blocks[p.sequence] !== p.envelopeId
-          || raw.blocks.slice(p.sequence).includes(null)) return false;
-      } catch { return false; }
-    } else if (raw.blocks.includes(null)) return false;
-    return true;
+        if (p.rootId !== rootId || p.generation !== generation || ids.get(p.sequence) !== p.envelopeId) return false;
+        ids.suffix(p.sequence);
+      } else if (ids.hasGaps) return false;
+      return true;
+    } catch { return false; }
   }
   const path = (id: string) => join(directory, `${id.slice(7)}.block`);
   let storage: ReturnType<typeof openEncryptedLocalState<State>>, bytes = 0, closed = false, failed = false;
@@ -72,9 +73,10 @@ export function openHistoryWriterArchive(options: {
       || (!sequence && historyCheckpointEnvelopeId(block) !== rootId)) throw new Error('Writer archive has a gap, fork or different root');
   }
   function anchor() {
-    const writer = writerState(), ids = storage.read().blocks, count = writer.committed ? writer.committed.envelope.sequence + 1 : 0;
-    if (ids.length < count || (count && ids[count - 1] !== historyCheckpointEnvelopeId(writer.committed!.envelope))
-      || (ids.length > count && (!writer.pending || ids.length !== count + 1 || ids[count] !== historyCheckpointEnvelopeId(writer.pending)))) {
+    const writer = writerState(), ids = index(storage.read()), committed = writer.committed?.envelope.sequence ?? -1;
+    if (ids.headSequence < committed || (writer.committed && ids.get(committed) !== historyCheckpointEnvelopeId(writer.committed.envelope))
+      || (ids.headSequence > committed && (!writer.pending || ids.headSequence !== committed + 1
+        || ids.headId !== historyCheckpointEnvelopeId(writer.pending)))) {
       throw new Error('Writer archive does not match its committed and pending anchors');
     }
     return writer;
@@ -104,28 +106,27 @@ export function openHistoryWriterArchive(options: {
     storage = openEncryptedLocalState<State>({ path: join(directory, HISTORY_WRITER_ARCHIVE_FILENAME), key: options.localKey,
       domain: 'resonance:history-writer-archive:v1', maxBytes: MANIFEST_BYTES, initial, validate,
       mode: options.initialize ? 'create-new' : 'open-existing' });
-    const ids = storage.read().blocks;
-    for (let i = 0; i < ids.length; i++) {
-      const id = ids[i]; if (id === null) continue;
-      const saved = readBlock(id); consecutive(saved.block, i, i ? ids[i - 1] : null); bytes += saved.bytes;
+    const ids = index(storage.read());
+    for (const [sequence, id] of ids.records) {
+      const saved = readBlock(id); consecutive(saved.block, sequence, ids.get(sequence - 1)); bytes += saved.bytes;
       if (bytes > maxBytes) throw new Error('Writer archive byte capacity exceeded');
     }
     const proof = storage.read().compaction;
     if (proof) parseHistoryCompactionCertificate(proof, context, genesisId!, readBlock(proof.proposal.envelopeId).block);
     const current = anchor(), pendingId = current.pending && historyCheckpointEnvelopeId(current.pending);
-    const allowed = new Set([...ids.filter((id): id is string => id !== null), ...(pendingId ? [pendingId] : [])].map(id => `${id.slice(7)}.block`));
+    const allowed = new Set([...ids.records.map(([, id]) => id), ...(pendingId ? [pendingId] : [])].map(id => `${id.slice(7)}.block`));
     for (const name of readdirSync(directory)) {
       if (/^[a-f0-9]{64}\.block$/.test(name) && !allowed.has(name)) {
         // Only a validated owner-signed block in a committed retired slot may
         // be cleaned after a crash; arbitrary extra payloads still fail closed.
         const extra = readBlock(`sha256:${name.slice(0, -6)}`).block;
-        if (extra.generation !== generation || extra.sequence === 0 || ids[extra.sequence] !== null
+        if (extra.generation !== generation || extra.sequence === 0 || ids.get(extra.sequence) !== null
           || extra.sequence >= (proof?.proposal.sequence ?? 0)) throw new Error('Unregistered writer archive block');
       }
     }
-    if (pendingId && !ids.includes(pendingId) && existsSync(path(pendingId))) {
-      const saved = readBlock(pendingId); consecutive(saved.block, ids.length, ids.at(-1) ?? null);
-      if (ids.length >= maxBlocks || bytes + saved.bytes > maxBytes) throw new Error('Writer archive capacity exceeded');
+    if (pendingId && ids.get(current.pending!.sequence) !== pendingId && existsSync(path(pendingId))) {
+      const saved = readBlock(pendingId); consecutive(saved.block, ids.headSequence + 1, ids.headId);
+      if (ids.count >= maxBlocks || bytes + saved.bytes > maxBytes) throw new Error('Writer archive capacity exceeded');
     }
     // Only after authenticating indexed/pending data may uncommitted temporary files be discarded.
     let cleaned = false;
@@ -143,12 +144,14 @@ export function openHistoryWriterArchive(options: {
   function retainPending() {
     open(); const writer = anchor(), pending = writer.pending;
     if (!pending) return;
-    const state = storage.read(), id = historyCheckpointEnvelopeId(pending);
-    if (state.blocks[pending.sequence] === id) return;
-    consecutive(pending, state.blocks.length, state.blocks.at(-1) ?? null);
+    const state = storage.read(), ids = index(state), id = historyCheckpointEnvelopeId(pending);
+    if (ids.get(pending.sequence) === id) return;
+    consecutive(pending, ids.headSequence + 1, ids.headId);
     const encoded = Buffer.from(JSON.stringify(pending));
     const existing = existsSync(path(id)) ? readBlock(id) : null, size = existing?.bytes ?? encoded.length;
-    if (state.blocks.length >= maxBlocks || bytes + size > maxBytes) throw new Error('Writer archive capacity exceeded');
+    if (ids.count >= maxBlocks || bytes + size > maxBytes) throw new Error('Writer archive capacity exceeded');
+    const next = { ...state, blocks: ids.extend(pending.sequence, id) };
+    if (!validate(next)) throw new Error('Invalid outgoing writer archive index');
     let fd: number | undefined;
     const temporary = join(directory, `.writer-payload-${randomBytes(16).toString('hex')}.tmp`);
     try {
@@ -160,25 +163,24 @@ export function openHistoryWriterArchive(options: {
         }
         fsyncSync(fd); closeSync(fd); fd = undefined; renameSync(temporary, path(id)); flush(directory);
       }
-      storage.write({ ...state, blocks: [...state.blocks, id] }); bytes += size;
+      storage.write(next); bytes += size;
     } catch (error) { failed = true; throw error; }
     finally { if (fd !== undefined) closeSync(fd); rmSync(temporary, { force: true }); }
   }
   function prefixRetirement() {
-    open(); const writer = anchor(), state = storage.read(), proof = state.compaction;
+    open(); const writer = anchor(), state = storage.read(), proof = state.compaction, ids = index(state);
     if (!proof) throw new Error('Writer prefix retirement requires its durably retained checkpoint proof');
     if (writer.pending) throw new Error('Complete the pending history write before retiring its prefix');
     parseHistoryCompactionCertificate(proof, context, genesisId!, readBlock(proof.proposal.envelopeId).block);
-    const removed = state.blocks.slice(1, proof.proposal.sequence).flatMap((id, offset) => {
-      if (id === null) return [];
-      const saved = readBlock(id); consecutive(saved.block, offset + 1, state.blocks[offset]);
-      return [{ sequence: offset + 1, id, bytes: saved.bytes }];
+    const removed = ids.records.filter(([sequence]) => sequence > 0 && sequence < proof.proposal.sequence).map(([sequence, id]) => {
+      const saved = readBlock(id); consecutive(saved.block, sequence, ids.get(sequence - 1));
+      return { sequence, id, bytes: saved.bytes };
     });
     const bytesReclaimed = removed.reduce((sum, block) => sum + block.bytes, 0);
     if (bytesReclaimed > bytes) throw new Error('Retiring writer history exceeds retained accounting');
     return { state, removed, plan: { kind: 'history-writer-prefix-retirement' as const, contextId, rootId, generation,
       checkpointSequence: proof.proposal.sequence, checkpointId: proof.proposal.envelopeId,
-      headSequence: state.blocks.length - 1, headId: state.blocks.at(-1)!, filesRemoved: removed.length, bytesReclaimed,
+      headSequence: ids.headSequence, headId: ids.headId!, filesRemoved: removed.length, bytesReclaimed,
       approvalDigest: historyDigest(`resonance:history-writer-prefix-retirement:v1\n${JSON.stringify([directory, state, writer, removed])}`),
       notice: 'Retires ciphertext strictly before the certified checkpoint, preserving the root and committed suffix. Storage promises and sequence limits remain unchanged.' } };
   }
@@ -186,10 +188,10 @@ export function openHistoryWriterArchive(options: {
     retainPending,
     /** Local proof publication changes repair strategy only; all accepted bytes remain retained. */
     retainCompactionAnchor(value: unknown, approvedDigest: string): HistoryCompactionCertificate {
-      open(); const writer = anchor(), state = storage.read();
+      open(); const writer = anchor(), state = storage.read(), ids = index(state);
       const proof = parseHistoryCompactionAttestation(value, context, genesisId!), p = proof.proposal;
       if (writer.pending || !writer.committed || p.rootId !== rootId || p.generation !== generation
-        || p.sequence > writer.committed.envelope.sequence || state.blocks[p.sequence] !== p.envelopeId) {
+        || p.sequence > writer.committed.envelope.sequence || ids.get(p.sequence) !== p.envelopeId) {
         throw new Error('Writer checkpoint proof must match committed retained history without pending work');
       }
       parseHistoryCompactionCertificate(proof, context, genesisId!, readBlock(p.envelopeId).block);
@@ -205,7 +207,7 @@ export function openHistoryWriterArchive(options: {
       const { state, removed, plan } = prefixRetirement();
       if (approvedDigest !== plan.approvalDigest) throw new Error('Writer prefix changed; review retirement again');
       if (!removed.length) return plan;
-      const blocks = [...state.blocks]; for (const block of removed) blocks[block.sequence] = null;
+      const blocks = index(state).retireBefore(state.compaction!.proposal.sequence);
       const next = { ...state, blocks }; if (!validate(next)) throw new Error('Invalid outgoing writer prefix boundary');
       try {
         storage.write(next);
@@ -214,27 +216,26 @@ export function openHistoryWriterArchive(options: {
       } catch (error) { failed = true; throw error; }
       return plan;
     },
-    read() { open(); anchor(); const ids = storage.read().blocks; return { blocks: ids.filter(id => id !== null).length, sequenceSlots: ids.length, bytes }; },
+    read() { open(); anchor(); const ids = index(storage.read()); return { blocks: ids.count, sequenceSlots: ids.headSequence + 1, bytes }; },
     /** Cached allocation counters only; no network checks or payload/index copies. */
-    usage() { open(); return { retainedBlocks: storage.read().blocks.filter(id => id !== null).length, retainedCiphertextBytes: bytes,
+    usage() { open(); return { retainedBlocks: index(storage.read()).count, retainedCiphertextBytes: bytes,
       maximumBlocks: maxBlocks, maximumCiphertextBytes: maxBytes }; },
     prefix() {
       open(); anchor();
-      const state = storage.read(), ids = state.blocks; // Snapshot arrays are replaced, never mutated or exposed.
-      return registerHistoryWriterPrefix({ contextId, rootId, generation, count: ids.length, bytes,
+      const state = storage.read(), ids = index(state);
+      return registerHistoryWriterPrefix({ contextId, rootId, generation, count: ids.headSequence + 1, bytes,
         ...(state.compaction ? { compaction: { genesisId: genesisId!, certificate: structuredClone(state.compaction) } } : {}),
-        idAt(sequence) { open(); return Number.isSafeInteger(sequence) && sequence >= 0 ? ids[sequence] ?? null : null; },
+        idAt(sequence) { open(); return ids.get(sequence); },
         blockAt(sequence) {
-          open(); if (!Number.isSafeInteger(sequence) || sequence < 0 || sequence >= ids.length) throw new Error('Writer archive sequence unavailable');
-          const id = ids[sequence]; if (id === null) throw new Error('Writer archive sequence retired');
-          const saved = readBlock(id); consecutive(saved.block, sequence, sequence ? ids[sequence - 1] : null); return saved.block;
+          open(); if (!Number.isSafeInteger(sequence) || sequence < 0 || sequence > ids.headSequence) throw new Error('Writer archive sequence unavailable');
+          const id = ids.get(sequence); if (id === null) throw new Error('Writer archive sequence retired');
+          const saved = readBlock(id); consecutive(saved.block, sequence, ids.get(sequence - 1)); return saved.block;
         } });
     },
     *blocks(): Generator<HistoryCheckpointEnvelope> {
-      open(); anchor(); const ids = storage.read().blocks;
-      for (let i = 0; i < ids.length; i++) {
-        open(); const id = ids[i]; if (id === null) continue;
-        const saved = readBlock(id); consecutive(saved.block, i, i ? ids[i - 1] : null); yield saved.block;
+      open(); anchor(); const ids = index(storage.read());
+      for (const [sequence, id] of ids.records) {
+        open(); const saved = readBlock(id); consecutive(saved.block, sequence, ids.get(sequence - 1)); yield saved.block;
       }
     },
     close() { if (!closed) { closed = true; storage.close(); } },

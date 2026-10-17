@@ -70,6 +70,39 @@ it('uses the authenticated digest index instead of re-reading the full payload p
   expect(localReads()).toHaveLength(13); expect(writer.read().committed?.envelope).toEqual(block);
 }, 30000);
 
+it('reuses a four-payload writer budget across repeated retirement cycles without retaining empty index slots', async () => {
+  const n = fixture(); let writer = n.writer(true, { maxArchiveBlocks: 4 }), block = n.root;
+  await writer.replicate(block);
+  for (let cycle = 0; cycle < 6; cycle++) {
+    block = n.next(block); await writer.replicate(block);
+    block = n.next(block, 'complete state', 'checkpoint'); await writer.replicate(block);
+    const issuedAt = Date.now(), proposal = createHistoryCompactionProposal({ genesisId: n.options.rootId,
+      rootId: n.options.rootId, checkpoint: block, issuedAt, expiresAt: issuedAt + 30000 }, n.context, n.owner);
+    writer.retainCompactionAnchor({ version: 1, kind: 'history-compaction-certificate', proposal,
+      votes: n.memberKeys.slice(0, 4).map(key => createHistoryCompactionVote(proposal, n.context, n.options.rootId, key, issuedAt)) }, writer.historyReviewDigest());
+    writer.retirePrefix(writer.planPrefixRetirement().approvalDigest);
+    expect(writer.historyUsage().retainedBlocks).toBe(2); writer.close();
+    writer = n.writer(false, { maxArchiveBlocks: 4 }); expect([...writer.history()]).toEqual([n.root, block]);
+  }
+  expect(writer.historyStatus()).toMatchObject({ blocks: 2, sequenceSlots: 13 }); writer.close();
+  const state = openEncryptedLocalState<any>({ path: join(n.payloadDirectory, HISTORY_WRITER_ARCHIVE_FILENAME), key: n.localKey,
+    domain: 'resonance:history-writer-archive:v1', maxBytes: 2 * 1024 * 1024, mode: 'open-existing', initial: null, validate: (_v): _v is any => true });
+  try { expect(state.read().blocks).toEqual({ version: 1, entries: [[0, n.options.rootId], [12, historyCheckpointEnvelopeId(block)]] }); }
+  finally { state.close(); }
+}, 30000);
+
+it('opens an existing absolute-slot writer archive offline and changes representation only on an explicit write', async () => {
+  const n = fixture(); let writer = n.writer(); await writer.replicate(n.root);
+  const first = n.next(n.root); await writer.replicate(first); writer.close();
+  const path = join(n.payloadDirectory, HISTORY_WRITER_ARCHIVE_FILENAME);
+  const state = openEncryptedLocalState<any>({ path, key: n.localKey, domain: 'resonance:history-writer-archive:v1',
+    maxBytes: 2 * 1024 * 1024, mode: 'open-existing', initial: null, validate: (_v): _v is any => true });
+  state.write({ ...state.read(), blocks: [n.options.rootId, historyCheckpointEnvelopeId(first)] }); state.close();
+  const before = readFileSync(path), calls = n.calls(); writer = n.writer(false);
+  expect(readFileSync(path)).toEqual(before); expect(n.calls()).toBe(calls); expect([...writer.history()]).toEqual([n.root, first]);
+  const second = n.next(first); await writer.replicate(second); expect([...writer.history()]).toEqual([n.root, first, second]);
+});
+
 it.each(['flush', 'proof', 'payload'] as const)('fails closed on checkpoint-repair %s damage without discarding accepted ciphertext', async damage => {
   const n = fixture(); let writer = n.writer(); await writer.replicate(n.root);
   const checkpoint = n.next(n.root, 'complete state', 'checkpoint'); await writer.replicate(checkpoint);
