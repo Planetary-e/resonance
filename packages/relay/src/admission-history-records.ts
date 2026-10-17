@@ -1,6 +1,6 @@
 /** Semantic admission records inside owner-authenticated encrypted history envelopes. */
 import { exactWitnessFields } from '@resonance/core/admission-witness';
-import { admissionKeyFingerprint, admissionPolicyKeys, assertAdmissionPolicyCurrent, assertAdmissionPolicySuccessor,
+import { admissionKeyFingerprint, admissionPolicyDigest, admissionPolicyKeys, assertAdmissionPolicyCurrent, assertAdmissionPolicySuccessor,
   isArchivedAdmissionKey, verifyAdmissionPolicy, type SignedAdmissionPolicy } from '@resonance/core/admission-policy';
 import { HISTORY_CHECKPOINT_MAX_PAYLOAD, HISTORY_DELTA_MAX_PAYLOAD } from '@resonance/core/history-checkpoint';
 import { parseAdmissionSpendState, type AdmissionSpendRecord } from './admission-spend-history.js';
@@ -13,6 +13,11 @@ export interface AdmissionHistoryImage {
 export interface AdmissionHistoryPolicyCheckpoint {
   version: 1; kind: 'admission-policy-checkpoint'; at: number; image: AdmissionHistoryImage;
 }
+/** A complete, unchanged application image. Publishing it alone authorizes no pruning. */
+export interface AdmissionHistoryStateCheckpoint {
+  version: 1; kind: 'admission-state-checkpoint'; at: number; image: AdmissionHistoryImage;
+}
+export type AdmissionHistoryRecord = AdmissionHistoryMutation | AdmissionHistoryPolicyCheckpoint | AdmissionHistoryStateCheckpoint;
 export type AdmissionHistoryMutation =
   | { version: 1; kind: 'spend'; at: number; row: AdmissionSpendRecord & { issuerKey: string } }
   | { version: 1; kind: 'retire'; at: number; issuerKey: string }
@@ -31,8 +36,8 @@ export async function parseAdmissionHistoryImage(value: unknown, authority: stri
   const policy = await verifyAdmissionPolicy(image.policy, authority);
   return { version: 1, kind: 'admission-spend-checkpoint', policy, state: parseAdmissionSpendState(image.state, policy, limit) };
 }
-export function encodeAdmissionHistoryRecord(value: AdmissionHistoryImage | AdmissionHistoryMutation | AdmissionHistoryPolicyCheckpoint): Buffer {
-  const checkpoint = value.kind === 'admission-spend-checkpoint' || value.kind === 'admission-policy-checkpoint';
+export function encodeAdmissionHistoryRecord(value: AdmissionHistoryImage | AdmissionHistoryRecord): Buffer {
+  const checkpoint = value.kind === 'admission-spend-checkpoint' || value.kind === 'admission-policy-checkpoint' || value.kind === 'admission-state-checkpoint';
   return Buffer.from(JSON.stringify(bounded(value, checkpoint ? HISTORY_CHECKPOINT_MAX_PAYLOAD : HISTORY_DELTA_MAX_PAYLOAD)));
 }
 
@@ -49,19 +54,29 @@ function spendStateIdentity(state: AdmissionSpendState): string {
  */
 export async function reduceAdmissionHistory(image: AdmissionHistoryImage, value: unknown, limit = 10000,
   envelopeKind: 'delta' | 'checkpoint' = 'delta'): Promise<{
-  record: AdmissionHistoryMutation | AdmissionHistoryPolicyCheckpoint; image: AdmissionHistoryImage;
+  record: AdmissionHistoryRecord; image: AdmissionHistoryImage;
 }> {
   const input = bounded(value, envelopeKind === 'checkpoint' ? HISTORY_CHECKPOINT_MAX_PAYLOAD : HISTORY_DELTA_MAX_PAYLOAD), current = structuredClone(image);
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Invalid admission history mutation');
   const raw = input as Record<string, unknown>;
   const fields = raw.kind === 'spend' ? ['row'] : raw.kind === 'retire' ? ['issuerKey']
-    : raw.kind === 'policy' ? ['policy'] : raw.kind === 'legacy-recovery' ? ['attributions'] : raw.kind === 'admission-policy-checkpoint' ? ['image'] : [];
+    : raw.kind === 'policy' ? ['policy'] : raw.kind === 'legacy-recovery' ? ['attributions']
+      : raw.kind === 'admission-policy-checkpoint' || raw.kind === 'admission-state-checkpoint' ? ['image'] : [];
   if (!fields.length || !exactWitnessFields(raw, ['version', 'kind', 'at', ...fields]) || raw.version !== 1
     || !Number.isSafeInteger(raw.at) || (raw.at as number) < 0
-    || (envelopeKind === 'checkpoint') !== (raw.kind === 'admission-policy-checkpoint')) throw new Error('Invalid admission history mutation');
+    || (envelopeKind === 'checkpoint') !== (raw.kind === 'admission-policy-checkpoint' || raw.kind === 'admission-state-checkpoint')) throw new Error('Invalid admission history mutation');
   const at = raw.at as number, state = current.state, policy = current.policy;
-  let next = state, record: AdmissionHistoryMutation | AdmissionHistoryPolicyCheckpoint;
-  if (raw.kind === 'admission-policy-checkpoint') {
+  let next = state, record: AdmissionHistoryRecord;
+  if (raw.kind === 'admission-state-checkpoint') {
+    const replacement = await parseAdmissionHistoryImage(raw.image, policy.authority, limit);
+    assertAdmissionPolicyCurrent(policy, at);
+    if (admissionPolicyDigest(replacement.policy) !== admissionPolicyDigest(policy)
+      || spendStateIdentity(replacement.state) !== spendStateIdentity(state)) {
+      throw new Error('State checkpoint must preserve the policy, every spend and permanent denial');
+    }
+    // Preserve the retained ordering as well as semantics; a checkpoint is no mutation.
+    record = { version: 1, kind: 'admission-state-checkpoint', at, image: structuredClone(current) };
+  } else if (raw.kind === 'admission-policy-checkpoint') {
     const replacement = await parseAdmissionHistoryImage(raw.image, policy.authority, limit);
     assertAdmissionPolicyCurrent(replacement.policy, at); assertAdmissionPolicySuccessor(policy, replacement.policy);
     if (spendStateIdentity(replacement.state) !== spendStateIdentity(state)) throw new Error('Policy checkpoint must preserve every spend and permanent denial');

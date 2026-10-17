@@ -17,7 +17,7 @@ import { decodeLegacyAdmissionSpendState, parseAdmissionSpendState, type Admissi
 import { checkAdmissionLegacyRecovery, type AdmissionSpendState } from './admission-legacy-recovery.js';
 import { planAdmissionHistoryRetirement } from './admission-history-retirement.js';
 import { encodeAdmissionHistoryRecord, parseAdmissionHistoryImage, reduceAdmissionHistory,
-  type AdmissionHistoryImage, type AdmissionHistoryMutation, type AdmissionHistoryPolicyCheckpoint } from './admission-history-records.js';
+  type AdmissionHistoryImage, type AdmissionHistoryMutation, type AdmissionHistoryRecord, type AdmissionHistoryStateCheckpoint } from './admission-history-records.js';
 
 export type ProtectedAdmissionState = {
   context: HistoryCheckpointContext; root: HistoryCheckpointEnvelope;
@@ -141,17 +141,40 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
     storage!.write({ ...before, image, applied: { sequence: pending.sequence, id: id(pending) }, pending: null });
     return fresh;
   }
-  async function commit(value: AdmissionHistoryMutation): Promise<void> {
+  async function commit(value: AdmissionHistoryMutation | AdmissionHistoryStateCheckpoint): Promise<void> {
     const before = available();
-    const kind = value.kind === 'policy' && Buffer.byteLength(JSON.stringify(value)) > HISTORY_DELTA_MAX_PAYLOAD ? 'checkpoint' : 'delta';
-    const record: AdmissionHistoryMutation | AdmissionHistoryPolicyCheckpoint = kind === 'checkpoint' && value.kind === 'policy'
+    const kind = value.kind === 'admission-state-checkpoint'
+      || value.kind === 'policy' && Buffer.byteLength(JSON.stringify(value)) > HISTORY_DELTA_MAX_PAYLOAD ? 'checkpoint' : 'delta';
+    const record: AdmissionHistoryRecord = kind === 'checkpoint' && value.kind === 'policy'
       ? { version: 1, kind: 'admission-policy-checkpoint', at: value.at, image: { ...before.image, policy: value.policy } } : value;
     const reduced = await reduceAdmissionHistory(before.image, record, limit, kind); read();
     const pending = sealHistoryCheckpoint({ context, header: { kind, generation: before.root.generation,
       sequence: before.applied!.sequence + 1, previous: before.applied!.id },
       plaintext: encodeAdmissionHistoryRecord(reduced.record), encryptionKey: key, signingKey: signer });
+    if (value.kind === 'admission-state-checkpoint') {
+      const usage = writer!.historyUsage();
+      if (usage.retainedBlocks >= usage.maximumBlocks
+        || Buffer.byteLength(JSON.stringify(pending)) > usage.maximumCiphertextBytes - usage.retainedCiphertextBytes) {
+        throw new Error('State checkpoint needs retained archive headroom; no checkpoint intent was written');
+      }
+    }
     storage!.write({ ...before, pending });
     await finishPending();
+  }
+  function checkpointPlan() {
+    const state = available(), at = now(); assertAdmissionPolicyCurrent(state.image.policy, at);
+    if (state.applied!.sequence >= Number.MAX_SAFE_INTEGER) throw new Error('History sequence capacity exhausted');
+    const plaintext = encodeAdmissionHistoryRecord({ version: 1, kind: 'admission-state-checkpoint', at, image: state.image });
+    const payloadBytes = plaintext.length; plaintext.fill(0);
+    return { kind: 'admission-history-state-checkpoint' as const, generation: state.root.generation,
+      sequence: state.applied!.sequence + 1, recordsRetained: state.image.state.spends.length,
+      unattributedRecordsRetained: state.image.state.spends.filter(row => row.issuerKey === null).length,
+      permanentDenialsRetained: state.image.state.retiredIssuerKeys.length, payloadBytes,
+      filesRemoved: 0 as const, bytesReclaimed: 0 as const,
+      approvalDigest: historyDigest(`resonance:admission-history-state-checkpoint-review:v1\n${JSON.stringify([
+        participant, contextId, id(state.root), state.applied, state.image,
+      ])}`),
+      notice: 'Publishes an unchanged encrypted state on four volunteers. Retains all earlier history; this is not permission to prune or restore from a snapshot alone.' };
   }
   function retirement(issuerKey: string) {
     const { image } = available(), state = image.state;
@@ -263,6 +286,14 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
     size() { return serving().image.state.spends.length; },
     get(spend: string) { const row = serving().image.state.spends.find(row => row.spend === spend); return row ? { ...row } : undefined; },
     isRetired(issuerKey: string) { const { image } = serving(); return image.state.retiredIssuerKeys.includes(issuerKey) || isArchivedAdmissionKey(image.policy, issuerKey); },
+    planCheckpoint() { if (active) throw new Error('Protected admission history operation is in progress'); return checkpointPlan(); },
+    checkpoint(approvedDigest: string) { return exclusive(async () => {
+      const before = serving(), plan = checkpointPlan();
+      if (approvedDigest !== plan.approvalDigest) throw new Error('History changed or checkpoint approval does not match; review again');
+      await commit({ version: 1, kind: 'admission-state-checkpoint', at: now(), image: before.image });
+      const applied = available().applied!;
+      return { ...plan, envelopeId: applied.id, sequence: applied.sequence, durableCopies: 4 as const };
+    }); },
     write(value: AdmissionSpendRecord & { issuerKey: string }) {
       const row = structuredClone(value);
       return exclusive(async () => {

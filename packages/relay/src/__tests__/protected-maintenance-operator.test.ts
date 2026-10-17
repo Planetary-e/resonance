@@ -90,6 +90,39 @@ it('reviews retirement and legacy recovery offline without exposing bearer evide
   expect(readFileSync(n.stateFile)).toEqual(before); expect(n.calls()).toBe(calls); expect(n.services.map(s => s.describe())).toEqual(heads);
 }, 30000);
 
+it('reviews a complete state checkpoint offline and publishes it with four copies while retaining earlier evidence', async () => {
+  const n = await fixture(); n.online(0);
+  const before = readFileSync(n.stateFile), calls = n.calls();
+  const plan = await succeed('owner-checkpoint-plan', ...n.args);
+  expect(plan).toMatchObject({ result: 'review-required', readiness: 'unverified', recordsRetained: 4,
+    unattributedRecordsRetained: 2, sequence: 1, filesRemoved: 0, bytesReclaimed: 0 });
+  for (const secret of [n.a.row.spend, n.a.row.binding, n.a.value.capability.token]) expect(JSON.stringify(plan)).not.toContain(secret);
+  expect(readFileSync(n.stateFile)).toEqual(before); expect(n.calls()).toBe(calls);
+  expect((await command('owner-checkpoint', '--approve', 'wrong', ...n.args)).code).not.toBe(0);
+  expect(n.calls()).toBe(calls);
+  n.online(3);
+  expect((await command('owner-checkpoint', '--approve', plan.approvalDigest, ...n.args)).code).not.toBe(0);
+  let history = await openProtectedAdmissionSpendHistory(n.options);
+  expect(history.read().pending).toBeNull(); const image = history.read().image; history.close();
+  n.online(5);
+  const applied = await succeed('owner-checkpoint', '--approve', plan.approvalDigest, ...n.args);
+  expect(applied).toMatchObject({ result: 'state-checkpoint-published', readiness: 'confirmed', durableCopies: 4,
+    sequence: 1, filesRemoved: 0, bytesReclaimed: 0 });
+  history = await openProtectedAdmissionSpendHistory(n.options); await history.ready();
+  expect(history.read().image).toEqual(image); expect(history.read().applied?.id).toBe(applied.envelopeId); history.close();
+  expect(n.services.filter(s => s.describe().latest.sequence === 1).length).toBeGreaterThanOrEqual(4);
+  expect((await command('owner-checkpoint', '--approve', plan.approvalDigest, ...n.args)).code).not.toBe(0);
+  // The new full-state record also remains consumable by actual lost-owner recovery.
+  const options = { directory: join(n.directory, 'checkpoint-recovery'), genesis: n.genesis, encryptionKey: n.key, protection: n.options.protection };
+  const review = await prepareAdmissionHistoryRecovery(options);
+  const recovery = await openAdmissionHistoryRecovery({ ...options, initialize: { review, approvedDigest: review.approvalDigest } }); cleanup.push(() => recovery.close());
+  for (let i = 0; i < 8 && !recovery.status().complete; i++) await recovery.advance();
+  const destination = join(n.directory, 'checkpoint-restored'), preparation = await recovery.reviewRestore(destination, n.policy);
+  history = await openProtectedAdmissionSpendHistory({ ...n.options, directory: destination, initialize: true,
+    protection: { ...n.options.protection, initializeWriter: true, restore: { preparation, approvedDigest: preparation.review.approvalDigest } } });
+  await history.ready(); expect(history.read().image).toEqual(image); history.close();
+}, 60000);
+
 it('refuses stale approvals and implicit policy updates before contacting a volunteer', async () => {
   const n = await fixture(), plan = await succeed('owner-retirement-plan', ...n.args, n.a.value.issuerKey);
   // Finish setup synchronously at each replica: a queued fifth socket request from

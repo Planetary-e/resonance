@@ -14,7 +14,9 @@ process.once('message', async (input: any) => {
       rename(from, to);
       if (input.boundary === `after-${phase}`) process.kill(process.pid, 'SIGKILL');
     };
-    syncBuiltinESMExports(); await history.write(input.row);
+    syncBuiltinESMExports();
+    if (input.operation === 'checkpoint') await history.checkpoint(history.planCheckpoint().approvalDigest);
+    else await history.write(input.row);
     if (input.boundary !== 'durable') throw new Error('Requested interruption boundary was not reached');
     process.kill(process.pid, 'SIGKILL');
   } catch (error) {

@@ -83,6 +83,69 @@ async function fixture(sockets = false, legacy: boolean | AdmissionSpendRecord =
 }
 const row = (issuerKey: string) => ({ issuerKey, spend: randomBytes(32).toString('base64url'), action: 'search', binding: `admreq_${'a'.repeat(86)}` });
 
+it('reviews complete checkpoints offline, rejects stale approval and retains the exact pending ciphertext across reply loss', async () => {
+  const n = await fixture(true, true); await n.history.ready();
+  const before = n.history.read(), calls = n.calls(), plan = n.history.planCheckpoint();
+  expect(plan).toMatchObject({ sequence: 1, recordsRetained: 1, filesRemoved: 0, bytesReclaimed: 0 });
+  expect(n.calls()).toBe(calls); expect(n.history.read()).toEqual(before);
+  expect(JSON.stringify(plan)).not.toContain(n.old.spend); expect(JSON.stringify(plan)).not.toContain(n.old.binding);
+  await expect(n.history.checkpoint('wrong')).rejects.toThrow('approval'); expect(n.calls()).toBe(calls);
+  const r = row(n.policy.activeKey); await n.history.write(r);
+  const afterSpend = n.history.read(), freshCalls = n.calls();
+  await expect(n.history.checkpoint(plan.approvalDigest)).rejects.toThrow('approval'); expect(n.calls()).toBe(freshCalls);
+  const next = n.history.planCheckpoint(); n.loseReplies(true);
+  await expect(n.history.checkpoint(next.approvalDigest)).rejects.toThrow('Four');
+  const pending = n.history.read().pending!;
+  expect(pending.kind).toBe('checkpoint'); expect(pending.sequence).toBe(2);
+  expect(JSON.parse(openHistoryCheckpoint(pending, n.context, n.key).toString())).toMatchObject({
+    kind: 'admission-state-checkpoint', image: afterSpend.image,
+  });
+  expect(n.history.read().image).toEqual(afterSpend.image);
+  expect(() => n.history.planCheckpoint()).toThrow('completion');
+  const history = await n.reopen(); expect(history.read().pending).toEqual(pending);
+  n.loseReplies(false); await history.ready();
+  expect(history.read().applied?.id).toBe(historyCheckpointEnvelopeId(pending));
+  expect(history.read().image).toEqual(afterSpend.image); expect(history.size()).toBe(2);
+  expect(n.stores.filter(s => s.describe().sequence === 2).length).toBeGreaterThanOrEqual(4);
+  expect(n.stores[0].read().envelopes).toHaveLength(3); // No pruning capability yet.
+  await expect(history.checkpoint(next.approvalDigest)).rejects.toThrow('approval');
+});
+
+it.each(['blocks', 'bytes'] as const)('refuses discretionary checkpoint publication before intent when the retained archive has no %s headroom', async exhausted => {
+  const n = await fixture(); await n.history.ready(); const usage = n.history.health(); n.history.close();
+  const history = await openProtectedAdmissionSpendHistory({ ...n.options,
+    protection: { ...n.options.protection, ...(exhausted === 'blocks' ? { maxArchiveBlocks: 1 }
+      : { maxArchiveBytes: usage.retainedCiphertextBytes }) } }); cleanup.push(history.close);
+  await history.ready(); const before = history.read(), calls = n.calls();
+  await expect(history.checkpoint(history.planCheckpoint().approvalDigest)).rejects.toThrow('headroom');
+  expect(history.read()).toEqual(before); expect(n.calls()).toBe(calls); expect(history.size()).toBe(0);
+});
+
+it.each(['before-intent', 'after-intent', 'before-apply', 'after-apply', 'durable'] as const)(
+  'preserves complete state and prior blocks across checkpoint SIGKILL at %s', async boundary => {
+    const n = await fixture(true, true); await n.history.ready(); const before = n.history.read(); n.history.close();
+    const child = fork(new URL('./fixtures/protected-admission-crash.ts', import.meta.url), [],
+      { execArgv: ['--import', 'tsx'], stdio: ['ignore', 'ignore', 'inherit', 'ipc'] });
+    const exited = once(child, 'exit'), messages: unknown[] = []; child.on('message', value => messages.push(value));
+    cleanup.push(async () => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); await exited; });
+    expect((await Promise.race([once(child, 'message'), exited.then(() => { throw new Error('Child exited before ready'); })]))[0]).toBe('ready');
+    child.send({ options: { directory: n.options.directory, authority: f.authority, policy: n.policy }, key: n.key.toString('hex'), time: f.time,
+      protection: { context: n.context, members: n.options.protection.members, timeoutMs: 30000 }, owner: {
+        publicKey: Buffer.from(n.owner.publicKey).toString('hex'), secretKey: Buffer.from(n.owner.secretKey).toString('hex') }, operation: 'checkpoint', boundary });
+    await exited; expect(messages).toEqual(['ready']); expect(child.signalCode).toBe('SIGKILL');
+    const history = await n.reopen(), pending = history.read().pending;
+    expect(history.read().image).toEqual(before.image);
+    expect(history.read().applied?.sequence).toBe(['after-apply', 'durable'].includes(boundary) ? 1 : 0);
+    expect(pending !== null).toBe(['after-intent', 'before-apply'].includes(boundary));
+    await history.ready();
+    if (boundary === 'before-intent') await history.checkpoint(history.planCheckpoint().approvalDigest);
+    expect(history.read().applied?.sequence).toBe(1); expect(history.read().image).toEqual(before.image);
+    if (pending) expect(history.read().applied?.id).toBe(historyCheckpointEnvelopeId(pending));
+    expect(n.stores.filter(s => s.read().envelopes.length === 2).length).toBeGreaterThanOrEqual(4);
+    await expect(history.write({ ...n.old, binding: `admreq_${'z'.repeat(86)}` })).rejects.toThrow('Conflicting');
+  }, 30000,
+);
+
 it('promotes the intact local history under one file lock and refuses every local-only reopening', async () => {
   const n = await fixture(false, true);
   expect(n.history.read().image.state.spends).toEqual([n.old]); expect(() => n.history.size()).toThrow('readiness');

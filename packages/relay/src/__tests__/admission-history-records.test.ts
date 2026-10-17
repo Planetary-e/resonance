@@ -1,7 +1,7 @@
 import { beforeAll, expect, it } from 'vitest';
 import { randomBytes } from 'node:crypto';
 import { admissionKeyFingerprint, signAdmissionPolicy, type SignedAdmissionPolicy } from '@resonance/core/admission-policy';
-import { parseAdmissionHistoryImage, reduceAdmissionHistory, type AdmissionHistoryImage } from '../admission-history-records.js';
+import { encodeAdmissionHistoryRecord, parseAdmissionHistoryImage, reduceAdmissionHistory, type AdmissionHistoryImage } from '../admission-history-records.js';
 import { witnessFixture } from './fixtures/admission-witness-fixture.js';
 
 let f: Awaited<ReturnType<typeof witnessFixture>>, image: AdmissionHistoryImage;
@@ -83,4 +83,31 @@ it('binds full policy checkpoints to unchanged spends and permanent denials, inc
     (value: typeof checkpoint) => { value.image.policy.revision++; },
     (value: typeof checkpoint) => { value.image.policy = f.policy; },
   ]) { const bad = structuredClone(checkpoint); edit(bad); await expect(reduceAdmissionHistory(current, bad, 10000, 'checkpoint')).rejects.toThrow(); }
+});
+
+it('retains a complete state checkpoint, including unproven rows and denials, without a policy transition', async () => {
+  const policy = await successor(), legacy = { ...row(), issuerKey: null };
+  const current: AdmissionHistoryImage = { ...image, policy, state: { ...image.state, spends: [legacy], retiredIssuerKeys: [f.policy.activeKey] } };
+  const checkpoint = { version: 1 as const, kind: 'admission-state-checkpoint' as const, at: f.time, image: structuredClone(current) };
+  const before = structuredClone(current), reduced = await reduceAdmissionHistory(current, checkpoint, 10000, 'checkpoint');
+  expect(reduced.image).toEqual(before); expect(current).toEqual(before); expect(reduced.record).toEqual(checkpoint);
+  await expect(reduceAdmissionHistory(current, checkpoint)).rejects.toThrow('mutation');
+  const { authority, signature, ...body } = policy;
+  const validSuccessor = await signAdmissionPolicy({ ...body, revision: policy.revision + 1 }, f.authority, f.authorityKey.secretKey);
+  for (const edit of [
+    (value: typeof checkpoint) => { value.image.state.spends = []; },
+    (value: typeof checkpoint) => { value.image.state.retiredIssuerKeys = []; },
+    (value: typeof checkpoint) => { value.image.state.spends[0].binding = `admreq_${'d'.repeat(86)}`; },
+    (value: typeof checkpoint) => { value.image.state.spends[0].issuerKey = policy.activeKey; },
+    (value: typeof checkpoint) => { value.image.policy = validSuccessor; },
+    (value: typeof checkpoint) => { value.at = policy.expiresAt; },
+  ]) { const bad = structuredClone(checkpoint); edit(bad); await expect(reduceAdmissionHistory(current, bad, 10000, 'checkpoint')).rejects.toThrow(); }
+});
+
+it('encodes a complete image larger than a delta and refuses it in a delta envelope', async () => {
+  const current = { ...image, state: { ...image.state, spends: Array.from({ length: 400 }, () => row()) } };
+  const checkpoint = { version: 1 as const, kind: 'admission-state-checkpoint' as const, at: f.time, image: current };
+  expect(encodeAdmissionHistoryRecord(checkpoint).length).toBeGreaterThan(65536);
+  expect((await reduceAdmissionHistory(current, checkpoint, 10000, 'checkpoint')).image).toEqual(current);
+  await expect(reduceAdmissionHistory(current, checkpoint)).rejects.toThrow('capacity');
 });

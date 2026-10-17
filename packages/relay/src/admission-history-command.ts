@@ -183,10 +183,11 @@ export async function runAdmissionHistoryCommand(command: string, raw: readonly 
           }
         }
       }
-    } else if (['owner-retirement-plan', 'owner-retire', 'owner-legacy-plan', 'owner-legacy-recover'].includes(command)) {
-      const mutating = command === 'owner-retire' || command === 'owner-legacy-recover';
+    } else if (['owner-retirement-plan', 'owner-retire', 'owner-legacy-plan', 'owner-legacy-recover', 'owner-checkpoint-plan', 'owner-checkpoint'].includes(command)) {
+      const checkpoint = command === 'owner-checkpoint-plan' || command === 'owner-checkpoint';
+      const mutating = command === 'owner-retire' || command === 'owner-legacy-recover' || command === 'owner-checkpoint';
       const approved = mutating && raw[0] === '--approve' ? raw[1] : undefined, args = approved ? raw.slice(2) : raw;
-      if (args.length !== 5 || (mutating && !approved)) throw new Error('Invalid protected maintenance command or missing approval');
+      if (args.length !== (checkpoint ? 4 : 5) || (mutating && !approved)) throw new Error('Invalid protected maintenance command or missing approval');
       const [configPath, policyPath, keyPath, directory, target] = args;
       const loaded = loadAdmissionHistoryProtectionFile(configPath); cleanup.push(() => loaded.signingKey.secretKey.fill(0));
       const transport = operatorTransport(loaded), { protection } = transport;
@@ -199,16 +200,18 @@ export async function runAdmissionHistoryCommand(command: string, raw: readonly 
         throw new Error('Maintenance requires the retained policy; apply its successor explicitly before reviewing');
       }
       const retiring = command === 'owner-retirement-plan' || command === 'owner-retire';
-      const proofs = retiring ? undefined : readOperatorJson(target, 65536);
-      const plan = retiring ? history.planRetirement(target) : await history.planLegacyRecovery(proofs);
+      const proofs = retiring || checkpoint ? undefined : readOperatorJson(target, 65536);
+      const plan = checkpoint ? history.planCheckpoint() : retiring ? history.planRetirement(target) : await history.planLegacyRecovery(proofs);
+      let checkpointResult: Awaited<ReturnType<typeof history.checkpoint>> | undefined;
       if (mutating) {
         if (approved !== plan.approvalDigest) throw new Error('Maintenance approval does not match; review the current history again');
         await history.ready(); // Fresh quorum is independent of the offline review.
-        if (retiring) await history.retire(target, approved!);
+        if (checkpoint) checkpointResult = await history.checkpoint(approved!);
+        else if (retiring) await history.retire(target, approved!);
         else await history.recoverLegacy(proofs, approved!); // Rechecks evidence/digest after readiness.
       }
-      emit({ ...plan, durability: 'protected-four-of-five', readiness: mutating ? 'confirmed' : 'unverified',
-        result: !mutating ? 'review-required' : retiring ? 'permanently-retired' : 'legacy-spends-recovered' });
+      emit({ ...plan, ...checkpointResult, durability: 'protected-four-of-five', readiness: mutating ? 'confirmed' : 'unverified',
+        result: !mutating ? 'review-required' : checkpoint ? 'state-checkpoint-published' : retiring ? 'permanently-retired' : 'legacy-spends-recovered' });
     } else if (command === 'owner-ready' && raw.length === 4) {
       const [configPath, policyPath, keyPath, directory] = raw;
       const loaded = loadAdmissionHistoryProtectionFile(configPath); cleanup.push(() => loaded.signingKey.secretKey.fill(0));
