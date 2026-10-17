@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -13,7 +13,8 @@ import { createConfiguredAdmissionVerifier } from '../configured-admission-verif
 import { openProtectedAdmissionSpendHistory } from '../protected-admission-history.js';
 import { historyCheckpointFixture } from './fixtures/history-checkpoint-fixture.js';
 import { witnessFixture } from './fixtures/admission-witness-fixture.js';
-import { runAdmissionHistoryCommand } from '../admission-history-command.js';
+import { runAdmissionHistoryCommand, readHistoryEnrollmentFile } from '../admission-history-command.js';
+import { openAdmissionHistoryActivation } from '../admission-history-activation.js';
 
 const script = fileURLToPath(new URL('../../../../scripts/admission-history.ts', import.meta.url));
 const cleanup: Array<() => void | Promise<void>> = [];
@@ -141,6 +142,7 @@ it('enrolls five volunteer processes, refuses three copies and recovers real tok
     genesisId: exported.genesisId, certifiedBoundaries: 0, observedGeneration: 0, readiness: 'unverified', mutation: 'none' });
   expect(existsSync(n.ownerDirectory)).toBe(false);
   const accepted = [capability];
+  const runtimeDirectory = join(n.directory, 'retained-owner-runtime'); mkdirSync(runtimeDirectory);
   for (const generation of [1, 2, 3]) {
     const workspace = join(n.directory, `recovery-${generation}`), destination = join(n.directory, `restored-${generation}`);
     const args = [n.configFile, n.enrollment, n.keyFile, workspace];
@@ -167,7 +169,15 @@ it('enrolls five volunteer processes, refuses three copies and recovers real tok
       volunteers[3] = await serve(n.replicaArgs[3], new URL(members[3].endpoint).port);
       expect((await succeed('owner-ready', n.configFile, n.policyFile, n.keyFile, destination)).readiness).toBe('confirmed');
     } else expect((await succeed('owner-recovery-restore', '--approve', review.approvalDigest, ...args, n.policyFile, destination)).generation).toBe(generation);
-    const restored = await createConfiguredAdmissionVerifier({ ...options, directory: destination, initialize: true });
+    const activation = await openAdmissionHistoryActivation({ runtimeDirectory, historyDirectory: destination,
+      policy: n.policy, encryptionKey: n.key, protection, genesis: readHistoryEnrollmentFile(n.enrollment).root });
+    try {
+      const plan = activation.review();
+      expect(plan).toMatchObject({ generation, spends: accepted.length, permanentDenials: 1,
+        policyAction: generation === 1 ? 'create' : 'retain' });
+      await activation.apply(plan.approvalDigest);
+    } finally { activation.close(); }
+    const restored = await createConfiguredAdmissionVerifier({ ...options, directory: runtimeDirectory, historyDirectory: destination });
     try {
       for (const token of accepted) expect(await restored.verifyAndSpend(token, ctx)).toEqual({ status: 'replay' });
       expect(await restored.verifyAndSpend(presentBlindAdmissionTokenV2(token, n.issuer.scope, 'search', different), { ...ctx, requestBinding: different }))

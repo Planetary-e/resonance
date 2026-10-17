@@ -393,3 +393,17 @@ export interface RelayMaintenanceStatus { active: boolean; createdAt: number | n
 export function getRelayMaintenance() { return api<RelayMaintenanceStatus>('GET', '/api/relay/maintenance'); }
 export function beginRelayMaintenance() { return api<RelayMaintenanceStatus>('POST', '/api/relay/maintenance'); }
 export function finishRelayMaintenance() { return api<RelayMaintenanceStatus>('DELETE', '/api/relay/maintenance'); }
+
+export interface RelayHistoryActivationInput {
+  historyConfigFile: string; enrollmentFile: string; policyFile: string; storageKeyFile: string;
+  authorityFile: string; historyDirectory: string; linksFile: string; operatorTransportFile: string;
+}
+export type { AdmissionHistoryActivationReview } from '@resonance/relay';
+export function getRelayHistoryActivationInput() { return api<{ input: RelayHistoryActivationInput | null }>('GET', '/api/relay/history/activation'); }
+export function reviewRelayHistoryActivation(input: RelayHistoryActivationInput) {
+  return api<import('@resonance/relay').AdmissionHistoryActivationReview>('POST', '/api/relay/history/activation/review', { input });
+}
+export function applyRelayHistoryActivation(input: RelayHistoryActivationInput, approvalDigest: string) {
+  return api<{ result: string; readiness: string; maintenanceActive: boolean }>('POST', '/api/relay/history/activation/apply', { input, approvalDigest });
+}
+export function cancelRelayHistoryOperation() { return api<{ active: boolean }>('POST', '/api/relay/history/cancel'); }

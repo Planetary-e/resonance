@@ -74,7 +74,7 @@ function validatePublicEndpoints(endpoints: string[]): void {
   if (new Set(endpoints.map(endpoint => new URL(endpoint).href)).size !== endpoints.length) throw new Error('Duplicate relay public endpoint');
 }
 
-export function relayServiceRuntime(retained: RelayServiceRoleFiles & { publicEndpoints?: string[] } = {}): Pick<RelayServiceOptions,
+export function relayServiceRuntime(retained: RelayServiceRoleFiles & { publicEndpoints?: string[] } = {}, reviewed: RelayServiceRoleFiles = {}): Pick<RelayServiceOptions,
   'nodePath' | 'entryPath' | 'workingDirectory' | 'nodePathEnv' | 'tsxImportPath' | 'publicEndpoints'> & RelayServiceRoleFiles {
   const entryPath = process.env.RESONANCE_RELAY_ENTRY
     ?? resolve(process.cwd(), '../relay/src/main.ts');
@@ -82,7 +82,7 @@ export function relayServiceRuntime(retained: RelayServiceRoleFiles & { publicEn
   // An explicit empty override disables participation without deleting retained state.
   const files: RelayServiceRoleFiles = {};
   for (const key of Object.keys(SERVICE_FILES) as ServiceFile[]) {
-    const value = process.env[`RESONANCE_${SERVICE_FILES[key]}`] ?? retained[key];
+    const value = Object.hasOwn(reviewed, key) ? reviewed[key] : process.env[`RESONANCE_${SERVICE_FILES[key]}`] ?? retained[key];
     files[key] = value;
   }
   validateRoleFiles(files);

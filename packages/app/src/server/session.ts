@@ -59,6 +59,7 @@ import {
   type RelayOwnerControls,
 } from './relay-supervisor.js';
 import { withRelayControl } from './relay-control.js';
+import { withRelayHistoryActivation, parseRelayHistoryActivationInput, historyActivationServiceFiles, type RelayHistoryActivationInput } from './history-activation.js';
 
 export interface SessionEvents {
   onMatch?: (matchId: string, partnerDID: string, similarity: number, yourItemId: string) => void;
@@ -133,13 +134,14 @@ let session: Session | null = null;
 let sessionEvents: SessionEvents = {};
 export type RelayActivity = 'not-checked' | 'succeeded' | 'failed';
 let relayActivity: RelayActivity = 'not-checked';
+let relayHistoryOperationAbort: AbortController | undefined;
 
 export function getRelayActivity(): RelayActivity {
   return relayActivity;
 }
 // --- Relay config persistence ---
 
-interface RelayConfig {
+export interface RelayConfig {
   enabled: boolean;
   port: number;
   adminKey?: string;
@@ -147,6 +149,7 @@ interface RelayConfig {
   controls?: RelayOwnerControls;
   storageCommitmentFloorBytes?: number;
   runtime?: ReturnType<typeof relayServiceRuntime>;
+  historyActivationInput?: RelayHistoryActivationInput;
 }
 
 function getRelayConfigPath(): string {
@@ -174,6 +177,7 @@ export function loadRelayConfig(): RelayConfig {
       || !Number.isSafeInteger(value.port) || value.port! < 1024 || value.port! > 65535
       || (value.adminKey !== undefined && typeof value.adminKey !== 'string')
       || (value.contacts !== undefined && (!Array.isArray(value.contacts) || value.contacts.some(c => typeof c !== 'string')))) throw new Error('Invalid settings');
+    if (value.historyActivationInput !== undefined) parseRelayHistoryActivationInput(value.historyActivationInput);
     return value as RelayConfig;
   } catch { throw new Error('Saved relay settings are invalid; retain them for recovery before changing the service'); }
 }
@@ -257,7 +261,7 @@ async function startRelayModeUnlocked(
       catch { return true; }
     })) throw new Error('Relay contacts must be up to 16 distinct endpoints; public contacts require wss://');
   const controls = validateOwnerControls(requestedControls ?? previous.controls ?? {});
-  const runtime = relayServiceRuntime(previous.runtime);
+  const runtime = relayServiceRuntime(previous.runtime, previous.historyActivationInput ? historyActivationServiceFiles(previous.historyActivationInput) : {});
   const previousStats = previous.enabled ? await relayServiceStats(previous.port, adminKey) : null;
   const minimumStorageBytes = storageCommitmentFloor(
     previousStats, previous.storageCommitmentFloorBytes ?? 0,
@@ -277,6 +281,7 @@ async function startRelayModeUnlocked(
   // Registration outlives this HTTP request and the GUI. Keep its paths even if
   // readiness is delayed or the newly installed process fails to respond.
   saveRelayConfig({ enabled: true, port: p, adminKey, contacts, controls, runtime,
+    ...(previous.historyActivationInput ? { historyActivationInput: previous.historyActivationInput } : {}),
     storageCommitmentFloorBytes: minimumStorageBytes });
   let running = false;
   for (let attempt = 0; attempt < 40; attempt++) {
@@ -359,11 +364,33 @@ export async function beginRelayHistoryMaintenance(signal?: AbortSignal) {
   });
 }
 /** The next desktop workflow runs each bounded step inside this exclusion. */
-export async function runRelayHistoryOperation<T>(operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+export async function runRelayHistoryOperation<T>(operation: (signal: AbortSignal) => Promise<T>, signal?: AbortSignal): Promise<T> {
   return withRelayControl(async () => {
-    const release = await claimStoppedRelay(signal);
-    try { return await operation(); } finally { release(); }
+    const controller = new AbortController(); relayHistoryOperationAbort = controller;
+    const combined = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
+    let release: (() => void) | undefined;
+    try { release = await claimStoppedRelay(combined); return await operation(combined); }
+    finally { release?.(); if (relayHistoryOperationAbort === controller) relayHistoryOperationAbort = undefined; }
   });
+}
+export function cancelRelayHistoryOperation() {
+  const active = !!relayHistoryOperationAbort; relayHistoryOperationAbort?.abort(); return { active };
+}
+export function getRelayHistoryActivationInput() { return loadRelayConfig().historyActivationInput ?? null; }
+export async function planRelayHistoryActivation(input: unknown, signal?: AbortSignal) {
+  return runRelayHistoryOperation(async operationSignal => withRelayHistoryActivation(input, loadRelayConfig(), join(getDataDir(), 'relay-data'), operationSignal,
+    async ({ activation }) => activation.review()), signal);
+}
+export async function applyRelayHistoryActivation(input: unknown, approvalDigest: string, signal?: AbortSignal) {
+  return runRelayHistoryOperation(async operationSignal => {
+    const previous = loadRelayConfig();
+    return withRelayHistoryActivation(input, previous, join(getDataDir(), 'relay-data'), operationSignal,
+      async ({ activation, runtime, input: selection, checkInputs }) => {
+        const result = await activation.apply(approvalDigest); checkInputs();
+        saveRelayConfig({ ...previous, enabled: false, runtime, historyActivationInput: selection });
+        return { ...result, result: 'owner-service-configured' as const, maintenanceActive: true as const };
+      });
+  }, signal);
 }
 export async function finishRelayHistoryMaintenance() {
   return withRelayControl(async () => {
@@ -606,6 +633,7 @@ export function resetInactivityTimer(): void {
 }
 
 export function lockSession(): void {
+  relayHistoryOperationAbort?.abort();
   if (inactivityTimer) { clearTimeout(inactivityTimer); inactivityTimer = null; }
   if (!session) return;
   stopAutomaticMailboxSync(session);

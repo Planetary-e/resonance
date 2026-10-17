@@ -130,5 +130,6 @@ export { discoverHistoryContinuations, type HistoryContinuationDiscovery } from 
 export { prepareAdmissionHistoryRecovery, openAdmissionHistoryRecovery, type AdmissionRecoveryReview } from './admission-history-recovery.js';
 
 export { runAdmissionHistoryCommand, readHistoryEnrollmentFile, type AdmissionHistoryCommandOptions } from './admission-history-command.js';
+export { openAdmissionHistoryActivation, type AdmissionHistoryActivationOptions, type AdmissionHistoryActivationReview } from './admission-history-activation.js';
 export { beginRelayMaintenance, readRelayMaintenance, assertRelayNotInMaintenance, acquireStoppedRelayMaintenance, finishRelayMaintenance, RELAY_MAINTENANCE_FILENAME, type RelayMaintenanceState } from './relay-maintenance.js';
 export { readOperatorJson, writeOperatorJsonNew } from './admission-operator-files.js';

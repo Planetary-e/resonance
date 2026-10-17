@@ -4,6 +4,7 @@
 
 import { randomBytes } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { exactWitnessFields } from '@resonance/core/admission-witness';
 import {
   getSession,
   ModelLoadError,
@@ -22,6 +23,7 @@ import {
   startRelayMode,
   stopRelayMode,
   getRelayStats, getRelayMaintenanceStatus, beginRelayHistoryMaintenance, finishRelayHistoryMaintenance,
+  getRelayHistoryActivationInput, planRelayHistoryActivation, applyRelayHistoryActivation, cancelRelayHistoryOperation,
   publishItem,
   listSessionItems,
   releaseHeldPublication,
@@ -509,6 +511,34 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
   }
 
   // --- Relay mode ---
+
+  if (url === '/api/relay/history/activation' && method === 'GET') {
+    if (!requireAuth(req, res)) return true;
+    try { json(res, { input: getRelayHistoryActivationInput() }); }
+    catch (err) { error(res, err instanceof Error ? err.message : 'Saved history selection unavailable', 409); }
+    return true;
+  }
+  if (url === '/api/relay/history/cancel' && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    json(res, cancelRelayHistoryOperation()); return true;
+  }
+  if (['/api/relay/history/activation/review', '/api/relay/history/activation/apply'].includes(url!) && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    const controller = new AbortController(), disconnected = () => { if (!res.writableEnded) controller.abort(); };
+    res.once('close', disconnected);
+    try {
+      const body = await readBody(req), applying = url!.endsWith('/apply');
+      if (!exactWitnessFields(body, applying ? ['input', 'approvalDigest'] : ['input'])
+        || (applying && (typeof body.approvalDigest !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(body.approvalDigest)))) {
+        throw new Error('Supply an activation selection and the exact reviewed approval when applying');
+      }
+      const result = applying ? await applyRelayHistoryActivation(body.input, body.approvalDigest as string, controller.signal)
+        : await planRelayHistoryActivation(body.input, controller.signal);
+      if (!res.destroyed) json(res, result);
+    } catch (err) { if (!res.destroyed) error(res, err instanceof Error ? err.message : 'History activation failed; retain maintenance', 409); }
+    finally { res.removeListener('close', disconnected); }
+    return true;
+  }
 
   if (url === '/api/relay/maintenance' && ['GET', 'POST', 'DELETE'].includes(method!)) {
     if (!requireAuth(req, res)) return true;
