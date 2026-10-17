@@ -3,7 +3,7 @@ import { isAbsolute, resolve } from 'node:path';
 import { exactWitnessFields } from '@resonance/core/admission-witness';
 import { HISTORY_ENVELOPE_MAX_BYTES, historyDigest, isHistoryDigest } from '@resonance/core/history-checkpoint';
 import { MAX_ADMISSION_POLICY_BYTES } from '@resonance/core/admission-policy';
-import { canonicalHistorySetupPath, historySetupContains, reviewAdmissionOwnerConfiguration, openAdmissionOwnerSetup, runAdmissionHistoryCommand } from '@resonance/relay';
+import { canonicalHistorySetupPath, historySetupContains, reviewAdmissionOwnerConfiguration, openAdmissionOwnerSetup, openAdmissionOwnerLimits, runAdmissionHistoryCommand } from '@resonance/relay';
 import { readOperatorFile } from '../../../relay/src/admission-operator-files.js';
 import { parseAdmissionHistoryConfiguration } from '../../../relay/src/admission-history-config.js';
 import { readOperatorJson } from '../../../relay/src/admission-operator-files.js';
@@ -14,19 +14,21 @@ export type RelayHistorySetupInput =
   | { role: 'owner'; historyConfigFile: string; policyFile: string; storageKeyFile: string; directory: string; output: string; mode: 'new' | 'resume' | 'export' }
   | { role: 'volunteer'; enrollmentFile: string; signingKeyFile: string; storageKeyFile: string; directory: string }
   | { role: 'volunteer-resume'; enrollmentFile: string; signingKeyFile: string; storageKeyFile: string; directory: string }
+  | { role: 'owner-limits'; historyConfigFile: string; enrollmentFile: string; policyFile: string; storageKeyFile: string; directory: string; output: string; archiveMiB: number; archiveBlocks: number }
   | { role: 'readiness'; historyConfigFile: string; enrollmentFile: string; policyFile: string; storageKeyFile: string; directory: string; operatorTransportFile: string };
 const fields = {
   configuration: ['ownerKeyFile', 'authorityFile', 'policyFile', 'membersFile', 'output'],
   owner: ['historyConfigFile', 'policyFile', 'storageKeyFile', 'directory', 'output'],
   volunteer: ['enrollmentFile', 'signingKeyFile', 'storageKeyFile', 'directory'],
   'volunteer-resume': ['enrollmentFile', 'signingKeyFile', 'storageKeyFile', 'directory'],
+  'owner-limits': ['historyConfigFile', 'enrollmentFile', 'policyFile', 'storageKeyFile', 'directory', 'output'],
   readiness: ['historyConfigFile', 'enrollmentFile', 'policyFile', 'storageKeyFile', 'directory', 'operatorTransportFile'],
 } as const;
 export function parseRelayHistorySetupInput(value: unknown): RelayHistorySetupInput {
   const raw = value as Record<string, unknown> | null;
-  if (!raw || !['configuration', 'owner', 'volunteer', 'volunteer-resume', 'readiness'].includes(raw.role as string)) throw new Error('Select a supported initial setup role');
+  if (!raw || !['configuration', 'owner', 'volunteer', 'volunteer-resume', 'owner-limits', 'readiness'].includes(raw.role as string)) throw new Error('Select a supported initial setup role');
   const role = raw.role as RelayHistorySetupInput['role'];
-  if (!exactWitnessFields(raw, ['role', ...fields[role], ...(role === 'configuration' ? ['historyId'] : role === 'owner' ? ['mode'] : [])])) {
+  if (!exactWitnessFields(raw, ['role', ...fields[role], ...(role === 'configuration' ? ['historyId'] : role === 'owner' ? ['mode'] : role === 'owner-limits' ? ['archiveMiB', 'archiveBlocks'] : [])])) {
     throw new Error('Supply the exact fields for the selected setup role');
   }
   const input: Record<string, unknown> = { ...raw };
@@ -38,6 +40,8 @@ export function parseRelayHistorySetupInput(value: unknown): RelayHistorySetupIn
   }
   if (role === 'configuration' && (typeof raw.historyId !== 'string' || (raw.historyId !== '' && !/^[A-Za-z0-9_-]{43}$/.test(raw.historyId)))) throw new Error('Invalid initial history identifier');
   if (role === 'owner' && !['new', 'resume', 'export'].includes(raw.mode as string)) throw new Error('Select an explicit owner preparation mode');
+  if (role === 'owner-limits' && (!Number.isSafeInteger(raw.archiveMiB) || (raw.archiveMiB as number) < 1 || (raw.archiveMiB as number) > 64
+    || !Number.isSafeInteger(raw.archiveBlocks) || (raw.archiveBlocks as number) < 1 || (raw.archiveBlocks as number) > 10001)) throw new Error('Owner archive limits are outside supported bounds');
   return input as unknown as RelayHistorySetupInput;
 }
 
@@ -54,7 +58,7 @@ export async function runDesktopHistorySetup(action: 'review' | 'apply', raw: un
       if (path === '' && field === 'operatorTransportFile') continue;
       if (historySetupContains(paths[0], canonicalHistorySetupPath(path))) throw new Error('Keep enrollment, keys and configuration outside the dedicated history directory');
     }
-    if (input.role === 'owner' && historySetupContains(paths[1], canonicalHistorySetupPath(input.output))) throw new Error('Keep the enrollment backup outside the relay runtime');
+    if ((input.role === 'owner' || input.role === 'owner-limits') && historySetupContains(paths[1], canonicalHistorySetupPath(input.output))) throw new Error('Keep the enrollment backup outside the relay runtime');
   }
   const digestFiles = () => fields[input.role].filter(field => !['directory', 'output'].includes(field)
     && (input as unknown as Record<string, string>)[field]).map(field => {
@@ -81,6 +85,9 @@ export async function runDesktopHistorySetup(action: 'review' | 'apply', raw: un
     } else if (input.role === 'owner') {
       const preparation = await openAdmissionOwnerSetup(input, signal); close = preparation.close;
       original = preparation.review(); apply = preparation.apply;
+    } else if (input.role === 'owner-limits') {
+      const preparation = await openAdmissionOwnerLimits(input, signal); close = preparation.close;
+      original = preparation.review; apply = preparation.apply;
     } else if (input.role === 'volunteer' || input.role === 'volunteer-resume') {
       const args = [input.enrollmentFile, input.signingKeyFile, input.storageKeyFile, input.directory];
       original = (await runAdmissionHistoryCommand(input.role === 'volunteer-resume' ? 'replica-resume-plan' : 'replica-plan', args, { signal })).result;

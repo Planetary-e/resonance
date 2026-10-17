@@ -120,3 +120,15 @@ it('requires all five existing history members and distinct explicit infrastruct
   writeFileSync(path, ' '.repeat(65537)); expect(() => readAdmissionHistoryLinksFile(path, n.f.context)).toThrow('regular file');
   expect(() => readAdmissionHistoryLinksFile(n.directory, n.f.context)).toThrow('regular file');
 });
+
+
+it('loads bounded optional archive capacities without changing pins or permitting initialization', () => {
+  const n = fixture(), limits = { archiveBytes: 1048576, archiveBlocks: 4 };
+  writeFileSync(n.path, JSON.stringify({ ...n.value, limits }));
+  const protection = loadAdmissionHistoryProtectionFile(n.path);
+  expect(protection).toMatchObject({ maxArchiveBytes: limits.archiveBytes, maxArchiveBlocks: limits.archiveBlocks, context: n.f.context });
+  expect(protection.initializeWriter).toBeUndefined(); protection.signingKey.secretKey.fill(0);
+  for (const bad of [{ ...limits, archiveBytes: 0 }, { ...limits, archiveBytes: 67108865 }, { ...limits, archiveBlocks: 10002 }, { ...limits, reset: true }]) {
+    writeFileSync(n.path, JSON.stringify({ ...n.value, limits: bad })); expect(() => loadAdmissionHistoryProtectionFile(n.path)).toThrow('limits');
+  }
+});

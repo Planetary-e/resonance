@@ -16,6 +16,7 @@ import { discoverHistoryContinuations } from './history-continuation-discovery.j
 import { createHistoryOperatorTransport } from './history-operator-transport.js';
 import { openAdmissionHistoryRecovery, prepareAdmissionHistoryRecovery } from './admission-history-recovery.js';
 import { reviewAdmissionOwnerConfiguration, openAdmissionOwnerSetup, canonicalHistorySetupPath, type AdmissionOwnerSetupMode } from './admission-history-setup.js';
+import { openAdmissionOwnerLimits } from './admission-history-limits.js';
 import { openAdmissionInitialReadiness } from './admission-history-readiness.js';
 
 
@@ -63,6 +64,14 @@ export async function runAdmissionHistoryCommand(command: string, raw: readonly 
         const preparation = await openAdmissionOwnerSetup({ mode: mode as AdmissionOwnerSetupMode, historyConfigFile, policyFile, storageKeyFile, directory, output }, commandOptions.signal);
         cleanup.push(() => preparation.close()); emit(applying ? await preparation.apply(approved!) : preparation.review());
       }
+    } else if (['owner-limits-plan', 'owner-limits'].includes(command)) {
+      const applying = command === 'owner-limits', approved = applying && raw[0] === '--approve' ? raw[1] : undefined;
+      const args = approved ? raw.slice(2) : raw;
+      if (args.length !== 8 || (applying && !approved) || !args.slice(6).every(n => /^[1-9][0-9]*$/.test(n))) throw new Error('Invalid owner limit command or missing approval');
+      const [historyConfigFile, enrollmentFile, policyFile, storageKeyFile, directory, output, mib, blocks] = args;
+      const prepared = await openAdmissionOwnerLimits({ historyConfigFile, enrollmentFile, policyFile, storageKeyFile, directory, output,
+        archiveMiB: Number(mib), archiveBlocks: Number(blocks) }, commandOptions.signal);
+      cleanup.push(prepared.close); emit(applying ? prepared.apply(approved!) : prepared.review);
     } else if (command === 'owner-config' && raw.length === 5) {
       const [ownerPath, authorityPath, policyPath, membersPath, output] = raw;
       if (existsSync(output)) throw new Error('Owner configuration output already exists');

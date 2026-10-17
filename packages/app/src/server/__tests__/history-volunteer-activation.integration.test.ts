@@ -194,3 +194,26 @@ it('preserves both reviewed roles through later activation and service start des
   expect(installRelayService).toHaveBeenCalledWith(expect.objectContaining({ historyVolunteerFile: n.input.output,
     admissionHistoryFile: owner.input.historyConfigFile, admissionHistoryDirectory: owner.input.historyDirectory }));
 }, 30000);
+
+
+it('reviews owner archive limits through the desktop, preserves the active selection and applies the limits only during separate activation', async () => {
+  const n = await fixture(), owner = await admissionActivationFixture(); cleanup.push(owner.close);
+  await n.init(); await n.request('/api/relay/maintenance', {});
+  const input = { role: 'owner-limits', historyConfigFile: owner.input.historyConfigFile, enrollmentFile: owner.input.enrollmentFile,
+    policyFile: owner.input.policyFile, storageKeyFile: owner.input.storageKeyFile, directory: owner.historyDirectory,
+    output: join(n.directory, 'owner-limits.json'), archiveMiB: 1, archiveBlocks: 3 };
+  const plan = await n.request('/api/relay/history/setup', { action: 'review', input }); expect(plan.status, JSON.stringify(plan.body)).toBe(200);
+  expect(existsSync(input.output)).toBe(false);
+  const apply = await n.request('/api/relay/history/setup', { action: 'apply', input, approvalDigest: plan.body.result.approvalDigest });
+  expect(apply.status, JSON.stringify(apply.body)).toBe(200); expect(loadRelayConfig().historyActivationInput).toBeUndefined();
+  expect(loadRelayConfig().enabled).toBe(false); expect(installRelayService).not.toHaveBeenCalled();
+  await n.request('/api/lock', {}); await n.unlock(); expect((await n.request('/api/relay/history/setup')).body.input).toEqual(input);
+  const selection = { ...owner.input, historyConfigFile: input.output }, review = await n.request('/api/relay/history/activation/review', { input: selection });
+  expect(review.status, JSON.stringify(review.body)).toBe(200);
+  expect((await n.request('/api/relay/history/activation/apply', { input: selection, approvalDigest: review.body.approvalDigest })).status).toBe(200);
+  expect(loadRelayConfig().runtime?.admissionHistoryFile).toBe(input.output);
+  const tooSmall = join(n.directory, 'too-small-config.json'), candidate = JSON.parse(readFileSync(input.output, 'utf8'));
+  writeFileSync(tooSmall, JSON.stringify({ ...candidate, limits: { ...candidate.limits, archiveBlocks: 1 } }));
+  expect((await n.request('/api/relay/history/activation/review', { input: { ...selection, historyConfigFile: tooSmall } })).status).toBe(409);
+  expect(loadRelayConfig().runtime?.admissionHistoryFile).toBe(input.output);
+});

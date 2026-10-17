@@ -22,3 +22,11 @@ it('explains interrupted volunteer resumption without offering a missing-history
   expect(html).toContain('relay stays paused');
   expect(render({ result: 'enrollment-resumed', readiness: 'unverified', startsService: false })).toContain('Activate enrolled volunteer');
 });
+
+it('describes owner limits as ciphertext capacity and keeps activation separate', () => {
+  const html = render({ kind: 'owner-history-limits', approvalDigest: 'sha256:review', readiness: 'unverified', startsService: false,
+    retainedBlocks: 2, retainedCiphertextBytes: 1048576, archiveBytes: 2097152, archiveBlocks: 4, pending: true });
+  expect(html).toContain('2 retained archive blocks'); expect(html).toContain('MiB ciphertext'); expect(html).toContain('Pending ciphertext is preserved');
+  const done = render({ result: 'owner-limits-configured', output: '/new-config.json', readiness: 'unverified', startsService: false });
+  expect(done).toContain('Review owner activation'); expect(done).toContain('/new-config.json');
+});

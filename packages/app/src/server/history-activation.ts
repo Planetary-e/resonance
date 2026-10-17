@@ -76,7 +76,8 @@ export async function withRelayHistoryActivation<T>(raw: unknown, previous: Rela
       }
     };
     const intentDigest = historyDigest(`resonance:desktop-history-activation:v1\n${JSON.stringify([input, previous, runtime, files, operatorConfiguration])}`);
-    transport = createHistoryOperatorTransport({ context: config.context, members: config.members, signingKey }, input.operatorTransportFile || undefined, signal);
+    transport = createHistoryOperatorTransport({ context: config.context, members: config.members, signingKey,
+      ...(config.limits ? { maxArchiveBytes: config.limits.archiveBytes, maxArchiveBlocks: config.limits.archiveBlocks } : {}) }, input.operatorTransportFile || undefined, signal);
     activation = await openAdmissionHistoryActivation({ runtimeDirectory, historyDirectory: input.historyDirectory,
       policy: readOperatorJson(input.policyFile, MAX_ADMISSION_POLICY_BYTES), encryptionKey: storageKey, protection: transport.protection,
       genesis: enrollment.root, intentDigest, signal });

@@ -138,3 +138,4 @@ export { reviewAdmissionOwnerConfiguration, openAdmissionOwnerSetup, canonicalHi
 export type { AdmissionOwnerConfigurationInput, AdmissionOwnerSetupInput, AdmissionOwnerSetupMode } from './admission-history-setup.js';
 
 export { openHistoryVolunteerEnrollmentResume } from './history-volunteer-enrollment.js';
+export { openAdmissionOwnerLimits, type AdmissionOwnerLimitsInput } from './admission-history-limits.js';

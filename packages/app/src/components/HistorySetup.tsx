@@ -4,6 +4,7 @@ import { getRelayHistorySetupInput, runRelayHistorySetup, cancelRelayHistoryOper
 const empty = (role: RelayHistorySetupInput['role']): RelayHistorySetupInput => role === 'configuration'
   ? { role, ownerKeyFile: '', authorityFile: '', policyFile: '', membersFile: '', output: '', historyId: '' }
   : role === 'owner' ? { role, historyConfigFile: '', policyFile: '', storageKeyFile: '', directory: '', output: '', mode: 'new' }
+    : role === 'owner-limits' ? { role, historyConfigFile: '', enrollmentFile: '', policyFile: '', storageKeyFile: '', directory: '', output: '', archiveMiB: 64, archiveBlocks: 10001 }
     : (role === 'volunteer' || role === 'volunteer-resume') ? { role, enrollmentFile: '', signingKeyFile: '', storageKeyFile: '', directory: '' }
       : { role, historyConfigFile: '', enrollmentFile: '', policyFile: '', storageKeyFile: '', directory: '', operatorTransportFile: '' };
 const labels: Record<string, string> = { ownerKeyFile: 'Owner signing key file', authorityFile: 'Pinned community authority file', policyFile: 'Current signed policy file',
@@ -35,7 +36,7 @@ export default function HistorySetup({ onBusyChange, blocked = false }: { onBusy
       <label className="form-group" style={{ display: 'block' }}>Operation
         <select value={input.role} disabled={disabled} onChange={event => changed(empty(event.target.value as RelayHistorySetupInput['role']))}>
           <option value="configuration">Create owner configuration</option><option value="owner">Prepare or export owner history</option>
-          <option value="volunteer">Enroll this volunteer</option><option value="volunteer-resume">Resume interrupted volunteer enrollment</option><option value="readiness">Complete initial owner readiness</option>
+          <option value="volunteer">Enroll this volunteer</option><option value="volunteer-resume">Resume interrupted volunteer enrollment</option><option value="readiness">Complete initial owner readiness</option><option value="owner-limits">Edit owner archive limits</option>
         </select>
       </label>
       {input.role === 'owner' && <label className="form-group" style={{ display: 'block' }}>Preparation
@@ -44,10 +45,21 @@ export default function HistorySetup({ onBusyChange, blocked = false }: { onBusy
         </select>
       </label>}
       {Object.entries(input).filter(([field]) => field in labels).map(([field, value]) => <label className="form-group" style={{ display: 'block' }} key={field}>
-        {field === 'output' ? input.role === 'configuration' ? 'New owner configuration file' : 'New enrollment backup file' : labels[field]}
+        {field === 'output' ? (input.role === 'configuration' || input.role === 'owner-limits') ? 'New owner configuration file' : 'New enrollment backup file' : labels[field]}
         <input type="text" value={value} required={field !== 'operatorTransportFile'} disabled={disabled} autoComplete="off" spellCheck={false}
           onChange={event => changed({ ...input, [field]: event.target.value })} />
       </label>)}
+      {input.role === 'owner-limits' && <>
+        <label className="form-group" style={{ display: 'block' }}>Ciphertext archive per generation (MiB)
+          <input type="number" min={1} max={64} step={1} required disabled={disabled} value={input.archiveMiB}
+            onChange={event => changed({ ...input, archiveMiB: Number(event.target.value) })} />
+        </label>
+        <label className="form-group" style={{ display: 'block' }}>Archive blocks per generation
+          <input type="number" min={1} max={10001} step={1} required disabled={disabled} value={input.archiveBlocks}
+            onChange={event => changed({ ...input, archiveBlocks: Number(event.target.value) })} />
+        </label>
+        <p className="text-sm">Archive limits must retain accepted and pending ciphertext. They exclude spend images, manifests, recovery workspaces and filesystem overhead. Review activation with the new configuration separately.</p>
+      </>}
       <p className="text-sm">Enter absolute local paths. Private keys stay in files. Setup keeps the relay paused and does not install a service. Existing files are preserved.</p>
       <button className="btn btn-secondary" disabled={disabled} type="submit">Review setup</button>
     </form>
@@ -65,14 +77,16 @@ export default function HistorySetup({ onBusyChange, blocked = false }: { onBusy
 
 export function HistorySetupReview({ result, busy, onApply }: { result: RelayHistorySetupResult; busy: boolean; onApply: () => void }) {
   if (!result.approvalDigest) return <div role="status">
-    <p>{result.result === 'history-ready' ? 'Initial history has four fresh copies. Review owner activation next; the relay remains paused.'
+    <p>{result.result === 'owner-limits-configured' ? 'New owner archive configuration saved. Review owner activation using this file; the relay remains paused.'
+      : result.result === 'history-ready' ? 'Initial history has four fresh copies. Review owner activation next; the relay remains paused.'
       : (result.result === 'enrolled' || result.result === 'enrollment-resumed') ? 'Volunteer history enrolled. Use Activate enrolled volunteer to review its owner connections before starting the background relay.'
         : result.result === 'new-owner-configuration' ? 'Owner configuration saved. Prepare its dedicated history next.' : 'Enrollment exported. Keep an independent backup and provide it to the five pinned volunteers.'}</p>
+    {result.result === 'owner-limits-configured' && <p style={{ overflowWrap: 'anywhere' }}>New configuration: {result.output}</p>}
     {result.genesisId && <p style={{ overflowWrap: 'anywhere' }}>Genesis fingerprint: {result.genesisId}</p>}
   </div>;
   const readiness = result.kind === 'admission-initial-readiness';
   return <section className="history-activation-review" aria-label="Review initial history setup">
-    <h4>{readiness ? 'Review initial readiness' : result.kind?.startsWith('history-volunteer-') ? 'Review volunteer enrollment' : 'Review owner setup'}</h4>
+    <h4>{result.kind === 'owner-history-limits' ? 'Review owner archive limits' : readiness ? 'Review initial readiness' : result.kind?.startsWith('history-volunteer-') ? 'Review volunteer enrollment' : 'Review owner setup'}</h4>
     <p style={{ overflowWrap: 'anywhere' }}>History context: {result.contextId}</p>
     {result.genesisId && <p style={{ overflowWrap: 'anywhere' }}>Genesis fingerprint: {result.genesisId}</p>}
     {result.owner && <p style={{ overflowWrap: 'anywhere' }}>Owner public key: {result.owner}</p>}
@@ -83,6 +97,7 @@ export function HistorySetupReview({ result, busy, onApply }: { result: RelayHis
     {result.output && <p style={{ overflowWrap: 'anywhere' }}>New output: {result.output}</p>}
     {result.spends !== undefined && <p>{result.spends} retained spends · {result.permanentDenials} permanent denials.</p>}
     {result.maximumGenerations && <p className="text-sm">Up to {result.maximumGenerations} generations; {Math.round(result.generationByteLimit! / 1048576)} MiB per generation, {Math.round(result.ancestryByteLimit! / 1048576)} MiB ancestry accounting. Journals and filesystem overhead are additional.</p>}
+    {result.kind === 'owner-history-limits' && <p>{result.retainedBlocks} retained archive blocks · {((result.retainedCiphertextBytes ?? 0) / 1048576).toFixed(2)} MiB ciphertext. New limits: {(result.archiveBytes ?? 0) / 1048576} MiB and {result.archiveBlocks} blocks per generation. Pending ciphertext is preserved.</p>}
     {result.phase && <p>{result.phase === 'genesis-pending' ? 'The first history block was not fully saved. Approval finishes the original enrollment.' : `${result.retainedBlocks} existing blocks remain retained.`}</p>}
     {result.kind === 'history-volunteer-resumption' && <p>Resume the same pinned genesis only. A missing or corrupt manifest cannot be recreated. Existing accepted records remain retained; the relay stays paused.</p>}
     <p>{readiness ? 'Approval completes retained initial work and requires four fresh copies before activation. It does not start the relay.'
