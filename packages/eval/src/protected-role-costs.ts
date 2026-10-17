@@ -1,5 +1,5 @@
 /** Local cost experiment, never opens real user state. Fixture seeding is not
- * measured admission throughput; all five history services share this process. */
+ * measured admission throughput; volunteers can run in separate child processes. */
 import { execFileSync, fork } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -27,7 +27,7 @@ if (!counts.length || counts.length > 8 || counts.some(value => value !== 'near'
   || !Number.isSafeInteger(trials) || trials < 1 || trials > 10) throw new Error('Use 1–8 counts (1–9998 or near) and 1–10 trials');
 const output = resolve(root, values.out ?? `docs/evals/protected-role-costs-${new Date().toISOString().replaceAll(':', '-')}.json`);
 const f = await witnessFixture(), results: object[] = [];
-const sources = ['packages/eval/src/protected-role-costs.ts', 'packages/eval/src/fixtures/protected-role-cost-worker.ts', 'packages/relay/src/protected-admission-roles.ts', 'packages/relay/src/admission-role-history.ts', 'packages/relay/src/admission-role-verification.ts', 'packages/relay/src/protected-admission-history.ts', 'packages/relay/src/admission-history-records.ts'];
+const sources = ['packages/core/src/crypto.ts', 'packages/eval/src/protected-role-costs.ts', 'packages/eval/src/fixtures/protected-role-cost-worker.ts', 'packages/relay/src/protected-admission-roles.ts', 'packages/relay/src/admission-role-history.ts', 'packages/relay/src/admission-role-verification.ts', 'packages/relay/src/protected-admission-history.ts', 'packages/relay/src/admission-history-records.ts'];
 const report = {
   generatedAt: new Date().toISOString(), sourceBase: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
   sourceSha256: Object.fromEntries(sources.map(path => [path, createHash('sha256').update(readFileSync(resolve(root, path))).digest('hex')])),

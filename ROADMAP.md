@@ -186,6 +186,7 @@ The five-target placement goal remains conditional on enough eligible volunteers
 - [ ] Add challenge-response connection authentication with nonces and replay protection
   - [x] Bind each signed relay-link opening to a fresh nonce issued on that receiving socket; reject a captured opening on a second socket
 - [ ] Verify relay and peer signatures on acknowledgements, matches, inventories, receipts, and forwarded operations
+  - [x] Replace permissive Ed25519 verification with native canonical verification, preserve valid key/message formats, pass 151 pinned adversarial vectors and protocol/recovery regressions, and remeasure cold protected-role startup (`docs/developers/v0.4-native-signature-verification.md`)
   - [x] Profile durable match creation and remove repeated signature checks within individual constructors/store calls while retaining authentication at every public boundary; retain tampering coverage and the unchanged <500 ms evaluation gate in `docs/evals/publication-match-2026-10-01.md`
 - [ ] Apply strict schemas, bounded collections, message-size limits, and request timeouts before processing untrusted input
   - [x] Bound signed reply envelopes to 1 MiB, reject extra envelope fields, and cap personal-client WebSocket replies at the same limit
@@ -325,10 +326,10 @@ The five-target placement goal remains conditional on enough eligible volunteers
       - [x] Pass the focused Linux/macOS/Windows ownership, encrypted-state and reservation CI matrix; run `39063197304` passes all three jobs without packaging applications
     - [x] Bound retained generation ancestry with certified frontiers and reusable funded locations; preserve original genesis and recovery barriers through repeated signed recoveries and retirement, with explicit safe-counter and capacity refusal (`docs/developers/v0.4-history-compaction.md#bounded-ancestry-audit`)
     - [x] Capture intact witness/coordinator state behind same-file fences, replicate decisions before responding, and restore the same keys and permanent denials through owner loss; preserve version-one images and test seven migration SIGKILL boundaries (`docs/developers/v0.4-protected-role-recovery.md`)
-    - [ ] Add reviewed desktop creation/capture controls for new and existing protected roles, and measure near-capacity signing/replication costs
+    - [x] Add reviewed desktop creation/capture controls for new and existing protected roles, and measure near-capacity signing/replication costs
       - [x] Review and capture existing local roles from authenticated desktop maintenance; retain both locations through settings failure, bind source/policy/transport to approval, expose capacity and preserve local decisions on cancellation
       - [x] Generate genuinely new role keys behind encrypted preparation journals, expose only public keys before policy enrollment/capture, and export usable keys only with retained fences and four fresh copies; test seven process-death boundaries
-      - [ ] Measure signing/replication near capacity and address limits exposed by the measurements
+      - [x] Measure signing/replication near capacity and address repeated/cold verification costs; retain separate-process application traffic, CPU/RSS and concurrent refusal evidence without extending deadlines (`docs/developers/v0.4-native-signature-verification.md`)
   - [ ] Resolve authenticated policy freshness and migration beyond the bounded 64-configuration archive; never treat missing records as unused capacity or discard permanent denial evidence
   - [ ] Resolve same-key witness replacement, membership governance/freshness, and history compaction before enabling admission by default; fresh-key cohort rotation does not rescue stranded old tokens or remove finite history limits
 - [ ] Measure protection against a curious relay, colluding relays, Sybil relays, and a network observer

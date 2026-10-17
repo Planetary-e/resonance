@@ -9,6 +9,7 @@
 
 import nacl from 'tweetnacl';
 import naclUtil from 'tweetnacl-util';
+import { createPublicKey, verify as verifyEd25519, type KeyObject } from 'node:crypto';
 const { encodeBase64, decodeBase64, encodeUTF8, decodeUTF8 } = naclUtil;
 
 // --- Base58 encoding (for did:key) ---
@@ -136,9 +137,29 @@ export function sign(message: Uint8Array, secretKey: Uint8Array): Uint8Array {
   return nacl.sign.detached(message, secretKey);
 }
 
-/** Verify an ed25519 signature. */
+const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
+const MAX_VERIFICATION_KEYS = 512;
+// Public keys only. Key by copied bytes, never a caller-owned mutable array.
+// Successful verification admits a key; signatures themselves are never cached here.
+const verificationKeys = new Map<string, KeyObject>();
+
+/** Verify an Ed25519 signature, rejecting malformed and noncanonical signatures. */
 export function verify(message: Uint8Array, signature: Uint8Array, publicKey: Uint8Array): boolean {
-  return nacl.sign.detached.verify(message, signature, publicKey);
+  if (!(message instanceof Uint8Array) || !(signature instanceof Uint8Array) || !(publicKey instanceof Uint8Array)
+    || signature.byteLength !== 64 || publicKey.byteLength !== 32) return false;
+  try {
+    const bytes = Buffer.from(publicKey), id = bytes.toString('hex');
+    const key = verificationKeys.get(id) ?? createPublicKey({
+      key: Buffer.concat([ED25519_SPKI_PREFIX, bytes]), format: 'der', type: 'spki',
+    });
+    if (!verifyEd25519(null, message, key, signature)) return false;
+    verificationKeys.delete(id);
+    verificationKeys.set(id, key);
+    if (verificationKeys.size > MAX_VERIFICATION_KEYS) verificationKeys.delete(verificationKeys.keys().next().value!);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** SHA-512 digest used for deterministic protocol identifiers. */
