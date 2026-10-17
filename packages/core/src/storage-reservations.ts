@@ -260,7 +260,7 @@ export function openStorageReservationAuthority(options: { directory: string; mo
   };
 }
 
-export { withStorageReservationAuthority, reserveManagedStorage, captureStorageReservationOperation } from './storage-reservation-context.js';
+export { withStorageReservationAuthority, reserveManagedStorage, captureStorageReservationOperation, assertNoStorageReservationContext } from './storage-reservation-context.js';
 export type { StorageReservationRequest, StorageReservationLease, StorageReservationAuthority, StorageReservationOutput } from './storage-reservation-context.js';
 
 export type { StorageAdoptionTarget, StorageAdoptionBounds } from './storage-adoption-inventory.js';

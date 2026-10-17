@@ -1,13 +1,14 @@
 /** Install the volunteer relay as a user-level service, independent of the GUI. */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, rmSync, statSync } from 'node:fs';
+import { closeSync, constants, existsSync, fstatSync, lstatSync, openSync, readSync, realpathSync, rmSync, statSync, type Stats } from 'node:fs';
 import { request } from 'node:http';
 import { connect } from 'node:net';
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { assertSecureRelayTransportEndpoint } from '@resonance/core';
+import { assertNoStorageReservationContext } from '@resonance/core/storage-reservations';
 import { reserveOperatorAtomicOutput, writeOperatorTextAtomic } from '@resonance/relay';
 export const RELAY_SERVICE_FILE_MAX_BYTES = 1024 * 1024;
 
@@ -254,27 +255,71 @@ export function relayServiceOutputFiles(options: RelayServiceOptions, platform: 
   if (files.some(file => Buffer.byteLength(file.text) > RELAY_SERVICE_FILE_MAX_BYTES)) throw new Error('Relay service definition exceeds its encoded byte limit');
   return files;
 }
-export function installRelayService(options: RelayServiceOptions): void {
+/** Verify exact bounded bytes and the published inode before starting native
+ * supervision. Desktop control exclusion must span preparation and start. */
+function servicePublication(file: { path: string; text: string }): string {
+  const ordinary = (stat: Stats) => stat.isFile() && !stat.isSymbolicLink() && stat.nlink === 1 && stat.size <= RELAY_SERVICE_FILE_MAX_BYTES;
+  const stamp = (stat: Stats) => `${stat.dev}:${stat.ino}:${stat.size}:${stat.mode}:${stat.mtimeMs}:${stat.ctimeMs}:${stat.nlink}`;
+  const before = lstatSync(file.path), resolved = realpathSync(file.path);
+  if (!ordinary(before)) throw new Error('Prepared relay service definition is not a bounded ordinary file');
+  const fd = openSync(file.path, constants.O_RDONLY | constants.O_NONBLOCK | (process.platform === 'win32' ? 0 : constants.O_NOFOLLOW));
+  const bytes = Buffer.alloc(RELAY_SERVICE_FILE_MAX_BYTES + 1);
+  try {
+    const opened = fstatSync(fd);
+    if (!ordinary(opened) || stamp(opened) !== stamp(before)) throw new Error('Prepared relay service definition changed');
+    let used = 0;
+    while (used < bytes.length) { const count = readSync(fd, bytes, used, bytes.length - used, null); if (!count) break; used += count; }
+    const after = fstatSync(fd), named = lstatSync(file.path);
+    if (!ordinary(named) || stamp(after) !== stamp(opened) || stamp(named) !== stamp(opened)
+      || realpathSync(file.path) !== resolved || used !== opened.size || !bytes.subarray(0, used).equals(Buffer.from(file.text))) {
+      throw new Error('Prepared relay service definition changed');
+    }
+    return `${resolved}:${stamp(opened)}`;
+  } finally { bytes.fill(0); closeSync(fd); }
+}
+
+/** Publish definitions while holding the storage authority, then release it
+ * before calling start(). The returned handle performs no application file writes.
+ * Native commands do not establish runtime/admission readiness. */
+export function prepareRelayServiceInstallation(options: RelayServiceOptions): { start(): void } {
   validateRelayServicePaths(options);
-  const files = relayServiceOutputFiles(options);
+  const host = process.platform, domain = `gui/${process.getuid?.()}`, files = relayServiceOutputFiles(options);
   // A later file cannot exhaust the shared budget after an earlier one was written.
   const reserved = files.map(file => ({ ...file, reservation: reserveOperatorAtomicOutput(file.path, RELAY_SERVICE_FILE_MAX_BYTES) }));
   for (const file of reserved) writeOperatorTextAtomic(file.path, file.text, RELAY_SERVICE_FILE_MAX_BYTES, file.reservation);
-  if (process.platform === 'darwin') {
-    const path = files[0].path, domain = `gui/${process.getuid?.()}`;
-    try { run('launchctl', ['bootout', domain, path]); } catch { /* absent */ }
-    run('launchctl', ['bootstrap', domain, path]);
-    run('launchctl', ['kickstart', '-k', `${domain}/${LABEL}`]);
-  } else if (process.platform === 'linux') {
-    run('systemctl', ['--user', 'daemon-reload']);
-    run('systemctl', ['--user', 'enable', '--now', 'resonance-relay.service']);
-    run('systemctl', ['--user', 'restart', 'resonance-relay.service']);
-  } else if (process.platform === 'win32') {
-    const path = files.find(file => file.path.endsWith('.xml'))!.path;
-    try { run('schtasks.exe', ['/End', '/TN', 'ResonanceRelay']); } catch { /* absent */ }
-    run('schtasks.exe', ['/Create', '/F', '/TN', 'ResonanceRelay', '/XML', path]);
-    run('schtasks.exe', ['/Run', '/TN', 'ResonanceRelay']);
-  }
+  const published = files.map(file => ({ ...file, stamp: servicePublication(file) }));
+  let started = false;
+  return { start() {
+    assertNoStorageReservationContext('Release the storage authority and leave its scope before starting the relay service');
+    if (started) throw new Error('Relay service start was already attempted; prepare and review the current configuration again');
+    if (process.platform !== host) throw new Error('Prepared relay service platform changed');
+    for (const file of published) if (servicePublication(file) !== file.stamp) throw new Error('Prepared relay service definition changed');
+    // Partial native registration can have effects even if its command throws.
+    // Never retry a stale handle after a start attempt.
+    started = true;
+    if (host === 'darwin') {
+      const path = files[0].path;
+      try { run('launchctl', ['bootout', domain, path]); } catch { /* absent */ }
+      run('launchctl', ['bootstrap', domain, path]);
+      run('launchctl', ['kickstart', '-k', `${domain}/${LABEL}`]);
+    } else if (host === 'linux') {
+      run('systemctl', ['--user', 'daemon-reload']);
+      run('systemctl', ['--user', 'enable', '--now', 'resonance-relay.service']);
+      run('systemctl', ['--user', 'restart', 'resonance-relay.service']);
+    } else if (host === 'win32') {
+      const path = files.find(file => file.path.endsWith('.xml'))!.path;
+      try { run('schtasks.exe', ['/End', '/TN', 'ResonanceRelay']); } catch { /* absent */ }
+      run('schtasks.exe', ['/Create', '/F', '/TN', 'ResonanceRelay', '/XML', path]);
+      run('schtasks.exe', ['/Run', '/TN', 'ResonanceRelay']);
+    }
+  } };
+}
+
+/** Convenience for callers without a managed authority. Managed callers must
+ * prepare and start separately, keeping desktop control exclusion throughout. */
+export function installRelayService(options: RelayServiceOptions): void {
+  assertNoStorageReservationContext('Prepare the relay service separately and release its storage authority before starting');
+  prepareRelayServiceInstallation(options).start();
 }
 
 export function uninstallRelayService(): void {

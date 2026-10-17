@@ -26,6 +26,6 @@ export function captureStorageReservationOperation() {
 export function reserveManagedStorage(request: StorageReservationRequest): StorageReservationLease | undefined {
   return authorities.getStore()?.reserve(request);
 }
-export function assertNoStorageReservationContext(): void {
-  if (authorities.getStore()) throw new Error('Open the shared storage authority before entering a managed operation');
+export function assertNoStorageReservationContext(message = 'Open the shared storage authority before entering a managed operation'): void {
+  if (authorities.getStore()) throw new Error(message);
 }
