@@ -2,6 +2,7 @@
 import { sign, type SigningKeyPair } from './crypto.js';
 import { verifyHistorySignature } from './history-signature.js';
 import { copyAdmissionSigningKey, exactWitnessFields, witnessBytes } from './admission-witness.js';
+import { parseHistoryCompactionAttestation, parseHistoryCompactionCertificate, type HistoryCompactionCertificate } from './history-compaction.js';
 import {
   historyCheckpointContextId, historyCheckpointEnvelopeId, isHistoryDigest, parseHistoryCheckpointEnvelope,
   parseHistoryFreeze, type HistoryCheckpointContext, type HistoryCheckpointEnvelope, type HistoryFreeze,
@@ -27,6 +28,8 @@ export interface HistoryWriteCertificate { version: 1; receipts: HistoryExchange
 export interface HistoryRecoveryPreparation {
   version: 1; kind: 'frozen-history'; rootId: string; generation: number; nextGeneration: number;
   receipts: HistoryExchangeResponse[]; envelopes: HistoryCheckpointEnvelope[];
+  /** Requires an independently supplied genesis pin when parsed or selected. */
+  compaction?: HistoryCompactionCertificate;
 }
 export const HISTORY_RECOVERY_MAX_BLOCKS = 10_001;
 export const HISTORY_RECOVERY_MAX_BYTES = 64 * 1024 * 1024;
@@ -164,24 +167,32 @@ export function parseHistoryWriteCertificate(value: unknown, envelope: HistoryCh
 }
 
 /** Validate a complete owner-signed chain and all four frozen head anchors, including shorter prefixes. */
-export function parseHistoryRecoveryPreparation(value: unknown, context: HistoryCheckpointContext): HistoryRecoveryPreparation {
-  if (!exactWitnessFields(value, ['version', 'kind', 'rootId', 'generation', 'nextGeneration', 'receipts', 'envelopes'])
+export function parseHistoryRecoveryPreparation(value: unknown, context: HistoryCheckpointContext, genesisId?: string): HistoryRecoveryPreparation {
+  const compacted = !!value && typeof value === 'object' && Object.hasOwn(value, 'compaction');
+  if (!exactWitnessFields(value, ['version', 'kind', 'rootId', 'generation', 'nextGeneration', 'receipts', 'envelopes', ...(compacted ? ['compaction'] : [])])
     || value.version !== 1 || value.kind !== 'frozen-history' || !isHistoryDigest(value.rootId)
     || !integer(value.generation) || !integer(value.nextGeneration) || value.nextGeneration <= value.generation
     || !Array.isArray(value.receipts) || value.receipts.length < 4 || value.receipts.length > 5
     || !Array.isArray(value.envelopes) || !value.envelopes.length || value.envelopes.length > HISTORY_RECOVERY_MAX_BLOCKS) {
     throw new Error('Invalid frozen history preparation');
   }
+  const compaction = compacted ? parseHistoryCompactionAttestation(value.compaction, context, genesisId!) : undefined;
+  if (compaction && (compaction.proposal.rootId !== value.rootId || compaction.proposal.generation !== value.generation)) {
+    throw new Error('Compacted recovery proof belongs to another generation');
+  }
+  const start = compaction?.proposal.sequence ?? 0;
   let bytes = 0;
   const ids: string[] = [];
-  const envelopes = value.envelopes.map((raw, sequence) => {
+  const envelopes = value.envelopes.map((raw, offset) => {
+    const sequence = start + offset;
     bytes += Buffer.byteLength(JSON.stringify(raw));
     if (bytes > HISTORY_RECOVERY_MAX_BYTES) throw new Error('History recovery byte capacity exceeded');
     const block = parseHistoryCheckpointEnvelope(raw, context), id = historyCheckpointEnvelopeId(block);
-    if (block.generation !== value.generation || block.sequence !== sequence
-      || block.previous !== (sequence ? ids[sequence - 1] : null) || (!sequence && id !== value.rootId)) {
+    if (block.generation !== value.generation || block.sequence !== sequence || sequence >= HISTORY_RECOVERY_MAX_BLOCKS
+      || (offset ? block.previous !== ids[offset - 1] : !compaction && (block.previous !== null || id !== value.rootId))) {
       throw new Error('Incomplete or conflicting recovery chain');
     }
+    if (!offset && compaction) parseHistoryCompactionCertificate(compaction, context, genesisId!, block);
     ids.push(id); return block;
   });
   const receipts = value.receipts.map(raw => {
@@ -189,14 +200,14 @@ export function parseHistoryRecoveryPreparation(value: unknown, context: History
     if (request.action !== 'freeze' || request.rootId !== value.rootId || request.generation !== value.generation
       || request.sequence !== value.nextGeneration) throw new Error('Recovery receipt binds another barrier');
     const receipt = parseHistoryExchangeResponse(raw, request, context);
-    if (ids[receipt.head.sequence] !== receipt.head.envelopeId) throw new Error('Frozen heads have conflicting ancestry');
+    if (receipt.head.sequence >= start && ids[receipt.head.sequence - start] !== receipt.head.envelopeId) throw new Error('Frozen heads have conflicting ancestry');
     return receipt;
   });
   if (new Set(receipts.map(r => r.request.replica)).size !== receipts.length
     || new Set(receipts.map(r => JSON.stringify([r.request.challenge, r.request.issuedAt, r.request.expiresAt]))).size !== 1
-    || Math.max(...receipts.map(r => r.head.sequence)) !== envelopes.length - 1) {
+    || Math.max(...receipts.map(r => r.head.sequence)) !== start + envelopes.length - 1) {
     throw new Error('Recovery needs distinct same-attempt receipts and their complete newest chain');
   }
   return { version: 1, kind: 'frozen-history', rootId: value.rootId, generation: value.generation,
-    nextGeneration: value.nextGeneration, receipts, envelopes };
+    nextGeneration: value.nextGeneration, receipts, envelopes, ...(compaction ? { compaction } : {}) };
 }

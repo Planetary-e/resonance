@@ -10,6 +10,8 @@ import { createHistoryFreeze, historyCheckpointContextId, historyCheckpointEnvel
 import { createHistoryExchangeRequest, parseHistoryExchangeRequest, parseHistoryExchangeResponse,
   parseHistoryRecoveryPreparation, HISTORY_RECOVERY_MAX_BLOCKS, HISTORY_RECOVERY_MAX_BYTES,
   type HistoryExchangeResponse, type HistoryRecoveryPreparation } from '@resonance/core/history-exchange';
+import { parseHistoryCompactionAttestation, parseHistoryCompactionCertificate,
+  type HistoryCompactionCertificate } from '@resonance/core/history-compaction';
 import { exchangeHistoryCheckpoint, type HistoryCheckpointTransport, type HistoryReplicaEndpoint } from './history-checkpoint-exchange.js';
 
 export const HISTORY_RECOVERY_FILENAME = 'history-recovery.json';
@@ -17,6 +19,7 @@ interface RecoveryAttempt { freeze: HistoryFreeze; issuedAt: number; expiresAt: 
 interface RecoveryState {
   version: 1; contextId: string; rootId: string; generation: number; nextGeneration: number;
   attempt: RecoveryAttempt | null; prepared: HistoryRecoveryPreparation | null;
+  compaction?: { genesisId: string; certificate: HistoryCompactionCertificate };
 }
 
 export function createHistoryCheckpointRecovery(options: {
@@ -25,6 +28,8 @@ export function createHistoryCheckpointRecovery(options: {
   /** Owner-requested barrier only. This number is not an allocated writer generation. */
   nextGeneration: number;
   members: HistoryReplicaEndpoint[]; initialize?: boolean; timeoutMs?: number; transport?: HistoryCheckpointTransport;
+  /** Explicit independently retained genesis and certified prefix. Never inferred from a relay response. */
+  compaction?: { genesisId: string; certificate: unknown };
 }) {
   const context = parseHistoryCheckpointContext(options.context), contextId = historyCheckpointContextId(context);
   const { rootId, generation, nextGeneration } = options;
@@ -42,10 +47,21 @@ export function createHistoryCheckpointRecovery(options: {
   if (new Set(members.map(m => m.publicKey)).size !== 5 || new Set(members.map(m => m.endpoint)).size !== 5) {
     throw new Error('History recovery needs five distinct pinned members and endpoints');
   }
+  let compaction: RecoveryState['compaction'];
+  if (options.compaction !== undefined) {
+    if (!exactWitnessFields(options.compaction, ['genesisId', 'certificate'])) throw new Error('Invalid compacted recovery pins');
+    const certificate = parseHistoryCompactionAttestation(options.compaction.certificate, context, options.compaction.genesisId);
+    if (certificate.proposal.rootId !== rootId || certificate.proposal.generation !== generation) {
+      throw new Error('Compacted recovery proof belongs to another generation');
+    }
+    compaction = { genesisId: options.compaction.genesisId, certificate };
+  }
+  const start = compaction?.certificate.proposal.sequence ?? 0;
   function valid(value: unknown): value is RecoveryState {
-    if (!exactWitnessFields(value, ['version', 'contextId', 'rootId', 'generation', 'nextGeneration', 'attempt', 'prepared'])
+    if (!exactWitnessFields(value, ['version', 'contextId', 'rootId', 'generation', 'nextGeneration', 'attempt', 'prepared', ...(compaction ? ['compaction'] : [])])
       || value.version !== 1 || value.contextId !== contextId || value.rootId !== rootId
-      || value.generation !== generation || value.nextGeneration !== nextGeneration) return false;
+      || value.generation !== generation || value.nextGeneration !== nextGeneration
+      || JSON.stringify(value.compaction) !== JSON.stringify(compaction)) return false;
     try {
       if (value.attempt !== null) {
         if (!exactWitnessFields(value.attempt, ['freeze', 'issuedAt', 'expiresAt'])
@@ -55,8 +71,9 @@ export function createHistoryCheckpointRecovery(options: {
         if (freeze.generation !== generation || freeze.nextGeneration !== nextGeneration) return false;
       }
       if (value.prepared !== null) {
-        const prepared = parseHistoryRecoveryPreparation(value.prepared, context);
-        if (prepared.rootId !== rootId || prepared.generation !== generation || prepared.nextGeneration !== nextGeneration) return false;
+        const prepared = parseHistoryRecoveryPreparation(value.prepared, context, compaction?.genesisId);
+        if (prepared.rootId !== rootId || prepared.generation !== generation || prepared.nextGeneration !== nextGeneration
+          || JSON.stringify(prepared.compaction) !== JSON.stringify(compaction?.certificate)) return false;
       }
       return true;
     } catch { return false; }
@@ -68,7 +85,8 @@ export function createHistoryCheckpointRecovery(options: {
     storage = openEncryptedLocalState<RecoveryState>({ path: join(options.directory, HISTORY_RECOVERY_FILENAME),
       key: options.localKey, domain: 'resonance:history-checkpoint-recovery:v1', maxBytes: 96 * 1024 * 1024,
       mode: options.initialize ? 'create-new' : 'open-existing', validate: valid,
-      initial: { version: 1, contextId, rootId, generation, nextGeneration, attempt: null, prepared: null } });
+      initial: { version: 1, contextId, rootId, generation, nextGeneration, attempt: null, prepared: null,
+        ...(compaction ? { compaction } : {}) } });
   } catch (error) { key.secretKey.fill(0); throw error; }
   let closed = false, active: AbortController | undefined;
   return {
@@ -121,7 +139,7 @@ export function createHistoryCheckpointRecovery(options: {
             if (head.sequence >= HISTORY_RECOVERY_MAX_BLOCKS) throw new Error('History recovery block capacity exceeded');
             const envelopes: HistoryCheckpointEnvelope[] = [], ids: string[] = [];
             let bytes = 0;
-            for (let sequence = 0; sequence <= head.sequence; sequence++) {
+            for (let sequence = start; sequence <= head.sequence; sequence++) {
               const response = await request('read', sequence), block = response.envelope;
               // The payload is immutable after freeze. A higher concurrent barrier supersedes this round.
               if (response.head.sequence !== head.sequence || response.head.envelopeId !== head.envelopeId
@@ -129,12 +147,13 @@ export function createHistoryCheckpointRecovery(options: {
               bytes += Buffer.byteLength(JSON.stringify(block));
               if (bytes > HISTORY_RECOVERY_MAX_BYTES) throw new Error('History recovery byte capacity exceeded');
               const id = historyCheckpointEnvelopeId(block);
-              if (block.previous !== (sequence ? ids[sequence - 1] : null) || (!sequence && id !== rootId)) {
+              if (sequence === start && compaction) parseHistoryCompactionCertificate(compaction.certificate, context, compaction.genesisId, block);
+              else if (block.previous !== (ids.at(-1) ?? null) || (!sequence && id !== rootId)) {
                 throw new Error('Incomplete or conflicting frozen history');
               }
               envelopes.push(block); ids.push(id); live();
             }
-            if (ids.at(-1) !== head.envelopeId) throw new Error('Frozen history head does not match payload');
+            if (head.sequence >= start && ids.at(-1) !== head.envelopeId) throw new Error('Frozen history head does not match payload');
             return { receipt, envelopes, ids };
           }
           members.forEach(member => {
@@ -149,8 +168,10 @@ export function createHistoryCheckpointRecovery(options: {
               if (candidate.ids.length > selectedIds.length) { selected = candidate.envelopes; selectedIds = candidate.ids; }
               if (receipts.length === 4) {
                 if (selectedIds.length < baseline.length) { finish(undefined, new Error('Recovery would regress retained evidence')); return; }
-                finish(parseHistoryRecoveryPreparation({ version: 1, kind: 'frozen-history', rootId, generation,
-                  nextGeneration, receipts, envelopes: selected }, context));
+                try {
+                  finish(parseHistoryRecoveryPreparation({ version: 1, kind: 'frozen-history', rootId, generation,
+                    nextGeneration, receipts, envelopes: selected, ...(compaction ? { compaction: compaction.certificate } : {}) }, context, compaction?.genesisId));
+                } catch (error) { finish(undefined, error instanceof Error ? error : new Error('Invalid frozen history preparation')); }
               }
             }).catch(() => {}).finally(() => {
               if (!settled && receipts.length + --remaining < 4) finish(undefined, new Error('Four complete frozen histories unavailable'));

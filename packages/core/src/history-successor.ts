@@ -53,15 +53,15 @@ export function parseHistorySuccessorProposal(value: unknown, context: HistoryCh
   return proposal;
 }
 export function createHistorySuccessorProposal(preparation: HistoryRecoveryPreparation, context: HistoryCheckpointContext,
-  signingKey: SigningKeyPair): HistorySuccessorProposal {
-  const prepared = parseHistoryRecoveryPreparation(preparation, context);
+  signingKey: SigningKeyPair, genesisId?: string): HistorySuccessorProposal {
+  const prepared = parseHistoryRecoveryPreparation(preparation, context, genesisId);
   if (prepared.receipts.length !== 4) throw new Error('Successor requires exactly four selected freeze receipts');
   const key = copyAdmissionSigningKey(signingKey);
   try {
     if (Buffer.from(key.publicKey).toString('base64url') !== context.owner) throw new Error('Wrong successor owner');
     const proposal: HistorySuccessorProposal = { version: 1, kind: 'history-successor', contextId: historyCheckpointContextId(context),
       rootId: prepared.rootId, generation: prepared.generation, nextGeneration: prepared.nextGeneration,
-      sequence: prepared.envelopes.length - 1, envelopeId: historyCheckpointEnvelopeId(prepared.envelopes.at(-1)!),
+      sequence: prepared.envelopes.at(-1)!.sequence, envelopeId: historyCheckpointEnvelopeId(prepared.envelopes.at(-1)!),
       nonce: randomBytes(32).toString('base64url'), freezes: prepared.receipts, signature: '' };
     return parseHistorySuccessorProposal({ ...proposal, signature: Buffer.from(sign(bytes(proposal), key.secretKey)).toString('base64url') }, context);
   } finally { key.secretKey.fill(0); }
