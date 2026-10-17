@@ -163,8 +163,9 @@ it.each(['direct', 'bridge'] as const)('certifies a complete state checkpoint ov
   expect(n.router.usage().bytes).toBe(0); expect(n.routers.every(r => r.usage().bytes === 0)).toBe(true);
 }, 30000);
 
-it('recovers accepted admission spends after actual ancestor deletion and a subsequent lost-owner event over outbound links', async () => {
+it.each(['legacy', 'pool'] as const)('recovers accepted admission spends after actual ancestor deletion and a subsequent lost-owner event over outbound links using %s storage', async layout => {
   const n = await fixture(), genesisId = historyCheckpointEnvelopeId(n.genesis);
+  if (layout === 'pool') for (const service of n.services) service.enablePool(2, service.planPool(2).approvalDigest);
   let ownerDirectory = n.options.directory, history = await openProtectedAdmissionSpendHistory(n.options);
   cleanup.push(() => history.close()); await history.ready();
   const accepted: Awaited<ReturnType<typeof n.row>>[] = [];
@@ -211,6 +212,23 @@ it('recovers accepted admission spends after actual ancestor deletion and a subs
     members: n.options.protection.members, transport: n.router.frontier });
   expect(discovered.certificate?.proposal).toEqual(certificate.proposal);
   await recover(3, discovered.certificate); expect(accepted).toHaveLength(4);
+  if (layout === 'pool') {
+    const next = await n.row('accepted after slot reuse'); accepted.push(next); await history.write(next);
+    await history.checkpoint(history.planCheckpoint().approvalDigest);
+    const proof = await history.certifyCheckpoint(history.planCheckpointCertification().approvalDigest, { transport: n.router.compaction });
+    const retained = await retainHistoryCompactionCertificate({ context: n.context, genesisId, certificate: proof,
+      signingKey: n.owner, members: n.options.protection.members, transport: n.router.compactionControl });
+    const evidence = parseHistoryCompactionRetention({ version: 1, kind: 'history-compaction-retention', certificate: proof, receipts: retained }, n.context, genesisId);
+    await waitFor(() => n.router.usage().operations === 0 && n.routers.every(r => r.usage().operations === 0));
+    let count = 0;
+    for (const service of n.services) {
+      if (service.describe().latest.rootId !== proof.proposal.rootId || !service.retainedCompactionCheckpoint(proof.proposal.rootId)) continue;
+      service.retireGenerations(evidence, service.planGenerationRetirement(evidence).approvalDigest); count++;
+      expect(service.describe()).toMatchObject({ generations: 2, poolSlots: 2 });
+    }
+    expect(count).toBeGreaterThanOrEqual(4);
+    await recover(4, proof); expect(accepted).toHaveLength(5);
+  }
 }, 120000);
 
 it('refuses unauthenticated history frames and an authenticated relay absent from the explicit pins', async () => {

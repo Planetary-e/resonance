@@ -318,6 +318,8 @@ The five-target placement goal remains conditional on enough eligible volunteers
     - [x] Export four authenticated durable certificate-retention acknowledgements, commit an encrypted service frontier before retiring ancestor directories, and preserve original genesis/current barriers through restart, actual CLI maintenance and process-death tests
     - [x] Bind a fixed child destination in provisioning journals, preserve existing formats, refuse occupied/unfunded/missing pool capacity before activation, and resume the same destination through eight process-death boundaries
     - [ ] Replace generation-specific lifetime allocations with reviewed bounded reusable slots; fund interrupted successors without inferring free capacity from missing history
+      - [x] Select a funded fixed pool before genesis activation, durably finish cleanup before reusing a location, preserve accepted genesis work and verify repeated recovery, full-budget refusal and process-death boundaries
+      - [ ] Migrate already activated legacy histories into the fixed pool with a reviewed copy, authoritative cutover and resumable cleanup; preserve pending work and prevent stale-layout fallback
     - [ ] Resolve interrupted local ownership claims that lack a complete PID without guessing that another writer is dead; preserve single-writer exclusion across supported platforms
     - [ ] Bound retained generation ancestry and exercise retirement across repeated recoveries before claiming indefinite compaction (`docs/developers/v0.4-history-compaction.md`)
   - [ ] Resolve authenticated policy freshness and migration beyond the bounded 64-configuration archive; never treat missing records as unused capacity or discard permanent denial evidence

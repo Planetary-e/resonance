@@ -1,5 +1,5 @@
 import { afterEach, expect, it } from 'vitest';
-import { existsSync, linkSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
@@ -16,6 +16,7 @@ import { createHistoryCompactionControlRequest, historyCompactionCertificateId, 
 import { collectHistoryCompactionCertificate, requestHistoryCompactionControl, retainHistoryCompactionCertificate } from '../history-compaction-coordinator.js';
 import { parseHistoryCompactionRetention } from '@resonance/core/history-compaction-retention';
 import { HISTORY_VOLUNTEER_FRONTIER_FILENAME } from '../history-volunteer-frontier.js';
+import { HISTORY_POOL_FILENAME, historyPoolPaths } from '../history-volunteer-pool.js';
 import { openStorageReservationAuthority, withStorageReservationAuthority } from '@resonance/core/storage-reservations';
 import { discoverHistoryCompactionFrontier } from '../history-frontier-discovery.js';
 import { openHistoryVolunteerService } from '../history-volunteer-service.js';
@@ -106,6 +107,149 @@ async function certifiedGeneration(n: Awaited<ReturnType<typeof fixture>>, root:
   const retention = parseHistoryCompactionRetention({ version: 1, kind: 'history-compaction-retention', certificate, receipts }, n.context, genesisId);
   return { blocks: [...blocks, checkpoint], certificate, retention };
 }
+
+it('reuses two funded locations through seven generations without growing lifetime reservations or losing accepted history', async () => {
+  const n = await fixture(3, true), service = n.services[0], stale = service.planPool(2);
+  const first = await n.append(n.root);
+  expect(() => service.enablePool(2, stale.approvalDigest)).toThrow('review');
+  for (const current of n.services) current.enablePool(2, current.planPool(2).approvalDigest);
+  const authority = n.authority!, funded = authority.status().reservedBytes;
+  authority.applyLimit(funded, authority.reviewLimit(funded).approvalDigest);
+  const budget = authority.status();
+  let root: HistoryCheckpointEnvelope = n.root;
+  // Genesis has already accepted its first delta; do not recreate that owner.
+  const firstChild = await n.decide(first); await n.provision(firstChild); root = firstChild;
+  const genesis = n.services.map((_, i) => readFileSync(join(n.options(i).directory, 'genesis', 'history-manifest.json')));
+  for (let generation = 1; generation <= 7; generation++) {
+    const current = await certifiedGeneration(n, root);
+    let chosen: HistoryContinuationRoot | undefined;
+    if (generation === 2) {
+      chosen = await n.decide(current.blocks);
+      await expect(n.provision(chosen)).rejects.toThrow(); // Preserve the agreed successor when every location is occupied.
+      expect(n.services.every(s => s.describe().latest.generation === 2)).toBe(true);
+    }
+    for (let i = 0; i < 5; i++) {
+      const previous = n.services[i].describe().latest, plan = n.services[i].planGenerationRetirement(current.retention);
+      n.services[i].retireGenerations(current.retention, plan.approvalDigest);
+      expect(n.reopen(i).describe()).toMatchObject({ generations: 2, maximumGenerations: 3, poolSlots: 2, latest: previous });
+      expect(n.services[i].retainedCompactionCheckpoint(historyCheckpointEnvelopeId(root))).toEqual(current.certificate);
+      expect(readFileSync(join(n.options(i).directory, 'genesis', 'history-manifest.json'))).toEqual(genesis[i]);
+      expect(readdirSync(n.options(i).directory).some(name => name.startsWith('successors-'))).toBe(false);
+    }
+    expect(authority.status()).toEqual(budget);
+    if (generation < 7) { root = chosen ?? await n.decide(current.blocks); await n.provision(root as HistoryContinuationRoot); }
+  }
+  expect((await discoverHistoryCompactionFrontier({ context: n.context, genesisId: historyCheckpointEnvelopeId(n.root),
+    signingKey: n.owner.signingKey, members: n.members })).certificate?.proposal.generation).toBe(7);
+}, 120000);
+
+it('does not infer reusable capacity from missing slots, unexpected occupants, altered limits or a lost pool selection', async () => {
+  const n = await fixture(3), base = n.options(0).directory, service = n.services[0];
+  expect(() => service.planPool(3)).toThrow('bounded slot count');
+  service.enablePool(2, service.planPool(2).approvalDigest); service.close();
+  const slot = historyPoolPaths(base, 2, 2).base, unknown = join(slot, 'keep.txt');
+  writeFileSync(unknown, 'preserve'); expect(() => n.reopen(0)).toThrow('Unregistered history pool occupant');
+  expect(readFileSync(unknown, 'utf8')).toBe('preserve'); rmSync(unknown);
+  rmSync(slot, { recursive: true }); expect(() => n.reopen(0)).toThrow('slot is missing');
+  symlinkSync(historyPoolPaths(base, 2, 1).base, slot); expect(() => n.reopen(0)).toThrow('ordinary directories'); rmSync(slot); mkdirSync(slot);
+  const journal = join(base, HISTORY_POOL_FILENAME), saved = readFileSync(journal);
+  expect(() => openHistoryVolunteerService({ ...n.options(0), maxBlocks: 20 })).toThrow();
+  writeFileSync(journal, '{}'); expect(() => n.reopen(0)).toThrow(); expect(readFileSync(journal, 'utf8')).toBe('{}');
+  rmSync(journal); expect(() => n.reopen(0)).toThrow('Unregistered volunteer history');
+  // A lost marker has not authorized any cleanup, including the new empty legacy journal.
+  rmSync(join(base, `successors-${historyCheckpointEnvelopeId(n.root).slice(7)}`), { recursive: true });
+  const external = join(n.directory, 'linked-pool.json'); writeFileSync(external, saved); linkSync(external, journal);
+  expect(() => n.reopen(0)).toThrow('ordinary file'); expect(readFileSync(external)).toEqual(saved); rmSync(journal);
+  writeFileSync(journal, saved); expect(n.reopen(0).describe()).toMatchObject({ poolSlots: 2, latest: { generation: 0 } });
+});
+
+it('funds every fixed slot before publishing the pool selection and can retry partial reservations without additional allocation', async () => {
+  const n = await fixture(3, true), authority = n.authority!, used = authority.status().reservedBytes;
+  authority.applyLimit(used, authority.reviewLimit(used).approvalDigest);
+  const service = n.services[0], plan = service.planPool(2), before = service.describe();
+  expect(() => service.enablePool(2, plan.approvalDigest)).toThrow('exhausted');
+  expect(existsSync(join(n.options(0).directory, HISTORY_POOL_FILENAME))).toBe(false); expect(service.describe()).toEqual(before);
+  authority.applyLimit(used + 1024 * 1024, authority.reviewLimit(used + 1024 * 1024).approvalDigest);
+  expect(() => service.enablePool(2, plan.approvalDigest)).toThrow('exhausted');
+  expect(authority.status().reservedBytes).toBeGreaterThan(used);
+  expect(existsSync(join(n.options(0).directory, HISTORY_POOL_FILENAME))).toBe(false); expect(service.describe()).toEqual(before);
+  authority.applyLimit(1024 * 1024 * 1024, authority.reviewLimit(1024 * 1024 * 1024).approvalDigest);
+  service.enablePool(2, plan.approvalDigest); const funded = authority.status();
+  expect(n.reopen(0).describe()).toMatchObject({ poolSlots: 2 }); expect(authority.status()).toEqual(funded);
+});
+
+it.each([
+  ['enable', 'before-pool-commit'], ['enable', 'after-pool-commit'], ['enable', 'after-slot-directory'],
+  ['enable', 'after-unlink'], ['enable', 'before-cleanup-completion'], ['enable', 'after-cleanup-completion'],
+  ['retire', 'before-pool-commit'], ['retire', 'after-pool-commit'], ['retire', 'before-unlink'], ['retire', 'after-unlink'],
+  ['retire', 'after-directory'], ['retire', 'before-cleanup-completion'], ['retire', 'after-cleanup-completion'], ['retire', 'durable'],
+])('resumes fixed-pool %s after actual SIGKILL at %s before accepting a new slot occupant', async (action, boundary) => {
+  const n = await fixture(3); let root: HistoryCheckpointEnvelope = n.root;
+  if (action === 'retire') {
+    for (const service of n.services) service.enablePool(2, service.planPool(2).approvalDigest);
+    for (let generation = 0; generation < 2; generation++) {
+      const blocks = await n.append(root); root = await n.decide(blocks); await n.provision(root as HistoryContinuationRoot);
+    }
+  }
+  const current = await certifiedGeneration(n, root), before = n.services[0].describe().latest;
+  const genesisPath = join(n.options(0).directory, 'genesis', 'history-manifest.json'), genesis = readFileSync(genesisPath);
+  n.services[0].close();
+  const child = fork(new URL('./fixtures/history-pool-crash.ts', import.meta.url), [],
+    { execArgv: ['--import', 'tsx'], stdio: ['ignore', 'ignore', 'inherit', 'ipc'] });
+  const exited = once(child, 'exit'), messages: unknown[] = []; child.on('message', value => messages.push(value));
+  cleanup.push(async () => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); await exited; });
+  const { signingKey, localKey, ...options } = n.options(0);
+  child.send({ options, localKey: localKey.toString('hex'), member: { publicKey: Buffer.from(signingKey.publicKey).toString('hex'),
+    secretKey: Buffer.from(signingKey.secretKey).toString('hex') }, ...(action === 'retire' ? { retention: current.retention } : {}), boundary });
+  await exited; expect(messages).toEqual(['ready']); expect(child.signalCode).toBe('SIGKILL');
+  if (action === 'retire' && boundary === 'after-pool-commit') {
+    const stale = historyPoolPaths(options.directory, 2, 1).history, selected = historyPoolPaths(options.directory, 2, 2).history;
+    const checkpoint = join(selected, `${current.certificate.proposal.envelopeId.slice(7)}.block`), saved = readFileSync(checkpoint);
+    const oldFiles = readdirSync(stale); writeFileSync(checkpoint, '{}');
+    expect(() => n.reopen(0)).toThrow(); expect(readdirSync(stale)).toEqual(oldFiles); writeFileSync(checkpoint, saved);
+    const unknown = join(stale, 'preserve.txt'); writeFileSync(unknown, 'preserve');
+    expect(() => n.reopen(0)).toThrow('Unexpected retired pool'); expect(readFileSync(unknown, 'utf8')).toBe('preserve');
+    expect(readdirSync(stale)).toContain(oldFiles[0]); rmSync(unknown);
+  }
+  let service = n.reopen(0);
+  expect(service.describe().latest).toEqual(before); expect(readFileSync(genesisPath)).toEqual(genesis);
+  if (boundary === 'before-pool-commit') {
+    if (action === 'retire') service.retireGenerations(current.retention, service.planGenerationRetirement(current.retention).approvalDigest);
+    else service.enablePool(2, service.planPool(2).approvalDigest);
+    service = n.reopen(0);
+  }
+  expect(service.describe()).toMatchObject({ poolSlots: 2, generations: action === 'retire' ? 2 : 1 });
+  for (let i = 1; i < 5; i++) {
+    if (action === 'retire') n.services[i].retireGenerations(current.retention, n.services[i].planGenerationRetirement(current.retention).approvalDigest);
+    else n.services[i].enablePool(2, n.services[i].planPool(2).approvalDigest);
+  }
+  // Reuse the just-cleared physical location, accept a delta and checkpoint,
+  // then reopen twice. The old cleanup intent must never delete its new occupant.
+  const next = await n.decide(current.blocks); await n.provision(next);
+  const accepted = await certifiedGeneration(n, next), head = n.services[0].describe().latest;
+  for (let i = 0; i < 2; i++) {
+    expect(n.reopen(0).describe().latest).toEqual(head);
+    expect(n.services[0].retainedCompactionCheckpoint(historyCheckpointEnvelopeId(next))).toEqual(accepted.certificate);
+  }
+}, 60000);
+
+it('reviews and enables a fixed pool through the actual CLI with existing accepted genesis data', async () => {
+  const n = await fixture(); await n.append(n.root);
+  const enrollment = join(n.directory, 'enrollment.json'), member = join(n.directory, 'member.json'), key = join(n.directory, 'member.hex');
+  writeFileSync(enrollment, JSON.stringify({ version: 1, kind: 'admission-history-enrollment', context: n.context, root: n.root }));
+  writeFileSync(member, JSON.stringify({ publicKey: Buffer.from(n.memberKeys[0].publicKey).toString('base64url'), secretKey: Buffer.from(n.memberKeys[0].secretKey).toString('base64url') }), { mode: 0o600 });
+  writeFileSync(key, n.localKey.toString('hex'), { mode: 0o600 }); const before = n.services[0].describe().latest; n.services[0].close();
+  const script = fileURLToPath(new URL('../../../../scripts/admission-history.ts', import.meta.url)), args = [enrollment, member, key, n.options(0).directory, '2'];
+  const command = (...input: string[]) => new Promise<{ code: number | string; stdout: string; stderr: string }>(resolve => {
+    execFile(process.execPath, ['--import', 'tsx', script, ...input], { timeout: 30000 }, (error, stdout, stderr) => resolve({ code: error?.code ?? 0, stdout, stderr }));
+  });
+  const planned = await command('replica-pool-plan', ...args); expect(planned.code).toBe(0); expect(planned.stderr).toBe('');
+  const review = JSON.parse(planned.stdout); expect(review).toMatchObject({ slots: 2, maximumGenerations: 3, readiness: 'unverified' });
+  expect((await command('replica-pool-enable', '--approve', 'stale', ...args)).code).not.toBe(0);
+  const applied = await command('replica-pool-enable', '--approve', review.approvalDigest, ...args);
+  expect(applied.stderr).toBe(''); expect(applied.code).toBe(0); expect(JSON.parse(applied.stdout)).toMatchObject({ result: 'history-pool-enabled', readiness: 'unverified' });
+  expect(n.reopen(0).describe()).toMatchObject({ poolSlots: 2, latest: before });
+}, 30000);
 
 it('retires ancestors through five actual generations within a three-generation limit, retaining genesis and all current barriers', async () => {
   const n = await fixture(3), genesisId = historyCheckpointEnvelopeId(n.root);

@@ -14,7 +14,10 @@ import { parseHistoryFrontierRequest, createHistoryFrontierResponse } from '@res
 import { parseHistoryCompactionRetention } from '@resonance/core/history-compaction-retention';
 import { openHistoryVolunteerFrontier, isHistoryVolunteerFrontierFile, inspectHistoryRetiredGenerations,
   cleanHistoryRetiredGenerations, type HistoryVolunteerFrontier } from './history-volunteer-frontier.js';
-import { historyDigest, historyCheckpointEnvelopeId, isHistoryDigest, parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
+import { HISTORY_POOL_FILENAME, HISTORY_POOL_DIRECTORY, historyPoolPaths, historyPoolSlot, isHistoryPoolFile,
+  openHistoryVolunteerPool, ensureHistoryPoolDirectories, reserveHistoryPool, inspectHistoryPoolRetirement,
+  cleanHistoryPoolRetirement, type HistoryVolunteerPoolState } from './history-volunteer-pool.js';
+import { historyDigest, historyCheckpointContextId, historyCheckpointEnvelopeId, isHistoryDigest, parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { HISTORY_MANIFEST_FILENAME, openHistoryCheckpointStore } from './history-checkpoint-store.js';
 import { createHistoryCheckpointReplica } from './history-checkpoint-exchange.js';
 import { createHistoryAgreementReplica } from './history-checkpoint-agreement.js';
@@ -41,10 +44,13 @@ export function openHistoryVolunteerService(options: {
     checkpoint: ReturnType<typeof createHistoryCheckpointReplica>; agreement: ReturnType<typeof createHistoryAgreementReplica> };
   const slots = new Map<string, Slot>(); let genesis: Store | undefined, anchored: Store | undefined, closed = false, failed = false;
   let frontier: ReturnType<typeof openHistoryVolunteerFrontier> | undefined;
+  let pool: ReturnType<typeof openHistoryVolunteerPool> | undefined;
   const slotName = (rootId: string) => `successors-${rootId.slice(7)}`;
   const shared = { context, signingKey, localKey, now: options.now, maxBytes, maxBlocks,
     acceptNew: options.acceptNew };
   function live() { if (closed || failed) throw new Error('History volunteer service is closed or needs reopening'); }
+  function generationLimit() { return pool ? pool.read().slots + 1 : maxGenerations; }
+  function provisionPath(rootId: string, generation: number) { return pool ? historyPoolPaths(directory, pool.read().slots, generation).provision : join(directory, slotName(rootId)); }
   function retainedStores() { return [...(genesis && !slots.has(genesisId) ? [genesis] : []), ...[...slots.values()].map(s => s.store)]; }
   function closeStores() {
     for (const slot of [...slots.values()].reverse()) { slot.checkpoint.close(); slot.agreement.close(); slot.provisioner.close(); }
@@ -52,19 +58,20 @@ export function openHistoryVolunteerService(options: {
   }
   function close() {
     if (closed) return; closed = true;
-    closeStores(); frontier?.close(); signingKey.secretKey.fill(0); localKey.fill(0);
+    closeStores(); pool?.close(); frontier?.close(); signingKey.secretKey.fill(0); localKey.fill(0);
   }
   function add(store: Store) {
     const retained = retainedStores();
-    if (!retained.includes(store) && retained.length >= maxGenerations) throw new Error('History volunteer generation capacity exceeded');
-    const head = store.describe(), path = join(directory, slotName(head.rootId));
+    if (!retained.includes(store) && retained.length >= generationLimit()) throw new Error('History volunteer generation capacity exceeded');
+    const head = store.describe(), path = provisionPath(head.rootId, head.generation);
     const absent = !existsSync(join(path, HISTORY_PROVISION_FILENAME));
     // Activation is durable before any child can exist or accept a write. A missing slot after
     // activation is lost history, not a fresh enrollment. Never infer an empty child in that case.
     if (absent && store.activatedContinuation()) throw new Error('Activated history is missing its successor journal');
     let provisioner: Slot['provisioner'] | undefined, checkpoint: Slot['checkpoint'] | undefined, agreement: Slot['agreement'] | undefined;
     try {
-      provisioner = openHistoryGenerationProvisioner({ ...shared, directory: path, parent: store, initialize: absent, resumePristine: absent });
+      provisioner = openHistoryGenerationProvisioner({ ...shared, directory: path, parent: store, initialize: absent, resumePristine: absent,
+        ...(pool ? { childDirectory: historyPoolPaths(directory, pool.read().slots, head.generation + 1).history } : {}) });
       checkpoint = createHistoryCheckpointReplica({ ...shared, store }); agreement = createHistoryAgreementReplica({ ...shared, store });
       slots.set(head.rootId, { store, provisioner, checkpoint, agreement });
     } catch (error) { checkpoint?.close(); agreement?.close(); provisioner?.close(); throw error; }
@@ -77,9 +84,22 @@ export function openHistoryVolunteerService(options: {
         if (slots.has(child.describe().rootId)) throw new Error('History volunteer ancestry repeats a root');
         add(child); slot = [...slots.values()].at(-1)!;
       }
-      const state = frontier?.read();
-      const known = new Set(['genesis', ...[...slots.keys()].map(slotName), ...(state ? [state.selectedPath.split('/')[0], ...state.retiredSlots] : [])]);
-      if (readdirSync(directory).some(name => !known.has(name) && !isHistoryVolunteerFrontierFile(name))) throw new Error('Unregistered volunteer history contents require inspection');
+      const state = frontier?.read(), pooled = pool?.read();
+      const known = new Set(pooled ? ['genesis', HISTORY_POOL_DIRECTORY, ...pooled.legacySlots]
+        : ['genesis', ...[...slots.keys()].map(slotName), ...(state ? [state.selectedPath.split('/')[0], ...state.retiredSlots] : [])]);
+      if (readdirSync(directory).some(name => !known.has(name) && !isHistoryVolunteerFrontierFile(name) && !isHistoryPoolFile(name))) throw new Error('Unregistered volunteer history contents require inspection');
+      if (pooled) {
+        const occupied = new Set(pooled.retiredGenerations.map(g => historyPoolSlot(g, pooled.slots)));
+        for (const slot of slots.values()) {
+          const generation = slot.store.describe().generation, pending = slot.provisioner.read().root?.generation;
+          if (generation > 0) occupied.add(historyPoolSlot(generation, pooled.slots));
+          if (pending !== undefined) occupied.add(historyPoolSlot(pending, pooled.slots));
+        }
+        for (let index = 0; index < pooled.slots; index++) {
+          const contents = readdirSync(historyPoolPaths(directory, pooled.slots, index + 1).base);
+          if (contents.some(name => !['history', 'successor'].includes(name)) || !occupied.has(index) && contents.length) throw new Error('Unregistered history pool occupant requires inspection');
+        }
+      }
     } catch (error) { failed = true; throw error; }
   }
   function select(rootId: unknown) {
@@ -91,24 +111,27 @@ export function openHistoryVolunteerService(options: {
       && 'rootId' in raw.request ? raw.request.rootId : undefined;
   }
   function reviewDigest() {
-    live(); const state = frontier?.read();
+    live(); const state = frontier?.read(), pooled = pool?.read();
     const entries = [...slots.values()].map(slot => [slot.store.reviewDigest(), slot.provisioner.read()]);
     // Preserve existing approval digests until a frontier has actually been selected.
-    return historyDigest(JSON.stringify(state ? [state, genesis!.reviewDigest(), entries] : entries));
+    return historyDigest(JSON.stringify(pooled ? [pooled, genesis!.reviewDigest(), entries] : state ? [state, genesis!.reviewDigest(), entries] : entries));
   }
   function openStores(initialize?: HistoryCheckpointEnvelope) {
     const genesisPath = join(directory, 'genesis');
     if (existsSync(genesisPath) && !lstatSync(genesisPath).isDirectory()) throw new Error('Volunteer genesis must be a real directory');
     genesis = openHistoryCheckpointStore({ ...shared, directory: genesisPath, replica, generation: 0, rootId: genesisId, initialize });
-    const state = frontier!.read();
-    if (!state) add(genesis);
+    const state = frontier!.read(), pooled = pool?.read();
+    if (pooled) ensureHistoryPoolDirectories(directory, pooled);
+    const selected = pooled?.frontier ?? state?.retention;
+    if (!selected) add(genesis);
     else {
-      const certificate = state.retention.certificate, p = certificate.proposal;
-      anchored = openHistoryCheckpointStore({ ...shared, directory: join(directory, ...state.selectedPath.split('/')), replica,
+      const certificate = selected.certificate, p = certificate.proposal;
+      anchored = openHistoryCheckpointStore({ ...shared, directory: pooled ? historyPoolPaths(directory, pooled.slots, p.generation).history
+        : join(directory, ...state!.selectedPath.split('/')), replica,
         rootId: p.rootId, generation: p.generation, retainedFrontier: { genesisId, certificate },
         retainedAncestorBytes: genesis.storageUsage().reservedBytes });
       const root = anchored.envelopeAt(0)!;
-      if (root.kind !== 'continuation' || state.selectedPath.split('/')[0] !== slotName(root.proposal.rootId)) {
+      if (root.kind !== 'continuation' || !pooled && state!.selectedPath.split('/')[0] !== slotName(root.proposal.rootId)) {
         throw new Error('Selected volunteer frontier path differs from its original continuation');
       }
       add(anchored);
@@ -116,7 +139,24 @@ export function openHistoryVolunteerService(options: {
     grow();
     // Root, full selected state, barriers and every subsequent generation have
     // reopened successfully before any previously authorized cleanup resumes.
-    if (state) cleanHistoryRetiredGenerations(directory, state);
+    if (pooled && pooled.phase !== 'ready') {
+      cleanHistoryPoolRetirement(directory, pooled); pool!.finishCleanup();
+    } else if (state) cleanHistoryRetiredGenerations(directory, state);
+  }
+  function poolPreparation(count: number) {
+    live();
+    if (pool || frontier!.read() || slots.size !== 1 || !slots.has(genesisId) || genesis!.activatedContinuation()
+      || slots.get(genesisId)!.provisioner.read().phase !== 'empty' || !Number.isSafeInteger(count) || count < 2 || count > 64 || count + 1 > maxGenerations) {
+      throw new Error('Initial pool selection requires an unactivated genesis and an explicit bounded slot count');
+    }
+    if (readdirSync(directory).includes(HISTORY_POOL_DIRECTORY)) throw new Error('Unregistered pool contents require inspection');
+    const state: HistoryVolunteerPoolState = { version: 1, contextId: historyCheckpointContextId(context), genesisId, replica, slots: count,
+      maxBytes, maxBlocks, phase: 'migrating', frontier: null, retiredGenerations: [], legacySlots: [slotName(genesisId)] };
+    const inspected = inspectHistoryPoolRetirement(directory, state);
+    const details = { kind: 'history-volunteer-pool-selection' as const, slots: count, maximumGenerations: count + 1,
+      maximumGenerationBytes: maxBytes, maximumGenerationBlocks: maxBlocks, retainedGenesis: genesisId,
+      notice: 'Funds fixed generation slots before selection. Existing reservations remain; cleanup must finish before reuse. No admission readiness is granted.' };
+    return { state, review: { ...details, approvalDigest: historyDigest(`resonance:history-volunteer-pool-selection:v1\n${JSON.stringify([directory, reviewDigest(), state, inspected.digest])}`) } };
   }
   function generationRetirement(value: unknown) {
     live(); const retention = parseHistoryCompactionRetention(value, context, genesisId), p = retention.certificate.proposal;
@@ -125,8 +165,20 @@ export function openHistoryVolunteerService(options: {
       || !proof || proof.sequence !== p.sequence || proof.envelopeId !== p.envelopeId) {
       throw new Error('Generation retirement requires the latest retained generation checkpoint and four proof-retention acknowledgements');
     }
-    const previous = frontier!.read();
-    if (previous && previous.retention.certificate.proposal.generation >= p.generation) throw new Error('Generation frontier must advance');
+    const previous = frontier!.read(), pooled = pool?.read();
+    if ((pooled?.frontier?.certificate.proposal.generation ?? previous?.retention.certificate.proposal.generation ?? 0) >= p.generation) throw new Error('Generation frontier must advance');
+    if (pooled) {
+      if (pooled.phase !== 'ready') throw new Error('History pool cleanup must finish before another retirement');
+      const retiredGenerations = [...slots.values()].map(s => s.store.describe().generation).filter(g => g > 0 && g < p.generation).sort((a, b) => a - b);
+      const poolState: HistoryVolunteerPoolState = { ...pooled, phase: 'retiring', frontier: retention, retiredGenerations, legacySlots: [] };
+      const inspected = inspectHistoryPoolRetirement(directory, poolState);
+      const review = { kind: 'history-volunteer-generation-retirement' as const, rootId: p.rootId, generation: p.generation,
+        checkpointSequence: p.sequence, checkpointId: p.envelopeId, retainedProofCopies: 4, retiredDirectories: retiredGenerations.length,
+        filesRemoved: inspected.filesRemoved, bytesReclaimed: inspected.bytesReclaimed,
+        approvalDigest: historyDigest(`resonance:history-volunteer-pool-retirement:v1\n${JSON.stringify([directory, reviewDigest(), poolState, inspected.digest])}`),
+        notice: 'Commits a certified frontier, removes redundant occupants and durably completes cleanup before reusing any fixed slot. All lifetime reservations remain.' };
+      return { state: undefined, poolState, review };
+    }
     const root = latest.store.envelopeAt(0)!;
     if (root.kind !== 'continuation') throw new Error('Generation frontier requires its original continuation');
     const parent = select(root.proposal.rootId), provision = parent.provisioner.read();
@@ -141,7 +193,7 @@ export function openHistoryVolunteerService(options: {
       filesRemoved: inspected.filesRemoved, bytesReclaimed: inspected.bytesReclaimed,
       approvalDigest: historyDigest(`resonance:history-volunteer-generation-retirement:v1\n${JSON.stringify([directory, reviewDigest(), state, inspected.digest])}`),
       notice: 'Commits a certified frontier before removing redundant ancestors. Original genesis, selected suffix, barriers and all lifetime storage promises remain.' };
-    return { state, review };
+    return { state, poolState: undefined, review };
   }
   function prefixRetirement(rootId: string) {
     const slot = select(rootId), local = slot.store.planPrefixRetirement();
@@ -180,6 +232,11 @@ export function openHistoryVolunteerService(options: {
     }
     if (!lstatSync(directory).isDirectory()) throw new Error('Volunteer history path must be a real directory');
     frontier = openHistoryVolunteerFrontier({ directory, localKey, context, genesisId, replica });
+    if (readdirSync(directory).includes(HISTORY_POOL_FILENAME)) {
+      if (frontier.read()) throw new Error('Conflicting legacy and pooled history frontiers');
+      pool = openHistoryVolunteerPool({ directory, localKey, context, genesisId, replica, maxBytes, maxBlocks });
+      if (pool.read().slots + 1 > maxGenerations) throw new Error('History pool exceeds configured generation capacity');
+    }
     if (options.initialize && frontier.read()) throw new Error('Cannot initialize a retained volunteer frontier');
     openStores(options.initialize);
   } catch (error) { close(); throw error; }
@@ -221,12 +278,24 @@ export function openHistoryVolunteerService(options: {
       return slot.store.retainCompactionAnchor(certificate, slot.store.reviewDigest());
     }); },
     retainedCompactionCheckpoint(rootId: string) { return select(rootId).store.compactionAnchor(); },
+    planPool(count: number) { return poolPreparation(count).review; },
+    enablePool(count: number, approvedDigest: string) { return run(() => {
+      const { review } = poolPreparation(count);
+      if (approvedDigest !== review.approvalDigest) throw new Error('Volunteer pool selection changed; review again');
+      reserveHistoryPool(directory, count, maxBytes);
+      try {
+        pool = openHistoryVolunteerPool({ directory, localKey, context, genesisId, replica, maxBytes, maxBlocks, initializeSlots: count });
+        closeStores(); openStores();
+      } catch (error) { failed = true; throw error; }
+      return review;
+    }); },
     planGenerationRetirement(value: unknown) { return generationRetirement(value).review; },
     retireGenerations(value: unknown, approvedDigest: string) { return run(() => {
-      const { state, review } = generationRetirement(value);
+      const { state, poolState, review } = generationRetirement(value);
       if (approvedDigest !== review.approvalDigest) throw new Error('Volunteer generations changed; review retirement again');
       try {
-        frontier!.retain(state); // Authoritative commit precedes close, reopen and every unlink.
+        if (poolState) pool!.beginRetirement(poolState.frontier!, poolState.retiredGenerations);
+        else frontier!.retain(state!); // Authoritative commit precedes close, reopen and every unlink.
         closeStores(); openStores();
       } catch (error) { failed = true; throw error; }
       return review;
@@ -254,11 +323,17 @@ export function openHistoryVolunteerService(options: {
       const slot = select(request.root.proposal.rootId), state = slot.provisioner.read();
       if (state.parentGeneration !== request.root.proposal.generation) throw new Error('History provision request belongs to another generation');
       if (state.root && historyContinuationRootId(state.root) !== historyContinuationRootId(request.root)) throw new Error('Another child already occupies this provision slot');
-      if (state.phase !== 'ready' && retainedStores().length >= maxGenerations) throw new Error('History volunteer generation capacity exceeded');
+      if (state.phase !== 'ready' && retainedStores().length >= generationLimit()) throw new Error('History volunteer generation capacity exceeded');
       if (state.phase === 'empty' && options.acceptNew?.() === false) throw new Error('History owner paused new storage');
+      if (pool) {
+        const pooled = pool.read(); if (pooled.phase !== 'ready') throw new Error('History pool cleanup is incomplete');
+        if (state.phase === 'empty' && readdirSync(historyPoolPaths(directory, pooled.slots, request.root.generation).base).length) {
+          throw new Error('History pool destination is occupied; retain its history');
+        }
+      }
       // A child must also be able to retain its next empty slot before activation.
       // Otherwise publication could succeed but leave the volunteer unable to reopen.
-      reserveHistoryProvisionJournal(join(directory, slotName(historyContinuationRootId(request.root))));
+      reserveHistoryProvisionJournal(provisionPath(historyContinuationRootId(request.root), request.root.generation));
       const receipt = slot.provisioner.provision(request);
       grow(); // Route the ready child and open its already funded successor slot before replying.
       return receipt;
@@ -269,12 +344,12 @@ export function openHistoryVolunteerService(options: {
     describe() {
       live(); const entries = [...slots.values()];
       return { generations: retainedStores().length, latest: entries.at(-1)!.store.describe(),
-        provisioning: entries.at(-1)!.provisioner.read().phase, maximumGenerations: maxGenerations };
+        provisioning: entries.at(-1)!.provisioner.read().phase, maximumGenerations: generationLimit(), ...(pool ? { poolSlots: pool.read().slots } : {}) };
     },
     health(): HistoryVolunteerHealth {
       live(); const stores = retainedStores().map(store => store.storageUsage()), current = stores.at(-1)!;
       const sum = (key: 'retainedBlocks' | 'stagedBlocks' | 'retainedCiphertextBytes' | 'manifestReserveBytes' | 'reservedBytes') => stores.reduce((n, value) => n + value[key], 0);
-      return { generations: stores.length, maximumGenerations: maxGenerations,
+      return { generations: stores.length, maximumGenerations: generationLimit(),
         retainedBlocks: sum('retainedBlocks'), stagedBlocks: sum('stagedBlocks'), retainedCiphertextBytes: sum('retainedCiphertextBytes'),
         manifestReserveBytes: sum('manifestReserveBytes'), reservedBytes: sum('reservedBytes'),
         currentGenerationReservedBytes: current.reservedBytes, currentGenerationBlocks: current.retainedBlocks + current.stagedBlocks,
