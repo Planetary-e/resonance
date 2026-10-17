@@ -407,3 +407,13 @@ export function applyRelayHistoryActivation(input: RelayHistoryActivationInput, 
   return api<{ result: string; readiness: string; maintenanceActive: boolean }>('POST', '/api/relay/history/activation/apply', { input, approvalDigest });
 }
 export function cancelRelayHistoryOperation() { return api<{ active: boolean }>('POST', '/api/relay/history/cancel'); }
+
+export type { RelayHistoryRecoveryInput, RelayHistoryRecoveryAction, RelayHistoryRecoveryResult } from './history-recovery.types';
+export function getRelayHistoryRecoveryInput() {
+  return api<{ input: import('./history-recovery.types').RelayHistoryRecoveryInput | null }>('GET', '/api/relay/history/recovery');
+}
+export function runRelayHistoryRecovery(action: import('./history-recovery.types').RelayHistoryRecoveryAction,
+  input: import('./history-recovery.types').RelayHistoryRecoveryInput, approvalDigest?: string) {
+  return api<import('./history-recovery.types').RelayHistoryRecoveryResult>('POST', '/api/relay/history/recovery',
+    { action, input, ...(approvalDigest === undefined ? {} : { approvalDigest }) });
+}

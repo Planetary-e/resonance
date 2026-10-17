@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { getRelayMaintenance, beginRelayMaintenance, finishRelayMaintenance, type RelayMaintenanceStatus } from '../api.client';
 import HistoryActivation from './HistoryActivation';
+import HistoryRecovery from './HistoryRecovery';
 
 export default function HistoryMaintenance({ refreshRelay }: { refreshRelay?: () => Promise<unknown> }) {
   const [state, setState] = useState<RelayMaintenanceStatus | null>(null);
@@ -24,13 +25,17 @@ export default function HistoryMaintenance({ refreshRelay }: { refreshRelay?: ()
     } finally { setBusy(false); }
   }
   return <>
-    <HistoryMaintenanceView state={state} busy={busy || operationBusy} error={error} checked={checked} onChange={change} />
-    {state?.active && <HistoryActivation onBusyChange={setOperationBusy} />}
+    <HistoryMaintenanceView state={state} busy={busy || operationBusy} operationBusy={operationBusy} error={error} checked={checked} onChange={change} />
+    {state?.active && <>
+      <HistoryRecovery onBusyChange={setOperationBusy} blocked={busy || operationBusy} />
+      <HistoryActivation onBusyChange={setOperationBusy} blocked={busy || operationBusy} />
+    </>}
   </>;
 }
 
-export function HistoryMaintenanceView({ state, busy, error, checked, onChange }: {
+export function HistoryMaintenanceView({ state, busy, operationBusy = false, error, checked, onChange }: {
   state: RelayMaintenanceStatus | null; busy: boolean; error: string; checked: boolean; onChange: (begin: boolean) => Promise<void>;
+  operationBusy?: boolean;
 }) {
   return <section className="relay-section" aria-label="Protected history maintenance">
     <h4>Protected history maintenance</h4>
@@ -46,7 +51,7 @@ export function HistoryMaintenanceView({ state, busy, error, checked, onChange }
       <p className="text-sm">Pause the background relay before preparing or recovering its protected history. This pause remains active if the app closes.</p>
       <button className="btn btn-secondary" type="button" disabled={busy || !state} onClick={() => void onChange(true)}>Stop relay for maintenance</button>
     </>}
-    {busy && <p role="status">Checking the background service…</p>}
+    {busy && <p role="status">{operationBusy ? 'History operation in progress; maintenance remains active.' : 'Checking the background service…'}</p>}
     {error && <p role="alert">{error}</p>}
   </section>;
 }

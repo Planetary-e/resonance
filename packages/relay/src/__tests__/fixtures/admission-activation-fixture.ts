@@ -10,8 +10,10 @@ import { createHistoryCheckpointReplica, listenHistoryCheckpointReplica } from '
 import { createConfiguredAdmissionVerifier } from '../../configured-admission-verifier.js';
 import { historyCheckpointFixture } from './history-checkpoint-fixture.js';
 import { witnessFixture } from './admission-witness-fixture.js';
+import { openHistoryVolunteerService } from '../../history-volunteer-service.js';
+import { listenHistoryAgreementReplica } from '../../history-agreement-exchange.js';
 
-export async function admissionActivationFixture() {
+export async function admissionActivationFixture(options: { recovery?: boolean } = {}) {
   const h = historyCheckpointFixture(), issuer = await witnessFixture(), directory = mkdtempSync(join(tmpdir(), 'owner-activation-'));
   const cleanup: Array<() => void | Promise<void>> = [() => rmSync(directory, { recursive: true, force: true })];
   const close = async () => { for (const finish of cleanup.splice(0).reverse()) await finish(); };
@@ -26,17 +28,29 @@ export async function admissionActivationFixture() {
       initialize: true, protection: { ...protection, initializeWriter: true } });
     cleanup.push(() => history.close()); const genesis = history.enrollment().root; history.close();
     let exchanges = 0;
-    const listeners: Awaited<ReturnType<typeof listenHistoryCheckpointReplica>>[] = [];
+    const listeners: Array<{ endpoint: string; close: () => Promise<void> }> = [];
     const roles: ReturnType<typeof createHistoryCheckpointReplica>[] = [];
+    const services: ReturnType<typeof openHistoryVolunteerService>[] = [];
     for (let i = 0; i < 5; i++) {
+      if (options.recovery) {
+        const service = openHistoryVolunteerService({ directory: join(directory, `member-${i}`), context, localKey: h.localKey,
+          signingKey: h.memberKeys[i], genesisId: historyCheckpointEnvelopeId(genesis), initialize: genesis });
+        services.push(service); cleanup.push(() => service.close());
+        const listener = await listenHistoryAgreementReplica({ ...service,
+          checkpoint: value => { exchanges++; return service.checkpoint(value); },
+          exchange: value => { exchanges++; return service.exchange(value); },
+          transfer: value => { exchanges++; return service.transfer(value); },
+          provision: value => { exchanges++; return service.provision(value); } }, { port: 0 });
+        listeners.push({ endpoint: listener.checkpointEndpoint, close: listener.close }); cleanup.push(listener.close);
+        members[i].endpoint = listener.checkpointEndpoint; continue;
+      }
       const store = openHistoryCheckpointStore({ directory: join(directory, `member-${i}`), context, replica: context.members[i],
         localKey: h.localKey, rootId: historyCheckpointEnvelopeId(genesis), generation: 0, initialize: genesis });
       cleanup.push(() => store.close());
       const role = createHistoryCheckpointReplica({ context, store, signingKey: h.memberKeys[i] }); cleanup.push(() => role.close()); roles.push(role);
       const endpoint = await listenHistoryCheckpointReplica({ ...role, exchange: value => { exchanges++; return role.exchange(value); } }, { port: 0 });
-      listeners.push(endpoint); members[i].endpoint = endpoint.endpoint;
+      listeners.push(endpoint); cleanup.push(endpoint.close); members[i].endpoint = endpoint.endpoint;
     }
-    cleanup.push(async () => { for (const listener of listeners) await listener.close(); });
     history = await openProtectedAdmissionSpendHistory({ directory: historyDirectory, authority: issuer.authority, policy, encryptionKey: h.key, protection });
     await history.ready(); history.close();
     const verifierOptions = { directory: historyDirectory, authority: issuer.authority, policy, encryptionKey: h.key, historyProtection: protection, initializeSpendHistory: false };
@@ -54,7 +68,7 @@ export async function admissionActivationFixture() {
       historyDirectory, linksFile: '', operatorTransportFile: '' };
     writeFileSync(input.authorityFile, issuer.authority); writeFileSync(input.storageKeyFile, h.key.toString('hex'), { mode: 0o600 });
     return { ...h, context, issuer, directory, desktopDirectory, runtimeDirectory, historyDirectory, policy, genesis, protection, input,
-      capability, token, binding, request, verifierOptions, listeners, roles, exchanges: () => exchanges, close,
+      capability, token, binding, request, verifierOptions, listeners, roles, services, exchanges: () => exchanges, close,
       activationOptions: { runtimeDirectory, historyDirectory, policy, encryptionKey: h.key, protection, genesis } };
   } catch (error) { await close(); throw error; }
 }

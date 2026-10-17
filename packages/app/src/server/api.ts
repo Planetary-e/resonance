@@ -5,6 +5,7 @@
 import { randomBytes } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { exactWitnessFields } from '@resonance/core/admission-witness';
+import { historyRecoveryActions, type RelayHistoryRecoveryAction } from './history-recovery.js';
 import {
   getSession,
   ModelLoadError,
@@ -24,6 +25,7 @@ import {
   stopRelayMode,
   getRelayStats, getRelayMaintenanceStatus, beginRelayHistoryMaintenance, finishRelayHistoryMaintenance,
   getRelayHistoryActivationInput, planRelayHistoryActivation, applyRelayHistoryActivation, cancelRelayHistoryOperation,
+  getRelayHistoryRecoveryInput, performRelayHistoryRecovery,
   publishItem,
   listSessionItems,
   releaseHeldPublication,
@@ -512,6 +514,29 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
 
   // --- Relay mode ---
 
+  if (url === '/api/relay/history/recovery' && method === 'GET') {
+    if (!requireAuth(req, res)) return true;
+    try { json(res, { input: getRelayHistoryRecoveryInput() }); }
+    catch (err) { error(res, err instanceof Error ? err.message : 'Saved recovery selection unavailable', 409); }
+    return true;
+  }
+  if (url === '/api/relay/history/recovery' && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    const controller = new AbortController(), disconnected = () => { if (!res.writableEnded) controller.abort(); };
+    res.once('close', disconnected);
+    try {
+      const body = await readBody(req);
+      if (!body || typeof body.action !== 'string' || !historyRecoveryActions.includes(body.action as RelayHistoryRecoveryAction)
+        || !exactWitnessFields(body, ['action', 'input', ...(['start', 'restore'].includes(body.action) ? ['approvalDigest'] : [])])) {
+        throw new Error('Supply a supported recovery action and its exact fields');
+      }
+      const result = await performRelayHistoryRecovery(body.action as RelayHistoryRecoveryAction,
+        body.input, body.approvalDigest, controller.signal);
+      if (!res.destroyed) json(res, result);
+    } catch (err) { if (!res.destroyed) error(res, err instanceof Error ? err.message : 'Recovery failed; retain pending work and maintenance', 409); }
+    finally { res.removeListener('close', disconnected); }
+    return true;
+  }
   if (url === '/api/relay/history/activation' && method === 'GET') {
     if (!requireAuth(req, res)) return true;
     try { json(res, { input: getRelayHistoryActivationInput() }); }

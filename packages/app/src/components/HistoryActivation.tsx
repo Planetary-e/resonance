@@ -10,7 +10,7 @@ const labels: Array<[keyof RelayHistoryActivationInput, string, boolean?]> = [
   ['linksFile', 'Relay routing file', true], ['operatorTransportFile', 'Recovery connection file', true],
 ];
 
-export default function HistoryActivation({ onBusyChange }: { onBusyChange: (busy: boolean) => void }) {
+export default function HistoryActivation({ onBusyChange, blocked = false }: { onBusyChange: (busy: boolean) => void; blocked?: boolean }) {
   const [input, setInput] = useState<RelayHistoryActivationInput>(empty), [plan, setPlan] = useState<AdmissionHistoryActivationReview | null>(null);
   const [busy, setBusy] = useState(false), [message, setMessage] = useState(''), [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -44,13 +44,13 @@ export default function HistoryActivation({ onBusyChange }: { onBusyChange: (bus
     <form onSubmit={event => { event.preventDefault(); void run(false); }}>
       {labels.map(([field, label, optional]) => <label key={field} className="form-group" style={{ display: 'block' }}>
         {label}{optional ? ' (optional)' : ''}
-        <input type="text" value={input[field]} required={!optional} disabled={busy || loading} autoComplete="off" spellCheck={false}
+        <input type="text" value={input[field]} required={!optional} disabled={busy || blocked || loading} autoComplete="off" spellCheck={false}
           onChange={event => { setInput({ ...input, [field]: event.target.value }); setPlan(null); setMessage(''); }} style={{ width: '100%' }} />
       </label>)}
       <p className="text-sm">For relays reached through outbound connections, supply both routing and recovery connection files. An empty recovery connection field uses the pinned direct endpoints.</p>
-      <button className="btn btn-secondary" type="submit" disabled={busy || loading}>Review activation</button>
+      <button className="btn btn-secondary" type="submit" disabled={busy || blocked || loading}>Review activation</button>
     </form>
-    {plan && <HistoryActivationReview plan={plan} busy={busy} onApply={() => void run(true)} onCancel={() => setPlan(null)} />}
+    {plan && <HistoryActivationReview plan={plan} busy={busy || blocked} onApply={() => void run(true)} onCancel={() => setPlan(null)} />}
     {busy && <div role="status"><p>Checking owner history…</p><button className="btn btn-secondary" type="button" onClick={() => {
       void cancelRelayHistoryOperation().then(result => { if (result.error) setError(result.error); });
     }}>Cancel operation</button><p className="text-sm">Cancellation keeps maintenance active and retains any completed preparation.</p></div>}
