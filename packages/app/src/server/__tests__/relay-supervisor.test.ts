@@ -90,12 +90,17 @@ describe('desktop relay service definitions', () => {
       expect(mac).toContain('private&lt;&amp;&quot;key');
       expect(mac).toContain('wss://relay.example/one?tag=a&amp;b=2');
       expect(mac).not.toContain('server.mjs');
+      expect(mac).toContain('<key>StandardOutPath</key><string>/dev/null</string>');
+      expect(mac).toContain('<key>StandardErrorPath</key><string>/dev/null</string>');
+      expect(mac).not.toContain('relay-service.log');
+      expect(mac).toContain('RELAY_DIAGNOSTICS_DIRECTORY');
       expect(mac).toContain('RELAY_NEW_WORK_CPU_MS_PER_MINUTE');
       expect(mac).toContain('RELAY_TOTAL_BANDWIDTH_BYTES_PER_HOUR');
       expect(mac).toContain('<key>RELAY_HISTORY_VOLUNTEER_FILE</key><string>/private/owner&apos;s history/volunteer.json</string>');
 
       const linux = linuxServiceUnit(options);
       expect(linux).toContain('Restart=always');
+      expect(linux).toContain('StandardOutput=null\nStandardError=null');
       expect(linux).toContain('ExecStart="/opt/Resonance/node" "/opt/Resonance/relay.mjs"');
       expect(linux).not.toContain('server.mjs');
       expect(linux).toContain("Environment=\"RELAY_HISTORY_VOLUNTEER_FILE=/private/owner's history/volunteer.json\"");
@@ -105,7 +110,7 @@ describe('desktop relay service definitions', () => {
       expect(windows).toContain('<RestartOnFailure><Interval>PT1M</Interval><Count>255</Count>');
       expect(windows).toContain('<LogonTrigger>');
       expect(script).toContain("$env:RELAY_ADMIN_API_KEY='private<&\"key';");
-      expect(script).toContain("& '/opt/Resonance/node' '/opt/Resonance/relay.mjs'");
+      expect(script).toContain("& '/opt/Resonance/node' '/opt/Resonance/relay.mjs' 1>$null 2>$null");
       expect(script).toContain("$env:RELAY_ACTIVE_HOURS='08:00-22:00';");
       expect(script).toContain("$env:RELAY_HISTORY_VOLUNTEER_FILE='/private/owner''s history/volunteer.json';");
       for (const [variable, value] of Object.entries(relayServiceEnvironment(options))) {
@@ -113,7 +118,7 @@ describe('desktop relay service definitions', () => {
         expect(mac).toContain(variable); expect(linux).toContain(variable); expect(script).toContain(variable);
         if (value && !value.includes("'")) for (const output of [mac, linux, script]) expect(output).toContain(value);
       }
-      expect(relayServiceEnvironment(options)).toMatchObject({ RELAY_ADMISSION_POLICY_INITIALIZE: 'false', RELAY_ADMISSION_WITNESS_INITIALIZE: 'false' });
+      expect(relayServiceEnvironment(options)).toMatchObject({ RELAY_ADMISSION_POLICY_INITIALIZE: 'false', RELAY_ADMISSION_WITNESS_INITIALIZE: 'false', RELAY_DIAGNOSTICS_DIRECTORY: join(dataDir, 'relay-diagnostics') });
     } finally {
       rmSync(dataDir, { recursive: true, force: true });
     }

@@ -177,7 +177,7 @@ import {
 } from '@resonance/core';
 import { MatchingEngine, type MatchNotification } from './matching-engine.js';
 import { RateLimiter } from './rate-limiter.js';
-import { log } from './logger.js';
+import { log, diagnosticLogStatus } from './logger.js';
 import { PublicationOperationStore, type PublicationApplyStatus } from './publication-store.js';
 import { MailboxStore } from './mailbox-store.js';
 import { MatchOperationStore } from './match-operation-store.js';
@@ -324,6 +324,7 @@ export interface RelayStats {
   lan_egress_bytes: number;
   process_cpu_milliseconds: number;
   data_file_bytes: number;
+  diagnostic_log: ReturnType<typeof diagnosticLogStatus>;
   publication_commitment_floor_bytes: number;
   mailbox_commitment_floor_bytes: number;
   journal_commitment_floor_bytes: number;
@@ -2352,7 +2353,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   function resourceMetrics(): Pick<RelayStats,
     'transport_ingress_bytes' | 'transport_egress_bytes' | 'process_cpu_milliseconds'
     | 'lan_ingress_bytes' | 'lan_egress_bytes'
-    | 'data_file_bytes' | 'publication_commitment_floor_bytes'
+    | 'data_file_bytes' | 'diagnostic_log' | 'publication_commitment_floor_bytes'
     | 'mailbox_commitment_floor_bytes' | 'journal_commitment_floor_bytes'> {
     const traffic = trafficMeter.snapshot();
     const hasPublicationObligations = replicaStorageLedger.reservedBytes > 0;
@@ -2367,6 +2368,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       lan_egress_bytes: traffic.lanEgressBytes,
       process_cpu_milliseconds: Math.floor(traffic.cpuMicros / 1_000),
       data_file_bytes: relayDataFileBytes(cfg.persistDir),
+      diagnostic_log: diagnosticLogStatus(),
       publication_commitment_floor_bytes: hasPublicationObligations
         ? replicaStorageLedger.reservedBytes + FIRST_SEEN_TOMBSTONE_RESERVE_BYTES : 0,
       mailbox_commitment_floor_bytes: mailboxStore.commitmentFloorBytes,

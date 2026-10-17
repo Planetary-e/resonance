@@ -122,6 +122,7 @@ export function relayServiceEnvironment(options: RelayServiceOptions): Record<st
     RELAY_PORT: String(options.port),
     RELAY_HOST: '127.0.0.1',
     RELAY_DATA_DIR: join(options.dataDir, 'relay-data'),
+    RELAY_DIAGNOSTICS_DIRECTORY: join(options.dataDir, 'relay-diagnostics'),
     RELAY_CONTACTS: options.contacts.join(','),
     // Explicit empty values also prevent inheriting an obsolete role from the service manager.
     ...Object.fromEntries(Object.entries(SERVICE_FILES).map(([key, variable]) => [variable, options[key as ServiceFile] ?? ''])),
@@ -161,7 +162,9 @@ export function macServicePlist(options: RelayServiceOptions): string {
   const args = command(options).map(value => `    <string>${xml(value)}</string>`).join('\n');
   const env = Object.entries(relayServiceEnvironment(options))
     .map(([key, value]) => `    <key>${key}</key><string>${xml(value)}</string>`).join('\n');
-  const logPath = join(options.dataDir, 'relay-service.log');
+  // Structured startup/runtime diagnostics have their own bounded files. Never
+  // append arbitrary process output to an unlimited supervisor-owned file.
+  const logPath = '/dev/null';
   return `<?xml version="1.0" encoding="UTF-8"?>\n`+
     `<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n`+
     `<plist version="1.0"><dict>\n`+
@@ -183,7 +186,7 @@ export function linuxServiceUnit(options: RelayServiceOptions): string {
   const env = Object.entries(relayServiceEnvironment(options))
     .map(([key, value]) => `Environment=${systemdQuote(`${key}=${value}`)}`).join('\n');
   return `[Unit]\nDescription=Resonance volunteer relay\n`+
-    `[Service]\nType=simple\nWorkingDirectory=${systemdQuote(options.workingDirectory)}\n`+
+    `[Service]\nType=simple\nStandardOutput=null\nStandardError=null\nWorkingDirectory=${systemdQuote(options.workingDirectory)}\n`+
     `${env}\nExecStart=${command(options).map(systemdQuote).join(' ')}\n`+
     `Restart=always\nRestartSec=5\n`+
     `[Install]\nWantedBy=default.target\n`;
@@ -201,7 +204,7 @@ export function windowsServiceTask(options: RelayServiceOptions): string {
   // pass through cmd.exe, and it restarts the relay after crashes.
   const script = join(options.dataDir, 'relay-service.ps1');
   writeFileSync(script,
-    `${env}\n& ${args.map(value => `'${value.replaceAll("'", "''")}'`).join(' ')}\nexit $LASTEXITCODE\n`,
+    `${env}\n& ${args.map(value => `'${value.replaceAll("'", "''")}'`).join(' ')} 1>$null 2>$null\nexit $LASTEXITCODE\n`,
     { mode: 0o600 },
   );
   return `<?xml version="1.0" encoding="UTF-8"?>\n`+

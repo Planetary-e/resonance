@@ -161,6 +161,8 @@ it.each(['direct', 'bridge', 'desktop-bridge', 'desktop-separate-history'] as co
   expect((await stats(port)).stored_publications).toBe(0);
   await n.volunteer(bridged ? 4 : 3, port); await waitFor(async () => await health(port) === 200);
   expect((await stats(port)).admission_ready).toBe(true); expect(owner.output()).toContain('"event":"admission_ready"');
+  expect((await stats(port)).diagnostic_log).toEqual(desktop ? { available: true, maximumBytes: 2097152, droppedRecords: 0 } : null);
+  if (desktop) expect(readFileSync(join(n.env.RELAY_DIAGNOSTICS_DIRECTORY!, 'current.ndjson'), 'utf8')).toContain('"event":"admission_ready"');
   expect((await stats(port)).history).toMatchObject({ owner: { state: 'available', usage: { initialized: true, pending: false, retainedBlocks: 1 } } });
   expect((await send(port, raw)).payload.message).toBe('accepted');
   const history = (await stats(port)).history;
