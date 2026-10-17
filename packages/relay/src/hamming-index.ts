@@ -8,6 +8,7 @@
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { guardUnmanagedExport } from './unmanaged-export.js';
 import type { ItemType } from '@resonance/core';
 
 export interface HashMetadata {
@@ -30,6 +31,7 @@ export interface HammingMatch {
  * Single Hamming index — stores binary hashes with metadata.
  */
 export class HammingIndex {
+  private readonly assertExportAllowed = guardUnmanagedExport();
   private hashes: Uint8Array[] = [];
   private metadata: HashMetadata[] = [];
   private createdAt: number[] = [];
@@ -111,6 +113,7 @@ export class HammingIndex {
   }
 
   save(dir: string, prefix: string): void {
+    this.assertExportAllowed();
     mkdirSync(dir, { recursive: true });
     const data = {
       hashes: this.hashes.map(h => Array.from(h)),

@@ -8,6 +8,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { guardUnmanagedExport } from './unmanaged-export.js';
 import {
   isPublicationActive,
   verifyPublicationRecord,
@@ -32,6 +33,7 @@ interface PublicationState {
 }
 
 export class PublicationOperationStore {
+  private readonly assertExportAllowed = guardUnmanagedExport();
   private publications = new Map<string, PublicationState>();
   private liveRecords = 0;
   private firstSeenTombstones = 0;
@@ -140,6 +142,7 @@ export class PublicationOperationStore {
   }
 
   save(dir: string): void {
+    this.assertExportAllowed();
     mkdirSync(dir, { recursive: true });
     const publications = Array.from(this.publications.values())
       .sort((a, b) => a.current.publicationId.localeCompare(b.current.publicationId));
