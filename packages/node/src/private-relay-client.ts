@@ -2,11 +2,11 @@
 
 import { randomInt } from 'node:crypto';
 import WebSocket from 'ws';
+import { parseRelayAcknowledgement, parseRelayMailbox } from './relay-response.js';
 import {
   MAX_PRIVATE_FRAME_BYTES,
   MAX_PRIVATE_DISCOVERY_FRAME_BYTES,
   MessageTypes,
-  MAILBOX_RESPONSE_MESSAGE_TYPE,
   SEARCH_RESPONSE_MESSAGE_TYPE,
   assertSecureRelayTransportEndpoint,
   createAdmissionRequestBindingV2,
@@ -47,7 +47,6 @@ import {
   type AckPayload,
   type AdmissionCapabilityV2,
   type EncryptedMailboxEnvelope,
-  type MailboxResponsePayload,
   type MatchNoticePayload,
   type Message,
   type PrivateRouteCandidateV1,
@@ -133,8 +132,7 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
         settled = true;
         clearTimeout(timer);
         signal.removeEventListener('abort', onAbort);
-        if (socket.readyState === WebSocket.OPEN) socket.close();
-        else if (socket.readyState === WebSocket.CONNECTING) socket.terminate();
+        if (socket.readyState !== WebSocket.CLOSED) socket.terminate();
         if (error) reject(error); else resolve(result!);
       }
       function onAbort(): void {
@@ -144,10 +142,12 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
       signal.addEventListener('abort', onAbort, { once: true });
       socket.on('open', () => {
         if (settled || signal.aborted) return;
-        socket.send(requestRaw);
+        try { socket.send(requestRaw); }
+        catch (error) { finish(error instanceof Error ? error : new Error(String(error))); }
       });
-      socket.on('message', data => {
+      socket.on('message', (data, binary) => {
         if (settled || signal.aborted) return;
+        if (binary) { finish(new Error('Private discovery response must be JSON text')); return; }
         if (receivedResponse) { finish(new Error('Entry sent multiple discovery responses')); return; }
         receivedResponse = true;
         try {
@@ -222,8 +222,7 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
         if (settled) return;
         settled = true;
         signal.removeEventListener('abort', onAbort);
-        if (socket.readyState === WebSocket.OPEN) socket.close();
-        else if (socket.readyState === WebSocket.CONNECTING) socket.terminate();
+        if (socket.readyState !== WebSocket.CLOSED) socket.terminate();
         if (error) reject(operation.transportError(error));
         else resolve(response!);
       }
@@ -242,8 +241,9 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
           socket.send(requestRaw);
         } catch (error) { finish(error instanceof Error ? error : new Error(String(error))); }
       });
-      socket.on('message', data => {
+      socket.on('message', (data, binary) => {
         if (settled || signal.aborted) return;
+        if (binary) { finish(new Error('Private response must be JSON text')); return; }
         if (receivedResponse) { finish(new Error('Private relay sent multiple responses')); return; }
         receivedResponse = true;
         void (async () => {
@@ -290,21 +290,14 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
 
   function expectedAck(message: Message, ref: string): AckPayload {
     if (message.type !== MessageTypes.ACK) throw new Error('Unexpected private relay response');
-    const ack = message.payload as AckPayload;
+    const ack = parseRelayAcknowledgement(message.payload);
     if (ack.ref !== ref) throw new Error('Private relay ACK does not match request');
     if (ack.status !== 'ok') throw new Error(ack.message ?? 'Private relay rejected request');
     return ack;
   }
 
   function expectedMailbox(message: Message, requestId: string, mailboxId: string): EncryptedMailboxEnvelope[] {
-    if (message.type === MessageTypes.ACK) {
-      throw new Error((message.payload as AckPayload).message ?? 'Private relay rejected mailbox request');
-    }
-    if (message.type !== MAILBOX_RESPONSE_MESSAGE_TYPE) throw new Error('Unexpected private mailbox response');
-    const payload = message.payload as MailboxResponsePayload;
-    if (payload.requestId !== requestId || payload.mailboxId !== mailboxId
-      || !Array.isArray(payload.envelopes)) throw new Error('Private mailbox response does not match request');
-    return payload.envelopes;
+    return parseRelayMailbox(message, requestId, mailboxId);
   }
 
   return {

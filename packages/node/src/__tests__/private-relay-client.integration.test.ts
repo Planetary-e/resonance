@@ -55,6 +55,22 @@ afterAll(async () => {
 });
 
 describe('personal client private transport', () => {
+  it.each(['private_discovery_response', 'private_response'])('rejects a valid encrypted/signed %s sent as a binary frame', async type => {
+    const send = WebSocket.prototype.send; let changed = 0;
+    const spy = vi.spyOn(WebSocket.prototype, 'send').mockImplementation(function(this: WebSocket, data: any, ...rest: any[]) {
+      let frame: any; try { frame = JSON.parse(String(data)); } catch { /* Other protocol payload. */ }
+      if (frame?.type === type && (this as any)._socket?.localPort === servers[0].getListeningPort()) {
+        changed++; return send.call(this, data, { binary: true }, rest.find(value => typeof value === 'function'));
+      }
+      return Reflect.apply(send, this, [data, ...rest]);
+    });
+    const client = createRelayClient({ relayUrl: DESTINATION, privateEntryUrls: [ENTRY], privateTraffic: { batchWindowMs: 10, jitterMs: 0 } });
+    try {
+      await expect(client.searchV2({ groupId: 'public', fingerprintEpoch: 'pilot-static-v1', fingerprint: new Uint8Array(64), itemType: 'need', k: 5, threshold: 0.9 })).rejects.toThrow('JSON text');
+      expect(changed).toBe(1);
+    } finally { client.disconnect(); spy.mockRestore(); }
+  });
+
   it('does not allow the same relay URL to act as entry and destination', () => {
     expect(() => createRelayClient({ relayUrl: ENTRY, privateEntryUrls: [ENTRY] }))
       .toThrow('separate entry and destination');
