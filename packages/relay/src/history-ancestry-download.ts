@@ -9,22 +9,36 @@ import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointContextId, historyCheckpoi
   parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { historySuccessorProposalId, parseHistorySuccessorProposal, type HistorySuccessorProposal } from '@resonance/core/history-successor';
 import { createHistoryExchangeRequest, parseHistoryExchangeRequest, parseHistoryExchangeResponse } from '@resonance/core/history-exchange';
+import { parseHistoryCompactionAttestation, parseHistoryCompactionCertificate, type HistoryCompactionCertificate } from '@resonance/core/history-compaction';
+import { historyCompactionCertificateId } from '@resonance/core/history-compaction-control';
 import { reserveHistoryStorage } from './history-storage-reservation.js';
 import { exchangeHistoryCheckpoint, type HistoryCheckpointTransport, type HistoryReplicaEndpoint } from './history-checkpoint-exchange.js';
 
 export const HISTORY_DOWNLOAD_FILENAME = 'history-download.json';
 const MANIFEST_BYTES = 2 * 1024 * 1024, MAX_BYTES = 256 * 1024 * 1024, MAX_BLOCKS = 10_001;
-interface State { version: 1; contextId: string; proposal: HistorySuccessorProposal; blocks: string[] }
-interface Cursor { proposal: HistorySuccessorProposal; sequence: number; envelopeId: string; generationBytes: number; depth: number }
+interface State { version: 1; contextId: string; proposal: HistorySuccessorProposal; blocks: string[];
+  compaction?: { genesisId: string; certificate: HistoryCompactionCertificate } }
+interface Cursor { proposal: HistorySuccessorProposal; sequence: number; envelopeId: string; generationBytes: number; depth: number; genesis?: true }
 
 export function createHistoryAncestryDownload(options: {
   directory: string; localKey: Uint8Array; context: HistoryCheckpointContext; signingKey: SigningKeyPair;
   /** Independently retained selection. Its four frozen receipts pin every selected parent head. */
   proposal: HistorySuccessorProposal; members: HistoryReplicaEndpoint[]; initialize?: boolean;
   maxBytes?: number; maxBlocks?: number; timeoutMs?: number; transport?: HistoryCheckpointTransport;
+  /** Explicit independent enrollment and historical proof. Reopen requires the
+   * same pins; no peer advertisement or missing block implicitly enables this. */
+  compaction?: { genesis: unknown; certificate: unknown };
 }) {
   const context = parseHistoryCheckpointContext(options.context), contextId = historyCheckpointContextId(context);
   const proposal = parseHistorySuccessorProposal(options.proposal, context), proposalId = historySuccessorProposalId(proposal);
+  if (options.compaction !== undefined && !exactWitnessFields(options.compaction, ['genesis', 'certificate'])) throw new Error('Invalid explicit download compaction pins');
+  const genesis = options.compaction ? parseHistoryCheckpointEnvelope(options.compaction.genesis, context) : undefined;
+  const compaction = options.compaction && genesis ? { genesisId: historyCheckpointEnvelopeId(genesis),
+    certificate: parseHistoryCompactionAttestation(options.compaction.certificate, context, historyCheckpointEnvelopeId(genesis)) } : undefined;
+  if (genesis && (genesis.kind !== 'checkpoint' || genesis.generation !== 0 || genesis.sequence !== 0)) throw new Error('Compacted download needs its original enrolled genesis');
+  const anchor = compaction?.certificate.proposal;
+  if (anchor && (anchor.generation > proposal.generation || (anchor.generation === proposal.generation
+    && (anchor.rootId !== proposal.rootId || anchor.sequence > proposal.sequence)))) throw new Error('Compaction checkpoint exceeds the selected history');
   const maxBytes = options.maxBytes ?? MAX_BYTES, maxBlocks = options.maxBlocks ?? MAX_BLOCKS, timeoutMs = options.timeoutMs ?? 30_000;
   if (![maxBytes, maxBlocks, timeoutMs].every(Number.isSafeInteger) || maxBytes <= 2 * MANIFEST_BYTES || maxBytes > MAX_BYTES
     || maxBlocks < 1 || maxBlocks > MAX_BLOCKS || timeoutMs < 50 || timeoutMs > 30_000 || options.members.length !== 5) throw new Error('Invalid history download bounds');
@@ -35,27 +49,53 @@ export function createHistoryAncestryDownload(options: {
   });
   if (new Set(members.map(m => m.publicKey)).size !== 5 || new Set(members.map(m => m.endpoint)).size !== 5) throw new Error('History download needs five distinct pinned sources');
   const directory = options.directory, transport = options.transport ?? exchangeHistoryCheckpoint, key = copyAdmissionSigningKey(options.signingKey);
-  const initial: State = { version: 1, contextId, proposal, blocks: [] };
+  const initial: State = { version: 1, contextId, proposal, blocks: [], ...(compaction ? { compaction } : {}) };
   const validate = (raw: unknown): raw is State => {
     if (!exactWitnessFields(raw, Object.keys(initial)) || raw.version !== 1 || raw.contextId !== contextId
       || !Array.isArray(raw.blocks) || raw.blocks.length > maxBlocks || !raw.blocks.every(isHistoryDigest)
       || new Set(raw.blocks).size !== raw.blocks.length) return false;
-    try { return historySuccessorProposalId(parseHistorySuccessorProposal(raw.proposal, context)) === proposalId; } catch { return false; }
+    try {
+      if (compaction) {
+        if (!exactWitnessFields(raw.compaction, ['genesisId', 'certificate']) || raw.compaction.genesisId !== compaction.genesisId
+          || historyCompactionCertificateId(raw.compaction.certificate, context, compaction.genesisId)
+            !== historyCompactionCertificateId(compaction.certificate, context, compaction.genesisId)) return false;
+      }
+      return historySuccessorProposalId(parseHistorySuccessorProposal(raw.proposal, context)) === proposalId;
+    } catch { return false; }
   };
   const start = (p: HistorySuccessorProposal, depth: number): Cursor => ({ proposal: p, sequence: p.sequence, envelopeId: p.envelopeId, generationBytes: 0, depth });
   let cursor: Cursor | null = start(proposal, 0), blockBytes = 0, failed = false, closed = false, active: AbortController | undefined;
   const path = (id: string) => join(directory, `${id.slice(7)}.block`);
   function advance(current: Cursor, block: HistoryCheckpointEnvelope, size: number): Cursor | null {
     const id = historyCheckpointEnvelopeId(block), p = current.proposal, generationBytes = current.generationBytes + size;
+    if (current.genesis) {
+      if (!compaction || !genesis || id !== compaction.genesisId || block.kind !== 'checkpoint' || block.generation !== 0 || block.sequence !== 0
+        || generationBytes > 64 * 1024 * 1024) {
+        throw new Error('Compacted download lost its independent genesis');
+      }
+      return null;
+    }
+    if (anchor && (p.generation < anchor.generation || (p.generation === anchor.generation && p.rootId !== anchor.rootId))) {
+      throw new Error('Compaction checkpoint is outside the selected ancestry');
+    }
     if (id !== current.envelopeId || block.generation !== p.generation || block.sequence !== current.sequence
       || generationBytes > 64 * 1024 * 1024 || p.freezes.some(r => r.head.sequence === block.sequence && r.head.envelopeId !== id)) {
       throw new Error('History download does not match its selected ancestry');
+    }
+    if (anchor && block.generation === anchor.generation && block.sequence === anchor.sequence) {
+      parseHistoryCompactionCertificate(compaction!.certificate, context, compaction!.genesisId, block);
+      // Every visited suffix link and frozen head at/above the checkpoint was
+      // checked while descending from the independently selected head. Older
+      // heads/prefixes rely on the same four-member ancestry proof as replay.
+      return { ...current, sequence: 0, envelopeId: compaction!.genesisId, genesis: true,
+        generationBytes: anchor.generation === 0 ? generationBytes : 0 };
     }
     if (current.sequence) return { ...current, sequence: current.sequence - 1, envelopeId: block.previous!, generationBytes };
     // Every predecessor and shorter freeze anchor was checked while walking exact consecutive
     // sequences from the selected head. Finish by binding the root, without copying each prefix.
     if (id !== p.rootId) throw new Error('History download root does not match its selected ancestry');
     if (block.kind !== 'continuation') {
+      if (anchor) throw new Error('Selected ancestry never reaches its compaction checkpoint');
       if (block.generation !== 0) throw new Error('History ancestry does not terminate at genesis');
       return null;
     }
@@ -109,7 +149,8 @@ export function createHistoryAncestryDownload(options: {
   function status() {
     ensureOpen();
     return { complete: cursor === null, blocks: storage.read().blocks.length, bytes: blockBytes,
-      next: cursor && { rootId: cursor.proposal.rootId, generation: cursor.proposal.generation, sequence: cursor.sequence, envelopeId: cursor.envelopeId } };
+      next: cursor && { rootId: cursor.genesis ? compaction!.genesisId : cursor.proposal.rootId,
+        generation: cursor.genesis ? 0 : cursor.proposal.generation, sequence: cursor.sequence, envelopeId: cursor.envelopeId } };
   }
   function retain(block: HistoryCheckpointEnvelope) {
     ensureOpen(); if (!cursor) throw new Error('History download already complete');
@@ -136,6 +177,8 @@ export function createHistoryAncestryDownload(options: {
   }
   return {
     read: status,
+    /** Explicit proof to pass to semantic restore review with blocks(). */
+    compaction() { ensureOpen(); return compaction ? structuredClone(compaction) : null; },
     /** Bounded progress per explicit attempt; no network on construction, reopen, read or iteration. */
     async run(options: { signal?: AbortSignal; maxBlocks?: number } = {}) {
       ensureOpen();
@@ -153,6 +196,7 @@ export function createHistoryAncestryDownload(options: {
         for (let count = 0; cursor && count < limit; count++) {
           live(); const position = cursor;
           if (existsSync(path(position.envelopeId))) { retain(readBlock(position.envelopeId).block); live(); continue; }
+          if (position.genesis) { retain(genesis!); live(); continue; }
           const block = await new Promise<HistoryCheckpointEnvelope>((resolve, reject) => {
             const group = new AbortController(); let settled = false, remaining = 5;
             const finish = (value?: HistoryCheckpointEnvelope) => {
