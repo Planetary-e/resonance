@@ -62,7 +62,9 @@ function total(state: State) {
 function fields(value: unknown, keys: string[]): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).sort().join(',') === keys.sort().join(',');
 }
-function validate(value: unknown, directory: string): State {
+function validate(value: unknown, directory: string, resolveRecordedPaths = true): State {
+  const recordedPath = (path: string) => resolveRecordedPaths ? canonical(path) === path
+    : isAbsolute(path) && path.length <= 4096 && !/[\x00-\x1f\x7f]/.test(path) && resolve(path) === path;
   const legacy = !!value && typeof value === 'object' && 'version' in value && value.version === 1;
   if (!fields(value, ['version', 'authorityId', 'revision', 'limitBytes', 'allocations', ...(!legacy ? ['adoptions'] : [])])
     || (legacy ? value.version !== 1 : value.version !== 2)
@@ -72,7 +74,7 @@ function validate(value: unknown, directory: string): State {
   let previous = '';
   for (const allocation of value.allocations) {
     if (!fields(allocation, ['path', 'component', 'scope', 'maximumBytes']) || typeof allocation.path !== 'string'
-      || allocation.path <= previous || canonical(allocation.path) !== allocation.path || inside(directory, allocation.path)
+      || allocation.path <= previous || !recordedPath(allocation.path) || inside(directory, allocation.path)
       || !['file', 'directory'].includes(allocation.scope as string)
       || typeof allocation.component !== 'string' || !/^[A-Za-z0-9:._/-]{1,256}$/.test(allocation.component)
       || !safe(allocation.maximumBytes)) throw new Error('Invalid or redirected storage allocation');
@@ -83,7 +85,7 @@ function validate(value: unknown, directory: string): State {
   previous = '';
   for (const adoption of adoptions) {
     if (!fields(adoption, ['path', 'scope', 'maximumBytes']) || typeof adoption.path !== 'string'
-      || adoption.path <= previous || canonical(adoption.path) !== adoption.path || inside(directory, adoption.path)
+      || adoption.path <= previous || !recordedPath(adoption.path) || inside(directory, adoption.path)
       || !['file', 'directory'].includes(adoption.scope as string) || !safe(adoption.maximumBytes)) throw new Error('Invalid or redirected retained storage floor');
     previous = adoption.path;
   }
@@ -92,6 +94,29 @@ function validate(value: unknown, directory: string): State {
   const state = { ...value, version: 2, adoptions } as unknown as State;
   if (total(state) > state.limitBytes) throw new Error('Storage authority limit is below retained reservations');
   return state;
+}
+
+function assertReservationTarget(request: StorageReservationRequest) {
+  const stat = present(request.path);
+  if (stat && (stat.isSymbolicLink() || (request.scope === 'file' ? !stat.isFile() || stat.nlink !== 1 : !stat.isDirectory()))) throw new Error('Reserved component path is not an ordinary unaliased target');
+}
+function reservationLease(request: StorageReservationRequest, selected: string, usable: () => void): StorageReservationLease {
+  return { assertWritable(output) {
+    usable(); assertReservationTarget(request); if (canonical(request.path) !== selected) throw new Error('Reserved storage path changed');
+    if (output) {
+      const target = canonical(output.path), stat = present(output.path);
+      if (!safe(output.maximumBytes) || output.maximumBytes > request.maximumBytes
+        || (stat && (stat.isSymbolicLink() || !stat.isFile() || stat.nlink !== 1))) throw new Error('Output exceeds its reserved scope or capacity');
+      if (output.replacement) {
+        const prefix = `.${basename(selected)}.`, name = basename(target);
+        if (request.scope !== 'file' || dirname(target) !== dirname(selected) || !name.startsWith(prefix)
+          || !/^[a-f0-9]{16}\.tmp$/.test(name.slice(prefix.length)) || !safe(2 * output.maximumBytes)
+          || 2 * output.maximumBytes > request.maximumBytes) throw new Error('Replacement exceeds its reserved scope or capacity');
+      } else if (request.scope === 'file' ? target !== selected : !inside(selected, target) || target === selected) {
+        throw new Error('Output is outside its reserved scope');
+      }
+    }
+  } };
 }
 
 /** One host process owns the ledger for the complete runtime/maintenance operation.
@@ -212,11 +237,7 @@ export function openStorageReservationAuthority(options: { directory: string; mo
       const selected = canonical(request.path);
       if (inside(directory, selected) || !['file', 'directory'].includes(request.scope) || typeof request.component !== 'string' || !/^[A-Za-z0-9:._/-]{1,256}$/.test(request.component)
         || !safe(request.maximumBytes)) throw new Error('Invalid managed storage allocation');
-      const safeTarget = () => {
-        const stat = present(request.path);
-        if (stat && (stat.isSymbolicLink() || (request.scope === 'file' ? !stat.isFile() || stat.nlink !== 1 : !stat.isDirectory()))) throw new Error('Reserved component path is not an ordinary unaliased target');
-      };
-      safeTarget();
+      assertReservationTarget(request);
       const previous = state.allocations.find(entry => entry.path === selected);
       if (previous && (previous.component !== request.component || previous.scope !== request.scope)) throw new Error('Storage path already belongs to another component');
       if (!previous || previous.maximumBytes < request.maximumBytes) {
@@ -227,22 +248,7 @@ export function openStorageReservationAuthority(options: { directory: string; mo
         if (!safe(next.revision) || total(next) > state.limitBytes) throw new Error('Combined managed storage budget exhausted');
         commit(next);
       }
-      return { assertWritable(output) {
-        usable(); safeTarget(); if (canonical(request.path) !== selected) throw new Error('Reserved storage path changed');
-        if (output) {
-          const target = canonical(output.path), stat = present(output.path);
-          if (!safe(output.maximumBytes) || output.maximumBytes > request.maximumBytes
-            || (stat && (stat.isSymbolicLink() || !stat.isFile() || stat.nlink !== 1))) throw new Error('Output exceeds its reserved scope or capacity');
-          if (output.replacement) {
-            const prefix = `.${basename(selected)}.`, name = basename(target);
-            if (request.scope !== 'file' || dirname(target) !== dirname(selected) || !name.startsWith(prefix)
-              || !/^[a-f0-9]{16}\.tmp$/.test(name.slice(prefix.length)) || !safe(2 * output.maximumBytes)
-              || 2 * output.maximumBytes > request.maximumBytes) throw new Error('Replacement exceeds its reserved scope or capacity');
-          } else if (request.scope === 'file' ? target !== selected : !inside(selected, target) || target === selected) {
-            throw new Error('Output is outside its reserved scope');
-          }
-        }
-      } };
+      return reservationLease(request, selected, usable);
     },
     status() { usable(); const reservedBytes = total(state); return { authorityId: state.authorityId, revision: state.revision,
       limitBytes: state.limitBytes, reservedBytes, availableBytes: state.limitBytes - reservedBytes, components: state.allocations.length,
@@ -258,3 +264,66 @@ export { withStorageReservationAuthority, reserveManagedStorage, captureStorageR
 export type { StorageReservationRequest, StorageReservationLease, StorageReservationAuthority, StorageReservationOutput } from './storage-reservation-context.js';
 
 export type { StorageAdoptionTarget, StorageAdoptionBounds } from './storage-adoption-inventory.js';
+
+/** A narrow read-only view of already committed control reservations. It does
+ * not acquire authority ownership, allocate bytes, or exclude another output
+ * writer. Callers still need their ordinary control/file ownership protocol. */
+export function openReservedStorageControl(options: {
+  directory: string; authorityId: string; controls: readonly StorageReservationRequest[];
+}) {
+  assertNoStorageReservationContext();
+  const suppliedDirectory = options.directory, authorityId = options.authorityId;
+  const directory = canonical(suppliedDirectory), path = join(directory, 'reservations.json'), root = lstatSync(directory);
+  if (!root.isDirectory() || root.isSymbolicLink() || !/^[a-f0-9]{32}$/.test(authorityId)
+    || !Array.isArray(options.controls) || !options.controls.length || options.controls.length > 16) throw new Error('Invalid reserved storage controls');
+  const allowed = new Map<string, StorageReservationRequest>();
+  for (const raw of options.controls) {
+    const request = { ...raw }, selected = canonical(request.path);
+    if (inside(directory, selected) || request.scope !== 'file'
+      || !['operator-output', 'operator-atomic-output', 'local-state-lock'].includes(request.component)
+      || !safe(request.maximumBytes) || request.maximumBytes < 1 || request.maximumBytes > 1024 * 1024 || allowed.has(selected)) {
+      throw new Error('Invalid reserved storage control scope');
+    }
+    assertReservationTarget(request); allowed.set(selected, request);
+  }
+  let closed = false;
+  function committed() {
+    if (closed) throw new Error('Reserved storage controls are closed');
+    const current = lstatSync(directory);
+    if (canonical(suppliedDirectory) !== directory || !current.isDirectory() || current.isSymbolicLink()
+      || current.dev !== root.dev || current.ino !== root.ino) throw new Error('Reserved storage authority directory changed');
+    let bytes: Buffer;
+    // A normal owner commit can atomically replace the primary between stat and
+    // open. Retry that observed race only; malformed/missing metadata has no fallback.
+    for (let attempt = 0; ; attempt++) {
+      try { bytes = readBytes(path); break; }
+      catch (error) { if (attempt === 2 || !(error instanceof Error) || error.message !== 'Storage reservation metadata changed') throw error; }
+    }
+    let raw: unknown;
+    try { raw = JSON.parse(bytes.toString('utf8')); }
+    catch { throw new Error('Reserved storage authority metadata is invalid; retain it for inspection'); }
+    const state = validate(raw, directory, false);
+    const after = lstatSync(directory);
+    if (after.dev !== root.dev || after.ino !== root.ino || after.isSymbolicLink()
+      || canonical(suppliedDirectory) !== directory) throw new Error('Reserved storage authority directory changed');
+    if (state.authorityId !== authorityId) throw new Error('Reserved storage authority differs from its independently retained selection');
+    for (const [selected, request] of allowed) {
+      if (canonical(request.path) !== selected) throw new Error('Reserved control path changed');
+      assertReservationTarget(request);
+      const entry = state.allocations.find(entry => entry.path === selected);
+      if (!entry || entry.component !== request.component || entry.scope !== request.scope || entry.maximumBytes < request.maximumBytes) {
+        throw new Error('Control output does not have its required committed reservation');
+      }
+    }
+  }
+  committed();
+  return {
+    reserve(raw: StorageReservationRequest): StorageReservationLease {
+      const request = { ...raw }, selected = canonical(request.path), permitted = allowed.get(selected);
+      if (!permitted || request.scope !== permitted.scope || request.component !== permitted.component
+        || !safe(request.maximumBytes) || request.maximumBytes > permitted.maximumBytes) throw new Error('Control reservation is outside the selected scope or capacity');
+      committed(); return reservationLease(request, selected, committed);
+    },
+    close() { closed = true; },
+  };
+}
