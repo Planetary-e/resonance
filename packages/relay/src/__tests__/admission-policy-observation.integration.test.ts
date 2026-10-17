@@ -169,14 +169,20 @@ it('bounds raw connections and rejects binary, oversized and repeated request fr
   let calls = 0;
   const server = await listenAdmissionPolicyObserver(async () => { calls++; return {}; }, { maxConnections: 1, connectionTimeoutMs: 200 }); cleanup.push(server.close);
   const port = Number(new URL(server.endpoint).port), raw: Socket = connect({ host: '127.0.0.1', port }); raw.on('error', () => {});
-  cleanup.push(() => { raw.destroy(); }); await once(raw, 'connect');
+  cleanup.push(() => { raw.destroy(); }); await once(raw, 'connect'); const rawClosed = once(raw, 'close');
   const extra = new WebSocket(server.endpoint); cleanup.push(() => extra.terminate());
-  await expect(once(extra, 'open')).rejects.toThrow(); const rawClosed = once(raw, 'close'); raw.destroy(); await rawClosed;
+  await expect(once(extra, 'open')).rejects.toThrow();
+  // Client-side close is not proof that the server has released its only raw
+  // slot. Await this server's shutdown before testing a different frame boundary.
+  await rawClosed; await server.close();
   for (const payload of [Buffer.from('{}'), 'x'.repeat(ADMISSION_POLICY_OBSERVATION_MAX_BYTES + 1)]) {
-    const socket = new WebSocket(server.endpoint); socket.on('error', () => {}); await once(socket, 'open');
+    const isolated = await listenAdmissionPolicyObserver(async () => { calls++; return {}; }, { maxConnections: 1 }); cleanup.push(isolated.close);
+    const socket = new WebSocket(isolated.endpoint); socket.on('error', () => {}); await once(socket, 'open');
     const closed = once(socket, 'close'); socket.send(payload); await closed;
+    await isolated.close();
   }
   expect(calls).toBe(0);
-  const socket = new WebSocket(server.endpoint); socket.on('error', () => {}); await once(socket, 'open'); const closed = once(socket, 'close');
+  const repeated = await listenAdmissionPolicyObserver(async () => { calls++; return {}; }, { maxConnections: 1 }); cleanup.push(repeated.close);
+  const socket = new WebSocket(repeated.endpoint); socket.on('error', () => {}); await once(socket, 'open'); const closed = once(socket, 'close');
   socket.send('{}'); socket.send('{}'); await closed; expect(calls).toBe(1);
 });
