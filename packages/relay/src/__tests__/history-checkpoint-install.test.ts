@@ -5,7 +5,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createHistoryFreeze, historyCheckpointEnvelopeId, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
+import { createHistoryFreeze, historyCheckpointEnvelopeId, sealHistoryCheckpoint, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { createHistoryCompactionProposal, createHistoryCompactionVote, type HistoryCompactionCertificate } from '@resonance/core/history-compaction';
 import { historyCompactionCertificateId } from '@resonance/core/history-compaction-control';
 import { createHistoryExchangeRequest, createHistoryExchangeResponse, parseHistoryExchangeRequest,
@@ -83,6 +83,10 @@ it('checks absolute slot capacity before writing checkpoint bytes', () => {
   const f = fixture(4), before = f.files();
   expect(() => f.store.installCheckpoint(f.blocks[4], f.first, f.store.reviewDigest())).toThrow('capacity');
   expect(f.files()).toEqual(before); expect(f.store.describe().sequence).toBe(1);
+  const distant = sealHistoryCheckpoint({ context: f.context, encryptionKey: f.key, signingKey: f.owner,
+    header: { kind: 'checkpoint', generation: 0, sequence: 1_000_000_000, previous: f.options.rootId }, plaintext: Buffer.from('far checkpoint') });
+  expect(() => f.store.installCheckpoint(distant, f.certificate(distant), f.store.reviewDigest())).toThrow('capacity');
+  expect(f.files()).toEqual(before);
 });
 
 it('retains a durable freeze across restart and refuses even an exact installation retry after freeze', () => {

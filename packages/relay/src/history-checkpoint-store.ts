@@ -490,6 +490,9 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
       if (block.sequence === head && state.compaction?.proposal.envelopeId === id) return id;
       if (approvedReviewDigest !== historyDigest(JSON.stringify(state))) throw new Error('Checkpoint installation needs current local review');
       if (block.sequence === head + 1 && block.previous !== state.blocks[head]) throw new Error('Checkpoint installation conflicts with retained predecessor');
+      // Bound the allocation before constructing absolute missing slots. A
+      // valid owner signature alone does not make an arbitrarily large index safe.
+      if (block.sequence >= maxBlocks) throw new Error('History storage capacity exceeded');
       const missing = block.sequence - head - 1;
       const next: Manifest = { ...state, compaction: certificate, blocks: block.sequence === head ? state.blocks
         : [...state.blocks, ...Array<string | null>(missing).fill(null), id] };
