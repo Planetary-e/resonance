@@ -14,7 +14,7 @@ import { createHistoryCheckpointRecovery } from '../history-checkpoint-recovery.
 import { createHistoryAgreementCoordinator } from '../history-agreement-coordinator.js';
 import { listenHistoryAgreementReplica } from '../history-agreement-exchange.js';
 import { admissionRestoreFixture } from './fixtures/admission-restore-fixture.js';
-import { openAdmissionRestorationReadiness } from '../admission-history-readiness.js';
+import { openAdmissionRestorationReadiness, openAdmissionInitialReadiness } from '../admission-history-readiness.js';
 
 async function publishedWithoutWriter(sockets = false) {
   const n = await fixture(sockets), recovery = await n.initialize();
@@ -213,6 +213,7 @@ it('refuses a changed retained image before writer creation and never lets inspe
   await expect(inspectProtectedAdmissionSpendHistory({ ...options, directory: missing })).rejects.toThrow();
   expect(existsSync(missing)).toBe(false);
   const verified = await n.recovery.reviewReadiness(n.destination, n.policy), review = verified.review(); verified.close();
+  await expect(openAdmissionInitialReadiness({ ...options, genesisId: review.genesisId })).rejects.toThrow('differs from');
   for (const field of ['rootId', 'genesisId', 'replayDigest'] as const) {
     const expected = { rootId: review.rootId, genesisId: review.genesisId, replayDigest: review.replayDigest, [field]: 'sha256:' + 'f'.repeat(64) };
     await expect(openAdmissionRestorationReadiness({ ...options, protection: n.options.protection, expected })).rejects.toThrow('differs from');

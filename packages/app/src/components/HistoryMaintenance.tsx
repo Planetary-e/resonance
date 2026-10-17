@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { getRelayMaintenance, beginRelayMaintenance, finishRelayMaintenance, type RelayMaintenanceStatus } from '../api.client';
 import HistoryActivation from './HistoryActivation';
 import HistoryRecovery from './HistoryRecovery';
+import HistorySetup from './HistorySetup';
 
 export default function HistoryMaintenance({ refreshRelay }: { refreshRelay?: () => Promise<unknown> }) {
   const [state, setState] = useState<RelayMaintenanceStatus | null>(null);
@@ -27,6 +28,7 @@ export default function HistoryMaintenance({ refreshRelay }: { refreshRelay?: ()
   return <>
     <HistoryMaintenanceView state={state} busy={busy || operationBusy} operationBusy={operationBusy} error={error} checked={checked} onChange={change} />
     {state?.active && <>
+      <HistorySetup onBusyChange={setOperationBusy} blocked={busy || operationBusy} />
       <HistoryRecovery onBusyChange={setOperationBusy} blocked={busy || operationBusy} />
       <HistoryActivation onBusyChange={setOperationBusy} blocked={busy || operationBusy} />
     </>}

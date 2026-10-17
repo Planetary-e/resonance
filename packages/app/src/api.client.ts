@@ -408,6 +408,15 @@ export function applyRelayHistoryActivation(input: RelayHistoryActivationInput, 
 }
 export function cancelRelayHistoryOperation() { return api<{ active: boolean }>('POST', '/api/relay/history/cancel'); }
 
+export type { RelayHistorySetupInput, RelayHistorySetupResult } from './history-setup.types';
+export function getRelayHistorySetupInput() {
+  return api<{ input: import('./history-setup.types').RelayHistorySetupInput | null }>('GET', '/api/relay/history/setup');
+}
+export function runRelayHistorySetup(action: 'review' | 'apply', input: import('./history-setup.types').RelayHistorySetupInput, approvalDigest?: string) {
+  return api<{ input: import('./history-setup.types').RelayHistorySetupInput; result: import('./history-setup.types').RelayHistorySetupResult }>(
+    'POST', '/api/relay/history/setup', { action, input, ...(approvalDigest === undefined ? {} : { approvalDigest }) });
+}
+
 export type { RelayHistoryRecoveryInput, RelayHistoryRecoveryAction, RelayHistoryRecoveryResult } from './history-recovery.types';
 export function getRelayHistoryRecoveryInput() {
   return api<{ input: import('./history-recovery.types').RelayHistoryRecoveryInput | null }>('GET', '/api/relay/history/recovery');

@@ -16,9 +16,13 @@ try {
   console.error('Usage: node --import tsx scripts/admission-history.ts');
   console.error('  Optional pinned outbound transport: RESONANCE_HISTORY_OPERATOR_TRANSPORT_FILE=operator-transport.json');
   console.error('  owner-config owner-private.json authority.pub policy.json members.json owner-config.json');
+  console.error('  owner-config-plan owner-private.json authority.pub policy.json members.json owner-config.json [history-id]');
+  console.error('  owner-config-create --approve <digest> owner-private.json authority.pub policy.json members.json owner-config.json <history-id>');
+  console.error('  owner-setup-plan|owner-setup-apply [--approve <digest>] <new|resume|export> owner-config.json policy.json owner-storage.hex owner-directory enrollment.json');
   console.error('  owner-prepare|owner-export|owner-resume-setup owner-config.json policy.json owner-storage.hex owner-directory enrollment.json');
   console.error('  owner-inspect owner-config.json enrollment.json');
   console.error('  owner-ready owner-config.json policy.json owner-storage.hex owner-directory');
+  console.error('  owner-initial-readiness-plan|owner-initial-ready [--approve <digest>] owner-config.json enrollment.json policy.json owner-storage.hex owner-directory');
   console.error('  owner-retirement-plan|owner-retire [--approve <digest>] owner-config.json policy.json owner-storage.hex owner-directory <issuer-key-fingerprint>');
   console.error('  owner-legacy-plan|owner-legacy-recover [--approve <digest>] owner-config.json policy.json owner-storage.hex owner-directory proofs.json');
   console.error('  owner-recovery-plan|owner-recovery-start [--approve <digest>] owner-config.json enrollment.json owner-storage.hex recovery-directory <view>');

@@ -26,6 +26,7 @@ import {
   getRelayStats, getRelayMaintenanceStatus, beginRelayHistoryMaintenance, finishRelayHistoryMaintenance,
   getRelayHistoryActivationInput, planRelayHistoryActivation, applyRelayHistoryActivation, cancelRelayHistoryOperation,
   getRelayHistoryRecoveryInput, performRelayHistoryRecovery,
+  getRelayHistorySetupInput, performRelayHistorySetup,
   publishItem,
   listSessionItems,
   releaseHeldPublication,
@@ -513,6 +514,27 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
   }
 
   // --- Relay mode ---
+
+  if (url === '/api/relay/history/setup' && method === 'GET') {
+    if (!requireAuth(req, res)) return true;
+    try { json(res, { input: getRelayHistorySetupInput() }); }
+    catch (err) { error(res, err instanceof Error ? err.message : 'Saved setup selection unavailable', 409); }
+    return true;
+  }
+  if (url === '/api/relay/history/setup' && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    const controller = new AbortController(), disconnected = () => { if (!res.writableEnded) controller.abort(); };
+    res.once('close', disconnected);
+    try {
+      const body = await readBody(req);
+      if (!body || !['review', 'apply'].includes(body.action as string)
+        || !exactWitnessFields(body, ['action', 'input', ...(body.action === 'apply' ? ['approvalDigest'] : [])])) throw new Error('Supply a fixed setup action and its exact fields');
+      const result = await performRelayHistorySetup(body.action as 'review' | 'apply', body.input, body.approvalDigest, controller.signal);
+      if (!res.destroyed) json(res, result);
+    } catch (err) { if (!res.destroyed) error(res, err instanceof Error ? err.message : 'Setup failed; retain all created files', 409); }
+    finally { res.removeListener('close', disconnected); }
+    return true;
+  }
 
   if (url === '/api/relay/history/recovery' && method === 'GET') {
     if (!requireAuth(req, res)) return true;

@@ -14,6 +14,8 @@ import { listenHistoryAgreementReplica } from './history-agreement-exchange.js';
 import { discoverHistoryContinuations } from './history-continuation-discovery.js';
 import { createHistoryOperatorTransport } from './history-operator-transport.js';
 import { openAdmissionHistoryRecovery, prepareAdmissionHistoryRecovery } from './admission-history-recovery.js';
+import { reviewAdmissionOwnerConfiguration, openAdmissionOwnerSetup, type AdmissionOwnerSetupMode } from './admission-history-setup.js';
+import { openAdmissionInitialReadiness } from './admission-history-readiness.js';
 
 
 const ENROLLMENT_MAX = HISTORY_ENVELOPE_MAX_BYTES + 65536;
@@ -47,7 +49,20 @@ export async function runAdmissionHistoryCommand(command: string, raw: readonly 
   commandOptions.signal?.addEventListener('abort', cancel, { once: true });
   try {
     if (commandOptions.signal?.aborted) throw new Error('History operation cancelled');
-    if (command === 'owner-config' && raw.length === 5) {
+    if (['owner-config-plan', 'owner-config-create', 'owner-setup-plan', 'owner-setup-apply'].includes(command)) {
+      const applying = command === 'owner-config-create' || command === 'owner-setup-apply';
+      const approved = applying && raw[0] === '--approve' ? raw[1] : undefined, args = approved ? raw.slice(2) : raw;
+      if ((applying && !approved) || (args.length !== 6 && !(command === 'owner-config-plan' && args.length === 5))) throw new Error('Invalid reviewed setup command or missing approval');
+      if (command.startsWith('owner-config-')) {
+        const [ownerKeyFile, authorityFile, policyFile, membersFile, output, historyId] = args;
+        const preparation = await reviewAdmissionOwnerConfiguration({ ownerKeyFile, authorityFile, policyFile, membersFile, output, historyId }, commandOptions.signal);
+        emit(applying ? preparation.apply(approved!) : preparation.review);
+      } else {
+        const [mode, historyConfigFile, policyFile, storageKeyFile, directory, output] = args;
+        const preparation = await openAdmissionOwnerSetup({ mode: mode as AdmissionOwnerSetupMode, historyConfigFile, policyFile, storageKeyFile, directory, output }, commandOptions.signal);
+        cleanup.push(() => preparation.close()); emit(applying ? await preparation.apply(approved!) : preparation.review());
+      }
+    } else if (command === 'owner-config' && raw.length === 5) {
       const [ownerPath, authorityPath, policyPath, membersPath, output] = raw;
       if (existsSync(output)) throw new Error('Owner configuration output already exists');
       const key = readOperatorSigningKey(ownerPath); cleanup.push(() => key.secretKey.fill(0));
@@ -83,6 +98,18 @@ export async function runAdmissionHistoryCommand(command: string, raw: readonly 
       writeOperatorJsonNew(output, { version: 1, kind: 'admission-history-enrollment', ...value }, ENROLLMENT_MAX);
       emit({ result: 'enrollment-exported', contextId: historyCheckpointContextId(value.context),
         genesisId: historyCheckpointEnvelopeId(value.root), output: resolve(output), readiness: 'unverified' });
+    } else if (['owner-initial-readiness-plan', 'owner-initial-ready'].includes(command)) {
+      const applying = command === 'owner-initial-ready', approved = applying && raw[0] === '--approve' ? raw[1] : undefined;
+      const args = approved ? raw.slice(2) : raw;
+      if (args.length !== 5 || (applying && !approved)) throw new Error('Invalid initial readiness command or missing approval');
+      const [configPath, enrollmentPath, policyPath, keyPath, directory] = args;
+      const loaded = loadAdmissionHistoryProtectionFile(configPath); cleanup.push(() => loaded.signingKey.secretKey.fill(0));
+      const { protection } = operatorTransport(loaded), pinned = readHistoryEnrollmentFile(enrollmentPath);
+      if (pinned.contextId !== historyCheckpointContextId(protection.context)) throw new Error('Enrollment and owner configuration differ');
+      const encryptionKey = readOperatorStorageKey(keyPath); cleanup.push(() => encryptionKey.fill(0));
+      const readiness = await openAdmissionInitialReadiness({ directory, policy: readOperatorJson(policyPath, MAX_ADMISSION_POLICY_BYTES),
+        encryptionKey, protection, genesisId: pinned.genesisId, signal: commandOptions.signal }); cleanup.push(readiness.close);
+      emit(applying ? await readiness.apply(approved!) : readiness.review());
     } else if (command?.startsWith('owner-recovery-')) {
       const mutation = ['owner-recovery-start', 'owner-recovery-restore', 'owner-recovery-ready'].includes(command);
       const approved = mutation && raw[0] === '--approve' ? raw[1] : undefined;
