@@ -9,6 +9,7 @@ import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointContextId, historyCheckpoi
   parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { HISTORY_COMPACTION_MAX_BYTES, parseHistoryCompactionAttestation } from '@resonance/core/history-compaction';
 import { historyCompactionCertificateId } from '@resonance/core/history-compaction-control';
+import { HISTORY_COMPACTION_RETENTION_MAX_BYTES, parseHistoryCompactionRetention } from '@resonance/core/history-compaction-retention';
 import { retainHistoryCompactionCertificate } from './history-compaction-coordinator.js';
 import { discoverHistoryCompactionFrontier } from './history-frontier-discovery.js';
 import { loadAdmissionHistoryProtectionFile, parseAdmissionHistoryConfiguration } from './admission-history-config.js';
@@ -228,8 +229,20 @@ export async function runAdmissionHistoryCommand(command: string, raw: readonly 
     } else if (['owner-checkpoint-retention-plan', 'owner-checkpoint-retain'].includes(command)) {
       const applying = command === 'owner-checkpoint-retain';
       const approved = applying && raw[0] === '--approve' ? raw[1] : undefined, args = approved ? raw.slice(2) : raw;
-      if (args.length !== 3 || (applying && !approved)) throw new Error('Invalid checkpoint retention command or missing approval');
-      const [configPath, enrollmentPath, certificatePath] = args;
+      if (![3, 4].includes(args.length) || (applying && !approved)) throw new Error('Invalid checkpoint retention command or missing approval');
+      const [configPath, enrollmentPath, certificatePath, target] = args;
+      const output = target === undefined ? undefined : canonicalHistorySetupPath(target);
+      function checkOutput() {
+        if (target === undefined) return;
+        if (canonicalHistorySetupPath(target) !== output) throw new Error('Checkpoint retention output selection changed');
+        try { lstatSync(output!); } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+          if (!lstatSync(dirname(output!)).isDirectory()) throw new Error('Checkpoint retention output needs an existing parent');
+          return;
+        }
+        throw new Error('Checkpoint retention output already exists; retain it and select another path');
+      }
+      checkOutput();
       const loaded = loadAdmissionHistoryProtectionFile(configPath); cleanup.push(() => loaded.signingKey.secretKey.fill(0));
       const pinned = readHistoryEnrollmentFile(enrollmentPath), transport = operatorTransport(loaded), { protection } = transport;
       if (pinned.contextId !== historyCheckpointContextId(protection.context)) throw new Error('Enrollment and owner configuration differ');
@@ -237,16 +250,25 @@ export async function runAdmissionHistoryCommand(command: string, raw: readonly 
       const details = { kind: 'admission-history-checkpoint-retention' as const, contextId: pinned.contextId, genesisId: pinned.genesisId,
         rootId: certificate.proposal.rootId, generation: certificate.proposal.generation, sequence: certificate.proposal.sequence,
         envelopeId: certificate.proposal.envelopeId, certificateId: historyCompactionCertificateId(certificate, protection.context, pinned.genesisId),
-        requestedCopies: 4, filesRemoved: 0, bytesReclaimed: 0, admissionReadiness: 'unverified' as const };
+        requestedCopies: 4, filesRemoved: 0, bytesReclaimed: 0, admissionReadiness: 'unverified' as const,
+        ...(output === undefined ? {} : { output }) };
       const review = { ...details, approvalDigest: historyDigest(`resonance:checkpoint-certificate-retention-review:v1\n${JSON.stringify([details, protection.members])}`) };
       if (!applying) emit({ ...review, result: 'review-required' });
       else {
         if (approved !== review.approvalDigest) throw new Error('Checkpoint retention approval does not match the proof and pinned members');
-        checkCancelled();
+        checkCancelled(); checkOutput();
+        const reservation = output === undefined ? undefined : reserveManagedStorage({ path: output, component: 'operator-output', scope: 'file',
+          maximumBytes: HISTORY_COMPACTION_RETENTION_MAX_BYTES });
         const responses = await retainHistoryCompactionCertificate({ context: protection.context, genesisId: pinned.genesisId,
           certificate, signingKey: protection.signingKey, members: protection.members, signal: commandOptions.signal,
           timeoutMs: protection.timeoutMs, transport: transport.compactionControlTransport });
-        checkCancelled(); emit({ ...review, result: 'checkpoint-proof-retained', retainedCopies: responses.length,
+        checkCancelled(); checkOutput();
+        if (output !== undefined) {
+          const retained = parseHistoryCompactionRetention({ version: 1, kind: 'history-compaction-retention', certificate, receipts: responses }, protection.context, pinned.genesisId);
+          writeOperatorJsonNew(output, retained, HISTORY_COMPACTION_RETENTION_MAX_BYTES, reservation ? { reservation } : undefined);
+          checkCancelled();
+        }
+        emit({ ...review, result: 'checkpoint-proof-retained', retainedCopies: responses.length,
           authority: 'historical-only' });
       }
     } else if (['owner-checkpoint-certification-plan', 'owner-checkpoint-certify'].includes(command)) {
@@ -360,6 +382,19 @@ export async function runAdmissionHistoryCommand(command: string, raw: readonly 
         if (approved !== review.approvalDigest) throw new Error('Enrollment resumption approval changed; review again');
         const resumed = prepared.apply(prepared.review.approvalDigest); check(); emit(resumed);
       } else emit(review);
+    } else if (['replica-generations-plan', 'replica-generations-retire'].includes(command)) {
+      const applying = command === 'replica-generations-retire', approved = applying && raw[0] === '--approve' ? raw[1] : undefined;
+      const args = approved ? raw.slice(2) : raw;
+      if (args.length !== 5 || applying && !approved) throw new Error('Invalid generation retirement command or missing approval');
+      const [enrollmentPath, memberPath, keyPath, target, evidencePath] = args;
+      const pinned = readHistoryEnrollmentFile(enrollmentPath), signingKey = readOperatorSigningKey(memberPath);
+      cleanup.push(() => signingKey.secretKey.fill(0));
+      const localKey = readOperatorStorageKey(keyPath); cleanup.push(() => localKey.fill(0));
+      const evidence = readOperatorJson(evidencePath, HISTORY_COMPACTION_RETENTION_MAX_BYTES);
+      const service = openHistoryVolunteerService({ directory: resolve(target), localKey, context: pinned.context, signingKey, genesisId: pinned.genesisId });
+      cleanup.push(service.close); const plan = service.planGenerationRetirement(evidence); checkCancelled();
+      if (applying) service.retireGenerations(evidence, approved!);
+      emit({ ...plan, result: applying ? 'history-generations-retired' : 'review-required', readiness: 'unverified' });
     } else if (['replica-prefix-plan', 'replica-prefix-retire'].includes(command)) {
       const applying = command === 'replica-prefix-retire', approved = applying && raw[0] === '--approve' ? raw[1] : undefined;
       const args = approved ? raw.slice(2) : raw;

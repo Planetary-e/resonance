@@ -8,6 +8,7 @@ import { createAdmissionRequestBindingV2, presentBlindAdmissionTokenV2, verifyBl
 import { admissionKeyFingerprint, admissionPolicyDigest, signAdmissionPolicy } from '@resonance/core/admission-policy';
 import { historyCheckpointEnvelopeId } from '@resonance/core/history-checkpoint';
 import { parseHistoryCompactionAttestation } from '@resonance/core/history-compaction';
+import { parseHistoryCompactionRetention } from '@resonance/core/history-compaction-retention';
 import { openAdmissionSpendHistory } from '../admission-spend-history.js';
 import { openProtectedAdmissionSpendHistory } from '../protected-admission-history.js';
 import { openHistoryVolunteerService } from '../history-volunteer-service.js';
@@ -164,6 +165,20 @@ it('exports a reviewed four-member checkpoint certificate through the CLI and us
   expect(readFileSync(output)).toEqual(bytes);
   expect(await succeed('owner-checkpoint-retain', '--approve', retainPlan.approvalDigest, ...retainArgs))
     .toMatchObject({ result: 'checkpoint-proof-retained', retainedCopies: 4 });
+  const retentionFile = join(n.directory, 'retained-proof-evidence.json'), exportArgs = [...retainArgs, retentionFile];
+  const beforeExportPlan = n.calls(), exportPlan = await succeed('owner-checkpoint-retention-plan', ...exportArgs);
+  expect(n.calls()).toBe(beforeExportPlan); expect(exportPlan.output).toBe(canonicalHistorySetupPath(retentionFile));
+  expect(exportPlan.approvalDigest).not.toBe(retainPlan.approvalDigest);
+  expect((await command('owner-checkpoint-retain', '--approve', retainPlan.approvalDigest, ...exportArgs)).code).not.toBe(0);
+  expect(n.calls()).toBe(beforeExportPlan); expect(existsSync(retentionFile)).toBe(false);
+  n.online(3); expect((await command('owner-checkpoint-retain', '--approve', exportPlan.approvalDigest, ...exportArgs)).code).not.toBe(0);
+  expect(existsSync(retentionFile)).toBe(false); n.online(5);
+  await succeed('owner-checkpoint-retain', '--approve', exportPlan.approvalDigest, ...exportArgs);
+  const retentionBytes = readFileSync(retentionFile), retained = parseHistoryCompactionRetention(JSON.parse(retentionBytes.toString()), n.context, genesisId);
+  expect(retained.certificate).toEqual(certificate); expect(retained.receipts).toHaveLength(4);
+  const afterExport = n.calls();
+  expect((await command('owner-checkpoint-retain', '--approve', exportPlan.approvalDigest, ...exportArgs)).code).not.toBe(0);
+  expect(n.calls()).toBe(afterExport); expect(readFileSync(retentionFile)).toEqual(retentionBytes);
   n.online(0); const beforePrefix = n.calls();
   const prefix = await succeed('owner-prefix-plan', ...n.args);
   expect(prefix).toMatchObject({ filesRemoved: 1, recordsRetained: 4, readiness: 'unverified' });

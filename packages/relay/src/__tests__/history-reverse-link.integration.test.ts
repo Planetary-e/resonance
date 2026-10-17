@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync, renameSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync, renameSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createHistoryOperatorTransport } from '../history-operator-transport.js';
@@ -14,7 +14,8 @@ import { historyCheckpointEnvelopeId } from '@resonance/core/history-checkpoint'
 import { createHistoryExchangeRequest, parseHistoryExchangeResponse } from '@resonance/core/history-exchange';
 import { createHistoryCompactionProposal } from '@resonance/core/history-compaction';
 import { createHistoryCompactionControlRequest, historyCompactionCertificateId } from '@resonance/core/history-compaction-control';
-import { collectHistoryCompactionCertificate, requestHistoryCompactionControl } from '../history-compaction-coordinator.js';
+import { collectHistoryCompactionCertificate, requestHistoryCompactionControl, retainHistoryCompactionCertificate } from '../history-compaction-coordinator.js';
+import { parseHistoryCompactionRetention } from '@resonance/core/history-compaction-retention';
 import { discoverHistoryCompactionFrontier } from '../history-frontier-discovery.js';
 import { HistoryRelayRouter } from '../history-relay-router.js';
 import { HISTORY_LINK_FRAME_TYPE } from '../history-relay-link.js';
@@ -161,6 +162,56 @@ it.each(['direct', 'bridge'] as const)('certifies a complete state checkpoint ov
   await waitFor(() => n.router.usage().operations === 0 && n.routers.every(r => r.usage().operations === 0) && (!n.bridgeRouter || n.bridgeRouter.usage().operations === 0));
   expect(n.router.usage().bytes).toBe(0); expect(n.routers.every(r => r.usage().bytes === 0)).toBe(true);
 }, 30000);
+
+it('recovers accepted admission spends after actual ancestor deletion and a subsequent lost-owner event over outbound links', async () => {
+  const n = await fixture(), genesisId = historyCheckpointEnvelopeId(n.genesis);
+  let ownerDirectory = n.options.directory, history = await openProtectedAdmissionSpendHistory(n.options);
+  cleanup.push(() => history.close()); await history.ready();
+  const accepted: Awaited<ReturnType<typeof n.row>>[] = [];
+  async function recover(number: number, compaction?: unknown) {
+    history.close(); rmSync(ownerDirectory, { recursive: true, force: true });
+    const options = { directory: join(n.directory, `generation-recovery-${number}`), encryptionKey: n.key, genesis: n.genesis,
+      protection: n.options.protection, agreementTransport: n.router.agreement, dataTransport: n.router.transfer,
+      provisionTransport: n.router.provision, compaction };
+    const review = await prepareAdmissionHistoryRecovery(options);
+    const recovery = await openAdmissionHistoryRecovery({ ...options, initialize: { review, approvedDigest: review.approvalDigest } }); cleanup.push(recovery.close);
+    for (let i = 0; i < 12 && !recovery.status().complete; i++) await recovery.advance();
+    expect(recovery.status().complete).toBe(true);
+    ownerDirectory = join(n.directory, `generation-owner-${number}`);
+    const preparation = await recovery.reviewRestore(ownerDirectory, n.policy);
+    history = await openProtectedAdmissionSpendHistory({ ...n.options, directory: ownerDirectory, initialize: true,
+      protection: { ...n.options.protection, initializeWriter: true, restore: { preparation, approvedDigest: preparation.review.approvalDigest } } });
+    await history.ready(); expect(history.read().root.generation).toBe(number);
+    for (const row of accepted) expect(history.get(row.spend)).toEqual(row);
+  }
+  for (let generation = 0; generation < 3; generation++) {
+    const row = await n.row(`accepted in generation ${generation}`); accepted.push(row); await history.write(row);
+    if (generation < 2) await recover(generation + 1);
+  }
+  await history.checkpoint(history.planCheckpoint().approvalDigest);
+  const certificate = await history.certifyCheckpoint(history.planCheckpointCertification().approvalDigest, { transport: n.router.compaction });
+  const receipts = await retainHistoryCompactionCertificate({ context: n.context, genesisId, certificate,
+    signingKey: n.owner, members: n.options.protection.members, transport: n.router.compactionControl });
+  const retention = parseHistoryCompactionRetention({ version: 1, kind: 'history-compaction-retention', certificate, receipts }, n.context, genesisId);
+  await waitFor(() => n.router.usage().operations === 0 && n.routers.every(r => r.usage().operations === 0));
+  let retired = 0;
+  for (let i = 0; i < n.services.length; i++) {
+    const service = n.services[i];
+    if (service.describe().latest.rootId !== certificate.proposal.rootId || !service.retainedCompactionCheckpoint(certificate.proposal.rootId)) continue;
+    const plan = service.planGenerationRetirement(retention); service.retireGenerations(retention, plan.approvalDigest); retired++;
+    expect(service.describe().generations).toBe(2);
+    expect(existsSync(join(n.directory, `history-${i}`, `successors-${genesisId.slice(7)}`))).toBe(false);
+  }
+  expect(retired).toBeGreaterThanOrEqual(4);
+  const tail = await n.row('accepted after physical ancestor retirement'); accepted.push(tail); await history.write(tail);
+  // Lose the live owner before discovering the retained checkpoint again. Only
+  // the original context, genesis and keys are used to retrieve its proof.
+  history.close(); rmSync(ownerDirectory, { recursive: true });
+  const discovered = await discoverHistoryCompactionFrontier({ context: n.context, genesisId, signingKey: n.owner,
+    members: n.options.protection.members, transport: n.router.frontier });
+  expect(discovered.certificate?.proposal).toEqual(certificate.proposal);
+  await recover(3, discovered.certificate); expect(accepted).toHaveLength(4);
+}, 120000);
 
 it('refuses unauthenticated history frames and an authenticated relay absent from the explicit pins', async () => {
   const n = await fixture(), before = n.services.map(s => s.describe());

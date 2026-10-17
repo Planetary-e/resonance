@@ -1,9 +1,10 @@
 import { afterEach, expect, it } from 'vitest';
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
-import { fork } from 'node:child_process';
+import { fork, execFile } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
 import { createHistoryFreeze, historyCheckpointEnvelopeId, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { createHistoryExchangeRequest, createHistoryExchangeResponse, parseHistoryExchangeResponse } from '@resonance/core/history-exchange';
@@ -12,7 +13,10 @@ import { createHistoryContinuationRoot, historyContinuationRootId, type HistoryC
 import { createHistoryProvisionRequest, parseHistoryProvisionReceipt } from '@resonance/core/history-provision';
 import { createHistoryCompactionProposal, parseHistoryCompactionCertificate } from '@resonance/core/history-compaction';
 import { createHistoryCompactionControlRequest, historyCompactionCertificateId, parseHistoryCompactionControlResponse } from '@resonance/core/history-compaction-control';
-import { collectHistoryCompactionCertificate, requestHistoryCompactionControl } from '../history-compaction-coordinator.js';
+import { collectHistoryCompactionCertificate, requestHistoryCompactionControl, retainHistoryCompactionCertificate } from '../history-compaction-coordinator.js';
+import { parseHistoryCompactionRetention } from '@resonance/core/history-compaction-retention';
+import { HISTORY_VOLUNTEER_FRONTIER_FILENAME } from '../history-volunteer-frontier.js';
+import { openStorageReservationAuthority, withStorageReservationAuthority } from '@resonance/core/storage-reservations';
 import { discoverHistoryCompactionFrontier } from '../history-frontier-discovery.js';
 import { openHistoryVolunteerService } from '../history-volunteer-service.js';
 import { listenHistoryAgreementReplica, exchangeHistoryProvision, exchangeHistoryCompactionControl } from '../history-agreement-exchange.js';
@@ -25,12 +29,15 @@ import { historyCheckpointFixture } from './fixtures/history-checkpoint-fixture.
 
 const cleanup: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
-async function fixture(maxGenerations = 65) {
+async function fixture(maxGenerations = 65, managed = false) {
   const f = historyCheckpointFixture(), directory = mkdtempSync(join(tmpdir(), 'history-volunteer-'));
   cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
+  const authority = managed ? openStorageReservationAuthority({ directory: join(directory, 'reservations'), mode: 'create-new', limitBytes: 1024 * 1024 * 1024 }) : undefined;
+  cleanup.push(() => authority?.close());
+  const owned = <T>(operation: () => T) => authority ? withStorageReservationAuthority(authority, operation) : operation();
   const options = (i: number) => ({ directory: join(directory, `replica-${i}`), localKey: f.localKey, context: f.context,
     signingKey: f.memberKeys[i], genesisId: historyCheckpointEnvelopeId(f.root), maxGenerations });
-  const services = f.context.members.map((_, i) => openHistoryVolunteerService({ ...options(i), initialize: f.root }));
+  const services = f.context.members.map((_, i) => owned(() => openHistoryVolunteerService({ ...options(i), initialize: f.root })));
   cleanup.push(() => services.forEach(s => s.close()));
   const listeners: Awaited<ReturnType<typeof listenHistoryAgreementReplica>>[] = [];
   for (let i = 0; i < 5; i++) {
@@ -76,9 +83,153 @@ async function fixture(maxGenerations = 65) {
       const r = request(root, i); parseHistoryProvisionReceipt(await exchangeHistoryProvision(member, r, new AbortController().signal), r);
     }));
   }
-  return { ...f, directory, options, services, listeners, members, owner, append, freeze, decide, request, provision,
-    reopen(i: number) { services[i].close(); services[i] = openHistoryVolunteerService(options(i)); return services[i]; } };
+  return { ...f, directory, options, services, listeners, members, owner, append, freeze, decide, request, provision, authority,
+    reopen(i: number) { services[i].close(); services[i] = owned(() => openHistoryVolunteerService(options(i))); return services[i]; } };
 }
+
+async function certifiedGeneration(n: Awaited<ReturnType<typeof fixture>>, root: HistoryCheckpointEnvelope) {
+  const blocks = await n.append(root), checkpoint = n.next(blocks[1], 'complete opaque owner state', 'checkpoint');
+  const rootId = historyCheckpointEnvelopeId(root), genesisId = historyCheckpointEnvelopeId(n.root), issuedAt = Date.now();
+  for (let i = 0; i < 5; i++) {
+    const request = createHistoryExchangeRequest({ action: 'append', rootId, generation: root.generation, replica: n.context.members[i],
+      challenge: randomBytes(32).toString('base64url'), issuedAt, expiresAt: issuedAt + 30000,
+      sequence: checkpoint.sequence, envelopeId: historyCheckpointEnvelopeId(checkpoint) }, n.context, n.owner.signingKey);
+    n.services[i].checkpoint({ request, envelope: checkpoint });
+  }
+  const proposal = createHistoryCompactionProposal({ genesisId, rootId, checkpoint, issuedAt, expiresAt: issuedAt + 30000 }, n.context, n.owner.signingKey);
+  const certificate = await collectHistoryCompactionCertificate({ context: n.context, genesisId, proposal, checkpoint, members: n.members });
+  const receipts = await retainHistoryCompactionCertificate({ context: n.context, genesisId, certificate,
+    signingKey: n.owner.signingKey, members: n.members });
+  // The fifth need not have answered before collection returns. Enroll the same
+  // already-certified local checkpoint before this test maintains every service.
+  for (const service of n.services) service.retainCompactionCheckpoint(certificate, service.reviewDigest());
+  const retention = parseHistoryCompactionRetention({ version: 1, kind: 'history-compaction-retention', certificate, receipts }, n.context, genesisId);
+  return { blocks: [...blocks, checkpoint], certificate, retention };
+}
+
+it('retires ancestors through five actual generations within a three-generation limit, retaining genesis and all current barriers', async () => {
+  const n = await fixture(3), genesisId = historyCheckpointEnvelopeId(n.root);
+  let root: HistoryCheckpointEnvelope = n.root;
+  const oldRoots: string[] = [];
+  for (let generation = 0; generation < 5; generation++) {
+    const current = await certifiedGeneration(n, root); let child: HistoryContinuationRoot | undefined;
+    if (generation === 2) {
+      child = await n.decide(current.blocks);
+      await expect(n.provision(child)).rejects.toThrow(); // Capacity refusal keeps the chosen successor recoverable.
+    }
+    if (generation >= 2) {
+      const heads = n.services.map(service => service.describe().latest);
+      for (let i = 0; i < 5; i++) {
+        const service = n.services[i], review = service.planGenerationRetirement(current.retention);
+        expect(review.retiredDirectories).toBeGreaterThan(0); expect(review.bytesReclaimed).toBeGreaterThan(0);
+        expect(() => service.planGenerationRetirement({ ...current.retention, receipts: current.retention.receipts.slice(0, 3) })).toThrow();
+        expect(() => service.retireGenerations(current.retention, 'stale')).toThrow('review');
+        service.retireGenerations(current.retention, review.approvalDigest);
+        expect(n.reopen(i).describe()).toMatchObject({ generations: 2, latest: heads[i] });
+        expect(n.services[i].health().generations).toBe(2);
+        expect(n.services[i].retainedCompactionCheckpoint(historyCheckpointEnvelopeId(root))).toEqual(current.certificate);
+        expect(readdirSync(n.options(i).directory).filter(name => name.startsWith('successors-'))).toHaveLength(2);
+      }
+      for (const rootId of oldRoots) {
+        const issuedAt = Date.now(), request = createHistoryExchangeRequest({ action: 'head', rootId, generation: oldRoots.indexOf(rootId),
+          replica: n.context.members[0], challenge: randomBytes(32).toString('base64url'), issuedAt, expiresAt: issuedAt + 30000,
+          sequence: 0, envelopeId: null }, n.context, n.owner.signingKey);
+        expect(() => n.services[0].checkpoint({ request, envelope: null })).toThrow('not enrolled');
+      }
+      expect((await discoverHistoryCompactionFrontier({ context: n.context, genesisId, signingKey: n.owner.signingKey,
+        members: n.members })).certificate).toEqual(current.certificate);
+    }
+    if (generation < 4) { oldRoots.push(historyCheckpointEnvelopeId(root)); child ??= await n.decide(current.blocks); await n.provision(child); root = child; }
+  }
+  const path = join(n.options(0).directory, HISTORY_VOLUNTEER_FRONTIER_FILENAME), saved = readFileSync(path);
+  n.services[0].close(); writeFileSync(path, '{}'); expect(() => n.reopen(0)).toThrow(); expect(readFileSync(path, 'utf8')).toBe('{}');
+  rmSync(path); expect(() => n.reopen(0)).toThrow('successor journal'); // No fallback to genesis after marker loss.
+  const external = join(n.directory, 'saved-frontier.json'); writeFileSync(external, saved); linkSync(external, path);
+  expect(() => n.reopen(0)).toThrow('ordinary file'); expect(readFileSync(external)).toEqual(saved); rmSync(path);
+  writeFileSync(path, saved); expect(n.reopen(0).describe().latest.generation).toBe(4);
+}, 120000);
+
+it('reviews and retires stopped-volunteer generations through the actual CLI without remote readiness', async () => {
+  const n = await fixture(); let root: HistoryCheckpointEnvelope = n.root;
+  for (let i = 0; i < 2; i++) { const current = await certifiedGeneration(n, root); root = await n.decide(current.blocks); await n.provision(root as HistoryContinuationRoot); }
+  const current = await certifiedGeneration(n, root), enrollment = join(n.directory, 'enrollment.json'), member = join(n.directory, 'member.json');
+  const key = join(n.directory, 'member.hex'), evidence = join(n.directory, 'retention.json');
+  writeFileSync(enrollment, JSON.stringify({ version: 1, kind: 'admission-history-enrollment', context: n.context, root: n.root }));
+  writeFileSync(member, JSON.stringify({ publicKey: Buffer.from(n.memberKeys[0].publicKey).toString('base64url'), secretKey: Buffer.from(n.memberKeys[0].secretKey).toString('base64url') }), { mode: 0o600 });
+  writeFileSync(key, n.localKey.toString('hex'), { mode: 0o600 }); writeFileSync(evidence, JSON.stringify(current.retention)); n.services[0].close();
+  const script = fileURLToPath(new URL('../../../../scripts/admission-history.ts', import.meta.url)), args = [enrollment, member, key, n.options(0).directory, evidence];
+  const command = (...input: string[]) => new Promise<{ code: number | string; stdout: string; stderr: string }>(resolve => {
+    execFile(process.execPath, ['--import', 'tsx', script, ...input], { timeout: 30000 }, (error, stdout, stderr) => resolve({ code: error?.code ?? 0, stdout, stderr }));
+  });
+  const plan = await command('replica-generations-plan', ...args); expect(plan.code).toBe(0); expect(plan.stderr).toBe('');
+  const review = JSON.parse(plan.stdout); expect(review).toMatchObject({ generation: 2, readiness: 'unverified', retiredDirectories: 1 });
+  expect((await command('replica-generations-retire', '--approve', 'wrong', ...args)).code).not.toBe(0);
+  const applied = await command('replica-generations-retire', '--approve', review.approvalDigest, ...args);
+  expect(applied.stderr).toBe(''); expect(applied.code).toBe(0); expect(JSON.parse(applied.stdout)).toMatchObject({ result: 'history-generations-retired', readiness: 'unverified' });
+  expect(n.reopen(0).describe().generations).toBe(2);
+}, 60000);
+
+it('funds the authoritative frontier before retirement and preserves lifetime reservations after deleting ancestors', async () => {
+  const n = await fixture(65, true); let root: HistoryCheckpointEnvelope = n.root;
+  for (let i = 0; i < 2; i++) { const current = await certifiedGeneration(n, root); root = await n.decide(current.blocks); await n.provision(root as HistoryContinuationRoot); }
+  const current = await certifiedGeneration(n, root), authority = n.authority!, used = authority.status().reservedBytes;
+  authority.applyLimit(used, authority.reviewLimit(used).approvalDigest);
+  const before = authority.status(), heads = n.services.map(s => s.describe().latest);
+  expect(() => n.services[0].retireGenerations(current.retention, n.services[0].planGenerationRetirement(current.retention).approvalDigest)).toThrow('exhausted');
+  expect(existsSync(join(n.options(0).directory, HISTORY_VOLUNTEER_FRONTIER_FILENAME))).toBe(false);
+  expect(n.reopen(0).describe().generations).toBe(3); expect(authority.status()).toEqual(before);
+  const limit = used + 2 * 128 * 1024 + 8192; authority.applyLimit(limit, authority.reviewLimit(limit).approvalDigest);
+  n.services[0].retireGenerations(current.retention, n.services[0].planGenerationRetirement(current.retention).approvalDigest);
+  const charged = authority.status(); expect(charged).toMatchObject({ availableBytes: 0, reservedBytes: limit, components: before.components + 1 });
+  expect(n.reopen(0).describe()).toMatchObject({ generations: 2, latest: heads[0] }); expect(authority.status()).toEqual(charged);
+  const child = await n.decide(current.blocks); await expect(n.provision(child)).rejects.toThrow();
+  expect(n.services.every(s => s.describe().latest.generation === 2)).toBe(true);
+  expect(authority.status()).toEqual(charged);
+}, 60000);
+
+it.each(['before-lock-write', 'before-journal-write', 'before-commit', 'after-commit', 'before-unlink', 'after-unlink', 'after-directory', 'durable'] as const)(
+  'preserves or resumes ancestor retirement after actual SIGKILL at %s', async boundary => {
+    const n = await fixture(); let root: HistoryCheckpointEnvelope = n.root;
+    for (let i = 0; i < 2; i++) { const current = await certifiedGeneration(n, root); root = await n.decide(current.blocks); await n.provision(root as HistoryContinuationRoot); }
+    const current = await certifiedGeneration(n, root), before = n.services[0].describe().latest;
+    const genesisPath = join(n.options(0).directory, 'genesis', 'history-manifest.json'), genesis = readFileSync(genesisPath);
+    n.services[0].close();
+    const child = fork(new URL('./fixtures/history-generation-retirement-crash.ts', import.meta.url), [],
+      { execArgv: ['--import', 'tsx'], stdio: ['ignore', 'ignore', 'inherit', 'ipc'] });
+    const exited = once(child, 'exit'), messages: unknown[] = []; child.on('message', value => messages.push(value));
+    cleanup.push(async () => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); await exited; });
+    const { signingKey, localKey, ...options } = n.options(0);
+    child.send({ options, localKey: localKey.toString('hex'), member: { publicKey: Buffer.from(signingKey.publicKey).toString('hex'),
+      secretKey: Buffer.from(signingKey.secretKey).toString('hex') }, retention: current.retention, boundary });
+    await exited; expect(messages).toEqual(['ready']); expect(child.signalCode).toBe('SIGKILL');
+    if (boundary === 'after-commit') {
+      if (root.kind !== 'continuation') throw new Error('Expected continuation');
+      const base = n.options(0).directory, obsolete = join(base, `successors-${historyCheckpointEnvelopeId(n.root).slice(7)}`);
+      const block = join(base, `successors-${root.proposal.rootId.slice(7)}`, `generation-${historyCheckpointEnvelopeId(root).slice(7)}`,
+        `${current.certificate.proposal.envelopeId.slice(7)}.block`), saved = readFileSync(block), names = readdirSync(obsolete);
+      writeFileSync(block, '{}'); expect(() => n.reopen(0)).toThrow(); expect(readdirSync(obsolete)).toEqual(names); writeFileSync(block, saved);
+      const unexpected = join(obsolete, 'keep-for-inspection.txt'); writeFileSync(unexpected, 'preserve');
+      expect(() => n.reopen(0)).toThrow('Unexpected retired'); expect(readFileSync(unexpected, 'utf8')).toBe('preserve');
+      expect(readdirSync(obsolete)).toContain(names[0]); rmSync(unexpected);
+    }
+    const committed = !['before-lock-write', 'before-journal-write', 'before-commit'].includes(boundary); let service = n.reopen(0);
+    expect(service.describe()).toMatchObject({ generations: committed ? 2 : 3, latest: before });
+    expect(readFileSync(genesisPath)).toEqual(genesis);
+    expect(service.retainedCompactionCheckpoint(historyCheckpointEnvelopeId(root))).toEqual(current.certificate);
+    if (boundary === 'before-lock-write') {
+      // Existing shared lock protocol cannot infer a PID from an interrupted
+      // empty claim. It preserves all history and requires inspection. Only the
+      // test knows which process created this file and has observed its death.
+      const lock = join(options.directory, `${HISTORY_VOLUNTEER_FRONTIER_FILENAME}.lock`);
+      expect(readFileSync(lock)).toHaveLength(0);
+      expect(() => service.retireGenerations(current.retention, service.planGenerationRetirement(current.retention).approvalDigest)).toThrow();
+      expect(readFileSync(genesisPath)).toEqual(genesis); service.close(); rmSync(lock); service = n.reopen(0);
+    }
+    if (!committed) service.retireGenerations(current.retention, service.planGenerationRetirement(current.retention).approvalDigest);
+    expect(n.reopen(0).describe()).toMatchObject({ generations: 2, latest: before });
+    const childRoot = await n.decide(current.blocks); await n.provision(childRoot);
+    expect(n.reopen(0).describe().latest.generation).toBe(3);
+  }, 60000);
 
 it('endorses retained checkpoints under independent genesis pins while preserving suffixes and frozen ancestors', async () => {
   const n = await fixture(), genesisId = historyCheckpointEnvelopeId(n.root), blocks = await n.append(n.root);

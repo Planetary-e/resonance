@@ -28,7 +28,7 @@ try {
   console.error('  owner-ready owner-config.json policy.json owner-storage.hex owner-directory');
   console.error('  owner-checkpoint-plan|owner-checkpoint [--approve <digest>] owner-config.json policy.json owner-storage.hex owner-directory');
   console.error('  owner-checkpoint-certification-plan|owner-checkpoint-certify [--approve <digest>] owner-config.json policy.json owner-storage.hex owner-directory new-certificate.json');
-  console.error('  owner-checkpoint-retention-plan|owner-checkpoint-retain [--approve <digest>] owner-config.json enrollment.json certificate.json');
+  console.error('  owner-checkpoint-retention-plan|owner-checkpoint-retain [--approve <digest>] owner-config.json enrollment.json certificate.json [new-retention-evidence.json]');
   console.error('  owner-checkpoint-discover owner-config.json enrollment.json new-certificate.json');
   console.error('  owner-prefix-plan|owner-prefix-retire [--approve <digest>] owner-config.json policy.json owner-storage.hex owner-directory');
   console.error('  owner-initial-readiness-plan|owner-initial-ready [--approve <digest>] owner-config.json enrollment.json policy.json owner-storage.hex owner-directory');
@@ -44,6 +44,7 @@ try {
   console.error('  replica-resume-plan|replica-resume [--approve <digest>] enrollment.json member-private.json member-storage.hex replica-directory');
   console.error('  replica-serve enrollment.json member-private.json member-storage.hex replica-directory <port>');
   console.error('  replica-prefix-plan|replica-prefix-retire [--approve <digest>] enrollment.json member-private.json member-storage.hex replica-directory <generation-root-id>');
+  console.error('  replica-generations-plan|replica-generations-retire [--approve <digest>] enrollment.json member-private.json member-storage.hex replica-directory retention-evidence.json');
   process.exitCode = 1;
 } finally {
   process.removeListener('SIGINT', cancel); process.removeListener('SIGTERM', cancel);

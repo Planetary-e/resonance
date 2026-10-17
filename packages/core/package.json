@@ -15,6 +15,7 @@
     "./history-compaction": "./src/history-compaction.ts",
     "./history-compaction-control": "./src/history-compaction-control.ts",
     "./history-frontier": "./src/history-frontier.ts",
+    "./history-compaction-retention": "./src/history-compaction-retention.ts",
     "./history-compacted-chain": "./src/history-compacted-chain.ts",
     "./history-successor": "./src/history-successor.ts",
     "./history-agreement": "./src/history-agreement.ts",

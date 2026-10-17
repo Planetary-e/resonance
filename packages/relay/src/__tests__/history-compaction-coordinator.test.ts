@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { historyCheckpointEnvelopeId, historyDigest } from '@resonance/core/history-checkpoint';
 import { createHistoryCompactionProposal, createHistoryCompactionVote } from '@resonance/core/history-compaction';
 import { createHistoryCompactionControlRequest, createHistoryCompactionControlResponse } from '@resonance/core/history-compaction-control';
+import { parseHistoryCompactionRetention } from '@resonance/core/history-compaction-retention';
 import { historyCheckpointFixture } from './fixtures/history-checkpoint-fixture.js';
 import { collectHistoryCompactionCertificate, retainHistoryCompactionCertificate, requestHistoryCompactionControl } from '../history-compaction-coordinator.js';
 import type { HistoryCompactionTransport, HistoryCompactionControlTransport } from '../history-agreement-exchange.js';
@@ -163,4 +164,30 @@ it.each(['retention', 'collection'] as const)('preserves the %s deadline when lo
       proposal: f.proposal, members: f.members, timeoutMs: 500, transport });
   await expect(operation).rejects.toThrow('timed out');
   expect(signals).toHaveLength(1); expect(signals.every(signal => signal.aborted)).toBe(true);
+});
+
+it('retains verifiable four-copy proof evidence after the original retention requests expire', async () => {
+  const f = retentionFixture(), receipts = await retainHistoryCompactionCertificate({ ...f.options, transport: f.reply });
+  const raw = { version: 1, kind: 'history-compaction-retention', certificate: f.certificate, receipts: [...receipts].reverse() };
+  vi.spyOn(Date, 'now').mockReturnValue(receipts[0].request.expiresAt + 10000);
+  const evidence = parseHistoryCompactionRetention(raw, f.context, f.genesisId);
+  expect(evidence.certificate).toEqual(f.certificate); expect(evidence.receipts.map(r => r.request.replica)).toEqual(receipts.map(r => r.request.replica).sort());
+  expect(() => parseHistoryCompactionRetention(raw, f.context, historyDigest('wrong genesis'))).toThrow();
+  for (const change of [{ extra: true }, { kind: 'other' }, { receipts: receipts.slice(0, 3) },
+    { receipts: [...receipts.slice(0, 3), receipts[0]] },
+    { certificate: { ...f.certificate, votes: f.certificate.votes.slice(0, 3) } },
+    { receipts: [{ ...receipts[0], signature: 'forged' }, ...receipts.slice(1)] },
+    { receipts: [{ ...receipts[0], certificate: null }, ...receipts.slice(1)] }]) {
+    expect(() => parseHistoryCompactionRetention({ ...raw, ...change }, f.context, f.genesisId)).toThrow();
+  }
+});
+it('does not replace proof retention with read observations, endorsements or mixed request attempts', async () => {
+  const f = retentionFixture(), receipts = await retainHistoryCompactionCertificate({ ...f.options, transport: f.reply });
+  const other = await retainHistoryCompactionCertificate({ ...f.options, transport: f.reply });
+  const raw = { version: 1, kind: 'history-compaction-retention', certificate: f.certificate, receipts };
+  expect(() => parseHistoryCompactionRetention({ ...raw, receipts: [...receipts.slice(0, 3), other[3]] }, f.context, f.genesisId)).toThrow('same owner request');
+  expect(() => parseHistoryCompactionRetention({ ...raw, receipts: f.certificate.votes }, f.context, f.genesisId)).toThrow();
+  const request = createHistoryCompactionControlRequest({ ...receipts[0].request, action: 'read', certificateId: null }, f.context, f.owner);
+  const read = createHistoryCompactionControlResponse({ request, certificate: null }, receipts[0].head, f.certificate, f.context, f.memberKeys[0]);
+  expect(() => parseHistoryCompactionRetention({ ...raw, receipts: [read, ...receipts.slice(1)] }, f.context, f.genesisId)).toThrow('durable retention');
 });

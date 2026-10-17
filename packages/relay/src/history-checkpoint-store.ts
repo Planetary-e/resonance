@@ -70,6 +70,9 @@ export interface HistoryCheckpointStoreOptions {
    * before retiring ancestors. Never inferred from missing files or peer discovery.
    * Cannot initialize a store, replace its manifest or waive retained barriers. */
   retainedFrontier?: { genesisId: string; certificate: unknown };
+  /** Locally measured retained genesis footprint when the service keeps it.
+   * Counts toward the existing aggregate ancestry limit, never storage credit. */
+  retainedAncestorBytes?: number;
   /** Includes two maximum manifest copies plus all immutable encrypted blocks. */
   maxBytes?: number;
   maxBlocks?: number;
@@ -166,6 +169,8 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
   const { directory, replica, rootId, generation } = options;
   const parent = options.parent;
   const frontierPins = options.retainedFrontier;
+  if (options.retainedAncestorBytes !== undefined && (!frontierPins || !Number.isSafeInteger(options.retainedAncestorBytes)
+    || options.retainedAncestorBytes < 0 || options.retainedAncestorBytes > MAX_ANCESTRY_BYTES)) throw new Error('Invalid retained ancestry accounting');
   if (frontierPins !== undefined && (!exactWitnessFields(frontierPins, ['genesisId', 'certificate'])
     || generation === 0 || parent || options.initialize || preparing)) throw new Error('Retained history frontier only reopens an existing non-genesis store');
   const frontier = frontierPins === undefined ? undefined
@@ -287,7 +292,7 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
         // Authentication of the independently pinned full-state certificate and
         // the actual retained checkpoint replaces traversal below this boundary.
         // Validation below finishes before any orphan cleanup or caller access.
-        ancestryDepth = 0; ancestorBytes = 0; return;
+        ancestryDepth = 0; ancestorBytes = options.retainedAncestorBytes ?? 0; return;
       }
       if (root.kind !== 'continuation' || !parent) throw new Error('Continuation requires its retained activated predecessor');
       const ancestry = parent.requireContinuation(root, replica);
