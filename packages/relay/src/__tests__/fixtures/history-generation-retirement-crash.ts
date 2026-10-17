@@ -17,10 +17,11 @@ process.once('message', (input: any) => {
         return fd;
       }) as typeof fs.openSync;
       fs.writeSync = ((...args: Parameters<typeof fs.writeSync>) => {
-        if (input.boundary === 'before-lock-write' || input.boundary === 'before-journal-write' && args[0] === journalFile) process.kill(process.pid, 'SIGKILL');
+        if (input.boundary === 'before-journal-write' && args[0] === journalFile) process.kill(process.pid, 'SIGKILL');
         return Reflect.apply(write, fs, args);
       }) as typeof fs.writeSync;
       fs.renameSync = (from, to) => {
+        if (String(to).endsWith(`${HISTORY_VOLUNTEER_FRONTIER_FILENAME}.lock`) && input.boundary === 'before-lock-publication') process.kill(process.pid, 'SIGKILL');
         const selected = String(to).endsWith(HISTORY_VOLUNTEER_FRONTIER_FILENAME);
         if (selected && input.boundary === 'before-commit') process.kill(process.pid, 'SIGKILL');
         rename(from, to);
@@ -34,7 +35,7 @@ process.once('message', (input: any) => {
       };
       fs.rmdirSync = ((...args: Parameters<typeof fs.rmdirSync>) => {
         const result = Reflect.apply(removeDirectory, fs, args);
-        if (input.boundary === 'after-directory') process.kill(process.pid, 'SIGKILL');
+        if (input.boundary === 'after-directory' && /[/\\](?:successors-|generation-|\.creating-)[a-f0-9]{64}$/.test(String(args[0]))) process.kill(process.pid, 'SIGKILL');
         return result;
       }) as typeof fs.rmdirSync;
       syncBuiltinESMExports(); service.retireGenerations(input.retention, plan.approvalDigest);

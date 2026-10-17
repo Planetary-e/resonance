@@ -43,6 +43,30 @@ it('keeps existing controls usable while the real owner grows its committed allo
   n.authority.reserve({ path: join(n.directory, 'new-data'), component: 'test', scope: 'file', maximumBytes: 100 });
   lease.assertWritable(); expect(n.authority.status().availableBytes).toBe(0);
 });
+it.each(['legacy-file', 'directory', 'marker'] as const)('keeps funded controls usable when a runtime %s disappears during validation', kind => {
+  const n = fixture(), view = n.open(), lease = view.reserve(n.controls[1]), lock = n.controls[0].path;
+  const before = readFileSync(join(n.ledger, 'reservations.json'));
+  let release: () => void;
+  if (kind === 'legacy-file') { writeFileSync(lock, JSON.stringify({ pid: process.pid })); release = () => rmSync(lock); }
+  else { release = withStorageReservationAuthority(n.authority, () => acquireRelayRuntime(n.data)); cleanup.push(release); }
+  let interrupted = false;
+  vi.mocked(lstatSync).mockImplementation(((selected: string, options: unknown) => {
+    const result = actual.lstatSync(selected, options as any), name = String(selected);
+    if (!interrupted && (kind === 'marker' ? name.startsWith(lock + '/') || name.startsWith(lock + '\\') : name === lock)) {
+      interrupted = true; release();
+    }
+    return result;
+  }) as typeof lstatSync);
+  lease.assertWritable(); expect(interrupted).toBe(true); expect(existsSync(lock)).toBe(false);
+  withStorageReservationAuthority(view, () => beginRelayMaintenance(n.data));
+  expect(readRelayMaintenance(n.data)).not.toBeNull(); expect(readFileSync(join(n.ledger, 'reservations.json'))).toEqual(before);
+});
+it('does not reinterpret a dangling ownership alias as a released control', () => {
+  const n = fixture(), view = n.open(), lease = view.reserve(n.controls[1]), lock = n.controls[0].path;
+  symlinkSync(join(n.data, 'missing'), lock, process.platform === 'win32' ? 'junction' : 'dir');
+  expect(() => lease.assertWritable()).toThrow(); expect(actual.lstatSync(lock).isSymbolicLink()).toBe(true);
+  expect(existsSync(n.controls[1].path)).toBe(false);
+});
 it('refuses wrong, missing, corrupt or insufficient committed metadata without creating control output', () => {
   const n = fixture(), path = join(n.ledger, 'reservations.json'), before = readFileSync(path); n.authority.close();
   expect(() => openReservedStorageControl({ ...n.options, authorityId: '0'.repeat(32) })).toThrow(/independently retained/);

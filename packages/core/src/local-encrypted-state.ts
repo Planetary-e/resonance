@@ -1,11 +1,13 @@
 /** Bounded encrypted snapshots with one writer and atomic, flushed replacement. */
 import {
-  closeSync, constants, existsSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync,
-  renameSync, rmSync, statSync, writeSync, type Stats,
+  closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync,
+  renameSync, rmSync, statSync, writeSync,
 } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { reserveManagedStorage, type StorageReservationLease } from './storage-reservation-context.js';
+import { acquireLocalDirectoryOwnership } from './local-state-owner.js';
+export { inspectLocalStateOwnership, isLocalStateOwnershipName } from './local-state-owner.js';
 
 export function openEncryptedLocalState<T>(options: {
   path: string; key: Uint8Array; domain: string; maxBytes: number;
@@ -123,64 +125,15 @@ export function openEncryptedLocalState<T>(options: {
   };
 }
 
-/** Single-host process ownership for a local resource. A stale claim is reclaimed
- * only when its PID is known dead. Interrupted recovery remains fail-closed.
+/** Single-host process ownership for a local resource. New claims publish their
+ * complete owner atomically. Old incomplete file claims still require inspection.
  * The caller creates the parent directory and holds this claim across all writes. */
 export function acquireLocalStateLock(path: string, includedReservation?: StorageReservationLease): () => void {
   // Snapshot/diagnostic callers already include this peak. Standalone owners
   // reserve it separately, before opening either ownership file.
   const reservation = includedReservation ?? reserveManagedStorage({ path: `${path}.lock`, component: 'local-state-lock', scope: 'file', maximumBytes: 8192 });
   reservation?.assertWritable();
-  const lock = `${path}.lock`;
-  const recovery = `${path}.recovery`;
-  const owner = JSON.stringify({ pid: process.pid, token: randomBytes(16).toString('hex') });
-  const claim = () => {
-    const fd = openSync(lock, 'wx', 0o600);
-    try { writeAll(fd, Buffer.from(owner)); fsyncSync(fd); }
-    catch (error) { rmSync(lock, { force: true }); throw error; }
-    finally { closeSync(fd); }
-  };
-  if (existsSync(recovery)) throw new Error('Outbox lock recovery is active or was interrupted; inspect the recovery file before reopening');
-  try { claim(); }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-    // Serialize stale-lock recovery. An interrupted recovery fails closed instead of racing a live writer.
-    let guard: number;
-    try { guard = openSync(recovery, 'wx', 0o600); }
-    catch { throw new Error('Outbox lock recovery is already active or needs inspection'); }
-    try {
-      if (existsSync(lock)) {
-        const previous = JSON.parse(readLockOwner(lock));
-        if (!Number.isSafeInteger(previous.pid) || previous.pid < 1) throw new Error('Invalid outbox owner lock');
-        let dead = false;
-        try { process.kill(previous.pid, 0); }
-        catch (cause) { dead = (cause as NodeJS.ErrnoException).code === 'ESRCH'; }
-        if (!dead) throw new Error('Encrypted outbox is already open');
-        rmSync(lock);
-      }
-      claim();
-    } finally { closeSync(guard); rmSync(recovery, { force: true }); }
-  }
-  return () => {
-    if (existsSync(lock) && readLockOwner(lock) === owner) rmSync(lock);
-  };
-}
-
-function readLockOwner(path: string): string {
-  const before = lstatSync(path);
-  const ordinary = (stat: Stats) => stat.isFile() && !stat.isSymbolicLink() && stat.nlink === 1 && stat.size <= 4096;
-  if (!ordinary(before)) throw new Error('Local owner lock must be a bounded ordinary file');
-  const fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK | (process.platform === 'win32' ? 0 : constants.O_NOFOLLOW));
-  try {
-    const stat = fstatSync(fd);
-    if (!ordinary(stat) || stat.dev !== before.dev || stat.ino !== before.ino) throw new Error('Local owner lock changed');
-    const bytes = Buffer.alloc(4097); let used = 0;
-    while (used < bytes.length) { const count = readSync(fd, bytes, used, bytes.length - used, null); if (!count) break; used += count; }
-    const after = fstatSync(fd), named = lstatSync(path);
-    if (used !== stat.size || used > 4096 || !ordinary(after) || !ordinary(named) || stat.size !== after.size
-      || stat.mtimeMs !== after.mtimeMs || stat.ctimeMs !== after.ctimeMs || named.dev !== stat.dev || named.ino !== stat.ino) throw new Error('Local owner lock changed');
-    return bytes.subarray(0, used).toString('utf8');
-  } finally { closeSync(fd); }
+  return acquireLocalDirectoryOwnership(path);
 }
 
 function writeAll(fd: number, bytes: Buffer): void {

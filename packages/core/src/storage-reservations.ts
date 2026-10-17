@@ -9,7 +9,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:pat
 import { createHash, randomBytes } from 'node:crypto';
 import { inventoryStorageAdoption, type StorageAdoptionTarget, type StorageAdoptionBounds } from './storage-adoption-inventory.js';
 import { reviewAbsentStorageScopes } from './storage-new-scopes.js';
-import { acquireLocalStateLock } from './local-encrypted-state.js';
+import { acquireLocalStateLock, inspectLocalStateOwnership, isLocalStateOwnershipName } from './local-encrypted-state.js';
 import { assertNoStorageReservationContext, type StorageReservationLease, type StorageReservationRequest } from './storage-reservation-context.js';
 
 export const STORAGE_RESERVATION_MANIFEST_BYTES = 1024 * 1024;
@@ -26,11 +26,19 @@ function present(path: string) {
 function canonical(path: string) {
   if (typeof path !== 'string' || !isAbsolute(path) || path.length > 4096 || /[\x00-\x1f\x7f]/.test(path)) throw new Error('Storage reservation needs a bounded absolute path');
   let ancestor = resolve(path); const missing: string[] = [];
-  while (!present(ancestor)) {
+  for (;;) {
+    if (present(ancestor)) {
+      try { return resolve(realpathSync(ancestor), ...missing); }
+      catch (error) {
+        // A runtime control may be released between observation and resolution.
+        // Walk from its parent only after confirming absence. In particular, a
+        // dangling symlink still exists and must never become an absent scope.
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT' || present(ancestor)) throw error;
+      }
+    }
     if (missing.length >= 64 || dirname(ancestor) === ancestor) throw new Error('Storage reservation path cannot be resolved');
     missing.unshift(basename(ancestor)); ancestor = dirname(ancestor);
   }
-  return resolve(realpathSync(ancestor), ...missing);
 }
 function regular(stat: Stats, maximum: number) {
   if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || stat.size > maximum) throw new Error('Storage reservation metadata must be bounded ordinary files');
@@ -105,8 +113,20 @@ function validate(value: unknown, directory: string, resolveRecordedPaths = true
 }
 
 function assertReservationTarget(request: StorageReservationRequest) {
-  const stat = present(request.path);
-  if (stat && (stat.isSymbolicLink() || (request.scope === 'file' ? !stat.isFile() || stat.nlink !== 1 : !stat.isDirectory()))) throw new Error('Reserved component path is not an ordinary unaliased target');
+  for (let attempt = 0; ; attempt++) {
+    const stat = present(request.path);
+    // The stable legacy allocation key still names one bounded ownership control.
+    // A read-only control view can observe an ordinary owner release mid-scan.
+    if (stat?.isDirectory() && request.component === 'local-state-lock' && request.scope === 'file') {
+      try { inspectLocalStateOwnership(request.path); return; }
+      catch (error) {
+        if (attempt === 2 || (error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        continue;
+      }
+    }
+    if (stat && (stat.isSymbolicLink() || (request.scope === 'file' ? !stat.isFile() || stat.nlink !== 1 : !stat.isDirectory()))) throw new Error('Reserved component path is not an ordinary unaliased target');
+    return;
+  }
 }
 function reservationLease(request: StorageReservationRequest, selected: string, usable: () => void, authorityDirectory: string): StorageReservationLease {
   return { assertWritable(output) {
@@ -152,6 +172,7 @@ export function openStorageReservationAuthority(options: { directory: string; mo
   const entries = opendirSync(directory);
   try {
     for (let entry = entries.readSync(); entry; entry = entries.readSync()) {
+      if (isLocalStateOwnershipName('writer', entry.name)) { inspectLocalStateOwnership(join(directory, entry.name)); continue; }
       if (!allowed.has(entry.name)) throw new Error('Unexpected storage authority metadata; retain it for inspection');
       regular(lstatSync(join(directory, entry.name)), entry.name.startsWith('reservations.json') ? STORAGE_RESERVATION_MANIFEST_BYTES : 4096);
     }
@@ -166,9 +187,10 @@ export function openStorageReservationAuthority(options: { directory: string; mo
       if (expectedSignature && signature(lstatSync(path)) !== expectedSignature) throw new Error('Storage authority metadata changed; reopen without resetting reservations');
     } catch (error) { failed = true; throw error; }
   }
-  function assertAdopted(request: Pick<StorageReservationRequest, 'path' | 'scope'>) {
+  function assertAdopted(request: Pick<StorageReservationRequest, 'path' | 'scope' | 'component'>) {
     if (!requireAdoptedScopes) return;
-    if (!state.adoptions.some(entry => entry.scope === 'directory' ? inside(entry.path, request.path) && (entry.path !== request.path || request.scope === 'directory')
+    if (!state.adoptions.some(entry => entry.scope === 'directory' ? inside(entry.path, request.path) && (entry.path !== request.path || request.scope === 'directory'
+      || request.component === 'local-state-lock')
       : request.scope === 'file' && entry.path === request.path)) throw new Error('Storage output has no reviewed existing-file adoption for its scope');
   }
   function commit(next: State) {

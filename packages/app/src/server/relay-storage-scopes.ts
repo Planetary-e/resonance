@@ -5,6 +5,7 @@ import { lstatSync, opendirSync, realpathSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import type { StorageAdoptionTarget } from '@resonance/core/storage-reservations';
+import { inspectLocalStateOwnership } from '@resonance/core/local-state';
 import { relayStorageDirectories, relayStorageOutputFiles } from './history-storage.js';
 import { relayStorageRegistryPath } from './history-storage-registry.js';
 import { relayServiceOutputPaths } from './relay-supervisor.js';
@@ -51,8 +52,10 @@ export function collectDesktopRelayStorageScopes(config: RelayConfig, dataDirect
     if (previous && previous.scope !== scope) throw new Error('Conflicting new desktop storage scopes');
     absent.set(target, { path: target, scope }); checkCount();
   }
-  function family(path: string, required: boolean) {
-    retain(path, 'file', required);
+  function family(path: string, required: boolean, ownership = false) {
+    const directoryClaim = ownership && present(path)?.isDirectory();
+    if (directoryClaim) inspectLocalStateOwnership(path);
+    retain(path, directoryClaim ? 'directory' : 'file', required);
     const parent = dirname(path); if (!present(parent)) return;
     const name = basename(path), entries = opendirSync(parent);
     try {
@@ -76,13 +79,13 @@ export function collectDesktopRelayStorageScopes(config: RelayConfig, dataDirect
   retain(join(directory, 'relay-diagnostics'), 'directory', false);
   retain(relayStorageRegistryPath(runtime), 'directory', false);
   // Registry ownership sits beside its directory, so it needs an exact scope too.
-  family(`${relayStorageRegistryPath(runtime)}.lock`, false);
+  family(`${relayStorageRegistryPath(runtime)}.lock`, false, true);
   const registryRecovery = `${relayStorageRegistryPath(runtime)}.recovery`;
-  if (present(registryRecovery)) retain(registryRecovery, 'file');
+  if (present(registryRecovery)) family(registryRecovery, true, true);
   family(join(directory, 'relay-config.json'), true);
-  family(join(directory, 'relay-desktop-control.lock'), true);
+  family(join(directory, 'relay-desktop-control.lock'), true, true);
   const controlRecovery = join(directory, 'relay-desktop-control.recovery');
-  if (present(controlRecovery)) retain(controlRecovery, 'file');
+  if (present(controlRecovery)) family(controlRecovery, true, true);
   const legacyLog = join(directory, 'relay-service.log');
   if (present(legacyLog)) family(legacyLog, true);
   for (const path of relayServiceOutputPaths(directory, options.platform ?? process.platform, options.userDirectory ?? homedir())) family(path, false);

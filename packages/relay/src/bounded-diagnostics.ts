@@ -1,7 +1,7 @@
 /** Bounded, disposable diagnostics. These files never authorize protocol recovery. */
 import { closeSync, constants, fstatSync, ftruncateSync, lstatSync, mkdirSync, openSync, opendirSync, readSync, renameSync, writeSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
-import { acquireLocalStateLock } from '@resonance/core/local-state';
+import { acquireLocalStateLock, inspectLocalStateOwnership, isLocalStateOwnershipName } from '@resonance/core/local-state';
 import { reserveManagedStorage } from '@resonance/core/storage-reservations';
 
 export const DIAGNOSTIC_FILE_BYTES = 1024 * 1024;
@@ -14,6 +14,7 @@ export function openBoundedDiagnostics(directory: string, maximumFileBytes = DIA
   const entries = opendirSync(directory);
   try {
     for (let entry = entries.readSync(); entry; entry = entries.readSync()) {
+      if (isLocalStateOwnershipName('writer', entry.name)) { inspectLocalStateOwnership(join(directory, entry.name)); continue; }
       if (!names.has(entry.name)) throw new Error('Diagnostic storage contains unexpected files');
       const stat = lstatSync(join(directory, entry.name));
       if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || stat.size > (entry.name.endsWith('.ndjson') ? maximumFileBytes : 4096)) {

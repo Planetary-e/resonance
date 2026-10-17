@@ -91,9 +91,10 @@ it('refuses stale approval after even an unsuccessful competing runtime claim ch
 
 it('contains automatic cleanup failure, retains damaged ownership and releases the independent ledger claim', async () => {
   const n = await fixture(), controller = new AbortController(), prepared = await n.prepare({ ...n.options, signal: controller.signal });
-  const lock = join(n.options.runtimeDirectory, 'relay-runtime.lock'), damaged = 'x'.repeat(4097); writeFileSync(lock, damaged);
+  const lock = join(n.options.runtimeDirectory, 'relay-runtime.lock'), damaged = 'x'.repeat(4097);
+  const unexpected = join(lock, 'unexpected'); writeFileSync(unexpected, damaged);
   expect(() => controller.abort()).not.toThrow(); expect(() => prepared.review()).toThrow(/cleanup failed/);
-  expect(readFileSync(lock, 'utf8')).toBe(damaged);
+  expect(readFileSync(unexpected, 'utf8')).toBe(damaged);
   const opened = n.open(); opened.close(); expect(JSON.parse(readFileSync(n.primary, 'utf8')).adoptions).toEqual([]);
 });
 it('validates target shapes before charging control headroom', async () => {

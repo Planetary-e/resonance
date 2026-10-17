@@ -3,7 +3,7 @@
 import { closeSync, fsyncSync, lstatSync, openSync, readdirSync, rmSync, rmdirSync, type Stats } from 'node:fs';
 import { join } from 'node:path';
 import { exactWitnessFields } from '@resonance/core/admission-witness';
-import { openEncryptedLocalState } from '@resonance/core/local-state';
+import { openEncryptedLocalState, inspectLocalStateOwnership, isLocalStateOwnershipName } from '@resonance/core/local-state';
 import { reserveManagedStorage } from '@resonance/core/storage-reservations';
 import { historyCheckpointContextId, historyDigest, HISTORY_ENVELOPE_MAX_BYTES, type HistoryCheckpointContext } from '@resonance/core/history-checkpoint';
 import { parseHistoryCompactionRetention, type HistoryCompactionRetention } from '@resonance/core/history-compaction-retention';
@@ -19,8 +19,7 @@ function exists(path: string) {
   try { lstatSync(path); return true; } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false; throw error; }
 }
 export function isHistoryVolunteerFrontierFile(name: string) {
-  return name === HISTORY_VOLUNTEER_FRONTIER_FILENAME || name === `${HISTORY_VOLUNTEER_FRONTIER_FILENAME}.lock`
-    || name === `${HISTORY_VOLUNTEER_FRONTIER_FILENAME}.recovery`
+  return name === HISTORY_VOLUNTEER_FRONTIER_FILENAME || isLocalStateOwnershipName(HISTORY_VOLUNTEER_FRONTIER_FILENAME, name)
     || /^\.history-volunteer-frontier\.json\.[a-f0-9]{16}\.tmp$/.test(name);
 }
 export function openHistoryVolunteerFrontier(options: {
@@ -75,6 +74,10 @@ export function openHistoryVolunteerFrontier(options: {
 export function inspectHistoryRetiredGenerations(directory: string, names: readonly string[]) {
   const files: Array<{ path: string; bytes: number; identity: string; control: boolean }> = [], directories: string[] = [];
   const identity = (stat: Stats) => `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+  function control(path: string) {
+    const inspected = inspectLocalStateOwnership(path); directories.push(...inspected.directories);
+    for (const file of inspected.files) files.push({ path: file.path, bytes: file.bytes, identity: identity(file.stat), control: true });
+  }
   for (const name of names) {
     if (!slot.test(name)) throw new Error('Invalid retired generation directory');
     const base = join(directory, name); if (!exists(base)) continue;
@@ -88,6 +91,7 @@ export function inspectHistoryRetiredGenerations(directory: string, names: reado
     }
     for (const entry of top) {
       const path = join(base, entry);
+      if (isLocalStateOwnershipName('history-provision.json', entry)) { control(path); continue; }
       if (/^(?:history-provision\.json(?:\.(?:lock|recovery))?|\.history-provision\.json\.[a-f0-9]{16}\.tmp)$/.test(entry)) {
         add(path, 128 * 1024, /\.(?:lock|recovery)$/.test(entry)); continue;
       }
@@ -95,7 +99,8 @@ export function inspectHistoryRetiredGenerations(directory: string, names: reado
       const contents = readdirSync(path).sort(); if (contents.length > 10020) throw new Error('Retired generation exceeds its file bound');
       directories.push(path);
       for (const file of contents) {
-        if (/^(?:[a-f0-9]{64}\.block|\.block-[a-f0-9]{32}\.tmp)$/.test(file)) add(join(path, file), HISTORY_ENVELOPE_MAX_BYTES);
+        if (isLocalStateOwnershipName('history-manifest.json', file)) control(join(path, file));
+        else if (/^(?:[a-f0-9]{64}\.block|\.block-[a-f0-9]{32}\.tmp)$/.test(file)) add(join(path, file), HISTORY_ENVELOPE_MAX_BYTES);
         else if (/^(?:history-manifest\.json(?:\.(?:lock|recovery))?|\.history-manifest\.json\.[a-f0-9]{16}\.tmp)$/.test(file)) {
           add(join(path, file), 2 * 1024 * 1024 + 8192, /\.(?:lock|recovery)$/.test(file));
         } else throw new Error('Unexpected retired generation file');

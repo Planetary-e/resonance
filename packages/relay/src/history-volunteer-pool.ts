@@ -3,7 +3,7 @@
 import { closeSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, renameSync, rmSync, rmdirSync, type Stats } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { exactWitnessFields } from '@resonance/core/admission-witness';
-import { openEncryptedLocalState } from '@resonance/core/local-state';
+import { openEncryptedLocalState, inspectLocalStateOwnership, isLocalStateOwnershipName } from '@resonance/core/local-state';
 import { reserveManagedStorage } from '@resonance/core/storage-reservations';
 import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointContextId, historyDigest, isHistoryDigest, type HistoryCheckpointContext } from '@resonance/core/history-checkpoint';
 import { parseHistoryCompactionRetention, type HistoryCompactionRetention } from '@resonance/core/history-compaction-retention';
@@ -31,7 +31,7 @@ function flush(path: string) {
   const fd = openSync(path, 'r'); try { fsyncSync(fd); } finally { closeSync(fd); }
 }
 export function isHistoryPoolFile(name: string) {
-  return name === HISTORY_POOL_FILENAME || name === `${HISTORY_POOL_FILENAME}.lock` || name === `${HISTORY_POOL_FILENAME}.recovery`
+  return name === HISTORY_POOL_FILENAME || isLocalStateOwnershipName(HISTORY_POOL_FILENAME, name)
     || /^\.history-volunteer-pool\.json\.[a-f0-9]{16}\.tmp$/.test(name);
 }
 export function historyPoolSlot(generation: number, slots: number) {
@@ -152,14 +152,20 @@ export function ensureHistoryPoolDirectories(directory: string, state: HistoryVo
 export function inspectHistoryPoolRetirement(directory: string, state: HistoryVolunteerPoolState) {
   if (state.phase === 'migrating' && !state.migration) for (const name of state.legacySlots) {
     const path = join(directory, name);
-    if (present(path) && readdirSync(path).some(file => !/^(?:history-provision\.json(?:\.(?:lock|recovery))?|\.history-provision\.json\.[a-f0-9]{16}\.tmp)$/.test(file))) {
+    if (present(path) && readdirSync(path).some(file => !isLocalStateOwnershipName('history-provision.json', file)
+      && !/^(?:history-provision\.json(?:\.(?:lock|recovery))?|\.history-provision\.json\.[a-f0-9]{16}\.tmp)$/.test(file))) {
       throw new Error('Genesis pool migration cannot retire unregistered child contents');
     }
   }
   const legacy = inspectHistoryRetiredGenerations(directory, state.legacySlots);
   const files = [...legacy.files], directories = [...legacy.directories];
   const identity = (s: Stats) => `${s.dev}:${s.ino}:${s.size}:${s.mtimeMs}:${s.ctimeMs}`;
+  function control(path: string) {
+    const inspected = inspectLocalStateOwnership(path); directories.push(...inspected.directories);
+    for (const file of inspected.files) files.push({ path: file.path, bytes: file.bytes, identity: identity(file.stat), control: true });
+  }
   if (state.migration?.legacyFrontierDigest) for (const name of readdirSync(directory).filter(isHistoryVolunteerFrontierFile).sort()) {
+    if (isLocalStateOwnershipName(HISTORY_VOLUNTEER_FRONTIER_FILENAME, name)) { control(join(directory, name)); continue; }
     const path = join(directory, name), stat = lstatSync(path);
     if (!stat.isFile() || stat.nlink !== 1 || stat.size > HISTORY_POOL_JOURNAL_BYTES) throw new Error('Unexpected legacy frontier file');
     files.push({ path, bytes: stat.size, identity: identity(stat), control: /\.(?:lock|recovery)$/.test(name) });
@@ -173,6 +179,7 @@ export function inspectHistoryPoolRetirement(directory: string, state: HistoryVo
       const contents = readdirSync(path).sort(); if (contents.length > (provision ? 16 : 10020)) throw new Error('Retired pool file bound exceeded');
       directories.push(path);
       for (const name of contents) {
+        if (isLocalStateOwnershipName(provision ? 'history-provision.json' : 'history-manifest.json', name)) { control(join(path, name)); continue; }
         const metadata = provision ? /^(?:history-provision\.json(?:\.(?:lock|recovery))?|\.history-provision\.json\.[a-f0-9]{16}\.tmp)$/
           : /^(?:history-manifest\.json(?:\.(?:lock|recovery))?|\.history-manifest\.json\.[a-f0-9]{16}\.tmp)$/;
         const block = !provision && /^(?:[a-f0-9]{64}\.block|\.block-[a-f0-9]{32}\.tmp)$/.test(name), full = join(path, name), stat = lstatSync(full);

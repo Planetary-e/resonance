@@ -3,7 +3,7 @@ import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readF
 import { dirname, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { exactWitnessFields } from '@resonance/core/admission-witness';
-import { openEncryptedLocalState } from '@resonance/core/local-state';
+import { openEncryptedLocalState, inspectLocalStateOwnership, isLocalStateOwnershipName } from '@resonance/core/local-state';
 import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointContextId, historyCheckpointEnvelopeId, historyDigest, isHistoryDigest,
   parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { HISTORY_RECOVERY_MAX_BLOCKS, HISTORY_RECOVERY_MAX_BYTES } from '@resonance/core/history-exchange';
@@ -96,7 +96,10 @@ export function openHistoryWriterArchive(options: {
         const initialTemporary = (name: string) => name === `${HISTORY_WRITER_ARCHIVE_FILENAME}.lock`
           || /^\.history-writer-payloads\.json\.[a-f0-9]{16}\.tmp$/.test(name);
         if (entries.length && (!options.resumePristine || writer.pending
-          || entries.some(name => !initialTemporary(name) || !lstatSync(join(directory, name)).isFile()))) {
+          || entries.some(name => {
+            if (isLocalStateOwnershipName(HISTORY_WRITER_ARCHIVE_FILENAME, name)) { inspectLocalStateOwnership(join(directory, name)); return false; }
+            return !initialTemporary(name) || !lstatSync(join(directory, name)).isFile();
+          }))) {
           throw new Error('Writer archive directory is not empty');
         }
         // The encrypted-state lock still refuses live/uncertain ownership. Only

@@ -5,7 +5,7 @@ import {
 } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
-import { openEncryptedLocalState } from '@resonance/core/local-state';
+import { openEncryptedLocalState, inspectLocalStateOwnership, isLocalStateOwnershipName } from '@resonance/core/local-state';
 import { reserveHistoryStorage } from './history-storage-reservation.js';
 import { readHistorySequenceIndex, type StoredHistorySequenceIndex } from './history-sequence-index.js';
 import { exactWitnessFields } from '@resonance/core/admission-witness';
@@ -106,6 +106,7 @@ export function inspectPristineHistoryGenesis(options: Pick<HistoryCheckpointSto
     const fingerprints: Array<[string, string]> = [];
     for (const name of entries) {
       const path = join(directory, name), stat = lstatSync(path);
+      if (isLocalStateOwnershipName(HISTORY_MANIFEST_FILENAME, name)) { inspectLocalStateOwnership(path); continue; }
       if (!allowed.test(name) || !stat.isFile() || stat.size > Math.max(MAX_MANIFEST_BYTES, HISTORY_ENVELOPE_MAX_BYTES)) {
         throw new Error('Unexpected interrupted enrollment contents');
       }
@@ -319,6 +320,7 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
       if (!preparing) throw new Error('History enrolment directory is not empty');
       const allowed = new RegExp(`^(?:${HISTORY_MANIFEST_FILENAME.replace('.', '\\.')}(?:\\.lock|\\.recovery)?|\\.${HISTORY_MANIFEST_FILENAME.replace('.', '\\.')}\\.[a-f0-9]{16}\\.tmp|${rootId.slice(7)}\\.block|\\.block-[a-f0-9]{32}\\.tmp)$`);
       for (const name of readdirSync(directory)) {
+        if (isLocalStateOwnershipName(HISTORY_MANIFEST_FILENAME, name)) { inspectLocalStateOwnership(join(directory, name)); continue; }
         if (!allowed.test(name) || !lstatSync(join(directory, name)).isFile()) throw new Error('Unexpected provision staging contents');
       }
     }

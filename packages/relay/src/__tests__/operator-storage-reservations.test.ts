@@ -54,13 +54,17 @@ it.each(['rename', 'directory-flush'] as const)('keeps a whole old/new settings 
   if (point === 'directory-flush' && process.platform === 'win32') return;
   const maximum = 256, n = fixture((SLOTS + 1) * maximum + 8192), path = join(n.directory, 'settings.json');
   withStorageReservationAuthority(n.authority, () => writeOperatorJsonAtomic(path, { revision: 0 }, maximum));
-  if (point === 'rename') vi.mocked(renameSync).mockImplementationOnce(() => { throw new Error('settings rename failed'); });
+  let targeted = false;
+  if (point === 'rename') vi.mocked(renameSync).mockImplementation((from, to) => {
+    if (String(to) === path) { targeted = true; throw new Error('settings rename failed'); } actual.renameSync(from, to);
+  });
   else {
     let published = false;
-    vi.mocked(renameSync).mockImplementation((from, to) => { actual.renameSync(from, to); published = true; });
-    vi.mocked(fsyncSync).mockImplementation(fd => { if (published) throw new Error('settings directory flush failed'); actual.fsyncSync(fd); });
+    vi.mocked(renameSync).mockImplementation((from, to) => { actual.renameSync(from, to); if (String(to) === path) published = true; });
+    vi.mocked(fsyncSync).mockImplementation(fd => { if (published) { targeted = true; throw new Error('settings directory flush failed'); } actual.fsyncSync(fd); });
   }
   expect(() => withStorageReservationAuthority(n.authority, () => writeOperatorJsonAtomic(path, { revision: 1 }, maximum))).toThrow(/settings/);
+  expect(targeted).toBe(true);
   expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({ revision: point === 'rename' ? 0 : 1 });
   expect(n.authority.status()).toMatchObject({ availableBytes: 0, components: 1 });
 });

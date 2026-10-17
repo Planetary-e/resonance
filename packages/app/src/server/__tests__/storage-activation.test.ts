@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
 import { createPublicationRecord, generatePublicationKeyMaterial, createPublicationOperationFrame, serializePublicationOperationFrame, parseMessage } from '@resonance/core';
 import { homedir, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
+import { inspectLocalStateOwnership } from '@resonance/core/local-state';
 import { createServer } from 'node:net';
 import { once } from 'node:events';
 import { openStorageReservationAuthority, assertNoStorageReservationContext } from '@resonance/core/storage-reservations';
@@ -41,7 +42,9 @@ async function fixture(limitBytes = 256 * 1024 * 1024) {
     // metadata, correctly invalidating the pending output approval. Inspect the
     // live claims here without producing that separate race.
     for (const path of [join(directory, 'relay-desktop-control.lock'), join(runtime, 'relay-runtime.lock')]) {
-      expect(JSON.parse(readFileSync(path, 'utf8')).pid).toBe(process.pid);
+      const claim = inspectLocalStateOwnership(path);
+      expect(claim.files).toEqual([]); expect(claim.directories).toHaveLength(2);
+      expect(basename(claim.directories[1])).toMatch(new RegExp(`^owner-${process.pid}-[a-f0-9]{32}$`));
     }
     expect(readRelayMaintenance(runtime)).not.toBeNull();
     return Array.isArray(args) && args.includes('-Command') ? '{"state":"absent"}' : '';

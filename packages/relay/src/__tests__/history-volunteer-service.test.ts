@@ -419,7 +419,7 @@ it('funds the authoritative frontier before retirement and preserves lifetime re
   expect(authority.status()).toEqual(charged);
 }, 60000);
 
-it.each(['before-lock-write', 'before-journal-write', 'before-commit', 'after-commit', 'before-unlink', 'after-unlink', 'after-directory', 'durable'] as const)(
+it.each(['before-lock-publication', 'before-journal-write', 'before-commit', 'after-commit', 'before-unlink', 'after-unlink', 'after-directory', 'durable'] as const)(
   'preserves or resumes ancestor retirement after actual SIGKILL at %s', async boundary => {
     const n = await fixture(); let root: HistoryCheckpointEnvelope = n.root;
     for (let i = 0; i < 2; i++) { const current = await certifiedGeneration(n, root); root = await n.decide(current.blocks); await n.provision(root as HistoryContinuationRoot); }
@@ -444,19 +444,10 @@ it.each(['before-lock-write', 'before-journal-write', 'before-commit', 'after-co
       expect(() => n.reopen(0)).toThrow('Unexpected retired'); expect(readFileSync(unexpected, 'utf8')).toBe('preserve');
       expect(readdirSync(obsolete)).toContain(names[0]); rmSync(unexpected);
     }
-    const committed = !['before-lock-write', 'before-journal-write', 'before-commit'].includes(boundary); let service = n.reopen(0);
+    const committed = !['before-lock-publication', 'before-journal-write', 'before-commit'].includes(boundary); const service = n.reopen(0);
     expect(service.describe()).toMatchObject({ generations: committed ? 2 : 3, latest: before });
     expect(readFileSync(genesisPath)).toEqual(genesis);
     expect(service.retainedCompactionCheckpoint(historyCheckpointEnvelopeId(root))).toEqual(current.certificate);
-    if (boundary === 'before-lock-write') {
-      // Existing shared lock protocol cannot infer a PID from an interrupted
-      // empty claim. It preserves all history and requires inspection. Only the
-      // test knows which process created this file and has observed its death.
-      const lock = join(options.directory, `${HISTORY_VOLUNTEER_FRONTIER_FILENAME}.lock`);
-      expect(readFileSync(lock)).toHaveLength(0);
-      expect(() => service.retireGenerations(current.retention, service.planGenerationRetirement(current.retention).approvalDigest)).toThrow();
-      expect(readFileSync(genesisPath)).toEqual(genesis); service.close(); rmSync(lock); service = n.reopen(0);
-    }
     if (!committed) service.retireGenerations(current.retention, service.planGenerationRetirement(current.retention).approvalDigest);
     expect(n.reopen(0).describe()).toMatchObject({ generations: 2, latest: before });
     const childRoot = await n.decide(current.blocks); await n.provision(childRoot);

@@ -41,7 +41,7 @@ process.once('message', (input: any) => {
       };
       fs.rmdirSync = ((...args: Parameters<typeof fs.rmdirSync>) => {
         const result = Reflect.apply(removeDirectory, fs, args);
-        if (input.boundary === 'after-directory') stop();
+        if (input.boundary === 'after-directory' && /[/\\](?:history|successor)$/.test(String(args[0]))) stop();
         return result;
       }) as typeof fs.rmdirSync;
       syncBuiltinESMExports();

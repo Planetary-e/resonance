@@ -3,7 +3,7 @@ import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readd
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { type SigningKeyPair } from '@resonance/core';
 import { copyAdmissionSigningKey, exactWitnessFields } from '@resonance/core/admission-witness';
-import { openEncryptedLocalState } from '@resonance/core/local-state';
+import { openEncryptedLocalState, inspectLocalStateOwnership, isLocalStateOwnershipName } from '@resonance/core/local-state';
 import { captureStorageReservationOperation, reserveManagedStorage } from '@resonance/core/storage-reservations';
 import { reserveHistoryStorage } from './history-storage-reservation.js';
 import { historyCheckpointContextId, parseHistoryCheckpointContext, type HistoryCheckpointContext } from '@resonance/core/history-checkpoint';
@@ -107,7 +107,10 @@ export function openHistoryGenerationProvisioner(options: {
       if (existsSync(directory) && readdirSync(directory).length) {
         if (!options.resumePristine) throw new Error('History provision enrolment directory is not empty');
         const allowed = /^(?:history-provision\.json\.(?:lock|recovery)|\.history-provision\.json\.[a-f0-9]{16}\.tmp)$/;
-        if (readdirSync(directory).some(name => !allowed.test(name) || !lstatSync(join(directory, name)).isFile())) {
+        if (readdirSync(directory).some(name => {
+          if (isLocalStateOwnershipName(HISTORY_PROVISION_FILENAME, name)) { inspectLocalStateOwnership(join(directory, name)); return false; }
+          return !allowed.test(name) || !lstatSync(join(directory, name)).isFile();
+        })) {
           throw new Error('Unregistered provision initialization contents require inspection');
         }
       }
