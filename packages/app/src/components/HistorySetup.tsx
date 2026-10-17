@@ -66,7 +66,7 @@ export default function HistorySetup({ onBusyChange, blocked = false }: { onBusy
 export function HistorySetupReview({ result, busy, onApply }: { result: RelayHistorySetupResult; busy: boolean; onApply: () => void }) {
   if (!result.approvalDigest) return <div role="status">
     <p>{result.result === 'history-ready' ? 'Initial history has four fresh copies. Review owner activation next; the relay remains paused.'
-      : result.result === 'enrolled' ? 'Volunteer history enrolled. Configure its owner connection before starting the background relay.'
+      : result.result === 'enrolled' ? 'Volunteer history enrolled. Use Activate enrolled volunteer to review its owner connections before starting the background relay.'
         : result.result === 'new-owner-configuration' ? 'Owner configuration saved. Prepare its dedicated history next.' : 'Enrollment exported. Keep an independent backup and provide it to the five pinned volunteers.'}</p>
     {result.genesisId && <p style={{ overflowWrap: 'anywhere' }}>Genesis fingerprint: {result.genesisId}</p>}
   </div>;

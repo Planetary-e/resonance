@@ -17,7 +17,7 @@ import { assertHistorySuccessorChain, historySuccessorProposalId, parseHistorySu
   type HistorySuccessorProposal } from '@resonance/core/history-successor';
 import {
   HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointContextId, historyCheckpointEnvelopeId,
-  isHistoryDigest, parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, parseHistoryFreeze,
+  historyDigest, isHistoryDigest, parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, parseHistoryFreeze,
   type HistoryCheckpointContext, type HistoryCheckpointEnvelope, type HistoryFreeze,
 } from '@resonance/core/history-checkpoint';
 
@@ -334,6 +334,9 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
       return structuredClone({ generation, rootId, sequence: state.blocks.length - 1,
         envelopeId: state.blocks.at(-1)!, freeze: state.freeze });
     },
+    /** Local maintenance approval only; includes promises, staging and activation
+     * as well as the visible head. Never publish this as network health. */
+    reviewDigest() { ensureOpen(); return historyDigest(JSON.stringify(storage.read())); },
     /** Cached local allocation accounting; excludes provisioner journals and temporary files. */
     storageUsage() {
       ensureOpen();

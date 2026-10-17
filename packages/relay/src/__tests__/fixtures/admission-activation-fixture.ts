@@ -6,7 +6,7 @@ import { admissionPolicyDigest, signAdmissionPolicy } from '@resonance/core/admi
 import { historyCheckpointEnvelopeId } from '@resonance/core/history-checkpoint';
 import { openProtectedAdmissionSpendHistory } from '../../protected-admission-history.js';
 import { openHistoryCheckpointStore } from '../../history-checkpoint-store.js';
-import { createHistoryCheckpointReplica, listenHistoryCheckpointReplica } from '../../history-checkpoint-exchange.js';
+import { createHistoryCheckpointReplica, listenHistoryCheckpointReplica, exchangeHistoryCheckpoint, type HistoryCheckpointTransport } from '../../history-checkpoint-exchange.js';
 import { createConfiguredAdmissionVerifier } from '../../configured-admission-verifier.js';
 import { historyCheckpointFixture } from './history-checkpoint-fixture.js';
 import { witnessFixture } from './admission-witness-fixture.js';
@@ -23,11 +23,23 @@ export async function admissionActivationFixture(options: { recovery?: boolean }
     const historyDirectory = join(directory, 'prepared-owner'), desktopDirectory = join(directory, 'desktop'), runtimeDirectory = join(desktopDirectory, 'relay-data');
     mkdirSync(runtimeDirectory, { recursive: true });
     const members = context.members.map((publicKey, i) => ({ publicKey, endpoint: `ws://127.0.0.1:${i + 1}/history-checkpoint` }));
-    const protection = { context, members, signingKey: h.owner, timeoutMs: 1500 };
+    // A four-copy operation may finish before the fifth server handles its frame.
+    // Exclude precisely those setup requests from later offline-operation checks,
+    // including delayed delivery, while keeping the real socket transport.
+    let preparing = true, exchanges = 0;
+    const preparationRequests = new Set<string>();
+    const recordExchange = (value: unknown) => {
+      const request = (value as { request?: unknown }).request;
+      if (!preparationRequests.has(JSON.stringify(request))) exchanges++;
+    };
+    const transport: HistoryCheckpointTransport = (member, frame, signal) => {
+      if (preparing) preparationRequests.add(JSON.stringify(frame.request));
+      return exchangeHistoryCheckpoint(member, frame, signal);
+    };
+    const protection = { context, members, signingKey: h.owner, timeoutMs: 1500, transport };
     let history = await openProtectedAdmissionSpendHistory({ directory: historyDirectory, authority: issuer.authority, policy, encryptionKey: h.key,
       initialize: true, protection: { ...protection, initializeWriter: true } });
     cleanup.push(() => history.close()); const genesis = history.enrollment().root; history.close();
-    let exchanges = 0;
     const listeners: Array<{ endpoint: string; close: () => Promise<void> }> = [];
     const roles: ReturnType<typeof createHistoryCheckpointReplica>[] = [];
     const services: ReturnType<typeof openHistoryVolunteerService>[] = [];
@@ -37,10 +49,10 @@ export async function admissionActivationFixture(options: { recovery?: boolean }
           signingKey: h.memberKeys[i], genesisId: historyCheckpointEnvelopeId(genesis), initialize: genesis });
         services.push(service); cleanup.push(() => service.close());
         const listener = await listenHistoryAgreementReplica({ ...service,
-          checkpoint: value => { exchanges++; return service.checkpoint(value); },
-          exchange: value => { exchanges++; return service.exchange(value); },
-          transfer: value => { exchanges++; return service.transfer(value); },
-          provision: value => { exchanges++; return service.provision(value); } }, { port: 0 });
+          checkpoint: value => { recordExchange(value); return service.checkpoint(value); },
+          exchange: value => { recordExchange(value); return service.exchange(value); },
+          transfer: value => { recordExchange(value); return service.transfer(value); },
+          provision: value => { recordExchange(value); return service.provision(value); } }, { port: 0 });
         listeners.push({ endpoint: listener.checkpointEndpoint, close: listener.close }); cleanup.push(listener.close);
         members[i].endpoint = listener.checkpointEndpoint; continue;
       }
@@ -48,7 +60,7 @@ export async function admissionActivationFixture(options: { recovery?: boolean }
         localKey: h.localKey, rootId: historyCheckpointEnvelopeId(genesis), generation: 0, initialize: genesis });
       cleanup.push(() => store.close());
       const role = createHistoryCheckpointReplica({ context, store, signingKey: h.memberKeys[i] }); cleanup.push(() => role.close()); roles.push(role);
-      const endpoint = await listenHistoryCheckpointReplica({ ...role, exchange: value => { exchanges++; return role.exchange(value); } }, { port: 0 });
+      const endpoint = await listenHistoryCheckpointReplica({ ...role, exchange: value => { recordExchange(value); return role.exchange(value); } }, { port: 0 });
       listeners.push(endpoint); cleanup.push(endpoint.close); members[i].endpoint = endpoint.endpoint;
     }
     history = await openProtectedAdmissionSpendHistory({ directory: historyDirectory, authority: issuer.authority, policy, encryptionKey: h.key, protection });
@@ -67,6 +79,7 @@ export async function admissionActivationFixture(options: { recovery?: boolean }
       policyFile: json('policy.json', policy), authorityFile: join(directory, 'authority.pub'), storageKeyFile: join(directory, 'storage.hex'),
       historyDirectory, linksFile: '', operatorTransportFile: '' };
     writeFileSync(input.authorityFile, issuer.authority); writeFileSync(input.storageKeyFile, h.key.toString('hex'), { mode: 0o600 });
+    preparing = false;
     return { ...h, context, issuer, directory, desktopDirectory, runtimeDirectory, historyDirectory, policy, genesis, protection, input,
       capability, token, binding, request, verifierOptions, listeners, roles, services, exchanges: () => exchanges, close,
       activationOptions: { runtimeDirectory, historyDirectory, policy, encryptionKey: h.key, protection, genesis } };

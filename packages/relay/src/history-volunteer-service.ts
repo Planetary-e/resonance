@@ -3,7 +3,7 @@ import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readd
 import { dirname, join } from 'node:path';
 import type { SigningKeyPair } from '@resonance/core';
 import { copyAdmissionSigningKey } from '@resonance/core/admission-witness';
-import { parseHistoryCheckpointContext, type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
+import { historyDigest, parseHistoryCheckpointContext, type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { openHistoryCheckpointStore } from './history-checkpoint-store.js';
 import { createHistoryCheckpointReplica } from './history-checkpoint-exchange.js';
 import { createHistoryAgreementReplica } from './history-checkpoint-agreement.js';
@@ -96,6 +96,10 @@ export function openHistoryVolunteerService(options: {
       const receipt = slot.provisioner.provision(raw);
       grow(); // Route the fully published child and prepare its unactivated slot before replying.
       return receipt;
+    },
+    /** Local maintenance approval, including promises/provisioning in every retained generation. */
+    reviewDigest() {
+      live(); return historyDigest(JSON.stringify([...slots.values()].map(slot => [slot.store.reviewDigest(), slot.provisioner.read()])));
     },
     /** Aggregate local health only; no token, binding or peer activity is returned. */
     describe() {

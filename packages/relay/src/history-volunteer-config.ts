@@ -10,7 +10,10 @@ import { HistoryRelayRouter } from './history-relay-router.js';
 
 /** Read-only. Every path is relative to this configuration, never the process cwd. */
 export function readHistoryVolunteerConfigurationFile(path: string) {
-  const raw = readOperatorJson(path, 64 * 1024), base = dirname(resolve(path));
+  return parseHistoryVolunteerConfiguration(readOperatorJson(path, 64 * 1024), dirname(resolve(path)));
+}
+/** Pure validation used before publishing a reviewed runtime configuration. */
+export function parseHistoryVolunteerConfiguration(raw: unknown, base: string) {
   if (!exactWitnessFields(raw, ['version', 'context', 'genesisId', 'directory', 'signingKeyFile', 'storageKeyFile', 'controllers', 'limits'])
     || raw.version !== 1 || !isHistoryDigest(raw.genesisId) || !Array.isArray(raw.controllers)
     || raw.controllers.length < 1 || raw.controllers.length > 5

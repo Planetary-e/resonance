@@ -408,6 +408,24 @@ export function applyRelayHistoryActivation(input: RelayHistoryActivationInput, 
 }
 export function cancelRelayHistoryOperation() { return api<{ active: boolean }>('POST', '/api/relay/history/cancel'); }
 
+export interface RelayVolunteerActivationInput {
+  enrollmentFile: string; signingKeyFile: string; storageKeyFile: string; directory: string; controllersFile: string; output: string;
+  generationMiB: number; blocksPerGeneration: number; maximumGenerations: number;
+}
+export interface RelayVolunteerActivationReview {
+  kind: 'history-volunteer-activation'; contextId: string; genesisId: string; member: string; directory: string; output: string; owner: string; authority: string;
+  controllers: Array<{ relayId: string; endpoint: string }>; health: { generations: number; retainedBlocks: number; reservedBytes: number;
+    maximumGenerationBytes: number; maximumGenerationBlocks: number; maximumGenerations: number };
+  readiness: 'unverified'; startsService: false; approvalDigest: string;
+}
+export function getRelayVolunteerActivationInput() { return api<{ input: RelayVolunteerActivationInput | null }>('GET', '/api/relay/history/volunteer-activation'); }
+export function reviewRelayVolunteerActivation(input: RelayVolunteerActivationInput) {
+  return api<RelayVolunteerActivationReview>('POST', '/api/relay/history/volunteer-activation/review', { input });
+}
+export function applyRelayVolunteerActivation(input: RelayVolunteerActivationInput, approvalDigest: string) {
+  return api<{ result: string; readiness: 'unverified'; startsService: false }>('POST', '/api/relay/history/volunteer-activation/apply', { input, approvalDigest });
+}
+
 export type { RelayHistorySetupInput, RelayHistorySetupResult } from './history-setup.types';
 export function getRelayHistorySetupInput() {
   return api<{ input: import('./history-setup.types').RelayHistorySetupInput | null }>('GET', '/api/relay/history/setup');

@@ -37,7 +37,8 @@ export function historyActivationServiceFiles(input: RelayHistoryActivationInput
 }
 export async function withRelayHistoryActivation<T>(raw: unknown, previous: RelayConfig, runtimeDirectory: string, signal: AbortSignal,
   operation: (prepared: { activation: Awaited<ReturnType<typeof openAdmissionHistoryActivation>>; runtime: ReturnType<typeof relayServiceRuntime>;
-    reviewedHistoryFiles: RelayServiceRoleFiles; input: RelayHistoryActivationInput; checkInputs: () => void }) => Promise<T>): Promise<T> {
+    reviewedHistoryFiles: RelayServiceRoleFiles; input: RelayHistoryActivationInput; checkInputs: () => void }) => Promise<T>,
+  retainedRoleFiles: RelayServiceRoleFiles = {}): Promise<T> {
   signal.throwIfAborted(); const input = parseRelayHistoryActivationInput(raw);
   // Capture before parsing, then recheck before returning a review and after
   // network work. A file changed between reading and hashing must not be approved.
@@ -63,7 +64,7 @@ export async function withRelayHistoryActivation<T>(raw: unknown, previous: Rela
     if (input.linksFile) readAdmissionHistoryLinksFile(input.linksFile, config.context);
     const operatorConfiguration = input.operatorTransportFile ? readHistoryOperatorTransportFile(input.operatorTransportFile, config.context) : null;
     const reviewedHistoryFiles = historyActivationServiceFiles(input);
-    const runtime = relayServiceRuntime(previous.runtime, reviewedHistoryFiles);
+    const runtime = relayServiceRuntime(previous.runtime, { ...retainedRoleFiles, ...reviewedHistoryFiles });
     validateRelayServicePaths({ ...runtime, dataDir: getDataDir(), port: previous.port, adminKey: previous.adminKey ?? '', contacts: previous.contacts ?? [], controls: previous.controls });
     // Bind original file bytes as well as parsed context, key and destination.
     // Recheck after network work before persisting paths the service will reopen.

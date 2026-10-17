@@ -62,6 +62,8 @@ import { withRelayControl } from './relay-control.js';
 import { withRelayHistoryActivation, parseRelayHistoryActivationInput, historyActivationServiceFiles, type RelayHistoryActivationInput } from './history-activation.js';
 import { runDesktopHistoryRecovery, parseRelayHistoryRecoveryInput, type RelayHistoryRecoveryInput, type RelayHistoryRecoveryAction } from './history-recovery.js';
 import { runDesktopHistorySetup, parseRelayHistorySetupInput, type RelayHistorySetupInput } from './history-setup.js';
+import { withRelayVolunteerActivation, volunteerActivationServiceFiles, parseRelayVolunteerActivationInput, parseRelayVolunteerBinding,
+  type RelayVolunteerActivationInput, type RelayVolunteerBinding } from './history-volunteer-activation.js';
 
 export interface SessionEvents {
   onMatch?: (matchId: string, partnerDID: string, similarity: number, yourItemId: string) => void;
@@ -154,6 +156,8 @@ export interface RelayConfig {
   historyActivationInput?: RelayHistoryActivationInput;
   historyRecoveryInput?: RelayHistoryRecoveryInput;
   historySetupInput?: RelayHistorySetupInput;
+  historyVolunteerActivationInput?: RelayVolunteerActivationInput;
+  historyVolunteerBinding?: RelayVolunteerBinding;
 }
 
 function getRelayConfigPath(): string {
@@ -184,6 +188,9 @@ export function loadRelayConfig(): RelayConfig {
     if (value.historyActivationInput !== undefined) parseRelayHistoryActivationInput(value.historyActivationInput);
     if (value.historyRecoveryInput !== undefined) parseRelayHistoryRecoveryInput(value.historyRecoveryInput);
     if (value.historySetupInput !== undefined) parseRelayHistorySetupInput(value.historySetupInput);
+    if ((value.historyVolunteerActivationInput === undefined) !== (value.historyVolunteerBinding === undefined)) throw new Error('Missing volunteer selection or binding');
+    if (value.historyVolunteerActivationInput !== undefined) parseRelayVolunteerActivationInput(value.historyVolunteerActivationInput);
+    if (value.historyVolunteerBinding !== undefined) parseRelayVolunteerBinding(value.historyVolunteerBinding);
     return value as RelayConfig;
   } catch { throw new Error('Saved relay settings are invalid; retain them for recovery before changing the service'); }
 }
@@ -267,7 +274,8 @@ async function startRelayModeUnlocked(
       catch { return true; }
     })) throw new Error('Relay contacts must be up to 16 distinct endpoints; public contacts require wss://');
   const controls = validateOwnerControls(requestedControls ?? previous.controls ?? {});
-  const runtime = relayServiceRuntime(previous.runtime, previous.historyActivationInput ? historyActivationServiceFiles(previous.historyActivationInput) : {});
+  const runtime = relayServiceRuntime(previous.runtime, { ...(previous.historyActivationInput ? historyActivationServiceFiles(previous.historyActivationInput) : {}),
+    ...volunteerActivationServiceFiles(previous) });
   const previousStats = previous.enabled ? await relayServiceStats(previous.port, adminKey) : null;
   const minimumStorageBytes = storageCommitmentFloor(
     previousStats, previous.storageCommitmentFloorBytes ?? 0,
@@ -290,6 +298,8 @@ async function startRelayModeUnlocked(
     ...(previous.historyActivationInput ? { historyActivationInput: previous.historyActivationInput } : {}),
     ...(previous.historyRecoveryInput ? { historyRecoveryInput: previous.historyRecoveryInput } : {}),
     ...(previous.historySetupInput ? { historySetupInput: previous.historySetupInput } : {}),
+    ...(previous.historyVolunteerActivationInput ? { historyVolunteerActivationInput: previous.historyVolunteerActivationInput,
+      historyVolunteerBinding: previous.historyVolunteerBinding } : {}),
     storageCommitmentFloorBytes: minimumStorageBytes });
   let running = false;
   for (let attempt = 0; attempt < 40; attempt++) {
@@ -387,6 +397,21 @@ export function cancelRelayHistoryOperation() {
 export function getRelayHistoryActivationInput() { return loadRelayConfig().historyActivationInput ?? null; }
 export function getRelayHistoryRecoveryInput() { return loadRelayConfig().historyRecoveryInput ?? null; }
 export function getRelayHistorySetupInput() { return loadRelayConfig().historySetupInput ?? null; }
+export function getRelayVolunteerActivationInput() { return loadRelayConfig().historyVolunteerActivationInput ?? null; }
+export async function planRelayVolunteerActivation(input: unknown, signal?: AbortSignal) {
+  return runRelayHistoryOperation(async operationSignal => withRelayVolunteerActivation(input, loadRelayConfig(), join(getDataDir(), 'relay-data'), operationSignal,
+    async prepared => prepared.review), signal);
+}
+export async function applyRelayVolunteerActivation(input: unknown, digest: string, signal?: AbortSignal) {
+  return runRelayHistoryOperation(async operationSignal => {
+    const previous = loadRelayConfig();
+    return withRelayVolunteerActivation(input, previous, join(getDataDir(), 'relay-data'), operationSignal, async prepared => {
+      const result = prepared.apply(digest);
+      saveRelayConfig({ ...previous, enabled: false, runtime: prepared.runtime, historyVolunteerActivationInput: prepared.input, historyVolunteerBinding: prepared.binding });
+      return { ...result, maintenanceActive: true };
+    });
+  }, signal);
+}
 export async function performRelayHistorySetup(action: 'review' | 'apply', input: unknown, approval?: unknown, signal?: AbortSignal) {
   return runRelayHistoryOperation(async operationSignal => {
     const previous = loadRelayConfig(), outcome = await runDesktopHistorySetup(action, input, approval, operationSignal, join(getDataDir(), 'relay-data'));
@@ -402,8 +427,11 @@ export async function performRelayHistoryRecovery(action: RelayHistoryRecoveryAc
   }, signal);
 }
 export async function planRelayHistoryActivation(input: unknown, signal?: AbortSignal) {
-  return runRelayHistoryOperation(async operationSignal => withRelayHistoryActivation(input, loadRelayConfig(), join(getDataDir(), 'relay-data'), operationSignal,
-    async ({ activation }) => activation.review()), signal);
+  return runRelayHistoryOperation(async operationSignal => {
+    const previous = loadRelayConfig();
+    return withRelayHistoryActivation(input, previous, join(getDataDir(), 'relay-data'), operationSignal,
+      async ({ activation }) => activation.review(), volunteerActivationServiceFiles(previous));
+  }, signal);
 }
 export async function applyRelayHistoryActivation(input: unknown, approvalDigest: string, signal?: AbortSignal) {
   return runRelayHistoryOperation(async operationSignal => {
@@ -413,7 +441,7 @@ export async function applyRelayHistoryActivation(input: unknown, approvalDigest
         const result = await activation.apply(approvalDigest); checkInputs();
         saveRelayConfig({ ...previous, enabled: false, runtime, historyActivationInput: selection });
         return { ...result, result: 'owner-service-configured' as const, maintenanceActive: true as const };
-      });
+      }, volunteerActivationServiceFiles(previous));
   }, signal);
 }
 export async function finishRelayHistoryMaintenance() {

@@ -27,6 +27,7 @@ import {
   getRelayHistoryActivationInput, planRelayHistoryActivation, applyRelayHistoryActivation, cancelRelayHistoryOperation,
   getRelayHistoryRecoveryInput, performRelayHistoryRecovery,
   getRelayHistorySetupInput, performRelayHistorySetup,
+  getRelayVolunteerActivationInput, planRelayVolunteerActivation, applyRelayVolunteerActivation,
   publishItem,
   listSessionItems,
   releaseHeldPublication,
@@ -514,6 +515,28 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
   }
 
   // --- Relay mode ---
+
+  if (url === '/api/relay/history/volunteer-activation' && method === 'GET') {
+    if (!requireAuth(req, res)) return true;
+    try { json(res, { input: getRelayVolunteerActivationInput() }); }
+    catch (err) { error(res, err instanceof Error ? err.message : 'Saved volunteer selection unavailable', 409); }
+    return true;
+  }
+  if (['/api/relay/history/volunteer-activation/review', '/api/relay/history/volunteer-activation/apply'].includes(url!) && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    const controller = new AbortController(), disconnected = () => { if (!res.writableEnded) controller.abort(); };
+    res.once('close', disconnected);
+    try {
+      const body = await readBody(req), applying = url!.endsWith('/apply');
+      if (!exactWitnessFields(body, applying ? ['input', 'approvalDigest'] : ['input'])
+        || (applying && (typeof body.approvalDigest !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(body.approvalDigest)))) throw new Error('Supply the complete volunteer selection and reviewed approval when applying');
+      const result = applying ? await applyRelayVolunteerActivation(body.input, body.approvalDigest as string, controller.signal)
+        : await planRelayVolunteerActivation(body.input, controller.signal);
+      if (!res.destroyed) json(res, result);
+    } catch (err) { if (!res.destroyed) error(res, err instanceof Error ? err.message : 'Volunteer activation failed; retain history and configuration', 409); }
+    finally { res.removeListener('close', disconnected); }
+    return true;
+  }
 
   if (url === '/api/relay/history/setup' && method === 'GET') {
     if (!requireAuth(req, res)) return true;
