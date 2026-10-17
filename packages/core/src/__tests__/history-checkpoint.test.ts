@@ -2,9 +2,9 @@ import { expect, it } from 'vitest';
 import { randomBytes } from 'node:crypto';
 import { generateSigningKeyPair } from '../crypto.js';
 import {
-  createHistoryFreeze, historyCheckpointContextId, historyCheckpointEnvelopeId, historyDigest,
+  createHistoryFreeze, historyCheckpointContextId, historyCheckpointEnvelopeId, historyCheckpointEnvelopeByteLength, historyDigest,
   openHistoryCheckpoint, parseHistoryCheckpointEnvelope, parseHistoryFreeze, sealHistoryCheckpoint,
-  HISTORY_DELTA_MAX_PAYLOAD, type HistoryCheckpointContext,
+  HISTORY_DELTA_MAX_PAYLOAD, HISTORY_CHECKPOINT_MAX_PAYLOAD, type HistoryCheckpointContext,
 } from '../history-checkpoint.js';
 
 function fixture() {
@@ -65,6 +65,23 @@ it('bounds incremental records and rejects empty or structurally impossible enve
   expect(() => f.seal(Buffer.alloc(0))).toThrow('capacity');
   expect(() => sealHistoryCheckpoint({ ...input, header: { ...input.header, sequence: 0 }, plaintext: Buffer.from('x') })).toThrow('header');
   expect(() => parseHistoryCheckpointEnvelope({ ...delta, ciphertext: 'a'.repeat(HISTORY_DELTA_MAX_PAYLOAD * 2) }, f.context)).toThrow('size');
+});
+
+it('sizes real encrypted envelopes exactly across base64 boundaries and maximum checkpoint/header widths', () => {
+  const f = fixture();
+  for (const bytes of [1, 2, 3, 4, HISTORY_DELTA_MAX_PAYLOAD, HISTORY_CHECKPOINT_MAX_PAYLOAD]) {
+    const header = { kind: 'checkpoint' as const, generation: Number.MAX_SAFE_INTEGER - 1,
+      sequence: Number.MAX_SAFE_INTEGER - 1, previous: historyDigest('previous') };
+    const actual = sealHistoryCheckpoint({ context: f.context, header, plaintext: Buffer.alloc(bytes, 7), encryptionKey: f.key, signingKey: f.owner });
+    expect(historyCheckpointEnvelopeByteLength({ context: f.context, header, plaintextBytes: bytes }))
+      .toBe(Buffer.byteLength(JSON.stringify(actual)));
+  }
+  const header = { kind: 'checkpoint' as const, generation: 0, sequence: 0, previous: null };
+  expect(historyCheckpointEnvelopeByteLength({ context: f.context, header, plaintextBytes: 1 }))
+    .toBe(Buffer.byteLength(JSON.stringify(f.seal(Buffer.from('x')))));
+  for (const plaintextBytes of [0, -1, 1.5, NaN, Infinity, HISTORY_CHECKPOINT_MAX_PAYLOAD + 1]) {
+    expect(() => historyCheckpointEnvelopeByteLength({ context: f.context, header, plaintextBytes })).toThrow('capacity');
+  }
 });
 
 it('authenticates a strictly increasing owner-authorized generation barrier', () => {

@@ -1,7 +1,9 @@
 import { afterEach, expect, it } from 'vitest';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createAdmissionRequestBindingV2, presentBlindAdmissionTokenV2 } from '@resonance/core';
+import { createAdmissionRequestBindingV2, presentBlindAdmissionTokenV2, verifyBlindAdmissionTokenV2 } from '@resonance/core';
+import { fork } from 'node:child_process';
+import { once } from 'node:events';
 import { admissionActivationFixture } from './fixtures/admission-activation-fixture.js';
 import { openAdmissionOwnerLimits, type AdmissionOwnerLimitsInput } from '../admission-history-limits.js';
 import { loadAdmissionHistoryProtectionFile } from '../admission-history-config.js';
@@ -65,10 +67,22 @@ it('reviews limits offline and writes a new configuration that retains the same 
 it('refuses to shrink past accepted or unarchived pending ciphertext and resumes that exact pending operation after a reviewed increase', async () => {
   const n = await fixture();
   await expect(n.open({ ...n.input, archiveBlocks: 1 })).rejects.toThrow();
-  const verifier = await createConfiguredAdmissionVerifier({ ...n.verifierOptions, historyProtection: { ...n.protection, maxArchiveBlocks: 2 } });
   const token = await n.issuer.token(), binding = createAdmissionRequestBindingV2('search', { query: 'pending archive capacity' });
   const capability = presentBlindAdmissionTokenV2(token, n.issuer.scope, 'search', binding), request = { ...n.request, requestBinding: binding, now: Date.now() };
-  try { await expect(verifier.verifyAndSpend(capability, request)).rejects.toThrow('archive capacity exceeded'); } finally { verifier.close(); }
+  const spend = await verifyBlindAdmissionTokenV2(capability, n.issuer.scope, 'search', binding, n.issuer.keys.publicKey);
+  expect(spend).not.toBeNull();
+  // A process can die after durable intent and before archive publication even
+  // with sufficient capacity. Limit review must preserve that earlier promise.
+  const child = fork(new URL('./fixtures/protected-admission-crash.ts', import.meta.url), [],
+    { execArgv: ['--import', 'tsx'], stdio: ['ignore', 'ignore', 'inherit', 'ipc'] });
+  const exited = once(child, 'exit'), messages: unknown[] = []; child.on('message', value => messages.push(value));
+  cleanup.push(async () => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); await exited; });
+  expect((await Promise.race([once(child, 'message'), exited.then(() => { throw new Error('Child exited before ready'); })]))[0]).toBe('ready');
+  child.send({ options: { directory: n.historyDirectory, authority: n.issuer.authority, policy: n.policy }, key: n.key.toString('hex'), time: request.now,
+    protection: { context: n.context, members: n.protection.members, timeoutMs: 30000 }, owner: {
+      publicKey: Buffer.from(n.owner.publicKey).toString('hex'), secretKey: Buffer.from(n.owner.secretKey).toString('hex') },
+    row: { spend, action: 'search', binding, issuerKey: n.policy.activeKey }, boundary: 'after-intent' });
+  await exited; expect(messages).toEqual(['ready']); expect(child.signalCode).toBe('SIGKILL');
   await expect(n.open({ ...n.input, archiveBlocks: 2 })).rejects.toThrow('pending ciphertext');
   const prepared = await n.open(); expect(prepared.review.pending).toBe(true); expect(prepared.review.pendingUnarchivedBytes).toBeGreaterThan(0);
   prepared.apply(prepared.review.approvalDigest); prepared.close();

@@ -82,6 +82,20 @@ function encryptionKey(key: Uint8Array, contextId: string): Buffer {
   return Buffer.from(hkdfSync('sha256', key, Buffer.from(contextId), `${DOMAIN}:encryption`, 32));
 }
 
+/** Exact JSON wire size without allocating/encrypting a payload. AES-GCM keeps
+ * plaintext length; base64url has no padding and these fields are fixed width. */
+export function historyCheckpointEnvelopeByteLength(options: {
+  context: HistoryCheckpointContext; header: Omit<HistoryCheckpointHeader, 'version' | 'contextId'>; plaintextBytes: number;
+}): number {
+  const h = header({ ...options.header, version: 1, contextId: historyCheckpointContextId(options.context) });
+  const limit = h.kind === 'checkpoint' ? HISTORY_CHECKPOINT_MAX_PAYLOAD : HISTORY_DELTA_MAX_PAYLOAD;
+  if (!Number.isSafeInteger(options.plaintextBytes) || options.plaintextBytes < 1 || options.plaintextBytes > limit) {
+    throw new Error('History payload capacity exceeded');
+  }
+  return Buffer.byteLength(JSON.stringify({ ...h, nonce: '', ciphertext: '', tag: '', signature: '' }))
+    + 16 + Math.ceil(options.plaintextBytes * 4 / 3) + 22 + 86;
+}
+
 /** Caller retains the exact returned envelope for retries; re-encryption creates a different chain entry. */
 export function sealHistoryCheckpoint(options: {
   context: HistoryCheckpointContext; header: Omit<HistoryCheckpointHeader, 'version' | 'contextId'>;

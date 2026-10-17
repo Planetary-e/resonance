@@ -5,7 +5,7 @@ import type { SigningKeyPair } from '@resonance/core';
 import { copyAdmissionSigningKey, exactWitnessFields } from '@resonance/core/admission-witness';
 import { admissionPolicyDigest, assertAdmissionPolicyCurrent, assertAdmissionPolicySuccessor,
   isArchivedAdmissionKey, verifyAdmissionPolicy, type SignedAdmissionPolicy } from '@resonance/core/admission-policy';
-import { HISTORY_DELTA_MAX_PAYLOAD, historyCheckpointContextId, historyCheckpointEnvelopeId, historyDigest, isHistoryDigest, openHistoryCheckpoint,
+import { HISTORY_DELTA_MAX_PAYLOAD, historyCheckpointContextId, historyCheckpointEnvelopeId, historyCheckpointEnvelopeByteLength, historyDigest, isHistoryDigest, openHistoryCheckpoint,
   parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, sealHistoryCheckpoint,
   type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { openEncryptedLocalState } from '@resonance/core/local-state';
@@ -152,16 +152,30 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
     const record: AdmissionHistoryRecord = kind === 'checkpoint' && value.kind === 'policy'
       ? { version: 1, kind: 'admission-policy-checkpoint', at: value.at, image: { ...before.image, policy: value.policy } } : value;
     const reduced = await reduceAdmissionHistory(before.image, record, limit, kind); read();
-    const pending = sealHistoryCheckpoint({ context, header: { kind, generation: before.root.generation,
-      sequence: before.applied!.sequence + 1, previous: before.applied!.id },
-      plaintext: encodeAdmissionHistoryRecord(reduced.record), encryptionKey: key, signingKey: signer });
-    if (value.kind === 'admission-state-checkpoint') {
-      const usage = writer!.historyUsage();
-      if (usage.retainedBlocks >= usage.maximumBlocks
-        || Buffer.byteLength(JSON.stringify(pending)) > usage.maximumCiphertextBytes - usage.retainedCiphertextBytes) {
-        throw new Error('State checkpoint needs retained archive headroom; no checkpoint intent was written');
+    const header = { kind, generation: before.root.generation, sequence: before.applied!.sequence + 1, previous: before.applied!.id } as const;
+    const plaintext = encodeAdmissionHistoryRecord(reduced.record);
+    let pending: HistoryCheckpointEnvelope;
+    try {
+      const usage = writer!.historyUsage(), checkpoint = value.kind === 'admission-state-checkpoint';
+      const bytes = historyCheckpointEnvelopeByteLength({ context, header, plaintextBytes: plaintext.length });
+      let reservedBytes = 0;
+      if (!checkpoint) {
+        if (header.sequence >= Number.MAX_SAFE_INTEGER - 1) throw new Error('History checkpoint sequence headroom exhausted');
+        // Reserve the prospective complete image, including future timestamp
+        // width, before making an irrevocable intent. No extra crypto/I/O here.
+        const complete = encodeAdmissionHistoryRecord({ version: 1, kind: 'admission-state-checkpoint',
+          at: Number.MAX_SAFE_INTEGER, image: reduced.image });
+        try { reservedBytes = historyCheckpointEnvelopeByteLength({ context, header: { ...header,
+          kind: 'checkpoint', sequence: header.sequence + 1 }, plaintextBytes: complete.length }); }
+        finally { complete.fill(0); }
       }
-    }
+      if (usage.retainedBlocks + (checkpoint ? 1 : 2) > usage.maximumBlocks
+        || bytes + reservedBytes > usage.maximumCiphertextBytes - usage.retainedCiphertextBytes) {
+        throw new Error(checkpoint ? 'State checkpoint needs retained archive headroom; no checkpoint intent was written'
+          : 'Admission history needs checkpoint headroom; publish, certify and retire a checkpoint or review archive limits before new work');
+      }
+      pending = sealHistoryCheckpoint({ context, header, plaintext, encryptionKey: key, signingKey: signer });
+    } finally { plaintext.fill(0); }
     storage!.write({ ...before, pending });
     await finishPending();
   }

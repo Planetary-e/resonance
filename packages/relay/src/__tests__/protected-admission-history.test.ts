@@ -10,12 +10,12 @@ import { createAdmissionRequestBindingV2, presentBlindAdmissionTokenV2, verifyBl
   createPublicationRecord, generatePublicationKeyMaterial, serializePublicationOperationFrame, createPublicationOperationFrame,
   parseMessage, type Message, type AckPayload } from '@resonance/core';
 import { admissionKeyFingerprint, admissionPolicyDigest, signAdmissionPolicy } from '@resonance/core/admission-policy';
-import { createHistoryFreeze, historyCheckpointEnvelopeId, openHistoryCheckpoint } from '@resonance/core/history-checkpoint';
+import { createHistoryFreeze, historyCheckpointEnvelopeId, historyCheckpointEnvelopeByteLength, openHistoryCheckpoint } from '@resonance/core/history-checkpoint';
 import { createHistoryCompactionVote, parseHistoryCompactionAttestation, type HistoryCompactionProposal } from '@resonance/core/history-compaction';
 import { openProtectedAdmissionSpendHistory, type AdmissionHistoryProtection } from '../protected-admission-history.js';
 import { openAdmissionSpendHistory, type AdmissionSpendRecord } from '../admission-spend-history.js';
 import { createRelayServer } from '../server.js';
-import { parseAdmissionHistoryImage, reduceAdmissionHistory } from '../admission-history-records.js';
+import { encodeAdmissionHistoryRecord, parseAdmissionHistoryImage, reduceAdmissionHistory } from '../admission-history-records.js';
 import { createConfiguredAdmissionVerifier } from '../configured-admission-verifier.js';
 import { createHistoryCheckpointReplica, exchangeHistoryCheckpoint, listenHistoryCheckpointReplica,
   type HistoryCheckpointTransport } from '../history-checkpoint-exchange.js';
@@ -91,6 +91,11 @@ it('preserves all spends across repeated checkpoint retirement with four-payload
   let history = n.history; await history.ready(); const accepted = [];
   for (let cycle = 0; cycle < 6; cycle++) {
     const next = row(n.policy.activeKey); accepted.push(next); await history.write(next);
+    if (cycle > 0) {
+      const before = history.read(), calls = n.calls();
+      await expect(history.write(row(n.policy.activeKey))).rejects.toThrow('checkpoint headroom');
+      expect(history.read()).toEqual(before); expect(n.calls()).toBe(calls);
+    }
     await history.checkpoint(history.planCheckpoint().approvalDigest);
     const review = history.planCheckpointCertification();
     const proof = await history.certifyCheckpoint(review.approvalDigest, { transport: async (member, proposal) => {
@@ -108,6 +113,30 @@ it('preserves all spends across repeated checkpoint retirement with four-payload
   }
   expect(history.read().applied!.sequence).toBe(12); expect(history.size()).toBe(6);
 }, 30000);
+
+it.each([-1, 0])('reserves the next complete checkpoint at the exact byte boundary (%i)', async adjustment => {
+  const n = await fixture(); await n.history.ready();
+  const before = n.history.read(), usage = n.history.health(), next = row(n.policy.activeKey);
+  const record = { version: 1 as const, kind: 'spend' as const, at: f.time, row: next };
+  const reduced = await reduceAdmissionHistory(before.image, record);
+  const header = { kind: 'delta' as const, generation: 0, sequence: 1, previous: before.applied!.id };
+  const deltaBytes = historyCheckpointEnvelopeByteLength({ context: n.context, header,
+    plaintextBytes: encodeAdmissionHistoryRecord(record).length });
+  const checkpointBytes = historyCheckpointEnvelopeByteLength({ context: n.context, header: { ...header, kind: 'checkpoint', sequence: 2 },
+    plaintextBytes: encodeAdmissionHistoryRecord({ version: 1, kind: 'admission-state-checkpoint', at: Number.MAX_SAFE_INTEGER, image: reduced.image }).length });
+  n.history.close();
+  const maximum = usage.retainedCiphertextBytes + deltaBytes + checkpointBytes + adjustment;
+  const history = await openProtectedAdmissionSpendHistory({ ...n.options, protection: { ...n.options.protection, maxArchiveBytes: maximum } });
+  cleanup.push(history.close); await history.ready(); const calls = n.calls();
+  if (adjustment < 0) {
+    await expect(history.write(next)).rejects.toThrow('checkpoint headroom');
+    expect(history.read()).toEqual(before); expect(n.calls()).toBe(calls);
+  } else { await history.write(next); expect(history.get(next.spend)).toEqual(next); }
+  // Refusal preserves enough room to snapshot the previous image; success
+  // preserves enough for the larger resulting image, including envelope cost.
+  await history.checkpoint(history.planCheckpoint().approvalDigest);
+  expect(history.read().pending).toBeNull(); expect(history.health().retainedCiphertextBytes).toBeLessThanOrEqual(maximum);
+});
 
 it('reviews and certifies only the latest complete state without changing accepted work or treating three endorsements as a quorum', async () => {
   const n = await fixture(false, true); await n.history.ready();
