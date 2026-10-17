@@ -45,6 +45,7 @@ try {
   console.error('  replica-serve enrollment.json member-private.json member-storage.hex replica-directory <port>');
   console.error('  replica-prefix-plan|replica-prefix-retire [--approve <digest>] enrollment.json member-private.json member-storage.hex replica-directory <generation-root-id>');
   console.error('  replica-generations-plan|replica-generations-retire [--approve <digest>] enrollment.json member-private.json member-storage.hex replica-directory retention-evidence.json');
+  console.error('  replica-pool-plan|replica-pool-enable [--approve <digest>] enrollment.json member-private.json member-storage.hex replica-directory <slots> [retention-evidence.json]');
   process.exitCode = 1;
 } finally {
   process.removeListener('SIGINT', cancel); process.removeListener('SIGTERM', cancel);

@@ -163,7 +163,7 @@ it.each(['direct', 'bridge'] as const)('certifies a complete state checkpoint ov
   expect(n.router.usage().bytes).toBe(0); expect(n.routers.every(r => r.usage().bytes === 0)).toBe(true);
 }, 30000);
 
-it.each(['legacy', 'pool'] as const)('recovers accepted admission spends after actual ancestor deletion and a subsequent lost-owner event over outbound links using %s storage', async layout => {
+it.each(['legacy', 'pool', 'migrated'] as const)('recovers accepted admission spends after actual ancestor deletion and a subsequent lost-owner event over outbound links using %s storage', async layout => {
   const n = await fixture(), genesisId = historyCheckpointEnvelopeId(n.genesis);
   if (layout === 'pool') for (const service of n.services) service.enablePool(2, service.planPool(2).approvalDigest);
   let ownerDirectory = n.options.directory, history = await openProtectedAdmissionSpendHistory(n.options);
@@ -200,6 +200,7 @@ it.each(['legacy', 'pool'] as const)('recovers accepted admission spends after a
     const service = n.services[i];
     if (service.describe().latest.rootId !== certificate.proposal.rootId || !service.retainedCompactionCheckpoint(certificate.proposal.rootId)) continue;
     const plan = service.planGenerationRetirement(retention); service.retireGenerations(retention, plan.approvalDigest); retired++;
+    if (layout === 'migrated') service.enablePool(2, service.planPool(2, retention).approvalDigest, retention);
     expect(service.describe().generations).toBe(2);
     expect(existsSync(join(n.directory, `history-${i}`, `successors-${genesisId.slice(7)}`))).toBe(false);
   }
@@ -212,7 +213,7 @@ it.each(['legacy', 'pool'] as const)('recovers accepted admission spends after a
     members: n.options.protection.members, transport: n.router.frontier });
   expect(discovered.certificate?.proposal).toEqual(certificate.proposal);
   await recover(3, discovered.certificate); expect(accepted).toHaveLength(4);
-  if (layout === 'pool') {
+  if (layout !== 'legacy') {
     const next = await n.row('accepted after slot reuse'); accepted.push(next); await history.write(next);
     await history.checkpoint(history.planCheckpoint().approvalDigest);
     const proof = await history.certifyCheckpoint(history.planCheckpointCertification().approvalDigest, { transport: n.router.compaction });

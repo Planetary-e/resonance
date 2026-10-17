@@ -156,8 +156,8 @@ it('does not infer reusable capacity from missing slots, unexpected occupants, a
   expect(() => openHistoryVolunteerService({ ...n.options(0), maxBlocks: 20 })).toThrow();
   writeFileSync(journal, '{}'); expect(() => n.reopen(0)).toThrow(); expect(readFileSync(journal, 'utf8')).toBe('{}');
   rmSync(journal); expect(() => n.reopen(0)).toThrow('Unregistered volunteer history');
-  // A lost marker has not authorized any cleanup, including the new empty legacy journal.
-  rmSync(join(base, `successors-${historyCheckpointEnvelopeId(n.root).slice(7)}`), { recursive: true });
+  // A lost marker neither authorizes cleanup nor recreates the old successor layout.
+  expect(existsSync(join(base, `successors-${historyCheckpointEnvelopeId(n.root).slice(7)}`))).toBe(false);
   const external = join(n.directory, 'linked-pool.json'); writeFileSync(external, saved); linkSync(external, journal);
   expect(() => n.reopen(0)).toThrow('ordinary file'); expect(readFileSync(external)).toEqual(saved); rmSync(journal);
   writeFileSync(journal, saved); expect(n.reopen(0).describe()).toMatchObject({ poolSlots: 2, latest: { generation: 0 } });
@@ -183,15 +183,19 @@ it.each([
   ['enable', 'after-unlink'], ['enable', 'before-cleanup-completion'], ['enable', 'after-cleanup-completion'],
   ['retire', 'before-pool-commit'], ['retire', 'after-pool-commit'], ['retire', 'before-unlink'], ['retire', 'after-unlink'],
   ['retire', 'after-directory'], ['retire', 'before-cleanup-completion'], ['retire', 'after-cleanup-completion'], ['retire', 'durable'],
+  ['migrate', 'before-pool-commit'], ['migrate', 'after-pool-commit'], ['migrate', 'before-relocation'], ['migrate', 'after-relocation'],
+  ['migrate', 'before-unlink'], ['migrate', 'after-unlink'], ['migrate', 'after-legacy-frontier'],
+  ['migrate', 'before-cleanup-completion'], ['migrate', 'after-cleanup-completion'],
 ])('resumes fixed-pool %s after actual SIGKILL at %s before accepting a new slot occupant', async (action, boundary) => {
   const n = await fixture(3); let root: HistoryCheckpointEnvelope = n.root;
-  if (action === 'retire') {
-    for (const service of n.services) service.enablePool(2, service.planPool(2).approvalDigest);
+  if (action !== 'enable') {
+    if (action === 'retire') for (const service of n.services) service.enablePool(2, service.planPool(2).approvalDigest);
     for (let generation = 0; generation < 2; generation++) {
       const blocks = await n.append(root); root = await n.decide(blocks); await n.provision(root as HistoryContinuationRoot);
     }
   }
   const current = await certifiedGeneration(n, root), before = n.services[0].describe().latest;
+  if (action === 'migrate') for (const service of n.services) service.retireGenerations(current.retention, service.planGenerationRetirement(current.retention).approvalDigest);
   const genesisPath = join(n.options(0).directory, 'genesis', 'history-manifest.json'), genesis = readFileSync(genesisPath);
   n.services[0].close();
   const child = fork(new URL('./fixtures/history-pool-crash.ts', import.meta.url), [],
@@ -200,8 +204,23 @@ it.each([
   cleanup.push(async () => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); await exited; });
   const { signingKey, localKey, ...options } = n.options(0);
   child.send({ options, localKey: localKey.toString('hex'), member: { publicKey: Buffer.from(signingKey.publicKey).toString('hex'),
-    secretKey: Buffer.from(signingKey.secretKey).toString('hex') }, ...(action === 'retire' ? { retention: current.retention } : {}), boundary });
+    secretKey: Buffer.from(signingKey.secretKey).toString('hex') }, ...(action !== 'enable' ? { retention: current.retention } : {}), migrate: action === 'migrate', boundary });
   await exited; expect(messages).toEqual(['ready']); expect(child.signalCode).toBe('SIGKILL');
+  if (action === 'migrate' && boundary === 'after-pool-commit') {
+    if (root.kind !== 'continuation') throw new Error('Expected a continued history');
+    const source = join(options.directory, `successors-${root.proposal.rootId.slice(7)}`, `generation-${historyCheckpointEnvelopeId(root).slice(7)}`);
+    const target = historyPoolPaths(options.directory, 2, 2).history, files = readdirSync(source);
+    mkdirSync(target, { recursive: true }); expect(() => n.reopen(0)).toThrow('exactly one');
+    expect(readdirSync(source)).toEqual(files); rmSync(target, { recursive: true });
+    const checkpoint = join(source, `${current.certificate.proposal.envelopeId.slice(7)}.block`), saved = readFileSync(checkpoint);
+    writeFileSync(checkpoint, '{}'); expect(() => n.reopen(0)).toThrow(); expect(existsSync(source)).toBe(true); expect(existsSync(target)).toBe(false);
+    writeFileSync(checkpoint, saved);
+  }
+  if (action === 'migrate' && boundary === 'after-relocation') {
+    const primary = join(options.directory, HISTORY_POOL_FILENAME), saved = readFileSync(primary);
+    const target = historyPoolPaths(options.directory, 2, 2).history, files = readdirSync(target);
+    rmSync(primary); expect(() => n.reopen(0)).toThrow(); expect(readdirSync(target)).toEqual(files); writeFileSync(primary, saved);
+  }
   if (action === 'retire' && boundary === 'after-pool-commit') {
     const stale = historyPoolPaths(options.directory, 2, 1).history, selected = historyPoolPaths(options.directory, 2, 2).history;
     const checkpoint = join(selected, `${current.certificate.proposal.envelopeId.slice(7)}.block`), saved = readFileSync(checkpoint);
@@ -215,13 +234,19 @@ it.each([
   expect(service.describe().latest).toEqual(before); expect(readFileSync(genesisPath)).toEqual(genesis);
   if (boundary === 'before-pool-commit') {
     if (action === 'retire') service.retireGenerations(current.retention, service.planGenerationRetirement(current.retention).approvalDigest);
-    else service.enablePool(2, service.planPool(2).approvalDigest);
+    else {
+      const evidence = action === 'migrate' ? current.retention : undefined;
+      service.enablePool(2, service.planPool(2, evidence).approvalDigest, evidence);
+    }
     service = n.reopen(0);
   }
-  expect(service.describe()).toMatchObject({ poolSlots: 2, generations: action === 'retire' ? 2 : 1 });
+  expect(service.describe()).toMatchObject({ poolSlots: 2, generations: action === 'enable' ? 1 : 2 });
   for (let i = 1; i < 5; i++) {
     if (action === 'retire') n.services[i].retireGenerations(current.retention, n.services[i].planGenerationRetirement(current.retention).approvalDigest);
-    else n.services[i].enablePool(2, n.services[i].planPool(2).approvalDigest);
+    else {
+      const evidence = action === 'migrate' ? current.retention : undefined;
+      n.services[i].enablePool(2, n.services[i].planPool(2, evidence).approvalDigest, evidence);
+    }
   }
   // Reuse the just-cleared physical location, accept a delta and checkpoint,
   // then reopen twice. The old cleanup intent must never delete its new occupant.
@@ -233,13 +258,76 @@ it.each([
   }
 }, 60000);
 
-it('reviews and enables a fixed pool through the actual CLI with existing accepted genesis data', async () => {
-  const n = await fixture(); await n.append(n.root);
+it.each(['complete ancestry', 'retained frontier'] as const)('migrates %s to fixed locations without changing the selected state or losing its chosen successor', async layout => {
+  const n = await fixture(3, true); let root: HistoryCheckpointEnvelope = n.root;
+  for (let generation = 0; generation < 2; generation++) {
+    root = await n.decide(await n.append(root)); await n.provision(root as HistoryContinuationRoot);
+  }
+  const current = await certifiedGeneration(n, root), chosen = await n.decide(current.blocks);
+  if (root.kind !== 'continuation') throw new Error('Expected a continued history');
+  if (layout === 'retained frontier') for (const service of n.services) service.retireGenerations(current.retention, service.planGenerationRetirement(current.retention).approvalDigest);
+  const authority = n.authority!, used = authority.status().reservedBytes;
+  authority.applyLimit(used, authority.reviewLimit(used).approvalDigest);
+  const first = n.services[0], plan = first.planPool(2, current.retention), oldHead = first.describe().latest;
+  expect(() => first.planPool(2)).toThrow();
+  expect(() => first.planPool(2, { ...current.retention, receipts: current.retention.receipts.slice(0, 3) })).toThrow();
+  expect(() => first.enablePool(2, 'wrong', current.retention)).toThrow('review');
+  expect(() => first.enablePool(2, plan.approvalDigest, current.retention)).toThrow('exhausted');
+  expect(existsSync(join(n.options(0).directory, HISTORY_POOL_FILENAME))).toBe(false); expect(first.describe().latest).toEqual(oldHead);
+  authority.applyLimit(2 * 1024 * 1024 * 1024, authority.reviewLimit(2 * 1024 * 1024 * 1024).approvalDigest);
+  for (let i = 0; i < 5; i++) {
+    const base = n.options(i).directory, source = join(base, `successors-${root.proposal.rootId.slice(7)}`, `generation-${historyCheckpointEnvelopeId(root).slice(7)}`);
+    const before = readFileSync(join(source, 'history-manifest.json')), service = n.services[i];
+    service.enablePool(2, service.planPool(2, current.retention).approvalDigest, current.retention);
+    expect(readFileSync(join(historyPoolPaths(base, 2, 2).history, 'history-manifest.json'))).toEqual(before);
+    expect(n.reopen(i).describe()).toMatchObject({ poolSlots: 2, generations: 2, latest: oldHead });
+    expect(readdirSync(base).some(name => name.startsWith('successors-') || name === HISTORY_VOLUNTEER_FRONTIER_FILENAME)).toBe(false);
+  }
+  const funded = authority.status().reservedBytes; authority.applyLimit(funded, authority.reviewLimit(funded).approvalDigest);
+  const budget = authority.status(); await n.provision(chosen); const next = await certifiedGeneration(n, chosen);
+  for (const service of n.services) service.retireGenerations(next.retention, service.planGenerationRetirement(next.retention).approvalDigest);
+  const fourth = await n.decide(next.blocks); await n.provision(fourth); await certifiedGeneration(n, fourth);
+  expect(n.reopen(0).describe()).toMatchObject({ latest: { generation: 4 }, poolSlots: 2 }); expect(authority.status()).toEqual(budget);
+}, 60000);
+
+it('preserves an interrupted legacy successor and requires its completion before pool migration', async () => {
+  const n = await fixture(3), first = await n.decide(await n.append(n.root)); await n.provision(first);
+  const certified = await certifiedGeneration(n, first), chosen = await n.decide(certified.blocks), base = n.options(0).directory;
+  const parentDirectory = join(base, `successors-${historyCheckpointEnvelopeId(n.root).slice(7)}`, `generation-${historyCheckpointEnvelopeId(first).slice(7)}`);
+  n.services[0].close();
+  const child = fork(new URL('./fixtures/history-provision-crash.ts', import.meta.url), [],
+    { execArgv: ['--import', 'tsx'], stdio: ['ignore', 'ignore', 'inherit', 'ipc'] });
+  const exited = once(child, 'exit'), messages: unknown[] = []; child.on('message', value => messages.push(value));
+  cleanup.push(async () => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); await exited; });
+  expect((await Promise.race([once(child, 'message'), exited.then(() => { throw new Error('Provision child exited before readiness'); })]))[0]).toBe('ready');
+  child.send({ options: { directory: parentDirectory, context: n.context, replica: n.context.members[0], rootId: historyCheckpointEnvelopeId(first),
+    generation: 1, retainedFrontier: { genesisId: historyCheckpointEnvelopeId(n.root), certificate: certified.certificate } },
+    directory: join(base, `successors-${historyCheckpointEnvelopeId(first).slice(7)}`), localKey: n.localKey.toString('hex'), request: n.request(chosen, 0), boundary: 'intent',
+    member: { publicKey: Buffer.from(n.memberKeys[0].publicKey).toString('hex'), secretKey: Buffer.from(n.memberKeys[0].secretKey).toString('hex') } });
+  await exited; expect(messages).toEqual(['ready']); expect(child.signalCode).toBe('SIGKILL');
+  const service = n.reopen(0); expect(service.describe()).toMatchObject({ latest: { generation: 1 }, provisioning: 'creating' });
+  const manifest = readFileSync(join(parentDirectory, 'history-manifest.json'));
+  expect(() => service.planPool(2, certified.retention)).toThrow('Complete pending successor');
+  expect(readFileSync(join(parentDirectory, 'history-manifest.json'))).toEqual(manifest);
+  expect(existsSync(join(base, HISTORY_POOL_FILENAME))).toBe(false);
+  await n.provision(chosen); const current = await certifiedGeneration(n, chosen);
+  service.enablePool(2, service.planPool(2, current.retention).approvalDigest, current.retention);
+  expect(n.reopen(0).describe()).toMatchObject({ poolSlots: 2, latest: { generation: 2 } });
+}, 30000);
+
+it.each(['genesis', 'legacy'] as const)('reviews and enables a fixed pool through the actual CLI with existing accepted %s data', async layout => {
+  const n = await fixture(); let evidencePath: string | undefined;
+  if (layout === 'genesis') await n.append(n.root);
+  else {
+    let root: HistoryCheckpointEnvelope = n.root;
+    for (let generation = 0; generation < 2; generation++) { root = await n.decide(await n.append(root)); await n.provision(root as HistoryContinuationRoot); }
+    const current = await certifiedGeneration(n, root); evidencePath = join(n.directory, 'retention.json'); writeFileSync(evidencePath, JSON.stringify(current.retention));
+  }
   const enrollment = join(n.directory, 'enrollment.json'), member = join(n.directory, 'member.json'), key = join(n.directory, 'member.hex');
   writeFileSync(enrollment, JSON.stringify({ version: 1, kind: 'admission-history-enrollment', context: n.context, root: n.root }));
   writeFileSync(member, JSON.stringify({ publicKey: Buffer.from(n.memberKeys[0].publicKey).toString('base64url'), secretKey: Buffer.from(n.memberKeys[0].secretKey).toString('base64url') }), { mode: 0o600 });
   writeFileSync(key, n.localKey.toString('hex'), { mode: 0o600 }); const before = n.services[0].describe().latest; n.services[0].close();
-  const script = fileURLToPath(new URL('../../../../scripts/admission-history.ts', import.meta.url)), args = [enrollment, member, key, n.options(0).directory, '2'];
+  const script = fileURLToPath(new URL('../../../../scripts/admission-history.ts', import.meta.url)), args = [enrollment, member, key, n.options(0).directory, '2', ...(evidencePath ? [evidencePath] : [])];
   const command = (...input: string[]) => new Promise<{ code: number | string; stdout: string; stderr: string }>(resolve => {
     execFile(process.execPath, ['--import', 'tsx', script, ...input], { timeout: 30000 }, (error, stdout, stderr) => resolve({ code: error?.code ?? 0, stdout, stderr }));
   });

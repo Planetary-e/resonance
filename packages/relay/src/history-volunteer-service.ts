@@ -16,7 +16,7 @@ import { openHistoryVolunteerFrontier, isHistoryVolunteerFrontierFile, inspectHi
   cleanHistoryRetiredGenerations, type HistoryVolunteerFrontier } from './history-volunteer-frontier.js';
 import { HISTORY_POOL_FILENAME, HISTORY_POOL_DIRECTORY, historyPoolPaths, historyPoolSlot, isHistoryPoolFile,
   openHistoryVolunteerPool, ensureHistoryPoolDirectories, reserveHistoryPool, inspectHistoryPoolRetirement,
-  cleanHistoryPoolRetirement, type HistoryVolunteerPoolState } from './history-volunteer-pool.js';
+  cleanHistoryPoolRetirement, relocateHistoryPoolFrontier, type HistoryVolunteerPoolState } from './history-volunteer-pool.js';
 import { historyDigest, historyCheckpointContextId, historyCheckpointEnvelopeId, isHistoryDigest, parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { HISTORY_MANIFEST_FILENAME, openHistoryCheckpointStore } from './history-checkpoint-store.js';
 import { createHistoryCheckpointReplica } from './history-checkpoint-exchange.js';
@@ -118,16 +118,31 @@ export function openHistoryVolunteerService(options: {
   }
   function openStores(initialize?: HistoryCheckpointEnvelope) {
     const genesisPath = join(directory, 'genesis');
-    if (existsSync(genesisPath) && !lstatSync(genesisPath).isDirectory()) throw new Error('Volunteer genesis must be a real directory');
+    if ((!initialize || existsSync(genesisPath)) && !lstatSync(genesisPath).isDirectory()) throw new Error('Volunteer genesis must be a real directory');
     genesis = openHistoryCheckpointStore({ ...shared, directory: genesisPath, replica, generation: 0, rootId: genesisId, initialize });
     const state = frontier!.read(), pooled = pool?.read();
-    if (pooled) ensureHistoryPoolDirectories(directory, pooled);
+    if (pooled) {
+      ensureHistoryPoolDirectories(directory, pooled);
+      relocateHistoryPoolFrontier(directory, pooled, path => {
+        const certificate = pooled.frontier!.certificate, p = certificate.proposal;
+        const source = openHistoryCheckpointStore({ ...shared, directory: path, replica, rootId: p.rootId, generation: p.generation,
+          retainedFrontier: { genesisId, certificate }, retainedAncestorBytes: genesis!.storageUsage().reservedBytes });
+        let provisioner: Slot['provisioner'] | undefined;
+        try {
+          const root = source.envelopeAt(0)!;
+          if (root.kind !== 'continuation' || pooled.migration!.sourcePath.split('/')[0] !== slotName(root.proposal.rootId)) throw new Error('Pool migration source differs from its continuation');
+          provisioner = openHistoryGenerationProvisioner({ ...shared, directory: join(directory, slotName(p.rootId)), parent: source });
+          if (source.activatedContinuation() || provisioner.read().phase !== 'empty') throw new Error('Complete pending successor work before migrating its pool');
+        } finally { provisioner?.close(); source.close(); }
+      });
+    }
     const selected = pooled?.frontier ?? state?.retention;
     if (!selected) add(genesis);
     else {
       const certificate = selected.certificate, p = certificate.proposal;
-      anchored = openHistoryCheckpointStore({ ...shared, directory: pooled ? historyPoolPaths(directory, pooled.slots, p.generation).history
-        : join(directory, ...state!.selectedPath.split('/')), replica,
+      const selectedPath = pooled ? historyPoolPaths(directory, pooled.slots, p.generation).history : join(directory, ...state!.selectedPath.split('/'));
+      if (!lstatSync(selectedPath).isDirectory()) throw new Error('Retained volunteer frontier must be an existing ordinary directory');
+      anchored = openHistoryCheckpointStore({ ...shared, directory: selectedPath, replica,
         rootId: p.rootId, generation: p.generation, retainedFrontier: { genesisId, certificate },
         retainedAncestorBytes: genesis.storageUsage().reservedBytes });
       const root = anchored.envelopeAt(0)!;
@@ -140,22 +155,48 @@ export function openHistoryVolunteerService(options: {
     // Root, full selected state, barriers and every subsequent generation have
     // reopened successfully before any previously authorized cleanup resumes.
     if (pooled && pooled.phase !== 'ready') {
+      if (pooled.migration?.legacyFrontierDigest) frontier!.close();
       cleanHistoryPoolRetirement(directory, pooled); pool!.finishCleanup();
+      if (pooled.migration?.legacyFrontierDigest) frontier = openHistoryVolunteerFrontier({ directory, localKey, context, genesisId, replica });
     } else if (state) cleanHistoryRetiredGenerations(directory, state);
   }
-  function poolPreparation(count: number) {
+  function poolPreparation(count: number, value?: unknown) {
     live();
-    if (pool || frontier!.read() || slots.size !== 1 || !slots.has(genesisId) || genesis!.activatedContinuation()
-      || slots.get(genesisId)!.provisioner.read().phase !== 'empty' || !Number.isSafeInteger(count) || count < 2 || count > 64 || count + 1 > maxGenerations) {
-      throw new Error('Initial pool selection requires an unactivated genesis and an explicit bounded slot count');
+    if (pool || !Number.isSafeInteger(count) || count < 2 || count > 64 || count + 1 > maxGenerations) {
+      throw new Error('New pool selection requires an explicit bounded slot count');
     }
+    const latest = [...slots.values()].at(-1)!, head = latest.store.describe(), previous = frontier!.read();
+    if (latest.store.activatedContinuation() || latest.provisioner.read().phase !== 'empty') throw new Error('Complete pending successor work before migrating its pool');
     if (readdirSync(directory).includes(HISTORY_POOL_DIRECTORY)) throw new Error('Unregistered pool contents require inspection');
+    let retained: HistoryVolunteerPoolState['frontier'] = null, migration: HistoryVolunteerPoolState['migration'];
+    let legacySlots = [slotName(genesisId)];
+    if (head.generation === 0) {
+      if (value !== undefined || previous || slots.size !== 1 || !slots.has(genesisId)) throw new Error('Genesis pool selection must preserve its original enrollment');
+    } else {
+      retained = parseHistoryCompactionRetention(value, context, genesisId);
+      const p = retained.certificate.proposal, proof = latest.store.compactionAnchor()?.proposal;
+      if (p.rootId !== head.rootId || p.generation !== head.generation || !proof || p.sequence !== proof.sequence || p.envelopeId !== proof.envelopeId) {
+        throw new Error('Pool migration requires the current generation and its latest locally retained checkpoint');
+      }
+      let sourcePath: string;
+      if (previous?.retention.certificate.proposal.rootId === p.rootId) sourcePath = previous.selectedPath;
+      else {
+        const root = latest.store.envelopeAt(0)!;
+        if (root.kind !== 'continuation') throw new Error('Pool migration needs its original continuation');
+        const provision = select(root.proposal.rootId).provisioner.read();
+        if (provision.phase !== 'ready' || !provision.root || historyContinuationRootId(provision.root) !== p.rootId) throw new Error('Pool migration child is not durably provisioned');
+        sourcePath = `${slotName(root.proposal.rootId)}/${provision.location === 'legacy-staging' ? '.creating-' : 'generation-'}${p.rootId.slice(7)}`;
+      }
+      migration = { sourcePath, legacyFrontierDigest: previous ? historyDigest(JSON.stringify(previous)) : null };
+      legacySlots = readdirSync(directory).filter(name => /^successors-[a-f0-9]{64}$/.test(name)).sort();
+    }
     const state: HistoryVolunteerPoolState = { version: 1, contextId: historyCheckpointContextId(context), genesisId, replica, slots: count,
-      maxBytes, maxBlocks, phase: 'migrating', frontier: null, retiredGenerations: [], legacySlots: [slotName(genesisId)] };
+      maxBytes, maxBlocks, phase: 'migrating', frontier: retained, retiredGenerations: [], legacySlots, ...(migration ? { migration } : {}) };
     const inspected = inspectHistoryPoolRetirement(directory, state);
     const details = { kind: 'history-volunteer-pool-selection' as const, slots: count, maximumGenerations: count + 1,
       maximumGenerationBytes: maxBytes, maximumGenerationBlocks: maxBlocks, retainedGenesis: genesisId,
-      notice: 'Funds fixed generation slots before selection. Existing reservations remain; cleanup must finish before reuse. No admission readiness is granted.' };
+      sourceGeneration: head.generation, sourceRoot: head.rootId, ...(migration ? { sourcePath: migration.sourcePath, retainedProofCopies: 4 } : {}),
+      notice: 'Funds fixed locations before selection. A certified legacy generation moves atomically on the same filesystem and is validated before ancestor cleanup. Reservations remain; completed cleanup precedes reuse. No readiness is granted.' };
     return { state, review: { ...details, approvalDigest: historyDigest(`resonance:history-volunteer-pool-selection:v1\n${JSON.stringify([directory, reviewDigest(), state, inspected.digest])}`) } };
   }
   function generationRetirement(value: unknown) {
@@ -233,10 +274,12 @@ export function openHistoryVolunteerService(options: {
     if (!lstatSync(directory).isDirectory()) throw new Error('Volunteer history path must be a real directory');
     frontier = openHistoryVolunteerFrontier({ directory, localKey, context, genesisId, replica });
     if (readdirSync(directory).includes(HISTORY_POOL_FILENAME)) {
-      if (frontier.read()) throw new Error('Conflicting legacy and pooled history frontiers');
       pool = openHistoryVolunteerPool({ directory, localKey, context, genesisId, replica, maxBytes, maxBlocks });
+      const previous = frontier.read();
+      if (previous && pool.read().migration?.legacyFrontierDigest !== historyDigest(JSON.stringify(previous))) throw new Error('Conflicting legacy and pooled history frontiers');
       if (pool.read().slots + 1 > maxGenerations) throw new Error('History pool exceeds configured generation capacity');
     }
+    if (!pool && readdirSync(directory).includes(HISTORY_POOL_DIRECTORY)) throw new Error('Unregistered volunteer history pool requires its selection metadata');
     if (options.initialize && frontier.read()) throw new Error('Cannot initialize a retained volunteer frontier');
     openStores(options.initialize);
   } catch (error) { close(); throw error; }
@@ -278,13 +321,14 @@ export function openHistoryVolunteerService(options: {
       return slot.store.retainCompactionAnchor(certificate, slot.store.reviewDigest());
     }); },
     retainedCompactionCheckpoint(rootId: string) { return select(rootId).store.compactionAnchor(); },
-    planPool(count: number) { return poolPreparation(count).review; },
-    enablePool(count: number, approvedDigest: string) { return run(() => {
-      const { review } = poolPreparation(count);
+    planPool(count: number, value?: unknown) { return poolPreparation(count, value).review; },
+    enablePool(count: number, approvedDigest: string, value?: unknown) { return run(() => {
+      const { state, review } = poolPreparation(count, value);
       if (approvedDigest !== review.approvalDigest) throw new Error('Volunteer pool selection changed; review again');
       reserveHistoryPool(directory, count, maxBytes);
       try {
-        pool = openHistoryVolunteerPool({ directory, localKey, context, genesisId, replica, maxBytes, maxBlocks, initializeSlots: count });
+        pool = openHistoryVolunteerPool({ directory, localKey, context, genesisId, replica, maxBytes, maxBlocks, initializeSlots: count,
+          ...(state.migration ? { initializeMigration: { ...state.migration, frontier: state.frontier!, legacySlots: state.legacySlots } } : {}) });
         closeStores(); openStores();
       } catch (error) { failed = true; throw error; }
       return review;

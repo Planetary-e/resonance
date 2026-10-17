@@ -385,15 +385,17 @@ export async function runAdmissionHistoryCommand(command: string, raw: readonly 
     } else if (['replica-pool-plan', 'replica-pool-enable'].includes(command)) {
       const applying = command === 'replica-pool-enable', approved = applying && raw[0] === '--approve' ? raw[1] : undefined;
       const args = approved ? raw.slice(2) : raw;
-      if (args.length !== 5 || applying && !approved) throw new Error('Invalid fixed history pool command or missing approval');
-      const [enrollmentPath, memberPath, keyPath, target, countText] = args;
+      if (![5, 6].includes(args.length) || applying && !approved) throw new Error('Invalid fixed history pool command or missing approval');
+      const [enrollmentPath, memberPath, keyPath, target, countText, evidencePath] = args;
       if (!/^[1-9][0-9]*$/.test(countText) || Number(countText) < 2 || Number(countText) > 64) throw new Error('History pool requires between two and 64 slots');
       const pinned = readHistoryEnrollmentFile(enrollmentPath), signingKey = readOperatorSigningKey(memberPath);
       cleanup.push(() => signingKey.secretKey.fill(0));
       const localKey = readOperatorStorageKey(keyPath); cleanup.push(() => localKey.fill(0));
       const service = openHistoryVolunteerService({ directory: resolve(target), localKey, context: pinned.context, signingKey, genesisId: pinned.genesisId });
-      cleanup.push(service.close); const plan = service.planPool(Number(countText)); checkCancelled();
-      if (applying) service.enablePool(Number(countText), approved!);
+      cleanup.push(service.close);
+      const evidence = evidencePath ? readOperatorJson(evidencePath, HISTORY_COMPACTION_RETENTION_MAX_BYTES) : undefined;
+      const plan = service.planPool(Number(countText), evidence); checkCancelled();
+      if (applying) service.enablePool(Number(countText), approved!, evidence);
       emit({ ...plan, result: applying ? 'history-pool-enabled' : 'review-required', readiness: 'unverified' });
     } else if (['replica-generations-plan', 'replica-generations-retire'].includes(command)) {
       const applying = command === 'replica-generations-retire', approved = applying && raw[0] === '--approve' ? raw[1] : undefined;

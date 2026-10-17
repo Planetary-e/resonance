@@ -72,6 +72,21 @@ it('closes ownership after a real inventory command or a refused command', async
   const reopened = openRelayStorageOwner(n.selection, 'maintenance'); reopened.close();
 });
 
+it('reviews a fixed history pool under stopped selected ownership and refuses unfunded activation before preserving a funded reopen', async () => {
+  const n = await fixture(), args = [...n.args.slice(0, 4), '2'];
+  const review = await runSelectedAdmissionHistoryCommand(n.file, 'replica-pool-plan', args);
+  expect(review.result).toMatchObject({ slots: 2, readiness: 'unverified' });
+  const approved = ['--approve', String(review.result.approvalDigest), ...args];
+  await expect(runSelectedAdmissionHistoryCommand(n.file, 'replica-pool-enable', approved)).rejects.toThrow('exhausted');
+  const authority = openStorageReservationAuthority({ directory: n.ledger, authorityId: n.selection.authorityId, mode: 'open-existing' });
+  const limit = CONTROL + 200 * 1024 * 1024; authority.applyLimit(limit, authority.reviewLimit(limit).approvalDigest); authority.close();
+  expect((await runSelectedAdmissionHistoryCommand(n.file, 'replica-pool-enable', approved)).result).toMatchObject({ result: 'history-pool-enabled', readiness: 'unverified' });
+  const owner = openRelayStorageOwner(n.selection, 'maintenance'), funded = owner.status(); owner.close();
+  const serving = await runSelectedAdmissionHistoryCommand(n.file, 'replica-serve', n.args); cleanup.push(() => serving.stop?.());
+  expect(serving.result.generations).toBe(1); await serving.stop!();
+  const reopened = openRelayStorageOwner(n.selection, 'maintenance'); expect(reopened.status()).toEqual(funded); reopened.close();
+}, 20000);
+
 it.each(['replacement', 'corruption'] as const)('refuses a selection %s during ownership acquisition and releases its claims', async change => {
   const n = await fixture(), read = reader.readRelayStorageSnapshot; let first = true;
   vi.spyOn(reader, 'readRelayStorageSnapshot').mockImplementation(file => {
