@@ -107,9 +107,11 @@ it('refuses empty/pending state and cannot replace a lost write acknowledgement 
 });
 
 it('enforces a total deadline even if the adapter ignores cancellation', async () => {
-  const n = await fixture(150); await n.writer.replicate(n.root);
+  // Durable setup is not the operation whose 150 ms deadline is under test.
+  const n = await fixture(); await n.writer.replicate(n.root); n.writer.close();
+  const writer = createRetainedHistoryCheckpointWriter({ ...n.options, timeoutMs: 150 }); cleanup.push(writer.close);
   n.override(() => new Promise(() => {})); const start = performance.now();
-  await expect(n.writer.observeCurrent()).rejects.toThrow('Four'); expect(performance.now() - start).toBeLessThan(1000);
+  await expect(writer.observeCurrent()).rejects.toThrow('Four'); expect(performance.now() - start).toBeLessThan(1000);
 });
 
 it('cancels an active read on close and prevents simultaneous writes', async () => {

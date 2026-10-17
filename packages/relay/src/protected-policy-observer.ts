@@ -145,6 +145,9 @@ export async function openProtectedPolicyObserver(options: {
         pending: saved.pending !== null, evidence: state.conflict ? structuredClone([state.advance!, state.conflict]) : [], ...writer!.historyUsage() };
     },
     policy() { return structuredClone(retained().state.policy); },
+    /** Local knowledge for explicit recovery review, including an unacknowledged
+     * pending head/conflict. This is neither a global view nor signing readiness. */
+    recoveryState() { return structuredClone(retained().state); },
     /** No persistent ready flag: every observation performs another fresh check. */
     ready() { return exclusive(async () => { const { state } = await confirm(); usable(state); }); },
     observe(value: unknown) { return exclusive(async () => {

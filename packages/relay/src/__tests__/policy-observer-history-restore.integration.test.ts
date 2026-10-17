@@ -122,3 +122,39 @@ it('does not recreate a missing writer from the restored baseline when retained 
   await expect(openProtectedPolicyObserver({ ...selected.openOptions, mode: 'open-existing', initializeWriter: true })).rejects.toThrow('retained archive evidence');
   expect(existsSync(path)).toBe(false);
 }, 30000);
+
+it.each(['advance', 'conflict'])('refuses remote reconstruction that omits a still-available unreplicated local %s', async kind => {
+  const n = await fixture(); await n.observer.advance(n.advance); n.online(0);
+  await expect(n.observer.advance(kind === 'advance' ? n.later : n.conflict)).rejects.toThrow('Four');
+  const minimumState = n.observer.recoveryState(); expect(n.observer.status().pending).toBe(true); n.online(5);
+  const selected = await n.recover();
+  const review = preparePolicyObserverRestore({ ...selected.restoreOptions, minimumState });
+  // Caller mutation after asynchronous review starts cannot weaken the floor.
+  minimumState.policy = n.first; minimumState.previous = null; minimumState.advance = null; minimumState.conflict = null;
+  await expect(review).rejects.toThrow('omits known local');
+  expect(existsSync(selected.openOptions.directory)).toBe(false);
+  expect(n.observer.status().pending).toBe(true);
+  if (kind === 'conflict') expect(n.observer.status().evidence).toHaveLength(2);
+  else expect(n.observer.policy()).toEqual(n.third);
+}, 30000);
+
+it('accepts a known older local head only when the selected complete chain contains that exact transition', async () => {
+  const n = await fixture(); await n.observer.advance(n.advance); const minimumState = n.observer.recoveryState();
+  await n.observer.advance(n.later); const selected = await n.recover();
+  const prepared = await preparePolicyObserverRestore({ ...selected.restoreOptions, minimumState }); expect(prepared.review.policyRevision).toBe(3);
+  const otherBranch = { ...minimumState, policy: n.fork, advance: n.conflict.commitment };
+  await expect(preparePolicyObserverRestore({ ...selected.restoreOptions, minimumState: otherBranch })).rejects.toThrow('omits known local');
+  let read = false;
+  function* blocks() { read = true; yield* selected.blocks; }
+  await expect(replayPolicyObserverHistory({ ...selected.replayOptions, blocks: blocks(), minimumState: { ...minimumState, contextId: 'untrusted' } })).rejects.toThrow('state');
+  expect(read).toBe(false);
+}, 30000);
+
+it('retains a supplied local conflict floor in a complete restored blocked history', async () => {
+  const n = await fixture(); await n.observer.advance(n.advance); await expect(n.observer.advance(n.conflict)).rejects.toThrow('equivocated');
+  const minimumState = n.observer.recoveryState(), selected = await n.recover();
+  const preparation = await preparePolicyObserverRestore({ ...selected.restoreOptions, minimumState });
+  expect(preparation.review.blocked).toBe(true);
+  const observer = await openProtectedPolicyObserver({ ...selected.openOptions, mode: 'create-new', restore: { preparation, approvedDigest: preparation.review.approvalDigest } }); cleanup.push(observer.close);
+  expect(observer.recoveryState()).toEqual(minimumState); await expect(observer.ready()).rejects.toThrow('equivocated');
+}, 30000);
