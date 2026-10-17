@@ -82,15 +82,22 @@ export function createHistoryCompactionVote(proposal: HistoryCompactionProposal,
 }
 export function parseHistoryCompactionCertificate(value: unknown, context: HistoryCheckpointContext, genesisId: string,
   checkpointValue: unknown): HistoryCompactionCertificate {
+  const certificate = parseHistoryCompactionAttestation(value, context, genesisId), proposal = certificate.proposal;
+  const checkpoint = parseHistoryCheckpointEnvelope(checkpointValue, context);
+  if (checkpoint.kind !== 'checkpoint' || checkpoint.sequence !== proposal.sequence || checkpoint.generation !== proposal.generation
+    || historyCheckpointEnvelopeId(checkpoint) !== proposal.envelopeId) throw new Error('Compaction certificate binds a different checkpoint');
+  return certificate;
+}
+
+/** Bounded signature/metadata check only. Durable stores must separately validate
+ * the named ciphertext with parseHistoryCompactionCertificate before exposing it. */
+export function parseHistoryCompactionAttestation(value: unknown, context: HistoryCheckpointContext, genesisId: string): HistoryCompactionCertificate {
   if (!exactWitnessFields(value, ['version', 'kind', 'proposal', 'votes']) || value.version !== 1
     || value.kind !== 'history-compaction-certificate' || !Array.isArray(value.votes) || value.votes.length < 4
     || value.votes.length > 5 || Buffer.byteLength(JSON.stringify(value)) > HISTORY_COMPACTION_MAX_BYTES) {
     throw new Error('Four bounded compaction votes required');
   }
   const proposal = parseHistoryCompactionProposal(value.proposal, context, genesisId);
-  const checkpoint = parseHistoryCheckpointEnvelope(checkpointValue, context);
-  if (checkpoint.kind !== 'checkpoint' || checkpoint.sequence !== proposal.sequence || checkpoint.generation !== proposal.generation
-    || historyCheckpointEnvelopeId(checkpoint) !== proposal.envelopeId) throw new Error('Compaction certificate binds a different checkpoint');
   const votes = value.votes.map(raw => parseHistoryCompactionVote(raw, proposal, context, genesisId));
   if (new Set(votes.map(v => v.replica)).size !== votes.length) throw new Error('Compaction requires distinct pinned members');
   return { version: 1, kind: 'history-compaction-certificate', proposal, votes: votes.sort((a, b) => a.replica < b.replica ? -1 : 1) };

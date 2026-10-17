@@ -105,16 +105,24 @@ it('endorses retained checkpoints under independent genesis pins while preservin
   expect(n.services.map(s => s.describe())).toEqual(heads); expect(n.services.map(s => s.reviewDigest())).toEqual(reviews);
   expect(n.services.map(s => s.health())).toEqual(health);
   expect(n.reopen(0).endorseCompactionCheckpoint(p)).toEqual(votes[0]);
+  expect(() => n.services[0].retainCompactionCheckpoint(certificate, 'stale')).toThrow('whole-service review');
+  for (const service of n.services) service.retainCompactionCheckpoint(certificate, service.reviewDigest());
+  expect(n.services.map(s => s.describe())).toEqual(heads); expect(n.services.map(s => s.health())).toEqual(health);
+  for (let i = 0; i < 5; i++) expect(n.reopen(i).retainedCompactionCheckpoint(genesisId)).toEqual(certificate);
   const child = await n.decide([...blocks, checkpoint, tail]); await n.provision(child);
   expect(() => n.services[0].endorseCompactionCheckpoint(p)).toThrow('current unfrozen');
+  expect(n.services[0].retainCompactionCheckpoint(certificate, 'old-review')).toEqual(certificate);
   // Historical evidence remains valid; it cannot remove the frozen tail or reactivate its owner.
   expect(parseHistoryCompactionCertificate(certificate, n.context, genesisId, checkpoint).proposal.envelopeId).toBe(historyCheckpointEnvelopeId(checkpoint));
   const childBlocks = await n.append(child), childCheckpoint = n.next(childBlocks[1], 'complete successor image', 'checkpoint');
   const childId = historyCheckpointEnvelopeId(child); append(childCheckpoint, childId);
   const current = proposal(childCheckpoint, childId);
-  expect((await collectHistoryCompactionCertificate({ context: n.context, genesisId, proposal: current, checkpoint: childCheckpoint, members: n.members })).votes).toHaveLength(4);
+  const childCertificate = await collectHistoryCompactionCertificate({ context: n.context, genesisId, proposal: current, checkpoint: childCheckpoint, members: n.members });
+  expect(childCertificate.votes).toHaveLength(4);
+  for (const service of n.services) service.retainCompactionCheckpoint(childCertificate, service.reviewDigest());
   const retained = n.services.map(s => s.reviewDigest());
   for (let i = 0; i < 5; i++) n.reopen(i);
+  expect(n.services.every(s => s.retainedCompactionCheckpoint(childId)?.proposal.genesisId === genesisId)).toBe(true);
   const successorVotes = n.services.slice(0, 4).map(s => s.endorseCompactionCheckpoint(current));
   expect(parseHistoryCompactionCertificate({ ...certificate, proposal: current, votes: successorVotes }, n.context, genesisId, childCheckpoint).proposal.generation).toBe(1);
   expect(n.services.map(s => s.reviewDigest())).toEqual(retained);

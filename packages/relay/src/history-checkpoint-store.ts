@@ -9,6 +9,7 @@ import { openEncryptedLocalState } from '@resonance/core/local-state';
 import { reserveHistoryStorage } from './history-storage-reservation.js';
 import { exactWitnessFields } from '@resonance/core/admission-witness';
 import type { SigningKeyPair } from '@resonance/core';
+import { parseHistoryCompactionAttestation, parseHistoryCompactionCertificate, type HistoryCompactionCertificate } from '@resonance/core/history-compaction';
 import { HISTORY_AGREEMENT_MAX_VIEW, parseHistoryAgreementFrame, parseHistoryAgreementRequest } from '@resonance/core/history-agreement';
 import { createHistoryAgreementDataResponse, parseHistoryAgreementDataFrame } from '@resonance/core/history-agreement-data';
 import { historyContinuationRootId, parseHistoryContinuationRoot, type HistoryContinuationRoot } from '@resonance/core/history-continuation';
@@ -38,8 +39,12 @@ interface Manifest {
   transfer?: { authorization: HistoryAgreementFrame; blocks: string[] } | null;
   /** Irreversible authority for one deterministic child; every predecessor block remains indexed. */
   activation?: HistoryContinuationRoot | null;
+  /** Monotone certified checkpoint. Prefix bytes remain retained until transfer/cleanup integration is complete. */
+  compaction?: HistoryCompactionCertificate | null;
 }
 export interface HistoryCheckpointAncestor {
+  /** Propagated from the original independently pinned genesis, never from a received certificate. */
+  readonly genesisId?: string;
   /** Checks the durable activation and retained parent chain, returning the child ancestry depth. */
   requireContinuation(root: HistoryContinuationRoot, replica: string): { depth: number; bytes: number };
 }
@@ -60,7 +65,8 @@ export interface HistoryCheckpointStoreOptions {
   maxBytes?: number;
   maxBlocks?: number;
   /** Optional external progress anchor; complete rollback without one remains undetectable. */
-  minimum?: { sequence: number; id: string; generationBarrier: number; successorId?: string; agreementView?: number };
+  minimum?: { sequence: number; id: string; generationBarrier: number; successorId?: string; agreementView?: number;
+    compaction?: { sequence: number; envelopeId: string } };
 }
 
 export function openHistoryCheckpointStore(options: HistoryCheckpointStoreOptions) {
@@ -150,10 +156,11 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
   const contextId = historyCheckpointContextId(context);
   const { directory, replica, rootId, generation } = options;
   const parent = options.parent;
+  const genesisId = generation === 0 ? rootId : parent?.genesisId;
   let ancestryDepth = 0;
   let ancestorBytes = 0;
   const maxBytes = options.maxBytes ?? 64 * 1024 * 1024, maxBlocks = options.maxBlocks ?? MAX_BLOCKS;
-  const minimum = options.minimum ? { ...options.minimum } : undefined;
+  const minimum = options.minimum ? structuredClone(options.minimum) : undefined;
   const integer = (n: number) => Number.isSafeInteger(n) && n >= 0;
   if (!context.members.includes(replica) || !isHistoryDigest(rootId) || !integer(generation)
     || !integer(maxBytes) || maxBytes <= 2 * MAX_MANIFEST_BYTES || maxBytes > 256 * 1024 * 1024
@@ -161,19 +168,28 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
     || (minimum && (!integer(minimum.sequence) || !isHistoryDigest(minimum.id) || !integer(minimum.generationBarrier)
       || (minimum.successorId !== undefined && !isHistoryDigest(minimum.successorId))
       || (minimum.agreementView !== undefined && (!integer(minimum.agreementView) || minimum.agreementView < 1
-        || minimum.agreementView > HISTORY_AGREEMENT_MAX_VIEW))))) {
+        || minimum.agreementView > HISTORY_AGREEMENT_MAX_VIEW))
+      || (minimum.compaction !== undefined && (!exactWitnessFields(minimum.compaction, ['sequence', 'envelopeId'])
+        || !integer(minimum.compaction.sequence) || minimum.compaction.sequence < 1 || !isHistoryDigest(minimum.compaction.envelopeId)))))) {
     throw new Error('Invalid history store pins or capacity');
   }
   const initial: Manifest = { version: 1, contextId, replica, rootId, generation, blocks: [], freeze: null, successor: null };
   function validManifest(value: unknown): value is Manifest {
     // This intermediate manifest can only exist inside the provisioner's unpublished directory.
     if (preparing && JSON.stringify(value) === JSON.stringify(initial)) return true;
-    const optional = ['successor', 'agreement', 'transfer', 'activation'].filter(key => value !== null && typeof value === 'object' && Object.hasOwn(value, key));
+    const optional = ['successor', 'agreement', 'transfer', 'activation', 'compaction'].filter(key => value !== null && typeof value === 'object' && Object.hasOwn(value, key));
     if (!exactWitnessFields(value, ['version', 'contextId', 'replica', 'rootId', 'generation', 'blocks', 'freeze', ...optional])
       || value.version !== 1 || value.contextId !== contextId || value.replica !== replica || value.rootId !== rootId
       || value.generation !== generation || !Array.isArray(value.blocks) || !value.blocks.length
       || value.blocks.length > maxBlocks || !value.blocks.every(isHistoryDigest)
       || value.blocks[0] !== rootId || new Set(value.blocks).size !== value.blocks.length) return false;
+    if (value.compaction !== undefined && value.compaction !== null) {
+      try {
+        if (!genesisId) return false;
+        const p = parseHistoryCompactionAttestation(value.compaction, context, genesisId).proposal;
+        if (p.rootId !== rootId || p.generation !== generation || value.blocks[p.sequence] !== p.envelopeId) return false;
+      } catch { return false; }
+    }
     if (value.freeze !== null) {
       try { if (parseHistoryFreeze(value.freeze, context).generation !== generation) return false; }
       catch { return false; }
@@ -348,11 +364,14 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
     }
     const state = storage.read();
     validateParent(envelopes[0]);
+    if (state.compaction) parseHistoryCompactionCertificate(state.compaction, context, genesisId!, envelopes[state.compaction.proposal.sequence]);
     fits(0, envelopes.length + staged.length);
     if (minimum && (state.blocks[minimum.sequence] !== minimum.id
       || (state.freeze?.nextGeneration ?? generation) < minimum.generationBarrier
       || (minimum.successorId !== undefined && (!state.successor || historySuccessorProposalId(state.successor) !== minimum.successorId))
-      || (minimum.agreementView !== undefined && (state.agreement?.report.request.view ?? 0) < minimum.agreementView))) {
+      || (minimum.agreementView !== undefined && (state.agreement?.report.request.view ?? 0) < minimum.agreementView)
+      || (minimum.compaction && (!state.compaction || state.compaction.proposal.sequence < minimum.compaction.sequence
+        || state.blocks[minimum.compaction.sequence] !== minimum.compaction.envelopeId)))) {
       throw new Error('History is behind the external progress anchor');
     }
     // Only unreferenced ciphertext is discarded. Validate the entire retained chain first.
@@ -365,6 +384,31 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
   } catch (error) { storage.close(); throw error; }
 
   return {
+    get genesisId(): string | undefined { ensureOpen(); return genesisId; },
+    /** Explicit local maintenance. Commits proof with the authoritative manifest;
+     * keeps every ciphertext block, reservation, suffix and generation barrier. */
+    retainCompactionAnchor(value: unknown, approvedReviewDigest: string): HistoryCompactionCertificate {
+      ensureOpen();
+      if (!genesisId) throw new Error('Compaction anchor needs its independently retained genesis');
+      const evidence = parseHistoryCompactionAttestation(value, context, genesisId), p = evidence.proposal, state = storage.read();
+      if (p.rootId !== rootId || p.generation !== generation || state.blocks[p.sequence] !== p.envelopeId) {
+        throw new Error('Compaction anchor does not match retained history');
+      }
+      const certificate = parseHistoryCompactionCertificate(evidence, context, genesisId, envelopes[p.sequence]);
+      // Exact-anchor retry may report historical success after a later freeze;
+      // it neither replaces proof nor needs another manifest write.
+      if (state.compaction?.proposal.sequence === p.sequence && state.compaction.proposal.envelopeId === p.envelopeId) {
+        return structuredClone(state.compaction);
+      }
+      if (state.compaction && state.compaction.proposal.sequence > p.sequence) throw new Error('Compaction anchor cannot regress');
+      if (approvedReviewDigest !== historyDigest(JSON.stringify(state))) throw new Error('Compaction anchor needs current local review');
+      if (state.freeze || state.agreement || state.transfer || state.successor || state.activation) throw new Error('Frozen or committed generation cannot advance its compaction anchor');
+      const next: Manifest = { ...state, compaction: certificate };
+      if (!validManifest(next)) throw new Error('Invalid outgoing compaction anchor');
+      storage.write(next);
+      return structuredClone(certificate);
+    },
+    compactionAnchor(): HistoryCompactionCertificate | null { ensureOpen(); return structuredClone(storage.read().compaction ?? null); },
     /** Explicit local activation only. The proof does not certify current network readiness. */
     activateContinuation(value: unknown): HistoryContinuationRoot {
       ensureOpen();

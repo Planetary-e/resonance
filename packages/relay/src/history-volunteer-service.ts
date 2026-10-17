@@ -7,7 +7,7 @@ import { historyContinuationRootId } from '@resonance/core/history-continuation'
 import { parseHistoryProvisionRequest } from '@resonance/core/history-provision';
 import { reserveHistoryStorage } from './history-storage-reservation.js';
 import { copyAdmissionSigningKey } from '@resonance/core/admission-witness';
-import { createHistoryCompactionVote, parseHistoryCompactionProposal } from '@resonance/core/history-compaction';
+import { createHistoryCompactionVote, parseHistoryCompactionProposal, parseHistoryCompactionAttestation } from '@resonance/core/history-compaction';
 import { historyDigest, historyCheckpointEnvelopeId, isHistoryDigest, parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { HISTORY_MANIFEST_FILENAME, openHistoryCheckpointStore } from './history-checkpoint-store.js';
 import { createHistoryCheckpointReplica } from './history-checkpoint-exchange.js';
@@ -77,6 +77,9 @@ export function openHistoryVolunteerService(options: {
     return raw && typeof raw === 'object' && 'request' in raw && raw.request && typeof raw.request === 'object'
       && 'rootId' in raw.request ? raw.request.rootId : undefined;
   }
+  function reviewDigest() {
+    live(); return historyDigest(JSON.stringify([...slots.values()].map(slot => [slot.store.reviewDigest(), slot.provisioner.read()])));
+  }
   try {
     if (!context.members.includes(replica) || localKey.length !== 32) throw new Error('Invalid volunteer enrollment keys');
     if (!isHistoryDigest(options.genesisId)) throw new Error('Invalid volunteer genesis pin');
@@ -102,6 +105,19 @@ export function openHistoryVolunteerService(options: {
     add(genesis); grow();
   } catch (error) { close(); throw error; }
   return {
+    /** Local-only maintenance; the network compaction method only endorses.
+     * Approval covers every retained generation and provisioning promise. */
+    retainCompactionCheckpoint(raw: unknown, approvedReviewDigest: string) { return run(() => {
+      live();
+      const certificate = parseHistoryCompactionAttestation(raw, context, genesisId), proposal = certificate.proposal;
+      const slot = select(proposal.rootId), previous = slot.store.compactionAnchor()?.proposal;
+      const retry = previous?.sequence === proposal.sequence && previous.envelopeId === proposal.envelopeId;
+      if (!retry && (slot !== [...slots.values()].at(-1) || approvedReviewDigest !== reviewDigest())) {
+        throw new Error('Compaction checkpoint needs current whole-service review');
+      }
+      return slot.store.retainCompactionAnchor(certificate, slot.store.reviewDigest());
+    }); },
+    retainedCompactionCheckpoint(rootId: string) { return select(rootId).store.compactionAnchor(); },
     /** Attests to retained ciphertext and independently enrolled ancestry only.
      * No files, manifests, barriers or admission state are changed by this vote. */
     endorseCompactionCheckpoint(raw: unknown) {
@@ -143,9 +159,7 @@ export function openHistoryVolunteerService(options: {
       return receipt;
     }); },
     /** Local maintenance approval, including promises/provisioning in every retained generation. */
-    reviewDigest() {
-      live(); return historyDigest(JSON.stringify([...slots.values()].map(slot => [slot.store.reviewDigest(), slot.provisioner.read()])));
-    },
+    reviewDigest,
     /** Aggregate local health only; no token, binding or peer activity is returned. */
     describe() {
       live(); const entries = [...slots.values()];
