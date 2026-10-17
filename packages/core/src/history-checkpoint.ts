@@ -7,7 +7,7 @@ import { historyContinuationRootId, parseHistoryContinuationRoot, type HistoryCo
 
 export interface HistoryCheckpointContext {
   version: 1;
-  role: 'relay-admission-spends';
+  role: 'relay-admission-spends' | 'policy-observer';
   historyId: string;
   owner: string;
   authority: string;
@@ -54,14 +54,14 @@ export const isHistoryDigest = (v: unknown): v is string => typeof v === 'string
 const integer = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 0;
 
 export function parseHistoryCheckpointContext(value: unknown): HistoryCheckpointContext {
-  if (!exactWitnessFields(value, contextFields) || value.version !== 1 || value.role !== 'relay-admission-spends'
+  if (!exactWitnessFields(value, contextFields) || value.version !== 1 || !['relay-admission-spends', 'policy-observer'].includes(value.role as string)
     || !witnessBytes(value.historyId, 32) || !witnessBytes(value.owner, 32) || !witnessBytes(value.authority, 32)
     || !isHistoryDigest(value.policyDigest) || value.quorum !== 4 || !Array.isArray(value.members)
     || value.members.length !== 5 || !value.members.every(v => witnessBytes(v, 32))
     || new Set(value.members).size !== 5 || value.members.some((v, i, a) => i > 0 && a[i - 1] >= v)) {
     throw new Error('Invalid pinned history context');
   }
-  return { version: 1, role: value.role, historyId: value.historyId, owner: value.owner,
+  return { version: 1, role: value.role as HistoryCheckpointContext['role'], historyId: value.historyId, owner: value.owner,
     authority: value.authority, policyDigest: value.policyDigest, members: [...value.members], quorum: 4 };
 }
 export function historyCheckpointContextId(context: HistoryCheckpointContext): string {

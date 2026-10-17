@@ -37,6 +37,7 @@ export function readHistoryEnrollmentFile(path: string) {
     throw new Error('Invalid history enrollment file');
   }
   const context = parseHistoryCheckpointContext(raw.context), root = parseHistoryCheckpointEnvelope(raw.root, context);
+  if (context.role !== 'relay-admission-spends') throw new Error('Admission history requires its own history role');
   if (root.kind !== 'checkpoint' || root.generation !== 0 || root.sequence !== 0) throw new Error('Volunteer enrollment needs its independently pinned genesis');
   return { context, root, contextId: historyCheckpointContextId(context), genesisId: historyCheckpointEnvelopeId(root) };
 }

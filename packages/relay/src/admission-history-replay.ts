@@ -24,6 +24,7 @@ export async function replayAdmissionHistory(options: {
   compaction?: unknown;
 }) {
   const context = parseHistoryCheckpointContext(options.context), contextId = historyCheckpointContextId(context);
+  if (context.role !== 'relay-admission-spends') throw new Error('Admission history requires its own history role');
   const proposal = parseHistorySuccessorProposal(options.proposal, context), proposalId = historySuccessorProposalId(proposal);
   const maxBlocks = options.maxBlocks ?? 10001, maxBytes = options.maxBytes ?? 256 * 1024 * 1024;
   const timeoutMs = options.timeoutMs ?? 30000, maxSpends = options.maxSpends ?? 10000;

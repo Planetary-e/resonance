@@ -2,23 +2,15 @@
  * protected recovery and quorum activation remain required before enabling it. */
 import { openEncryptedLocalState } from '@resonance/core/local-state';
 import { copyAdmissionSigningKey, exactWitnessFields } from '@resonance/core/admission-witness';
-import { verifyAdmissionPolicy, assertAdmissionPolicyCurrent, assertAdmissionPolicySuccessor, type SignedAdmissionPolicy } from '@resonance/core/admission-policy';
+import { verifyAdmissionPolicy, assertAdmissionPolicyCurrent } from '@resonance/core/admission-policy';
 import { admissionPolicyObserversId, parseAdmissionPolicyObservers, createAdmissionPolicyHeadVote, type AdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
-import { admissionPolicyHead, sameAdmissionPolicyHead, matchesAdmissionPolicyHead, parseAdmissionPolicyAdvance, parseAdmissionPolicyAdvanceCommitment,
-  type AdmissionPolicyAdvanceCommitment } from '@resonance/core/admission-policy-advance';
+import { admissionPolicyHead, sameAdmissionPolicyHead, parseAdmissionPolicyAdvance } from '@resonance/core/admission-policy-advance';
 import type { SigningKeyPair } from '@resonance/core';
 
+import { ADMISSION_POLICY_OBSERVER_MAX_BYTES, parseAdmissionPolicyObserverState, policyObserverStateHead,
+  advanceAdmissionPolicyObserverState, type AdmissionPolicyObserverState as State } from './admission-policy-observer-state.js';
+export { ADMISSION_POLICY_OBSERVER_MAX_BYTES } from './admission-policy-observer-state.js';
 const DOMAIN = 'resonance:admission-policy-observer:v1';
-export const ADMISSION_POLICY_OBSERVER_MAX_BYTES = 2 * 1024 * 1024;
-interface State {
-  version: 1; contextId: string; policy: SignedAdmissionPolicy;
-  previous: SignedAdmissionPolicy | null; advance: AdmissionPolicyAdvanceCommitment | null;
-  /** Two authority signatures for different transitions at the same revision. */
-  conflict: AdmissionPolicyAdvanceCommitment | null;
-}
-function sameAdvance(a: AdmissionPolicyAdvanceCommitment, b: AdmissionPolicyAdvanceCommitment) {
-  return a.contextId === b.contextId && sameAdmissionPolicyHead(a.previous, b.previous) && sameAdmissionPolicyHead(a.next, b.next);
-}
 export async function openAdmissionPolicyObserver(options: {
   path: string; encryptionKey: Uint8Array; context: AdmissionPolicyObservers; signingKey: SigningKeyPair;
   mode: 'create-new' | 'open-existing'; initialPolicy?: unknown; now?: () => number;
@@ -42,21 +34,9 @@ export async function openAdmissionPolicyObserver(options: {
       maxBytes: ADMISSION_POLICY_OBSERVER_MAX_BYTES, mode, initial: initial!,
       validate: (value): value is State => exactWitnessFields(value, ['version', 'contextId', 'policy', 'previous', 'advance', 'conflict'])
         && value.version === 1 && value.contextId === contextId && !!value.policy });
-    const retained = storage.read(), policy = await verifyAdmissionPolicy(retained.policy, context.authority);
-    if (retained.previous === null) {
-      if (retained.advance !== null || retained.conflict !== null || !sameAdmissionPolicyHead(admissionPolicyHead(policy), context.genesis)) throw new Error('Invalid retained policy genesis');
-    } else {
-      const previous = await verifyAdmissionPolicy(retained.previous, context.authority);
-      const advance = parseAdmissionPolicyAdvanceCommitment(retained.advance, context);
-      if (!matchesAdmissionPolicyHead(previous, advance.previous) || !matchesAdmissionPolicyHead(policy, advance.next)) throw new Error('Retained policy transition differs from its signed heads');
-      assertAdmissionPolicySuccessor(previous, policy);
-      if (retained.conflict !== null) {
-        const conflict = parseAdmissionPolicyAdvanceCommitment(retained.conflict, context);
-        if (conflict.next.revision !== advance.next.revision || sameAdvance(conflict, advance)) throw new Error('Invalid retained policy conflict');
-      }
-    }
+    await parseAdmissionPolicyObserverState(storage.read(), context);
     const local = storage;
-    const stateHead = (state: State) => state.advance?.next ?? context.genesis;
+    const stateHead = (state: State) => policyObserverStateHead(state, context);
     const usable = () => { const state = local.read(); if (state.conflict) throw new Error('Community policy authority equivocated; retain evidence and stop observations'); return state; };
     return {
       status() {
@@ -72,16 +52,13 @@ export async function openAdmissionPolicyObserver(options: {
       async advance(value: unknown) {
         usable(); if (busy) throw new Error('Policy advance is already in progress'); busy = true;
         try {
-          const next = await parseAdmissionPolicyAdvance(value, context), current = usable(), currentHead = stateHead(current);
-          if (next.commitment.next.revision === currentHead.revision && current.advance) {
-            if (sameAdvance(next.commitment, current.advance)) return structuredClone(currentHead);
-            local.write({ ...current, conflict: next.commitment });
-            throw new Error('Community policy authority equivocated; evidence retained');
-          }
-          if (!sameAdmissionPolicyHead(next.commitment.previous, currentHead)) throw new Error('Policy advance skips or rolls back the retained head');
-          assertAdmissionPolicySuccessor(current.policy, next.policy); assertAdmissionPolicyCurrent(next.policy, now());
-          local.write({ ...current, previous: current.policy, policy: next.policy, advance: next.commitment });
-          return structuredClone(next.commitment.next);
+          const next = await parseAdmissionPolicyAdvance(value, context), current = usable();
+          const changed = advanceAdmissionPolicyObserverState(current, next, context);
+          if (changed === current) return structuredClone(stateHead(current));
+          if (!changed.conflict) assertAdmissionPolicyCurrent(changed.policy, now());
+          local.write(changed);
+          if (changed.conflict) throw new Error('Community policy authority equivocated; evidence retained');
+          return structuredClone(stateHead(changed));
         } finally { busy = false; }
       },
       close() { local.close(); owned.secretKey.fill(0); },

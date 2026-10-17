@@ -69,6 +69,7 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
   const policy = await verifyAdmissionPolicy(options.policy, options.authority);
   assertAdmissionPolicyCurrent(policy, now());
   const p = options.protection, context = parseHistoryCheckpointContext(p.context), contextId = historyCheckpointContextId(context);
+  if (context.role !== 'relay-admission-spends') throw new Error('Admission history requires its own history role');
   if (context.authority !== options.authority) throw new Error('Wrong admission history authority');
   if (options.expectedStateDigest !== undefined && (options.initialize || p.promoteLocalHistory)) {
     throw new Error('Reviewed state only opens existing protected history');

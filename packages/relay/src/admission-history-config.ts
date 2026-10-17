@@ -23,6 +23,7 @@ export function parseAdmissionHistoryConfiguration(value: unknown) {
     || typeof value.ownerKeyFile !== 'string' || !value.ownerKeyFile.length || value.ownerKeyFile.length > 4096
     || !Array.isArray(value.members) || value.members.length !== 5) throw new Error('Invalid admission history configuration');
   const context = parseHistoryCheckpointContext(value.context);
+  if (context.role !== 'relay-admission-spends') throw new Error('Admission history requires its own history role');
   const members = value.members.map(member => {
     if (!exactWitnessFields(member, ['publicKey', 'endpoint']) || typeof member.publicKey !== 'string'
       || !context.members.includes(member.publicKey) || typeof member.endpoint !== 'string') throw new Error('Invalid pinned history member');

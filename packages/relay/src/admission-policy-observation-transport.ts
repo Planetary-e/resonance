@@ -8,14 +8,14 @@ import { exactWitnessFields } from '@resonance/core/admission-witness';
 import { ADMISSION_POLICY_HEAD_MAX_BYTES, parseAdmissionPolicyHeadRequest, parseAdmissionPolicyObservers,
   type AdmissionPolicyHeadRequest, type AdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
 import { ADMISSION_POLICY_ADVANCE_MAX_BYTES, type AdmissionPolicyAdvance } from '@resonance/core/admission-policy-advance';
-import type { openAdmissionPolicyObserver } from './admission-policy-observer.js';
+
 
 export interface AdmissionPolicyObservationFrame { request: AdmissionPolicyHeadRequest; advance: AdmissionPolicyAdvance | null }
 export const ADMISSION_POLICY_OBSERVATION_MAX_BYTES = ADMISSION_POLICY_ADVANCE_MAX_BYTES + 1024;
 export type AdmissionPolicyObservationTransport = (member: AdmissionPolicyObservers['members'][number],
   frame: AdmissionPolicyObservationFrame, signal: AbortSignal) => Promise<unknown>;
 
-export function createAdmissionPolicyObserverExchange(observer: Awaited<ReturnType<typeof openAdmissionPolicyObserver>>,
+export function createAdmissionPolicyObserverExchange(observer: { advance(value: unknown): Promise<unknown>; observe(request: unknown): unknown | Promise<unknown> },
   contextValue: AdmissionPolicyObservers, now = Date.now) {
   const context = parseAdmissionPolicyObservers(contextValue);
   return async (value: unknown) => {

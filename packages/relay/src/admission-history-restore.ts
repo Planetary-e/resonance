@@ -31,6 +31,7 @@ export async function prepareAdmissionHistoryRestore(options: Omit<Parameters<ty
   directory: string; continuation: HistoryContinuationRoot; policy: unknown; now?: () => number;
 }): Promise<PreparedAdmissionHistoryRestore> {
   const directory = resolve(options.directory), context = parseHistoryCheckpointContext(options.context);
+  if (context.role !== 'relay-admission-spends') throw new Error('Admission history requires its own history role');
   if (existsSync(directory) && readdirSync(directory).length) throw new Error('Admission restore requires a new empty destination');
   const root = parseHistoryContinuationRoot(options.continuation, context), rootId = historyContinuationRootId(root);
   const policy = await verifyAdmissionPolicy(options.policy, context.authority);
