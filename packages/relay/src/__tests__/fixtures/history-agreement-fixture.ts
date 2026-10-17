@@ -15,14 +15,16 @@ import { createHistoryAgreementReplica } from '../../history-checkpoint-agreemen
 import { historyCheckpointFixture } from './history-checkpoint-fixture.js';
 
 export const AGREEMENT_TEST_TIME = 10_000;
-export function historyAgreementFixture(tail: 'none' | 'missing' | 'newer' | 'sparse' | 'forked' = 'none', length = 1) {
+export function historyAgreementFixture(tail: 'none' | 'missing' | 'newer' | 'sparse' | 'forked' = 'none', length = 1,
+  shape: { checkpointSequence?: number; laggingSequence?: number } = {}) {
   const f = historyCheckpointFixture(), directory = mkdtempSync(join(tmpdir(), 'history-agreement-'));
   const stores = f.context.members.map((replica, i) => openHistoryCheckpointStore({ ...f.options, replica,
     directory: join(directory, `r${i}`), initialize: f.root }));
   const blocks = [f.root];
-  for (let i = 0; i < length; i++) blocks.push(f.next(blocks.at(-1)!));
+  for (let i = 0; i < length; i++) blocks.push(f.next(blocks.at(-1)!, undefined, i + 1 === shape.checkpointSequence ? 'checkpoint' : 'delta'));
   const delta = blocks[1];
   if (tail === 'missing') stores.slice(0, 4).forEach(s => blocks.slice(1).forEach(b => s.append(b)));
+  if (tail === 'missing' && shape.laggingSequence) blocks.slice(1, shape.laggingSequence + 1).forEach(b => stores[4].append(b));
   if (tail === 'sparse' || tail === 'forked') blocks.slice(1).forEach(b => stores[0].append(b));
   if (tail === 'forked') stores[4].append(f.next(f.root));
   if (tail === 'newer') stores[4].append(delta);

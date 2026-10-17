@@ -34,6 +34,7 @@ try {
   console.error('  owner-recovery-status|owner-recovery-step owner-config.json enrollment.json owner-storage.hex recovery-directory');
   console.error('  owner-recovery-review|owner-recovery-restore [--approve <digest>] owner-config.json enrollment.json owner-storage.hex recovery-directory policy.json new-owner-directory');
   console.error('  owner-recovery-readiness-plan|owner-recovery-ready [--approve <digest>] owner-config.json enrollment.json owner-storage.hex recovery-directory policy.json retained-owner-directory');
+  console.error('  All owner-recovery commands accept [--checkpoint-proof certificate.json] after --approve, when present, and before file arguments. Supply the same independently retained proof on every step.');
   console.error('  replica-plan enrollment.json member-private.json member-storage.hex replica-directory');
   console.error('  replica-enroll --approve <digest> enrollment.json member-private.json member-storage.hex replica-directory');
   console.error('  replica-resume-plan|replica-resume [--approve <digest>] enrollment.json member-private.json member-storage.hex replica-directory');

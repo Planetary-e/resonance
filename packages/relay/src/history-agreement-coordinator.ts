@@ -6,6 +6,7 @@ import { copyAdmissionSigningKey, exactWitnessFields, witnessBytes } from '@reso
 import { openEncryptedLocalState } from '@resonance/core/local-state';
 import { historyCheckpointContextId, isHistoryDigest, parseHistoryCheckpointContext, type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { historySuccessorProposalId, parseHistorySuccessorProposal, type HistorySuccessorProposal } from '@resonance/core/history-successor';
+import { parseHistoryCompactionAttestation, type HistoryCompactionCertificate } from '@resonance/core/history-compaction';
 import {
   HISTORY_AGREEMENT_MAX_VIEW, assertHistoryAgreementSelection, createHistoryAgreementRequest,
   historyAgreementEvidenceId, historyAgreementSlot, parseHistoryAgreementCertificate, parseHistoryAgreementRequest,
@@ -26,6 +27,7 @@ export interface AgreementOwnerState {
   preparedCertificate: HistoryAgreementCertificate | null; certificate: HistoryAgreementCertificate | null;
   /** Keep the last locally known prepared proof when explicitly moving to a later view. */
   previous: HistoryPreparedEvidence | null; attempt: AgreementAttempt | null;
+  compaction?: { genesisId: string; certificate: HistoryCompactionCertificate };
 }
 export interface HistoryAgreementSelection { proposal: HistorySuccessorProposal; viewCertificate: HistoryViewCertificate }
 const integer = (n: unknown): n is number => Number.isSafeInteger(n) && (n as number) >= 0;
@@ -37,7 +39,8 @@ export function createHistoryAgreementCoordinator(options: {
   initialize?: { proposal: HistorySuccessorProposal; view?: number };
   timeoutMs?: number; transport?: HistoryAgreementTransport;
   /** Explicit composition with ciphertext recovery/write-back; never activates a writer. */
-  historyTransfer?: { transport?: HistoryAgreementDataTransport; retained?: () => Iterable<HistoryCheckpointEnvelope> };
+  historyTransfer?: { transport?: HistoryAgreementDataTransport; retained?: () => Iterable<HistoryCheckpointEnvelope>;
+    compaction?: { genesisId: string; certificate: unknown } };
   /** Independent anchor, not a value recovered from the same owner file. */
   minimumView?: number;
 }) {
@@ -55,12 +58,21 @@ export function createHistoryAgreementCoordinator(options: {
   if (new Set(members.map(m => m.publicKey)).size !== 5 || new Set(members.map(m => m.endpoint)).size !== 5) {
     throw new Error('Agreement needs five distinct pinned members and endpoints');
   }
+  let compaction: AgreementOwnerState['compaction'];
+  if (options.historyTransfer?.compaction !== undefined) {
+    const pins = options.historyTransfer.compaction;
+    if (!exactWitnessFields(pins, ['genesisId', 'certificate'])) throw new Error('Invalid compacted agreement pins');
+    const certificate = parseHistoryCompactionAttestation(pins.certificate, context, pins.genesisId);
+    if (certificate.proposal.rootId !== rootId || certificate.proposal.generation !== generation) throw new Error('Compacted agreement proof belongs to another slot');
+    compaction = { genesisId: pins.genesisId, certificate };
+  }
   const matchesSlot = (r: typeof slot) => historyAgreementSlot(r) === historyAgreementSlot(slot);
   function valid(raw: unknown): raw is AgreementOwnerState {
     if (!exactWitnessFields(raw, ['version', 'contextId', 'rootId', 'generation', 'nextGeneration', 'preferred', 'view', 'phase',
-      'selected', 'viewCertificate', 'preparedCertificate', 'certificate', 'previous', 'attempt']) || raw.version !== 2
+      'selected', 'viewCertificate', 'preparedCertificate', 'certificate', 'previous', 'attempt', ...(compaction ? ['compaction'] : [])]) || raw.version !== 2
       || raw.contextId !== contextId || raw.rootId !== rootId || raw.generation !== generation || raw.nextGeneration !== nextGeneration
-      || !validView(raw.view) || !['promise', 'prepare', 'confirm', 'decided'].includes(raw.phase as string)) return false;
+      || !validView(raw.view) || !['promise', 'prepare', 'confirm', 'decided'].includes(raw.phase as string)
+      || JSON.stringify(raw.compaction) !== JSON.stringify(compaction)) return false;
     try {
       if (!matchesSlot(parseHistorySuccessorProposal(raw.preferred, context))) return false;
       if (raw.attempt !== null && (!exactWitnessFields(raw.attempt, ['challenge', 'issuedAt', 'expiresAt'])
@@ -91,7 +103,7 @@ export function createHistoryAgreementCoordinator(options: {
     if (options.initialize) {
       initial = { version: 2, ...slot, preferred: parseHistorySuccessorProposal(options.initialize.proposal, context),
         view: options.initialize.view ?? 1, phase: 'promise', selected: null, viewCertificate: null,
-        preparedCertificate: null, certificate: null, previous: null, attempt: null };
+        preparedCertificate: null, certificate: null, previous: null, attempt: null, ...(compaction ? { compaction } : {}) };
       if (!valid(initial) || initial.view < (options.minimumView ?? 1)) throw new Error('Invalid agreement initialization or anchor');
     }
     storage = openEncryptedLocalState<AgreementOwnerState>({ path: join(options.directory, HISTORY_AGREEMENT_COORDINATOR_FILENAME),
@@ -185,7 +197,7 @@ export function createHistoryAgreementCoordinator(options: {
           history = createHistoryAgreementHistory({ context, key, members, proposal: state.selected!,
             authorization: member => frameFor(transferState, transferAttempt, member, 'prepare'),
             transport: options.historyTransfer.transport ?? exchangeHistoryAgreementData,
-            retained: options.historyTransfer.retained, signal: controller.signal, live });
+            retained: options.historyTransfer.retained, compaction, signal: controller.signal, live });
           await history.download(); live();
         }
         const replies = await collect(state, attempt, history); live();

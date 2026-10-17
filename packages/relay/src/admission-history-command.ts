@@ -6,6 +6,7 @@ import { MAX_ADMISSION_POLICY_BYTES, admissionPolicyDigest, assertAdmissionPolic
 import { exactWitnessFields } from '@resonance/core/admission-witness';
 import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointContextId, historyCheckpointEnvelopeId, historyDigest,
   parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
+import { HISTORY_COMPACTION_MAX_BYTES } from '@resonance/core/history-compaction';
 import { loadAdmissionHistoryProtectionFile, parseAdmissionHistoryConfiguration } from './admission-history-config.js';
 import { readOperatorFile, readOperatorJson, readOperatorSigningKey, readOperatorStorageKey, writeOperatorJsonNew } from './admission-operator-files.js';
 import { openProtectedAdmissionSpendHistory } from './protected-admission-history.js';
@@ -137,7 +138,12 @@ export async function runAdmissionHistoryCommand(command: string, raw: readonly 
     } else if (command?.startsWith('owner-recovery-')) {
       const mutation = ['owner-recovery-start', 'owner-recovery-restore', 'owner-recovery-ready'].includes(command);
       const approved = mutation && raw[0] === '--approve' ? raw[1] : undefined;
-      const args = approved ? raw.slice(2) : raw;
+      let args = approved ? raw.slice(2) : raw;
+      let compaction: unknown;
+      if (args[0] === '--checkpoint-proof') {
+        if (!args[1] || args[1].startsWith('--')) throw new Error('Recovery --checkpoint-proof needs one explicit certificate file');
+        compaction = readOperatorJson(args[1], HISTORY_COMPACTION_MAX_BYTES); args = args.slice(2);
+      }
       const planning = ['owner-recovery-plan', 'owner-recovery-start'].includes(command);
       const readiness = ['owner-recovery-readiness-plan', 'owner-recovery-ready'].includes(command);
       const reviewing = ['owner-recovery-review', 'owner-recovery-restore'].includes(command) || readiness;
@@ -150,7 +156,7 @@ export async function runAdmissionHistoryCommand(command: string, raw: readonly 
       const pinned = readHistoryEnrollmentFile(enrollmentPath);
       if (pinned.contextId !== historyCheckpointContextId(protection.context)) throw new Error('Enrollment and owner configuration differ');
       const encryptionKey = readOperatorStorageKey(keyPath); cleanup.push(() => encryptionKey.fill(0));
-      const options = { directory, ...transport, encryptionKey, genesis: pinned.root };
+      const options = { directory, ...transport, encryptionKey, genesis: pinned.root, compaction };
       if (planning) {
         if (!/^[1-9][0-9]*$/.test(args[4])) throw new Error('Recovery view must be a positive integer');
         const review = await prepareAdmissionHistoryRecovery({ ...options, view: Number(args[4]), signal: commandOptions.signal });

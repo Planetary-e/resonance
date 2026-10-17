@@ -9,8 +9,11 @@ process.once('message', (input: any) => {
   const rename = fs.renameSync;
   fs.renameSync = (from, to) => {
     const manifest = String(to).endsWith(HISTORY_MANIFEST_FILENAME);
+    const checkpoint = input.checkpointId && String(to).endsWith(`${input.checkpointId.slice(7)}.block`);
     if (manifest && input.boundary === 'before-rename') process.kill(process.pid, 'SIGKILL');
+    if (checkpoint && input.boundary === 'before-block-rename') process.kill(process.pid, 'SIGKILL');
     rename(from, to);
+    if (checkpoint && input.boundary === 'after-block-rename') process.kill(process.pid, 'SIGKILL');
     if (manifest && input.boundary === 'after-rename') process.kill(process.pid, 'SIGKILL');
   };
   syncBuiltinESMExports();

@@ -1,15 +1,25 @@
 /** Checks a selected frozen chain whose omitted prefix is independently certified.
  * This authenticates historical evidence; it grants no fresh writer authority. */
 import { isHistoryDigest, type HistoryCheckpointContext } from './history-checkpoint.js';
-import { parseHistoryCompactionCertificate } from './history-compaction.js';
+import { parseHistoryCompactionAttestation, parseHistoryCompactionCertificate } from './history-compaction.js';
 import { parseHistorySuccessorProposal } from './history-successor.js';
 
 export function assertHistoryCompactedSuccessorChain(options: {
   proposal: unknown; ids: readonly string[]; certificate: unknown; checkpoint: unknown;
   context: HistoryCheckpointContext; genesisId: string;
 }): void {
+  parseHistoryCompactionCertificate(options.certificate, options.context, options.genesisId, options.checkpoint);
+  assertHistoryCompactedSuccessorIds(options);
+}
+
+/** Manifest-level proof only. Before exposing history, callers must also authenticate
+ * the named checkpoint ciphertext and every retained suffix link. */
+export function assertHistoryCompactedSuccessorIds(options: {
+  proposal: unknown; ids: readonly string[]; certificate: unknown;
+  context: HistoryCheckpointContext; genesisId: string;
+}): void {
   const p = parseHistorySuccessorProposal(options.proposal, options.context);
-  const certificate = parseHistoryCompactionCertificate(options.certificate, options.context, options.genesisId, options.checkpoint);
+  const certificate = parseHistoryCompactionAttestation(options.certificate, options.context, options.genesisId);
   const anchor = certificate.proposal, ids = options.ids;
   if (p.rootId !== anchor.rootId || p.generation !== anchor.generation || p.sequence < anchor.sequence
     || ids.length !== p.sequence - anchor.sequence + 1 || ids[0] !== anchor.envelopeId || ids.at(-1) !== p.envelopeId
