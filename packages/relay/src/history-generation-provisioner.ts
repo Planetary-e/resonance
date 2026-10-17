@@ -1,6 +1,6 @@
 /** One locally enrolled predecessor/child slot. Never discovers paths or enrolment pins from a peer. */
 import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { type SigningKeyPair } from '@resonance/core';
 import { copyAdmissionSigningKey, exactWitnessFields } from '@resonance/core/admission-witness';
 import { openEncryptedLocalState } from '@resonance/core/local-state';
@@ -20,8 +20,8 @@ interface StateBase {
   contextId: string; replica: string; parentRootId: string; parentGeneration: number;
   phase: 'empty' | 'creating' | 'ready'; root: HistoryContinuationRoot | null;
 }
-type Location = 'generation' | 'legacy-staging';
-interface State extends StateBase { version: 2; location: Location | null }
+type Location = 'generation' | 'legacy-staging' | 'pool';
+interface State extends StateBase { version: 2 | 3; location: Location | null; childDirectory?: string }
 interface LegacyState extends StateBase { version: 1 }
 type StoredState = State | LegacyState;
 /** Preflight the slot before creating its directory, including a future empty successor slot. */
@@ -34,6 +34,10 @@ export function openHistoryGenerationProvisioner(options: {
   parent: ReturnType<typeof openHistoryCheckpointStore>; initialize?: boolean;
   /** Resume only an unpublished empty slot whose durable parent has never activated a child. */
   resumePristine?: boolean;
+  /** Explicit, independently selected pool destination. Bound into a new v3
+   * journal; never inferred from a peer, empty directory or legacy journal.
+   * The service must durably retire the previous occupant before reuse. */
+  childDirectory?: string;
   maxBytes?: number; maxBlocks?: number; acceptNew?: () => boolean; now?: () => number;
 }) {
   const run = captureStorageReservationOperation();
@@ -41,18 +45,29 @@ export function openHistoryGenerationProvisioner(options: {
   const maxBytes = options.maxBytes ?? 64 * 1024 * 1024, maxBlocks = options.maxBlocks ?? 10001;
   if (!Number.isSafeInteger(maxBytes) || maxBytes <= 4 * 1024 * 1024 || maxBytes > 256 * 1024 * 1024
     || !Number.isSafeInteger(maxBlocks) || maxBlocks < 1 || maxBlocks > 10001) throw new Error('Invalid history provision capacity');
+  const fixed = options.childDirectory;
+  const inside = (parent: string, path: string) => { const suffix = relative(parent, path); return suffix === '' || (!isAbsolute(suffix) && suffix !== '..' && !suffix.startsWith('../') && !suffix.startsWith('..\\')); };
+  if (fixed !== undefined && (typeof fixed !== 'string' || !isAbsolute(fixed) || resolve(fixed) !== fixed || Buffer.byteLength(fixed) > 4096
+    || /[\x00-\x1f\x7f]/.test(fixed) || inside(resolve(options.directory), fixed) || inside(fixed, resolve(options.directory))
+    || !lstatSync(dirname(fixed)).isDirectory())) {
+    throw new Error('Invalid independently selected history pool destination');
+  }
   const key = copyAdmissionSigningKey(options.signingKey), localKey = Buffer.from(options.localKey);
   const replica = Buffer.from(key.publicKey).toString('base64url'), parent = options.parent, head = parent.describe();
   const directory = options.directory, now = options.now ?? Date.now;
   let child: ReturnType<typeof openHistoryCheckpointStore> | undefined, closed = false, failed = false;
-  const initial: State = { version: 2, contextId, replica, parentRootId: head.rootId, parentGeneration: head.generation, phase: 'empty', root: null, location: null };
-  const fields = Object.keys(initial).filter(name => name !== 'location');
+  const initial: State = { version: fixed === undefined ? 2 : 3, contextId, replica, parentRootId: head.rootId, parentGeneration: head.generation,
+    phase: 'empty', root: null, location: null, ...(fixed === undefined ? {} : { childDirectory: fixed }) };
+  const fields = ['version', 'contextId', 'replica', 'parentRootId', 'parentGeneration', 'phase', 'root'];
   const validate = (raw: unknown): raw is StoredState => {
-    const v2 = !!raw && typeof raw === 'object' && 'version' in raw && raw.version === 2;
-    if (!exactWitnessFields(raw, v2 ? [...fields, 'location'] : fields) || ![1, 2].includes(raw.version as number)
+    const version = raw && typeof raw === 'object' && 'version' in raw ? raw.version : undefined;
+    const located = version === 2 || version === 3, pool = version === 3;
+    if (!exactWitnessFields(raw, [...fields, ...(located ? ['location'] : []), ...(pool ? ['childDirectory'] : [])])
+      || !(fixed === undefined ? [1, 2] : [3]).includes(raw.version as number)
+      || pool && raw.childDirectory !== fixed
       || raw.contextId !== contextId || raw.replica !== replica || raw.parentRootId !== head.rootId || raw.parentGeneration !== head.generation) return false;
-    if (raw.phase === 'empty') return raw.root === null && (!v2 || raw.location === null);
-    if (v2 && raw.location !== 'generation' && raw.location !== 'legacy-staging') return false;
+    if (raw.phase === 'empty') return raw.root === null && (!located || raw.location === null);
+    if (pool ? raw.location !== 'pool' : located && raw.location !== 'generation' && raw.location !== 'legacy-staging') return false;
     try {
       const root = parseHistoryContinuationRoot(raw.root, context);
       return ['creating', 'ready'].includes(raw.phase as string) && root.proposal.rootId === head.rootId && root.proposal.generation === head.generation;
@@ -60,7 +75,7 @@ export function openHistoryGenerationProvisioner(options: {
   };
   const paths = (root: HistoryContinuationRoot) => {
     const id = historyContinuationRootId(root).slice(7);
-    return { staging: join(directory, `.creating-${id}`), published: join(directory, `generation-${id}`) };
+    return { staging: join(directory, `.creating-${id}`), published: fixed ?? join(directory, `generation-${id}`) };
   };
   const selectedPath = (state: State) => state.location === 'legacy-staging' ? paths(state.root!).staging : paths(state.root!).published;
   const childOptions = (root: HistoryContinuationRoot, path: string) => ({ directory: path, localKey, context, replica,
@@ -80,7 +95,7 @@ export function openHistoryGenerationProvisioner(options: {
   let journal: ReturnType<typeof openEncryptedLocalState<StoredState>>;
   function readState(): State {
     const state = journal.read();
-    if (state.version !== 2) throw new Error('History provision location must be durably selected before reuse');
+    if (state.version === 1) throw new Error('History provision location must be durably selected before reuse');
     return state;
   }
   try {
@@ -139,13 +154,14 @@ export function openHistoryGenerationProvisioner(options: {
         if (present(p.staging) || present(p.published)) throw new Error('Unregistered history directory requires inspection');
       } else checkLayout(state);
       const path = state.phase === 'empty' ? p.published : selectedPath(state);
+      if (fixed !== undefined) checkDirectory(dirname(fixed)); // Missing pool ownership is not free capacity.
       reserveHistoryStorage({ directory: path, component: 'history-replica-ciphertext', ciphertextBytes: maxBytes - 4 * 1024 * 1024,
         manifestFilename: HISTORY_MANIFEST_FILENAME, manifestBytes: 2 * 1024 * 1024 });
       ensureOpen(); parseHistoryProvisionRequest(request, context, now());
       try {
         const authorized = parent.activateContinuation(root);
         if (state.phase === 'empty') {
-          state = { ...state, phase: 'creating', root: authorized, location: 'generation' }; journal.write(state);
+          state = { ...state, phase: 'creating', root: authorized, location: state.version === 3 ? 'pool' : 'generation' }; journal.write(state);
         }
         if (state.phase === 'creating') {
           // The fixed path is never exposed until the ready journal is durable.

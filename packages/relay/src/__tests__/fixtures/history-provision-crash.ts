@@ -15,12 +15,13 @@ process.once('message', (input: any) => {
   const kill = (point: string) => { if (input.boundary === point) process.kill(process.pid, 'SIGKILL'); };
   fs.mkdirSync = ((path: fs.PathLike, options?: any) => {
     const result = mkdir(path, options);
-    if (String(path).split('/').at(-1)?.startsWith('generation-')) kill('directory');
+    if (String(path) === input.childDirectory || String(path).split('/').at(-1)?.startsWith('generation-')) kill('directory');
     return result;
   }) as typeof fs.mkdirSync;
   fs.renameSync = (from, to) => {
     const path = String(to);
-    const stagedManifest = path.replaceAll('\\', '/').includes('/generation-') && path.endsWith(HISTORY_MANIFEST_FILENAME);
+    const stagedManifest = (input.childDirectory && path === join(input.childDirectory, HISTORY_MANIFEST_FILENAME))
+      || path.replaceAll('\\', '/').includes('/generation-') && path.endsWith(HISTORY_MANIFEST_FILENAME);
     if (stagedManifest) childManifests++;
     if (path.endsWith(HISTORY_PROVISION_FILENAME)) journalWrites++;
     if (path.endsWith(HISTORY_PROVISION_FILENAME) && journalWrites === 2) kill('before-ready');
@@ -34,7 +35,7 @@ process.once('message', (input: any) => {
   };
   syncBuiltinESMExports();
   const open = () => openHistoryGenerationProvisioner({ directory: input.directory, localKey, context: input.options.context,
-    signingKey, parent, maxBytes: input.maxBytes, now: () => input.request.issuedAt });
+    signingKey, parent, maxBytes: input.maxBytes, childDirectory: input.childDirectory, now: () => input.request.issuedAt });
   const role = authority ? withStorageReservationAuthority(authority, open) : open();
   role.provision(input.request);
   process.send!('durable', () => process.kill(process.pid, 'SIGKILL'));
