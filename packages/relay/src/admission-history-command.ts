@@ -16,6 +16,7 @@ import { discoverHistoryContinuations } from './history-continuation-discovery.j
 import { createHistoryOperatorTransport } from './history-operator-transport.js';
 import { openAdmissionHistoryRecovery, prepareAdmissionHistoryRecovery } from './admission-history-recovery.js';
 import { reviewAdmissionOwnerConfiguration, openAdmissionOwnerSetup, canonicalHistorySetupPath, type AdmissionOwnerSetupMode } from './admission-history-setup.js';
+import { measureStorageDirectories } from './storage-inventory.js';
 import { openAdmissionOwnerLimits } from './admission-history-limits.js';
 import { openAdmissionInitialReadiness } from './admission-history-readiness.js';
 
@@ -51,7 +52,9 @@ export async function runAdmissionHistoryCommand(command: string, raw: readonly 
   commandOptions.signal?.addEventListener('abort', cancel, { once: true });
   try {
     if (commandOptions.signal?.aborted) throw new Error('History operation cancelled');
-    if (['owner-config-plan', 'owner-config-create', 'owner-setup-plan', 'owner-setup-apply'].includes(command)) {
+    if (command === 'storage-inventory') {
+      emit(await measureStorageDirectories(raw.map(path => resolve(path)), { signal: commandOptions.signal }));
+    } else if (['owner-config-plan', 'owner-config-create', 'owner-setup-plan', 'owner-setup-apply'].includes(command)) {
       const applying = command === 'owner-config-create' || command === 'owner-setup-apply';
       const approved = applying && raw[0] === '--approve' ? raw[1] : undefined, args = approved ? raw.slice(2) : raw;
       if ((applying && !approved) || (args.length !== 6 && !(command === 'owner-config-plan' && args.length === 5))) throw new Error('Invalid reviewed setup command or missing approval');

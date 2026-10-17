@@ -267,6 +267,8 @@ The five-target placement goal remains conditional on enough eligible volunteers
       - [x] Resume interrupted volunteer enrollment only from an authenticated empty genesis manifest or a fully validated retained chain; preserve the original genesis through enrollment/resumption process death, reject missing accepted history and retain desktop progress after settings failures (`docs/developers/v0.4-desktop-history-setup.md`)
       - [x] Review owner ciphertext archive limits offline, retain accepted and unarchived pending records, save a new configuration and require separate fresh-readiness activation (`docs/developers/v0.4-desktop-history-setup.md#owner-archive-limits`)
       - [ ] Finish combined history/runtime/recovery-workspace storage budgets
+        - [x] Add a bounded explicit filesystem inventory, preserve previously saved history/workspace locations and refuse unknown storage; keep byte observations distinct from write reservations (`docs/developers/v0.4-combined-storage-budget.md`)
+        - [ ] Persist cross-role reservations before writes, include replacement/repair headroom and prove recovery of interrupted reservations across runtime and CLI
   - [ ] Resolve authenticated policy freshness and migration beyond the bounded 64-configuration archive; never treat missing records as unused capacity or discard permanent denial evidence
   - [ ] Resolve same-key witness replacement, membership governance/freshness, and history compaction before enabling admission by default; fresh-key cohort rotation does not rescue stranded old tokens or remove finite history limits
 - [ ] Measure protection against a curious relay, colluding relays, Sybil relays, and a network observer

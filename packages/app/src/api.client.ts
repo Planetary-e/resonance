@@ -444,3 +444,9 @@ export function runRelayHistoryRecovery(action: import('./history-recovery.types
   return api<import('./history-recovery.types').RelayHistoryRecoveryResult>('POST', '/api/relay/history/recovery',
     { action, input, ...(approvalDigest === undefined ? {} : { approvalDigest }) });
 }
+
+export interface RelayStorageInventory {
+  kind: 'storage-inventory'; selectedDirectories: number; scannedRoots: number; directories: number; files: number;
+  logicalBytes: number; allocatedBytes: number | null; startedAt: number; completedAt: number; atomicSnapshot: false; enforcesQuota: false;
+}
+export function measureRelayStorage() { return api<RelayStorageInventory>('POST', '/api/relay/history/storage', {}); }

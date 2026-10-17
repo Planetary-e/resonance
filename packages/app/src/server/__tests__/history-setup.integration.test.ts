@@ -148,3 +148,30 @@ it('reviews interrupted volunteer enrollment, preserves completed history after 
     context: enrollment.context, genesisId: enrollment.genesisId, signingKey: n.memberKeys[0], localKey: n.localKey });
   expect(service.describe().latest.envelopeId).toBe(enrollment.genesisId); service.close();
 });
+
+it('retains earlier setup locations across reload and measures only saved roots under maintenance', async () => {
+  const n = await setup(), path = '/api/relay/history/storage';
+  expect((await n.request(path, {})).status).toBe(401); await n.init();
+  expect((await n.request(path, {})).status).toBe(409); await n.request('/api/relay/maintenance', {});
+  await n.createConfig();
+  const owner: RelayHistorySetupInput = { ...n.input, role: 'owner' }, plan = await n.run('review', owner);
+  expect((await n.run('apply', owner, plan.body.result.approvalDigest)).status).toBe(200);
+  for (let i = 0; i < 2; i++) {
+    const input: RelayHistorySetupInput = { role: 'volunteer', enrollmentFile: n.input.output, signingKeyFile: n.keyFile(`inventory-member-${i}.json`, n.memberKeys[i]),
+      storageKeyFile: join(n.directory, `inventory-member-${i}.hex`), directory: join(n.directory, `inventory-member-${i}`) };
+    writeFileSync(input.storageKeyFile, n.localKey.toString('hex'));
+    const review = await n.run('review', input); expect(review.status, JSON.stringify(review.body)).toBe(200);
+    expect((await n.run('apply', input, review.body.result.approvalDigest)).status).toBe(200);
+  }
+  const before = loadRelayConfig(); expect(before.historyStorageDirectories).toHaveLength(4);
+  await n.request('/api/lock', {}); await n.unlock();
+  expect(loadRelayConfig().historyStorageDirectories).toEqual(before.historyStorageDirectories);
+  const measured = await n.request(path, {}); expect(measured.status, JSON.stringify(measured.body)).toBe(200);
+  expect(measured.body).toMatchObject({ scannedRoots: 4, enforcesQuota: false, atomicSnapshot: false });
+  expect(measured.body.logicalBytes).toBeGreaterThan(0); expect(JSON.stringify(measured.body)).not.toContain(n.directory);
+  expect((await n.request(path, { directory: n.directory })).status).toBe(409);
+  const old = join(n.directory, 'inventory-member-0'); actualFs.renameSync(old, `${old}-moved`);
+  expect((await n.request(path, {})).status).toBe(409);
+  expect(loadRelayConfig().historyStorageDirectories).toEqual(before.historyStorageDirectories);
+  expect((await n.request('/api/relay/maintenance')).body.active).toBe(true); expect(installRelayService).not.toHaveBeenCalled();
+}, 30000);

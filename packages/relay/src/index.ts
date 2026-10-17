@@ -139,3 +139,6 @@ export type { AdmissionOwnerConfigurationInput, AdmissionOwnerSetupInput, Admiss
 
 export { openHistoryVolunteerEnrollmentResume } from './history-volunteer-enrollment.js';
 export { openAdmissionOwnerLimits, type AdmissionOwnerLimitsInput } from './admission-history-limits.js';
+
+export { measureStorageDirectories, parseStorageDirectories } from "./storage-inventory.js";
+export type { StorageInventory } from "./storage-inventory.js";

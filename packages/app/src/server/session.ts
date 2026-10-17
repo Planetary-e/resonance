@@ -3,6 +3,8 @@
  * Single shared session for the app lifetime.
  */
 
+import { inventoryRelayHistoryStorage, retainRelayStorageDirectories } from './history-storage.js';
+import { parseStorageDirectories } from '@resonance/relay';
 import {
   assertSecureRelayTransportEndpoint,
   EmbeddingEngine,
@@ -153,6 +155,7 @@ export interface RelayConfig {
   controls?: RelayOwnerControls;
   storageCommitmentFloorBytes?: number;
   runtime?: ReturnType<typeof relayServiceRuntime>;
+  historyStorageDirectories?: string[];
   historyActivationInput?: RelayHistoryActivationInput;
   historyRecoveryInput?: RelayHistoryRecoveryInput;
   historySetupInput?: RelayHistorySetupInput;
@@ -185,6 +188,7 @@ export function loadRelayConfig(): RelayConfig {
       || !Number.isSafeInteger(value.port) || value.port! < 1024 || value.port! > 65535
       || (value.adminKey !== undefined && typeof value.adminKey !== 'string')
       || (value.contacts !== undefined && (!Array.isArray(value.contacts) || value.contacts.some(c => typeof c !== 'string')))) throw new Error('Invalid settings');
+    if (value.historyStorageDirectories !== undefined) parseStorageDirectories(value.historyStorageDirectories);
     if (value.historyActivationInput !== undefined) parseRelayHistoryActivationInput(value.historyActivationInput);
     if (value.historyRecoveryInput !== undefined) parseRelayHistoryRecoveryInput(value.historyRecoveryInput);
     if (value.historySetupInput !== undefined) parseRelayHistorySetupInput(value.historySetupInput);
@@ -198,6 +202,7 @@ export function loadRelayConfig(): RelayConfig {
 function saveRelayConfig(config: RelayConfig): void {
   ensureDataDir();
   const path = getRelayConfigPath(), temporary = `${path}.${randomBytes(8).toString('hex')}.tmp`;
+  config = retainRelayStorageDirectories(config, existsSync(path) ? loadRelayConfig() : undefined, join(getDataDir(), 'relay-data'));
   try {
     writeOperatorJsonNew(temporary, config, 65536);
     renameSync(temporary, path);
@@ -393,6 +398,9 @@ export async function runRelayHistoryOperation<T>(operation: (signal: AbortSigna
 }
 export function cancelRelayHistoryOperation() {
   const active = !!relayHistoryOperationAbort; relayHistoryOperationAbort?.abort(); return { active };
+}
+export async function measureRelayHistoryStorage(signal?: AbortSignal) {
+  return runRelayHistoryOperation(operationSignal => inventoryRelayHistoryStorage(loadRelayConfig(), join(getDataDir(), 'relay-data'), operationSignal), signal);
 }
 export function getRelayHistoryActivationInput() { return loadRelayConfig().historyActivationInput ?? null; }
 export function getRelayHistoryRecoveryInput() { return loadRelayConfig().historyRecoveryInput ?? null; }

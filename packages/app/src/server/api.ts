@@ -26,7 +26,7 @@ import {
   getRelayStats, getRelayMaintenanceStatus, beginRelayHistoryMaintenance, finishRelayHistoryMaintenance,
   getRelayHistoryActivationInput, planRelayHistoryActivation, applyRelayHistoryActivation, cancelRelayHistoryOperation,
   getRelayHistoryRecoveryInput, performRelayHistoryRecovery,
-  getRelayHistorySetupInput, performRelayHistorySetup,
+  getRelayHistorySetupInput, performRelayHistorySetup, measureRelayHistoryStorage,
   getRelayVolunteerActivationInput, planRelayVolunteerActivation, applyRelayVolunteerActivation,
   publishItem,
   listSessionItems,
@@ -534,6 +534,19 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
         : await planRelayVolunteerActivation(body.input, controller.signal);
       if (!res.destroyed) json(res, result);
     } catch (err) { if (!res.destroyed) error(res, err instanceof Error ? err.message : 'Volunteer activation failed; retain history and configuration', 409); }
+    finally { res.removeListener('close', disconnected); }
+    return true;
+  }
+
+  if (url === '/api/relay/history/storage' && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    const controller = new AbortController(), disconnected = () => { if (!res.writableEnded) controller.abort(); };
+    res.once('close', disconnected);
+    try {
+      if (!exactWitnessFields(await readBody(req), [])) throw new Error('Storage inventory uses saved locations and accepts no extra fields');
+      const result = await measureRelayHistoryStorage(controller.signal);
+      if (!res.destroyed) json(res, result);
+    } catch (err) { if (!res.destroyed) error(res, err instanceof Error ? err.message : 'Storage inventory unavailable', 409); }
     finally { res.removeListener('close', disconnected); }
     return true;
   }
