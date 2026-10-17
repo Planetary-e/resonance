@@ -21,7 +21,7 @@ export function openBoundedDiagnostics(directory: string, maximumFileBytes = DIA
       }
     }
   } finally { entries.closeSync(); }
-  const release = acquireLocalStateLock(join(directory, 'writer'));
+  const release = acquireLocalStateLock(join(directory, 'writer'), reservation);
   const current = join(directory, 'current.ndjson'), previous = join(directory, 'previous.ndjson');
   let fd: number | undefined, length = 0, failed = false, closed = false, droppedRecords = 0;
   function open() {

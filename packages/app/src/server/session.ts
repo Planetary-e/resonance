@@ -52,10 +52,10 @@ import {
   type IdentityManager,
 } from '@resonance/node';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { chmodSync, readFileSync, writeFileSync, existsSync, lstatSync, readdirSync, renameSync, rmSync, openSync, closeSync, fsyncSync } from 'node:fs';
+import { chmodSync, readFileSync, writeFileSync, existsSync, lstatSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { beginRelayMaintenance, readRelayMaintenance, assertRelayNotInMaintenance, acquireStoppedRelayMaintenance, finishRelayMaintenance, RELAY_MAINTENANCE_FILENAME,
-  readOperatorJson, writeOperatorJsonNew, parseRelayHistoryHealth, type RelayHistoryHealth } from '@resonance/relay';
+  readOperatorJson, writeOperatorJsonAtomic, parseRelayHistoryHealth, type RelayHistoryHealth } from '@resonance/relay';
 import {
   installRelayService, relayServiceRuntime, relayServiceStats, uninstallRelayService, relayPortClosed,
   type RelayOwnerControls,
@@ -201,13 +201,9 @@ export function loadRelayConfig(): RelayConfig {
 
 function saveRelayConfig(config: RelayConfig): void {
   ensureDataDir();
-  const path = getRelayConfigPath(), temporary = `${path}.${randomBytes(8).toString('hex')}.tmp`;
+  const path = getRelayConfigPath();
   config = retainRelayStorageDirectories(config, existsSync(path) ? loadRelayConfig() : undefined, join(getDataDir(), 'relay-data'));
-  try {
-    writeOperatorJsonNew(temporary, config, 65536);
-    renameSync(temporary, path);
-    if (process.platform !== 'win32') { const fd = openSync(getDataDir(), 'r'); try { fsyncSync(fd); } finally { closeSync(fd); } }
-  } finally { rmSync(temporary, { force: true }); }
+  writeOperatorJsonAtomic(path, config, 65536);
 }
 
 function validateOwnerControls(input: RelayOwnerControls): RelayOwnerControls {

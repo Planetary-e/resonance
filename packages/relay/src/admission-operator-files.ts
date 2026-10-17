@@ -1,6 +1,9 @@
 /** Bounded local operator inputs; secret parse errors never echo file contents. */
-import { closeSync, constants, fstatSync, fsyncSync, openSync, readSync, writeSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { closeSync, constants, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, opendirSync, readSync, renameSync, rmSync, writeSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
+import { randomBytes } from 'node:crypto';
+import { acquireLocalStateLock } from '@resonance/core/local-state';
+import { reserveManagedStorage, type StorageReservationLease } from '@resonance/core/storage-reservations';
 import { copyAdmissionSigningKey, exactWitnessFields, witnessBytes } from '@resonance/core/admission-witness';
 
 export function readOperatorFile(path: string, maximum: number): Buffer {
@@ -38,13 +41,60 @@ export function readOperatorStorageKey(path: string) {
   } finally { bytes.fill(0); }
 }
 /** Exclusive output: a partial file after interruption is refused, never overwritten. Re-export to a new path. */
-export function writeOperatorJsonNew(path: string, value: unknown, maximum: number): void {
-  const bytes = Buffer.from(`${JSON.stringify(value)}\n`);
-  if (bytes.length > maximum) throw new Error('Operator output exceeds its size limit');
-  const fd = openSync(path, 'wx', 0o600);
+export function writeOperatorJsonNew(path: string, value: unknown, maximum: number,
+  included?: { reservation: StorageReservationLease; replacement?: boolean }): void {
+  if (!Number.isSafeInteger(maximum) || maximum < 1) throw new Error('Invalid operator output byte limit');
+  const encoded = JSON.stringify(value);
+  if (encoded === undefined) throw new Error('Operator output must encode a JSON value');
+  const bytes = Buffer.from(`${encoded}\n`);
+  if (bytes.length > maximum) { bytes.fill(0); throw new Error('Operator output exceeds its size limit'); }
+  let fd: number | undefined;
   try {
-    for (let at = 0; at < bytes.length;) { const count = writeSync(fd, bytes, at); if (!count) throw new Error('Operator output write stopped'); at += count; }
+    const reservation = included?.reservation ?? reserveManagedStorage({ path, component: 'operator-output', scope: 'file', maximumBytes: maximum });
+    reservation?.assertWritable({ path, maximumBytes: maximum, replacement: included?.replacement });
+    fd = openSync(path, 'wx', 0o600);
+    for (let at = 0; at < bytes.length;) { const count = writeSync(fd, bytes, at); if (count <= 0) throw new Error('Operator output write stopped'); at += count; }
     fsyncSync(fd);
-  } finally { bytes.fill(0); closeSync(fd); }
+  } finally { bytes.fill(0); if (fd !== undefined) closeSync(fd); }
   if (process.platform !== 'win32') { const parent = openSync(dirname(path), 'r'); try { fsyncSync(parent); } finally { closeSync(parent); } }
+}
+
+/** Atomic settings replacement with bounded retained interrupted outputs.
+ * Eight temporary slots include the currently written replacement. No abandoned
+ * output is deleted just because its name matches; a full set needs inspection.
+ */
+export const OPERATOR_REPLACEMENT_SLOTS = 8;
+export function writeOperatorJsonAtomic(path: string, value: unknown, maximum: number): void {
+  if (!Number.isSafeInteger(maximum) || maximum < 1 || !Number.isSafeInteger((OPERATOR_REPLACEMENT_SLOTS + 1) * maximum + 8192)) throw new Error('Invalid operator output byte limit');
+  const encoded = JSON.stringify(value);
+  if (encoded === undefined) throw new Error('Operator output must encode a JSON value');
+  if (Buffer.byteLength(encoded + '\n') > maximum) throw new Error('Operator output exceeds its size limit');
+  const reservation = reserveManagedStorage({ path, component: 'operator-atomic-output', scope: 'file',
+    maximumBytes: (OPERATOR_REPLACEMENT_SLOTS + 1) * maximum + 8192 });
+  const directory = dirname(path);
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const release = acquireLocalStateLock(path, reservation);
+  try {
+    const current = (() => { try { return lstatSync(path); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; } })();
+    if (current && (!current.isFile() || current.isSymbolicLink() || current.nlink !== 1 || current.size > maximum)) throw new Error('Atomic operator output must be a bounded ordinary file');
+    const entries = opendirSync(directory), prefix = basename(path); let seen = 0, temporaries = 0;
+    try {
+      for (let entry = entries.readSync(); entry; entry = entries.readSync()) {
+        if (++seen > 4096) throw new Error('Operator output directory inspection exceeded its bound');
+        // Include the older desktop naming convention when adopting an interrupted save.
+        const suffix = entry.name.startsWith(`.${prefix}.`) ? entry.name.slice(prefix.length + 2)
+          : entry.name.startsWith(`${prefix}.`) ? entry.name.slice(prefix.length + 1) : null;
+        if (suffix === null || !/^[a-f0-9]{16}\.tmp$/.test(suffix)) continue;
+        const stat = lstatSync(join(directory, entry.name));
+        if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || stat.size > maximum) throw new Error('Interrupted operator output needs inspection');
+        if (++temporaries >= OPERATOR_REPLACEMENT_SLOTS) throw new Error('Interrupted operator output slots are full; retain them for inspection');
+      }
+    } finally { entries.closeSync(); }
+    const temporary = join(directory, `.${prefix}.${randomBytes(8).toString('hex')}.tmp`);
+    try {
+      writeOperatorJsonNew(temporary, value, maximum, reservation ? { reservation, replacement: true } : undefined);
+      reservation?.assertWritable(); renameSync(temporary, path);
+      if (process.platform !== 'win32') { const fd = openSync(directory, 'r'); try { fsyncSync(fd); } finally { closeSync(fd); } }
+    } finally { rmSync(temporary, { force: true }); }
+  } finally { release(); }
 }

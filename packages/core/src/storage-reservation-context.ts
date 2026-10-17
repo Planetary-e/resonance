@@ -2,7 +2,8 @@
  * Unconfigured callers do not acquire or imply a combined quota. */
 import { AsyncLocalStorage } from 'node:async_hooks';
 export interface StorageReservationRequest { path: string; component: string; scope: 'file' | 'directory'; maximumBytes: number }
-export interface StorageReservationLease { assertWritable(): void }
+export interface StorageReservationOutput { path: string; maximumBytes: number; replacement?: boolean }
+export interface StorageReservationLease { assertWritable(output?: StorageReservationOutput): void }
 export interface StorageReservationAuthority {
   reserve(request: StorageReservationRequest): StorageReservationLease;
 }

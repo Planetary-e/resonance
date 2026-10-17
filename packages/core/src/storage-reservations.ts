@@ -179,8 +179,21 @@ export function openStorageReservationAuthority(options: { directory: string; mo
         if (!safe(next.revision) || total(next) > state.limitBytes) throw new Error('Combined managed storage budget exhausted');
         commit(next);
       }
-      return { assertWritable() {
+      return { assertWritable(output) {
         usable(); safeTarget(); if (canonical(request.path) !== selected) throw new Error('Reserved storage path changed');
+        if (output) {
+          const target = canonical(output.path), stat = present(output.path);
+          if (!safe(output.maximumBytes) || output.maximumBytes > request.maximumBytes
+            || (stat && (stat.isSymbolicLink() || !stat.isFile() || stat.nlink !== 1))) throw new Error('Output exceeds its reserved scope or capacity');
+          if (output.replacement) {
+            const prefix = `.${basename(selected)}.`, name = basename(target);
+            if (request.scope !== 'file' || dirname(target) !== dirname(selected) || !name.startsWith(prefix)
+              || !/^[a-f0-9]{16}\.tmp$/.test(name.slice(prefix.length)) || !safe(2 * output.maximumBytes)
+              || 2 * output.maximumBytes > request.maximumBytes) throw new Error('Replacement exceeds its reserved scope or capacity');
+          } else if (request.scope === 'file' ? target !== selected : !inside(selected, target) || target === selected) {
+            throw new Error('Output is outside its reserved scope');
+          }
+        }
       } };
     },
     status() { usable(); const reservedBytes = total(state); return { authorityId: state.authorityId, revision: state.revision,
@@ -193,4 +206,4 @@ export function openStorageReservationAuthority(options: { directory: string; mo
 }
 
 export { withStorageReservationAuthority, reserveManagedStorage } from './storage-reservation-context.js';
-export type { StorageReservationRequest, StorageReservationLease, StorageReservationAuthority } from './storage-reservation-context.js';
+export type { StorageReservationRequest, StorageReservationLease, StorageReservationAuthority, StorageReservationOutput } from './storage-reservation-context.js';

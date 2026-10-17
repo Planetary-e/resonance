@@ -3,6 +3,7 @@
 import { lstatSync, mkdirSync, openSync, closeSync, fsyncSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { acquireLocalStateLock } from '@resonance/core/local-state';
+import { reserveManagedStorage } from '@resonance/core/storage-reservations';
 import { exactWitnessFields } from '@resonance/core/admission-witness';
 import { readOperatorJson, writeOperatorJsonNew } from './admission-operator-files.js';
 
@@ -13,9 +14,17 @@ function present(path: string) {
   try { lstatSync(path); return true; }
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false; throw error; }
 }
+function reserveControl(directory: string) {
+  const claim = reserveManagedStorage({ path: join(directory, `${RELAY_RUNTIME_RESOURCE}.lock`), component: 'local-state-lock', scope: 'file', maximumBytes: 8192 });
+  // Reserve pausing before accepting runtime work, so reaching capacity cannot
+  // consume the marker's headroom. Removing a marker never releases its peak.
+  reserveManagedStorage({ path: join(directory, RELAY_MAINTENANCE_FILENAME), component: 'operator-output', scope: 'file', maximumBytes: 1024 });
+  return claim;
+}
 function runtimeClaim(directory: string) {
+  const reservation = reserveControl(directory);
   mkdirSync(directory, { recursive: true, mode: 0o700 });
-  return acquireLocalStateLock(join(directory, RELAY_RUNTIME_RESOURCE));
+  return acquireLocalStateLock(join(directory, RELAY_RUNTIME_RESOURCE), reservation);
 }
 export function readRelayMaintenance(directory: string): RelayMaintenanceState | null {
   const path = join(directory, RELAY_MAINTENANCE_FILENAME);
@@ -36,6 +45,7 @@ export function acquireRelayRuntime(directory: string): () => void {
 }
 /** Caller holds its desktop control lock. Publish before asking the supervisor to stop. */
 export function beginRelayMaintenance(directory: string): RelayMaintenanceState {
+  reserveControl(directory);
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   const retained = readRelayMaintenance(directory); if (retained) return retained;
   const state: RelayMaintenanceState = { version: 1, kind: 'relay-maintenance', createdAt: Date.now() };

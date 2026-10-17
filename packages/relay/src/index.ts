@@ -133,7 +133,7 @@ export { runAdmissionHistoryCommand, readHistoryEnrollmentFile, type AdmissionHi
 export { openAdmissionHistoryActivation, type AdmissionHistoryActivationOptions, type AdmissionHistoryActivationReview } from './admission-history-activation.js';
 export { openAdmissionRestorationReadiness, openAdmissionInitialReadiness, type AdmissionRestorationReadinessReview, type AdmissionInitialReadinessReview } from './admission-history-readiness.js';
 export { beginRelayMaintenance, readRelayMaintenance, assertRelayNotInMaintenance, acquireStoppedRelayMaintenance, finishRelayMaintenance, RELAY_MAINTENANCE_FILENAME, type RelayMaintenanceState } from './relay-maintenance.js';
-export { readOperatorJson, writeOperatorJsonNew } from './admission-operator-files.js';
+export { readOperatorJson, writeOperatorJsonNew, writeOperatorJsonAtomic } from './admission-operator-files.js';
 export { reviewAdmissionOwnerConfiguration, openAdmissionOwnerSetup, canonicalHistorySetupPath, historySetupContains } from './admission-history-setup.js';
 export type { AdmissionOwnerConfigurationInput, AdmissionOwnerSetupInput, AdmissionOwnerSetupMode } from './admission-history-setup.js';
 

@@ -163,3 +163,16 @@ it('keeps issued lease targets immutable when callers change the reservation req
   expect(() => lease.assertWritable()).toThrow(/unaliased/);
   expect(authority.status()).toMatchObject({ availableBytes: 0, reservedBytes: CONTROL + 100 });
 });
+
+it('restricts temporary output leases to the selected file and its replacement headroom', () => {
+  const n = fixture(), authority = fresh(n, 200), path = join(n.directory, 'settings.json');
+  const lease = authority.reserve(file(path, 200));
+  lease.assertWritable({ path, maximumBytes: 100 });
+  const temporary = join(n.directory, '.settings.json.0123456789abcdef.tmp');
+  lease.assertWritable({ path: temporary, maximumBytes: 100, replacement: true });
+  expect(() => lease.assertWritable({ path: temporary, maximumBytes: 101, replacement: true })).toThrow(/capacity/);
+  expect(() => lease.assertWritable({ path: join(n.directory, '.other.0123456789abcdef.tmp'), maximumBytes: 1, replacement: true })).toThrow(/scope/);
+  expect(() => lease.assertWritable({ path: temporary, maximumBytes: 1 })).toThrow(/scope/);
+  writeFileSync(temporary, 'kept'); linkSync(temporary, join(n.directory, 'alias'));
+  expect(() => lease.assertWritable({ path: temporary, maximumBytes: 100, replacement: true })).toThrow(/scope/);
+});

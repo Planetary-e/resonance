@@ -156,3 +156,26 @@ it.skipIf(process.platform === 'win32').each(['before-rename', 'after-rename', '
       expect(readRelayStorageLocations(n.runtime).files).toEqual(boundary === 'before-rename' ? [] : [n.target]);
     } finally { clearTimeout(timer); if (child.exitCode === null && child.signalCode === null) { child.kill('SIGKILL'); await exited; } }
   }, 20000);
+
+
+import { openStorageReservationAuthority, STORAGE_RESERVATION_CONTROL_BYTES as CONTROL, withStorageReservationAuthority } from '@resonance/core/storage-reservations';
+import { RELAY_STORAGE_REGISTRY_PEAK_BYTES } from '../history-storage-registry.js';
+it('reserves registry and ownership peaks once and updates at full capacity without temporary allocations', () => {
+  const n = fixture(), authority = openStorageReservationAuthority({ directory: join(n.directory, 'authority'), mode: 'create-new', limitBytes: CONTROL + RELAY_STORAGE_REGISTRY_PEAK_BYTES + 8192 }); cleanup.push(authority.close);
+  for (let i = 0; i < 20; i++) withStorageReservationAuthority(authority, () => retainRelayStorageRegistry(n.runtime, [join(n.directory, `history-${i}`)]));
+  expect(authority.status()).toMatchObject({ components: 2, availableBytes: 0 });
+  expect(readRelayStorageRegistry(n.runtime)).toHaveLength(20);
+});
+it('refuses an unfunded registry before creating its directory or ownership files', () => {
+  const n = fixture(), authority = openStorageReservationAuthority({ directory: join(n.directory, 'authority'), mode: 'create-new', limitBytes: CONTROL + RELAY_STORAGE_REGISTRY_PEAK_BYTES }); cleanup.push(authority.close);
+  expect(() => withStorageReservationAuthority(authority, () => retainRelayStorageRegistry(n.runtime, [n.target]))).toThrow(/exhausted/);
+  expect(actualFs.existsSync(n.registry)).toBe(false); expect(actualFs.existsSync(n.registry + '.lock')).toBe(false);
+});
+it('keeps the 128-temporary registry ceiling during replacement instead of opening a 129th candidate', () => {
+  const n = fixture(); retainRelayStorageRegistry(n.runtime, [n.runtime]);
+  for (let i = 0; i < 128; i++) writeFileSync(join(n.registry, `.locations.${i.toString(16).padStart(16, '0')}.tmp`), 'retained');
+  const before = readFileSync(n.manifest), names = actualFs.readdirSync(n.registry).sort();
+  expect(() => retainRelayStorageRegistry(n.runtime, [n.target])).toThrow(/slots are full/);
+  expect(readFileSync(n.manifest)).toEqual(before); expect(actualFs.readdirSync(n.registry).sort()).toEqual(names);
+  expect(retainRelayStorageRegistry(n.runtime, [n.runtime])).toEqual([n.runtime]);
+});
