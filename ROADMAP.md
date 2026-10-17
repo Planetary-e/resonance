@@ -270,6 +270,7 @@ The five-target placement goal remains conditional on enough eligible volunteers
         - [x] Add a bounded explicit filesystem inventory, preserve previously saved history/workspace locations and refuse unknown storage; keep byte observations distinct from write reservations (`docs/developers/v0.4-combined-storage-budget.md`)
         - [x] Durably retain approved desktop history/recovery directories before apply, including previous selections; preserve them after settings failure and process death without claiming a shared byte quota
         - [x] Bound structured diagnostics for new managed-service definitions to two 1 MiB files, preserve startup errors and expose private health without unlimited supervisor stream capture (`docs/developers/v0.4-relay-diagnostics.md`)
+        - [x] Bound resource-counter checkpoints to 4 KiB each plus replacement headroom; refuse uncertain writes, unsafe counters and clock rollback without resetting allowance
         - [ ] Account for control metadata and explicit operator output files; retain the distinction between relay-data and whole-device budgets (`docs/developers/v0.4-storage-writer-map.md`)
         - [ ] Persist cross-role reservations before writes, include replacement/repair headroom and prove recovery of interrupted reservations across runtime and CLI
   - [ ] Resolve authenticated policy freshness and migration beyond the bounded 64-configuration archive; never treat missing records as unused capacity or discard permanent denial evidence
