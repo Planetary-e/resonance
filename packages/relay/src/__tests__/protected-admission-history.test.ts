@@ -11,6 +11,7 @@ import { createAdmissionRequestBindingV2, presentBlindAdmissionTokenV2, verifyBl
   parseMessage, type Message, type AckPayload } from '@resonance/core';
 import { admissionKeyFingerprint, admissionPolicyDigest, signAdmissionPolicy } from '@resonance/core/admission-policy';
 import { createHistoryFreeze, historyCheckpointEnvelopeId, openHistoryCheckpoint } from '@resonance/core/history-checkpoint';
+import { createHistoryCompactionVote, parseHistoryCompactionAttestation, type HistoryCompactionProposal } from '@resonance/core/history-compaction';
 import { openProtectedAdmissionSpendHistory, type AdmissionHistoryProtection } from '../protected-admission-history.js';
 import { openAdmissionSpendHistory, type AdmissionSpendRecord } from '../admission-spend-history.js';
 import { createRelayServer } from '../server.js';
@@ -82,6 +83,42 @@ async function fixture(sockets = false, legacy: boolean | AdmissionSpendRecord =
     gate: (v?: Promise<void>) => { gate = v; }, time: (n: number) => { time = n; } };
 }
 const row = (issuerKey: string) => ({ issuerKey, spend: randomBytes(32).toString('base64url'), action: 'search', binding: `admreq_${'a'.repeat(86)}` });
+
+it('reviews and certifies only the latest complete state without changing accepted work or treating three endorsements as a quorum', async () => {
+  const n = await fixture(false, true); await n.history.ready();
+  expect(() => n.history.planCheckpointCertification()).toThrow('latest');
+  await n.history.checkpoint(n.history.planCheckpoint().approvalDigest);
+  const plan = n.history.planCheckpointCertification(), before = n.history.read(), usage = n.history.health();
+  let online = 3, calls = 0;
+  const transport = async (member: { publicKey: string }, proposal: HistoryCompactionProposal) => {
+    calls++; const i = n.context.members.indexOf(member.publicKey);
+    if (i >= online || n.stores[i].describe().freeze || n.stores[i].envelopeIdAt(proposal.sequence) !== proposal.envelopeId) throw new Error('unavailable');
+    return createHistoryCompactionVote(proposal, n.context, plan.genesisId, n.memberKeys[i], Date.now());
+  };
+  await expect(n.history.certifyCheckpoint('wrong', { transport })).rejects.toThrow('approval'); expect(calls).toBe(0);
+  await expect(n.history.certifyCheckpoint(plan.approvalDigest, { transport })).rejects.toThrow('Four');
+  expect(n.history.read()).toEqual(before); expect(n.history.health()).toEqual(usage);
+  online = 4; const certificate = await n.history.certifyCheckpoint(plan.approvalDigest, { transport });
+  expect(parseHistoryCompactionAttestation(certificate, n.context, plan.genesisId)).toEqual(certificate);
+  expect(certificate.proposal.envelopeId).toBe(before.applied!.id); expect(n.history.read()).toEqual(before);
+  expect(n.stores.every(s => s.compactionAnchor() === null)).toBe(true);
+  await n.history.write(row(n.policy.activeKey)); expect(() => n.history.planCheckpointCertification()).toThrow('latest');
+  await n.history.checkpoint(n.history.planCheckpoint().approvalDigest); calls = 0;
+  await expect(n.history.certifyCheckpoint(plan.approvalDigest, { transport })).rejects.toThrow('approval'); expect(calls).toBe(0);
+}, 30000);
+
+it('excludes concurrent protected mutations while collecting checkpoint evidence and refuses success after close', async () => {
+  const n = await fixture(); await n.history.ready(); await n.history.checkpoint(n.history.planCheckpoint().approvalDigest);
+  const plan = n.history.planCheckpointCertification(); let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const pending = n.history.certifyCheckpoint(plan.approvalDigest, { timeoutMs: 30000, transport: async (member, proposal) => {
+    await gate; return createHistoryCompactionVote(proposal, n.context, plan.genesisId,
+      n.memberKeys[n.context.members.indexOf(member.publicKey)], Date.now());
+  } });
+  await expect(n.history.write(row(n.policy.activeKey))).rejects.toThrow('in progress');
+  expect(() => n.history.planCheckpointCertification()).toThrow('in progress');
+  const rejected = expect(pending).rejects.toThrow(/closed|cancelled/); n.history.close(); await rejected; release();
+}, 30000);
 
 it('reviews complete checkpoints offline, rejects stale approval and retains the exact pending ciphertext across reply loss', async () => {
   const n = await fixture(true, true); await n.history.ready();

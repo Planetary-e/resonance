@@ -1,13 +1,75 @@
-/** Explicit, read-only collection of historical checkpoint ancestry evidence.
- * No retry, state mutation, prefix deletion or writer activation is implied. */
-import { assertSecureRelayTransportEndpoint } from '@resonance/core';
+/** Historical checkpoint evidence collection and explicit certificate retention.
+ * No prefix deletion or writer activation is implied. */
+import { randomBytes } from 'node:crypto';
+import { assertSecureRelayTransportEndpoint, type SigningKeyPair } from '@resonance/core';
+import { copyAdmissionSigningKey } from '@resonance/core/admission-witness';
 import { parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, historyCheckpointEnvelopeId,
   type HistoryCheckpointContext } from '@resonance/core/history-checkpoint';
-import { parseHistoryCompactionProposal, parseHistoryCompactionVote, parseHistoryCompactionCertificate,
+import { parseHistoryCompactionProposal, parseHistoryCompactionVote, parseHistoryCompactionCertificate, parseHistoryCompactionAttestation,
   type HistoryCompactionVote, type HistoryCompactionCertificate } from '@resonance/core/history-compaction';
-import { parseHistoryCompactionControlFrame, parseHistoryCompactionControlRequest, parseHistoryCompactionControlResponse } from '@resonance/core/history-compaction-control';
+import { createHistoryCompactionControlRequest, historyCompactionCertificateId, parseHistoryCompactionControlFrame,
+  parseHistoryCompactionControlRequest, parseHistoryCompactionControlResponse, type HistoryCompactionControlResponse } from '@resonance/core/history-compaction-control';
 import { exchangeHistoryCompaction, exchangeHistoryCompactionControl, type HistoryCompactionTransport, type HistoryCompactionControlTransport } from './history-agreement-exchange.js';
 import type { HistoryReplicaEndpoint } from './history-checkpoint-exchange.js';
+
+/** Explicit idempotent remote proof retention. Keep the input certificate durably
+ * before calling; an error may leave a subset committed. No pruning/readiness authority. */
+export async function retainHistoryCompactionCertificate(options: {
+  context: HistoryCheckpointContext; genesisId: string; certificate: unknown; signingKey: SigningKeyPair;
+  members: readonly HistoryReplicaEndpoint[]; signal?: AbortSignal; timeoutMs?: number; transport?: HistoryCompactionControlTransport;
+}): Promise<HistoryCompactionControlResponse[]> {
+  const started = performance.now(), issuedAt = Date.now(), context = parseHistoryCheckpointContext(options.context);
+  const genesisId = options.genesisId, certificate = parseHistoryCompactionAttestation(options.certificate, context, genesisId);
+  const timeoutMs = options.timeoutMs ?? 10000, signal = options.signal, transport = options.transport;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 50 || timeoutMs > 30000 || options.members.length !== 5) throw new Error('Invalid compaction retention bounds');
+  const members = options.members.map(member => {
+    if (!context.members.includes(member.publicKey)) throw new Error('Unknown compaction retention member');
+    assertSecureRelayTransportEndpoint(member.endpoint); const endpoint = new URL(member.endpoint);
+    if (!['/history-checkpoint', '/history-agreement'].includes(endpoint.pathname)) throw new Error('Invalid compaction retention endpoint');
+    return { publicKey: member.publicKey, endpoint: endpoint.href };
+  });
+  if (new Set(members.map(m => m.publicKey)).size !== 5 || new Set(members.map(m => m.endpoint)).size !== 5) {
+    throw new Error('Compaction retention requires five distinct pinned members and endpoints');
+  }
+  const key = copyAdmissionSigningKey(options.signingKey), controller = new AbortController(), cancel = () => controller.abort();
+  const expiresAt = issuedAt + timeoutMs, challenge = randomBytes(32).toString('base64url');
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const live = () => {
+    if (controller.signal.aborted || performance.now() - started >= timeoutMs || Date.now() >= expiresAt) {
+      throw new Error('Compaction retention cancelled or timed out');
+    }
+  };
+  try {
+    if (Buffer.from(key.publicKey).toString('base64url') !== context.owner) throw new Error('Wrong compaction retention owner');
+    const certificateId = historyCompactionCertificateId(certificate, context, genesisId);
+    signal?.addEventListener('abort', cancel, { once: true }); if (signal?.aborted) cancel();
+    timer = setTimeout(cancel, Math.max(0, Math.min(timeoutMs - (performance.now() - started), expiresAt - Date.now()))); live();
+    const responses = await new Promise<HistoryCompactionControlResponse[]>((resolve, reject) => {
+      const received: HistoryCompactionControlResponse[] = []; let settled = false, remaining = 5;
+      const finish = (error?: Error) => {
+        if (settled) return; settled = true; controller.signal.removeEventListener('abort', aborted);
+        if (error) reject(error); else resolve(received);
+      };
+      const aborted = () => finish(new Error('Compaction retention cancelled or timed out'));
+      controller.signal.addEventListener('abort', aborted, { once: true });
+      members.forEach(member => {
+        void Promise.resolve().then(() => {
+          live();
+          const request = createHistoryCompactionControlRequest({ action: 'retain', genesisId, rootId: certificate.proposal.rootId,
+            generation: certificate.proposal.generation, replica: member.publicKey, certificateId, challenge, issuedAt, expiresAt }, context, key);
+          return requestHistoryCompactionControl({ context, genesisId, member, frame: { request, certificate },
+            timeoutMs, signal: controller.signal, transport });
+        }).then(response => {
+          if (settled) return; live(); received.push(response);
+          if (received.length === 4) finish();
+        }).catch(() => {}).finally(() => {
+          if (!settled && received.length + --remaining < 4) finish(new Error('Four authenticated compaction retention replies unavailable'));
+        });
+      });
+    });
+    live(); return structuredClone(responses);
+  } finally { if (timer) clearTimeout(timer); signal?.removeEventListener('abort', cancel); controller.abort(); key.secretKey.fill(0); }
+}
 
 /** Fresh owner-authorized request and one authenticated historical result. A
  * retention receipt is not a four-copy commit or current admission readiness. */

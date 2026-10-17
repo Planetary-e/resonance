@@ -115,7 +115,7 @@ export { createHistoryCheckpointSuccessor } from './history-checkpoint-successor
 export { createHistoryAgreementReplica } from './history-checkpoint-agreement.js';
 export { listenHistoryAgreementReplica, exchangeHistoryAgreement, exchangeHistoryAgreementData, exchangeHistoryProvision, exchangeHistoryCompaction, exchangeHistoryCompactionControl,
   type HistoryAgreementDataTransport, type HistoryAgreementTransport, type HistoryProvisionTransport, type HistoryCompactionTransport, type HistoryCompactionControlTransport } from './history-agreement-exchange.js';
-export { collectHistoryCompactionCertificate, requestHistoryCompactionControl } from './history-compaction-coordinator.js';
+export { collectHistoryCompactionCertificate, retainHistoryCompactionCertificate, requestHistoryCompactionControl } from './history-compaction-coordinator.js';
 export { createHistoryAgreementCoordinator, type HistoryAgreementSelection } from './history-agreement-coordinator.js';
 export { openHistoryGenerationProvisioner, createHistoryGenerationReplica } from './history-generation-provisioner.js';
 export { createHistoryProvisionCoordinator } from './history-provision-coordinator.js';

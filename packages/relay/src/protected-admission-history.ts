@@ -10,6 +10,8 @@ import { HISTORY_DELTA_MAX_PAYLOAD, historyCheckpointContextId, historyCheckpoin
   type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { openEncryptedLocalState } from '@resonance/core/local-state';
 import { historySuccessorProposalId } from '@resonance/core/history-successor';
+import { createHistoryCompactionProposal } from '@resonance/core/history-compaction';
+import { collectHistoryCompactionCertificate } from './history-compaction-coordinator.js';
 import { createRetainedHistoryCheckpointWriter } from './history-retained-writer.js';
 import { admissionHistoryReplayDigest } from './admission-history-replay.js';
 import { readPreparedAdmissionRestore, type AdmissionHistoryRestoration, type PreparedAdmissionHistoryRestore } from './admission-history-restore.js';
@@ -77,6 +79,7 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
   let storage: ReturnType<typeof openEncryptedLocalState<AdmissionSpendState | ProtectedAdmissionState>> | undefined;
   let writer: ReturnType<typeof createRetainedHistoryCheckpointWriter> | undefined;
   let closed = false, active = false, readyConfirmed = false;
+  let certificationController: AbortController | undefined;
   function baseline(state: AdmissionSpendState): ProtectedAdmissionState {
     if (context.policyDigest !== `sha256:${admissionPolicyDigest(policy)}`) throw new Error('Baseline policy does not match pinned history');
     const image: AdmissionHistoryImage = { version: 1, kind: 'admission-spend-checkpoint', policy, state: parseAdmissionSpendState(state, policy, limit) };
@@ -176,6 +179,27 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
       ])}`),
       notice: 'Publishes an unchanged encrypted state on four volunteers. Retains all earlier history; this is not permission to prune or restore from a snapshot alone.' };
   }
+  function certificationCheckpoint() {
+    const state = available(); writerMatches();
+    const checkpoint = writer!.read().committed?.envelope;
+    if (!checkpoint || checkpoint.kind !== 'checkpoint' || checkpoint.sequence === 0
+      || id(checkpoint) !== state.applied!.id) throw new Error('Certification requires the latest applied complete state checkpoint');
+    const record = decode(checkpoint);
+    if (!exactWitnessFields(record, ['version', 'kind', 'image', 'at']) || record.version !== 1
+      || record.kind !== 'admission-state-checkpoint' || !Number.isSafeInteger(record.at)
+      || JSON.stringify(record.image) !== JSON.stringify(state.image)) {
+      throw new Error('Certification checkpoint does not preserve the current complete state');
+    }
+    assertAdmissionPolicyCurrent(state.image.policy, record.at as number);
+    const genesisId = state.version === 4 ? id(state.restoration.genesis) : id(state.root);
+    const facts = { kind: 'admission-history-checkpoint-certification' as const, contextId, genesisId,
+      rootId: id(state.root), generation: checkpoint.generation, sequence: checkpoint.sequence, envelopeId: id(checkpoint) };
+    return { checkpoint, plan: { ...facts, recordsRetained: state.image.state.spends.length,
+      permanentDenialsRetained: state.image.state.retiredIssuerKeys.length,
+      filesRemoved: 0 as const, bytesReclaimed: 0 as const,
+      approvalDigest: historyDigest(`resonance:admission-history-checkpoint-certification-review:v1\n${JSON.stringify([participant, facts])}`),
+      notice: 'Collects historical ancestry endorsements. Does not delete history, retain certificates remotely or grant current writer authority.' } };
+  }
   function retirement(issuerKey: string) {
     const { image } = available(), state = image.state;
     return { ...planAdmissionHistoryRetirement({ role: 'local-spends', participant, policy: image.policy, issuerKey, state,
@@ -184,7 +208,7 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
       unattributedRecordsRetained: state.spends.filter(row => row.issuerKey === null).length };
   }
   function close() {
-    if (!closed) { closed = true; writer?.close(); storage?.close(); key.fill(0); signer.secretKey.fill(0); }
+    if (!closed) { closed = true; certificationController?.abort(); writer?.close(); storage?.close(); key.fill(0); signer.secretKey.fill(0); }
   }
   try {
     let initial: ProtectedAdmissionState | undefined;
@@ -294,6 +318,33 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
       const applied = available().applied!;
       return { ...plan, envelopeId: applied.id, sequence: applied.sequence, durableCopies: 4 as const };
     }); },
+    planCheckpointCertification() {
+      if (active) throw new Error('Protected admission history operation is in progress');
+      return certificationCheckpoint().plan;
+    },
+    certifyCheckpoint(approvedDigest: string, settings: Pick<Parameters<typeof collectHistoryCompactionCertificate>[0], 'signal' | 'timeoutMs' | 'transport'> = {}) {
+      return exclusive(async () => {
+        serving(); const { checkpoint, plan } = certificationCheckpoint();
+        if (approvedDigest !== plan.approvalDigest) throw new Error('History changed or certification approval does not match; review again');
+        const issuedAt = Date.now(), timeoutMs = settings.timeoutMs ?? p.timeoutMs ?? 30000;
+        if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 50 || timeoutMs > 30000) throw new Error('Invalid checkpoint certification timeout');
+        const proposal = createHistoryCompactionProposal({ genesisId: plan.genesisId, rootId: plan.rootId, checkpoint,
+          issuedAt, expiresAt: issuedAt + timeoutMs }, context, signer);
+        const controller = new AbortController(), external = settings.signal, cancel = () => controller.abort();
+        certificationController = controller; external?.addEventListener('abort', cancel, { once: true });
+        if (external?.aborted) cancel();
+        try {
+          const certificate = await collectHistoryCompactionCertificate({ context, genesisId: plan.genesisId, checkpoint, proposal,
+            members: p.members, signal: controller.signal, timeoutMs, transport: settings.transport });
+          serving();
+          if (certificationCheckpoint().plan.approvalDigest !== approvedDigest) throw new Error('History changed during checkpoint certification');
+          return certificate;
+        } finally {
+          external?.removeEventListener('abort', cancel); controller.abort();
+          if (certificationController === controller) certificationController = undefined;
+        }
+      });
+    },
     write(value: AdmissionSpendRecord & { issuerKey: string }) {
       const row = structuredClone(value);
       return exclusive(async () => {

@@ -1,12 +1,15 @@
 /** Explicit preparation/enrollment. No command resets missing accepted history or chooses new members. */
-import { existsSync, readdirSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { existsSync, lstatSync, readdirSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { MAX_ADMISSION_POLICY_BYTES, admissionPolicyDigest, assertAdmissionPolicyCurrent, verifyAdmissionPolicy } from '@resonance/core/admission-policy';
 import { exactWitnessFields } from '@resonance/core/admission-witness';
+import { reserveManagedStorage } from '@resonance/core/storage-reservations';
 import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointContextId, historyCheckpointEnvelopeId, historyDigest,
   parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
-import { HISTORY_COMPACTION_MAX_BYTES } from '@resonance/core/history-compaction';
+import { HISTORY_COMPACTION_MAX_BYTES, parseHistoryCompactionAttestation } from '@resonance/core/history-compaction';
+import { historyCompactionCertificateId } from '@resonance/core/history-compaction-control';
+import { retainHistoryCompactionCertificate } from './history-compaction-coordinator.js';
 import { loadAdmissionHistoryProtectionFile, parseAdmissionHistoryConfiguration } from './admission-history-config.js';
 import { readOperatorFile, readOperatorJson, readOperatorSigningKey, readOperatorStorageKey, writeOperatorJsonNew } from './admission-operator-files.js';
 import { openProtectedAdmissionSpendHistory } from './protected-admission-history.js';
@@ -188,6 +191,68 @@ export async function runAdmissionHistoryCommand(command: string, raw: readonly 
             }
           }
         }
+      }
+    } else if (['owner-checkpoint-retention-plan', 'owner-checkpoint-retain'].includes(command)) {
+      const applying = command === 'owner-checkpoint-retain';
+      const approved = applying && raw[0] === '--approve' ? raw[1] : undefined, args = approved ? raw.slice(2) : raw;
+      if (args.length !== 3 || (applying && !approved)) throw new Error('Invalid checkpoint retention command or missing approval');
+      const [configPath, enrollmentPath, certificatePath] = args;
+      const loaded = loadAdmissionHistoryProtectionFile(configPath); cleanup.push(() => loaded.signingKey.secretKey.fill(0));
+      const pinned = readHistoryEnrollmentFile(enrollmentPath), transport = operatorTransport(loaded), { protection } = transport;
+      if (pinned.contextId !== historyCheckpointContextId(protection.context)) throw new Error('Enrollment and owner configuration differ');
+      const certificate = parseHistoryCompactionAttestation(readOperatorJson(certificatePath, HISTORY_COMPACTION_MAX_BYTES), protection.context, pinned.genesisId);
+      const details = { kind: 'admission-history-checkpoint-retention' as const, contextId: pinned.contextId, genesisId: pinned.genesisId,
+        rootId: certificate.proposal.rootId, generation: certificate.proposal.generation, sequence: certificate.proposal.sequence,
+        envelopeId: certificate.proposal.envelopeId, certificateId: historyCompactionCertificateId(certificate, protection.context, pinned.genesisId),
+        requestedCopies: 4, filesRemoved: 0, bytesReclaimed: 0, admissionReadiness: 'unverified' as const };
+      const review = { ...details, approvalDigest: historyDigest(`resonance:checkpoint-certificate-retention-review:v1\n${JSON.stringify([details, protection.members])}`) };
+      if (!applying) emit({ ...review, result: 'review-required' });
+      else {
+        if (approved !== review.approvalDigest) throw new Error('Checkpoint retention approval does not match the proof and pinned members');
+        checkCancelled();
+        const responses = await retainHistoryCompactionCertificate({ context: protection.context, genesisId: pinned.genesisId,
+          certificate, signingKey: protection.signingKey, members: protection.members, signal: commandOptions.signal,
+          timeoutMs: protection.timeoutMs, transport: transport.compactionControlTransport });
+        checkCancelled(); emit({ ...review, result: 'checkpoint-proof-retained', retainedCopies: responses.length,
+          authority: 'historical-only' });
+      }
+    } else if (['owner-checkpoint-certification-plan', 'owner-checkpoint-certify'].includes(command)) {
+      const applying = command === 'owner-checkpoint-certify';
+      const approved = applying && raw[0] === '--approve' ? raw[1] : undefined, args = approved ? raw.slice(2) : raw;
+      if (args.length !== 5 || (applying && !approved)) throw new Error('Invalid checkpoint certification command or missing approval');
+      const [configPath, policyPath, keyPath, directory, target] = args, output = canonicalHistorySetupPath(target);
+      function checkOutput() {
+        if (canonicalHistorySetupPath(target) !== output) throw new Error('Certificate output selection changed; review again');
+        try { lstatSync(output); } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+          if (!lstatSync(dirname(output)).isDirectory()) throw new Error('Certificate output needs an existing parent');
+          return;
+        }
+        throw new Error('Certificate output already exists; retain it and select another path');
+      }
+      checkOutput();
+      const loaded = loadAdmissionHistoryProtectionFile(configPath); cleanup.push(() => loaded.signingKey.secretKey.fill(0));
+      const transport = operatorTransport(loaded), { protection } = transport;
+      const encryptionKey = readOperatorStorageKey(keyPath); cleanup.push(() => encryptionKey.fill(0));
+      const policy = await verifyAdmissionPolicy(readOperatorJson(policyPath, MAX_ADMISSION_POLICY_BYTES), protection.context.authority);
+      const history = await openProtectedAdmissionSpendHistory({ directory, encryptionKey, authority: protection.context.authority, policy, protection });
+      cleanup.push(history.close);
+      if (admissionPolicyDigest(history.read().image.policy) !== admissionPolicyDigest(policy)) throw new Error('Certification requires the retained policy');
+      const plan = history.planCheckpointCertification(), review = { ...plan, output,
+        approvalDigest: historyDigest(`resonance:checkpoint-certificate-export-review:v1\n${JSON.stringify([plan.approvalDigest, output])}`) };
+      if (!applying) emit({ ...review, result: 'review-required', readiness: 'unverified' });
+      else {
+        if (approved !== review.approvalDigest) throw new Error('Certificate approval does not match current history and output');
+        checkCancelled(); checkOutput();
+        const reservation = reserveManagedStorage({ path: output, component: 'operator-output', scope: 'file', maximumBytes: HISTORY_COMPACTION_MAX_BYTES });
+        await history.ready();
+        const certificate = await history.certifyCheckpoint(plan.approvalDigest, { signal: commandOptions.signal,
+          transport: transport.compactionTransport });
+        checkCancelled(); checkOutput();
+        writeOperatorJsonNew(output, certificate, HISTORY_COMPACTION_MAX_BYTES, reservation ? { reservation } : undefined);
+        checkCancelled();
+        emit({ ...review, result: 'checkpoint-certificate-exported', endorsements: certificate.votes.length,
+          authority: 'historical-only', remotelyRetained: false });
       }
     } else if (['owner-retirement-plan', 'owner-retire', 'owner-legacy-plan', 'owner-legacy-recover', 'owner-checkpoint-plan', 'owner-checkpoint'].includes(command)) {
       const checkpoint = command === 'owner-checkpoint-plan' || command === 'owner-checkpoint';

@@ -7,11 +7,13 @@ import { fileURLToPath } from 'node:url';
 import { createAdmissionRequestBindingV2, presentBlindAdmissionTokenV2, verifyBlindAdmissionTokenV2 } from '@resonance/core';
 import { admissionKeyFingerprint, admissionPolicyDigest, signAdmissionPolicy } from '@resonance/core/admission-policy';
 import { historyCheckpointEnvelopeId } from '@resonance/core/history-checkpoint';
+import { parseHistoryCompactionAttestation } from '@resonance/core/history-compaction';
 import { openAdmissionSpendHistory } from '../admission-spend-history.js';
 import { openProtectedAdmissionSpendHistory } from '../protected-admission-history.js';
 import { openHistoryVolunteerService } from '../history-volunteer-service.js';
 import { listenHistoryAgreementReplica } from '../history-agreement-exchange.js';
 import { openAdmissionHistoryRecovery, prepareAdmissionHistoryRecovery } from '../admission-history-recovery.js';
+import { canonicalHistorySetupPath } from '../admission-history-setup.js';
 import { witnessFixture } from './fixtures/admission-witness-fixture.js';
 import { historyCheckpointFixture } from './fixtures/history-checkpoint-fixture.js';
 
@@ -65,7 +67,8 @@ async function fixture() {
       const response = service.checkpoint(value);
       if (loseMutationReplies && response.request.action === 'append' && response.request.sequence > 0) throw new Error('lost reply');
       return response;
-    } }); cleanup.push(() => listener.close()); members[i].endpoint = listener.checkpointEndpoint;
+    }, compaction(value) { calls++; if (i >= online) throw new Error('offline'); return service.compaction(value); }
+    }); cleanup.push(() => listener.close()); members[i].endpoint = listener.checkpointEndpoint;
   }
   const config = join(directory, 'config.json'), policyFile = join(directory, 'policy.json'), keyFile = join(directory, 'storage.hex'), proofs = join(directory, 'proofs.json');
   const ownerKey = join(directory, 'owner-private.json');
@@ -121,6 +124,60 @@ it('reviews a complete state checkpoint offline and publishes it with four copie
   history = await openProtectedAdmissionSpendHistory({ ...n.options, directory: destination, initialize: true,
     protection: { ...n.options.protection, initializeWriter: true, restore: { preparation, approvedDigest: preparation.review.approvalDigest } } });
   await history.ready(); expect(history.read().image).toEqual(image); history.close();
+}, 60000);
+
+it('exports a reviewed four-member checkpoint certificate through the CLI and uses it for actual recovery', async () => {
+  const n = await fixture(), output = join(n.directory, 'checkpoint-certificate.json');
+  expect((await command('owner-checkpoint-certification-plan', ...n.args, output)).code).not.toBe(0);
+  const publish = await succeed('owner-checkpoint-plan', ...n.args);
+  await succeed('owner-checkpoint', '--approve', publish.approvalDigest, ...n.args);
+  n.online(0); const before = readFileSync(n.stateFile), calls = n.calls();
+  const plan = await succeed('owner-checkpoint-certification-plan', ...n.args, output);
+  expect(plan).toMatchObject({ sequence: 1, recordsRetained: 4, output: canonicalHistorySetupPath(output), filesRemoved: 0, bytesReclaimed: 0, readiness: 'unverified' });
+  for (const secret of [n.a.row.spend, n.a.row.binding, n.a.value.capability.token]) expect(JSON.stringify(plan)).not.toContain(secret);
+  expect(n.calls()).toBe(calls); expect(readFileSync(n.stateFile)).toEqual(before); expect(existsSync(output)).toBe(false);
+  expect((await command('owner-checkpoint-certify', '--approve', 'wrong', ...n.args, output)).code).not.toBe(0);
+  expect((await command('owner-checkpoint-certify', '--approve', plan.approvalDigest, ...n.args, join(n.directory, 'changed.json'))).code).not.toBe(0);
+  expect(n.calls()).toBe(calls);
+  n.online(3); expect((await command('owner-checkpoint-certify', '--approve', plan.approvalDigest, ...n.args, output)).code).not.toBe(0);
+  expect(existsSync(output)).toBe(false); expect(readFileSync(n.stateFile)).toEqual(before);
+  n.online(5);
+  expect(await succeed('owner-checkpoint-certify', '--approve', plan.approvalDigest, ...n.args, output))
+    .toMatchObject({ result: 'checkpoint-certificate-exported', endorsements: 4, authority: 'historical-only', remotelyRetained: false });
+  const bytes = readFileSync(output), genesisId = historyCheckpointEnvelopeId(n.genesis);
+  const certificate = parseHistoryCompactionAttestation(JSON.parse(bytes.toString()), n.context, genesisId);
+  expect(certificate.proposal.envelopeId).toBe(plan.envelopeId);
+  const after = n.calls(); expect((await command('owner-checkpoint-certify', '--approve', plan.approvalDigest, ...n.args, output)).code).not.toBe(0);
+  expect(readFileSync(output)).toEqual(bytes); expect(n.calls()).toBe(after);
+  const enrollment = join(n.directory, 'enrollment.json');
+  writeFileSync(enrollment, JSON.stringify({ version: 1, kind: 'admission-history-enrollment', context: n.context, root: n.genesis }));
+  const retainArgs = [n.args[0], enrollment, output]; n.online(0);
+  const retainPlan = await succeed('owner-checkpoint-retention-plan', ...retainArgs); expect(n.calls()).toBe(after);
+  expect((await command('owner-checkpoint-retain', '--approve', 'wrong', ...retainArgs)).code).not.toBe(0); expect(n.calls()).toBe(after);
+  n.online(3); expect((await command('owner-checkpoint-retain', '--approve', retainPlan.approvalDigest, ...retainArgs)).code).not.toBe(0);
+  expect(n.services.filter(s => s.retainedCompactionCheckpoint(genesisId) !== null)).toHaveLength(3);
+  n.online(5);
+  expect(await succeed('owner-checkpoint-retain', '--approve', retainPlan.approvalDigest, ...retainArgs))
+    .toMatchObject({ result: 'checkpoint-proof-retained', retainedCopies: 4, authority: 'historical-only', admissionReadiness: 'unverified' });
+  expect(readFileSync(output)).toEqual(bytes);
+  expect(await succeed('owner-checkpoint-retain', '--approve', retainPlan.approvalDigest, ...retainArgs))
+    .toMatchObject({ result: 'checkpoint-proof-retained', retainedCopies: 4 });
+  const options = { directory: join(n.directory, 'certified-recovery'), genesis: n.genesis, encryptionKey: n.key,
+    protection: n.options.protection, compaction: certificate };
+  const review = await prepareAdmissionHistoryRecovery(options);
+  const recovery = await openAdmissionHistoryRecovery({ ...options, initialize: { review, approvedDigest: review.approvalDigest } }); cleanup.push(recovery.close);
+  for (let step = 0; step < 8 && !recovery.status().complete; step++) await recovery.advance();
+  expect(recovery.status().complete).toBe(true);
+  const destination = join(n.directory, 'certified-owner'), restored = await recovery.reviewRestore(destination, n.policy);
+  expect(restored.review.spends).toBe(4);
+  const history = await openProtectedAdmissionSpendHistory({ ...n.options, directory: destination, initialize: true,
+    protection: { ...n.options.protection, initializeWriter: true, restore: { preparation: restored, approvedDigest: restored.review.approvalDigest } } });
+  cleanup.push(history.close); await history.ready(); await history.checkpoint(history.planCheckpoint().approvalDigest);
+  const nextPlan = history.planCheckpointCertification(); expect(nextPlan.genesisId).toBe(genesisId);
+  expect(nextPlan.generation).toBe(1); expect(nextPlan.rootId).not.toBe(genesisId);
+  const nextCertificate = await history.certifyCheckpoint(nextPlan.approvalDigest, { transport: async (member, proposal) =>
+    n.services[n.context.members.indexOf(member.publicKey)].compaction(proposal) });
+  expect(parseHistoryCompactionAttestation(nextCertificate, n.context, genesisId).proposal.generation).toBe(1);
 }, 60000);
 
 it('refuses stale approvals and implicit policy updates before contacting a volunteer', async () => {

@@ -27,6 +27,8 @@ try {
   console.error('  owner-inspect owner-config.json enrollment.json');
   console.error('  owner-ready owner-config.json policy.json owner-storage.hex owner-directory');
   console.error('  owner-checkpoint-plan|owner-checkpoint [--approve <digest>] owner-config.json policy.json owner-storage.hex owner-directory');
+  console.error('  owner-checkpoint-certification-plan|owner-checkpoint-certify [--approve <digest>] owner-config.json policy.json owner-storage.hex owner-directory new-certificate.json');
+  console.error('  owner-checkpoint-retention-plan|owner-checkpoint-retain [--approve <digest>] owner-config.json enrollment.json certificate.json');
   console.error('  owner-initial-readiness-plan|owner-initial-ready [--approve <digest>] owner-config.json enrollment.json policy.json owner-storage.hex owner-directory');
   console.error('  owner-retirement-plan|owner-retire [--approve <digest>] owner-config.json policy.json owner-storage.hex owner-directory <issuer-key-fingerprint>');
   console.error('  owner-legacy-plan|owner-legacy-recover [--approve <digest>] owner-config.json policy.json owner-storage.hex owner-directory proofs.json');

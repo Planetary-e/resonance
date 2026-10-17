@@ -3,8 +3,8 @@ import { historyCheckpointEnvelopeId, historyDigest } from '@resonance/core/hist
 import { createHistoryCompactionProposal, createHistoryCompactionVote } from '@resonance/core/history-compaction';
 import { createHistoryCompactionControlRequest, createHistoryCompactionControlResponse } from '@resonance/core/history-compaction-control';
 import { historyCheckpointFixture } from './fixtures/history-checkpoint-fixture.js';
-import { collectHistoryCompactionCertificate, requestHistoryCompactionControl } from '../history-compaction-coordinator.js';
-import type { HistoryCompactionTransport } from '../history-agreement-exchange.js';
+import { collectHistoryCompactionCertificate, retainHistoryCompactionCertificate, requestHistoryCompactionControl } from '../history-compaction-coordinator.js';
+import type { HistoryCompactionTransport, HistoryCompactionControlTransport } from '../history-agreement-exchange.js';
 
 afterEach(() => vi.restoreAllMocks());
 function fixture() {
@@ -110,4 +110,44 @@ it('refuses cancelled and late control responses despite valid historical signat
   await expect(requestHistoryCompactionControl({ ...f.input, transport: async () => {
     vi.spyOn(Date, 'now').mockReturnValue(f.frame.request.expiresAt); return f.response;
   } })).rejects.toThrow('expired');
+});
+
+function retentionFixture() {
+  const f = fixture(), certificate = { version: 1 as const, kind: 'history-compaction-certificate' as const,
+    proposal: f.proposal, votes: f.votes.slice(0, 4) };
+  const options = { context: f.context, genesisId: f.genesisId, certificate, signingKey: f.owner, members: f.members, timeoutMs: 1000 };
+  const reply: HistoryCompactionControlTransport = async (member, frame) => createHistoryCompactionControlResponse(frame,
+    { rootId: f.genesisId, generation: 0, sequence: f.checkpoint.sequence, envelopeId: historyCheckpointEnvelopeId(f.checkpoint), freeze: null },
+    certificate, f.context, f.memberKeys[f.context.members.indexOf(member.publicKey)]);
+  return { ...f, certificate, options, reply };
+}
+it('retains proof with four distinct fresh authenticated replies and cancels a silent fifth', async () => {
+  const f = retentionFixture(), signals: AbortSignal[] = [];
+  const result = await retainHistoryCompactionCertificate({ ...f.options, transport: async (m, frame, signal) => {
+    signals.push(signal); if (m.publicKey === f.members[4].publicKey) return new Promise(() => {});
+    return f.reply(m, frame, signal);
+  } });
+  expect(result).toHaveLength(4); expect(new Set(result.map(r => r.request.replica)).size).toBe(4);
+  expect(new Set(result.map(r => JSON.stringify([r.request.challenge, r.request.issuedAt, r.request.expiresAt]))).size).toBe(1);
+  expect(signals).toHaveLength(5); expect(signals.every(s => s.aborted)).toBe(true);
+});
+it('excludes forged retention replies and cannot replace the fourth with historical endorsements', async () => {
+  const f = retentionFixture(); let bad = 1;
+  const transport: HistoryCompactionControlTransport = async (m, frame, signal) => {
+    const result = await f.reply(m, frame, signal);
+    return f.context.members.indexOf(m.publicKey) < bad ? { ...(result as object), signature: 'forged' } : result;
+  };
+  expect(await retainHistoryCompactionCertificate({ ...f.options, transport })).toHaveLength(4);
+  bad = 2; await expect(retainHistoryCompactionCertificate({ ...f.options, transport })).rejects.toThrow('Four');
+});
+it('bounds and cancels retention, and rejects invalid external pins before any mutation request', async () => {
+  const f = retentionFixture(), spy = vi.fn(f.reply), controller = new AbortController(); controller.abort();
+  for (const change of [{ signal: controller.signal }, { genesisId: historyDigest('wrong') }, { signingKey: f.memberKeys[0] },
+    { members: [f.members[0], ...f.members.slice(0, 4)] }, { certificate: { ...f.certificate, votes: f.votes.slice(0, 3) } }]) {
+    await expect(retainHistoryCompactionCertificate({ ...f.options, ...change, transport: spy })).rejects.toThrow();
+  }
+  expect(spy).not.toHaveBeenCalled(); const signals: AbortSignal[] = [];
+  await expect(retainHistoryCompactionCertificate({ ...f.options, timeoutMs: 50, transport: async (_m, _f, signal) => {
+    signals.push(signal); return new Promise(() => {});
+  } })).rejects.toThrow('timed out'); expect(signals.length).toBeGreaterThan(0); expect(signals.every(s => s.aborted)).toBe(true);
 });
