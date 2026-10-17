@@ -10,6 +10,7 @@ import { copyAdmissionSigningKey } from '@resonance/core/admission-witness';
 import { createHistoryCompactionVote, parseHistoryCompactionProposal, parseHistoryCompactionAttestation } from '@resonance/core/history-compaction';
 import { parseHistoryCompactionControlFrame, parseHistoryCompactionControlRequest,
   createHistoryCompactionControlResponse } from '@resonance/core/history-compaction-control';
+import { parseHistoryFrontierRequest, createHistoryFrontierResponse } from '@resonance/core/history-frontier';
 import { historyDigest, historyCheckpointEnvelopeId, isHistoryDigest, parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { HISTORY_MANIFEST_FILENAME, openHistoryCheckpointStore } from './history-checkpoint-store.js';
 import { createHistoryCheckpointReplica } from './history-checkpoint-exchange.js';
@@ -130,6 +131,16 @@ export function openHistoryVolunteerService(options: {
     compaction(raw: unknown) {
       if (raw && typeof raw === 'object' && 'kind' in raw && raw.kind === 'history-compaction-proposal') return endorseCompactionCheckpoint(raw);
       live();
+      if (raw && typeof raw === 'object' && 'kind' in raw && raw.kind === 'history-frontier-request') {
+        const request = parseHistoryFrontierRequest(raw, context, genesisId, now());
+        if (request.replica !== replica) throw new Error('History frontier request belongs to another volunteer');
+        // Return only durably retained evidence. A newer generation without a
+        // complete checkpoint does not erase the preceding usable anchor.
+        const certificate = [...slots.values()].reverse().map(slot => slot.store.compactionAnchor()).find(Boolean) ?? null;
+        live(); parseHistoryFrontierRequest(request, context, genesisId, now());
+        const response = createHistoryFrontierResponse(request, certificate, context, signingKey);
+        live(); parseHistoryFrontierRequest(request, context, genesisId, now()); return response;
+      }
       const frame = parseHistoryCompactionControlFrame(raw, context, genesisId, now()), request = frame.request;
       const slot = select(request.rootId), head = slot.store.describe();
       if (request.replica !== replica || head.generation !== request.generation) throw new Error('Compaction control belongs to another volunteer or generation');

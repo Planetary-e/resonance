@@ -6,6 +6,7 @@ import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { historyCheckpointEnvelopeId, historyDigest, sealHistoryCheckpoint } from '@resonance/core/history-checkpoint';
 import { createHistoryCompactionProposal, createHistoryCompactionVote } from '@resonance/core/history-compaction';
+import { createHistoryFrontierResponse, parseHistoryFrontierRequest } from '@resonance/core/history-frontier';
 import { openEncryptedLocalState } from '@resonance/core/local-state';
 import { ADMISSION_RECOVERY_FILENAME, openAdmissionHistoryRecovery, prepareAdmissionHistoryRecovery } from '../admission-history-recovery.js';
 import { openProtectedAdmissionSpendHistory } from '../protected-admission-history.js';
@@ -59,6 +60,11 @@ async function fixture(ancestor = false, checkpointSequence = 2) {
   const omitted = (generation: number, sequence: number) => generation < anchor.generation || (generation === anchor.generation && sequence < anchor.sequence);
   for (let i = 0; i < 5; i++) {
     const listener = await listenHistoryAgreementReplica({ ...roles[i],
+      compaction(raw) {
+        calls++; if (!online.has(i)) throw new Error('Offline replica');
+        const request = parseHistoryFrontierRequest(raw, n.context, genesisId, Date.now());
+        return createHistoryFrontierResponse(request, n.generations[anchor.generation][i].compactionAnchor(), n.context, n.memberKeys[i]);
+      },
       checkpoint(raw) {
         calls++; if (!online.has(i)) throw new Error('Offline replica');
         const request = (raw as { request: { action: string; generation: number; sequence: number } }).request;
@@ -164,7 +170,7 @@ describe('composed compacted admission recovery', { timeout: 60000 }, () => {
     const certificateFile = join(n.directory, 'checkpoint-proof.json'), keyFile = join(n.directory, 'owner-storage.hex');
     const ownerFile = join(n.directory, 'owner-private.json'), configFile = join(n.directory, 'owner-config.json');
     const enrollmentFile = join(n.directory, 'enrollment.json'), policyFile = join(n.directory, 'policy.json');
-    writeFileSync(certificateFile, JSON.stringify(n.certificate)); writeFileSync(keyFile, n.key.toString('hex'), { mode: 0o600 });
+    writeFileSync(keyFile, n.key.toString('hex'), { mode: 0o600 });
     writeFileSync(ownerFile, JSON.stringify({ publicKey: Buffer.from(n.owner.publicKey).toString('base64url'),
       secretKey: Buffer.from(n.owner.secretKey).toString('base64url') }), { mode: 0o600 });
     writeFileSync(configFile, JSON.stringify({ version: 1, context: n.context, ownerKeyFile: ownerFile, members: n.members }));
@@ -180,6 +186,14 @@ describe('composed compacted admission recovery', { timeout: 60000 }, () => {
     async function succeed(...args: string[]) {
       const result = await command(...args); expect(result.stderr).toBe(''); expect(result.code).toBe(0); return JSON.parse(result.stdout);
     }
+    // The owner has only its original enrollment and keys. Locate the retained
+    // checkpoint before pinning that exact file for every recovery phase.
+    const found = await succeed('owner-checkpoint-discover', configFile, enrollmentFile, certificateFile);
+    expect(found).toMatchObject({ result: 'checkpoint-proof-discovered', generation: 1, observations: 4, admissionReadiness: 'unverified' });
+    expect(JSON.parse(readFileSync(certificateFile, 'utf8'))).toEqual(n.certificate);
+    const saved = readFileSync(certificateFile), beforeDiscoveryRetry = n.calls();
+    expect((await command('owner-checkpoint-discover', configFile, enrollmentFile, certificateFile)).code).not.toBe(0);
+    expect(readFileSync(certificateFile)).toEqual(saved); expect(n.calls()).toBe(beforeDiscoveryRetry);
     const plan = await succeed('owner-recovery-plan', ...proofArgs, '1'); expect(plan.compactionId).toMatch(/^sha256:/);
     expect((await command('owner-recovery-start', '--approve', 'wrong', ...proofArgs, '1')).code).not.toBe(0);
     expect(existsSync(n.options.directory)).toBe(false);

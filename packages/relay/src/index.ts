@@ -116,6 +116,7 @@ export { createHistoryAgreementReplica } from './history-checkpoint-agreement.js
 export { listenHistoryAgreementReplica, exchangeHistoryAgreement, exchangeHistoryAgreementData, exchangeHistoryProvision, exchangeHistoryCompaction, exchangeHistoryCompactionControl,
   type HistoryAgreementDataTransport, type HistoryAgreementTransport, type HistoryProvisionTransport, type HistoryCompactionTransport, type HistoryCompactionControlTransport } from './history-agreement-exchange.js';
 export { collectHistoryCompactionCertificate, retainHistoryCompactionCertificate, requestHistoryCompactionControl } from './history-compaction-coordinator.js';
+export { discoverHistoryCompactionFrontier } from './history-frontier-discovery.js';
 export { createHistoryAgreementCoordinator, type HistoryAgreementSelection } from './history-agreement-coordinator.js';
 export { openHistoryGenerationProvisioner, createHistoryGenerationReplica } from './history-generation-provisioner.js';
 export { createHistoryProvisionCoordinator } from './history-provision-coordinator.js';

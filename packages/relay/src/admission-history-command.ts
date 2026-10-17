@@ -10,6 +10,7 @@ import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointContextId, historyCheckpoi
 import { HISTORY_COMPACTION_MAX_BYTES, parseHistoryCompactionAttestation } from '@resonance/core/history-compaction';
 import { historyCompactionCertificateId } from '@resonance/core/history-compaction-control';
 import { retainHistoryCompactionCertificate } from './history-compaction-coordinator.js';
+import { discoverHistoryCompactionFrontier } from './history-frontier-discovery.js';
 import { loadAdmissionHistoryProtectionFile, parseAdmissionHistoryConfiguration } from './admission-history-config.js';
 import { readOperatorFile, readOperatorJson, readOperatorSigningKey, readOperatorStorageKey, writeOperatorJsonNew } from './admission-operator-files.js';
 import { openProtectedAdmissionSpendHistory } from './protected-admission-history.js';
@@ -138,6 +139,38 @@ export async function runAdmissionHistoryCommand(command: string, raw: readonly 
       const readiness = await openAdmissionInitialReadiness({ directory, policy: readOperatorJson(policyPath, MAX_ADMISSION_POLICY_BYTES),
         encryptionKey, protection, genesisId: pinned.genesisId, signal: commandOptions.signal }); cleanup.push(readiness.close);
       emit(applying ? await readiness.apply(approved!) : readiness.review());
+    } else if (command === 'owner-checkpoint-discover') {
+      if (raw.length !== 3) throw new Error('Checkpoint discovery needs owner configuration, original enrollment and a new proof output');
+      const [configPath, enrollmentPath, target] = raw, output = canonicalHistorySetupPath(target);
+      function checkOutput() {
+        if (canonicalHistorySetupPath(target) !== output) throw new Error('Checkpoint discovery output selection changed');
+        try { lstatSync(output); } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+          if (!lstatSync(dirname(output)).isDirectory()) throw new Error('Checkpoint discovery output needs an existing parent');
+          return;
+        }
+        throw new Error('Checkpoint discovery output already exists; retain it and select another path');
+      }
+      checkOutput();
+      const loaded = loadAdmissionHistoryProtectionFile(configPath); cleanup.push(() => loaded.signingKey.secretKey.fill(0));
+      const pinned = readHistoryEnrollmentFile(enrollmentPath), transport = operatorTransport(loaded), { protection } = transport;
+      if (pinned.contextId !== historyCheckpointContextId(protection.context)) throw new Error('Enrollment and owner configuration differ');
+      const reservation = reserveManagedStorage({ path: output, component: 'operator-output', scope: 'file', maximumBytes: HISTORY_COMPACTION_MAX_BYTES });
+      const discovered = await discoverHistoryCompactionFrontier({ context: protection.context, genesisId: pinned.genesisId,
+        signingKey: protection.signingKey, members: protection.members, timeoutMs: protection.timeoutMs,
+        signal: commandOptions.signal, transport: transport.frontierTransport });
+      checkCancelled(); checkOutput();
+      if (!discovered.certificate) emit({ result: 'no-checkpoint-proof-observed', observations: discovered.receipts.length,
+        output: null, admissionReadiness: 'unverified' });
+      else {
+        writeOperatorJsonNew(output, discovered.certificate, HISTORY_COMPACTION_MAX_BYTES, reservation ? { reservation } : undefined);
+        checkCancelled();
+        const p = discovered.certificate.proposal;
+        emit({ result: 'checkpoint-proof-discovered', contextId: pinned.contextId, genesisId: pinned.genesisId,
+          rootId: p.rootId, generation: p.generation, sequence: p.sequence, envelopeId: p.envelopeId,
+          certificateId: historyCompactionCertificateId(discovered.certificate, protection.context, pinned.genesisId),
+          observations: discovered.receipts.length, output, authority: 'historical-only', admissionReadiness: 'unverified' });
+      }
     } else if (command?.startsWith('owner-recovery-')) {
       const mutation = ['owner-recovery-start', 'owner-recovery-restore', 'owner-recovery-ready'].includes(command);
       const approved = mutation && raw[0] === '--approve' ? raw[1] : undefined;

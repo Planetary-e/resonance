@@ -15,6 +15,7 @@ import { createHistoryExchangeRequest, parseHistoryExchangeResponse } from '@res
 import { createHistoryCompactionProposal } from '@resonance/core/history-compaction';
 import { createHistoryCompactionControlRequest, historyCompactionCertificateId } from '@resonance/core/history-compaction-control';
 import { collectHistoryCompactionCertificate, requestHistoryCompactionControl } from '../history-compaction-coordinator.js';
+import { discoverHistoryCompactionFrontier } from '../history-frontier-discovery.js';
 import { HistoryRelayRouter } from '../history-relay-router.js';
 import { HISTORY_LINK_FRAME_TYPE } from '../history-relay-link.js';
 import { createRelayServer, type RelayServer } from '../server.js';
@@ -152,6 +153,10 @@ it.each(['direct', 'bridge'] as const)('certifies a complete state checkpoint ov
       expect(response.certificate).toEqual(certificate);
     }
   }
+  expect(history.read()).toEqual(state); expect(n.services.map(s => s.describe().latest)).toEqual(retainedHeads);
+  const discovered = await discoverHistoryCompactionFrontier({ context: n.context, genesisId, signingKey: n.owner,
+    members: n.options.protection.members, transport: n.router.frontier });
+  expect(discovered.certificate).toEqual(certificate); expect(discovered.receipts).toHaveLength(4);
   expect(history.read()).toEqual(state); expect(n.services.map(s => s.describe().latest)).toEqual(retainedHeads);
   await waitFor(() => n.router.usage().operations === 0 && n.routers.every(r => r.usage().operations === 0) && (!n.bridgeRouter || n.bridgeRouter.usage().operations === 0));
   expect(n.router.usage().bytes).toBe(0); expect(n.routers.every(r => r.usage().bytes === 0)).toBe(true);

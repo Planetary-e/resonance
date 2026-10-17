@@ -12,6 +12,7 @@ import { HISTORY_PROVISION_MAX_BYTES, type HistoryProvisionRequest } from '@reso
 import { HISTORY_EXCHANGE_MAX_BYTES } from './history-checkpoint-exchange.js';
 import { HISTORY_COMPACTION_MAX_BYTES, type HistoryCompactionProposal } from '@resonance/core/history-compaction';
 import { HISTORY_COMPACTION_CONTROL_MAX_BYTES, type HistoryCompactionControlFrame } from '@resonance/core/history-compaction-control';
+import { HISTORY_FRONTIER_REQUEST_MAX_BYTES, HISTORY_FRONTIER_MAX_BYTES, type HistoryFrontierRequest } from '@resonance/core/history-frontier';
 
 export type HistoryAgreementTransport = (member: HistoryReplicaEndpoint, frame: HistoryAgreementFrame, signal: AbortSignal) => Promise<unknown>;
 const PATH = '/history-agreement', DATA_PATH = '/history-agreement-data';
@@ -93,6 +94,15 @@ export async function listenHistoryAgreementReplica(role: Pick<ReturnType<typeof
 export type HistoryProvisionTransport = (member: HistoryReplicaEndpoint, request: HistoryProvisionRequest, signal: AbortSignal) => Promise<unknown>;
 export type HistoryCompactionTransport = (member: HistoryReplicaEndpoint, proposal: HistoryCompactionProposal, signal: AbortSignal) => Promise<unknown>;
 export type HistoryCompactionControlTransport = (member: HistoryReplicaEndpoint, frame: HistoryCompactionControlFrame, signal: AbortSignal) => Promise<unknown>;
+export type HistoryFrontierTransport = (member: HistoryReplicaEndpoint, request: HistoryFrontierRequest, signal: AbortSignal) => Promise<unknown>;
+export function exchangeHistoryFrontier(member: HistoryReplicaEndpoint, request: HistoryFrontierRequest, signal: AbortSignal): Promise<unknown> {
+  assertSecureRelayTransportEndpoint(member.endpoint);
+  const encoded = JSON.stringify(request), endpoint = new URL(member.endpoint);
+  if (request.replica !== member.publicKey || Buffer.byteLength(encoded) > HISTORY_FRONTIER_REQUEST_MAX_BYTES
+    || ![PATH, CHECKPOINT_PATH].includes(endpoint.pathname)) return Promise.reject(new Error('Invalid history frontier transport request'));
+  endpoint.pathname = COMPACTION_PATH;
+  return exchange(endpoint.href, encoded, HISTORY_FRONTIER_MAX_BYTES, signal);
+}
 export function exchangeHistoryCompactionControl(member: HistoryReplicaEndpoint, frame: HistoryCompactionControlFrame, signal: AbortSignal): Promise<unknown> {
   assertSecureRelayTransportEndpoint(member.endpoint);
   const encoded = JSON.stringify(frame), endpoint = new URL(member.endpoint);

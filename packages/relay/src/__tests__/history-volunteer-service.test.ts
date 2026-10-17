@@ -13,6 +13,7 @@ import { createHistoryProvisionRequest, parseHistoryProvisionReceipt } from '@re
 import { createHistoryCompactionProposal, parseHistoryCompactionCertificate } from '@resonance/core/history-compaction';
 import { createHistoryCompactionControlRequest, historyCompactionCertificateId, parseHistoryCompactionControlResponse } from '@resonance/core/history-compaction-control';
 import { collectHistoryCompactionCertificate, requestHistoryCompactionControl } from '../history-compaction-coordinator.js';
+import { discoverHistoryCompactionFrontier } from '../history-frontier-discovery.js';
 import { openHistoryVolunteerService } from '../history-volunteer-service.js';
 import { listenHistoryAgreementReplica, exchangeHistoryProvision, exchangeHistoryCompactionControl } from '../history-agreement-exchange.js';
 import { exchangeHistoryCheckpoint } from '../history-checkpoint-exchange.js';
@@ -81,6 +82,8 @@ async function fixture(maxGenerations = 65) {
 
 it('endorses retained checkpoints under independent genesis pins while preserving suffixes and frozen ancestors', async () => {
   const n = await fixture(), genesisId = historyCheckpointEnvelopeId(n.root), blocks = await n.append(n.root);
+  const discover = () => discoverHistoryCompactionFrontier({ context: n.context, genesisId, signingKey: n.owner.signingKey, members: n.members });
+  expect((await discover()).certificate).toBeNull();
   function append(block: HistoryCheckpointEnvelope, rootId: string) {
     const issuedAt = Date.now();
     for (let i = 0; i < 5; i++) {
@@ -121,6 +124,8 @@ it('endorses retained checkpoints under independent genesis pins while preservin
   expect(n.services.map(s => s.describe())).toEqual(heads); expect(n.services.map(s => s.health())).toEqual(health);
   for (let i = 0; i < 5; i++) expect(n.reopen(i).retainedCompactionCheckpoint(genesisId)).toEqual(certificate);
   const child = await n.decide([...blocks, checkpoint, tail]); await n.provision(child);
+  // An uncheckpointed successor preserves the last usable ancestor frontier.
+  expect((await discover()).certificate).toEqual(certificate);
   expect(() => n.services[0].endorseCompactionCheckpoint(p)).toThrow('current unfrozen');
   expect(n.services[0].retainCompactionCheckpoint(certificate, 'old-review')).toEqual(certificate);
   // Historical evidence remains valid; it cannot remove the frozen tail or reactivate its owner.
@@ -133,6 +138,7 @@ it('endorses retained checkpoints under independent genesis pins while preservin
   for (const service of n.services) service.retainCompactionCheckpoint(childCertificate, service.reviewDigest());
   const retained = n.services.map(s => s.reviewDigest());
   for (let i = 0; i < 5; i++) n.reopen(i);
+  expect((await discover()).certificate).toEqual(childCertificate);
   expect(n.services.every(s => s.retainedCompactionCheckpoint(childId)?.proposal.genesisId === genesisId)).toBe(true);
   const successorVotes = n.services.slice(0, 4).map(s => s.endorseCompactionCheckpoint(current));
   expect(parseHistoryCompactionCertificate({ ...certificate, proposal: current, votes: successorVotes }, n.context, genesisId, childCheckpoint).proposal.generation).toBe(1);
