@@ -89,8 +89,64 @@ export {
   type AdmissionDecisionV2,
   type AdmissionVerificationContextV2,
 } from './admission.js';
+export { createLocalBlindAdmissionVerifierV2 } from './blind-admission-verifier.js';
+export { openAdmissionSpendHistory } from './admission-spend-history.js';
+export { openProtectedAdmissionSpendHistory, inspectProtectedAdmissionSpendHistory, type AdmissionHistoryProtection } from './protected-admission-history.js';
+export { replayAdmissionHistory } from './admission-history-replay.js';
+export { prepareAdmissionHistoryRestore, type PreparedAdmissionHistoryRestore } from './admission-history-restore.js';
+export { loadAdmissionHistoryProtectionFile } from './admission-history-config.js';
+export type { AdmissionLegacySpendProof, AdmissionLegacyRecoveryPlan } from './admission-legacy-recovery.js';
+export type { PrivateEntryMixOptions } from './private-entry-mix.js';
 export { type ClientState, type HandlerContext } from './handler.js';
 export { log } from './logger.js';
 
 // Legacy exports (kept for eval benchmarks that still use HNSW)
 export { HnswIndex, MatchingIndex, type HnswIndexConfig, type VectorMetadata } from './hnsw.js';
+
+export { createConfiguredAdmissionVerifier } from './configured-admission-verifier.js';
+export { createAdmissionWitness, createAdmissionQuorumGate, type AdmissionWitness, type AdmissionWitnessTransport } from './admission-witness.js';
+export { openHistoryCheckpointStore, type HistoryCheckpointStoreOptions } from './history-checkpoint-store.js';
+export { createHistoryCheckpointReplica, listenHistoryCheckpointReplica, exchangeHistoryCheckpoint,
+  readHistoryCheckpoint, type HistoryCheckpointTransport, type HistoryReplicaEndpoint } from './history-checkpoint-exchange.js';
+export { createHistoryCheckpointWriter, type HistoryCheckpointWriterState } from './history-checkpoint-quorum.js';
+export { createRetainedHistoryCheckpointWriter } from './history-retained-writer.js';
+export { createHistoryCheckpointRecovery } from './history-checkpoint-recovery.js';
+export { createHistoryCheckpointSuccessor } from './history-checkpoint-successor.js';
+export { createHistoryAgreementReplica } from './history-checkpoint-agreement.js';
+export { listenHistoryAgreementReplica, exchangeHistoryAgreement, exchangeHistoryAgreementData, exchangeHistoryProvision, exchangeHistoryCompaction, exchangeHistoryCompactionControl,
+  type HistoryAgreementDataTransport, type HistoryAgreementTransport, type HistoryProvisionTransport, type HistoryCompactionTransport, type HistoryCompactionControlTransport } from './history-agreement-exchange.js';
+export { collectHistoryCompactionCertificate, retainHistoryCompactionCertificate, requestHistoryCompactionControl } from './history-compaction-coordinator.js';
+export { createHistoryAgreementCoordinator, type HistoryAgreementSelection } from './history-agreement-coordinator.js';
+export { openHistoryGenerationProvisioner, createHistoryGenerationReplica } from './history-generation-provisioner.js';
+export { createHistoryProvisionCoordinator } from './history-provision-coordinator.js';
+export { createHistoryAncestryDownload } from './history-ancestry-download.js';
+export { openHistoryVolunteerService } from './history-volunteer-service.js';
+export { HistoryRelayRouter } from './history-relay-router.js';
+export { readHistoryBridgeConfigurationFile } from './history-bridge-config.js';
+export type { RelayHistoryHealth, HistoryOwnerHealth, HistoryVolunteerHealth, HistoryTransportHealth, HistoryRoleHealth } from './history-health.js';
+export { parseRelayHistoryHealth } from './history-health.js';
+export type { HistoryRelayMemberRoute, HistoryRelayBridgeRoute } from './history-relay-bridge.js';
+export { readHistoryVolunteerConfigurationFile, openConfiguredHistoryVolunteer } from './history-volunteer-config.js';
+export { discoverHistoryContinuations, type HistoryContinuationDiscovery } from './history-continuation-discovery.js';
+export { prepareAdmissionHistoryRecovery, openAdmissionHistoryRecovery, type AdmissionRecoveryReview } from './admission-history-recovery.js';
+
+export { runAdmissionHistoryCommand, readHistoryEnrollmentFile, type AdmissionHistoryCommandOptions } from './admission-history-command.js';
+export { openAdmissionHistoryActivation, type AdmissionHistoryActivationOptions, type AdmissionHistoryActivationReview } from './admission-history-activation.js';
+export { openAdmissionRestorationReadiness, openAdmissionInitialReadiness, type AdmissionRestorationReadinessReview, type AdmissionInitialReadinessReview } from './admission-history-readiness.js';
+export { beginRelayMaintenance, readRelayMaintenance, assertRelayNotInMaintenance, acquireStoppedRelayMaintenance, finishRelayMaintenance, RELAY_MAINTENANCE_FILENAME, type RelayMaintenanceState } from './relay-maintenance.js';
+export { readOperatorJson, writeOperatorJsonNew, writeOperatorJsonAtomic, writeOperatorTextAtomic, reserveOperatorAtomicOutput } from './admission-operator-files.js';
+export { reviewAdmissionOwnerConfiguration, openAdmissionOwnerSetup, canonicalHistorySetupPath, historySetupContains } from './admission-history-setup.js';
+export type { AdmissionOwnerConfigurationInput, AdmissionOwnerSetupInput, AdmissionOwnerSetupMode } from './admission-history-setup.js';
+
+export { openHistoryVolunteerEnrollmentResume } from './history-volunteer-enrollment.js';
+export { openAdmissionOwnerLimits, type AdmissionOwnerLimitsInput } from './admission-history-limits.js';
+
+export { measureStorageDirectories, parseStorageDirectories, parseStorageFiles } from "./storage-inventory.js";
+export type { StorageInventory } from "./storage-inventory.js";
+
+export { relayPortClosed } from './relay-listener.js';
+export { readRelayStorageSnapshot, readRelayStorageConfiguration, type RelayStorageConfiguration } from './relay-storage-selection.js';
+export { openSelectedRelayStorageOwner } from './selected-relay-storage.js';
+export { openRelayStorageOwner, withRelayStorageControls, assertStoppedRelayStorageOwner, type RelayStorageOwner, type RelayStorageSelection, type RelayStorageRuntimeBinding } from './relay-storage-owner.js';
+
+export { UnparseableRelayStorageSelectionError, parseRelayStorageConfiguration, RELAY_STORAGE_SELECTION_MAX_BYTES } from './relay-storage-selection.js';

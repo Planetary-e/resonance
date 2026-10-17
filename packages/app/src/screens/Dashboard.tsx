@@ -1,5 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import StatCard from '../components/StatCard';
+import AdmissionWallet from '../components/AdmissionWallet';
+import HistoryHealth from '../components/HistoryHealth';
+import HistoryMaintenance from '../components/HistoryMaintenance';
 import type { StatusResponse, RelayStatus, RelayOwnerControls } from '../api.client';
 
 interface Activity {
@@ -34,6 +37,8 @@ interface DashboardProps {
   relayStatus: RelayStatus | null;
   onRelayToggle: (contacts: string[], controls: RelayOwnerControls) => void;
   activities: Activity[];
+  onWalletChange: () => Promise<unknown>;
+  onRelayRefresh?: () => Promise<unknown>;
 }
 
 export default function Dashboard({
@@ -42,8 +47,10 @@ export default function Dashboard({
   relayStatus,
   onRelayToggle,
   activities,
+  onWalletChange, onRelayRefresh,
 }: DashboardProps) {
-  const relayLabel = relayStatus?.running ? 'Relay Active'
+  const relayLabel = relayStatus?.running ? relayStatus.admissionReady === true ? 'Relay Active'
+    : relayStatus.admissionReady === false ? 'Relay Preparing' : 'Relay Running'
     : relayStatus?.enabled ? 'Relay Starting' : 'Relay Off';
   const [contactText, setContactText] = useState('');
   const [storageText, setStorageText] = useState('');
@@ -87,6 +94,8 @@ export default function Dashboard({
         />
       </div>
 
+      <AdmissionWallet privateDeliveryAvailable={status?.privateDeliveryAvailable ?? false} onChange={onWalletChange} />
+
       <div className="relay-section">
         <div className="relay-toggle-row">
           <div>
@@ -105,6 +114,15 @@ export default function Dashboard({
             <span className="switch-label">{relayLabel}</span>
           </label>
         </div>
+
+        {relayStatus?.running && relayStatus.admissionReady === false && (
+          <p className="text-sm text-muted" role="status">
+            The relay service is running and preparing protected history. New user requests are unavailable until preparation finishes.
+          </p>
+        )}
+        {relayStatus?.running && relayStatus.admissionReady === null && (
+          <p className="text-sm text-muted" role="status">Admission readiness has not been reported by this relay.</p>
+        )}
 
         <label className="text-sm" htmlFor="relay-contacts">Volunteer relay contacts</label>
         <input
@@ -149,6 +167,8 @@ export default function Dashboard({
         <p className="text-sm text-muted">
           These limits pause new work. The relay continues handling accepted records, repairs, acknowledgements, and withdrawals.
         </p>
+        {relayStatus?.enabled && <HistoryHealth health={relayStatus.stats?.history} />}
+        <HistoryMaintenance refreshRelay={onRelayRefresh} />
         {(relayStatus?.storageCommitmentFloorBytes ?? 0) > 0 && (
           <p className="text-sm text-muted">
             Minimum storage limit for accepted data: {Math.ceil(

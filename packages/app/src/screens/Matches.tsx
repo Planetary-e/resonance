@@ -1,8 +1,12 @@
 import React from 'react';
+import SavedRequests from '../components/SavedRequests';
 import MatchCard from '../components/MatchCard';
 import type { Match, Item } from '../api.client';
 
 interface MatchesProps {
+  privateDeliveryAvailable: boolean;
+  savedRequestsAvailable: boolean;
+  onMailboxChange: () => Promise<void>;
   matches: Match[];
   items: Item[];
   onConnect: (matchId: string) => Promise<{ channelId?: string; error?: string }>;
@@ -10,7 +14,7 @@ interface MatchesProps {
   onSwitchToChannels: () => void;
 }
 
-export default function Matches({ matches, items, onConnect, onToast, onSwitchToChannels }: MatchesProps) {
+export default function Matches({ matches, items, onConnect, onToast, onSwitchToChannels, privateDeliveryAvailable, savedRequestsAvailable, onMailboxChange }: MatchesProps) {
   const itemMap = new Map(items.map(i => [i.id, i]));
   async function handleConnect(matchId: string) {
     const result = await onConnect(matchId);
@@ -25,6 +29,7 @@ export default function Matches({ matches, items, onConnect, onToast, onSwitchTo
   return (
     <div className="screen-container">
       <h2>Matches</h2>
+      {savedRequestsAvailable && <SavedRequests kind="mailbox" canSaveMailbox={privateDeliveryAvailable} onChange={onMailboxChange} onToast={onToast} />}
 
       {matches.length === 0 ? (
         <div className="empty-state">

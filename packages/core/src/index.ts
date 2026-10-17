@@ -31,6 +31,62 @@ export {
 export { EmbeddingEngine, rewriteForMatching, type EmbeddingPrefix } from './embedding.js';
 
 export { BOOTSTRAP_RELAYS, DEFAULT_RELAY_PORT } from './bootstrap.js';
+export { assertSecureRelayTransportEndpoint, isPrivateRelayAddress } from './relay-transport.js';
+export {
+  selectPrivateRouteV1,
+  observedNetworkDomainV1,
+  type PrivateRouteCandidateV1,
+  type PrivateRouteV1,
+} from './private-route.js';
+export {
+  PRIVATE_ENVELOPE_VERSION,
+  MAX_PRIVATE_REQUEST_BYTES,
+  MAX_PRIVATE_FRAME_BYTES,
+  MAX_PRIVATE_KEY_LIFETIME_MS,
+  MAX_PRIVATE_REQUEST_LIFETIME_MS,
+  PrivateRequestReplayCacheV1,
+  type PrivateReplayRecordV1,
+  generateRelayTransportKeyV1,
+  verifyRelayTransportKeyV1,
+  isRelayTransportKeyActiveV1,
+  createPrivateRequestV1,
+  openPrivateEntryRequestV1,
+  openPrivateDestinationRequestV1,
+  createPrivateResponseV1,
+  openPrivateResponseV1,
+  serializePrivateResponseV1,
+  parsePrivateResponseV1,
+  serializePrivateRequestLayerV1,
+  parsePrivateRequestLayerV1,
+  type RelayTransportKeyV1,
+  type RelayTransportKeyMaterialV1,
+  type PrivateRequestLayerV1,
+  type PrivateRequestExchangeV1,
+  type PrivateDestinationPayloadV1,
+  type PrivateResponseV1,
+} from './private-envelope.js';
+export {
+  RELAY_PRIVATE_FORWARD_FRAME_TYPE,
+  createRelayPrivateForwardV1,
+  verifyRelayPrivateForwardV1,
+  isRelayPrivateForwardActiveV1,
+  serializeRelayPrivateForwardV1,
+  parseRelayPrivateForwardV1,
+  type RelayPrivateForwardV1,
+} from './private-forward.js';
+export {
+  PRIVATE_DISCOVERY_REQUEST_TYPE,
+  PRIVATE_DISCOVERY_RESPONSE_TYPE,
+  MAX_PRIVATE_DISCOVERY_FRAME_BYTES,
+  createPrivateDiscoveryRequestV1,
+  parsePrivateDiscoveryRequestV1,
+  serializePrivateDiscoveryRequestV1,
+  createPrivateDiscoveryResponseV1,
+  verifyPrivateDiscoveryResponseV1,
+  type PrivateDiscoveryRequestV1,
+  type PrivateDiscoveryResponsePayloadV1,
+  type VerifiedPrivateDiscoveryV1,
+} from './private-discovery.js';
 
 export {
   RELAY_DISCOVERY_VERSION,
@@ -78,14 +134,21 @@ export {
   RELAY_LINK_VERSION,
   RELAY_LINK_OPEN_FRAME_TYPE,
   RELAY_LINK_ACCEPT_FRAME_TYPE,
+  RELAY_LINK_CHALLENGE_REQUEST_FRAME_TYPE,
+  RELAY_LINK_CHALLENGE_FRAME_TYPE,
   MAX_RELAY_LINK_HANDSHAKE_LIFETIME_MS,
   type RelayLinkOpenBodyV1,
+  type RelayLinkChallengeV1,
   type RelayLinkOpenV1,
   type RelayLinkAcceptBodyV1,
   type RelayLinkAcceptV1,
   type RelayLinkOpenFrameV1,
   type RelayLinkAcceptFrameV1,
   createRelayLinkOpenV1,
+  createRelayLinkChallengeV1,
+  parseRelayLinkChallengeRequestV1,
+  serializeRelayLinkChallengeRequestV1,
+  parseRelayLinkChallengeV1,
   verifyRelayLinkOpenV1,
   isRelayLinkOpenActiveV1,
   createRelayLinkAcceptV1,
@@ -220,6 +283,8 @@ export {
   hammingSimilarity,
   expectedHammingSimilarity,
   getSharedProjectionMatrix,
+  getScopedProjectionMatrixV2,
+  currentFingerprintEpochV2,
   LSH_DEFAULTS,
 } from './lsh.js';
 
@@ -372,6 +437,15 @@ export {
 } from './admission-v2.js';
 
 export {
+  type BlindAdmissionScopeV2,
+  createBlindAdmissionChallengeV2,
+  createBlindAdmissionRequestV2,
+  issueBlindAdmissionRequestV2,
+  presentBlindAdmissionTokenV2,
+  verifyBlindAdmissionTokenV2,
+} from './blind-admission-v2.js';
+
+export {
   type MatchPublicationReferenceV2,
   type MatchOperationFingerprintV2,
   type MatchOperationBodyV2,
@@ -479,6 +553,7 @@ export {
   type AuthPayload,
   type ChannelMessagePayload,
   type ChannelForwardPayload,
+  MAX_SIGNED_MESSAGE_BYTES,
   MessageTypes,
   createMessage,
   verifyMessage,

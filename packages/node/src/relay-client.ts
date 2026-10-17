@@ -3,7 +3,11 @@
  */
 
 import WebSocket from 'ws';
+import { createPrivateRelayClient } from './private-relay-client.js';
+import type { PrivateTrafficScheduleOptions } from './private-traffic-scheduler.js';
 import {
+  assertSecureRelayTransportEndpoint,
+  MAX_SIGNED_MESSAGE_BYTES,
   MessageTypes,
   MAILBOX_RESPONSE_MESSAGE_TYPE,
   SEARCH_RESPONSE_MESSAGE_TYPE,
@@ -68,10 +72,22 @@ export interface RelayClientConfig {
   identity?: Identity;
   /** Additional relay URLs to try if primary fails. */
   fallbackUrls?: string[];
+  /** Explicit entry relays for private mode; destination URLs stay separate. */
+  privateEntryUrls?: string[];
+  /** Bounded batch release and timing jitter for experimental private mode. */
+  privateTraffic?: PrivateTrafficScheduleOptions;
   /** Enable auto-reconnect with exponential backoff. */
   autoReconnect?: boolean;
   /** Supplies an unlinkable capability for each exact v2 relay request. */
   admissionCapabilityProvider?: AdmissionCapabilityProviderV2;
+}
+
+function openRelaySocket(url: string): WebSocket {
+  assertSecureRelayTransportEndpoint(url);
+  return new WebSocket(url, {
+    handshakeTimeout: 10_000,
+    maxPayload: MAX_SIGNED_MESSAGE_BYTES,
+  });
 }
 
 export interface AdmissionCapabilityRequestContextV2 {
@@ -146,6 +162,7 @@ interface PendingRequest {
 }
 
 export function createRelayClient(config: RelayClientConfig): RelayClient {
+  if (config.privateEntryUrls !== undefined) return createPrivateRelayClient(config);
   let ws: WebSocket | null = null;
   let connected = false;
   let intentionalDisconnect = false;
@@ -153,6 +170,7 @@ export function createRelayClient(config: RelayClientConfig): RelayClient {
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let currentUrl = config.relayUrl;
   const allUrls = [config.relayUrl, ...(config.fallbackUrls ?? [])];
+  allUrls.forEach(assertSecureRelayTransportEndpoint);
   let urlIndex = 0;
   const events: Partial<RelayClientEvents> = {};
   const pending = new Map<string, PendingRequest>();
@@ -244,7 +262,7 @@ export function createRelayClient(config: RelayClientConfig): RelayClient {
   function doConnect(url: string): Promise<void> {
     if (!config.identity) return Promise.reject(new Error('Legacy relay authentication requires an identity'));
     return new Promise((resolve, reject) => {
-      ws = new WebSocket(url);
+      ws = openRelaySocket(url);
 
       ws.on('open', () => {
         send(MessageTypes.AUTH, {});
@@ -288,7 +306,7 @@ export function createRelayClient(config: RelayClientConfig): RelayClient {
   function submitToUrl(url: string, operation: PublicationOperation): Promise<AckPayload> {
     return new Promise((resolve, reject) => {
       const admission = admissionFor(url, 'publication-write', operation);
-      const operationSocket = new WebSocket(url);
+      const operationSocket = openRelaySocket(url);
       let settled = false;
       const timeout = setTimeout(() => finish(new Error('Publication operation timeout')), 10_000);
 
@@ -331,7 +349,7 @@ export function createRelayClient(config: RelayClientConfig): RelayClient {
         request.action === 'fetch' ? 'mailbox-fetch' : 'mailbox-acknowledge',
         request,
       );
-      const mailboxSocket = new WebSocket(url);
+      const mailboxSocket = openRelaySocket(url);
       let settled = false;
       const timeout = setTimeout(() => finish(new Error('Mailbox request timeout')), 10_000);
 
@@ -368,7 +386,7 @@ export function createRelayClient(config: RelayClientConfig): RelayClient {
   function sendMailboxDepositToUrl(url: string, request: MailboxDepositRequest): Promise<AckPayload> {
     return new Promise((resolve, reject) => {
       const admission = admissionFor(url, 'mailbox-deposit', request);
-      const mailboxSocket = new WebSocket(url);
+      const mailboxSocket = openRelaySocket(url);
       let settled = false;
       const timeout = setTimeout(() => finish(new Error('Mailbox deposit timeout')), 10_000);
 
@@ -414,7 +432,7 @@ export function createRelayClient(config: RelayClientConfig): RelayClient {
         request.action === 'fetch' ? 'mailbox-fetch' : 'mailbox-acknowledge',
         request,
       );
-      const socket = new WebSocket(url);
+      const socket = openRelaySocket(url);
       let settled = false;
       const timeout = setTimeout(() => finish(new Error('Relationship mailbox request timeout')), 10_000);
       function finish(error?: Error, message?: Message): void {
@@ -449,7 +467,7 @@ export function createRelayClient(config: RelayClientConfig): RelayClient {
   ): Promise<AckPayload> {
     return new Promise((resolve, reject) => {
       const admission = admissionFor(url, 'mailbox-deposit', request);
-      const socket = new WebSocket(url);
+      const socket = openRelaySocket(url);
       let settled = false;
       const timeout = setTimeout(() => finish(new Error('Relationship mailbox deposit timeout')), 10_000);
       function finish(error?: Error, ack?: AckPayload): void {
@@ -483,7 +501,7 @@ export function createRelayClient(config: RelayClientConfig): RelayClient {
   function searchV2ToUrl(url: string, request: SearchRequestV2): Promise<SearchResponsePayloadV2> {
     return new Promise((resolve, reject) => {
       const admission = admissionFor(url, 'search', request);
-      const searchSocket = new WebSocket(url);
+      const searchSocket = openRelaySocket(url);
       let settled = false;
       const timeout = setTimeout(() => finish(new Error('Protocol v2 search timeout')), 10_000);
 

@@ -124,6 +124,15 @@ describe('parseMessage', () => {
   it('rejects invalid JSON', () => {
     expect(() => parseMessage('not json')).toThrow();
   });
+
+  it('rejects oversized and extended signed envelopes before signature verification', () => {
+    const signed = createMessage('test', {}, generateIdentity());
+    expect(() => parseMessage(' '.repeat(1024 * 1024 + 1))).toThrow('maximum size');
+    expect(() => parseMessage(JSON.stringify({ ...signed, extra: 1 }))).toThrow('envelope');
+    expect(() => parseMessage('null')).toThrow('envelope');
+    expect(verifyMessage({ ...signed, extra: 1 } as typeof signed)).toBe(false);
+    expect(verifyMessage({ ...signed, signature: 'A'.repeat(88) })).toBe(false);
+  });
 });
 
 describe('serializeMessage', () => {

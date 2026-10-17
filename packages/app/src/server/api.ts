@@ -4,9 +4,14 @@
 
 import { randomBytes } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { exactWitnessFields } from '@resonance/core/admission-witness';
+import { historyRecoveryActions, type RelayHistoryRecoveryAction } from './history-recovery.js';
 import {
   getSession,
   ModelLoadError,
+  WalletLoadError,
+  getAdmissionWalletStatus, configureAdmissionWallet, importAdmissionTokens, installAdmissionPolicy,
+  requestAdmissionTokens, completeAdmissionIssuance, cancelAdmissionIssuance, planAdmissionWalletRetirement, retireAdmissionWallet,
   listExternalMailboxMatches,
   getRelayActivity,
   isUnlocked,
@@ -18,11 +23,25 @@ import {
   resetInactivityTimer,
   startRelayMode,
   stopRelayMode,
-  getRelayStats,
+  getRelayStats, getRelayMaintenanceStatus, beginRelayHistoryMaintenance, finishRelayHistoryMaintenance,
+  getRelayHistoryActivationInput, planRelayHistoryActivation, applyRelayHistoryActivation, cancelRelayHistoryOperation,
+  getRelayHistoryRecoveryInput, performRelayHistoryRecovery,
+  getRelayHistorySetupInput, performRelayHistorySetup, measureRelayHistoryStorage,
+  planRelayStorageBootstrap, applyRelayStorageBootstrap, cancelRelayStorageBootstrap,
+  planRelayStorageAdoption, applyRelayStorageAdoption, cancelRelayStorageAdoption,
+  planRelayStorageActivation, applyRelayStorageActivation, cancelRelayStorageActivation,
+  planRelayStorageLimit, applyRelayStorageLimit, cancelRelayStorageLimit, getRelayStorageStatus,
+  planRelayStorageScope, applyRelayStorageScope, cancelRelayStorageScope,
+  getRelayVolunteerActivationInput, planRelayVolunteerActivation, applyRelayVolunteerActivation,
   publishItem,
+  listSessionItems,
+  releaseHeldPublication,
+  cancelHeldPublication,
+  removeHeldPublication,
   withdrawItem,
   syncMatchMailboxes,
   searchRelay,
+  holdSearch, holdMailboxCheck, listHeldRequests, releaseHeldRequest, cancelHeldRequest, removeHeldRequest, setAutomaticMailboxChecks,
   initiateChannel,
 } from './session.js';
 
@@ -142,7 +161,10 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
       relayConnected: s?.relayClient.isConnected() ?? false,
       relayActivity: getRelayActivity(),
       relayMode: isRelayMode(),
-      items: s ? s.store.listItems().length : 0,
+      privateDeliveryAvailable: !!s?.privatePublicationRoute,
+      savedRequestsAvailable: !!s && (!!s.privatePublicationRoute || !s.requestOutbox.automaticMailboxes() || s.requestOutbox.list().length > 0),
+      automaticMailboxes: s?.requestOutbox.automaticMailboxes() ?? true,
+      items: s ? listSessionItems().length : 0,
       matches: s ? listExternalMailboxMatches().length : 0,
     });
     return true;
@@ -173,8 +195,8 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
       sessionToken = randomBytes(32).toString('hex');
       json(res, { ...result, token: sessionToken });
     } catch (err) {
-      error(res, err instanceof ModelLoadError ? err.message : 'Wrong password or corrupted identity',
-        err instanceof ModelLoadError ? 503 : 401);
+      error(res, err instanceof ModelLoadError || err instanceof WalletLoadError ? err.message : 'Wrong password or corrupted identity',
+        err instanceof ModelLoadError || err instanceof WalletLoadError ? 503 : 401);
     }
     return true;
   }
@@ -185,14 +207,79 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
     return true;
   }
 
+  // Tokens and trust configuration are available only inside the authenticated local session.
+  if (url === '/api/admission-wallet' && method === 'GET') {
+    if (!requireAuth(req, res)) return true;
+    json(res, getAdmissionWalletStatus()); return true;
+  }
+  if (url === '/api/admission-wallet/configure' && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    try { await configureAdmissionWallet(await readBody(req)); json(res, { ok: true }); }
+    catch (err) { error(res, err instanceof Error ? err.message : 'Wallet setup failed', 409); }
+    return true;
+  }
+  if (url === '/api/admission-wallet/policy' && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    const body = await readBody(req);
+    if (typeof body.authority !== 'string') { error(res, 'Provide the independently verified community authority key'); return true; }
+    try { await installAdmissionPolicy(body.policy, body.authority); json(res, { ok: true }); }
+    catch (err) { error(res, err instanceof Error ? err.message : 'Policy update failed', 409); }
+    return true;
+  }
+  if (url === '/api/admission-wallet/import' && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    const body = await readBody(req);
+    if (!Array.isArray(body.tokens) || body.tokens.length > 256 || body.tokens.some(value => typeof value !== 'string')) {
+      error(res, 'Provide at most 256 access tokens'); return true;
+    }
+    try { const imported = await importAdmissionTokens(body.tokens as string[]); json(res, { imported }); }
+    catch (err) { error(res, err instanceof Error ? err.message : 'Token import failed', 409); }
+    return true;
+  }
+
+  if (url === '/api/admission-wallet/request' && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    const body = await readBody(req);
+    if (typeof body.count !== 'number') { error(res, 'Choose a token count'); return true; }
+    try { json(res, { request: await requestAdmissionTokens(body.count) }); }
+    catch (err) { error(res, err instanceof Error ? err.message : 'Token request failed', 409); }
+    return true;
+  }
+  if (url === '/api/admission-wallet/complete' && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    try { json(res, { imported: await completeAdmissionIssuance(await readBody(req)) }); }
+    catch (err) { error(res, err instanceof Error ? err.message : 'Token issuance failed', 409); }
+    return true;
+  }
+  if (url === '/api/admission-wallet/cancel' && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    try { cancelAdmissionIssuance(); json(res, { ok: true }); }
+    catch (err) { error(res, err instanceof Error ? err.message : 'Cancellation failed', 409); }
+    return true;
+  }
+
+  if ((url === '/api/admission-wallet/retirement-plan' || url === '/api/admission-wallet/retire') && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    const body = await readBody(req), apply = url.endsWith('/retire');
+    if (!body || typeof body !== 'object' || Array.isArray(body)
+      || Object.keys(body).sort().join(',') !== (apply ? 'approvalDigest,keyFingerprint' : 'keyFingerprint')
+      || typeof body.keyFingerprint !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(body.keyFingerprint)
+      || (apply && (typeof body.approvalDigest !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(body.approvalDigest)))) {
+      error(res, 'Provide a wallet key and, for cleanup, its reviewed approval'); return true;
+    }
+    try { json(res, apply ? retireAdmissionWallet(body.keyFingerprint, body.approvalDigest as string) : planAdmissionWalletRetirement(body.keyFingerprint)); }
+    catch (err) { error(res, err instanceof Error ? err.message : 'Wallet cleanup failed', 409); }
+    return true;
+  }
+
   // --- Items ---
 
   if (url === '/api/items' && method === 'GET') {
     if (!requireAuth(req, res)) return true;
-    const items = getSession()!.store.listItems();
+    const items = listSessionItems();
     json(res, items.map(i => ({
       id: i.id, type: i.type, rawText: i.rawText, privacyLevel: i.privacyLevel,
-      epsilon: i.epsilon, status: i.status, createdAt: utcTimestamp(i.createdAt),
+      epsilon: i.epsilon, status: i.status, createdAt: utcTimestamp(i.createdAt), delivery: i.delivery,
     })));
     return true;
   }
@@ -203,14 +290,31 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
     const text = body.text as string;
     const type = (body.type ?? 'need') as string;
     const privacy = (body.privacy ?? 'medium') as string;
+    const delivery = body.delivery ?? 'send';
+    if (delivery !== 'send' && delivery !== 'hold') { error(res, 'Delivery must be send or hold'); return true; }
     if (!text) { error(res, 'Text required'); return true; }
     if (!['need', 'offer'].includes(type)) { error(res, 'Type must be need or offer'); return true; }
     if (!['low', 'medium', 'high'].includes(privacy)) { error(res, 'Privacy must be low, medium, or high'); return true; }
     try {
-      const result = await publishItem(text, type as any, privacy as any);
+      const result = await publishItem(text, type as any, privacy as any, delivery);
       json(res, result);
     } catch (err) {
-      error(res, 'Internal error', 500);
+      error(res, err instanceof Error ? err.message : 'Could not save publication', 503);
+    }
+    return true;
+  }
+
+  const outboxAction = /^\/api\/outbox\/(out_[a-f0-9]{32})\/(release|cancel|remove)$/.exec(url);
+  if (outboxAction && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    try {
+      const [, id, action] = outboxAction;
+      if (action === 'release') await releaseHeldPublication(id);
+      else if (action === 'cancel') cancelHeldPublication(id);
+      else removeHeldPublication(id);
+      json(res, { ok: true });
+    } catch (err) {
+      error(res, err instanceof Error ? err.message : 'Saved publication action failed', 503);
     }
     return true;
   }
@@ -245,6 +349,39 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
     return true;
   }
 
+  if (url === '/api/private-requests' && method === 'GET') {
+    if (!requireAuth(req, res)) return true;
+    json(res, listHeldRequests()); return true;
+  }
+  if (url === '/api/private-requests/mailbox-mode' && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    const body = await readBody(req);
+    if (typeof body.automatic !== 'boolean') { error(res, 'Automatic must be true or false'); return true; }
+    try { setAutomaticMailboxChecks(body.automatic); json(res, { ok: true }); }
+    catch (err) { error(res, err instanceof Error ? err.message : 'Could not change mailbox checks', 409); }
+    return true;
+  }
+  if (url === '/api/private-requests/hold-mailbox' && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    const body = await readBody(req);
+    if (!['publication-mailbox', 'relationship-mailbox'].includes(String(body.kind)) || typeof body.id !== 'string') {
+      error(res, 'A valid mailbox is required'); return true;
+    }
+    try { const held = holdMailboxCheck(body.kind as 'publication-mailbox' | 'relationship-mailbox', body.id); json(res, { saved: held.id }); }
+    catch (err) { error(res, err instanceof Error ? err.message : 'Could not save mailbox check', 409); }
+    return true;
+  }
+  const heldAction = /^\/api\/private-requests\/(reqhold_[a-f0-9]{32})\/(release|cancel|remove)$/.exec(url);
+  if (heldAction && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    try {
+      const [, id, action] = heldAction;
+      if (action === 'release') json(res, { result: await releaseHeldRequest(id) });
+      else { if (action === 'cancel') cancelHeldRequest(id); else removeHeldRequest(id); json(res, { ok: true }); }
+    } catch (err) { error(res, err instanceof Error ? err.message : 'Saved request failed', 503); }
+    return true;
+  }
+
   // --- Search ---
 
   if (url === '/api/search' && method === 'POST') {
@@ -253,11 +390,14 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
     const text = body.text as string;
     const type = (body.type ?? 'need') as string;
     if (!text) { error(res, 'Text required'); return true; }
+    if (typeof text !== 'string' || !['need', 'offer'].includes(type)) { error(res, 'Valid search text and type required'); return true; }
+    if (body.delivery !== undefined && body.delivery !== 'send' && body.delivery !== 'hold') { error(res, 'Delivery must be send or hold'); return true; }
     try {
+      if (body.delivery === 'hold') { const held = await holdSearch(text, type as any); json(res, { saved: held.id }); return true; }
       const results = await searchRelay(text, type as any);
       json(res, { results });
     } catch (err) {
-      error(res, 'Internal error', 500);
+      error(res, err instanceof Error ? err.message : 'Search failed', 503);
     }
     return true;
   }
@@ -381,11 +521,173 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
 
   // --- Relay mode ---
 
+  if (url === '/api/relay/storage' && method === 'GET') {
+    if (!requireAuth(req, res)) return true;
+    try { json(res, getRelayStorageStatus()); }
+    catch { error(res, 'Storage status is unavailable; retain the saved settings and files', 409); }
+    return true;
+  }
+
+  if (['/api/relay/storage/bootstrap/review', '/api/relay/storage/bootstrap/apply', '/api/relay/storage/bootstrap/cancel',
+    '/api/relay/storage/adoption/review', '/api/relay/storage/adoption/apply', '/api/relay/storage/adoption/cancel',
+    '/api/relay/storage/activation/review', '/api/relay/storage/activation/apply', '/api/relay/storage/activation/cancel',
+    '/api/relay/storage/limit/review', '/api/relay/storage/limit/apply', '/api/relay/storage/limit/cancel',
+    '/api/relay/storage/scope/review', '/api/relay/storage/scope/apply', '/api/relay/storage/scope/cancel'].includes(url!) && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    const owner = getSession(), controller = new AbortController();
+    const disconnected = () => { if (!res.writableEnded) controller.abort(); };
+    res.once('close', disconnected);
+    try {
+      const body = await readBody(req); controller.signal.throwIfAborted();
+      // Authentication at request arrival cannot authorize a body received after
+      // locking/unlocking the application into a different session.
+      if (getSession() !== owner || !isUnlocked()) throw new Error('Desktop session changed; review storage setup again');
+      let result: unknown;
+      const operation = url!.startsWith('/api/relay/storage/scope/')
+        ? { review: planRelayStorageScope, apply: applyRelayStorageScope, cancel: cancelRelayStorageScope }
+        : url!.startsWith('/api/relay/storage/limit/')
+        ? { review: planRelayStorageLimit, apply: applyRelayStorageLimit, cancel: cancelRelayStorageLimit }
+        : url!.startsWith('/api/relay/storage/activation/')
+        ? { review: planRelayStorageActivation, apply: applyRelayStorageActivation, cancel: cancelRelayStorageActivation }
+        : url!.startsWith('/api/relay/storage/adoption/')
+          ? { review: planRelayStorageAdoption, apply: applyRelayStorageAdoption, cancel: cancelRelayStorageAdoption }
+          : { review: planRelayStorageBootstrap, apply: applyRelayStorageBootstrap, cancel: cancelRelayStorageBootstrap };
+      if (url!.endsWith('/review')) result = await operation.review(body, controller.signal);
+      else if (url!.endsWith('/apply')) {
+        if (!exactWitnessFields(body, ['approvalDigest']) || typeof body.approvalDigest !== 'string' || !/^[a-f0-9]{64}$/.test(body.approvalDigest)) throw new Error('Supply the exact storage review approval');
+        result = operation.apply(body.approvalDigest);
+      } else {
+        if (!exactWitnessFields(body, [])) throw new Error('Storage cancellation accepts no extra fields');
+        result = operation.cancel();
+      }
+      if (!res.destroyed) json(res, result);
+    } catch (err) { if (!res.destroyed) error(res, err instanceof Error ? err.message : 'Storage setup failed; retain all files and maintenance', 409); }
+    finally { res.removeListener('close', disconnected); }
+    return true;
+  }
+
+  if (url === '/api/relay/history/volunteer-activation' && method === 'GET') {
+    if (!requireAuth(req, res)) return true;
+    try { json(res, { input: getRelayVolunteerActivationInput() }); }
+    catch (err) { error(res, err instanceof Error ? err.message : 'Saved volunteer selection unavailable', 409); }
+    return true;
+  }
+  if (['/api/relay/history/volunteer-activation/review', '/api/relay/history/volunteer-activation/apply'].includes(url!) && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    const controller = new AbortController(), disconnected = () => { if (!res.writableEnded) controller.abort(); };
+    res.once('close', disconnected);
+    try {
+      const body = await readBody(req), applying = url!.endsWith('/apply');
+      if (!exactWitnessFields(body, applying ? ['input', 'approvalDigest'] : ['input'])
+        || (applying && (typeof body.approvalDigest !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(body.approvalDigest)))) throw new Error('Supply the complete volunteer selection and reviewed approval when applying');
+      const result = applying ? await applyRelayVolunteerActivation(body.input, body.approvalDigest as string, controller.signal)
+        : await planRelayVolunteerActivation(body.input, controller.signal);
+      if (!res.destroyed) json(res, result);
+    } catch (err) { if (!res.destroyed) error(res, err instanceof Error ? err.message : 'Volunteer activation failed; retain history and configuration', 409); }
+    finally { res.removeListener('close', disconnected); }
+    return true;
+  }
+
+  if (url === '/api/relay/history/storage' && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    const controller = new AbortController(), disconnected = () => { if (!res.writableEnded) controller.abort(); };
+    res.once('close', disconnected);
+    try {
+      if (!exactWitnessFields(await readBody(req), [])) throw new Error('Storage inventory uses saved locations and accepts no extra fields');
+      const result = await measureRelayHistoryStorage(controller.signal);
+      if (!res.destroyed) json(res, result);
+    } catch (err) { if (!res.destroyed) error(res, err instanceof Error ? err.message : 'Storage inventory unavailable', 409); }
+    finally { res.removeListener('close', disconnected); }
+    return true;
+  }
+
+  if (url === '/api/relay/history/setup' && method === 'GET') {
+    if (!requireAuth(req, res)) return true;
+    try { json(res, { input: getRelayHistorySetupInput() }); }
+    catch (err) { error(res, err instanceof Error ? err.message : 'Saved setup selection unavailable', 409); }
+    return true;
+  }
+  if (url === '/api/relay/history/setup' && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    const controller = new AbortController(), disconnected = () => { if (!res.writableEnded) controller.abort(); };
+    res.once('close', disconnected);
+    try {
+      const body = await readBody(req);
+      if (!body || !['review', 'apply'].includes(body.action as string)
+        || !exactWitnessFields(body, ['action', 'input', ...(body.action === 'apply' ? ['approvalDigest'] : [])])) throw new Error('Supply a fixed setup action and its exact fields');
+      const result = await performRelayHistorySetup(body.action as 'review' | 'apply', body.input, body.approvalDigest, controller.signal);
+      if (!res.destroyed) json(res, result);
+    } catch (err) { if (!res.destroyed) error(res, err instanceof Error ? err.message : 'Setup failed; retain all created files', 409); }
+    finally { res.removeListener('close', disconnected); }
+    return true;
+  }
+
+  if (url === '/api/relay/history/recovery' && method === 'GET') {
+    if (!requireAuth(req, res)) return true;
+    try { json(res, { input: getRelayHistoryRecoveryInput() }); }
+    catch (err) { error(res, err instanceof Error ? err.message : 'Saved recovery selection unavailable', 409); }
+    return true;
+  }
+  if (url === '/api/relay/history/recovery' && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    const controller = new AbortController(), disconnected = () => { if (!res.writableEnded) controller.abort(); };
+    res.once('close', disconnected);
+    try {
+      const body = await readBody(req);
+      if (!body || typeof body.action !== 'string' || !historyRecoveryActions.includes(body.action as RelayHistoryRecoveryAction)
+        || !exactWitnessFields(body, ['action', 'input', ...(['start', 'restore', 'ready'].includes(body.action) ? ['approvalDigest'] : [])])) {
+        throw new Error('Supply a supported recovery action and its exact fields');
+      }
+      const result = await performRelayHistoryRecovery(body.action as RelayHistoryRecoveryAction,
+        body.input, body.approvalDigest, controller.signal);
+      if (!res.destroyed) json(res, result);
+    } catch (err) { if (!res.destroyed) error(res, err instanceof Error ? err.message : 'Recovery failed; retain pending work and maintenance', 409); }
+    finally { res.removeListener('close', disconnected); }
+    return true;
+  }
+  if (url === '/api/relay/history/activation' && method === 'GET') {
+    if (!requireAuth(req, res)) return true;
+    try { json(res, { input: getRelayHistoryActivationInput() }); }
+    catch (err) { error(res, err instanceof Error ? err.message : 'Saved history selection unavailable', 409); }
+    return true;
+  }
+  if (url === '/api/relay/history/cancel' && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    json(res, cancelRelayHistoryOperation()); return true;
+  }
+  if (['/api/relay/history/activation/review', '/api/relay/history/activation/apply'].includes(url!) && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    const controller = new AbortController(), disconnected = () => { if (!res.writableEnded) controller.abort(); };
+    res.once('close', disconnected);
+    try {
+      const body = await readBody(req), applying = url!.endsWith('/apply');
+      if (!exactWitnessFields(body, applying ? ['input', 'approvalDigest'] : ['input'])
+        || (applying && (typeof body.approvalDigest !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(body.approvalDigest)))) {
+        throw new Error('Supply an activation selection and the exact reviewed approval when applying');
+      }
+      const result = applying ? await applyRelayHistoryActivation(body.input, body.approvalDigest as string, controller.signal)
+        : await planRelayHistoryActivation(body.input, controller.signal);
+      if (!res.destroyed) json(res, result);
+    } catch (err) { if (!res.destroyed) error(res, err instanceof Error ? err.message : 'History activation failed; retain maintenance', 409); }
+    finally { res.removeListener('close', disconnected); }
+    return true;
+  }
+
+  if (url === '/api/relay/maintenance' && ['GET', 'POST', 'DELETE'].includes(method!)) {
+    if (!requireAuth(req, res)) return true;
+    try {
+      const state = method === 'POST' ? await beginRelayHistoryMaintenance()
+        : method === 'DELETE' ? await finishRelayHistoryMaintenance() : getRelayMaintenanceStatus();
+      json(res, state);
+    } catch (err) { error(res, err instanceof Error ? err.message : 'Relay maintenance unavailable', 409); }
+    return true;
+  }
+
   if (url === '/api/relay/status' && method === 'GET') {
     if (!requireAuth(req, res)) return true;
     const stats = await getRelayStats();
     json(res, stats ?? {
-      enabled: false, running: false, port: null, contacts: [], controls: {}, stats: null,
+      enabled: false, running: false, admissionReady: null, port: null, contacts: [], controls: {}, stats: null,
     });
     return true;
   }

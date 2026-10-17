@@ -7,6 +7,8 @@ import type { ItemType } from './types.js';
 import type { Identity } from './crypto.js';
 import { sign, verify, didToPublicKey, encodeBase64, decodeBase64, decodeUTF8 } from './crypto.js';
 
+export const MAX_SIGNED_MESSAGE_BYTES = 1024 * 1024;
+
 // --- Message Envelope ---
 
 export interface Message<T = unknown> {
@@ -178,10 +180,19 @@ export function createMessage<T>(type: string, payload: T, identity: Identity): 
  * If publicKey is not provided, extracts it from the message's `from` DID.
  */
 export function verifyMessage(message: Message, publicKey?: Uint8Array): boolean {
-  const pk = publicKey ?? didToPublicKey(message.from);
-  const signable = getSignableBytes(message.type, message.from, message.timestamp, message.payload);
-  const signature = decodeBase64(message.signature);
-  return verify(signable, signature, pk);
+  try {
+    if (!message || typeof message !== 'object'
+      || Object.keys(message).sort().join(',') !== 'from,payload,signature,timestamp,type'
+      || typeof message.from !== 'string' || message.from.length > 256
+      || typeof message.type !== 'string' || message.type.length > 128
+      || !Number.isSafeInteger(message.timestamp)
+      || typeof message.signature !== 'string' || message.signature.length !== 88) return false;
+    const signature = decodeBase64(message.signature);
+    if (signature.length !== 64 || encodeBase64(signature) !== message.signature) return false;
+    const pk = publicKey ?? didToPublicKey(message.from);
+    const signable = getSignableBytes(message.type, message.from, message.timestamp, message.payload);
+    return signable.length <= MAX_SIGNED_MESSAGE_BYTES && verify(signable, signature, pk);
+  } catch { return false; }
 }
 
 /**
@@ -189,13 +200,26 @@ export function verifyMessage(message: Message, publicKey?: Uint8Array): boolean
  * Validates that required fields are present.
  */
 export function parseMessage(raw: string): Message {
+  if (typeof raw !== 'string' || Buffer.byteLength(raw, 'utf8') > MAX_SIGNED_MESSAGE_BYTES) {
+    throw new Error('Signed message exceeds the maximum size');
+  }
   const parsed = JSON.parse(raw);
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Invalid signed message envelope');
+  }
 
   if (typeof parsed.type !== 'string') throw new Error('Missing or invalid "type" field');
   if (typeof parsed.from !== 'string') throw new Error('Missing or invalid "from" field');
   if (typeof parsed.timestamp !== 'number') throw new Error('Missing or invalid "timestamp" field');
   if (typeof parsed.signature !== 'string') throw new Error('Missing or invalid "signature" field');
   if (parsed.payload === undefined) throw new Error('Missing "payload" field');
+  if (Object.keys(parsed).sort().join(',') !== 'from,payload,signature,timestamp,type'
+    || parsed.type.length > 128 || parsed.from.length > 256
+    || !Number.isSafeInteger(parsed.timestamp) || parsed.timestamp < 0
+    || parsed.signature.length !== 88) {
+    throw new Error('Invalid signed message envelope');
+  }
 
   return parsed as Message;
 }
@@ -204,5 +228,9 @@ export function parseMessage(raw: string): Message {
  * Serialize a message to JSON string for transmission.
  */
 export function serializeMessage(message: Message): string {
-  return JSON.stringify(message);
+  const raw = JSON.stringify(message);
+  if (Buffer.byteLength(raw, 'utf8') > MAX_SIGNED_MESSAGE_BYTES) {
+    throw new Error('Signed message exceeds the maximum size');
+  }
+  return raw;
 }

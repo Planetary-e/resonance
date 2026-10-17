@@ -4,7 +4,7 @@
  * its encrypted store. A relay installation generates and owns this key.
  */
 
-import { randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto';
 import {
   chmodSync,
   closeSync,
@@ -15,12 +15,13 @@ import {
   linkSync,
   mkdirSync,
   openSync,
-  readFileSync,
+  readSync,
   renameSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import { reserveManagedStorage } from '@resonance/core/storage-reservations';
 import {
   decodeBase64,
   encodeBase64,
@@ -32,6 +33,7 @@ import {
 } from '@resonance/core';
 
 export const RELAY_IDENTITY_FILENAME = 'relay-identity.json';
+export const RELAY_IDENTITY_MAX_BYTES = 4096;
 
 interface StoredRelayIdentityV1 {
   version: 1;
@@ -45,27 +47,46 @@ interface StoredRelayIdentityV1 {
 interface ReadIdentityResult {
   identity: Identity;
   legacy: boolean;
+  encrypted: boolean;
+}
+
+interface EncryptedRelayIdentityV2 {
+  version: 2;
+  kind: 'relay-infrastructure-identity-encrypted';
+  algorithm: 'scrypt-aes-256-gcm';
+  salt: string;
+  nonce: string;
+  ciphertext: string;
+  tag: string;
 }
 
 const PROOF = new TextEncoder().encode('resonance/relay-infrastructure-identity/v1');
 const V1_FIELDS = ['algorithm', 'did', 'kind', 'publicKey', 'secretKey', 'version'];
 const LEGACY_FIELDS = ['did', 'publicKey', 'secretKey'];
+const ENCRYPTED_FIELDS = ['algorithm', 'ciphertext', 'kind', 'nonce', 'salt', 'tag', 'version'];
+const IDENTITY_AAD = Buffer.from('resonance/relay-infrastructure-identity/encrypted/v2');
 
 /** Load one stable relay identity, or create it once with mode 0600. */
-export function loadOrCreateRelayIdentity(directory: string): Identity {
-  mkdirSync(directory, { recursive: true, mode: 0o700 });
+export function loadOrCreateRelayIdentity(directory: string, passphrase?: string): Identity {
+  if (passphrase !== undefined && (typeof passphrase !== 'string' || passphrase.length < 16)) {
+    throw new Error('Relay identity passphrase must contain at least 16 characters');
+  }
   const path = join(directory, RELAY_IDENTITY_FILENAME);
+  reserveManagedStorage({ path, component: 'relay-identity', scope: 'file', maximumBytes: 2 * RELAY_IDENTITY_MAX_BYTES });
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
 
   try {
-    const existing = readIdentity(path);
-    if (existing.legacy) replaceIdentityFile(directory, path, existing.identity);
+    const existing = readIdentity(path, passphrase);
+    if (existing.legacy || (passphrase && !existing.encrypted)) {
+      replaceIdentityFile(directory, path, existing.identity, passphrase);
+    }
     return existing.identity;
   } catch (error) {
     if (!isMissing(error)) throw error;
   }
 
   const generated = generateIdentity();
-  const tempPath = writeTemporaryIdentity(directory, generated);
+  const tempPath = writeTemporaryIdentity(directory, generated, passphrase);
   try {
     // A hard link publishes the complete fsynced file without overwriting an
     // identity concurrently created by another relay process.
@@ -77,16 +98,26 @@ export function loadOrCreateRelayIdentity(directory: string): Identity {
     return generated;
   } catch (error) {
     try { unlinkSync(tempPath); } catch { /* best-effort temporary cleanup */ }
-    if (isAlreadyExists(error)) return readIdentity(path).identity;
+    if (isAlreadyExists(error)) return readIdentity(path, passphrase).identity;
     throw error;
   }
 }
 
-function readIdentity(path: string): ReadIdentityResult {
+/** Read an independently retained encrypted identity. Never create, migrate or chmod it. */
+export function loadExistingRelayIdentity(directory: string, passphrase: string): Identity {
+  const existing = readIdentity(join(directory, RELAY_IDENTITY_FILENAME), passphrase, true);
+  if (!existing.encrypted) {
+    existing.identity.secretKey.fill(0);
+    throw new Error('Operator infrastructure identity must already be encrypted');
+  }
+  return existing.identity;
+}
+
+function readIdentity(path: string, passphrase?: string, readonly = false): ReadIdentityResult {
   let descriptor: number;
   try {
     const noFollow = process.platform === 'win32' ? 0 : constants.O_NOFOLLOW;
-    descriptor = openSync(path, constants.O_RDONLY | noFollow);
+    descriptor = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK | noFollow);
   } catch (error) {
     if (isMissing(error)) throw error;
     throw new Error('Relay infrastructure identity must be a regular file', { cause: error });
@@ -94,20 +125,34 @@ function readIdentity(path: string): ReadIdentityResult {
 
   let source: string;
   try {
-    if (!fstatSync(descriptor).isFile()) {
+    const stat = fstatSync(descriptor);
+    if (!stat.isFile() || stat.size > RELAY_IDENTITY_MAX_BYTES) {
       throw new Error('Relay infrastructure identity must be a regular file');
     }
-    fchmodSync(descriptor, 0o600);
-    source = readFileSync(descriptor, 'utf8');
+    if (!readonly) fchmodSync(descriptor, 0o600);
+    const bytes = Buffer.alloc(RELAY_IDENTITY_MAX_BYTES + 1);
+    try {
+      let used = 0;
+      while (used < bytes.length) { const count = readSync(descriptor, bytes, used, bytes.length - used, null); if (!count) break; used += count; }
+      if (used > RELAY_IDENTITY_MAX_BYTES) throw new Error('Relay infrastructure identity exceeds its size limit');
+      source = new TextDecoder('utf8', { fatal: true }).decode(bytes.subarray(0, used));
+    } finally { bytes.fill(0); }
   } finally {
     closeSync(descriptor);
   }
 
   let parsed: unknown;
+  let encrypted = false;
   try {
     parsed = JSON.parse(source);
   } catch (error) {
     throw new Error('Corrupt relay infrastructure identity JSON; refusing to rotate it', { cause: error });
+  }
+
+  if (isRecord(parsed) && parsed.kind === 'relay-infrastructure-identity-encrypted') {
+    if (!passphrase) throw invalidIdentity('passphrase required for encrypted keystore');
+    parsed = decryptIdentity(parsed, passphrase);
+    encrypted = true;
   }
 
   if (isRecord(parsed) && hasExactFields(parsed, V1_FIELDS)) {
@@ -132,7 +177,7 @@ function readIdentity(path: string): ReadIdentityResult {
     }
     const identity = { publicKey, secretKey, did: parsed.did };
     validateIdentity(identity);
-    return { identity, legacy: false };
+    return { identity, legacy: false, encrypted };
   }
 
   // The pre-v2 development build stored number arrays. Migrate only an exact,
@@ -147,7 +192,7 @@ function readIdentity(path: string): ReadIdentityResult {
       did: parsed.did,
     };
     validateIdentity(identity);
-    return { identity, legacy: true };
+    return { identity, legacy: true, encrypted };
   }
 
   throw invalidIdentity('unexpected schema');
@@ -168,8 +213,8 @@ function validateIdentity(identity: Identity): void {
   }
 }
 
-function replaceIdentityFile(directory: string, path: string, identity: Identity): void {
-  const tempPath = writeTemporaryIdentity(directory, identity);
+function replaceIdentityFile(directory: string, path: string, identity: Identity, passphrase?: string): void {
+  const tempPath = writeTemporaryIdentity(directory, identity, passphrase);
   try {
     renameSync(tempPath, path);
     chmodSync(path, 0o600);
@@ -180,20 +225,70 @@ function replaceIdentityFile(directory: string, path: string, identity: Identity
   }
 }
 
-function writeTemporaryIdentity(directory: string, identity: Identity): string {
+function writeTemporaryIdentity(directory: string, identity: Identity, passphrase?: string): string {
   const suffix = randomBytes(12).toString('hex');
   const path = join(directory, `.${RELAY_IDENTITY_FILENAME}.${process.pid}.${suffix}.tmp`);
-  const descriptor = openSync(path, 'wx', 0o600);
+  const stored = passphrase
+    ? encryptIdentity(serializeIdentity(identity), passphrase)
+    : serializeIdentity(identity);
+  const encoded = Buffer.from(`${JSON.stringify(stored)}\n`);
+  if (encoded.length > RELAY_IDENTITY_MAX_BYTES) { encoded.fill(0); throw new Error('Relay infrastructure identity exceeds its size limit'); }
+  let descriptor: number | undefined;
   try {
-    writeFileSync(descriptor, `${JSON.stringify(serializeIdentity(identity))}\n`, 'utf8');
+    descriptor = openSync(path, 'wx', 0o600);
+    writeFileSync(descriptor, encoded);
     fsyncSync(descriptor);
   } catch (error) {
-    try { unlinkSync(path); } catch { /* best-effort temporary cleanup */ }
+    if (descriptor !== undefined) { try { unlinkSync(path); } catch { /* best-effort temporary cleanup */ } }
     throw error;
   } finally {
-    closeSync(descriptor);
+    encoded.fill(0);
+    if (descriptor !== undefined) closeSync(descriptor);
   }
   return path;
+}
+
+function encryptIdentity(identity: StoredRelayIdentityV1, passphrase: string): EncryptedRelayIdentityV2 {
+  const salt = randomBytes(16);
+  const nonce = randomBytes(12);
+  const key = scryptSync(passphrase, salt, 32, { N: 32_768, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
+  try {
+    const cipher = createCipheriv('aes-256-gcm', key, nonce);
+    cipher.setAAD(IDENTITY_AAD);
+    const ciphertext = Buffer.concat([cipher.update(JSON.stringify(identity), 'utf8'), cipher.final()]);
+    return {
+      version: 2, kind: 'relay-infrastructure-identity-encrypted',
+      algorithm: 'scrypt-aes-256-gcm', salt: salt.toString('base64'), nonce: nonce.toString('base64'),
+      ciphertext: ciphertext.toString('base64'), tag: cipher.getAuthTag().toString('base64'),
+    };
+  } finally { key.fill(0); }
+}
+
+function decryptIdentity(value: Record<string, unknown>, passphrase: string): unknown {
+  if (!hasExactFields(value, ENCRYPTED_FIELDS)
+    || value.version !== 2 || value.algorithm !== 'scrypt-aes-256-gcm'
+    || !canonicalBytes(value.salt, 16) || !canonicalBytes(value.nonce, 12)
+    || !canonicalBytes(value.tag, 16) || !canonicalBytes(value.ciphertext)
+    || value.ciphertext.length > 4096) throw invalidIdentity('invalid encrypted keystore schema');
+  const key = scryptSync(passphrase, Buffer.from(value.salt, 'base64'), 32,
+    { N: 32_768, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
+  try {
+    const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(value.nonce, 'base64'));
+    decipher.setAAD(IDENTITY_AAD);
+    decipher.setAuthTag(Buffer.from(value.tag, 'base64'));
+    const plaintext = Buffer.concat([
+      decipher.update(Buffer.from(value.ciphertext, 'base64')), decipher.final(),
+    ]);
+    return JSON.parse(plaintext.toString('utf8')) as unknown;
+  } catch { throw invalidIdentity('wrong passphrase or corrupt encrypted keystore'); }
+  finally { key.fill(0); }
+}
+
+function canonicalBytes(value: unknown, length?: number): value is string {
+  if (typeof value !== 'string' || value.length > 4096) return false;
+  const bytes = Buffer.from(value, 'base64');
+  return (length === undefined || bytes.length === length)
+    && bytes.toString('base64') === value;
 }
 
 function serializeIdentity(identity: Identity): StoredRelayIdentityV1 {

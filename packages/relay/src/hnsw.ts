@@ -8,6 +8,7 @@ const { HierarchicalNSW } = HnswLib;
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { guardUnmanagedExport } from './unmanaged-export.js';
 import type { MatchResult, ItemType } from '@resonance/core';
 import { HNSW_DEFAULTS } from '@resonance/core';
 
@@ -29,6 +30,7 @@ export interface VectorMetadata {
  * Single HNSW index (used internally by MatchingIndex).
  */
 export class HnswIndex {
+  private readonly assertExportAllowed = guardUnmanagedExport();
   private index: InstanceType<typeof HierarchicalNSW> | null = null;
   private config: HnswIndexConfig;
   private labelCount = 0;
@@ -99,6 +101,7 @@ export class HnswIndex {
   }
 
   save(path: string): void {
+    this.assertExportAllowed();
     if (!this.index) throw new Error('Index not initialized');
     this.index.writeIndexSync(path);
   }
@@ -110,6 +113,7 @@ export class HnswIndex {
 
   /** Save HNSW binary + metadata JSON to a directory with a prefix. */
   saveWithMetadata(dir: string, prefix: string): void {
+    this.assertExportAllowed();
     if (!this.index) throw new Error('Index not initialized');
     mkdirSync(dir, { recursive: true });
     this.index.writeIndexSync(join(dir, `${prefix}.hnsw`));

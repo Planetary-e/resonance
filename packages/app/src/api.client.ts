@@ -32,11 +32,20 @@ export interface StatusResponse {
   relayConnected: boolean;
   relayActivity: 'not-checked' | 'succeeded' | 'failed';
   relayMode: boolean;
+  privateDeliveryAvailable: boolean;
+  savedRequestsAvailable: boolean;
+  automaticMailboxes: boolean;
   items: number;
   matches: number;
 }
 
+export interface PublicationDelivery {
+  id: string; state: 'held' | 'sending' | 'delivered' | 'cancelled' | 'expired' | 'outcome-unknown';
+  expiresAt: number; mayHaveBeenSent: boolean;
+}
+
 export interface Item {
+  delivery?: PublicationDelivery;
   id: string;
   type: 'need' | 'offer';
   rawText: string;
@@ -86,11 +95,14 @@ export interface PublishResult {
 export interface RelayStatus {
   enabled: boolean;
   running: boolean;
+  /** Initial admission readiness, not a current replica or quorum count. */
+  admissionReady: boolean | null;
   port: number | null;
   contacts: string[];
   controls: RelayOwnerControls;
   storageCommitmentFloorBytes?: number;
   stats: {
+    history?: import('@resonance/relay').RelayHistoryHealth | null;
     relay_id?: string;
     connected_relays?: number;
     inbound_authenticated_relays?: number;
@@ -195,8 +207,13 @@ export async function publishItem(
   text: string,
   type: 'need' | 'offer',
   privacy: 'low' | 'medium' | 'high',
+  delivery: 'send' | 'hold' = 'send',
 ): Promise<PublishResult & { error?: string }> {
-  return api('POST', '/api/items', { text, type, privacy });
+  return api('POST', '/api/items', { text, type, privacy, delivery });
+}
+
+export async function outboxAction(id: string, action: 'release' | 'cancel' | 'remove'): Promise<{ error?: string }> {
+  return api('POST', `/api/outbox/${id}/${action}`);
 }
 
 export async function withdrawItem(id: string): Promise<{ withdrawn: boolean; error?: string }> {
@@ -220,8 +237,9 @@ export async function getMatches(): Promise<Match[]> {
 export async function search(
   text: string,
   type: 'need' | 'offer',
-): Promise<{ results: SearchResult[]; error?: string }> {
-  return api('POST', '/api/search', { text, type });
+  delivery: 'send' | 'hold' = 'send',
+): Promise<{ results?: SearchResult[]; saved?: string; error?: string }> {
+  return api('POST', '/api/search', { text, type, delivery });
 }
 
 // ============================================================================
@@ -317,4 +335,130 @@ export function connectEvents(
   };
 
   return ws;
+}
+
+export interface HeldPrivateRequest {
+  id: string; kind: 'search' | 'publication-mailbox' | 'relationship-mailbox'; label: string;
+  state: 'held' | 'sending' | 'completed' | 'cancelled' | 'expired' | 'outcome-unknown';
+  heldAt: number; expiresAt: number; attempts: number; mayHaveBeenSent: boolean;
+  result: { kind: 'search'; results: SearchResult[] } | { kind: 'mailbox'; matchesAdded: number; messagesProcessed: number; channelOperationsProcessed: number; channelsActivated: number } | null;
+}
+export interface PrivateRequestList {
+  automaticMailboxes: boolean; requests: HeldPrivateRequest[];
+  mailboxes: Array<{ kind: 'publication-mailbox' | 'relationship-mailbox'; id: string; label: string }>;
+}
+export function getPrivateRequests() { return api<PrivateRequestList>('GET', '/api/private-requests'); }
+export function privateRequestAction(id: string, action: 'release' | 'cancel' | 'remove') {
+  return api<{ result?: NonNullable<HeldPrivateRequest['result']> }>('POST', `/api/private-requests/${id}/${action}`);
+}
+export function holdMailboxCheck(kind: 'publication-mailbox' | 'relationship-mailbox', id: string) {
+  return api('POST', '/api/private-requests/hold-mailbox', { kind, id });
+}
+export function setAutomaticMailboxChecks(automatic: boolean) { return api('POST', '/api/private-requests/mailbox-mode', { automatic }); }
+
+export interface AdmissionWalletStatus {
+  configured: boolean; scope?: { issuer: string; community: string; epoch: string };
+  keyFingerprint?: string; relayUrls?: string[];
+  available: number; reserved: number; total: number; capacity: number; availableCapacity: number;
+  archived: Array<{ scope: { issuer: string; community: string; epoch: string }; keyFingerprint: string; available: number; reserved: number; permanentlyRetired: boolean; canRetire: boolean; tokensRemoved?: number; reservationsRemoved?: number }>;
+  pendingIssuance?: { batchId: string; requests: string[] };
+  policy?: { currentKeys: number; archivedKeys: number; revision: number; authorityFingerprint: string; expiresAt: number; issueUntil: number; spendUntil: number; retryUntil: number };
+}
+export function getAdmissionWallet() { return api<AdmissionWalletStatus>('GET', '/api/admission-wallet'); }
+export function configureAdmissionWallet(profile: { version: 1; scope: NonNullable<AdmissionWalletStatus['scope']>; issuerPublicKey: string; relayUrls: string[] }) {
+  return api('POST', '/api/admission-wallet/configure', profile);
+}
+export function importAdmissionTokens(tokens: string[]) { return api<{ imported: number }>('POST', '/api/admission-wallet/import', { tokens }); }
+
+export function requestAdmissionTokens(count: number) { return api('POST', '/api/admission-wallet/request', { count }); }
+export function completeAdmissionIssuance(response: unknown) { return api<{ imported: number }>('POST', '/api/admission-wallet/complete', response); }
+export function cancelAdmissionIssuance() { return api('POST', '/api/admission-wallet/cancel'); }
+
+export function installAdmissionPolicy(policy: unknown, authority: string) { return api('POST', '/api/admission-wallet/policy', { policy, authority }); }
+
+export interface AdmissionWalletRetirementPlan {
+  kind: 'admission-wallet-retirement'; issuerKey: string; scope: NonNullable<AdmissionWalletStatus['scope']>;
+  authorityFingerprint: string; policyRevision: number; policyDigest: string; retryUntil: number;
+  tokensRemoved: number; unusedTokensRemoved: number; reservationsRemoved: number; denialMarkersRetained: number;
+  approvalDigest: string;
+}
+export function planAdmissionWalletRetirement(keyFingerprint: string) {
+  return api<AdmissionWalletRetirementPlan>('POST', '/api/admission-wallet/retirement-plan', { keyFingerprint });
+}
+export function retireAdmissionWallet(keyFingerprint: string, approvalDigest: string) {
+  return api<AdmissionWalletRetirementPlan>('POST', '/api/admission-wallet/retire', { keyFingerprint, approvalDigest });
+}
+
+export interface RelayMaintenanceStatus { active: boolean; createdAt: number | null }
+export function getRelayMaintenance() { return api<RelayMaintenanceStatus>('GET', '/api/relay/maintenance'); }
+export function beginRelayMaintenance() { return api<RelayMaintenanceStatus>('POST', '/api/relay/maintenance'); }
+export function finishRelayMaintenance() { return api<RelayMaintenanceStatus>('DELETE', '/api/relay/maintenance'); }
+
+export interface RelayHistoryActivationInput {
+  historyConfigFile: string; enrollmentFile: string; policyFile: string; storageKeyFile: string;
+  authorityFile: string; historyDirectory: string; linksFile: string; operatorTransportFile: string;
+}
+export type { AdmissionHistoryActivationReview } from '@resonance/relay';
+export function getRelayHistoryActivationInput() { return api<{ input: RelayHistoryActivationInput | null }>('GET', '/api/relay/history/activation'); }
+export function reviewRelayHistoryActivation(input: RelayHistoryActivationInput) {
+  return api<import('@resonance/relay').AdmissionHistoryActivationReview>('POST', '/api/relay/history/activation/review', { input });
+}
+export function applyRelayHistoryActivation(input: RelayHistoryActivationInput, approvalDigest: string) {
+  return api<{ result: string; readiness: string; maintenanceActive: boolean }>('POST', '/api/relay/history/activation/apply', { input, approvalDigest });
+}
+export function cancelRelayHistoryOperation() { return api<{ active: boolean }>('POST', '/api/relay/history/cancel'); }
+
+export interface RelayVolunteerActivationInput {
+  enrollmentFile: string; signingKeyFile: string; storageKeyFile: string; directory: string; controllersFile: string; output: string;
+  generationMiB: number; blocksPerGeneration: number; maximumGenerations: number;
+}
+export interface RelayVolunteerActivationReview {
+  kind: 'history-volunteer-activation'; contextId: string; genesisId: string; member: string; directory: string; output: string; owner: string; authority: string;
+  controllers: Array<{ relayId: string; endpoint: string }>; health: { generations: number; retainedBlocks: number; reservedBytes: number;
+    maximumGenerationBytes: number; maximumGenerationBlocks: number; maximumGenerations: number };
+  readiness: 'unverified'; startsService: false; approvalDigest: string;
+}
+export function getRelayVolunteerActivationInput() { return api<{ input: RelayVolunteerActivationInput | null }>('GET', '/api/relay/history/volunteer-activation'); }
+export function reviewRelayVolunteerActivation(input: RelayVolunteerActivationInput) {
+  return api<RelayVolunteerActivationReview>('POST', '/api/relay/history/volunteer-activation/review', { input });
+}
+export function applyRelayVolunteerActivation(input: RelayVolunteerActivationInput, approvalDigest: string) {
+  return api<{ result: string; readiness: 'unverified'; startsService: false }>('POST', '/api/relay/history/volunteer-activation/apply', { input, approvalDigest });
+}
+
+export type { RelayHistorySetupInput, RelayHistorySetupResult } from './history-setup.types';
+export function getRelayHistorySetupInput() {
+  return api<{ input: import('./history-setup.types').RelayHistorySetupInput | null }>('GET', '/api/relay/history/setup');
+}
+export function runRelayHistorySetup(action: 'review' | 'apply', input: import('./history-setup.types').RelayHistorySetupInput, approvalDigest?: string) {
+  return api<{ input: import('./history-setup.types').RelayHistorySetupInput; result: import('./history-setup.types').RelayHistorySetupResult }>(
+    'POST', '/api/relay/history/setup', { action, input, ...(approvalDigest === undefined ? {} : { approvalDigest }) });
+}
+
+export type { RelayHistoryRecoveryInput, RelayHistoryRecoveryAction, RelayHistoryRecoveryResult } from './history-recovery.types';
+export function getRelayHistoryRecoveryInput() {
+  return api<{ input: import('./history-recovery.types').RelayHistoryRecoveryInput | null }>('GET', '/api/relay/history/recovery');
+}
+export function runRelayHistoryRecovery(action: import('./history-recovery.types').RelayHistoryRecoveryAction,
+  input: import('./history-recovery.types').RelayHistoryRecoveryInput, approvalDigest?: string) {
+  return api<import('./history-recovery.types').RelayHistoryRecoveryResult>('POST', '/api/relay/history/recovery',
+    { action, input, ...(approvalDigest === undefined ? {} : { approvalDigest }) });
+}
+
+export interface RelayStorageInventory {
+  kind: 'storage-inventory'; selectedDirectories: number; selectedFiles: number; scannedRoots: number; directories: number; files: number;
+  logicalBytes: number; allocatedBytes: number | null; startedAt: number; completedAt: number; atomicSnapshot: false; enforcesQuota: false;
+}
+export function measureRelayStorage() { return api<RelayStorageInventory>('POST', '/api/relay/history/storage', {}); }
+
+export type { RelayStorageStatus, RelayStorageOperation, RelayStorageReview } from './relay-storage.types';
+export function getRelayStorage() { return api<import('./relay-storage.types').RelayStorageStatus>('GET', '/api/relay/storage'); }
+export function reviewRelayStorage(operation: import('./relay-storage.types').RelayStorageOperation, input: unknown) {
+  return api<import('./relay-storage.types').RelayStorageReview>('POST', `/api/relay/storage/${operation}/review`, input);
+}
+export function applyRelayStorage(operation: import('./relay-storage.types').RelayStorageOperation, approvalDigest: string) {
+  return api<{ result: string; maintenanceActive: boolean }>('POST', `/api/relay/storage/${operation}/apply`, { approvalDigest });
+}
+export function cancelRelayStorage(operation: import('./relay-storage.types').RelayStorageOperation) {
+  return api<{ active: boolean }>('POST', `/api/relay/storage/${operation}/cancel`, {});
 }

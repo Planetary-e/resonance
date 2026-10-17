@@ -1,0 +1,2669 @@
+{
+  "generatedAt": "2026-10-15T13:18:31.789Z",
+  "sourceBase": "e13034d3a9922938c06f5b42ec9c35e8c7c978e3",
+  "worktreeDirty": true,
+  "sourceSha256": {
+    "packages/eval/src/history-successor-model.ts": "177724394559bcaa9046f7f267d95a9317c2e5783c067a77e1b584b149f84295",
+    "packages/eval/src/history-checkpoint-model.ts": "3464105be3c91ace6c7a74e291c1d7f7db80a8759cb904dbfc98ce34bc258c10",
+    "packages/eval/src/history-successors.ts": "468151f5a2341833f350c77cb0cf0c682c897fdd3e3ecfdad6bc57d0391d5c33",
+    "packages/eval/src/__tests__/history-successor-model.test.ts": "15ef49d1060d89f927cab41fe53f56cc9f3bbef056667b3c3ea589eaa1b05741"
+  },
+  "model": "two-view single-slot agreement with prepared proofs and explicit view-change evidence; not the installed reservation protocol",
+  "assumptions": {
+    "members": 5,
+    "byzantineMembers": 1,
+    "quorum": 4,
+    "honestIdentitiesSymmetric": true,
+    "proposedValues": [
+      "A",
+      "B"
+    ],
+    "views": [
+      1,
+      2
+    ],
+    "onePredecessorAndSuccessorGeneration": true,
+    "durableAtomicTransitions": true,
+    "cryptographyAndPayloadValidationAbstracted": true,
+    "bothCompleteOwnerValidValuesAvailable": true,
+    "lostVotesRemainAvailableToAdversary": true,
+    "byzantineCanEquivocateOmitOrReplayExistingCertificates": true,
+    "stableContinuationRequiresFourHonestOnlineAndNoCompetingHigherView": true,
+    "excludesLiveRestoreGenerationAncestryMembershipChangesAndPhysicalPowerLoss": true
+  },
+  "oneShot": {
+    "split": {
+      "honestVotes": [
+        "A",
+        "A",
+        "B",
+        "B"
+      ],
+      "byzantineVotes": [
+        "A",
+        "B"
+      ],
+      "receiptsA": 3,
+      "receiptsB": 3,
+      "timeoutChangesDurableVotes": false
+    },
+    "reset": {
+      "steps": [
+        "Three honest members and the Byzantine member sign A; replies are withheld",
+        "A timeout clears honest reservations",
+        "Three honest members and the Byzantine member sign B",
+        "Delayed A replies now also form a four-member certificate"
+      ],
+      "conflictingCertificates": [
+        "A",
+        "B"
+      ]
+    },
+    "indistinguishableReports": {
+      "observed": [
+        "member-0:A",
+        "member-1:A",
+        "member-2:B",
+        "member-3:B"
+      ],
+      "missing": "member-4",
+      "worldA": {
+        "byzantine": 3,
+        "honestVotes": {
+          "0": "A",
+          "1": "A",
+          "2": "B",
+          "4": "A"
+        },
+        "possibleCertificate": [
+          0,
+          1,
+          3,
+          4
+        ]
+      },
+      "worldB": {
+        "byzantine": 0,
+        "honestVotes": {
+          "1": "A",
+          "2": "B",
+          "3": "B",
+          "4": "B"
+        },
+        "possibleCertificate": [
+          0,
+          2,
+          3,
+          4
+        ]
+      },
+      "conclusion": "The same four reports can hide either certificate; they cannot authorize resetting the other value."
+    }
+  },
+  "agreement": {
+    "views": 2,
+    "exhaustive": true,
+    "exploredStates": 7205,
+    "discoveredStates": 7205,
+    "edges": 22001,
+    "decidedStates": 1224,
+    "carriedProofStates": 2200,
+    "stableContinuation": {
+      "cases": 14410,
+      "completed": 14410,
+      "blocked": 0,
+      "conflicting": 0
+    },
+    "conflictingDecisions": 0,
+    "counterexample": null,
+    "limitReached": false
+  },
+  "negativeControls": {
+    "forgetPreparedProof": {
+      "views": 2,
+      "exhaustive": false,
+      "exploredStates": 8209,
+      "discoveredStates": 8797,
+      "edges": 27168,
+      "decidedStates": 1217,
+      "carriedProofStates": 0,
+      "stableContinuation": {
+        "cases": 0,
+        "completed": 0,
+        "blocked": 0,
+        "conflicting": 0
+      },
+      "conflictingDecisions": 1,
+      "counterexample": [
+        {
+          "action": {
+            "kind": "promise",
+            "member": 0,
+            "view": 1
+          },
+          "state": [
+            {
+              "view": 0,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                -1,
+                -1
+              ]
+            },
+            {
+              "view": 0,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                -1,
+                -1
+              ]
+            },
+            {
+              "view": 0,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                -1,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            }
+          ]
+        },
+        {
+          "action": {
+            "kind": "promise",
+            "member": 0,
+            "view": 1
+          },
+          "state": [
+            {
+              "view": 0,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                -1,
+                -1
+              ]
+            },
+            {
+              "view": 0,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                -1,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            }
+          ]
+        },
+        {
+          "action": {
+            "kind": "promise",
+            "member": 0,
+            "view": 1
+          },
+          "state": [
+            {
+              "view": 0,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                -1,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            }
+          ]
+        },
+        {
+          "action": {
+            "kind": "prepare",
+            "member": 1,
+            "view": 1,
+            "value": 1
+          },
+          "state": [
+            {
+              "view": 0,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                -1,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            }
+          ]
+        },
+        {
+          "action": {
+            "kind": "prepare",
+            "member": 1,
+            "view": 1,
+            "value": 1
+          },
+          "state": [
+            {
+              "view": 0,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                -1,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            }
+          ]
+        },
+        {
+          "action": {
+            "kind": "prepare",
+            "member": 1,
+            "view": 1,
+            "value": 1
+          },
+          "state": [
+            {
+              "view": 0,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                -1,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            }
+          ]
+        },
+        {
+          "action": {
+            "kind": "confirm",
+            "member": 1,
+            "view": 1,
+            "value": 1
+          },
+          "state": [
+            {
+              "view": 0,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                -1,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            }
+          ]
+        },
+        {
+          "action": {
+            "kind": "confirm",
+            "member": 1,
+            "view": 1,
+            "value": 1
+          },
+          "state": [
+            {
+              "view": 0,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                -1,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            }
+          ]
+        },
+        {
+          "action": {
+            "kind": "confirm",
+            "member": 1,
+            "view": 1,
+            "value": 1
+          },
+          "state": [
+            {
+              "view": 0,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                -1,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            }
+          ]
+        },
+        {
+          "action": {
+            "kind": "promise",
+            "member": 0,
+            "view": 2
+          },
+          "state": [
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                -1,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "action": {
+            "kind": "promise",
+            "member": 0,
+            "view": 2
+          },
+          "state": [
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                -1,
+                0
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "action": {
+            "kind": "promise",
+            "member": 0,
+            "view": 2
+          },
+          "state": [
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                -1,
+                0
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                0
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "action": {
+            "kind": "prepare",
+            "member": 1,
+            "view": 2,
+            "value": 2
+          },
+          "state": [
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                0,
+                2
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                -1,
+                0
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                0
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "action": {
+            "kind": "prepare",
+            "member": 2,
+            "view": 2,
+            "value": 2
+          },
+          "state": [
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                0,
+                2
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                -1,
+                0
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                0
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                1,
+                2
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "action": {
+            "kind": "prepare",
+            "member": 2,
+            "view": 2,
+            "value": 2
+          },
+          "state": [
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                0,
+                2
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                -1,
+                0
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                1,
+                2
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                0
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                1,
+                2
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "action": {
+            "kind": "confirm",
+            "member": 1,
+            "view": 2,
+            "value": 2
+          },
+          "state": [
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                0,
+                2
+              ],
+              "confirm": [
+                0,
+                2
+              ],
+              "reports": [
+                -1,
+                0
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                1,
+                2
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                0
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                1,
+                2
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "action": {
+            "kind": "confirm",
+            "member": 2,
+            "view": 2,
+            "value": 2
+          },
+          "state": [
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                0,
+                2
+              ],
+              "confirm": [
+                0,
+                2
+              ],
+              "reports": [
+                -1,
+                0
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                1,
+                2
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                0
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                1,
+                2
+              ],
+              "confirm": [
+                1,
+                2
+              ],
+              "reports": [
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "action": {
+            "kind": "confirm",
+            "member": 2,
+            "view": 2,
+            "value": 2
+          },
+          "state": [
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                0,
+                2
+              ],
+              "confirm": [
+                0,
+                2
+              ],
+              "reports": [
+                -1,
+                0
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                1,
+                2
+              ],
+              "confirm": [
+                1,
+                2
+              ],
+              "reports": [
+                0,
+                0
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                1,
+                2
+              ],
+              "confirm": [
+                1,
+                2
+              ],
+              "reports": [
+                0,
+                0
+              ]
+            }
+          ]
+        }
+      ],
+      "limitReached": false
+    },
+    "allowLateConfirmation": {
+      "views": 2,
+      "exhaustive": false,
+      "exploredStates": 12063,
+      "discoveredStates": 13647,
+      "edges": 50371,
+      "decidedStates": 2429,
+      "carriedProofStates": 3870,
+      "stableContinuation": {
+        "cases": 0,
+        "completed": 0,
+        "blocked": 0,
+        "conflicting": 0
+      },
+      "conflictingDecisions": 1,
+      "counterexample": [
+        {
+          "action": {
+            "kind": "promise",
+            "member": 0,
+            "view": 1
+          },
+          "state": [
+            {
+              "view": 0,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                -1,
+                -1
+              ]
+            },
+            {
+              "view": 0,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                -1,
+                -1
+              ]
+            },
+            {
+              "view": 0,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                -1,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            }
+          ]
+        },
+        {
+          "action": {
+            "kind": "promise",
+            "member": 0,
+            "view": 1
+          },
+          "state": [
+            {
+              "view": 0,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                -1,
+                -1
+              ]
+            },
+            {
+              "view": 0,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                -1,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            }
+          ]
+        },
+        {
+          "action": {
+            "kind": "promise",
+            "member": 0,
+            "view": 1
+          },
+          "state": [
+            {
+              "view": 0,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                -1,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            }
+          ]
+        },
+        {
+          "action": {
+            "kind": "prepare",
+            "member": 1,
+            "view": 1,
+            "value": 1
+          },
+          "state": [
+            {
+              "view": 0,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                -1,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            }
+          ]
+        },
+        {
+          "action": {
+            "kind": "prepare",
+            "member": 1,
+            "view": 1,
+            "value": 1
+          },
+          "state": [
+            {
+              "view": 0,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                -1,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            }
+          ]
+        },
+        {
+          "action": {
+            "kind": "prepare",
+            "member": 1,
+            "view": 1,
+            "value": 1
+          },
+          "state": [
+            {
+              "view": 0,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                -1,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            }
+          ]
+        },
+        {
+          "action": {
+            "kind": "confirm",
+            "member": 1,
+            "view": 1,
+            "value": 1
+          },
+          "state": [
+            {
+              "view": 0,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                -1,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            }
+          ]
+        },
+        {
+          "action": {
+            "kind": "promise",
+            "member": 0,
+            "view": 2
+          },
+          "state": [
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                -1,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "action": {
+            "kind": "promise",
+            "member": 0,
+            "view": 2
+          },
+          "state": [
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                -1,
+                0
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "action": {
+            "kind": "confirm",
+            "member": 3,
+            "view": 1,
+            "value": 1
+          },
+          "state": [
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                -1,
+                0
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "action": {
+            "kind": "promise",
+            "member": 0,
+            "view": 2
+          },
+          "state": [
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                -1,
+                0
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                0,
+                0
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "action": {
+            "kind": "confirm",
+            "member": 2,
+            "view": 1,
+            "value": 1
+          },
+          "state": [
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                0,
+                0
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                -1,
+                0
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                0
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "action": {
+            "kind": "prepare",
+            "member": 1,
+            "view": 2,
+            "value": 2
+          },
+          "state": [
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                0,
+                2
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                -1,
+                0
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                0
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "action": {
+            "kind": "prepare",
+            "member": 2,
+            "view": 2,
+            "value": 2
+          },
+          "state": [
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                0,
+                2
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                -1,
+                0
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                0
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                1,
+                2
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "action": {
+            "kind": "prepare",
+            "member": 2,
+            "view": 2,
+            "value": 2
+          },
+          "state": [
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                0,
+                2
+              ],
+              "confirm": [
+                0,
+                0
+              ],
+              "reports": [
+                -1,
+                0
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                1,
+                2
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                0
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                1,
+                2
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "action": {
+            "kind": "confirm",
+            "member": 1,
+            "view": 2,
+            "value": 2
+          },
+          "state": [
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                0,
+                2
+              ],
+              "confirm": [
+                0,
+                2
+              ],
+              "reports": [
+                -1,
+                0
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                1,
+                2
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                0
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                1,
+                2
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "action": {
+            "kind": "confirm",
+            "member": 2,
+            "view": 2,
+            "value": 2
+          },
+          "state": [
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                0,
+                2
+              ],
+              "confirm": [
+                0,
+                2
+              ],
+              "reports": [
+                -1,
+                0
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                1,
+                2
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                0
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                1,
+                2
+              ],
+              "confirm": [
+                1,
+                2
+              ],
+              "reports": [
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "action": {
+            "kind": "confirm",
+            "member": 2,
+            "view": 2,
+            "value": 2
+          },
+          "state": [
+            {
+              "view": 1,
+              "prepare": [
+                1,
+                0
+              ],
+              "confirm": [
+                1,
+                0
+              ],
+              "reports": [
+                0,
+                -1
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                0,
+                2
+              ],
+              "confirm": [
+                0,
+                2
+              ],
+              "reports": [
+                -1,
+                0
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                1,
+                2
+              ],
+              "confirm": [
+                1,
+                2
+              ],
+              "reports": [
+                0,
+                0
+              ]
+            },
+            {
+              "view": 2,
+              "prepare": [
+                1,
+                2
+              ],
+              "confirm": [
+                1,
+                2
+              ],
+              "reports": [
+                0,
+                0
+              ]
+            }
+          ]
+        }
+      ],
+      "limitReached": false
+    }
+  }
+}

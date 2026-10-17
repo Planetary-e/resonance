@@ -13,12 +13,11 @@ import {
 } from '@resonance/core';
 import { createRelayServer, type RelayServer } from '../server.js';
 
-const BASE_PORT = 32_000 + Math.floor(Math.random() * 1_000);
-const SOURCE_PORT = BASE_PORT;
-const TARGET_PORTS = [BASE_PORT + 1, BASE_PORT + 2];
+let SOURCE_PORT = 0;
+const TARGET_PORTS = [0, 0];
 const RUN_ID = `${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
 const SOURCE_DIR = `/tmp/resonance-relationship-source-${RUN_ID}`;
-const TARGET_DIRS = TARGET_PORTS.map(port => `/tmp/resonance-relationship-target-${port}-${RUN_ID}`);
+const TARGET_DIRS = TARGET_PORTS.map((_, index) => `/tmp/resonance-relationship-target-${index}-${RUN_ID}`);
 let source: RelayServer;
 let targets: RelayServer[] = [];
 let sourceStarted = false;
@@ -89,8 +88,9 @@ async function waitFor(check: () => Promise<boolean> | boolean, timeoutMs = 15_0
 beforeAll(async () => {
   targets = [makeTarget(0), makeTarget(1)];
   await Promise.all(targets.map(target => target.start()));
+  targets.forEach((target, index) => { TARGET_PORTS[index] = target.getListeningPort()!; });
   source = makeSource();
-  await source.start();
+  await source.start(); SOURCE_PORT = source.getListeningPort()!;
   sourceStarted = true;
 });
 
@@ -147,7 +147,7 @@ describe('relationship mailbox anti-entropy', () => {
     ));
     expect(acknowledgement.payload).toMatchObject({ status: 'ok', message: 'acknowledged:1' });
     source = makeSource();
-    await source.start();
+    await source.start(); SOURCE_PORT = source.getListeningPort()!;
     sourceStarted = true;
     await waitFor(() => source.getRelayLinkStatus().connectedRelayIds.length === 2);
     await waitFor(async () => !(await fetch(SOURCE_PORT, recipient)).includes(envelope.envelopeId)
@@ -156,7 +156,7 @@ describe('relationship mailbox anti-entropy', () => {
     await source.stop({ graceful: false });
     sourceStarted = false;
     source = makeSource();
-    await source.start();
+    await source.start(); SOURCE_PORT = source.getListeningPort()!;
     sourceStarted = true;
     expect(await fetch(SOURCE_PORT, recipient)).not.toContain(envelope.envelopeId);
   }, 40_000);

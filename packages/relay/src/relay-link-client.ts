@@ -2,7 +2,10 @@
 
 import WebSocket, { type RawData } from 'ws';
 import type { Socket } from 'node:net';
+import { HISTORY_LINK_FRAME_TYPE } from './history-relay-link.js';
+import type { HistoryRelayRouter } from './history-relay-router.js';
 import {
+  assertSecureRelayTransportEndpoint,
   MAX_RELAY_DISCOVERY_FRAME_BYTES,
   MAX_RELAY_REPLICA_INVENTORY_BATCH_RECEIPTS,
   RELAY_REPLICA_INVENTORY_BATCH_RESPONSE_FRAME_TYPE,
@@ -20,8 +23,11 @@ import {
   RELAY_MAILBOX_SYNC_REQUEST_FRAME_TYPE,
   RELAY_RELATIONSHIP_MAILBOX_SYNC_RESPONSE_FRAME_TYPE,
   RELAY_RELATIONSHIP_MAILBOX_SYNC_REQUEST_FRAME_TYPE,
+  type RelayLinkOpenV1,
   createRelayLinkOpenFrameV1,
   createRelayLinkOpenV1,
+  parseRelayLinkChallengeV1,
+  serializeRelayLinkChallengeRequestV1,
   createRelayReplicaInventoryRequestFrameV1,
   createRelayReplicaInventoryRequestV1,
   createRelayReplicaInventoryBatchRequestFrameV1,
@@ -105,6 +111,10 @@ const MAX_PENDING_MAILBOX_SYNCS = 32;
 const DEFAULT_DESCRIPTOR_REFRESH_INTERVAL_MS = 60_000;
 
 export interface RelayLinkClientOptions {
+  /** Cancels the entire connection, including an unfinished handshake. */
+  signal?: AbortSignal;
+  /** Explicitly pinned history traffic; attached only after the signed handshake. */
+  historyLinks?: HistoryRelayRouter;
   handshakeTimeoutMs?: number;
   heartbeatIntervalMs?: number;
   heartbeatTimeoutMs?: number;
@@ -195,7 +205,10 @@ export function connectRelayLinkV1(
   identity: Identity,
   options: RelayLinkClientOptions = {},
 ): Promise<RelayLinkConnection> {
+  if (options.signal?.aborted) return Promise.reject(new Error('Relay link cancelled'));
   if (!verifyRelayContactHintV1(hint)) return Promise.reject(new Error('Invalid relay contact hint'));
+  try { assertSecureRelayTransportEndpoint(hint.endpoint); }
+  catch (error) { return Promise.reject(error); }
   const handshakeTimeoutMs = options.handshakeTimeoutMs ?? 15_000;
   const heartbeatIntervalMs = options.heartbeatIntervalMs ?? 30_000;
   const heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? 90_000;
@@ -216,22 +229,16 @@ export function connectRelayLinkV1(
 
   const clock = options.now ?? Date.now;
   const createdAt = clock();
-  const request = createRelayLinkOpenV1(
-    localDescriptor,
-    identity,
-    createdAt,
-    createdAt + Math.min(30_000, handshakeTimeoutMs + 5_000),
-    hint.endpoint,
-  );
-  const serialized = serializeRelayLinkOpenFrameV1(createRelayLinkOpenFrameV1(request));
 
   return new Promise((resolve, reject) => {
     let socket: WebSocket;
     let accepted = false;
+    let request: RelayLinkOpenV1 | null = null;
     let acceptedRemoteDescriptor: RelayDescriptorV1 | null = null;
     let settled = false;
     let heartbeat: ReturnType<typeof setInterval> | null = null;
     let descriptorExpiryTimer: ReturnType<typeof setTimeout> | null = null;
+    let cancellationTimer: ReturnType<typeof setTimeout> | null = null;
     let lastPongAt = createdAt;
     const pendingReplicas = new Map<string, {
       request: RelayReplicaPutV1;
@@ -297,6 +304,8 @@ export function connectRelayLinkV1(
       socket = new WebSocket(hint.endpoint, {
         handshakeTimeout: handshakeTimeoutMs,
         maxPayload: MAX_RELAY_DISCOVERY_FRAME_BYTES,
+        perMessageDeflate: false,
+        followRedirects: false,
       });
     } catch (error) {
       clearTimeout(handshakeTimer);
@@ -304,9 +313,25 @@ export function connectRelayLinkV1(
       return;
     }
 
-    socket.on('upgrade', response => options.onTransportSocket?.(response.socket));
-    socket.on('open', () => socket.send(serialized));
+    const cancel = () => {
+      if (!accepted) failHandshake(new Error('Relay link cancelled'));
+      // Send a peer-visible protocol close before destroying TCP. If the peer
+      // never acknowledges it, force local teardown within one second.
+      if (accepted && socket.readyState === WebSocket.OPEN) socket.close(1000, 'relay_link_cancelled');
+      if (accepted && socket.readyState === WebSocket.CLOSING) {
+        cancellationTimer = setTimeout(() => socket.terminate(), 1000);
+      } else socket.terminate();
+    };
+    socket.on('upgrade', response => {
+      if (settled) return;
+      try { options.onTransportSocket?.(response.socket); }
+      catch { failHandshake(new Error('Relay link socket accounting failed')); }
+    });
+    socket.on('open', () => { if (!settled) socket.send(serializeRelayLinkChallengeRequestV1()); });
     socket.on('message', (data: RawData, isBinary: boolean) => {
+      // A timed-out/rejected dial no longer has an owner. Buffered messages
+      // must not revive it or install timers after its caller starts a retry.
+      if (options.signal?.aborted || (settled && !accepted)) return;
       if (accepted) {
         if (isBinary) {
           socket.close(4000, 'relay_message_must_be_json');
@@ -320,6 +345,11 @@ export function connectRelayLinkV1(
         }
         if (!isObject(candidate)) {
           socket.close(4000, 'unexpected_link_message');
+          return;
+        }
+        if (candidate.type === HISTORY_LINK_FRAME_TYPE) {
+          if (!acceptedRemoteDescriptor || !options.historyLinks) socket.close(4003, 'history_link_disabled');
+          else options.historyLinks.handle(raw, acceptedRemoteDescriptor.relayId, socket);
           return;
         }
         if (candidate.type === RELAY_REPLICA_PUT_FRAME_TYPE
@@ -530,7 +560,19 @@ export function connectRelayLinkV1(
         return;
       }
       try {
-        const frame = parseRelayLinkAcceptFrameV1(rawDataToString(data));
+        const raw = rawDataToString(data);
+        if (!request) {
+          const challenge = parseRelayLinkChallengeV1(raw, clock());
+          const issuedAt = clock();
+          request = createRelayLinkOpenV1(
+            localDescriptor, identity, challenge.nonce, issuedAt,
+            Math.min(challenge.expiresAt, issuedAt + Math.min(30_000, handshakeTimeoutMs + 5_000)),
+            hint.endpoint,
+          );
+          socket.send(serializeRelayLinkOpenFrameV1(createRelayLinkOpenFrameV1(request)));
+          return;
+        }
+        const frame = parseRelayLinkAcceptFrameV1(raw);
         const receivedAt = clock();
         if (!isRelayLinkAcceptActiveV1(frame.response, request, receivedAt)) {
           throw new Error('Relay link acceptance is invalid or inactive');
@@ -544,6 +586,7 @@ export function connectRelayLinkV1(
           throw new Error('Relay link responder descriptor does not bind the contacted endpoint');
         }
 
+        options.historyLinks?.attach(remoteDescriptor.relayId, socket);
         accepted = true;
         acceptedRemoteDescriptor = remoteDescriptor;
         settled = true;
@@ -878,9 +921,11 @@ export function connectRelayLinkV1(
       if (!accepted) failHandshake(asError(error, 'Relay link connection failed'));
     });
     socket.on('close', (code, reason) => {
+      options.signal?.removeEventListener('abort', cancel);
       clearTimeout(handshakeTimer);
       if (heartbeat) clearInterval(heartbeat);
       if (descriptorExpiryTimer) clearTimeout(descriptorExpiryTimer);
+      if (cancellationTimer) clearTimeout(cancellationTimer);
       for (const pending of pendingReplicas.values()) {
         clearTimeout(pending.timer);
         pending.reject(new Error(`Relay link closed before replica receipt (${code})`));
@@ -922,6 +967,8 @@ export function connectRelayLinkV1(
       }
       resolveClosed({ code, reason: reason.toString('utf8') });
     });
+    options.signal?.addEventListener('abort', cancel, { once: true });
+    if (options.signal?.aborted) cancel();
   });
 }
 
@@ -933,6 +980,7 @@ export class RelayLinkManager {
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly durabilityReceipts = new Map<string, Map<string, RelayReplicaReceiptV1>>();
   private running = false;
+  private lifetime = new AbortController();
 
   constructor(
     private readonly identity: Identity,
@@ -968,11 +1016,13 @@ export class RelayLinkManager {
   start(): void {
     if (this.running) return;
     this.running = true;
+    if (this.lifetime.signal.aborted) this.lifetime = new AbortController();
     for (const hint of this.targets) this.schedule(hint, 0);
   }
 
   stop(): void {
     this.running = false;
+    this.lifetime.abort();
     for (const timer of this.timers.values()) clearTimeout(timer);
     this.timers.clear();
     for (const connection of this.connections.values()) connection.close();
@@ -1171,8 +1221,12 @@ export class RelayLinkManager {
       this.schedule(hint, this.options.reconnectBaseMs ?? 1_000);
       return;
     }
+    const lifetime = this.lifetime;
+    const signal = this.options.signal ? AbortSignal.any([lifetime.signal, this.options.signal]) : lifetime.signal;
+    if (signal.aborted) return;
     try {
-      const connection = await connectRelayLinkV1(hint, this.descriptor(), this.identity, this.options);
+      const connection = await connectRelayLinkV1(hint, this.descriptor(), this.identity, { ...this.options, signal });
+      if (lifetime !== this.lifetime || signal.aborted) { connection.close(); return; }
       if (!this.running || this.connections.size >= maxConnections
         || this.relayEndpoints.has(connection.remoteDescriptor.relayId)) {
         connection.close();
@@ -1188,6 +1242,7 @@ export class RelayLinkManager {
         relayId: connection.remoteDescriptor.relayId,
       });
       const closed = await connection.closed;
+      if (this.connections.get(hint.endpoint) !== connection) return;
       this.connections.delete(hint.endpoint);
       this.relayEndpoints.delete(connection.remoteDescriptor.relayId);
       this.options.onEvent?.({
@@ -1208,7 +1263,7 @@ export class RelayLinkManager {
         error: String(error),
       });
     }
-    if (!this.running) return;
+    if (!this.running || lifetime !== this.lifetime || signal.aborted) return;
     const attempt = (this.attempts.get(hint.endpoint) ?? 0) + 1;
     this.attempts.set(hint.endpoint, attempt);
     const base = this.options.reconnectBaseMs ?? 1_000;
