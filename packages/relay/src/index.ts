@@ -161,3 +161,4 @@ export { runPolicyObserverSetupCommand } from './policy-observer-setup-command.j
 export { parsePolicyObserverConfiguration, readPolicyObserverConfigurationFile, openConfiguredPolicyObserver, serveConfiguredPolicyObserver } from './policy-observer-config.js';
 export type { PolicyObserverConfiguration } from './policy-observer-config.js';
 export { runPolicyObserverCommand } from './policy-observer-command.js';
+export { collectAdmissionPolicyObservation } from './admission-policy-observation.js';

@@ -6,6 +6,10 @@ import { resolve } from 'node:path';
 import { openEncryptedLocalState } from './encrypted-local-state.js';
 import { admissionKeyFingerprint, type AdmissionWalletProfileV1 } from './admission-wallet-profile.js';
 import { prepareAdmissionBatchIssuer, validateAdmissionIssuanceTarget, type AdmissionIssuanceResponse } from './blind-admission-issuance.js';
+import { admissionPolicyObserversId, parseAdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
+import { matchesAdmissionPolicyHead, parseAdmissionPolicyAdvance, sameAdmissionPolicyHead } from '@resonance/core/admission-policy-advance';
+import { createAdmissionPolicyQuery, type AdmissionPolicyQuery } from '@resonance/core/admission-policy-query';
+import { inspectAdmissionPolicyObservation, parseAdmissionPolicyTrust, type AdmissionPolicyTrust } from '@resonance/core/admission-policy-trust';
 
 export interface AdmissionIssuancePermit {
   version: 1; kind: 'admission-issuance-permit'; scope: AdmissionWalletProfileV1['scope'];
@@ -14,7 +18,7 @@ export interface AdmissionIssuancePermit {
 export interface AdmissionIssuerPolicy { batchSize: number; maxPermits: number }
 interface Entry { permitHash: string; batchId?: string; response?: AdmissionIssuanceResponse }
 interface Totals { allocatedPermits: number; boundPermits: number; completedPermits: number }
-interface BaseState { profile: AdmissionWalletProfileV1; policy: AdmissionIssuerPolicy; entries: Entry[]; communityPolicy?: SignedAdmissionPolicy }
+interface BaseState { profile: AdmissionWalletProfileV1; policy: AdmissionIssuerPolicy; entries: Entry[]; communityPolicy?: SignedAdmissionPolicy; freshness?: AdmissionPolicyTrust }
 type State = (BaseState & { version: 1 }) | (BaseState & {
   version: 2; communityPolicy: SignedAdmissionPolicy; retirement: Totals & { retiredAt: number };
 });
@@ -42,10 +46,12 @@ function totals(state: State): Totals {
 function validState(value: unknown, profile: AdmissionWalletProfileV1): value is State {
   const version = (value as State | null)?.version;
   if (!exact(value, ['version', 'profile', 'policy', 'entries',
-    ...(version === 2 || (value as State)?.communityPolicy ? ['communityPolicy'] : []), ...(version === 2 ? ['retirement'] : [])])
+    ...(version === 2 || (value as State)?.communityPolicy ? ['communityPolicy'] : []), ...(version === 2 ? ['retirement'] : []),
+    ...((value as State)?.freshness ? ['freshness'] : [])])
     || (version !== 1 && version !== 2)
     || JSON.stringify(value.profile) !== JSON.stringify(profile)) return false;
   try { validatePolicy(value.policy); } catch { return false; }
+  if (value.freshness) { try { if (!value.communityPolicy) return false; parseAdmissionPolicyTrust(value.freshness, value.communityPolicy as SignedAdmissionPolicy); } catch { return false; } }
   if (!Array.isArray(value.entries) || value.entries.length > value.policy.maxPermits) return false;
   if (version === 2) {
     const r = value.retirement;
@@ -108,7 +114,7 @@ export async function openAdmissionIssuerLedger(options: {
       assertAdmissionPolicyCurrent(policy, state.retirement.retiredAt);
     }
   } } catch (error) { storage.close(); throw error; }
-  let busy = false;
+  let busy = false, observation: { query: AdmissionPolicyQuery; deadline: number } | undefined;
   function live() { const state = storage.read(); if (state.version === 2) throw new Error('Issuer ledger is permanently retired'); return state; }
   function checkPolicy(recover = false) {
     const policy = live().communityPolicy; if (!policy) return;
@@ -119,6 +125,29 @@ export async function openAdmissionIssuerLedger(options: {
       || (!recover && policy.activeKey !== id)) throw new Error('Issuer is retired or inactive under the signed community policy');
   }
   function ready() { live(); if (busy) throw new Error('Issuer approval or policy update is already in progress'); }
+  function checkFreshness(reply: unknown) {
+    const state = live();
+    if (!state.freshness) {
+      if (reply !== undefined) throw new Error('Issuer has no independently pinned policy observers');
+      return () => {};
+    }
+    const pending = observation; observation = undefined;
+    if (!pending || reply === undefined) throw new Error('Prepare a new issuer policy observation before each grant or approval');
+    if (performance.now() >= pending.deadline) throw new Error('Issuer policy observation expired');
+    const inspected = inspectAdmissionPolicyObservation(state.freshness,
+      { query: pending.query, reply: reply as import('@resonance/core/admission-policy-query').AdmissionPolicyQueryReply }, (options.now ?? Date.now)());
+    if (inspected.state !== state.freshness) storage.write({ ...state, freshness: inspected.state });
+    if (inspected.error) throw new Error(inspected.error);
+    const head = inspected.state.installed;
+    const assertCurrent = () => {
+      const retained = live().freshness, now = (options.now ?? Date.now)();
+      if (!retained || retained.conflict || !sameAdmissionPolicyHead(retained.installed, head) || !sameAdmissionPolicyHead(retained.observed, head)
+        || performance.now() >= pending.deadline || now < pending.query.request.issuedAt || now >= pending.query.request.expiresAt) {
+        throw new Error('Issuer policy observation expired or changed');
+      }
+    };
+    assertCurrent(); return assertCurrent;
+  }
   function planRetirement(authority: string) {
     ready(); const state = live(), policy = state.communityPolicy;
     if (!policy) throw new Error('Issuer retirement requires an installed signed community policy');
@@ -151,6 +180,17 @@ export async function openAdmissionIssuerLedger(options: {
   }
   return {
     planRetirement,
+    /** Operator metadata only. The caller collects four live observations on
+     * this exact challenge and returns the reply once; no proof survives reopen. */
+    preparePolicyObservation() {
+      ready(); const freshness = live().freshness, now = (options.now ?? Date.now)();
+      if (!freshness || freshness.conflict) throw new Error('Issuer policy observers are absent or conflicting');
+      if (observation && performance.now() < observation.deadline && now < observation.query.request.expiresAt) throw new Error('An issuer policy observation is already pending');
+      const query = createAdmissionPolicyQuery(freshness.context, now);
+      observation = { query, deadline: performance.now() + 3000 };
+      return { context: structuredClone(freshness.context), query: structuredClone(query) };
+    },
+    cancelPolicyObservation() { ready(); observation = undefined; },
     retire(authority: string, approvedDigest: string) {
       const plan = planRetirement(authority);
       if (approvedDigest !== plan.approvalDigest) throw new Error('Issuer history changed or approval does not match; review retirement again');
@@ -162,36 +202,60 @@ export async function openAdmissionIssuerLedger(options: {
         retirement: { retiredAt, ...totals(state) } });
       return plan;
     },
-    async installPolicy(value: unknown, authority: string) {
+    async installPolicy(value: unknown, authority: string, pins: { observers?: unknown; advance?: unknown } = {}) {
       ready(); const state = storage.read();
       if (state.communityPolicy && state.communityPolicy.authority !== authority) throw new Error('Community authority is already pinned');
-      busy = true;
+      busy = true; observation = undefined;
       try {
-        const policy = await verifyAdmissionPolicy(value, authority); storage.read();
-        assertAdmissionPolicyCurrent(policy, (options.now ?? Date.now)());
+        const input = structuredClone(value), advanceInput = pins.advance === undefined ? undefined : structuredClone(pins.advance);
+        const observers = pins.observers === undefined ? undefined : parseAdmissionPolicyObservers(pins.observers);
+        const policy = await verifyAdmissionPolicy(input, authority); storage.read();
+        let freshness = state.freshness;
+        if (freshness?.conflict) throw new Error('Issuer policy observations conflict; issuance is fenced');
+        if (freshness && observers && admissionPolicyObserversId(observers) !== admissionPolicyObserversId(freshness.context)) throw new Error('Issuer policy observers are already pinned');
+        const advance = advanceInput === undefined ? undefined : await parseAdmissionPolicyAdvance(advanceInput, freshness?.context ?? observers!);
+        storage.read();
+        if (!advance || !freshness || policy.revision >= freshness.observed.revision) assertAdmissionPolicyCurrent(policy, (options.now ?? Date.now)());
+        if (freshness) {
+          if (advance) {
+            if (!matchesAdmissionPolicyHead(policy, advance.commitment.next)
+              || !sameAdmissionPolicyHead(advance.commitment.previous, freshness.installed) && !sameAdmissionPolicyHead(advance.commitment.next, freshness.installed)) {
+              throw new Error('Issuer policy update must extend its retained signed transition');
+            }
+            const head = advance.commitment.next;
+            if (head.revision === freshness.observed.revision && !sameAdmissionPolicyHead(head, freshness.observed)) throw new Error('Issuer policy update conflicts with its observed floor');
+            freshness = { ...freshness, installed: head, observed: head.revision > freshness.observed.revision ? head : freshness.observed };
+          } else if (!matchesAdmissionPolicyHead(policy, freshness.installed)) throw new Error('Issuer policy freshness requires a signed immediate successor');
+        } else if (observers) {
+          if (advance || !matchesAdmissionPolicyHead(policy, observers.genesis)) throw new Error('Issuer observer enrollment requires its independently pinned genesis');
+          freshness = parseAdmissionPolicyTrust({ context: observers, installed: observers.genesis, observed: observers.genesis }, policy);
+        } else if (advance) throw new Error('Issuer transition requires independently pinned observers');
         if (state.communityPolicy) assertAdmissionPolicySuccessor(state.communityPolicy, policy);
         if (!admissionPolicyKeys(policy).some(entry => JSON.stringify(entry.profile) === JSON.stringify(profile))) throw new Error('Issuer is absent from the signed community policy');
-        storage.write({ ...state, communityPolicy: policy });
+        storage.write({ ...state, communityPolicy: policy, ...(freshness ? { freshness } : {}) });
       } finally { busy = false; }
     },
     status() {
       const state = storage.read(), { policy, entries } = state, counts = totals(state), retired = state.version === 2;
       return { ...policy, ...counts, permanentlyRetired: retired, retainedEntries: entries.length,
+        ...(state.freshness ? { policyFreshness: { requiresObservation: true, installedRevision: state.freshness.installed.revision,
+          observedRevision: state.freshness.observed.revision, conflict: !!state.freshness.conflict } } : {}),
         remainingPermits: retired ? 0 : policy.maxPermits - counts.allocatedPermits,
         unallocatedPermitsCancelled: retired ? policy.maxPermits - counts.allocatedPermits : 0,
         tokenBudget: policy.batchSize * policy.maxPermits, allocatedTokens: counts.allocatedPermits * policy.batchSize,
         boundTokens: counts.boundPermits * policy.batchSize, ...(retired ? { retiredAt: state.retirement.retiredAt } : {}) };
     },
     /** An explicit community invitation, with no recipient/account field. Never refund or reuse. */
-    grant(): AdmissionIssuancePermit {
-      ready(); checkPolicy(); const state = storage.read();
+    grant(policyReply?: unknown): AdmissionIssuancePermit {
+      ready(); const assertCurrent = checkFreshness(policyReply); checkPolicy(); const state = storage.read();
       if (state.entries.length >= state.policy.maxPermits) throw new Error('Issuer permit allowance exhausted');
       const secret = randomBytes(32).toString('base64url');
       storage.write({ ...state, entries: [...state.entries, { permitHash: permitHash(secret) }] });
+      assertCurrent();
       return { version: 1, kind: 'admission-issuance-permit', scope: structuredClone(profile.scope),
         keyFingerprint: admissionKeyFingerprint(profile.issuerPublicKey), count: state.policy.batchSize, secret };
     },
-    async approve(permitValue: unknown, requestValue: unknown): Promise<AdmissionIssuanceResponse> {
+    async approve(permitValue: unknown, requestValue: unknown, policyReply?: unknown): Promise<AdmissionIssuanceResponse> {
       ready(); validatePermit(permitValue); validateAdmissionIssuanceTarget(requestValue, profile);
       const request = structuredClone(requestValue); const digest = permitHash(permitValue.secret);
       const state = storage.read(); const index = state.entries.findIndex(entry => entry.permitHash === digest);
@@ -200,7 +264,8 @@ export async function openAdmissionIssuerLedger(options: {
       const entry = state.entries[index];
       if (entry.batchId && entry.batchId !== request.batchId) throw new Error('Permit is already bound to another batch; only the exact original request can be retried');
       if (state.entries.some((other, i) => i !== index && other.batchId === request.batchId)) throw new Error('Batch is already assigned to another permit');
-      if (entry.response) { checkPolicy(true); return structuredClone(entry.response); }
+      const assertCurrent = checkFreshness(policyReply);
+      if (entry.response) { checkPolicy(true); assertCurrent(); return structuredClone(entry.response); }
       checkPolicy();
       busy = true;
       try {
@@ -208,13 +273,14 @@ export async function openAdmissionIssuerLedger(options: {
         // output leaves only this exact batch eligible. Nothing ever refunds its allowance.
         if (!entry.batchId) storage.write({ ...state, entries: state.entries.map((item, i) => i === index ? { ...item, batchId: request.batchId } : item) });
         const response = await issuer.issue(request);
-        checkPolicy();
+        checkPolicy(); assertCurrent();
         const reserved = storage.read(); // Lock/close during crypto must prevent output.
         storage.write({ ...reserved, entries: reserved.entries.map((item, i) => i === index ? { ...item, response } : item) });
+        assertCurrent();
         return structuredClone(response); // Only a durably cached response may leave this boundary.
       } finally { busy = false; }
     },
-    close() { storage.close(); },
+    close() { observation = undefined; storage.close(); },
   };
 }
 export type AdmissionIssuerLedger = Awaited<ReturnType<typeof openAdmissionIssuerLedger>>;

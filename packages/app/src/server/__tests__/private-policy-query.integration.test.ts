@@ -2,6 +2,10 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { once } from 'node:events';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
 import { generateIdentity, generatePublicationKeyMaterial, createPublicationRecord, type AdmissionCapabilityV2 } from '@resonance/core';
 import type { AdmissionCapabilityVerifierV2 } from '../../../../relay/src/admission.js';
@@ -17,6 +21,7 @@ import { openHistoryVolunteerService } from '../../../../relay/src/history-volun
 import { listenHistoryAgreementReplica } from '../../../../relay/src/history-agreement-exchange.js';
 import { policyObserverFixture } from '../../../../relay/src/__tests__/fixtures/policy-observer-fixture.js';
 import { createRelayClient } from '../../../../node/src/relay-client.js';
+import { createAdmissionIssuanceBatch } from '../../../../node/src/blind-admission-issuance.js';
 
 const cleanup: Array<() => void | Promise<void>> = [];
 afterEach(async () => {
@@ -25,7 +30,7 @@ afterEach(async () => {
   if (errors.length) throw new AggregateError(errors, 'Private policy query cleanup failed');
 });
 async function fixture(options: { admission?: AdmissionCapabilityVerifierV2; capability?: AdmissionCapabilityV2 } = {}) {
-  const n = await policyObserverFixture({ policyLifetimeMs: 300000 }); cleanup.push(n.close);
+  const n = await policyObserverFixture({ policyLifetimeMs: 300000, keyLifetimeMs: 240000 }); cleanup.push(n.close);
   const handlers: Array<(value: unknown) => Promise<unknown>> = [], observers = [], histories = [];
   const listeners: Array<Awaited<ReturnType<typeof listenAdmissionPolicyObserver>>> = [];
   for (let i = 0; i < 5; i++) {
@@ -67,6 +72,37 @@ async function fixture(options: { admission?: AdmissionCapabilityVerifierV2; cap
   return { ...n, context, observers, histories, queries, client, admission, capability, entry, destination, destinationUrl, identity,
     setPolicy(value: typeof n.first) { policy = value; }, setReply(value?: typeof replace) { replace = value; }, setPermitted(value: boolean) { permitted = value; } };
 }
+
+it('runs issuer commands against five protected observers, persists an emergency floor and resumes only after the exact signed update', async () => {
+  const n = await fixture(), profile = join(n.directory, 'issuer-profile.json'), privateKey = join(n.directory, 'issuer.pem'), ledger = join(n.directory, 'issuer-ledger.json');
+  const authority = join(n.directory, 'authority.pub'), policy = join(n.directory, 'policy.json'), context = join(n.directory, 'observers.json');
+  writeFileSync(profile, JSON.stringify(n.first.keys[0].profile)); writeFileSync(privateKey, n.issuerPrivateKey.export({ type: 'pkcs8', format: 'pem' }), { mode: 0o600 });
+  writeFileSync(authority, n.authority); writeFileSync(policy, JSON.stringify(n.first)); writeFileSync(context, JSON.stringify(n.context));
+  const main = fileURLToPath(new URL('../../../../../scripts/issue-admission-tokens.ts', import.meta.url));
+  const prefix = [profile, privateKey, ledger];
+  const run = (command: string, args: string[]) => promisify(execFile)(process.execPath, ['--import', import.meta.resolve('tsx'), main, command, ...args], { cwd: n.directory, timeout: 15000 });
+  await run('init', [...prefix, '1', '2']);
+  await run('policy', ['--approve', '--observers', context, ...prefix, authority, policy]);
+  const permit = join(n.directory, 'permit.json'); await run('grant', ['--approve', ...prefix, permit]);
+  const batch = await createAdmissionIssuanceBatch(n.first.keys[0].profile, 1), request = join(n.directory, 'request.json'), response = join(n.directory, 'response.json');
+  writeFileSync(request, JSON.stringify(batch.request));
+  const advance = await createAdmissionPolicyAdvance(n.first, n.second, n.context, n.key);
+  for (const observer of n.observers) await observer.advance(advance);
+  await expect(run('issue', ['--approve', ...prefix, permit, request, response])).rejects.toThrow('newer'); expect(existsSync(response)).toBe(false);
+  expect(JSON.parse((await run('status', prefix)).stdout)).toMatchObject({ boundPermits: 0, policyFreshness: { installedRevision: 1, observedRevision: 2 } });
+  writeFileSync(policy, JSON.stringify(n.second));
+  await expect(run('policy', ['--approve', ...prefix, authority, policy])).rejects.toThrow('signed immediate successor');
+  const transition = join(n.directory, 'advance.json'); writeFileSync(transition, JSON.stringify(advance));
+  await run('policy', ['--approve', '--advance', transition, ...prefix, authority, policy]);
+  await run('issue', ['--approve', ...prefix, permit, request, response]);
+  expect(await batch.finalize(JSON.parse(readFileSync(response, 'utf8')))).toHaveLength(1);
+  const retry = join(n.directory, 'retry.json'); await run('issue', ['--approve', ...prefix, permit, request, retry]);
+  expect(readFileSync(retry)).toEqual(readFileSync(response));
+  for (const volunteers of n.histories) { await volunteers[3].close(); await volunteers[4].close(); }
+  const refused = join(n.directory, 'unavailable.json');
+  await expect(run('issue', ['--approve', ...prefix, permit, request, refused])).rejects.toThrow('four matching');
+  expect(existsSync(refused)).toBe(false);
+}, 90000);
 
 it('queries five protected observers over two private hops without a personal identifier or token and rejects a replayed reply', async () => {
   const n = await fixture(), wire: string[] = [], send = WebSocket.prototype.send;
