@@ -49,6 +49,20 @@ export async function parseAdmissionPolicyAdvance(value: unknown, context: Admis
   if (!matchesAdmissionPolicyHead(policy, commitment.next)) throw new Error('Policy advance body differs from its signed digest');
   return { commitment, policy };
 }
+/** Signed transition primitive only; callers must resolve policy/archive successor semantics. */
+export function createAdmissionPolicyAdvanceCommitment(previousValue: AdmissionPolicyHead,
+  nextValue: Pick<AdmissionPolicyHead, 'revision' | 'digest'>, contextValue: AdmissionPolicyObservers,
+  key: SigningKeyPair): AdmissionPolicyAdvanceCommitment {
+  const context = parseAdmissionPolicyObservers(contextValue), previous = parseAdmissionPolicyHead(structuredClone(previousValue));
+  const owned = copyAdmissionSigningKey(key);
+  try {
+    if (Buffer.from(owned.publicKey).toString('base64url') !== context.authority) throw new Error('Policy advance authority differs from its pin');
+    const contextId = admissionPolicyObserversId(context), next = parseAdmissionPolicyHead({ revision: nextValue.revision,
+      digest: nextValue.digest, transition: transitionDigest(contextId, previous, nextValue) });
+    return parseAdmissionPolicyAdvanceCommitment({ version: 1, kind: 'admission-policy-advance', contextId, previous, next,
+      authority: context.authority, signature: Buffer.from(sign(payload(contextId, previous, next, context.authority), owned.secretKey)).toString('base64url') }, context);
+  } finally { owned.secretKey.fill(0); }
+}
 export async function createAdmissionPolicyAdvance(previousValue: unknown, nextValue: unknown,
   contextValue: AdmissionPolicyObservers, key: SigningKeyPair, retainedHead?: AdmissionPolicyHead): Promise<AdmissionPolicyAdvance> {
   const context = parseAdmissionPolicyObservers(contextValue), owned = copyAdmissionSigningKey(key);
@@ -57,10 +71,8 @@ export async function createAdmissionPolicyAdvance(previousValue: unknown, nextV
     if (Buffer.from(owned.publicKey).toString('base64url') !== context.authority) throw new Error('Policy advance authority differs from its pin');
     const previousPolicy = await verifyAdmissionPolicy(previousInput, context.authority), policy = await verifyAdmissionPolicy(nextInput, context.authority);
     assertAdmissionPolicySuccessor(previousPolicy, policy);
-    const previous = parseAdmissionPolicyHead(prior), contextId = admissionPolicyObserversId(context);
+    const previous = parseAdmissionPolicyHead(prior);
     if (!matchesAdmissionPolicyHead(previousPolicy, previous)) throw new Error('Policy advance requires its retained predecessor transition');
-    const next = admissionPolicyHead(policy, transitionDigest(contextId, previous, admissionPolicyHead(policy)));
-    return parseAdmissionPolicyAdvance({ commitment: { version: 1, kind: 'admission-policy-advance', contextId, previous, next, authority: context.authority,
-      signature: Buffer.from(sign(payload(contextId, previous, next, context.authority), owned.secretKey)).toString('base64url') }, policy }, context);
+    return parseAdmissionPolicyAdvance({ commitment: createAdmissionPolicyAdvanceCommitment(previous, admissionPolicyHead(policy), context, owned), policy }, context);
   } finally { owned.secretKey.fill(0); }
 }

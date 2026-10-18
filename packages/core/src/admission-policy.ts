@@ -24,8 +24,12 @@ export interface AdmissionPolicyBody {
 }
 export interface SignedAdmissionPolicy extends AdmissionPolicyBody { authority: string; signature: string }
 const DOMAIN = 'resonance:admission-policy:v1'; // Also the unchanged encrypted-store domain.
-export function admissionPolicyKeys(policy: AdmissionPolicyBody): AdmissionPolicyKey[] { return [...policy.keys, ...(policy.archivedKeys ?? [])]; }
+function legacyPolicy(policy: AdmissionPolicyBody) {
+  if (policy?.version !== 1 && policy?.version !== 2) throw new Error('Legacy policy helper refuses v3; resolve its archive first');
+}
+export function admissionPolicyKeys(policy: AdmissionPolicyBody): AdmissionPolicyKey[] { legacyPolicy(policy); return [...policy.keys, ...(policy.archivedKeys ?? [])]; }
 export function isArchivedAdmissionKey(policy: AdmissionPolicyBody, issuerKey: string): boolean {
+  legacyPolicy(policy);
   return (policy.archivedKeys ?? []).some(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === issuerKey);
 }
 const MAX_LIFETIME = 30 * 24 * 60 * 60 * 1000;
@@ -36,6 +40,7 @@ function bytes(value: unknown, size: number): value is string {
 }
 function timestamp(value: unknown): value is number { return Number.isSafeInteger(value) && (value as number) >= 0; }
 function payload(body: AdmissionPolicyBody) {
+  legacyPolicy(body);
   const entries = (keys: AdmissionPolicyKey[]) => keys.map(entry => [entry.profile, entry.notBefore, entry.issueUntil, entry.spendUntil, entry.retryUntil,
     ...(entry.witnesses ? [entry.witnesses] : [])]);
   return Buffer.from(`${body.version === 1 ? DOMAIN : 'resonance:admission-policy:v2'}\n${JSON.stringify([
@@ -95,9 +100,11 @@ export async function verifyAdmissionPolicy(value: unknown, authority: string): 
 }
 export function admissionPolicyDigest(policy: AdmissionPolicyBody) { return createHash('sha256').update(payload(policy)).digest('hex'); }
 export function assertAdmissionPolicyCurrent(policy: AdmissionPolicyBody, now: number) {
+  legacyPolicy(policy);
   if (!timestamp(now) || now < policy.issuedAt || now >= policy.expiresAt) throw new Error('Community admission policy is not current; import a current signed revision');
 }
 export function assertAdmissionPolicySuccessor(previous: AdmissionPolicyBody, next: AdmissionPolicyBody) {
+  legacyPolicy(previous); legacyPolicy(next);
   if (next.revision < previous.revision || (next.revision === previous.revision && admissionPolicyDigest(next) !== admissionPolicyDigest(previous))) {
     throw new Error('Admission policy rollback or conflicting revision');
   }
