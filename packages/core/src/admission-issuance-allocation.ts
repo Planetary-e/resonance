@@ -4,11 +4,13 @@ import { sign, verify } from './crypto.js';
 import { admissionKeyFingerprint, parseAdmissionWalletProfile, type AdmissionWalletProfileV1 } from './admission-profile.js';
 
 export interface AdmissionIssuerAllocation { profile: AdmissionWalletProfileV1; batchSize: number; maxPermits: number }
-export interface AdmissionIssuanceAllocationBody {
-  version: 1; kind: 'admission-issuance-allocation'; community: 'public'; epoch: string;
+interface AdmissionIssuanceAllocationCommon {
+  kind: 'admission-issuance-allocation'; community: 'public'; epoch: string;
   notBefore: number; issueUntil: number; totalTokenBudget: number; allocations: AdmissionIssuerAllocation[];
 }
-export interface SignedAdmissionIssuanceAllocation extends AdmissionIssuanceAllocationBody { authority: string; signature: string }
+export type AdmissionIssuanceAllocationBody = AdmissionIssuanceAllocationCommon & (
+  { version: 1 } | { version: 2; claimPolicy: 'authority-assigned-v1' });
+export type SignedAdmissionIssuanceAllocation = AdmissionIssuanceAllocationBody & { authority: string; signature: string };
 export const MAX_ADMISSION_ISSUANCE_ALLOCATION_BYTES = 65536;
 // Eight issuers × 32 tokens × 256 permits. This explicit pilot bound keeps aggregate arithmetic and local state bounded.
 export const MAX_ADMISSION_ISSUANCE_TOKEN_BUDGET = 65536;
@@ -20,12 +22,15 @@ const integer = (value: unknown, min: number, max = Number.MAX_SAFE_INTEGER): va
 const encoded = (value: unknown, size: number): value is string => typeof value === 'string' && value.length <= 100
   && Buffer.from(value, 'base64url').length === size && Buffer.from(value, 'base64url').toString('base64url') === value;
 function payload(body: AdmissionIssuanceAllocationBody) {
-  return Buffer.from(`${DOMAIN}\n${JSON.stringify([body.version, body.kind, body.community, body.epoch,
-    body.notBefore, body.issueUntil, body.totalTokenBudget, body.allocations.map(entry => [entry.profile, entry.batchSize, entry.maxPermits])])}`);
+  const fields = [body.version, body.kind, body.community, body.epoch, body.notBefore, body.issueUntil, body.totalTokenBudget,
+    body.allocations.map(entry => [entry.profile, entry.batchSize, entry.maxPermits])];
+  if (body.version === 2) fields.push(body.claimPolicy);
+  return Buffer.from(`${body.version === 1 ? DOMAIN : 'resonance:admission-issuance-allocation:v2'}\n${JSON.stringify(fields)}`);
 }
 /** Structural normalization only: authenticate with verify before trusting a received allocation. */
 export async function parseAdmissionIssuanceAllocationBody(value: unknown): Promise<AdmissionIssuanceAllocationBody> {
-  if (!exact(value, FIELDS) || value.version !== 1 || value.kind !== 'admission-issuance-allocation' || value.community !== 'public'
+  if (!exact(value, [...FIELDS, ...(value && typeof value === 'object' && 'version' in value && value.version === 2 ? ['claimPolicy'] : [])])
+    || (value.version !== 1 && value.version !== 2) || (value.version === 2 && value.claimPolicy !== 'authority-assigned-v1') || value.kind !== 'admission-issuance-allocation' || value.community !== 'public'
     || typeof value.epoch !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value.epoch)
     || !integer(value.notBefore, 0) || !integer(value.issueUntil, 0) || value.notBefore >= value.issueUntil
     || !integer(value.totalTokenBudget, 1, MAX_ADMISSION_ISSUANCE_TOKEN_BUDGET)
@@ -44,7 +49,7 @@ export async function parseAdmissionIssuanceAllocationBody(value: unknown): Prom
     allocations.push({ profile, batchSize: entry.batchSize, maxPermits: entry.maxPermits });
   }
   allocations.sort((a, b) => admissionKeyFingerprint(a.profile.issuerPublicKey).localeCompare(admissionKeyFingerprint(b.profile.issuerPublicKey)));
-  return { version: 1, kind: 'admission-issuance-allocation', community: 'public', epoch: input.epoch as string,
+  return { ...(input.version === 2 ? { version: 2 as const, claimPolicy: 'authority-assigned-v1' as const } : { version: 1 as const }), kind: 'admission-issuance-allocation', community: 'public', epoch: input.epoch as string,
     notBefore: input.notBefore as number, issueUntil: input.issueUntil as number, totalTokenBudget: input.totalTokenBudget as number, allocations };
 }
 export async function signAdmissionIssuanceAllocation(value: unknown, authority: string, secretKey: Uint8Array): Promise<SignedAdmissionIssuanceAllocation> {
@@ -60,7 +65,7 @@ export async function signAdmissionIssuanceAllocation(value: unknown, authority:
 }
 /** Historical verification intentionally does not require a currently open issuance window. */
 export async function verifyAdmissionIssuanceAllocation(value: unknown, authority: string): Promise<SignedAdmissionIssuanceAllocation> {
-  if (!encoded(authority, 32) || !exact(value, [...FIELDS, 'authority', 'signature']) || value.authority !== authority
+  if (!encoded(authority, 32) || !exact(value, [...FIELDS, ...(value && typeof value === 'object' && 'version' in value && value.version === 2 ? ['claimPolicy'] : []), 'authority', 'signature']) || value.authority !== authority
     || !encoded(value.signature, 64) || Buffer.byteLength(JSON.stringify(value) + '\n') > MAX_ADMISSION_ISSUANCE_ALLOCATION_BYTES) throw new Error('Allocation is not signed by the pinned authority');
   const input = structuredClone(value), { signature, authority: _, ...unsigned } = input;
   const body = await parseAdmissionIssuanceAllocationBody(unsigned);

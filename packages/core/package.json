@@ -28,7 +28,8 @@
     "./history-agreement-data": "./src/history-agreement-data.ts",
     "./history-continuation": "./src/history-continuation.ts",
     "./history-provision": "./src/history-provision.ts",
-    "./storage-reservations": "./src/storage-reservations.ts"
+    "./storage-reservations": "./src/storage-reservations.ts",
+    "./admission-claim-assignment": "./src/admission-claim-assignment.ts"
   },
   "scripts": {
     "build": "tsc",

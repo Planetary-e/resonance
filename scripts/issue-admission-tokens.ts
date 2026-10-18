@@ -1,3 +1,4 @@
+import { MAX_ADMISSION_CLAIM_ASSIGNMENT_BYTES } from '@resonance/core/admission-claim-assignment';
 import { MAX_ADMISSION_ISSUANCE_ALLOCATION_BYTES } from '@resonance/core/admission-issuance-allocation';
 import { MAX_ADMISSION_POLICY_BYTES } from '@resonance/core/admission-policy';
 /** Community permits and durable batch approval. Enrolled issuers collect fresh
@@ -25,8 +26,11 @@ async function main() {
     if (args.shift() !== '--authority-file' || !(allocationAuthorityPath = args.shift()) || allocationAuthorityPath.startsWith('--')
       || args.shift() !== '--allocation-file' || !(allocationPath = args.shift()) || allocationPath.startsWith('--')) throw new Error('Allocation initialization requires independently pinned authority and signed allocation files');
   }
-  let claimPath: string | undefined;
-  if (command === 'grant' && args[0] === '--claim-file') { args.shift(); claimPath = args.shift(); if (!claimPath || claimPath.startsWith('--')) throw new Error('Claim option requires an operator file'); }
+  let claimPath: string | undefined, assignmentPath: string | undefined;
+  if (command === 'grant' && (args[0] === '--claim-file' || args[0] === '--assignment-file')) {
+    const option = args.shift(), path = args.shift(); if (!path || path.startsWith('--')) throw new Error('Grant option requires an operator file');
+    if (option === '--claim-file') claimPath = path; else assignmentPath = path;
+  }
   let observersPath: string | undefined, advancePath: string | undefined;
   if (command === 'policy') while (args[0]?.startsWith('--')) {
     const option = args.shift(), path = args.shift();
@@ -52,6 +56,7 @@ async function main() {
   if (claimFile !== undefined && (!claimFile || typeof claimFile !== 'object' || Array.isArray(claimFile)
     || Object.keys(claimFile).sort().join(',') !== 'handle,kind,version'
     || (claimFile as { version?: unknown }).version !== 1 || (claimFile as { kind?: unknown }).kind !== 'admission-operator-claim')) throw new Error('Invalid bounded operator claim file');
+  const assignment = assignmentPath ? json(assignmentPath, MAX_ADMISSION_CLAIM_ASSIGNMENT_BYTES) : undefined;
   const permit = command === 'issue' ? json(first) : undefined;
   const request = command === 'issue' ? json(second) : undefined;
   const pem = read(privateKeyPath).trim().match(/^-----BEGIN PRIVATE KEY-----\s+([A-Za-z0-9+/=\s]+)-----END PRIVATE KEY-----$/);
@@ -81,7 +86,8 @@ async function main() {
       console.log('Signed community policy installed; existing permits and reservations retained.');
     } else if (command === 'grant') {
       const proof = await observation();
-      const invitation = claimFile === undefined ? ledger.grant(proof) : ledger.grantForClaim((claimFile as { handle: unknown }).handle, proof);
+      const invitation = assignment === undefined ? (claimFile === undefined ? ledger.grant(proof) : ledger.grantForClaim((claimFile as { handle: unknown }).handle, proof))
+        : await ledger.grantForAssignment(assignment, proof);
       // If output fails, its allocated allowance remains consumed. Never roll back a grant.
       writeFileSync(output!, JSON.stringify(invitation) + '\n', { flag: 'wx', mode: 0o600 });
       console.log(`Permit for ${invitation.count} tokens saved. Keep it private; give it to one eligible recipient.`);
@@ -98,7 +104,7 @@ catch (error) {
   console.error('Usage: node --import tsx scripts/issue-admission-tokens.ts <command>');
   console.error('  init [--claim-required] profile.json private.pem ledger.json <batch-size:1–32> <max-permits:1–256>');
   console.error('  init-allocation --authority-file authority.pub --allocation-file signed-allocation.json profile.json private.pem ledger.json');
-  console.error('  grant --approve [--claim-file operator-claim.json] profile.json private.pem ledger.json permit.json');
+  console.error('  grant --approve [--claim-file operator-claim.json | --assignment-file assignment.json] profile.json private.pem ledger.json permit.json');
   console.error('  issue --approve profile.json private.pem ledger.json permit.json request.json response.json');
   console.error('  policy --approve [--observers observers.json] [--advance advance.json] profile.json private.pem ledger.json authority.pub policy.json');
   console.error('  status profile.json private.pem ledger.json');

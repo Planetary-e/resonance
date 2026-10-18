@@ -57,6 +57,9 @@ jobs:
           packages/core/src/__tests__/admission-issuance-allocation.test.ts
           packages/node/src/__tests__/admission-allocation-authority.test.ts
           packages/node/src/__tests__/admission-issuer-allocation.test.ts
+          packages/core/src/__tests__/admission-claim-assignment.test.ts
+          packages/node/src/__tests__/admission-claim-assignment-authority.test.ts
+          packages/node/src/__tests__/admission-issuer-assignment.test.ts
           packages/node/src/__tests__/private-wallet-policy.integration.test.ts
           packages/relay/src/__tests__/blind-admission-verifier.test.ts
           packages/relay/src/__tests__/admission-decision-queue.test.ts
