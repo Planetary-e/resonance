@@ -50,10 +50,13 @@ export interface ProtectedIssuerHistoryRecoveryEvidence<T> extends ProtectedIssu
   minimumEvidence: T[]; applied: { sequence: number; id: string } | null; pending: { sequence: number; id: string } | null;
 }
 export function readProtectedIssuerHistoryRecoverySource<T>(source: ProtectedIssuerHistoryRecoverySource<T>): ProtectedIssuerHistoryRecoveryEvidence<T> {
-  return readProtectedCheckpointOwnerRecoverySource(source);
+  const evidence = readProtectedCheckpointOwnerRecoverySource<T>(source);
+  if (evidence.context.role !== 'admission-issuer') throw new Error('Issuer recovery source has another history role');
+  return evidence;
 }
-export function fenceProtectedIssuerHistoryRecoverySource<T>(source: ProtectedIssuerHistoryRecoverySource<T>): Promise<void> {
-  return fenceProtectedCheckpointOwnerRecoverySource(source);
+export async function fenceProtectedIssuerHistoryRecoverySource<T>(source: ProtectedIssuerHistoryRecoverySource<T>): Promise<void> {
+  readProtectedIssuerHistoryRecoverySource(source);
+  await fenceProtectedCheckpointOwnerRecoverySource(source);
 }
 export interface ProtectedIssuerHistoryStatus {
   ready: boolean; busy: boolean; pending: boolean; fenced: boolean;

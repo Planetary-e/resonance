@@ -56,3 +56,7 @@ export { openProtectedAdmissionIssuerLedger, readProtectedIssuerRecoverySource, 
 export { openProtectedIssuerRestoreResumption, type ProtectedIssuerRestoreResumptionOptions } from './admission-issuer-restore-resumption.js';
 
 export { openProtectedAdmissionAllocationAuthority, type ProtectedAdmissionAllocationAuthorityOptions, type ProtectedAdmissionAllocationAuthority } from './protected-admission-allocation-authority.js';
+
+export { readProtectedAllocationAuthorityRecoverySource, fenceProtectedAllocationAuthorityRecoverySource, type ProtectedAllocationAuthorityRecoverySource, type ProtectedAllocationAuthorityRecoveryEvidence } from './protected-admission-allocation-authority.js';
+export { replayProtectedAllocationAuthorityHistory, type ProtectedAllocationAuthorityReplayOptions } from './admission-allocation-authority-history-replay.js';
+export { prepareProtectedAllocationAuthorityRestore, type PreparedProtectedAllocationAuthorityRestore, type ProtectedAllocationAuthorityRestoration } from './admission-allocation-authority-history-restore.js';

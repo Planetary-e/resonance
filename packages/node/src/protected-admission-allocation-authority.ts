@@ -4,7 +4,8 @@ import { parseHistoryCheckpointContext } from '@resonance/core/history-checkpoin
 import { admissionIssuanceAllocationDigest, assertAdmissionIssuanceAllocationCurrent, signAdmissionIssuanceAllocation,
   type SignedAdmissionIssuanceAllocation } from '@resonance/core/admission-issuance-allocation';
 import { signAdmissionClaimAssignment, type SignedAdmissionClaimAssignment } from '@resonance/core/admission-claim-assignment';
-import { openProtectedAllocationAuthorityHistory, type ProtectedAllocationAuthorityHistory, type ProtectedAllocationAuthorityHistoryOptions } from '@resonance/relay/protected-allocation-authority-history';
+import { openProtectedAllocationAuthorityHistory, readProtectedAllocationAuthorityHistoryRecoverySource, fenceProtectedAllocationAuthorityHistoryRecoverySource, type ProtectedAllocationAuthorityHistory, type ProtectedAllocationAuthorityHistoryOptions, type ProtectedAllocationAuthorityHistoryRecoveryEvidence } from '@resonance/relay/protected-allocation-authority-history';
+import { readPreparedProtectedAllocationAuthorityRestore, type PreparedProtectedAllocationAuthorityRestore } from './admission-allocation-authority-history-restore.js';
 import { admissionKeyFingerprint } from './admission-wallet-profile.js';
 import { MAX_ADMISSION_ALLOCATION_JOURNAL_ENTRIES, MAX_ADMISSION_ALLOCATION_ASSIGNMENTS, admissionClaimAssignmentKey,
   assertAdmissionAllocationAuthority, deriveAdmissionAllocationAuthorityEncryptionKey, allocationAuthorityHistoryAnchor,
@@ -13,16 +14,38 @@ import { MAX_ADMISSION_ALLOCATION_JOURNAL_ENTRIES, MAX_ADMISSION_ALLOCATION_ASSI
 
 type State = Extract<AdmissionAllocationAuthorityState, { version: 2 }>;
 type HistoryOptions = ProtectedAllocationAuthorityHistoryOptions<State>;
+export interface ProtectedAllocationAuthorityRecoverySource {
+  readonly path: string; readonly writerDirectory: string; readonly contextId: string; readonly genesisId: string;
+  readonly rootId: string; readonly generation: number; readonly stateDigest: string;
+}
+export interface ProtectedAllocationAuthorityRecoveryEvidence extends ProtectedAllocationAuthorityHistoryRecoveryEvidence<AdmissionAllocationAuthorityState> {
+  authority: string;
+}
+const recoverySources = new WeakMap<ProtectedAllocationAuthorityRecoverySource, { read(): ProtectedAllocationAuthorityRecoveryEvidence; fence(): Promise<void> }>();
+export function readProtectedAllocationAuthorityRecoverySource(source: ProtectedAllocationAuthorityRecoverySource): ProtectedAllocationAuthorityRecoveryEvidence {
+  const record = recoverySources.get(source);
+  if (!record) throw new Error('Allocation authority recovery requires a live authenticated source capability');
+  return record.read();
+}
+export async function fenceProtectedAllocationAuthorityRecoverySource(source: ProtectedAllocationAuthorityRecoverySource): Promise<void> {
+  const record = recoverySources.get(source);
+  if (!record) throw new Error('Allocation authority recovery requires a live authenticated source capability');
+  await record.fence();
+}
 export interface ProtectedAdmissionAllocationAuthorityOptions {
   path: string; authority: string; secretKey: Uint8Array; mode: 'create-new' | 'open-existing'; now?: () => number;
+  /** Complete-history review capability; only creates a new protected owner destination. */
+  restore?: { preparation: PreparedProtectedAllocationAuthorityRestore; approvedDigest: string };
   protection: Pick<HistoryOptions, 'context' | 'signingKey' | 'members' | 'writerDirectory' | 'transport' | 'timeoutMs' | 'maxArchiveBlocks' | 'maxArchiveBytes'>;
 }
 export async function openProtectedAdmissionAllocationAuthority(options: ProtectedAdmissionAllocationAuthorityOptions) {
-  const allowed = ['path', 'authority', 'secretKey', 'mode', 'protection', 'now'];
+  const allowed = ['path', 'authority', 'secretKey', 'mode', 'protection', 'now', 'restore'];
   const protectionFields = ['context', 'signingKey', 'members', 'writerDirectory', 'transport', 'timeoutMs', 'maxArchiveBlocks', 'maxArchiveBytes'];
   if (!options || Object.keys(options).some(key => !allowed.includes(key)) || !options.protection
     || Object.keys(options.protection).some(key => !protectionFields.includes(key))) throw new Error('Protected allocation authority storage, role and validation options are fixed');
   const authority = options.authority, path = options.path, mode = options.mode, now = options.now ?? Date.now;
+  const restore = options.restore === undefined ? undefined : { preparation: options.restore.preparation, approvedDigest: options.restore.approvedDigest };
+  if (restore && mode !== 'create-new') throw new Error('Allocation authority restore capability only creates a new destination');
   assertAdmissionAllocationAuthority(authority);
   if (mode !== 'create-new' && mode !== 'open-existing') throw new Error('Protected allocation authority requires explicit creation or opening');
   const context = parseHistoryCheckpointContext(structuredClone(options.protection.context));
@@ -37,8 +60,12 @@ export async function openProtectedAdmissionAllocationAuthority(options: Protect
     const protection = { ...protectionInput, signingKey: signer };
     const encryptionKey = deriveAdmissionAllocationAuthorityEncryptionKey(secret, authority);
     try {
+      const restored = restore === undefined ? undefined : readPreparedProtectedAllocationAuthorityRestore(restore.preparation, restore.approvedDigest,
+        { path, writerDirectory: protection.writerDirectory, context, authority });
+      if (restored && restored.baseline.version !== 2) throw new Error('Protected allocation authority restoration requires v2 state');
       storage = await openProtectedAllocationAuthorityHistory<State>({ ...protection, path, encryptionKey,
         initial: { version: 2, authority, manifests: [], assignments: [] }, initialize: mode === 'create-new',
+        ...(restored ? { restore: { ...restored, baseline: restored.baseline as State } } : {}),
         validate: async value => {
           const state = await parseAdmissionAllocationAuthorityState(value, authority);
           if (state.version !== 2) throw new Error('Protected allocation authority requires v2 state without conversion');
@@ -58,6 +85,20 @@ export async function openProtectedAdmissionAllocationAuthority(options: Protect
   }
   async function reviewAssignment(value: unknown) { ensureOpen(); return reviewAdmissionClaimAssignment(store.read(), value); }
   return {
+    async reviewRecoverySource(): Promise<ProtectedAllocationAuthorityRecoverySource> {
+      available(); busy = true;
+      try {
+        const captured = await store.reviewRecoverySource();
+        const source = Object.freeze({ path: captured.path, writerDirectory: captured.writerDirectory, contextId: captured.contextId, genesisId: captured.genesisId,
+          rootId: captured.rootId, generation: captured.generation, stateDigest: captured.stateDigest });
+        recoverySources.set(source, { read() { return { ...readProtectedAllocationAuthorityHistoryRecoverySource<State>(captured), authority }; },
+          async fence() {
+            available(); busy = true;
+            try { await fenceProtectedAllocationAuthorityHistoryRecoverySource(captured); } finally { busy = false; }
+          } });
+        return source;
+      } finally { busy = false; }
+    },
     current,
     reviewAssignment,
     async review(value: unknown) { ensureOpen(); return reviewAdmissionAllocationPlan(value, authority); },

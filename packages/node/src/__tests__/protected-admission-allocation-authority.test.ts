@@ -5,15 +5,23 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { generateSigningKeyPair } from '@resonance/core';
 import { admissionKeyFingerprint } from '@resonance/core/admission-policy';
-import { historyCheckpointEnvelopeId } from '@resonance/core/history-checkpoint';
+import { historyCheckpointEnvelopeId, createHistoryFreeze, historyDigest } from '@resonance/core/history-checkpoint';
 import { openHistoryCheckpointStore } from '../../../relay/src/history-checkpoint-store.js';
 import { createHistoryCheckpointReplica, type HistoryCheckpointTransport } from '../../../relay/src/history-checkpoint-exchange.js';
 import { historyCheckpointFixture } from '../../../relay/src/__tests__/fixtures/history-checkpoint-fixture.js';
-import { openProtectedIssuerHistory } from '../../../relay/src/protected-issuer-history.js';
+import { createHistoryExchangeRequest, createHistoryExchangeResponse } from '@resonance/core/history-exchange';
+import { createHistorySuccessorProposal, historySuccessorProposalId } from '@resonance/core/history-successor';
+import { createHistoryContinuationRoot } from '@resonance/core/history-continuation';
+import { createHistoryAgreementRequest, createHistoryAgreementVote } from '@resonance/core/history-agreement';
+import { openEncryptedLocalState } from '@resonance/core/local-state';
+import { createRetainedHistoryCheckpointWriter } from '../../../relay/src/history-retained-writer.js';
+import { openProtectedIssuerHistory, readProtectedIssuerHistoryRecoverySource, fenceProtectedIssuerHistoryRecoverySource } from '../../../relay/src/protected-issuer-history.js';
 import { HISTORY_WRITER_FILENAME } from '../../../relay/src/history-checkpoint-quorum.js';
-import { openProtectedAdmissionAllocationAuthority } from '../protected-admission-allocation-authority.js';
+import { openProtectedAllocationAuthorityHistory, readProtectedAllocationAuthorityHistoryRecoverySource, fenceProtectedAllocationAuthorityHistoryRecoverySource, PROTECTED_ALLOCATION_AUTHORITY_OWNER_DOMAIN } from '../../../relay/src/protected-allocation-authority-history.js';
+import { prepareProtectedAllocationAuthorityRestore } from '../admission-allocation-authority-history-restore.js';
+import { openProtectedAdmissionAllocationAuthority, readProtectedAllocationAuthorityRecoverySource, fenceProtectedAllocationAuthorityRecoverySource } from '../protected-admission-allocation-authority.js';
 import { openAdmissionAllocationAuthority } from '../admission-allocation-authority.js';
-import { allocationAuthorityHistoryAnchor, deriveAdmissionAllocationAuthorityEncryptionKey } from '../admission-allocation-authority-state.js';
+import { allocationAuthorityHistoryAnchor, deriveAdmissionAllocationAuthorityEncryptionKey, parseAdmissionAllocationAuthorityState, assertProtectedAllocationAuthoritySuccessor, assertProtectedAllocationAuthorityGenesis } from '../admission-allocation-authority-state.js';
 
 const cleanup: Array<() => void> = [];
 afterEach(() => { for (const close of cleanup.splice(0).reverse()) close(); });
@@ -117,4 +125,106 @@ it('fences legacy and issuer disk formats, rejects privileged options, and never
   expect(readFileSync(n.options.path)).toEqual(before); expect(existsSync(join(n.options.protection.writerDirectory, HISTORY_WRITER_FILENAME))).toBe(false);
   const localPath = join(n.directory, 'legacy.json'), local = await openAdmissionAllocationAuthority({ path: localPath, authority: n.options.authority, secretKey: n.authorityKey.secretKey, mode: 'create-new' }); local.close();
   await expect(openProtectedAdmissionAllocationAuthority({ ...n.options, path: localPath, mode: 'open-existing', protection: { ...n.options.protection, writerDirectory: join(n.directory, 'new-writer') } })).rejects.toThrow();
+});
+
+it('reviews exact applied and pending evidence, rejects stale/cloned sources, and fences only after pending quorum', async () => {
+  const n = await fixture(); await n.ledger.ready(); const stale = await n.ledger.reviewRecoverySource();
+  const reviewed = await n.ledger.review(plan()); const manifest = await n.ledger.sign(plan(), reviewed.approvalDigest);
+  await expect(fenceProtectedAllocationAuthorityRecoverySource(stale)).rejects.toThrow('changed');
+  await n.ledger.ready();
+  const request = claim(), assignment = await n.ledger.reviewAssignment(request); n.failAt(2);
+  await expect(n.ledger.assignClaim(request, assignment.approvalDigest)).rejects.toThrow('Four');
+  const source = await n.ledger.reviewRecoverySource(), evidence = readProtectedAllocationAuthorityRecoverySource(source);
+  expect(evidence.minimumEvidence).toHaveLength(2); expect(evidence.applied?.sequence).toBe(1); expect(evidence.pending?.sequence).toBe(2);
+  expect(source.stateDigest).toBe(historyDigest(JSON.stringify(evidence.minimumEvidence)));
+  expect(JSON.stringify(source)).not.toContain(request.claimHandle);
+  expect(() => readProtectedAllocationAuthorityRecoverySource(structuredClone(source))).toThrow('capability');
+  await expect(fenceProtectedAllocationAuthorityRecoverySource(structuredClone(source))).rejects.toThrow('capability');
+  n.online(3); await expect(fenceProtectedAllocationAuthorityRecoverySource(source)).rejects.toThrow('Four');
+  expect(n.ledger.status().protection).toMatchObject({ fenced: false, pending: true });
+  n.failAt(); n.online(4); await fenceProtectedAllocationAuthorityRecoverySource(source); await fenceProtectedAllocationAuthorityRecoverySource(source);
+  expect(n.ledger.status().protection).toMatchObject({ fenced: true, pending: false, ready: false });
+  const captured = readProtectedAllocationAuthorityRecoverySource(source); captured.minimumEvidence.splice(0);
+  expect(readProtectedAllocationAuthorityRecoverySource(source).minimumEvidence).toHaveLength(2);
+  await n.reopen(); n.clock(300);
+  expect(n.ledger.current('public', 'one')).toEqual(manifest); expect(n.ledger.currentAssignment('public', 'one', request.claimHandle)).toBeDefined();
+  expect(await n.ledger.sign(plan(), reviewed.approvalDigest)).toEqual(manifest);
+  await expect(n.ledger.ready()).rejects.toThrow('fenced');
+  const next = await n.ledger.review(plan('two')); await expect(n.ledger.sign(plan('two'), next.approvalDigest)).rejects.toThrow('fenced');
+});
+it('rejects cross-role source capabilities before fencing either owner', async () => {
+  const n = await fixture(), source = await n.ledger.reviewRecoverySource();
+  const issuer = await openProtectedIssuerHistory({ ...n.options.protection, path: join(n.directory, 'issuer.json'), writerDirectory: join(n.directory, 'issuer-writer'),
+    domain: 'test:cross-role', encryptionKey: n.h.key, context: { ...n.context, role: 'admission-issuer' }, initial: {}, validate: value => value,
+    initialize: true, initializeWriter: true, initializeArchive: true }); cleanup.push(issuer.close);
+  const issuerSource = await issuer.reviewRecoverySource();
+  expect(() => readProtectedAllocationAuthorityHistoryRecoverySource(issuerSource)).toThrow('another history role');
+  await expect(fenceProtectedAllocationAuthorityHistoryRecoverySource(issuerSource)).rejects.toThrow('another history role');
+  expect(() => readProtectedAllocationAuthorityRecoverySource(issuerSource)).toThrow('capability');
+  expect(() => readProtectedIssuerHistoryRecoverySource(source)).toThrow('capability');
+  await expect(fenceProtectedIssuerHistoryRecoverySource(source)).rejects.toThrow('capability');
+  n.ledger.close();
+  const key = deriveAdmissionAllocationAuthorityEncryptionKey(n.authorityKey.secretKey, n.options.authority); cleanup.push(() => key.fill(0));
+  const allocation = await openProtectedAllocationAuthorityHistory({ ...n.options.protection, path: n.options.path, encryptionKey: key,
+    initial: { version: 2 as const, authority: n.options.authority, manifests: [], assignments: [] },
+    validate: value => parseAdmissionAllocationAuthorityState(value, n.options.authority),
+    assertTransition: assertProtectedAllocationAuthoritySuccessor, validateGenesis: state => assertProtectedAllocationAuthorityGenesis(state, n.context) }); cleanup.push(allocation.close);
+  const allocationSource = await allocation.reviewRecoverySource();
+  expect(() => readProtectedIssuerHistoryRecoverySource(allocationSource)).toThrow('another history role');
+  await expect(fenceProtectedIssuerHistoryRecoverySource(allocationSource)).rejects.toThrow('another history role');
+  expect(issuer.status().fenced).toBe(false); expect(allocation.status().fenced).toBe(false);
+});
+async function restoreReview(n: Awaited<ReturnType<typeof fixture>>) {
+  const key = deriveAdmissionAllocationAuthorityEncryptionKey(n.authorityKey.secretKey, n.options.authority); cleanup.push(() => key.fill(0));
+  n.ledger.close();
+  const writer = createRetainedHistoryCheckpointWriter({ directory: n.options.protection.writerDirectory, localKey: key, context: n.context, signingKey: n.h.owner,
+    rootId: n.stores[0].describe().rootId, generation: 0, members: n.options.protection.members, transport: n.options.protection.transport, timeoutMs: 1000 });
+  const blocks = [...writer.history()]; writer.close();
+  const rootId = historyCheckpointEnvelopeId(blocks[0]), head = blocks.at(-1)!, challenge = randomBytes(32).toString('base64url');
+  const freeze = createHistoryFreeze(n.context, 0, 1, challenge, n.h.owner);
+  const receipts = n.h.memberKeys.slice(0, 4).map((member, i) => {
+    const request = createHistoryExchangeRequest({ action: 'freeze', rootId, generation: 0, replica: n.context.members[i], challenge, issuedAt: 100, expiresAt: 200, sequence: 1, envelopeId: null }, n.context, n.h.owner);
+    return createHistoryExchangeResponse(request, 'frozen', { rootId, generation: 0, sequence: head.sequence, envelopeId: historyCheckpointEnvelopeId(head), freeze }, null, n.context, member);
+  });
+  const proposal = createHistorySuccessorProposal({ version: 1, kind: 'frozen-history', rootId, generation: 0, nextGeneration: 1, receipts, envelopes: blocks }, n.context, n.h.owner);
+  const agreementChallenge = randomBytes(32).toString('base64url');
+  const votes = n.h.memberKeys.slice(0, 4).map((member, i) => createHistoryAgreementVote(createHistoryAgreementRequest({ action: 'confirm', rootId, generation: 0, nextGeneration: 1,
+    replica: n.context.members[i], challenge: agreementChallenge, view: 1, issuedAt: 100, expiresAt: 200, proposalId: historySuccessorProposalId(proposal), evidenceId: historyDigest('prepared') }, n.context, n.h.owner), n.context, member));
+  const continuation = createHistoryContinuationRoot(proposal, { version: 2, kind: 'history-agreement-certificate', phase: 'confirmed', votes }, n.context);
+  const destination = { path: join(n.directory, 'restored.json'), writerDirectory: join(n.directory, 'restored-writer') };
+  const preparation = await prepareProtectedAllocationAuthorityRestore({ destination, context: n.context, authority: n.options.authority, genesisId: rootId,
+    encryptionKey: key, blocks, continuation });
+  return { preparation, destination, key };
+}
+it('requires the reviewed restore capability and both independent keys, retains baseline across reopen, and rejects tampering', async () => {
+  const n = await fixture(); await n.ledger.ready(); const reviewed = await n.ledger.review(plan()), manifest = await n.ledger.sign(plan(), reviewed.approvalDigest);
+  const restore = await restoreReview(n), options = { ...n.options, path: restore.destination.path, mode: 'create-new' as const,
+    protection: { ...n.options.protection, writerDirectory: restore.destination.writerDirectory }, restore: { preparation: restore.preparation, approvedDigest: restore.preparation.review.approvalDigest } };
+  for (const invalid of [structuredClone(restore.preparation), { review: restore.preparation.review }]) {
+    await expect(openProtectedAdmissionAllocationAuthority({ ...options, restore: { ...options.restore, preparation: invalid } })).rejects.toThrow('reviewed');
+  }
+  await expect(openProtectedAdmissionAllocationAuthority({ ...options, restore: { ...options.restore, approvedDigest: 'wrong' } })).rejects.toThrow('reviewed');
+  await expect(openProtectedAdmissionAllocationAuthority({ ...options, mode: 'open-existing' })).rejects.toThrow('new destination');
+  await expect(openProtectedAdmissionAllocationAuthority({ ...options, secretKey: generateSigningKeyPair().secretKey })).rejects.toThrow('does not match');
+  await expect(openProtectedAdmissionAllocationAuthority({ ...options, protection: { ...options.protection, signingKey: generateSigningKeyPair() } })).rejects.toThrow('owner');
+  expect(existsSync(options.path)).toBe(false);
+  const restored = await openProtectedAdmissionAllocationAuthority(options); expect(restored.current('public', 'one')).toEqual(manifest);
+  expect(restored.status().protection).toMatchObject({ ready: false, pending: true, applied: null }); restored.close();
+  const reopened = await openProtectedAdmissionAllocationAuthority({ ...options, restore: undefined, mode: 'open-existing', now: () => 300 });
+  expect(reopened.current('public', 'one')).toEqual(manifest); expect(await reopened.sign(plan(), reviewed.approvalDigest)).toEqual(manifest); reopened.close();
+  const raw = openEncryptedLocalState<any>({ path: options.path, key: restore.key, domain: PROTECTED_ALLOCATION_AUTHORITY_OWNER_DOMAIN, mode: 'open-existing', maxBytes: 32 * 1024 * 1024, initial: undefined, validate: (value): value is any => !!value });
+  const state = raw.read(); state.restoration.baseline.manifests = []; raw.write(state); raw.close();
+  await expect(openProtectedAdmissionAllocationAuthority({ ...options, restore: undefined, mode: 'open-existing' })).rejects.toThrow('baseline');
+});
+it('never recreates a deleted restoration writer or missing owner file', async () => {
+  const n = await fixture(); await n.ledger.ready(); const restore = await restoreReview(n);
+  const options = { ...n.options, path: restore.destination.path, mode: 'create-new' as const, protection: { ...n.options.protection, writerDirectory: restore.destination.writerDirectory },
+    restore: { preparation: restore.preparation, approvedDigest: restore.preparation.review.approvalDigest } };
+  const restored = await openProtectedAdmissionAllocationAuthority(options); restored.close();
+  rmSync(join(options.protection.writerDirectory, HISTORY_WRITER_FILENAME));
+  const before = readFileSync(options.path);
+  await expect(openProtectedAdmissionAllocationAuthority({ ...options, restore: undefined, mode: 'open-existing' })).rejects.toThrow();
+  expect(readFileSync(options.path)).toEqual(before); expect(existsSync(join(options.protection.writerDirectory, HISTORY_WRITER_FILENAME))).toBe(false);
+  rmSync(options.path); await expect(openProtectedAdmissionAllocationAuthority({ ...options, restore: undefined, mode: 'open-existing' })).rejects.toThrow('missing');
+  expect(existsSync(options.path)).toBe(false);
 });
