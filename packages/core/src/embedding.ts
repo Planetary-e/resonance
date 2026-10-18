@@ -6,6 +6,7 @@
 import { EMBEDDING_CONFIG } from './types.js';
 import type { ItemType } from './types.js';
 import type { FeatureExtractionPipeline } from '@huggingface/transformers';
+import { configureModelFileCache } from './model-file-cache.js';
 
 // Dynamic import to avoid top-level await issues
 type FeatureExtractionFactory = (
@@ -19,6 +20,7 @@ let transformersPipeline: FeatureExtractionFactory | null = null;
 async function getTransformers() {
   if (!transformersPipeline) {
     const mod = await import('@huggingface/transformers');
+    configureModelFileCache(mod.env);
     // The library factory covers every supported ML task in one very large
     // generic union. Resonance only constructs feature-extraction pipelines.
     transformersPipeline = mod.pipeline as unknown as FeatureExtractionFactory;

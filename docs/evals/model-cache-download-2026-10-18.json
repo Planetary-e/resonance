@@ -1,0 +1,43 @@
+{
+  "measuredAt": "2026-10-18T05:28:42.746Z",
+  "model": "nomic-ai/nomic-embed-text-v1",
+  "dtype": "fp32",
+  "network": "No external requests; fetch serves cached model files as streams.",
+  "checkpoints": [
+    "Cold-cache pipeline downloaded and loaded all real model artifacts",
+    "All download streams closed",
+    "Reopened cache works with downloads disabled",
+    "Reopened embedding is byte-identical"
+  ],
+  "files": [
+    {
+      "file": "config.json",
+      "bytes": 2029
+    },
+    {
+      "file": "tokenizer_config.json",
+      "bytes": 1191
+    },
+    {
+      "file": "tokenizer.json",
+      "bytes": 711396
+    },
+    {
+      "file": "onnx/model.onnx",
+      "bytes": 547552426
+    }
+  ],
+  "servedBytes": 548267042,
+  "downloadRequests": [
+    "config.json",
+    "tokenizer_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json",
+    "onnx/model.onnx"
+  ],
+  "fingerprint": "d08d6ccd1f806cb01dd7c90d3ae73c3f9530bedf66dd176928ab68d1aa2e4ec58e1c9749a5689c443c0e71d24f62898b5cc505aa86d77e61f43df65107c1e8cc",
+  "peakRssBytes": 1169620992,
+  "node": "v24.19.0",
+  "platform": "darwin",
+  "architecture": "arm64"
+}

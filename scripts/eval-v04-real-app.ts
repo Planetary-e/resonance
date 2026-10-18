@@ -31,6 +31,7 @@ WebSocket.prototype.send = function (this: WebSocket, data, ...args: any[]) {
 
 type Snapshot = { did: string; publications: Array<{ publicationId: string; publicationKey: string }>; wire: string[];
   frameBytes: number; frameCount: number; captureComplete: boolean; peakRssBytes: number; cpuSeconds: number };
+type MemorySnapshot = ReturnType<typeof process.memoryUsage> & { peakRssBytes: number };
 if (values.child) {
   assert(process.send && process.env.RESONANCE_DATA_DIR && process.env.RESONANCE_EVAL_DESTINATION);
   const { createAppServer } = await import('../packages/app/src/server/server.js');
@@ -48,6 +49,8 @@ if (values.child) {
         publications: session.store.listPublications().map(p => ({ publicationId: p.record.publicationId, publicationKey: p.record.publicationKey })),
         wire, frameBytes, frameCount, captureComplete, peakRssBytes: process.resourceUsage().maxRSS * 1024,
         cpuSeconds: (cpu.user + cpu.system) / 1e6 } satisfies Snapshot & { kind: string });
+    } else if (message === 'memory') {
+      process.send!({ kind: 'memory', ...process.memoryUsage(), peakRssBytes: process.resourceUsage().maxRSS * 1024 });
     } else if (message === 'stop') await stop();
   });
   process.on('disconnect', () => { void stop(); });
@@ -67,6 +70,7 @@ if (values.child) {
   let report: Record<string, unknown> | undefined, failure: unknown;
   const checkpoints: string[] = [];
   const apiTimings: Array<{ operation: string; status: number; durationMs: number }> = [];
+  const applicationMemory: Array<MemorySnapshot & { application: string; operation: string }> = [];
   let faultCooldownMs = 0;
   let concurrentSearches: Record<string, unknown> | null = null, concurrencyPassed = true;
   const passed = (message: string) => { checkpoints.push(message); console.error(`PASS ${message}`); };
@@ -134,6 +138,12 @@ if (values.child) {
       child.stderr?.on('data', bytes => { diagnostic = (diagnostic + bytes.toString()).slice(-4096); });
       let ready: { port: number }; try { ready = await waitMessage(child, 'ready'); } catch (error) { throw new Error(`${name}: ${error}; ${diagnostic}`); }
       let auth = ''; const base = `http://127.0.0.1:${ready.port}`, password = `evaluation-only-${name}-${randomBytes(16).toString('hex')}`;
+      async function measureMemory(operation: string) {
+        const pending = waitMessage(child, 'memory'); child.send('memory');
+        const { kind: _, ...memory } = await pending;
+        applicationMemory.push({ application: name, operation, ...memory });
+      }
+      await measureMemory('server-start');
       async function exchange(path: string, body?: unknown) {
         const began = performance.now();
         const response = await fetch(base + path, { method: body === undefined ? 'GET' : 'POST', signal: AbortSignal.timeout(90000),
@@ -141,6 +151,7 @@ if (values.child) {
         const data = await response.json();
         const durationMs = Math.round(performance.now() - began);
         apiTimings.push({ operation: path.replace(/\/reqhold_[^/]+\//, '/:id/'), status: response.status, durationMs });
+        await measureMemory(path.replace(/\/reqhold_[^/]+\//, '/:id/'));
         return { status: response.status, data, durationMs };
       }
       async function request(path: string, body?: unknown, expectedStatus = 200) {
@@ -275,7 +286,7 @@ if (values.child) {
     assert(bindings.size >= 8); assert(spends.some(s => s.action === 'mailbox-acknowledge'));
     passed('No root account identifier, plaintext item text or spent token appears in captured network frames; distinct request bindings use distinct tokens');
     const cpu = process.cpuUsage(cpuStart);
-    report = { measuredAt: new Date().toISOString(), checkpoints, model: 'nomic-ai/nomic-embed-text-v1', dtype: 'fp32', remoteModelDownloads: false,
+    report = { measuredAt: new Date().toISOString(), checkpoints, applicationMemory, model: 'nomic-ai/nomic-embed-text-v1', dtype: 'fp32', remoteModelDownloads: false,
       applicationProcesses: 2, published: 3, mailboxMatchCounts: mailboxCounts, distinctRequestBindings: bindings.size, distinctSpentTokens: tokenBindings.size,
       protectedPolicy: protectedPolicy ? { observers: 5, durableHistories: 25, privateQueries: protectedPolicy.queries(), issuerAndRelayFreshness: true, quorumLossRefusedBeforeSpend: true } : null,
       protectedAdmission: protectedAdmission ? { witnesses: 5, coordinators: 1, durableHistories: 30, restartedOwners: 6,
@@ -297,7 +308,7 @@ if (values.child) {
         'Two concurrent model processes on this host; representative hardware and cold first-download experience remain unmeasured.'] };
   } catch (error) {
     failure = error;
-    report = { measuredAt: new Date().toISOString(), completed: false, checkpoints, concurrentSearches, apiTimings, faultCooldownMs,
+    report = { measuredAt: new Date().toISOString(), completed: false, checkpoints, applicationMemory, concurrentSearches, apiTimings, faultCooldownMs,
       capture: { parentComplete: captureComplete, parentFrameCount: frameCount, parentFrameLimit: captureFrameLimit },
       failure: { name: error instanceof Error ? error.name : 'UnknownError' } };
   } finally {

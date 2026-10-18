@@ -8,6 +8,7 @@
     "eval:quick": "tsx src/run.ts --quick",
     "eval:scoped-fingerprint": "tsx src/scoped-fingerprint.ts",
     "eval:scoped-fingerprint:real": "node --import tsx src/scoped-fingerprint-real.ts",
+    "eval:embedding-resources": "node --import tsx src/embedding-resources.ts",
     "eval:private-timing": "tsx src/private-timing.ts",
     "eval:private-mix": "tsx src/private-mix-timing.ts",
     "eval:private-adversaries": "node --import tsx src/private-adversaries.ts",

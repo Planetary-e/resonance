@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { EmbeddingEngine } from '../embedding.js';
 import { pipeline } from '@huggingface/transformers';
 
-vi.mock('@huggingface/transformers', () => ({ pipeline: vi.fn() }));
+vi.mock('@huggingface/transformers', () => ({ pipeline: vi.fn(), env: { useFSCache: false } }));
 afterEach(() => vi.clearAllMocks());
 function pending<T>() { let resolve!: (value: T) => void, reject!: (error: Error) => void;
   const promise = new Promise<T>((a, b) => { resolve = a; reject = b; }); return { promise, resolve, reject }; }
