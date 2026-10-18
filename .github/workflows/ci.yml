@@ -106,6 +106,10 @@ jobs:
           packages/node/src/__tests__/protected-allocation-authority-crash.integration.test.ts
           packages/node/src/__tests__/admission-allocation-authority-history-replay.test.ts
           packages/node/src/__tests__/protected-allocation-authority-restore.integration.test.ts
+          packages/node/src/__tests__/admission-allocation-authority-recovery.test.ts
+          packages/node/src/__tests__/admission-allocation-authority-restore-resumption.test.ts
+          packages/node/src/__tests__/protected-allocation-authority-recovery-command.integration.test.ts
+          packages/node/src/__tests__/protected-allocation-authority-recovery-crash.integration.test.ts
           packages/node/src/__tests__/admission-issuer-allocation.test.ts
           packages/core/src/__tests__/admission-claim-assignment.test.ts
           packages/node/src/__tests__/admission-claim-assignment-authority.test.ts
