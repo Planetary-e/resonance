@@ -1,0 +1,647 @@
+{
+  "generatedAt": "2026-10-18T11:11:02.650Z",
+  "sourceBase": "fab1ae21ce93790a9083fe0f3f03923f53f17f35",
+  "sourceHashes": {
+    "packages/eval/src/witness-availability.ts": "6e67d3cb1771241182a40a3aea1be0ba8c66bbf504337293c57cd8222b78ab06",
+    "packages/eval/src/service-availability-feasibility.ts": "602909507b7fd29d7d1f875df640e263a402db4c8b8db959c4e5046ba4b7cc49",
+    "packages/eval/src/run-service-availability-feasibility.ts": "15843abeaacc7b8cb67a9846ea285fcab20d30ba7b9cfecf930c0014a629b7fa"
+  },
+  "classification": "offline-component-feasibility-only",
+  "k8Status": "not-qualified",
+  "model": "five-member-four-reply-offline-feasibility-v1",
+  "cohortMembers": 5,
+  "requiredReplies": 4,
+  "windowDays": 14,
+  "target": 0.99,
+  "assumptions": [
+    "p is a stationary per-volunteer responsive probability conditional on no common outage.",
+    "Honest volunteers are independent within each physical cohort; independent cohorts also have independent members.",
+    "Identical-member co-hosted histories share one quorum event; history count does not create independent cohorts.",
+    "The permanent withholding count applies to each physical cohort, including one per group in independent multi-cohort cases.",
+    "The common outage fraction is applied once to the joint event; operation success is conditional and applied once.",
+    "Other required owners, witnesses and routes are assumed always available; generated scenarios set conditional operation success to one."
+  ],
+  "limitations": [
+    "Optimistic component screen, not predicted actual availability or a calibrated model of the real topology.",
+    "The real fixture shares 55 histories across two sets of five volunteer endpoints; histories are not 55 independent cohorts.",
+    "No inference about real volunteer uptime, other correlated failures, outage durations, latency, retries or complete-service readiness."
+  ],
+  "fixtureContext": {
+    "histories": 55,
+    "volunteerEndpointSets": 2,
+    "endpointsPerSet": 5,
+    "calibrated": false
+  },
+  "scenarios": [
+    {
+      "assumptions": {
+        "requiredCohorts": 1,
+        "cohortDependence": "independent",
+        "permanentlyWithholdingPerCohort": 0,
+        "commonOutageFraction": 0,
+        "conditionalOperationSuccess": 1
+      },
+      "targetFeasibility": {
+        "target": 0.99,
+        "maximumServiceAvailability": 1,
+        "feasible": true,
+        "minimumPerVolunteerAvailability": 0.9673178877993971,
+        "reason": null
+      },
+      "points": [
+        {
+          "perVolunteerAvailability": 0.8,
+          "perCohortAvailability": 0.73728,
+          "modeledServiceAvailability": 0.73728,
+          "expectedUnavailableMinutes14Days": 5296.435199999999
+        },
+        {
+          "perVolunteerAvailability": 0.9,
+          "perCohortAvailability": 0.9185399999999999,
+          "modeledServiceAvailability": 0.9185399999999999,
+          "expectedUnavailableMinutes14Days": 1642.2336000000018
+        },
+        {
+          "perVolunteerAvailability": 0.95,
+          "perCohortAvailability": 0.9774075,
+          "modeledServiceAvailability": 0.9774075,
+          "expectedUnavailableMinutes14Days": 455.4648000000003
+        },
+        {
+          "perVolunteerAvailability": 0.97,
+          "perCohortAvailability": 0.9915279472,
+          "modeledServiceAvailability": 0.9915279472,
+          "expectedUnavailableMinutes14Days": 170.79658444799924
+        },
+        {
+          "perVolunteerAvailability": 0.99,
+          "perCohortAvailability": 0.9990198504,
+          "modeledServiceAvailability": 0.9990198504,
+          "expectedUnavailableMinutes14Days": 19.759815936000713
+        }
+      ]
+    },
+    {
+      "assumptions": {
+        "requiredCohorts": 1,
+        "cohortDependence": "independent",
+        "permanentlyWithholdingPerCohort": 0,
+        "commonOutageFraction": 0.01,
+        "conditionalOperationSuccess": 1
+      },
+      "targetFeasibility": {
+        "target": 0.99,
+        "maximumServiceAvailability": 0.99,
+        "feasible": true,
+        "minimumPerVolunteerAvailability": 1,
+        "reason": null
+      },
+      "points": [
+        {
+          "perVolunteerAvailability": 0.8,
+          "perCohortAvailability": 0.73728,
+          "modeledServiceAvailability": 0.7299072000000001,
+          "expectedUnavailableMinutes14Days": 5445.070847999998
+        },
+        {
+          "perVolunteerAvailability": 0.9,
+          "perCohortAvailability": 0.9185399999999999,
+          "modeledServiceAvailability": 0.9093545999999999,
+          "expectedUnavailableMinutes14Days": 1827.411264000002
+        },
+        {
+          "perVolunteerAvailability": 0.95,
+          "perCohortAvailability": 0.9774075,
+          "modeledServiceAvailability": 0.9676334249999999,
+          "expectedUnavailableMinutes14Days": 652.5101520000013
+        },
+        {
+          "perVolunteerAvailability": 0.97,
+          "perCohortAvailability": 0.9915279472,
+          "modeledServiceAvailability": 0.981612667728,
+          "expectedUnavailableMinutes14Days": 370.6886186035191
+        },
+        {
+          "perVolunteerAvailability": 0.99,
+          "perCohortAvailability": 0.9990198504,
+          "modeledServiceAvailability": 0.989029651896,
+          "expectedUnavailableMinutes14Days": 221.16221777663986
+        }
+      ]
+    },
+    {
+      "assumptions": {
+        "requiredCohorts": 1,
+        "cohortDependence": "independent",
+        "permanentlyWithholdingPerCohort": 1,
+        "commonOutageFraction": 0,
+        "conditionalOperationSuccess": 1
+      },
+      "targetFeasibility": {
+        "target": 0.99,
+        "maximumServiceAvailability": 1,
+        "feasible": true,
+        "minimumPerVolunteerAvailability": 0.9974905699336811,
+        "reason": null
+      },
+      "points": [
+        {
+          "perVolunteerAvailability": 0.8,
+          "perCohortAvailability": 0.4096000000000001,
+          "modeledServiceAvailability": 0.4096000000000001,
+          "expectedUnavailableMinutes14Days": 11902.463999999998
+        },
+        {
+          "perVolunteerAvailability": 0.9,
+          "perCohortAvailability": 0.6561,
+          "modeledServiceAvailability": 0.6561,
+          "expectedUnavailableMinutes14Days": 6933.023999999999
+        },
+        {
+          "perVolunteerAvailability": 0.95,
+          "perCohortAvailability": 0.8145062499999999,
+          "modeledServiceAvailability": 0.8145062499999999,
+          "expectedUnavailableMinutes14Days": 3739.554000000003
+        },
+        {
+          "perVolunteerAvailability": 0.97,
+          "perCohortAvailability": 0.8852928099999999,
+          "modeledServiceAvailability": 0.8852928099999999,
+          "expectedUnavailableMinutes14Days": 2312.4969504000014
+        },
+        {
+          "perVolunteerAvailability": 0.99,
+          "perCohortAvailability": 0.96059601,
+          "modeledServiceAvailability": 0.96059601,
+          "expectedUnavailableMinutes14Days": 794.3844384000012
+        }
+      ]
+    },
+    {
+      "assumptions": {
+        "requiredCohorts": 1,
+        "cohortDependence": "independent",
+        "permanentlyWithholdingPerCohort": 1,
+        "commonOutageFraction": 0.01,
+        "conditionalOperationSuccess": 1
+      },
+      "targetFeasibility": {
+        "target": 0.99,
+        "maximumServiceAvailability": 0.99,
+        "feasible": true,
+        "minimumPerVolunteerAvailability": 1,
+        "reason": null
+      },
+      "points": [
+        {
+          "perVolunteerAvailability": 0.8,
+          "perCohortAvailability": 0.4096000000000001,
+          "modeledServiceAvailability": 0.4055040000000001,
+          "expectedUnavailableMinutes14Days": 11985.039359999999
+        },
+        {
+          "perVolunteerAvailability": 0.9,
+          "perCohortAvailability": 0.6561,
+          "modeledServiceAvailability": 0.649539,
+          "expectedUnavailableMinutes14Days": 7065.2937600000005
+        },
+        {
+          "perVolunteerAvailability": 0.95,
+          "perCohortAvailability": 0.8145062499999999,
+          "modeledServiceAvailability": 0.8063611874999999,
+          "expectedUnavailableMinutes14Days": 3903.7584600000027
+        },
+        {
+          "perVolunteerAvailability": 0.97,
+          "perCohortAvailability": 0.8852928099999999,
+          "modeledServiceAvailability": 0.8764398818999999,
+          "expectedUnavailableMinutes14Days": 2490.971980896002
+        },
+        {
+          "perVolunteerAvailability": 0.99,
+          "perCohortAvailability": 0.96059601,
+          "modeledServiceAvailability": 0.9509900498999999,
+          "expectedUnavailableMinutes14Days": 988.0405940160018
+        }
+      ]
+    },
+    {
+      "assumptions": {
+        "requiredCohorts": 2,
+        "cohortDependence": "independent",
+        "permanentlyWithholdingPerCohort": 0,
+        "commonOutageFraction": 0,
+        "conditionalOperationSuccess": 1
+      },
+      "targetFeasibility": {
+        "target": 0.99,
+        "maximumServiceAvailability": 1,
+        "feasible": true,
+        "minimumPerVolunteerAvailability": 0.9770893697097626,
+        "reason": null
+      },
+      "points": [
+        {
+          "perVolunteerAvailability": 0.8,
+          "perCohortAvailability": 0.73728,
+          "modeledServiceAvailability": 0.5435817984000001,
+          "expectedUnavailableMinutes14Days": 9201.390944255998
+        },
+        {
+          "perVolunteerAvailability": 0.9,
+          "perCohortAvailability": 0.9185399999999999,
+          "modeledServiceAvailability": 0.8437157315999998,
+          "expectedUnavailableMinutes14Days": 3150.6908509440036
+        },
+        {
+          "perVolunteerAvailability": 0.95,
+          "perCohortAvailability": 0.9774075,
+          "modeledServiceAvailability": 0.95532542105625,
+          "expectedUnavailableMinutes14Days": 900.6395115060009
+        },
+        {
+          "perVolunteerAvailability": 0.97,
+          "perCohortAvailability": 0.9915279472,
+          "modeledServiceAvailability": 0.9831276700786461,
+          "expectedUnavailableMinutes14Days": 340.14617121449464
+        },
+        {
+          "perVolunteerAvailability": 0.99,
+          "perCohortAvailability": 0.9990198504,
+          "modeledServiceAvailability": 0.9980406614932383,
+          "expectedUnavailableMinutes14Days": 39.50026429631517
+        }
+      ]
+    },
+    {
+      "assumptions": {
+        "requiredCohorts": 2,
+        "cohortDependence": "independent",
+        "permanentlyWithholdingPerCohort": 0,
+        "commonOutageFraction": 0.01,
+        "conditionalOperationSuccess": 1
+      },
+      "targetFeasibility": {
+        "target": 0.99,
+        "maximumServiceAvailability": 0.99,
+        "feasible": true,
+        "minimumPerVolunteerAvailability": 1,
+        "reason": null
+      },
+      "points": [
+        {
+          "perVolunteerAvailability": 0.8,
+          "perCohortAvailability": 0.73728,
+          "modeledServiceAvailability": 0.538145980416,
+          "expectedUnavailableMinutes14Days": 9310.977034813439
+        },
+        {
+          "perVolunteerAvailability": 0.9,
+          "perCohortAvailability": 0.9185399999999999,
+          "modeledServiceAvailability": 0.8352785742839998,
+          "expectedUnavailableMinutes14Days": 3320.7839424345643
+        },
+        {
+          "perVolunteerAvailability": 0.95,
+          "perCohortAvailability": 0.9774075,
+          "modeledServiceAvailability": 0.9457721668456874,
+          "expectedUnavailableMinutes14Days": 1093.2331163909414
+        },
+        {
+          "perVolunteerAvailability": 0.97,
+          "perCohortAvailability": 0.9915279472,
+          "modeledServiceAvailability": 0.9732963933778597,
+          "expectedUnavailableMinutes14Days": 538.344709502349
+        },
+        {
+          "perVolunteerAvailability": 0.99,
+          "perCohortAvailability": 0.9990198504,
+          "modeledServiceAvailability": 0.988060254878306,
+          "expectedUnavailableMinutes14Days": 240.70526165335195
+        }
+      ]
+    },
+    {
+      "assumptions": {
+        "requiredCohorts": 2,
+        "cohortDependence": "independent",
+        "permanentlyWithholdingPerCohort": 1,
+        "commonOutageFraction": 0,
+        "conditionalOperationSuccess": 1
+      },
+      "targetFeasibility": {
+        "target": 0.99,
+        "maximumServiceAvailability": 1,
+        "feasible": true,
+        "minimumPerVolunteerAvailability": 0.9987444968227265,
+        "reason": null
+      },
+      "points": [
+        {
+          "perVolunteerAvailability": 0.8,
+          "perCohortAvailability": 0.4096000000000001,
+          "modeledServiceAvailability": 0.16777216000000006,
+          "expectedUnavailableMinutes14Days": 16777.713254399998
+        },
+        {
+          "perVolunteerAvailability": 0.9,
+          "perCohortAvailability": 0.6561,
+          "modeledServiceAvailability": 0.43046721000000004,
+          "expectedUnavailableMinutes14Days": 11481.7810464
+        },
+        {
+          "perVolunteerAvailability": 0.95,
+          "perCohortAvailability": 0.8145062499999999,
+          "modeledServiceAvailability": 0.6634204312890623,
+          "expectedUnavailableMinutes14Days": 6785.444105212505
+        },
+        {
+          "perVolunteerAvailability": 0.97,
+          "perCohortAvailability": 0.8852928099999999,
+          "modeledServiceAvailability": 0.783743359437696,
+          "expectedUnavailableMinutes14Days": 4359.733873736048
+        },
+        {
+          "perVolunteerAvailability": 0.99,
+          "perCohortAvailability": 0.96059601,
+          "modeledServiceAvailability": 0.92274469442792,
+          "expectedUnavailableMinutes14Days": 1557.4669603331338
+        }
+      ]
+    },
+    {
+      "assumptions": {
+        "requiredCohorts": 2,
+        "cohortDependence": "independent",
+        "permanentlyWithholdingPerCohort": 1,
+        "commonOutageFraction": 0.01,
+        "conditionalOperationSuccess": 1
+      },
+      "targetFeasibility": {
+        "target": 0.99,
+        "maximumServiceAvailability": 0.99,
+        "feasible": true,
+        "minimumPerVolunteerAvailability": 1,
+        "reason": null
+      },
+      "points": [
+        {
+          "perVolunteerAvailability": 0.8,
+          "perCohortAvailability": 0.4096000000000001,
+          "modeledServiceAvailability": 0.16609443840000004,
+          "expectedUnavailableMinutes14Days": 16811.536121856
+        },
+        {
+          "perVolunteerAvailability": 0.9,
+          "perCohortAvailability": 0.6561,
+          "modeledServiceAvailability": 0.4261625379,
+          "expectedUnavailableMinutes14Days": 11568.563235935999
+        },
+        {
+          "perVolunteerAvailability": 0.95,
+          "perCohortAvailability": 0.8145062499999999,
+          "modeledServiceAvailability": 0.6567862269761716,
+          "expectedUnavailableMinutes14Days": 6919.18966416038
+        },
+        {
+          "perVolunteerAvailability": 0.97,
+          "perCohortAvailability": 0.8852928099999999,
+          "modeledServiceAvailability": 0.7759059258433191,
+          "expectedUnavailableMinutes14Days": 4517.736534998688
+        },
+        {
+          "perVolunteerAvailability": 0.99,
+          "perCohortAvailability": 0.96059601,
+          "modeledServiceAvailability": 0.9135172474836407,
+          "expectedUnavailableMinutes14Days": 1743.4922907298032
+        }
+      ]
+    },
+    {
+      "assumptions": {
+        "requiredCohorts": 2,
+        "cohortDependence": "identical-members",
+        "permanentlyWithholdingPerCohort": 0,
+        "commonOutageFraction": 0,
+        "conditionalOperationSuccess": 1
+      },
+      "targetFeasibility": {
+        "target": 0.99,
+        "maximumServiceAvailability": 1,
+        "feasible": true,
+        "minimumPerVolunteerAvailability": 0.9673178877993971,
+        "reason": null
+      },
+      "points": [
+        {
+          "perVolunteerAvailability": 0.8,
+          "perCohortAvailability": 0.73728,
+          "modeledServiceAvailability": 0.73728,
+          "expectedUnavailableMinutes14Days": 5296.435199999999
+        },
+        {
+          "perVolunteerAvailability": 0.9,
+          "perCohortAvailability": 0.9185399999999999,
+          "modeledServiceAvailability": 0.9185399999999999,
+          "expectedUnavailableMinutes14Days": 1642.2336000000018
+        },
+        {
+          "perVolunteerAvailability": 0.95,
+          "perCohortAvailability": 0.9774075,
+          "modeledServiceAvailability": 0.9774075,
+          "expectedUnavailableMinutes14Days": 455.4648000000003
+        },
+        {
+          "perVolunteerAvailability": 0.97,
+          "perCohortAvailability": 0.9915279472,
+          "modeledServiceAvailability": 0.9915279472,
+          "expectedUnavailableMinutes14Days": 170.79658444799924
+        },
+        {
+          "perVolunteerAvailability": 0.99,
+          "perCohortAvailability": 0.9990198504,
+          "modeledServiceAvailability": 0.9990198504,
+          "expectedUnavailableMinutes14Days": 19.759815936000713
+        }
+      ]
+    },
+    {
+      "assumptions": {
+        "requiredCohorts": 2,
+        "cohortDependence": "identical-members",
+        "permanentlyWithholdingPerCohort": 0,
+        "commonOutageFraction": 0.01,
+        "conditionalOperationSuccess": 1
+      },
+      "targetFeasibility": {
+        "target": 0.99,
+        "maximumServiceAvailability": 0.99,
+        "feasible": true,
+        "minimumPerVolunteerAvailability": 1,
+        "reason": null
+      },
+      "points": [
+        {
+          "perVolunteerAvailability": 0.8,
+          "perCohortAvailability": 0.73728,
+          "modeledServiceAvailability": 0.7299072000000001,
+          "expectedUnavailableMinutes14Days": 5445.070847999998
+        },
+        {
+          "perVolunteerAvailability": 0.9,
+          "perCohortAvailability": 0.9185399999999999,
+          "modeledServiceAvailability": 0.9093545999999999,
+          "expectedUnavailableMinutes14Days": 1827.411264000002
+        },
+        {
+          "perVolunteerAvailability": 0.95,
+          "perCohortAvailability": 0.9774075,
+          "modeledServiceAvailability": 0.9676334249999999,
+          "expectedUnavailableMinutes14Days": 652.5101520000013
+        },
+        {
+          "perVolunteerAvailability": 0.97,
+          "perCohortAvailability": 0.9915279472,
+          "modeledServiceAvailability": 0.981612667728,
+          "expectedUnavailableMinutes14Days": 370.6886186035191
+        },
+        {
+          "perVolunteerAvailability": 0.99,
+          "perCohortAvailability": 0.9990198504,
+          "modeledServiceAvailability": 0.989029651896,
+          "expectedUnavailableMinutes14Days": 221.16221777663986
+        }
+      ]
+    },
+    {
+      "assumptions": {
+        "requiredCohorts": 2,
+        "cohortDependence": "identical-members",
+        "permanentlyWithholdingPerCohort": 1,
+        "commonOutageFraction": 0,
+        "conditionalOperationSuccess": 1
+      },
+      "targetFeasibility": {
+        "target": 0.99,
+        "maximumServiceAvailability": 1,
+        "feasible": true,
+        "minimumPerVolunteerAvailability": 0.9974905699336811,
+        "reason": null
+      },
+      "points": [
+        {
+          "perVolunteerAvailability": 0.8,
+          "perCohortAvailability": 0.4096000000000001,
+          "modeledServiceAvailability": 0.4096000000000001,
+          "expectedUnavailableMinutes14Days": 11902.463999999998
+        },
+        {
+          "perVolunteerAvailability": 0.9,
+          "perCohortAvailability": 0.6561,
+          "modeledServiceAvailability": 0.6561,
+          "expectedUnavailableMinutes14Days": 6933.023999999999
+        },
+        {
+          "perVolunteerAvailability": 0.95,
+          "perCohortAvailability": 0.8145062499999999,
+          "modeledServiceAvailability": 0.8145062499999999,
+          "expectedUnavailableMinutes14Days": 3739.554000000003
+        },
+        {
+          "perVolunteerAvailability": 0.97,
+          "perCohortAvailability": 0.8852928099999999,
+          "modeledServiceAvailability": 0.8852928099999999,
+          "expectedUnavailableMinutes14Days": 2312.4969504000014
+        },
+        {
+          "perVolunteerAvailability": 0.99,
+          "perCohortAvailability": 0.96059601,
+          "modeledServiceAvailability": 0.96059601,
+          "expectedUnavailableMinutes14Days": 794.3844384000012
+        }
+      ]
+    },
+    {
+      "assumptions": {
+        "requiredCohorts": 2,
+        "cohortDependence": "identical-members",
+        "permanentlyWithholdingPerCohort": 1,
+        "commonOutageFraction": 0.01,
+        "conditionalOperationSuccess": 1
+      },
+      "targetFeasibility": {
+        "target": 0.99,
+        "maximumServiceAvailability": 0.99,
+        "feasible": true,
+        "minimumPerVolunteerAvailability": 1,
+        "reason": null
+      },
+      "points": [
+        {
+          "perVolunteerAvailability": 0.8,
+          "perCohortAvailability": 0.4096000000000001,
+          "modeledServiceAvailability": 0.4055040000000001,
+          "expectedUnavailableMinutes14Days": 11985.039359999999
+        },
+        {
+          "perVolunteerAvailability": 0.9,
+          "perCohortAvailability": 0.6561,
+          "modeledServiceAvailability": 0.649539,
+          "expectedUnavailableMinutes14Days": 7065.2937600000005
+        },
+        {
+          "perVolunteerAvailability": 0.95,
+          "perCohortAvailability": 0.8145062499999999,
+          "modeledServiceAvailability": 0.8063611874999999,
+          "expectedUnavailableMinutes14Days": 3903.7584600000027
+        },
+        {
+          "perVolunteerAvailability": 0.97,
+          "perCohortAvailability": 0.8852928099999999,
+          "modeledServiceAvailability": 0.8764398818999999,
+          "expectedUnavailableMinutes14Days": 2490.971980896002
+        },
+        {
+          "perVolunteerAvailability": 0.99,
+          "perCohortAvailability": 0.96059601,
+          "modeledServiceAvailability": 0.9509900498999999,
+          "expectedUnavailableMinutes14Days": 988.0405940160018
+        }
+      ]
+    }
+  ],
+  "k1Sensitivity": [
+    {
+      "assumptions": {
+        "requiredCohorts": 1,
+        "cohortDependence": "independent",
+        "commonOutageFraction": 0,
+        "permanentlyWithholdingPerCohort": 0,
+        "conditionalOperationSuccess": 0.995
+      },
+      "targetFeasibility": {
+        "target": 0.99,
+        "maximumServiceAvailability": 0.995,
+        "feasible": true,
+        "minimumPerVolunteerAvailability": 0.977059996218589,
+        "reason": null
+      }
+    },
+    {
+      "assumptions": {
+        "requiredCohorts": 2,
+        "cohortDependence": "independent",
+        "commonOutageFraction": 0,
+        "permanentlyWithholdingPerCohort": 0,
+        "conditionalOperationSuccess": 0.995
+      },
+      "targetFeasibility": {
+        "target": 0.99,
+        "maximumServiceAvailability": 0.995,
+        "feasible": true,
+        "minimumPerVolunteerAvailability": 0.9838801569616743,
+        "reason": null
+      }
+    }
+  ]
+}

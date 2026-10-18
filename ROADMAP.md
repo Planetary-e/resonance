@@ -173,6 +173,14 @@ protection and resource/network validation remain required. See the
 [completion gates and ordering](docs/developers/v0.4-completion-plan.md#full-scope-completion-gates)
 for the remaining work; documenting an unmet target does not complete it.
 
+**Acceptance contract, October 18:** the owner approved measurable targets for
+all eight completion areas and a stop/decision rule of three substantive
+alternatives or five active workdays per blocker, with earlier stops for safety
+failures or structural counterexamples. The
+[KPI definitions, evidence and decision limits](docs/developers/v0.4-acceptance-kpis.md)
+are authoritative for closing v0.4. Existing failed screens remain failed;
+passing a unit-test suite does not substitute for those gates.
+
 - [ ] Send publish, search, and mailbox requests through two independently selected volunteer hops
   - [x] Select an ordered pair from fresh, signed, directly reachable relay descriptors and authenticated transport observations; fail closed when identities or observed network domains overlap
   - [x] Carry encrypted publish, search, and mailbox operations over two local relay sockets, with a signed entry-to-destination forward and an encrypted return reply
