@@ -58,7 +58,7 @@ it('inspects existing state without contacting volunteers and never creates a re
   expect(existsSync(join(missing, 'history-writer.json'))).toBe(false);
 });
 
-it('advertises two supplied-transport readers and serves queued challenges within the shared eight-operation budget', async () => {
+it('advertises bounded local batches and serves queued challenges within the shared eight-operation budget', async () => {
   const n = await fixture(), budget = new HistoryLinkBudget();
   const challenges: string[] = []; let peak = 0, refused = 0;
   const transport: HistoryCheckpointTransport = async (member, frame, signal) => {
@@ -71,7 +71,7 @@ it('advertises two supplied-transport readers and serves queued challenges withi
     } finally { release(); }
   };
   const supplied = await openConfiguredPolicyObserver(n.config, { transport }); cleanup.push(supplied.close);
-  expect(supplied.maximumConcurrentObservations).toBe(2); supplied.close();
+  expect(supplied.maximumConcurrentObservations).toBe(2); expect(supplied.maximumObservationBatchSize).toBe(2); supplied.close();
   const direct = await openConfiguredPolicyObserver(n.config); cleanup.push(direct.close);
   expect(direct.maximumConcurrentObservations).toBe(2); direct.close();
   const service = await serveConfiguredPolicyObserver(n.config, { transport }); cleanup.push(service.close);
@@ -81,8 +81,10 @@ it('advertises two supplied-transport readers and serves queued challenges withi
   const replies = await Promise.all(requests.map(request => exchangeAdmissionPolicyObservation(member,
     { request, advance: null }, AbortSignal.timeout(10000))));
   replies.forEach((reply, i) => expect(parseAdmissionPolicyHeadVote(reply, requests[i], n.context, Date.now()).head).toEqual(n.context.genesis));
-  expect(challenges.length).toBeGreaterThanOrEqual(16); expect(challenges.length).toBeLessThanOrEqual(20); expect(new Set(challenges).size).toBe(4);
-  expect(peak).toBe(8); expect(refused).toBe(0); expect(budget.usage()).toEqual({ bytes: 0, operations: 0 });
+  const collections = new Set(challenges).size;
+  expect(collections).toBeGreaterThanOrEqual(2); expect(collections).toBeLessThanOrEqual(4);
+  expect(challenges.length).toBeGreaterThanOrEqual(4 * collections); expect(challenges.length).toBeLessThanOrEqual(5 * collections);
+  expect(peak).toBeGreaterThanOrEqual(4); expect(peak).toBeLessThanOrEqual(8); expect(refused).toBe(0); expect(budget.usage()).toEqual({ bytes: 0, operations: 0 });
 });
 
 it('requires four current copies before listening, performs signed operations and drains shutdown before reopening', async () => {

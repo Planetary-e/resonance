@@ -9,7 +9,7 @@ import { openEncryptedLocalState } from '@resonance/core/local-state';
 import { captureStorageReservationOperation } from '@resonance/core/storage-reservations';
 import { assertAdmissionPolicyCurrent } from '@resonance/core/admission-policy';
 import { admissionPolicyObserversId, createAdmissionPolicyHeadVote, parseAdmissionPolicyHeadRequest,
-  parseAdmissionPolicyObservers, parseAdmissionPolicyHead, type AdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
+  parseAdmissionPolicyObservers, parseAdmissionPolicyHead, type AdmissionPolicyObservers, type AdmissionPolicyHeadVote } from '@resonance/core/admission-policy-freshness';
 import { parseAdmissionPolicyAdvance, sameAdmissionPolicyHead } from '@resonance/core/admission-policy-advance';
 import { historyCheckpointContextId, historyCheckpointEnvelopeId, historyCheckpointEnvelopeByteLength, historyCheckpointReserveBucket, historyDigest,
   parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, sealHistoryCheckpoint,
@@ -182,6 +182,8 @@ export async function openProtectedPolicyObserver(options: {
   } catch (error) { close(); throw error; }
   return {
     maximumConcurrentObservations,
+    /** Local capability only: callers must be captured before the common read begins. */
+    maximumObservationBatchSize: maximumConcurrentObservations,
     /** Aggregate local observations: no history replay, copies of policy content,
      * signatures or network probes. This does not establish a current quorum. */
     health() {
@@ -246,6 +248,42 @@ export async function openProtectedPolicyObserver(options: {
     },
     /** No persistent ready flag: every observation performs another fresh check. */
     ready() { return exclusive(async () => { const { state } = await confirm(); usable(state); }); },
+    async observeBatch(values: readonly unknown[], checks: readonly (() => void)[] = []): Promise<PromiseSettledResult<AdmissionPolicyHeadVote>[]> {
+      live(); if (fenced) throw new Error('Policy observer is permanently fenced for recovery');
+      if (!Array.isArray(values) || !values.length || values.length > maximumConcurrentObservations
+        || checks.length !== 0 && (checks.length !== values.length || checks.some(check => typeof check !== 'function'))) {
+        throw new Error('Invalid policy observation batch');
+      }
+      if (busy || observing + values.length > maximumConcurrentObservations) throw new Error('Protected policy observer operation is already in progress');
+      // Snapshot every caller before beginning any shared freshness work. These
+      // checks are trusted local closures, never fields accepted from the wire.
+      const localChecks = [...checks], started = performance.now();
+      const requests = values.map(value => parseAdmissionPolicyHeadRequest(value, context, now()));
+      const budgets = requests.map(request => request.expiresAt - now());
+      observing += requests.length;
+      try {
+        const refused = requests.map((_request, index): PromiseRejectedResult | undefined => {
+          try { localChecks[index]?.(); } catch (reason) { return { status: 'rejected', reason }; }
+        });
+        if (refused.every(result => result !== undefined)) return refused as PromiseRejectedResult[];
+        const before = retained(); usable(before.state);
+        if (before.saved.pending) throw new Error('Complete the pending policy observer history first');
+        if (!before.saved.committed) throw new Error('Confirm the policy observer root before observing');
+        await writer!.observeCurrent(); live(); const { state } = retained(); usable(state);
+        return requests.map((request, index): PromiseSettledResult<AdmissionPolicyHeadVote> => {
+          if (refused[index]) return refused[index]!;
+          try {
+            const current = () => {
+              localChecks[index]?.(); live(); usable(state);
+              if (performance.now() - started >= budgets[index]) throw new Error('Policy observation completed too late');
+              parseAdmissionPolicyHeadRequest(request, context, now());
+            };
+            current(); const vote = createAdmissionPolicyHeadVote(request, policyObserverStateHead(state, context), context, signer, now());
+            current(); return { status: 'fulfilled', value: vote };
+          } catch (reason) { return { status: 'rejected', reason }; }
+        });
+      } finally { observing -= requests.length; }
+    },
     async observe(value: unknown) {
       live(); if (fenced) throw new Error('Policy observer is permanently fenced for recovery');
       if (busy || observing >= maximumConcurrentObservations) throw new Error('Protected policy observer operation is already in progress');

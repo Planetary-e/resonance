@@ -97,7 +97,9 @@ if (values.child) {
     topology: {
       policy: values['protected-policy'] || values['protected-admission']
         ? { owners: 5, durableHistories: 25, volunteers: historyLinks ? 5 : 25, historiesPerVolunteer: historyLinks ? 5 : 1,
-          persistentOwnerLinks: historyLinks ? 25 : 0, maximumConcurrentObservations: 2, maximumConcurrentMemberRpcsPerRead: 4 } : null,
+          persistentOwnerLinks: historyLinks ? 25 : 0, maximumConcurrentObservations: 2, maximumConcurrentMemberRpcsPerRead: 4,
+          maximumObservationBatchSize: 2, maximumConcurrentExchangeBatches: 1,
+          grouping: 'already-queued-read-only-requests-before-a-fresh-history-quorum' } : null,
       admission: values['protected-admission']
         ? { owners: 6, durableHistories: 30, volunteers: historyLinks ? 5 : 30, historiesPerVolunteer: historyLinks ? 6 : 1,
           persistentOwnerLinks: historyLinks ? 30 : 0, restartRetainsTransportPins: true } : null,

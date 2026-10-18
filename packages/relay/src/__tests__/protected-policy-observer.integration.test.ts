@@ -157,7 +157,8 @@ it('does not turn a new directory, different role or different history identifie
 
 it.each([1, 2] as const)('serves five concurrent witness challenges through actual sockets with %i reader(s) and a fresh history check for each', async maximumConcurrentObservations => {
   const n = await fixture({ maximumConcurrentObservations }); await n.observer.ready(); const calls = n.calls();
-  const exchange = createAdmissionPolicyObserverExchange(n.observer, n.context, () => n.now);
+  const exchange = createAdmissionPolicyObserverExchange({ observe: n.observer.observe, advance: n.observer.advance,
+    maximumConcurrentObservations: n.observer.maximumConcurrentObservations }, n.context, () => n.now);
   const listener = await listenAdmissionPolicyObserver(exchange); cleanup.push(listener.close);
   const member = { publicKey: Buffer.from(n.keys[0].publicKey).toString('base64url'), endpoint: listener.endpoint };
   n.gate(delay(120));
@@ -173,7 +174,8 @@ it.each([1, 2] as const)('serves five concurrent witness challenges through actu
 
 it('bounds admitted observer work including blocked transports and snapshots queued input', async () => {
   const n = await fixture(); await n.observer.ready(); const calls = n.calls();
-  const exchange = createAdmissionPolicyObserverExchange(n.observer, n.context, () => n.now);
+  const exchange = createAdmissionPolicyObserverExchange({ observe: n.observer.observe, advance: n.observer.advance,
+    maximumConcurrentObservations: n.observer.maximumConcurrentObservations }, n.context, () => n.now);
   let release!: () => void; n.gate(new Promise<void>(resolve => { release = resolve; }));
   const inputs = Array.from({ length: 8 }, () => ({ request: createAdmissionPolicyHeadRequest(n.context, n.now), advance: null }));
   const original = structuredClone(inputs[7].request), pending = inputs.map(exchange);
@@ -186,7 +188,8 @@ it('bounds admitted observer work including blocked transports and snapshots que
 
 it.each([1, 2] as const)('charges queue waiting against the original monotonic deadline with %i reader(s) and continues after expired work', async maximumConcurrentObservations => {
   const n = await fixture({ maximumConcurrentObservations }); await n.observer.ready(); const calls = n.calls();
-  const exchange = createAdmissionPolicyObserverExchange(n.observer, n.context, () => n.now);
+  const exchange = createAdmissionPolicyObserverExchange({ observe: n.observer.observe, advance: n.observer.advance,
+    maximumConcurrentObservations: n.observer.maximumConcurrentObservations }, n.context, () => n.now);
   let release!: () => void; n.gate(new Promise<void>(resolve => { release = resolve; }));
   const first = exchange({ request: createAdmissionPolicyHeadRequest(n.context, n.now), advance: null });
   const second = exchange({ request: createAdmissionPolicyHeadRequest(n.context, n.now), advance: null });
@@ -238,7 +241,8 @@ it('overlaps two independent fresh reads while excluding mutations, recovery and
 
 it.each([1, 2] as const)('keeps a queued policy advance as an exclusive barrier with %i reader(s)', async maximumConcurrentObservations => {
   const n = await fixture({ maximumConcurrentObservations }); await n.observer.ready(); const calls = n.calls();
-  const exchange = createAdmissionPolicyObserverExchange(n.observer, n.context, () => n.now);
+  const exchange = createAdmissionPolicyObserverExchange({ observe: n.observer.observe, advance: n.observer.advance,
+    maximumConcurrentObservations: n.observer.maximumConcurrentObservations }, n.context, () => n.now);
   let release!: () => void; n.gate(new Promise<void>(resolve => { release = resolve; }));
   const request = () => createAdmissionPolicyHeadRequest(n.context, n.now);
   const before = [exchange({ request: request(), advance: null }), exchange({ request: request(), advance: null })];

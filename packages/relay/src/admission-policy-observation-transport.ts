@@ -21,15 +21,63 @@ export function createAdmissionPolicyObserverExchange(observer: {
   advance(value: unknown): Promise<unknown>; observe(request: unknown): unknown | Promise<unknown>;
   /** Explicit local implementation capability; never accepted from a peer. */
   maximumConcurrentObservations?: 1 | 2;
+  /** Opt-in local capability; the wire cannot select batch membership or validity checks. */
+  maximumObservationBatchSize?: 1 | 2;
+  observeBatch?(requests: readonly unknown[], checks: readonly (() => void)[]): Promise<PromiseSettledResult<unknown>[]>;
 },
   contextValue: AdmissionPolicyObservers, now = Date.now) {
   const context = parseAdmissionPolicyObservers(contextValue);
   const maximumReaders = observer.maximumConcurrentObservations ?? 1;
   if (maximumReaders !== 1 && maximumReaders !== 2) throw new Error('Invalid observer read concurrency');
+  const batchSize = observer.observeBatch && observer.maximumObservationBatchSize;
+  if (batchSize !== undefined && (batchSize !== 1 && batchSize !== 2 || batchSize > maximumReaders)) throw new Error('Invalid observer batch size');
   let pending = 0, readers = 0, writing = false;
-  type Job = { write: boolean; run(): Promise<unknown>; resolve(value: unknown): void; reject(error: unknown): void };
+  let scheduled = false;
+  type Job = { write: boolean; request: AdmissionPolicyHeadRequest; current(): void;
+    run(): Promise<unknown>; resolve(value: unknown): void; reject(error: unknown): void };
   const queue: Job[] = [];
+  function drainBatch() {
+    if (writing || readers || !queue.length) return;
+    if (queue[0].write) {
+      const next = queue.shift()!; writing = true;
+      const release = () => { pending--; writing = false; drain(); };
+      void next.run().then(value => { release(); next.resolve(value); }, error => { release(); next.reject(error); });
+      return;
+    }
+    const jobs: Job[] = [];
+    while (queue.length && !queue[0].write && jobs.length < batchSize!) {
+      const next = queue.shift()!;
+      try { next.current(); jobs.push(next); }
+      catch (error) { pending--; next.reject(error); }
+    }
+    if (!jobs.length) { drain(); return; }
+    readers = jobs.length;
+    // Membership is fixed now. Later arrivals cannot reuse this fresh collection.
+    const release = () => { pending -= jobs.length; readers = 0; drain(); };
+    void Promise.resolve().then(() => observer.observeBatch!(jobs.map(job => job.request), jobs.map(job => job.current)))
+      .then(results => {
+        if (!Array.isArray(results) || results.length !== jobs.length) throw new Error('Invalid local observer batch result');
+        return results;
+      }).then(results => {
+        release();
+        results.forEach((result, index) => {
+          const job = jobs[index];
+          try {
+            job.current();
+            if (result.status === 'fulfilled') job.resolve(result.value); else job.reject(result.reason);
+          } catch (error) { job.reject(error); }
+        });
+      }, error => { release(); jobs.forEach(job => job.reject(error)); });
+  }
   function drain() {
+    if (batchSize) {
+      if (!scheduled && !writing && !readers && queue.length) {
+        scheduled = true;
+        // Gather only callers already waiting by the next check phase; no timed window.
+        setImmediate(() => { scheduled = false; drainBatch(); });
+      }
+      return;
+    }
     while (!writing && queue.length) {
       const next = queue[0];
       if (next.write ? readers > 0 : readers >= maximumReaders) return;
@@ -51,12 +99,11 @@ export function createAdmissionPolicyObserverExchange(observer: {
       parseAdmissionPolicyHeadRequest(request, context, now());
     };
     pending++;
-    // Each reader has its own fresh history challenge. Two read-only checks may
-    // overlap only when supported by the local observer. A queued policy update
-    // is an exclusive FIFO barrier, so later readers cannot bypass it. Waiting
-    // still consumes each caller's original monotonic and signed deadline.
+    // Explicit local batches share only a newly started history collection.
+    // Every caller retains its own request, original deadline and signed vote.
+    // Policy updates remain exclusive FIFO barriers on both paths.
     return new Promise<unknown>((resolve, reject) => {
-      queue.push({ write: input.advance !== null, resolve, reject, async run() {
+      queue.push({ write: input.advance !== null, request, current, resolve, reject, async run() {
         current();
         if (input.advance !== null) await observer.advance(input.advance);
         current(); // Applied updates may outlive a request, but cannot return a late vote.
