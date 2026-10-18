@@ -1,4 +1,5 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
+import { setTimeout as delay } from 'node:timers/promises';
 import { existsSync, readFileSync, writeFileSync, rmSync, readdirSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
@@ -14,6 +15,13 @@ import { runPolicyObserverRecoveryCommand } from '../policy-observer-recovery-co
 import { policyObserverReplayDigest } from '../policy-observer-history-replay.js';
 import { POLICY_OBSERVER_RESTORATION_FILENAME } from '../policy-observer-history-restore.js';
 import { policyObserverRecoveryFixture } from './fixtures/policy-observer-recovery-fixture.js';
+import { exchangeHistoryProvision } from '../history-agreement-exchange.js';
+
+vi.mock('../history-agreement-exchange.js', async original => {
+  const actual = await original<typeof import('../history-agreement-exchange.js')>();
+  return { ...actual, exchangeHistoryProvision: vi.fn(actual.exchangeHistoryProvision) };
+});
+const actualExchange = await vi.importActual<typeof import('../history-agreement-exchange.js')>('../history-agreement-exchange.js');
 
 const cleanup: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -43,6 +51,20 @@ async function complete(n: Awaited<ReturnType<typeof fixture>>) {
   if (!('approvalDigest' in reviewed)) throw new Error('Missing restore review');
   await n.call('recovery-restore', ['--approve', reviewed.approvalDigest, ...n.prefix, n.destination]);
 }
+
+it('recovers through provisioning slower than a personal observation without extending personal challenges', async () => {
+  const n = await fixture(); let provisionRequests = 0;
+  vi.mocked(exchangeHistoryProvision).mockImplementation(async (member, request, signal) => {
+    expect(request.expiresAt - request.issuedAt).toBe(30000); provisionRequests++;
+    await delay(3200, undefined, { signal });
+    return actualExchange.exchangeHistoryProvision(member, request, signal);
+  });
+  try {
+    await complete(n);
+    expect(provisionRequests).toBe(5);
+    expect(await n.call('recovery-status')).toMatchObject({ complete: true });
+  } finally { vi.mocked(exchangeHistoryProvision).mockImplementation(actualExchange.exchangeHistoryProvision); }
+}, 30000);
 
 it('serves an older signed policy after recovery using its complete retained archive without network requests or file changes', async () => {
   const n = await fixture(true); await complete(n); await n.call('recovery-export', [...n.prefix, n.destination, n.output]);

@@ -29,12 +29,16 @@ export async function runPolicyObserverRecoveryCommand(command: string, raw: rea
   try {
     encryptionKey = readOperatorStorageKey(config.storageKeyFile); cancelled();
     transport = createPinnedHistoryOperatorTransport({ context: config.historyContext }, commandOptions.transportFile, signal);
+    // Explicit recovery provisions durable generations and can include cold
+    // connections. It is not a personal policy-freshness observation: use the
+    // bounded maintenance allowance, without changing observation deadlines.
+    const timeoutMs = transport.maintenanceTimeoutMs ?? 30000;
     const options = { directory: resolve(args[1]), context: config.context, historyContext: config.historyContext,
-      genesis: config.genesis, members: config.members, signingKey, encryptionKey, transport: transport.protection.transport,
+      genesis: config.genesis, members: config.members, signingKey, encryptionKey, timeoutMs, transport: transport.protection.transport,
       agreementTransport: transport.agreementTransport, dataTransport: transport.dataTransport, provisionTransport: transport.provisionTransport };
     if (planning) {
       if (!['available', 'unavailable'].includes(args[2]) || !/^[1-9][0-9]*$/.test(args[3])) throw new Error('Choose an explicit policy source availability and positive view');
-      if (args[2] === 'available') source = await openConfiguredPolicyObserver(config, { transport: transport.protection.transport });
+      if (args[2] === 'available') source = await openConfiguredPolicyObserver(config, { transport: transport.protection.transport, timeoutMs });
       cancelled();
       const review = await preparePolicyObserverRecovery({ ...options, source: source ? source.reviewRecoverySource() : 'unavailable', view: Number(args[3]), signal });
       cancelled(); if (command === 'recovery-plan') return { result: review };
