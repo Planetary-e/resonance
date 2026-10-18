@@ -179,3 +179,64 @@ Final affected regression on the frozen implementation: `npx vitest run
 networking was permitted. This accepts the bounded observer implementation, not
 remote v3 ingestion, all consumers, the 65-rotation composed target or a full KPI.
 The CI durability list contains 27 unique existing test paths on three OSes.
+
+## Remote observer propagation substep
+
+Continue B-HISTORY-LIFECYCLE with the same original trust/resource contract.
+Observable target: an observer advanced locally to v3 serves immutable pages;
+another observer receives the signed advance through the existing channel,
+fetches only its new pages from pinned observer endpoints and durably advances.
+Restart the target and resolve the same original ancestry. Do not put pages in
+the existing advance frame or accept peer-selected URLs. Preserve exact selected
+heads, predecessor/root binding, existing operation deadlines, cumulative bounds
+and exclusive writes. No committed page source means refusal. Missing/corrupt
+pages, wrong heads, cancellation and concurrent advancement must not partially
+activate the policy. Legacy unsupported consumers remain fenced. This substep
+does not authorize desktop activation or establish the final 65-cycle scenario.
+
+### Remote implementation candidate
+
+Sol High: 19:18:01–19:26:24 UTC (**8m23s**). The frozen remote candidate
+passes **36 tests / two files / 19.79s**, including the observer v3 and generic
+checkpoint-writer files; TypeScript and whitespace pass. The remote operation
+uses a shared three-second absolute deadline, at most 16 page requests and a
+cumulative byte bound across fallback. Existing replica timeout defaults remain
+unchanged. Review and affected regression are pending. Legacy artifact transfer
+and collection wrappers remain v1/v2-only and are the next integration boundary.
+
+### Windows CI prerequisite
+
+Published core `46ccfd7` [CI](https://github.com/Planetary-e/resonance/actions/runs/39156269911)
+passed the general suite and all macOS/Linux jobs, but two Windows jobs failed.
+Six multi-operation tests reached the default five-second test-wrapper timeout.
+An issuer crash test expired its initial observation while populating the fixture,
+before starting its child process. Production correctly refused that expired
+observation.
+
+A separate Sol Medium task owns only the five affected test/fixture areas.
+Acceptance is one affected local pass followed by real Windows CI; no local run
+qualifies Windows. Preserve production three-second observation and ten-second
+private-operation limits, negative expiry assertions and the actual crash/recovery
+flow. A deterministic setup clock, restored before exercising crash/recovery,
+and explicit individual multi-operation wrapper limits are permitted; no global
+timeout, retry masking or production deadline changes. This is a necessary
+B-HISTORY-LIFECYCLE/K2-K3 validation prerequisite, not a new protocol alternative.
+Shared usage at the recorded task entry was **14%** at 19:27:12 UTC; initial
+reading began earlier and its exact duration is unknown.
+
+Windows fixture correction receipt: five test-only files now pass **77/77 tests,
+five files, 179.28s** in one serial local-network-permitted run. Parent reviewed
+the changes: scoped setup clock restores in `finally` before crash/recovery;
+individual wrapper limits preserve operation deadlines and negative expiry
+assertions. Actual Windows validation remains pending. Sol Medium observed span
+19:27:12–19:30:49 UTC includes test runtime/wait; earlier reading time is unknown,
+so this is not an exact active-labor interval. Shared account moved **14%→15%**,
+not attributable agent cost. No production files changed in this correction.
+
+Remote review found three P2 implementation issues before acceptance: a silent
+first source consumed the fallback deadline; failed transports were not debited
+against the response-byte ceiling; repeated post-fetch read-only validation
+could outlive cancellation while holding exclusivity. Corrections and specific
+regressions are pending. Astra High review interval 19:27:33–19:28:56 UTC (**83s**).
+Historical intermediate-head catch-up remains explicitly outside the completed
+immediate-head propagation scope.

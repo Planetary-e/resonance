@@ -170,7 +170,7 @@ it('prepares the next configured caller during the previous writer turn without 
   expect(n.n.history.read().image.state.spends).toHaveLength(2);
   expect(n.n.history.roleState().witness!.votes).toHaveLength(3);
   expect(n.n.history.roleState().coordinator!.certificates).toHaveLength(3);
-});
+}, 20000); // Includes role capture, two callers and durable reopening; observation deadlines stay at three seconds.
 
 it.each(['expired', 'cancelled'] as const)('never commits a configured certificate or spend after the original caller is %s', async failure => {
   const n = await configured(), input = await n.request('no late compound commit');
@@ -188,4 +188,4 @@ it.each(['expired', 'cancelled'] as const)('never commits a configured certifica
   expect(n.n.history.read().image.state.spends).toHaveLength(0);
   expect(n.n.history.roleState().coordinator!.certificates).toHaveLength(1);
   expect(n.n.history.roleState().witness!.votes).toHaveLength(2);
-});
+}, 15000); // Fixture/reopening allowance; the explicit four-second expiry jump remains unchanged.

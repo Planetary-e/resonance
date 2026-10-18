@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { fork } from 'node:child_process';
 import { once } from 'node:events';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
@@ -29,9 +29,20 @@ const boundaries: Boundary[] = [
 it.each(boundaries)('preserves issuer obligations across SIGKILL at $name', async boundary => {
   const n = await protectedIssuerRestoreFixture(close => cleanup.push(close)); await n.ledger.ready();
   if (n.genesis.kind !== 'checkpoint') throw new Error('Expected independent original genesis');
-  const assignment = await n.assign(), permit = await n.ledger.grantForAssignment(assignment, n.proof());
-  const batch = await createAdmissionIssuanceBatch(n.profile, 1), response = await n.ledger.approve(permit, batch.request, n.proof());
-  await expect(n.ledger.grantForAssignment(assignment, n.proof(n.advance.commitment.next))).rejects.toThrow('newer');
+  const assignment = await n.assign(), batch = await createAdmissionIssuanceBatch(n.profile, 1);
+  // Populate the crash fixture independently of host crypto/fsync speed. This
+  // setup is not observation-latency qualification; recovery below uses the real
+  // monotonic clock and the production three-second observation deadline.
+  const setupTime = performance.now(), setupClock = vi.spyOn(performance, 'now').mockReturnValue(setupTime);
+  const baseline = await (async () => {
+    try {
+      const permit = await n.ledger.grantForAssignment(assignment, n.proof());
+      const response = await n.ledger.approve(permit, batch.request, n.proof());
+      await expect(n.ledger.grantForAssignment(assignment, n.proof(n.advance.commitment.next))).rejects.toThrow('newer');
+      return { permit, response };
+    } finally { setupClock.mockRestore(); }
+  })();
+  const { permit, response } = baseline;
   const recoveryOptions = { directory: join(n.directory, 'recovery'), context: n.context, genesis: n.genesis, profile: n.profile,
     authority: n.authority, signingKey: n.options.protection.signingKey, encryptionKey: n.key, members: n.members, timeoutMs: 10000 };
   const destination = { path: join(n.directory, 'restored.json'), writerDirectory: join(n.directory, 'restored.json.history') };

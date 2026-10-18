@@ -129,7 +129,7 @@ it('discovers one route per admitted operation while retaining separate policy q
   expect((await client.submitPublicationOperation(n.record())).status).toBe('ok');
   expect(discoveries).toHaveLength(2); expect(n.queries).toHaveLength(2); expect(n.wallet.status().reserved).toBe(2);
   expect(n.queries[0].request.challenge).not.toBe(n.queries[1].request.challenge);
-});
+}, 20000); // Whole fixture plus two operations; each retains its own ten-second deadline.
 
 it('refuses an operation route that expires during its policy query before reserving a credential', async () => {
   const n = await fixture(1000);

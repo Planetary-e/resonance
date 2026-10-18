@@ -187,7 +187,7 @@ it('requires explicit source availability and preserves missing local state inst
   await expect(n.call('recovery-plan', [...n.prefix, 'available', '1'])).rejects.toThrow('missing');
   const review = await n.call('recovery-plan', [...n.prefix, 'unavailable', '1']); expect(review).toMatchObject({ localStateDigest: null });
   expect(existsSync(n.recoveryOptions.directory)).toBe(false);
-});
+}, 15000); // Includes real observer/volunteer setup before the offline refusal assertions.
 
 it('reviews local setup offline, requires unchanged-root quorum before recreating files, then separately confirms signing readiness', async () => {
   const n = await fixture(); await complete(n);

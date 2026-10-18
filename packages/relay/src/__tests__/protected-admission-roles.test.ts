@@ -70,7 +70,7 @@ it('refuses unfunded checkpoint headroom before fencing either intact local role
   files.forEach((file, i) => expect(readFileSync(file)).toEqual(before[i])); expect(n.history.read().pending).toBeNull();
   const local = createAdmissionWitness({ ...n.localOptions, signingKey: f.witnesses[0] }); cleanup.push(local.close);
   expect(local.vote(createAdmissionWitnessRequest(n.initial, f.coordinators[0])).spend).toBe(n.initial.spend);
-});
+}, 15000); // Whole real-store fixture allowance; capture still refuses before fencing.
 
 it('coordinates through its own protected witness without racing the shared history writer', async () => {
   const { n, roles } = await fixture(), role = roles(true), c = n.claim();
@@ -82,7 +82,7 @@ it('coordinates through its own protected witness without racing the shared hist
   await entered; await new Promise<void>(resolve => setImmediate(resolve));
   expect(settled).toBe(false); release(); expect(await operation).toBeNull();
   expect(n.history.roleState().witness!.votes).toHaveLength(2); expect(n.history.roleState().coordinator!.certificates).toHaveLength(2);
-});
+}, 15000); // Includes capture and durable self-witness/coordinator writes; protocol deadlines are unchanged.
 
 it('refuses an uncaptured protected role and missing legacy state instead of creating a blank witness', async () => {
   const { n, roles } = await fixture(false); expect(roles).toThrow(/captured or restored/);
