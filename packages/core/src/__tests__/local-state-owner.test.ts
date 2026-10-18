@@ -150,9 +150,9 @@ it.each(['missing-marker', 'live-successor', 'unexpected-content', 'inspection-d
         expect(failure).toMatchObject({ code: 'EPERM', syscall: 'lstat' });
         expect(readdirSync(recovery)).toEqual([name]); expect(readdirSync(other)).toEqual([]);
       }
-      // Unsafe inspection errors preserve the already-published lock and all
-      // successor metadata; this test fixture alone removes them in cleanup.
-      expect(lstatSync(`${n.path}.lock`).isDirectory()).toBe(true);
+      // Failed handoff rolls back only our primary claim. Successor or corrupt
+      // recovery metadata remains available for inspection.
+      expect(existsSync(`${n.path}.lock`)).toBe(false);
     } else {
       const release = acquireLocalDirectoryOwnership(n.path); cleanup.push(release);
       if (boundary === 'missing-marker') { expect(removedMarker).toBe(true); expect(readdirSync(recovery)).toEqual([]); }
@@ -163,3 +163,64 @@ it.each(['missing-marker', 'live-successor', 'unexpected-content', 'inspection-d
     }
     expect(interleaved).toBe(true); expect(readFileSync(n.payload)).toEqual(before);
   });
+
+
+it.each(['container', 'marker'] as const)('rolls back its unreturned primary claim after a one-shot recovery %s removal failure', boundary => {
+  const n = fixture(), recovery = `${n.path}.recovery`, lock = `${n.path}.lock`, rmdir = fs.rmdirSync;
+  const before = readFileSync(n.payload); let injected = false;
+  vi.spyOn(fs, 'rmdirSync').mockImplementation(((...args: Parameters<typeof fs.rmdirSync>) => {
+    const path = String(args[0]), target = boundary === 'container' ? path === recovery : path.startsWith(join(recovery, 'owner-'));
+    if (!injected && target && existsSync(lock)) {
+      injected = true; throw Object.assign(new Error('Recovery cleanup denied'), { code: 'EPERM', syscall: 'rmdir' });
+    }
+    return Reflect.apply(rmdir, fs, args);
+  }) as typeof fs.rmdirSync); syncBuiltinESMExports();
+  let failure: unknown;
+  try { acquireLocalDirectoryOwnership(n.path); } catch (error) { failure = error; }
+  expect(failure).toMatchObject({ code: 'EPERM', syscall: 'rmdir' }); expect(injected).toBe(true);
+  expect(existsSync(lock)).toBe(false); expect(readFileSync(n.payload)).toEqual(before);
+  // Marker failure needs the retained recovery release to run again; after
+  // container failure an empty released container is safe to replace.
+  if (boundary === 'marker') expect(existsSync(recovery)).toBe(false);
+  const release = acquireLocalDirectoryOwnership(n.path); cleanup.push(release);
+  expect(() => acquireLocalDirectoryOwnership(n.path)).toThrow('already open');
+  release(); expect(readdirSync(n.directory)).toEqual(['accepted.json']);
+});
+
+it('retries removal of its own primary marker after a failed release without admitting a second writer', () => {
+  const n = fixture(), lock = `${n.path}.lock`, before = readFileSync(n.payload), release = acquireLocalDirectoryOwnership(n.path);
+  cleanup.push(release); const rmdir = fs.rmdirSync; let injected = false;
+  vi.spyOn(fs, 'rmdirSync').mockImplementation(((...args: Parameters<typeof fs.rmdirSync>) => {
+    if (!injected && String(args[0]).startsWith(join(lock, 'owner-'))) {
+      injected = true; throw Object.assign(new Error('Primary marker cleanup denied'), { code: 'EPERM', syscall: 'rmdir' });
+    }
+    return Reflect.apply(rmdir, fs, args);
+  }) as typeof fs.rmdirSync); syncBuiltinESMExports();
+  expect(release).toThrow('Primary marker cleanup denied'); expect(readdirSync(lock)).toHaveLength(1);
+  expect(() => acquireLocalDirectoryOwnership(n.path)).toThrow('already open');
+  release(); release(); expect(injected).toBe(true); expect(readdirSync(n.directory)).toEqual(['accepted.json']);
+  expect(readFileSync(n.payload)).toEqual(before);
+});
+
+it('aggregates persistent cleanup denials and preserves both exact claims instead of claiming successful rollback', () => {
+  const n = fixture(), recovery = `${n.path}.recovery`, lock = `${n.path}.lock`, rmdir = fs.rmdirSync, before = readFileSync(n.payload);
+  let recoveryDenials = 0, primaryDenials = 0;
+  vi.spyOn(fs, 'rmdirSync').mockImplementation(((...args: Parameters<typeof fs.rmdirSync>) => {
+    const path = String(args[0]);
+    if (path.startsWith(join(recovery, 'owner-'))) {
+      recoveryDenials++; throw Object.assign(new Error('Recovery marker remains denied'), { code: 'EPERM', syscall: 'rmdir' });
+    }
+    if (path.startsWith(join(lock, 'owner-'))) {
+      primaryDenials++; throw Object.assign(new Error('Primary rollback remains denied'), { code: 'EACCES', syscall: 'rmdir' });
+    }
+    return Reflect.apply(rmdir, fs, args);
+  }) as typeof fs.rmdirSync); syncBuiltinESMExports();
+  let failure: unknown;
+  try { acquireLocalDirectoryOwnership(n.path); } catch (error) { failure = error; }
+  expect(failure).toBeInstanceOf(AggregateError);
+  expect((failure as AggregateError).errors).toMatchObject([{ code: 'EPERM' }, { code: 'EACCES' }, { code: 'EPERM' }]);
+  expect(recoveryDenials).toBe(2); expect(primaryDenials).toBe(1);
+  expect(readdirSync(lock)).toHaveLength(1); expect(readdirSync(recovery)).toHaveLength(1);
+  expect(inspectLocalStateOwnership(lock).directories).toHaveLength(2);
+  expect(readFileSync(n.payload)).toEqual(before);
+});

@@ -121,8 +121,9 @@ function directoryClaim(path: string, owner: string) {
   }
   let released = false;
   return () => {
-    if (released) return; released = true;
+    if (released) return;
     if (!removeEmpty(join(path, owner))) throw new Error('Local ownership marker changed; preserve it for inspection');
+    released = true; // A denied marker removal still needs its exact release capability.
     // A different valid owner may have replaced our now-empty container. Its
     // claim must remain; unexpected contents instead signal damaged ownership.
     if (!removeEmpty(path)) {
@@ -164,6 +165,7 @@ export function acquireLocalDirectoryOwnership(resource: string) {
   const previousRecovery = present(recovery);
   if (previousRecovery && !previousRecovery.isDirectory()) throw new Error('Outbox lock recovery is active or was interrupted; inspect the recovery file before reopening');
   const releaseRecovery = directoryClaim(recovery, owner);
+  let releaseLock: (() => void) | undefined; const failures: unknown[] = [];
   try {
     const previous = present(lock);
     if (previous && !previous.isDirectory()) {
@@ -171,6 +173,18 @@ export function acquireLocalDirectoryOwnership(resource: string) {
       if (!dead(pid)) throw new Error('Encrypted outbox is already open');
       unlinkSync(lock); // File-only removal cannot erase a newly published directory claim.
     }
-    return directoryClaim(lock, owner);
-  } finally { releaseRecovery(); }
+    releaseLock = directoryClaim(lock, owner);
+  } catch (error) { failures.push(error); }
+  try { releaseRecovery(); } catch (error) { failures.push(error); }
+  if (failures.length) {
+    // Do not orphan a living primary owner when recovery cleanup prevents
+    // handing its release capability to the caller. Never touch another nonce.
+    if (releaseLock) { try { releaseLock(); } catch (error) { failures.push(error); } }
+    // One retained-capability cleanup attempt handles a transient failure of
+    // our recovery marker. Persistent denial preserves evidence and is reported.
+    try { releaseRecovery(); } catch (error) { failures.push(error); }
+    if (failures.length > 1) throw new AggregateError(failures, 'Local ownership acquisition failed with cleanup errors');
+    throw failures[0];
+  }
+  return releaseLock!;
 }
