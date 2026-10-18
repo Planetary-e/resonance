@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { rmSync, writeFileSync } from 'node:fs';
@@ -13,8 +13,16 @@ afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await c
 
 it('runs reviewed recovery commands across two generations, preserving permits after the restored owner disappears', async () => {
   const n = await protectedIssuerRestoreFixture(close => cleanup.push(close), { writerSibling: true }); await n.ledger.ready();
-  const assignment = await n.assign(), permit = await n.ledger.grantForAssignment(assignment, n.proof());
-  const batch = await createAdmissionIssuanceBatch(n.profile, 1), response = await n.ledger.approve(permit, batch.request, n.proof());
+  const assignment = await n.assign(), batch = await createAdmissionIssuanceBatch(n.profile, 1);
+  // Initial population is not observation-latency qualification. Restore the
+  // real monotonic clock before the actual command/recovery/retry scenario.
+  const setupClock = vi.spyOn(performance, 'now').mockReturnValue(performance.now());
+  const { permit, response } = await (async () => {
+    try {
+      const permit = await n.ledger.grantForAssignment(assignment, n.proof());
+      return { permit, response: await n.ledger.approve(permit, batch.request, n.proof()) };
+    } finally { setupClock.mockRestore(); }
+  })();
   n.ledger.close();
   const file = (name: string) => join(n.directory, name);
   const json = (name: string, value: unknown) => { writeFileSync(file(name), JSON.stringify(value), { mode: 0o600 }); return file(name); };

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import * as profiles from '../admission-wallet-profile.js';
 import { openBlindAdmissionWalletV2 } from '../blind-admission-wallet.js';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { publicVerif } from '@cloudflare/privacypass-ts';
 import { createBlindAdmissionRequestV2, issueBlindAdmissionRequestV2, createAdmissionRequestBindingV2, generateSigningKeyPair } from '@resonance/core';
 import * as policyModule from '@resonance/core/admission-policy';
@@ -154,7 +154,7 @@ it('poisons after proof publication flush failure and reuses exact staged eviden
   await wallet.installPolicy(genesis, authority, context); n.setNow(1010);
   const originalRename = vi.mocked(renameSync).getMockImplementation()!;
   vi.mocked(renameSync).mockImplementation((source, destination) => {
-    if (String(destination).endsWith('/record-1.bin')) throw new Error('publication interrupted');
+    if (basename(String(destination)) === 'record-1.bin') throw new Error('publication interrupted');
     return originalRename(source, destination);
   });
   await expect(wallet.appendPolicyProof({ advance: advances[0], pages: [] })).rejects.toThrow('publication interrupted');
@@ -238,14 +238,18 @@ it('promotes exact completed pinnedv5 backfill after actual process death before
   const n = fixture(); let wallet = await openManagedAdmissionWallet({ ...n.options, proofStorage: undefined });
   await wallet.installPolicy(genesis, authority, context); n.setNow(1010); await wallet.installPolicy(advances[0], authority);
   wallet.observePolicy(n.observation(advances[1].commitment.next)); wallet.close(); n.funding.close();
-  const inputPath = join(n.root, 'crash-input.json');
+  const inputPath = join(n.root, 'crash-input.json'), marker = join(n.root, 'crash-boundary.txt');
   writeFileSync(inputPath, JSON.stringify({ directory: n.options.directory, key: n.options.encryptionKey.toString('hex'),
     authorityDirectory: join(n.root, 'authority'), authorityId: n.options.proofStorage.authorityId, proofDirectory: n.proofDirectory,
     maxCiphertextBytes: n.options.proofStorage.maxCiphertextBytes, maxRecords: n.options.proofStorage.maxRecords, limits,
-    genesis, context, advance: advances[0] }));
+    genesis, context, advance: advances[0], marker }));
   const child = spawnSync(process.execPath, ['--import', 'tsx', fileURLToPath(new URL('./fixtures/wallet-proof-crash.ts', import.meta.url)), inputPath],
     { encoding: 'utf8', timeout: 15000 });
-  expect(child.error).toBeUndefined(); expect(child.signal, child.stderr).toBe('SIGKILL');
+  expect(child.error).toBeUndefined();
+  expect(readFileSync(marker, 'utf8')).toBe('before-profile-activation');
+  expect(child.stderr).toBe('');
+  if (process.platform === 'win32') { expect(child.status).not.toBeNull(); expect(child.status).not.toBe(0); }
+  else expect(child.signal).toBe('SIGKILL');
   const reopenedAuthority = openStorageReservationAuthority({ directory: join(n.root, 'authority'), mode: 'open-existing', authorityId: n.options.proofStorage.authorityId });
   cleanup.push(() => reopenedAuthority.close()); n.options.proofStorage.authority = reopenedAuthority;
   wallet = await openManagedAdmissionWallet(n.options); cleanup.push(() => wallet.close());

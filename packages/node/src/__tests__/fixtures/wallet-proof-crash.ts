@@ -11,7 +11,11 @@ const wallet = await openManagedAdmissionWallet({ directory: input.directory, en
 await wallet.beginPolicyProof(input.genesis, input.context);
 const rename = fs.renameSync;
 fs.renameSync = ((source: fs.PathLike, target: fs.PathLike) => {
-  if (String(target).endsWith('admission-profile.json')) process.kill(process.pid, 'SIGKILL');
+  if (String(target).endsWith('admission-profile.json')) {
+    const marker = fs.openSync(input.marker, 'wx', 0o600);
+    try { fs.writeSync(marker, 'before-profile-activation'); fs.fsyncSync(marker); } finally { fs.closeSync(marker); }
+    process.kill(process.pid, 'SIGKILL');
+  }
   return rename(source, target);
 }) as typeof fs.renameSync;
 syncBuiltinESMExports();

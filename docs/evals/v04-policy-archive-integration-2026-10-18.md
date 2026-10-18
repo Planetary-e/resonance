@@ -514,3 +514,77 @@ This accepts the local wallet/private-route implementation, not a complete KPI.
 Issuer/relay v3 consumers, profiles beyond 72, semantic retention and the full
 100-cycle/1,000-fault qualification remain under the same blocker. No merge,
 installer, release or deployment was made.
+
+## Protected issuer/relay consumer contract
+
+Wallet candidate `083a619` is committed/pushed after local acceptance. The next
+deliverable remains B-HISTORY-LIFECYCLE / K2 and K3: migrate already-enrolled
+protected issuers and configured protected relays, then demonstrate real issuance
+and admission with 65 archived configurations, restart and owner-loss restoration.
+Astra High's bounded contract review ran 20:13:05–20:14:50 UTC (1m45s). Shared
+quota at the preceding boundary was 27%; no budget/alternative reset.
+
+Canonical original genesis, signed advances, immutable pages, selected head and
+resource limits belong in each role's existing funded replicated history. Reuse
+core streaming resolution and opaque membership; do not use the personal wallet
+journal as protected source of truth or add a disk cache. Shared reference/schema
+types belong in core; history readers belong in relay (node already depends on
+relay). Keep original trust pins. Fresh enrollment at an already-v3 head stays
+explicitly unsupported for this slice.
+
+Version protected images with bounded `policyProof` and optional
+`policyProofAppend` (original genesis or immediate signed advance plus at most two
+pages). Backfill steps preserve all business state and installed freshness until
+the exact installed head/body is proved. Installation commits proof append and
+new policy reference atomically behind the existing four-copy durability barrier.
+Use bounded checkpoint records, not the 64 KiB delta path. Check complete encoded
+image and funded history capacity before intent; keep all existing ceilings. The
+core policy file's actual ceiling is **1 MiB**, not permission to raise it to 2 MiB.
+
+Configured relays commit protected history first, then mirror that exact durable
+head/reference to their local policy store. An interruption between these steps
+resumes the exact commit without rollback or premature service. Live verifiers
+use at most eight current keys; retained spend/witness/denial validation obtains
+authenticated archived membership, never a fabricated complete legacy policy.
+Issuer allocations, profile pins, quotas, prepared responses, assignment/claim
+bindings and permanent retirement totals stay intact.
+
+Recovery must restore referenced original proofs across retained generations and
+include proof validation in the restoration binding. A latest business checkpoint
+or signature alone is insufficient. Missing proof fails closed. Pending histories
+stay nonserving; observations/conflicts persist before refusal. Historical
+validity does not replace a fresh four-observer challenge. One cumulative
+read/byte/deadline envelope covers iterator reads and crypto. Unmigrated local-only
+and operator entrypoints explicitly refuse v3.
+
+Acceptance is a composed scenario with a long-lived active issuer while 65 other
+configurations archive: legacy proof backfill; real issuance/wallet capability/
+protected admission; restart; actual owner loss and funded-replica restoration;
+missing/altered proof refusal; quorum failure and process death around intent/local
+activation; preserved retries/responses/witness pins/denials; capacity/cancellation
+refusal. No larger caps, new trust assumptions, installers or full-KPI claim.
+One Sol High implementer owns this coherent integration and its tests. Parent owns
+docs/CI and reviews results with Astra before acceptance.
+
+### Cross-platform follow-up on `083a619`
+
+CI `39162516807` passes all desktop/ownership jobs and Linux/macOS durability.
+Windows durability reports 281 passed, three failed, five skipped. Two wallet
+fixtures assumed Unix behavior: a `/record-1.bin` suffix did not inject the
+intended failure on Windows, and self-SIGKILL returned a nonzero exit status rather
+than a POSIX signal. Use `basename`, and require a flushed exact boundary marker,
+empty stderr and the platform-specific abnormal termination before checking
+recovery. The third failure is initial issuer population in the recovery-command
+fixture exceeding observation freshness. Follow the existing crash-fixture rule:
+prepare its batch first and scope a fixed monotonic clock only to initial
+population, restoring the real clock before recovery commands and exact retries.
+No production timing change or retry is introduced. Local correction checks and
+the next actual Windows run remain necessary; general CI is still running.
+
+The three corrected cases pass locally in a two-file run (24.32s). That run is
+**12/13 overall**, not an aggregate pass: the separate, uncommitted consumer
+implementation changed core retained membership and broke the existing 66-profile
+wallet retirement case. The consumer implementer must restore that accepted
+behavior before integration. The test-only Windows correction does not include
+those in-progress production changes. Its log is
+`/tmp/resonance-wallet-windows-fixtures.log`.
