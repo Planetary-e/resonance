@@ -22,7 +22,7 @@ export async function realAppPolicyObservers(directory: string, policy: SignedAd
   cleanup.push(() => keys.forEach(key => key.secretKey.fill(0)));
   const listeners: Array<Awaited<ReturnType<typeof listenAdmissionPolicyObserver>>> = [];
   for (let i = 0; i < 5; i++) {
-    const listener = await listenAdmissionPolicyObserver(value => handlers[i](value)); cleanup.push(listener.close);
+    const listener = await listenAdmissionPolicyObserver(value => handlers[i](value), { allowSequentialRequests: true }); cleanup.push(listener.close);
     listeners.push({ ...listener, endpoint: await network.protect('policy-observer', listener.endpoint) });
   }
   const context = parseAdmissionPolicyObservers({ version: 1, kind: 'admission-policy-observers', authority: policy.authority,

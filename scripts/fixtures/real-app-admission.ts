@@ -15,7 +15,7 @@ import { openHistoryVolunteerService } from '../../packages/relay/src/history-vo
 import { listenHistoryAgreementReplica } from '../../packages/relay/src/history-agreement-exchange.js';
 import type { RealAppNetwork } from './real-app-network.js';
 import { exchangeHistoryCheckpoint } from '../../packages/relay/src/history-checkpoint-exchange.js';
-import { exchangeAdmissionPolicyObservation } from '../../packages/relay/src/admission-policy-observation-transport.js';
+import { createAdmissionPolicyObservationPool } from '../../packages/relay/src/admission-policy-observation-pool.js';
 import { requestAdmissionWitnessVote } from '../../packages/relay/src/admission-witness-transport.js';
 import { createRealAppHistoryLinks } from './real-app-history-links.js';
 
@@ -101,7 +101,10 @@ export async function prepareRealAppAdmission(directory: string, cleanup: Array<
         history.close();
         const configured: VerifierOptions = { directory: ownerDirectory, encryptionKey, authority: policy.authority, policy,
           policyObservers: observers, historyProtection: historyOptions.protection, initialize: true, initializeSpendHistory: false,
-          policyObservationTransport: (...args) => network.measure(`${role}-policy`, () => exchangeAdmissionPolicyObservation(...args)),
+          policyObservationTransportFactory: context => {
+            const pool = createAdmissionPolicyObservationPool(context);
+            return { exchange: (...args) => network.measure(`${role}-policy`, () => pool.exchange(...args)), close: pool.close };
+          },
           witnessTransport: (...args) => network.measure('coordinator-witness', () => requestAdmissionWitnessVote(...args)),
           ...(role === 'witness' ? { witnessKey: roleKey } : { coordinatorKey: roleKey }) };
         options.push(configured); verifiers.push(await createConfiguredAdmissionVerifier(configured));

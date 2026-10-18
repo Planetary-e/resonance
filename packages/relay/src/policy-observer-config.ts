@@ -120,7 +120,7 @@ export async function serveConfiguredPolicyObserver(value: PolicyObserverConfigu
     if (signal?.aborted || closing) { observer.close(); cancelled(); }
     await observer.ready(); cancelled();
     listener = await listenAdmissionPolicyObserver(createAdmissionPolicyObserverExchange(observer, config.context, options.now),
-      { ...config.listen, onSocket: options.onSocket, acceptNewWork: options.acceptNewWork });
+      { ...config.listen, allowSequentialRequests: true, onSocket: options.onSocket, acceptNewWork: options.acceptNewWork });
     if (signal?.aborted || closing) { await listener.close(); observer.close(); cancelled(); }
     return { endpoint: listener.endpoint, status: () => observer!.status(), policy: () => observer!.policy(),
       async successor(value: unknown, signal?: AbortSignal) {

@@ -12,7 +12,8 @@ import { createProtectedAdmissionRoles } from './protected-admission-roles.js';
 import { verifyAdmissionWitnessRequest } from '@resonance/core/admission-witness';
 import type { AdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
 import { createAdmissionPolicyFreshnessGate } from './admission-policy-freshness-gate.js';
-import { exchangeAdmissionPolicyObservation, type AdmissionPolicyObservationTransport } from './admission-policy-observation-transport.js';
+import type { AdmissionPolicyObservationTransport } from './admission-policy-observation-transport.js';
+import type { OwnedPolicyObservationTransport } from './admission-policy-observation-pool.js';
 import { createAdmissionDecisionQueue } from './admission-decision-queue.js';
 
 export async function createConfiguredAdmissionVerifier(options: {
@@ -23,6 +24,8 @@ export async function createConfiguredAdmissionVerifier(options: {
   onWitnessSocket?: (socket: Socket) => void;
   policyObservers?: AdmissionPolicyObservers; policyAdvance?: unknown;
   policyObservationTransport?: AdmissionPolicyObservationTransport; policyObservationTimeoutMs?: number;
+  /** Trusted owner-scoped adapter, recreated and closed with this verifier. */
+  policyObservationTransportFactory?: (context: AdmissionPolicyObservers) => OwnedPolicyObservationTransport;
   onPolicySocket?: (socket: Socket) => void;
   historyProtection?: AdmissionHistoryProtection;
   /** Explicit protected spend/writer location; policy and witness state stay in directory. */
@@ -49,7 +52,7 @@ export async function createConfiguredAdmissionVerifier(options: {
     if (options.historyDirectory && !pinnedContext) throw new Error('A separate history location requires a reviewed policy/history binding before startup');
     const policy = await store.install(options.policy, options.authority, { observers: options.policyObservers, advance: options.policyAdvance });
     if (store.freshness()) freshness = createAdmissionPolicyFreshnessGate({ store, now, timeoutMs: options.policyObservationTimeoutMs,
-      transport: options.policyObservationTransport ?? ((member, frame, signal) => exchangeAdmissionPolicyObservation(member, frame, signal, options.onPolicySocket)) });
+      transport: options.policyObservationTransport, transportFactory: options.policyObservationTransportFactory, onSocket: options.onPolicySocket });
     const historyOptions = { directory: options.directory, encryptionKey: options.encryptionKey, policy, now,
       initialize: options.initializeSpendHistory ?? options.initialize, maxSpends: options.maxSpends };
     if (options.historyProtection) {

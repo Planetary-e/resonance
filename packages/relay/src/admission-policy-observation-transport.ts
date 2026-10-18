@@ -118,31 +118,49 @@ export function createAdmissionPolicyObserverExchange(observer: {
  * this listener has awaited all work that was already admitted to its handler. */
 export async function listenAdmissionPolicyObserver(exchange: (value: unknown) => Promise<unknown>, options: {
   port?: number; maxConnections?: number; connectionTimeoutMs?: number;
+  /** Trusted local opt-in. One request at a time; the original connection expiry remains absolute. */
+  allowSequentialRequests?: boolean;
   onSocket?: (socket: Socket) => void;
   /** A fresh observation can cause replica traffic even without an update. */
   acceptNewWork?: (bytes: number) => boolean;
 } = {}) {
   const limit = options.maxConnections ?? MAX_POLICY_OBSERVER_EXCHANGES, timeout = options.connectionTimeoutMs ?? 10_000;
+  const reusable = options.allowSequentialRequests ?? false;
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 8 || !Number.isSafeInteger(timeout)
-    || timeout < 50 || timeout > 30_000) throw new Error('Invalid policy observation listener bounds');
+    || timeout < 50 || timeout > 30_000 || typeof reusable !== 'boolean') throw new Error('Invalid policy observation listener bounds');
   const server = createServer({ maxHeaderSize: 4096 }, (_request, response) => { response.writeHead(404); response.end(); });
   const wss = new WebSocketServer({ noServer: true, maxPayload: ADMISSION_POLICY_OBSERVATION_MAX_BYTES, perMessageDeflate: false });
-  const sockets = new Set<Socket>(), deadlines = new WeakMap<object, number>(), active = new Set<Promise<void>>();
+  const sockets = new Set<Socket>(), connections = new WeakMap<object, { socket: Socket; deadline: number }>(), active = new Set<Promise<void>>();
+  const idle = new Map<Socket, WebSocket>();
   let stopped = false, stopping: Promise<void> | undefined;
+  function reserveAdmissionSlot(incoming = 0) {
+    if (!reusable || [...sockets].filter(socket => !socket.destroyed).length + incoming < limit) return;
+    // Node refuses the ninth physical socket before our connection handler.
+    // Proactively retain at most limit-1 whenever a completed reusable socket
+    // exists, so another owner can arrive without increasing the physical cap.
+    // Destroyed sockets remain charged in sockets until their actual close event.
+    for (const [socket, ws] of idle) {
+      idle.delete(socket);
+      if (socket.destroyed || ws.readyState !== WebSocket.OPEN) continue;
+      ws.terminate(); return;
+    }
+  }
   server.maxConnections = limit;
   server.on('connection', socket => {
     try { options.onSocket?.(socket); } catch { socket.destroy(); return; }
-    sockets.add(socket); deadlines.set(socket, performance.now() + timeout);
+    reserveAdmissionSlot(1);
+    sockets.add(socket); connections.set(socket, { socket, deadline: performance.now() + timeout });
     const timer = setTimeout(() => socket.destroy(), timeout);
-    socket.once('close', () => { sockets.delete(socket); clearTimeout(timer); });
+    socket.once('close', () => { sockets.delete(socket); idle.delete(socket); clearTimeout(timer); });
   });
   server.on('upgrade', (request, socket, head) => {
     if (stopped || request.url !== '/policy-head' || wss.clients.size >= limit) { socket.destroy(); return; }
     wss.handleUpgrade(request, socket, head, ws => {
-      const deadline = deadlines.get(socket) ?? performance.now(); let used = false;
+      const connection = connections.get(socket), deadline = connection?.deadline ?? performance.now(); let used = false;
       wss.emit('connection', ws, request); ws.on('error', () => {});
       ws.on('message', (data, binary) => {
         if (used || stopped || binary || performance.now() >= deadline) { ws.terminate(); return; }
+        if (connection) idle.delete(connection.socket);
         used = true;
         const work = (async () => {
           try {
@@ -152,7 +170,14 @@ export async function listenAdmissionPolicyObserver(exchange: (value: unknown) =
             const reply = await exchange(value), encoded = JSON.stringify(reply);
             if (typeof encoded !== 'string' || Buffer.byteLength(encoded) > ADMISSION_POLICY_HEAD_MAX_BYTES) throw new Error('Policy observation reply exceeds its bound');
             if (stopped || performance.now() >= deadline || ws.readyState !== WebSocket.OPEN) { ws.terminate(); return; }
-            ws.send(encoded, error => { if (error) ws.terminate(); else ws.close(1000, 'policy_observed'); });
+            ws.send(encoded, error => {
+              if (error) ws.terminate();
+              else if (!reusable) ws.close(1000, 'policy_observed');
+              else if (stopped || performance.now() >= deadline || ws.readyState !== WebSocket.OPEN || !connection) ws.terminate();
+              else {
+                used = false; idle.set(connection.socket, ws); reserveAdmissionSlot();
+              }
+            });
           } catch { if (ws.readyState === WebSocket.OPEN) ws.close(4003, 'policy_observation_refused'); }
         })();
         active.add(work); void work.finally(() => active.delete(work));
