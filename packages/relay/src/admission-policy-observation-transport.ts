@@ -10,6 +10,8 @@ import { ADMISSION_POLICY_HEAD_MAX_BYTES, parseAdmissionPolicyHeadRequest, parse
 import { ADMISSION_POLICY_ADVANCE_MAX_BYTES, type AdmissionPolicyAdvance } from '@resonance/core/admission-policy-advance';
 
 
+import { POLICY_ARCHIVE_PAGE_TYPE, POLICY_ARCHIVE_PAGE_REPLY_MAX_BYTES, policyArchivePageReply } from './policy-observer-page-transfer.js';
+
 export interface AdmissionPolicyObservationFrame { request: AdmissionPolicyHeadRequest; advance: AdmissionPolicyAdvance | null }
 export const ADMISSION_POLICY_OBSERVATION_MAX_BYTES = ADMISSION_POLICY_ADVANCE_MAX_BYTES + 1024;
 export type AdmissionPolicyObservationTransport = (member: AdmissionPolicyObservers['members'][number],
@@ -20,6 +22,8 @@ export const MAX_POLICY_OBSERVER_EXCHANGES = 8;
 export function createAdmissionPolicyObserverExchange(observer: {
   advance(value: unknown): Promise<unknown>; observe(request: unknown): unknown | Promise<unknown>;
   /** Explicit local implementation capability; never accepted from a peer. */
+  archivePage?(digest: string, signal?: AbortSignal): Promise<Uint8Array>;
+  status?(): { head: unknown };
   maximumConcurrentObservations?: 1 | 2;
   /** Opt-in local capability; the wire cannot select batch membership or validity checks. */
   maximumObservationBatchSize?: 1 | 2;
@@ -90,6 +94,13 @@ export function createAdmissionPolicyObserverExchange(observer: {
     }
   }
   return async (value: unknown) => {
+    if ((value as { type?: unknown })?.type === POLICY_ARCHIVE_PAGE_TYPE) {
+      if (!observer.archivePage || !observer.status) throw new Error('Observer does not support archive page transfer');
+      if (pending || writing || readers) throw new Error('Observer archive transfer is busy');
+      pending++;
+      try { return await policyArchivePageReply(value, context, observer.status().head, (digest, signal) => observer.archivePage!(digest, signal)); }
+      finally { pending--; }
+    }
     if (!exactWitnessFields(value, ['request', 'advance']) || Buffer.byteLength(JSON.stringify(value)) > ADMISSION_POLICY_OBSERVATION_MAX_BYTES) throw new Error('Invalid policy observation frame');
     if (pending >= MAX_POLICY_OBSERVER_EXCHANGES) throw new Error('Policy observer queue is full');
     const input = structuredClone(value), request = parseAdmissionPolicyHeadRequest(input.request, context, now());
@@ -185,7 +196,7 @@ export async function listenAdmissionPolicyObserver(exchange: (value: unknown) =
             if (options.acceptNewWork?.(bytes.byteLength) === false) throw new Error('Policy observation paused by owner');
             const value = JSON.parse(new TextDecoder('utf8', { fatal: true }).decode(bytes));
             const reply = await exchange(value), encoded = JSON.stringify(reply);
-            if (typeof encoded !== 'string' || Buffer.byteLength(encoded) > ADMISSION_POLICY_HEAD_MAX_BYTES) throw new Error('Policy observation reply exceeds its bound');
+            if (typeof encoded !== 'string' || Buffer.byteLength(encoded) > ((value as { type?: unknown })?.type === POLICY_ARCHIVE_PAGE_TYPE ? POLICY_ARCHIVE_PAGE_REPLY_MAX_BYTES : ADMISSION_POLICY_HEAD_MAX_BYTES)) throw new Error('Policy observation reply exceeds its bound');
             if (stopped || performance.now() >= deadline || ws.readyState !== WebSocket.OPEN) { ws.terminate(); return; }
             ws.send(encoded, error => {
               if (error) ws.terminate();
@@ -227,6 +238,11 @@ export async function listenAdmissionPolicyObserver(exchange: (value: unknown) =
 /** Transport only; quorum collection authenticates every reply against its pin. */
 export function exchangeAdmissionPolicyObservation(member: Parameters<AdmissionPolicyObservationTransport>[0],
   frame: Parameters<AdmissionPolicyObservationTransport>[1], signal: AbortSignal, onSocket?: (socket: Socket) => void): Promise<unknown> {
+  return exchangeAdmissionPolicyObserverFrame(member, frame, signal, ADMISSION_POLICY_HEAD_MAX_BYTES, onSocket);
+}
+export function exchangeAdmissionPolicyObserverFrame(member: Parameters<AdmissionPolicyObservationTransport>[0],
+  frame: unknown, signal: AbortSignal, replyMaximum: number, onSocket?: (socket: Socket) => void): Promise<unknown> {
+  if (replyMaximum !== ADMISSION_POLICY_HEAD_MAX_BYTES && replyMaximum !== POLICY_ARCHIVE_PAGE_REPLY_MAX_BYTES) return Promise.reject(new Error('Invalid observer response bound'));
   try { assertSecureRelayTransportEndpoint(member.endpoint); } catch (error) { return Promise.reject(error); }
   let encoded: string;
   try { encoded = JSON.stringify(frame); if (typeof encoded !== 'string' || Buffer.byteLength(encoded) > ADMISSION_POLICY_OBSERVATION_MAX_BYTES) throw new Error(); }
@@ -241,7 +257,7 @@ export function exchangeAdmissionPolicyObservation(member: Parameters<AdmissionP
     const abort = () => finish(new Error('Policy observation cancelled'));
     const timer = setTimeout(() => finish(new Error('Policy observation timed out')), 30_000);
     if (signal.aborted) { abort(); return; } signal.addEventListener('abort', abort, { once: true });
-    try { socket = new WebSocket(member.endpoint, { ...relayTlsClientOptions, handshakeTimeout: 3000, maxPayload: ADMISSION_POLICY_HEAD_MAX_BYTES, followRedirects: false, perMessageDeflate: false }); }
+    try { socket = new WebSocket(member.endpoint, { ...relayTlsClientOptions, handshakeTimeout: 3000, maxPayload: replyMaximum, followRedirects: false, perMessageDeflate: false }); }
     catch { finish(new Error('Policy observation connection failed')); return; }
     socket.on('error', () => finish(new Error('Policy observation connection failed')));
     socket.on('close', code => finish(new Error(`Policy observation connection closed (${Number.isInteger(code) && code >= 1000 && code <= 4999 ? code : 1006})`)));

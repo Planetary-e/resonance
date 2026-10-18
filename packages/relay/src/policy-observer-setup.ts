@@ -77,7 +77,7 @@ export async function openPolicyObserverSetup(input: { setupFile: string; output
       if (JSON.stringify(state) !== JSON.stringify(initial)) throw new Error('Policy preparation contains a different initial state');
       const bytes = readOperatorFile(anchor, POLICY_OBSERVER_CONFIGURATION_MAX_BYTES);
       try { anchorDigest = historyDigest(bytes); } finally { bytes.fill(0); }
-    } else assertAdmissionPolicyCurrent(initial.policy, Date.now());
+    } else { if (initial.policy.version === 3) throw new Error('Fresh observer setup refuses v3 genesis'); assertAdmissionPolicyCurrent(initial.policy, Date.now()); }
     const details = { kind: 'policy-observer-preparation' as const, mode: input.mode, output, directory, anchor,
       contextId: historyCheckpointContextId(historyContext), owner: historyContext.owner, members, limits, listen,
       genesisId: retained ? historyCheckpointEnvelopeId(retained.genesis) : null, anchorDigest,
@@ -90,7 +90,7 @@ export async function openPolicyObserverSetup(input: { setupFile: string; output
         || path(selectedSigningKey) !== signingKeyFile || path(selectedStorageKey) !== storageKeyFile || path(selectedPolicy) !== policyFile) {
         throw new Error('Policy setup selection changed; review again');
       }
-      if (input.mode === 'new') { absent(anchor); empty(directory); assertAdmissionPolicyCurrent(initial.policy, Date.now()); }
+      if (input.mode === 'new') { absent(anchor); empty(directory); if (initial.policy.version === 3) throw new Error('Fresh observer setup refuses v3 genesis'); assertAdmissionPolicyCurrent(initial.policy, Date.now()); }
       else {
         const bytes = readOperatorFile(anchor, POLICY_OBSERVER_CONFIGURATION_MAX_BYTES);
         try { if (historyDigest(bytes) !== anchorDigest) throw new Error('Policy preparation changed; retain it and inspect'); } finally { bytes.fill(0); }

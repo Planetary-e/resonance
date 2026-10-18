@@ -8,7 +8,7 @@ import { admissionPolicyHead, sameAdmissionPolicyHead, parseAdmissionPolicyAdvan
 import type { SigningKeyPair } from '@resonance/core';
 
 import { ADMISSION_POLICY_OBSERVER_MAX_BYTES, parseAdmissionPolicyObserverState, policyObserverStateHead,
-  advanceAdmissionPolicyObserverState, type AdmissionPolicyObserverState as State } from './admission-policy-observer-state.js';
+  advanceAdmissionPolicyObserverState, assertPolicyObserverCurrent, type AdmissionPolicyObserverState as State } from './admission-policy-observer-state.js';
 export { ADMISSION_POLICY_OBSERVER_MAX_BYTES } from './admission-policy-observer-state.js';
 const DOMAIN = 'resonance:admission-policy-observer:v1';
 export async function openAdmissionPolicyObserver(options: {
@@ -46,7 +46,7 @@ export async function openAdmissionPolicyObserver(options: {
       },
       policy() { return structuredClone(local.read().policy); },
       observe(request: unknown) {
-        const state = usable(), time = now(); assertAdmissionPolicyCurrent(state.policy, time);
+        const state = usable(), time = now(); assertPolicyObserverCurrent(state.policy, time);
         return createAdmissionPolicyHeadVote(request, stateHead(state), context, owned, time);
       },
       async advance(value: unknown) {
@@ -55,7 +55,7 @@ export async function openAdmissionPolicyObserver(options: {
           const next = await parseAdmissionPolicyAdvance(value, context), current = usable();
           const changed = advanceAdmissionPolicyObserverState(current, next, context);
           if (changed === current) return structuredClone(stateHead(current));
-          if (!changed.conflict) assertAdmissionPolicyCurrent(changed.policy, now());
+          if (!changed.conflict) assertPolicyObserverCurrent(changed.policy, now());
           local.write(changed);
           if (changed.conflict) throw new Error('Community policy authority equivocated; evidence retained');
           return structuredClone(stateHead(changed));

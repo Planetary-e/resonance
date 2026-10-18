@@ -162,3 +162,6 @@ export { parsePolicyObserverConfiguration, readPolicyObserverConfigurationFile, 
 export type { PolicyObserverConfiguration } from './policy-observer-config.js';
 export { runPolicyObserverCommand } from './policy-observer-command.js';
 export { collectAdmissionPolicyObservation } from './admission-policy-observation.js';
+
+export { downloadPolicyObserverArchivePage, parsePolicyArchivePageRequest, POLICY_ARCHIVE_PAGE_TYPE, POLICY_ARCHIVE_PAGE_REPLY_MAX_BYTES } from './policy-observer-page-transfer.js';
+export { exchangeAdmissionPolicyObserverFrame } from './admission-policy-observation-transport.js';

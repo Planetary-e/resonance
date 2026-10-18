@@ -61,12 +61,12 @@ export async function runPolicyObserverRecoveryCommand(command: string, raw: rea
         archiveDirectory: join(options.directory, 'download') }, POLICY_OBSERVER_CONFIGURATION_MAX_BYTES);
       return { result: { result: 'policy-restoration-configuration-exported', output, status: inspected.status, readiness: 'unverified', startsService: false } };
     }
-    const { preparation, continuation } = await recovery.reviewRestore(destination, signal); cancelled();
+    const { preparation, continuation, ancestrySource } = await recovery.reviewRestore(destination, signal); cancelled();
     if (command === 'recovery-review') return { result: preparation.review };
     restored = await openProtectedPolicyObserver({ directory: destination, encryptionKey, signingKey, context: config.context,
       historyContext: config.historyContext, genesis: config.genesis, root: continuation, members: config.members, mode: 'create-new',
       maxArchiveBlocks: config.limits.archiveBlocks, maxArchiveBytes: config.limits.archiveBytes,
-      restore: { preparation, approvedDigest: approved! } }); cancelled();
+      ancestrySource, restore: { preparation, approvedDigest: approved! } }); cancelled();
     return { result: { result: 'policy-history-restored', directory: destination, status: restored.status(), readiness: 'unverified', startsService: false } };
   } catch (error) { throw transport ? transport.failure(error) : error; }
   finally { signal?.removeEventListener('abort', cancel); cancel(); encryptionKey?.fill(0); signingKey.secretKey.fill(0); }

@@ -10,7 +10,7 @@ import { assertPolicyObserverHistoryContext } from './policy-observer-history-re
 import { parseAdmissionHistoryArchiveLimits } from './admission-history-config.js';
 import { readOperatorFile, readOperatorSigningKey, readOperatorStorageKey } from './admission-operator-files.js';
 import { openProtectedPolicyObserver, PolicySuccessorUnavailableError } from './protected-policy-observer.js';
-import { readArchivedPolicySuccessor } from './policy-observer-archive.js';
+import { readArchivedPolicySuccessor, openRetainedPolicyObserverArchive } from './policy-observer-archive.js';
 import { createAdmissionPolicyObserverExchange, listenAdmissionPolicyObserver, type PolicyObservationHandlerDiagnostic } from './admission-policy-observation-transport.js';
 import type { HistoryCheckpointTransport } from './history-checkpoint-exchange.js';
 import type { PolicyObserverHealth } from './history-health.js';
@@ -83,16 +83,19 @@ export async function openConfiguredPolicyObserver(value: PolicyObserverConfigur
   const config = parsePolicyObserverConfiguration(value, '/');
   const signingKey = readOperatorSigningKey(config.signingKeyFile);
   let encryptionKey: Buffer | undefined;
+  let archive: ReturnType<typeof openRetainedPolicyObserverArchive> | undefined;
   try {
     encryptionKey = readOperatorStorageKey(config.storageKeyFile);
-    return await openProtectedPolicyObserver({ directory: config.directory, encryptionKey, signingKey, context: config.context,
+    if (config.archiveDirectory) archive = openRetainedPolicyObserverArchive(config);
+    const observer = await openProtectedPolicyObserver({ ancestrySource: archive?.blocks, directory: config.directory, encryptionKey, signingKey, context: config.context,
       historyContext: config.historyContext, root: config.root, genesis: config.genesis, members: config.members, mode: 'open-existing',
       maxArchiveBytes: config.limits.archiveBytes, maxArchiveBlocks: config.limits.archiveBlocks,
       // Each fresh read has at most four live member RPCs, so two readers
       // fit the supplied owner/router transport's eight-operation shared cap.
       maximumConcurrentObservations: 2,
       transport: options.transport, timeoutMs: options.timeoutMs, now: options.now });
-  } finally { encryptionKey?.fill(0); signingKey.secretKey.fill(0); }
+    return { ...observer, close() { observer.close(); archive?.close(); } };
+  } catch (error) { archive?.close(); throw error; } finally { encryptionKey?.fill(0); signingKey.secretKey.fill(0); }
 }
 
 /** Explicit startup checks four current copies before exposing the bounded
@@ -123,9 +126,10 @@ export async function serveConfiguredPolicyObserver(value: PolicyObserverConfigu
       { ...config.listen, allowSequentialRequests: true, onSocket: options.onSocket, onHandlerFailure: options.onHandlerFailure, acceptNewWork: options.acceptNewWork });
     if (signal?.aborted || closing) { await listener.close(); observer.close(); cancelled(); }
     return { endpoint: listener.endpoint, status: () => observer!.status(), policy: () => observer!.policy(),
+      archivePage: (digest: string, signal?: AbortSignal) => observer!.archivePage(digest, signal),
       async successor(value: unknown, signal?: AbortSignal) {
         cancelled(); const previous = parseAdmissionPolicyHead(value);
-        try { return await observer!.successor(previous, signal); }
+        try { const result = await observer!.successor(previous, signal); cancelled(); signal?.throwIfAborted(); return result; }
         catch (error) {
           if (!(error instanceof PolicySuccessorUnavailableError) || !config.archiveDirectory) throw error;
           const successor = await readArchivedPolicySuccessor(config, previous, signal);

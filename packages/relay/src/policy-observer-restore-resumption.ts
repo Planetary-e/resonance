@@ -6,7 +6,7 @@ import { captureStorageReservationOperation } from '@resonance/core/storage-rese
 import { copyAdmissionSigningKey } from '@resonance/core/admission-witness';
 import { parseAdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
 import { historyCheckpointContextId, historyCheckpointEnvelopeId, historyDigest, parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
-import { assertPolicyObserverHistoryContext, decodePolicyObserverSnapshot } from './policy-observer-history-replay.js';
+import { assertPolicyObserverHistoryContext, decodePolicyObserverSnapshot, replayPolicyObserverHistory } from './policy-observer-history-replay.js';
 import { openPolicyObserverRestoration } from './policy-observer-history-restore.js';
 import { openProtectedPolicyObserver, POLICY_OBSERVER_RECOVERY_FENCE } from './protected-policy-observer.js';
 import { createHistoryCheckpointWriter, HISTORY_WRITER_FILENAME } from './history-checkpoint-quorum.js';
@@ -71,8 +71,10 @@ async function openLocalSetup(options: Omit<Options, 'expectedRestorationDigest'
     live(); if (Buffer.from(signer.publicKey).toString('base64url') !== historyContext.owner) throw new Error('Wrong policy restoration owner');
     const initialState = await decodePolicyObserverSnapshot(genesis, historyContext, context, key); live();
     if (root.kind === 'continuation') {
+      const replay = options.ancestrySource ? await replayPolicyObserverHistory({ context, historyContext, genesisId, proposal: root.proposal, encryptionKey: key,
+        blocks: options.ancestrySource(), blockSource: options.ancestrySource }) : undefined;
       baseline = await openPolicyObserverRestoration({ directory, context, historyContext, root, genesisId, encryptionKey: key,
-        mode: 'open-existing', expectedReplayDigest: p.expectedRestorationDigest }); live();
+        mode: 'open-existing', expectedReplayDigest: p.expectedRestorationDigest, resolved: replay?.resolved }); live();
     }
     const initializeWriter = !existsSync(writerPath), initializeArchive = !existsSync(archivePath);
     const checkInitialDirectory = () => {

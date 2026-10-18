@@ -87,6 +87,7 @@ export async function withRelayPolicyObserverActivation<T>(raw: unknown, previou
   const observer = await openConfiguredPolicyObserver(original.config);
   try {
     const status = observer.status(), retained = observer.reviewRecoverySource(), policy = observer.policy();
+    if (policy.version === 3) throw new Error('Desktop policy observer activation requires v3 consumer integration');
     let policyCurrent = true; try { assertAdmissionPolicyCurrent(policy, Date.now()); } catch { policyCurrent = false; }
     const details = { kind: 'policy-observer-activation', configurationFile: input.configurationFile,
       contextId: original.binding.contextId, genesisId: original.binding.genesisId, rootId: original.binding.rootId, directory,
@@ -112,8 +113,9 @@ export async function withRelayPolicyObserverActivation<T>(raw: unknown, previou
     return await operation({ input, binding: original.binding, runtime, review, apply(digest, beforeSave) {
       if (applied || digest !== review.approvalDigest) throw new Error('Observer selection requires matching unused approval');
       if (status.blocked || status.fenced) throw new Error('This observer is blocked or permanently fenced; retain its evidence and inspect its conflict or recovery status');
-      check(); assertAdmissionPolicyCurrent(observer.policy(), Date.now()); beforeSave?.(); check();
-      assertAdmissionPolicyCurrent(observer.policy(), Date.now()); applied = true;
+      check(); const current = observer.policy(); if (current.version === 3) throw new Error('Desktop policy observer activation refuses unresolved v3 consumers');
+      assertAdmissionPolicyCurrent(current, Date.now()); beforeSave?.(); check();
+      assertAdmissionPolicyCurrent(current, Date.now()); applied = true;
       return { result: 'policy-observer-selected', startsService: false, readiness: 'unverified' };
     } });
   } finally { observer.close(); }

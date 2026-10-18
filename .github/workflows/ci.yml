@@ -95,7 +95,7 @@ jobs:
           cache: npm
       - name: Install test dependencies without native install scripts
         run: npm ci --ignore-scripts
-      - name: Verify issuer and allocation durability through recovery and interruption
+      - name: Verify issuer, allocation and policy archive durability
         run: >-
           npx vitest run --maxWorkers=1
           packages/core/src/__tests__/admission-issuance-allocation.test.ts
@@ -124,6 +124,7 @@ jobs:
           packages/node/src/__tests__/admission-issuer-recovery.test.ts
           packages/node/src/__tests__/protected-issuer-recovery-crash.integration.test.ts
           packages/node/src/__tests__/protected-issuer-recovery-command.integration.test.ts
+          packages/relay/src/__tests__/policy-observer-v3.integration.test.ts
 
   desktop-boundaries:
     # Actual local API/process checks; no native compilation or app installers.

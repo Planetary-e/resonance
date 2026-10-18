@@ -133,3 +133,49 @@ and a later transition archives both keys with the shortened final cutoff.
 Reopening from original signed ancestry preserves both archived entries and the
 new current key. Focused core v3 file: **10 tests passed / 8.59s**. This is core
 coverage only; the protected composed scenario remains outstanding.
+
+### Observer review receipt
+
+Sol High implementation interval: 18:52:47–19:10:44 UTC (**17m57s**).
+Seven new integration tests passed, including four-copy replication interruption,
+actual durable-download reopening after deleting the original owner directory,
+conflict preservation and exact byte/record exhaustion. Existing observer,
+restoration, recovery/configuration and command tests were exercised; targeted
+regressions were corrected. This is not a claim of one aggregate final run.
+TypeScript and whitespace checks passed before review.
+
+Astra High review: 19:11:04–19:13:00 UTC (**116s**). Two P2 implementation
+findings require correction: archive-page serving reset its scan budget between
+validation and retrieval and omitted the validation signal; final asynchronous
+page decoding could return after cancellation/deadline. These require shared
+operation accounting and cancellation checks, not relaxed targets or a new
+architecture alternative. No provenance/quorum/conflict-preservation defect was
+identified by inspection. Acceptance remains pending the distinguishing fixes
+and affected regression. Shared weekly counter observed at **12%**, compared
+with **9%** at the previous core-review exit; no per-task attribution is claimed.
+
+Remote advance ingestion, legacy policy artifact transfer and desktop activation
+still require v3 integration. The local API accepts explicit staged pages; that
+does not make the existing remote advance frame support them. The new observer
+test is added to the existing three-OS durability CI job with its unchanged
+15-minute limit. No installer or activation is requested.
+
+### Observer acceptance after review fixes
+
+Sol High corrected both findings at 19:13:34–19:14:52 UTC (**1m18s**).
+Four new cases distinguish cumulative scan exhaustion, cancellation during initial
+archive validation, and cancellation/deadline during final page decoding. The
+v3 file passed **11/11**; TypeScript and whitespace passed. Astra High approved
+the corrections at 19:15:19–19:15:23 UTC (**4s**), without duplicate tests.
+
+Final affected regression on the frozen implementation: `npx vitest run
+--maxWorkers=1` with `policy-observer-v3.integration.test.ts`,
+`protected-policy-observer.integration.test.ts`,
+`policy-observer-history-restore.integration.test.ts`,
+`policy-observer-recovery.integration.test.ts`,
+`policy-observer-config.integration.test.ts` and
+`policy-observer-recovery-command.integration.test.ts` (all under
+`packages/relay/src/__tests__/`): **88/88 tests, six files, 97.06s**. Loopback
+networking was permitted. This accepts the bounded observer implementation, not
+remote v3 ingestion, all consumers, the 65-rotation composed target or a full KPI.
+The CI durability list contains 27 unique existing test paths on three OSes.

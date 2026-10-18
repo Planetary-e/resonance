@@ -8,8 +8,10 @@ import { parseAdmissionPolicyObservers, type AdmissionPolicyObservers } from '@r
 import { historyCheckpointContextId, historyCheckpointEnvelopeId, historyDigest, isHistoryDigest, type HistoryCheckpointContext } from '@resonance/core/history-checkpoint';
 import { parseHistoryContinuationRoot, type HistoryContinuationRoot } from '@resonance/core/history-continuation';
 import { historySuccessorProposalId } from '@resonance/core/history-successor';
-import { parseAdmissionPolicyObserverState, policyObserverStateHead, type AdmissionPolicyObserverState } from './admission-policy-observer-state.js';
+import { parseAdmissionPolicyObserverState, parsePolicyObserverSnapshot, policyObserverStateHead, type AdmissionPolicyObserverState } from './admission-policy-observer-state.js';
 import { policyObserverReplayDigest, replayPolicyObserverHistory } from './policy-observer-history-replay.js';
+
+import { inspectResolvedAdmissionPolicy, type ResolvedAdmissionPolicy } from '@resonance/core/admission-policy-archive';
 
 export interface PreparedPolicyObserverRestore {
   readonly review: Readonly<{ kind: 'policy-observer-restore'; directory: string; contextId: string; genesisId: string;
@@ -57,6 +59,7 @@ export async function openPolicyObserverRestoration(options: {
   mode: 'create-new' | 'open-existing'; restore?: { preparation: PreparedPolicyObserverRestore; approvedDigest: string };
   /** Independent selected-chain replay when inspecting an existing restoration. */
   expectedReplayDigest?: string;
+  resolved?: ResolvedAdmissionPolicy;
 }) {
   const expected = options.expectedReplayDigest;
   if (expected !== undefined && (options.mode !== 'open-existing' || !isHistoryDigest(expected))) throw new Error('Invalid expected policy restoration digest');
@@ -74,7 +77,12 @@ export async function openPolicyObserverRestoration(options: {
       exactWitnessFields(value, ['version', 'contextId', 'genesisId', 'rootId', 'state', 'replayDigest'])
       && value.version === 1 && value.contextId === contextId && value.genesisId === options.genesisId && value.rootId === rootId });
   try {
-    const retained = storage.read(), state = await parseAdmissionPolicyObserverState(retained.state, options.context);
+    const retained = storage.read(), state = await parsePolicyObserverSnapshot(retained.state, options.context);
+    if (state.policy.version === 3) {
+      if (!options.resolved) throw new Error('Restored v3 observer requires retained original ancestry');
+      const resolved = inspectResolvedAdmissionPolicy(options.resolved);
+      if (JSON.stringify(resolved.policy) !== JSON.stringify(state.policy) || JSON.stringify(resolved.head) !== JSON.stringify(policyObserverStateHead(state, options.context))) throw new Error('Restored v3 capability differs from baseline');
+    }
     if (retained.replayDigest !== policyObserverReplayDigest(contextId, options.genesisId, historySuccessorProposalId(options.root.proposal), state)
       || expected !== undefined && retained.replayDigest !== expected) {
       throw new Error('Policy observer baseline differs from its reviewed selected history');

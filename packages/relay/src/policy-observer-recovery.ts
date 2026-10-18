@@ -11,7 +11,7 @@ import { historyCheckpointContextId, historyCheckpointEnvelopeId, historyDigest,
 import { createHistorySuccessorProposal, historySuccessorProposalId, parseHistorySuccessorProposal, type HistorySuccessorProposal } from '@resonance/core/history-successor';
 import { createHistoryContinuationRoot, historyContinuationRootId, parseHistoryContinuationRoot, type HistoryContinuationRoot } from '@resonance/core/history-continuation';
 import { HISTORY_AGREEMENT_MAX_VIEW } from '@resonance/core/history-agreement';
-import { parseAdmissionPolicyObserverState, type AdmissionPolicyObserverState } from './admission-policy-observer-state.js';
+import { parseAdmissionPolicyObserverState, parsePolicyObserverSnapshot, type AdmissionPolicyObserverState } from './admission-policy-observer-state.js';
 import { assertPolicyObserverHistoryContext, decodePolicyObserverSnapshot, replayPolicyObserverHistory } from './policy-observer-history-replay.js';
 import { fencePolicyObserverRecoverySource, openProtectedPolicyObserver, readPolicyObserverRecoverySource, type PolicyObserverRecoverySource } from './protected-policy-observer.js';
 import { preparePolicyObserverRestore } from './policy-observer-history-restore.js';
@@ -168,7 +168,7 @@ export async function openPolicyObserverRecovery(options: Options & {
     storage = run(() => openEncryptedLocalState<State>({ path: join(p.directory, POLICY_OBSERVER_RECOVERY_FILENAME), key: p.key,
       domain: 'resonance:policy-observer-recovery:v1', maxBytes: 8 * 1024 * 1024, initial: initial!, validate: valid,
       mode: initial ? 'create-new' : 'open-existing' }));
-    if (storage.read().minimum) await parseAdmissionPolicyObserverState(storage.read().minimum, p.context);
+    if (storage.read().minimum) await parsePolicyObserverSnapshot(storage.read().minimum, p.context);
     for (const name of storage.read().registered) if (!existsSync(join(p.directory, name, filenames[name]))) throw new Error('Registered policy recovery history is missing; preserve the workspace');
   } catch (error) { storage?.close(); p.key.fill(0); p.signer.secretKey.fill(0); throw error; }
   const journal = storage;
@@ -221,7 +221,7 @@ export async function openPolicyObserverRecovery(options: Options & {
   }
   function reopen() { for (const name of names) if (journal.read().registered.includes(name)) component(name); }
   function replayOptions() { const state = journal.read(); return { context: p.context, historyContext: p.historyContext, genesisId: p.genesisId,
-    encryptionKey: p.key, blocks: component('download').blocks(), ...(state.minimum ? { minimumState: state.minimum } : {}) }; }
+    encryptionKey: p.key, blocks: component('download').blocks(), blockSource: () => component('download').blocks(), ...(state.minimum ? { minimumState: state.minimum } : {}) }; }
   return {
     status,
     async advance(options: { maxBlocks?: number; signal?: AbortSignal } = {}) { return run(async () => {
@@ -255,7 +255,7 @@ export async function openPolicyObserverRecovery(options: Options & {
       try {
         reopen(); const continuation = journal.read().continuation!;
         const preparation = await preparePolicyObserverRestore({ ...replayOptions(), directory: destination, continuation, signal });
-        live(); return { preparation, continuation: structuredClone(continuation) };
+        live(); return { preparation, continuation: structuredClone(continuation), ancestrySource: () => component('download').blocks() };
       } finally { release(); active = false; }
     }); },
     /** Compare an occupied destination with independently replayed selected
@@ -267,7 +267,7 @@ export async function openPolicyObserverRecovery(options: Options & {
         reopen(); const continuation = journal.read().continuation!;
         const replay = await replayPolicyObserverHistory({ ...replayOptions(), proposal: continuation.proposal, signal }); live();
         observer = await openProtectedPolicyObserver({ directory: destination, context: p.context, historyContext: p.historyContext, root: continuation,
-          genesis: p.genesis, signingKey: p.signer, encryptionKey: p.key, members: p.members, mode: 'open-existing', expectedRestorationDigest: replay.replayDigest });
+          genesis: p.genesis, signingKey: p.signer, encryptionKey: p.key, members: p.members, mode: 'open-existing', expectedRestorationDigest: replay.replayDigest, ancestrySource: () => component('download').blocks() });
         live(); if (signal?.aborted) throw new Error('Policy restoration inspection cancelled');
         return { continuation: structuredClone(continuation), status: observer.status(), readiness: 'unverified' as const };
       } finally { observer?.close(); release(); active = false; }
@@ -281,7 +281,7 @@ export async function openPolicyObserverRecovery(options: Options & {
         const replay = await replayPolicyObserverHistory({ ...replayOptions(), proposal: root.proposal, signal }); live();
         resumption = await openPolicyObserverRestoreResumption({ directory: destination, context: p.context, historyContext: p.historyContext,
           root, genesis: p.genesis, signingKey: p.signer, encryptionKey: p.key, members: p.members, transport: p.transport, timeoutMs: p.timeoutMs,
-          expectedRestorationDigest: replay.replayDigest, ...limits, signal });
+          expectedRestorationDigest: replay.replayDigest, ancestrySource: () => component('download').blocks(), ...limits, signal });
         live(); return resumption;
       } catch (error) { resumption?.close(); throw error; }
       finally { release(); active = false; }
