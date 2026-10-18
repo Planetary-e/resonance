@@ -54,6 +54,32 @@ async function fixture() {
   return { request, init, unlock, events, base, port };
 }
 
+it('releases the setup model and waits for native cleanup before loading another unlocked session', async () => {
+  const f = await fixture(), released: EmbeddingEngine[] = [];
+  const original = EmbeddingEngine.prototype.dispose;
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let paused: EmbeddingEngine | undefined;
+  const disposal = vi.spyOn(EmbeddingEngine.prototype, 'dispose').mockImplementation(async function (this: EmbeddingEngine) {
+    released.push(this); if (this === paused) await gate; return original.call(this);
+  });
+  try {
+    await f.init(); expect(disposal).toHaveBeenCalledTimes(1);
+    const token = await f.unlock(); paused = sessions.getSession()!.engine;
+    expect(released).not.toContain(paused);
+    expect((await f.request('/api/lock', {}, { authorization: `Bearer ${token}` })).status).toBe(200);
+    expect(sessions.isUnlocked()).toBe(false); expect(released).toContain(paused);
+    // Even a direct unlock cannot allocate a new pipeline while the old native
+    // model is still being released. Public auth revocation was immediate.
+    let settled = false;
+    const unlocking = f.unlock().finally(() => { settled = true; });
+    await new Promise(resolve => setTimeout(resolve, 100));
+    expect(settled).toBe(false); expect(EmbeddingEngine.prototype.initialize).toHaveBeenCalledTimes(2);
+    release(); await unlocking; expect(EmbeddingEngine.prototype.initialize).toHaveBeenCalledTimes(3);
+    expect(sessions.getSession()!.engine).not.toBe(paused);
+  } finally { release(); }
+});
+
 it('returns a valid service result after the old ten-second socket cutoff', async () => {
   const f = await fixture(); await f.init(); const token = await f.unlock();
   vi.spyOn(sessions, 'startRelayMode').mockImplementationOnce(async () => {

@@ -91,6 +91,7 @@ jobs:
       - name: Verify desktop imports, retained selections and HTTP boundaries
         run: >-
           npx vitest run --maxWorkers=1
+          packages/core/src/__tests__/embedding-lifecycle.test.ts
           packages/app/src/server/__tests__/history-collection-storage.test.ts
           packages/app/src/server/__tests__/history-collection-activation.integration.test.ts
           packages/app/src/server/__tests__/local-api-lifetime.test.ts

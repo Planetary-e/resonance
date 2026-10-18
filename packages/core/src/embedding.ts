@@ -84,6 +84,10 @@ export function rewriteForMatching(text: string, itemType: ItemType): string {
 
 export class EmbeddingEngine {
   private pipe: FeatureExtractionPipeline | null = null;
+  private initialization: Promise<void> | null = null;
+  private disposal: Promise<void> | null = null;
+  private closed = false;
+  private active = new Set<Promise<unknown>>();
   private modelId: string;
 
   constructor(modelId?: string) {
@@ -92,16 +96,36 @@ export class EmbeddingEngine {
 
   /** Initialize the model pipeline. Downloads model on first run. */
   async initialize(): Promise<void> {
+    if (this.closed) throw new Error('EmbeddingEngine is disposed');
     if (this.pipe) return;
-    const pipelineFn = await getTransformers();
-    this.pipe = await pipelineFn('feature-extraction', this.modelId, {
-      dtype: 'fp32',
-    });
+    if (!this.initialization) {
+      this.initialization = (async () => {
+        const pipelineFn = await getTransformers();
+        this.pipe = await pipelineFn('feature-extraction', this.modelId, { dtype: 'fp32' });
+      })();
+    }
+    try { await this.initialization; }
+    finally { this.initialization = null; }
+    if (this.closed) throw new Error('EmbeddingEngine is disposed');
   }
 
   /** Check if the engine is ready */
   isInitialized(): boolean {
-    return this.pipe !== null;
+    return !this.closed && this.pipe !== null;
+  }
+
+  /** Stop new inference immediately, then release native model sessions after
+   * initialization and already-started inference have actually settled. */
+  dispose(): Promise<void> {
+    if (this.disposal) return this.disposal;
+    this.closed = true;
+    this.disposal = (async () => {
+      try { await this.initialization; } catch { /* Failed initialization has no installed pipeline. */ }
+      const pipe = this.pipe; this.pipe = null;
+      await Promise.allSettled([...this.active]);
+      await pipe?.dispose();
+    })();
+    return this.disposal;
   }
 
   /**
@@ -111,22 +135,22 @@ export class EmbeddingEngine {
    * @returns Normalized 768-dim Float32Array
    */
   async embed(text: string, prefix: EmbeddingPrefix = 'search_document'): Promise<Float32Array> {
-    if (!this.pipe) {
+    if (this.closed || !this.pipe) {
       throw new Error('EmbeddingEngine not initialized. Call initialize() first.');
     }
 
     const prefixedText = `${prefix}: ${text}`;
-    const output = await this.pipe(prefixedText, {
+    const inference = this.pipe(prefixedText, {
       pooling: 'mean',
       normalize: true,
     });
-
-    // Output is a Tensor — extract the flat data as Float32Array
-    const data = output.data;
-    if (data instanceof Float32Array) {
-      return data;
-    }
-    return new Float32Array(data as ArrayLike<number>);
+    this.active.add(inference);
+    try {
+      const output = await inference;
+      // Output is a Tensor — extract the flat data as Float32Array
+      const data = output.data;
+      return data instanceof Float32Array ? data : new Float32Array(data as ArrayLike<number>);
+    } finally { this.active.delete(inference); }
   }
 
   /**

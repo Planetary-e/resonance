@@ -140,11 +140,21 @@ export class ModelLoadError extends Error {
   }
 }
 
+let modelDisposal = Promise.resolve();
+function releaseEmbeddingEngine(engine: EmbeddingEngine): Promise<void> {
+  modelDisposal = Promise.all([modelDisposal, engine.dispose()]).then(() => undefined);
+  // Lock is synchronous; keep errors observed and refuse another model load if
+  // native cleanup failed rather than accumulating abandoned model sessions.
+  void modelDisposal.catch(() => console.error('Matching model cleanup failed; restart the application before unlocking.'));
+  return modelDisposal;
+}
 async function loadEmbeddingEngine(): Promise<EmbeddingEngine> {
   const engine = new EmbeddingEngine();
   try {
+    await modelDisposal;
     await engine.initialize();
   } catch (error) {
+    await releaseEmbeddingEngine(engine).catch(() => {});
     console.error('Matching model load failed:', error);
     throw new ModelLoadError();
   }
@@ -839,7 +849,8 @@ export async function initSession(password: string, signal?: AbortSignal): Promi
     const mgr = createIdentityManager();
     if (mgr.exists()) throw new Error('Identity already initialized');
     // A failed or cancelled model load must not leave a half-created identity.
-    await loadEmbeddingEngine();
+    const probe = await loadEmbeddingEngine();
+    await releaseEmbeddingEngine(probe);
     signal?.throwIfAborted();
     if (epoch !== lockEpoch) throw new Error('Session locked during initialization');
     const identity = await mgr.create(password);
@@ -855,11 +866,15 @@ export async function unlockSession(password: string, relayUrl: string, signal?:
   signal?.throwIfAborted();
   if (identityOperationInProgress) throw new Error('A local identity operation is already in progress');
   identityOperationInProgress = true;
-  try { return await unlockSessionOnce(password, relayUrl, signal); }
-  finally { identityOperationInProgress = false; }
+  let allocated: EmbeddingEngine | undefined;
+  try { return await unlockSessionOnce(password, relayUrl, signal, engine => { allocated = engine; }); }
+  finally {
+    try { if (allocated && session?.engine !== allocated) await releaseEmbeddingEngine(allocated); }
+    finally { identityOperationInProgress = false; }
+  }
 }
 
-async function unlockSessionOnce(password: string, relayUrl: string, signal?: AbortSignal): Promise<{ did: string }> {
+async function unlockSessionOnce(password: string, relayUrl: string, signal: AbortSignal | undefined, ownEngine: (engine: EmbeddingEngine) => void): Promise<{ did: string }> {
   const epoch = lockEpoch;
   const currentUnlock = () => { signal?.throwIfAborted(); if (epoch !== lockEpoch) throw new Error('Session locked during unlock'); };
   if (session) {
@@ -876,9 +891,9 @@ async function unlockSessionOnce(password: string, relayUrl: string, signal?: Ab
 
   const mgr = createIdentityManager();
   const identity = await mgr.load(password);
-  let engine: EmbeddingEngine, store: LocalStore | undefined;
+  let engine: EmbeddingEngine | undefined, store: LocalStore | undefined;
   try {
-    currentUnlock(); engine = await loadEmbeddingEngine(); currentUnlock();
+    currentUnlock(); engine = await loadEmbeddingEngine(); ownEngine(engine); currentUnlock();
     store = await openStoreAsync(getDbPath(), deriveStoreKey(identity)); currentUnlock();
   } catch (error) { store?.close(); identity.secretKey.fill(0); throw error; }
 
@@ -985,6 +1000,7 @@ export function lockSession(): void {
   relayHistoryOperationAbort?.abort();
   if (inactivityTimer) { clearTimeout(inactivityTimer); inactivityTimer = null; }
   if (!session) return;
+  void releaseEmbeddingEngine(session.engine);
   stopAutomaticMailboxSync(session);
   session.policyUpdate?.abort();
   session.requestOutbox.close();
