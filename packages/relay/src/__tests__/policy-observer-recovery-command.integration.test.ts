@@ -120,7 +120,10 @@ it('refuses missing, owned, incomplete and mismatched archives without recreatin
 }, 30000);
 
 it('preserves terminal conflict evidence when reading a historical transition from a restored archive', async () => {
-  const n = await fixture(), owner = await openConfiguredPolicyObserver(readPolicyObserverConfigurationFile(n.configPath));
+  // This explicit fixture mutation prepares a recovery archive. Windows can
+  // spend >3 s flushing its certificate; use a maintenance allowance here.
+  // Runtime observation challenges keep their independent three-second bound.
+  const n = await fixture(), owner = await openConfiguredPolicyObserver(readPolicyObserverConfigurationFile(n.configPath), { timeoutMs: 10000 });
   try { await expect(owner.advance(n.conflict)).rejects.toThrow('equivocated'); } finally { owner.close(); }
   await complete(n); await n.call('recovery-export', [...n.prefix, n.destination, n.output]);
   const config = readPolicyObserverConfigurationFile(n.output), path = join(config.archiveDirectory!, HISTORY_DOWNLOAD_FILENAME), before = readFileSync(path);
