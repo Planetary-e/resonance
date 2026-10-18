@@ -191,6 +191,8 @@ const policyQueryResponder = policyObserverConfig ? createAdmissionPolicyQueryRe
 }) : undefined;
 const policyTransferResponder = policyObserverConfig ? createAdmissionPolicyTransferResponder({
   context: policyObserverConfig.context,
+  genesis(signal) { if (!observerService) throw new Error('Policy observer is not ready'); return observerService.originalGenesis(signal); },
+  page(head, digest, signal) { if (!observerService) throw new Error('Policy observer is not ready'); return observerService.archivePageAtHead(head, digest, signal); },
   successor(previous, signal) { if (!observerService) throw new Error('Policy observer is not ready'); return observerService.successor(previous, signal); },
 }) : undefined;
 const ownerPolicy = ownerBandwidth !== undefined || ownerTotalBandwidth !== undefined || ownerCpu !== undefined

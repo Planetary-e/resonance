@@ -3,19 +3,19 @@ import { exactWitnessFields } from '@resonance/core/admission-witness';
 import { parseAdmissionPolicyObservers, parseAdmissionPolicyHead, type AdmissionPolicyObservers, type AdmissionPolicyHead } from '@resonance/core/admission-policy-freshness';
 import { matchesAdmissionPolicyHead, sameAdmissionPolicyHead } from '@resonance/core/admission-policy-advance';
 import { parseAdmissionPolicyQueryReply, type AdmissionPolicyQuery, type AdmissionPolicyQueryReply } from '@resonance/core/admission-policy-query';
-import type { SignedAdmissionPolicy } from '@resonance/core/admission-policy';
+import { archivedAdmissionPolicyDigest, type ArchivedAdmissionPolicy } from '@resonance/core/admission-policy-archive';
 
 export interface WalletPolicyObservation { query: AdmissionPolicyQuery; reply: AdmissionPolicyQueryReply }
 export interface WalletPolicyFreshness {
   context: AdmissionPolicyObservers; installed: AdmissionPolicyHead; observed: AdmissionPolicyHead;
   conflict?: AdmissionPolicyHead;
 }
-export function parseWalletPolicyFreshness(value: unknown, policy: SignedAdmissionPolicy): WalletPolicyFreshness {
+export function parseWalletPolicyFreshness(value: unknown, policy: ArchivedAdmissionPolicy): WalletPolicyFreshness {
   if (!exactWitnessFields(value, ['context', 'installed', 'observed'])
     && !exactWitnessFields(value, ['context', 'installed', 'observed', 'conflict'])) throw new Error('Invalid wallet policy freshness state');
   const context = parseAdmissionPolicyObservers(value.context), installed = parseAdmissionPolicyHead(value.installed), observed = parseAdmissionPolicyHead(value.observed);
   const conflict = value.conflict === undefined ? undefined : parseAdmissionPolicyHead(value.conflict);
-  if (context.authority !== policy.authority || !matchesAdmissionPolicyHead(policy, installed)
+  if (context.authority !== policy.authority || !(policy.revision === installed.revision && archivedAdmissionPolicyDigest(policy) === installed.digest)
     || [installed, observed].some(head => head.revision < context.genesis.revision
       || (head.revision === context.genesis.revision && !sameAdmissionPolicyHead(head, context.genesis)))
     || observed.revision < installed.revision

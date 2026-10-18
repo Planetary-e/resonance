@@ -71,6 +71,7 @@ import { openDesktopStorageActivationReview } from './relay-storage-activation.j
 import { openDesktopStorageLimitReview } from './relay-storage-limit.js';
 import { openDesktopStorageScopeReview } from './relay-storage-scope.js';
 import { openReservedStorageControl } from '@resonance/core/storage-reservations';
+import { openWalletProofStorageSelection } from './wallet-proof-storage.js';
 import { readDesktopRelayStorage, currentDesktopRelayStorage, withDesktopRelayStorage, desktopRelayStorageControls } from './relay-storage.js';
 import { withRelayHistoryActivation, parseRelayHistoryActivationInput, historyActivationServiceFiles, type RelayHistoryActivationInput } from './history-activation.js';
 import { runDesktopHistoryRecovery, parseRelayHistoryRecoveryInput, type RelayHistoryRecoveryInput, type RelayHistoryRecoveryAction } from './history-recovery.js';
@@ -102,6 +103,7 @@ export interface Session {
   publicationOutbox: PublicationOutbox;
   requestOutbox: PrivateRequestOutbox;
   admissionWallet: ManagedAdmissionWallet;
+  walletProofStorage?: ReturnType<typeof openWalletProofStorageSelection>;
   policyUpdate?: AbortController;
   mailboxSync?: { controller: AbortController; client: RelayClient; pending: Promise<number> };
   privatePublicationRoute?: PrivatePublicationRoute;
@@ -928,12 +930,17 @@ async function unlockSessionOnce(password: string, relayUrl: string, signal: Abo
   let publicationOutbox: PublicationOutbox;
   let requestOutbox: PrivateRequestOutbox;
   let admissionWallet: ManagedAdmissionWallet | undefined;
+  let walletProofStorage: ReturnType<typeof openWalletProofStorageSelection>;
   let relayClient: RelayClient;
   try {
     currentUnlock();
     privatePublicationRoute = configuredPrivateRoute();
     const walletKey = deriveAdmissionWalletKey(identity);
-    try { admissionWallet = await openManagedAdmissionWallet({ directory: getDataDir(), encryptionKey: walletKey }); }
+    try {
+      walletProofStorage = openWalletProofStorageSelection(getDataDir());
+      admissionWallet = await openManagedAdmissionWallet({ directory: getDataDir(), encryptionKey: walletKey,
+        proofStorage: walletProofStorage?.proofStorage });
+    }
     catch { throw new WalletLoadError(); }
     finally { walletKey.fill(0); }
     currentUnlock();
@@ -969,7 +976,10 @@ async function unlockSessionOnce(password: string, relayUrl: string, signal: Abo
       try { relayClient = createSessionRelayClient(urls, identity, privatePublicationRoute, admissionWallet); }
       catch (error) { requestOutbox.close(); throw error; }
     } catch (error) { publicationOutbox.close(); throw error; }
-  } catch (error) { admissionWallet?.close(); store.close(); identity.secretKey.fill(0); throw error; }
+  } catch (error) {
+    try { admissionWallet?.close(); } finally { walletProofStorage?.close(); store.close(); identity.secretKey.fill(0); }
+    throw error;
+  }
   finally { outboxKey.fill(0); }
   const pairwiseChannelMgr = createPairwiseChannelManagerV2(store, relayClient);
 
@@ -977,7 +987,7 @@ async function unlockSessionOnce(password: string, relayUrl: string, signal: Abo
   // the legacy root-authenticated socket closed prevents passive DID linkage.
   session = {
     identity, store, engine, relayClient, pairwiseChannelMgr,
-    identityMgr: mgr, remoteRelayUrls: uniqueRemoteUrls, publicationOutbox, requestOutbox, privatePublicationRoute, admissionWallet,
+    identityMgr: mgr, remoteRelayUrls: uniqueRemoteUrls, publicationOutbox, requestOutbox, privatePublicationRoute, admissionWallet, walletProofStorage,
   };
   try { reconcileDeliveredPublications(session); }
   catch (error) { lockSession(); throw error; }
@@ -1014,7 +1024,7 @@ export function lockSession(): void {
   // VULN-16: Zero key material
   session.identity.secretKey.fill(0);
   session.relayClient.disconnect();
-  session.admissionWallet.close();
+  try { session.admissionWallet.close(); } finally { session.walletProofStorage?.close(); }
   session.store.close();
   session = null;
   relayActivity = 'not-checked';
@@ -1300,6 +1310,22 @@ export async function updateAdmissionPolicy(signal?: AbortSignal) {
     current();
     const observation = await client.queryAdmissionPolicy!(pins.context); current();
     const observed = s.admissionWallet.observePolicy(observation); current();
+    if (s.admissionWallet.hasPolicyProofStorage()) {
+      let cursor = s.admissionWallet.policyProofCursor();
+      if (!cursor) {
+        const genesis = await client.fetchAdmissionPolicyGenesis!(observed.context, { signal: lifetime }); current();
+        await s.admissionWallet.beginPolicyProof(genesis, observed.context, lifetime); current();
+        cursor = s.admissionWallet.policyProofCursor();
+      }
+      if (!cursor) throw new Error('Wallet proof recovery did not retain its genesis');
+      if (cursor.head.revision < observed.observed.revision) {
+        const step = await client.fetchAdmissionPolicyProofStep!(observed.context, cursor, { signal: lifetime }); current();
+        await s.admissionWallet.appendPolicyProof(step, lifetime); current();
+      }
+      const after = s.admissionWallet.policyUpdatePins(), progress = s.admissionWallet.policyProofCursor();
+      return { updated: after.previous.revision !== observed.previous.revision, revision: after.previous.revision,
+        remaining: Math.max(0, after.observed.revision - (progress?.head.revision ?? after.previous.revision)) };
+    }
     if (observed.previous.revision === observed.observed.revision) return { updated: false, revision: observed.previous.revision, remaining: 0 };
     const advance = await client.fetchAdmissionPolicySuccessor!(observed.context, observed.previous); current();
     await s.admissionWallet.installPolicy(advance, observed.context.authority, undefined, lifetime); current();

@@ -109,3 +109,57 @@ async function assembleTransfer<T extends ArchivedAdmissionPolicyAdvance>(values
   if (!sameAdmissionPolicyHead(advance.commitment.previous, previous) || !sameAdmissionPolicyHead(advance.commitment.next, first.next)) throw new Error('Signed policy artifact differs from its manifest');
   return advance;
 }
+
+/** Transport evidence only. The consumer must resolve original signed ancestry. */
+export interface AdmissionPolicyProofCursor { head: AdmissionPolicyHead; policy: import('./admission-policy-archive.js').ArchivedAdmissionPolicy }
+export interface AdmissionPolicyProofStep { advance: ArchivedAdmissionPolicyAdvance; pages: readonly { digest: string; bytes: Uint8Array }[] }
+export const ADMISSION_POLICY_EVIDENCE_TYPE = 'admission_policy_evidence' as const;
+export const ADMISSION_POLICY_EVIDENCE_REPLY_TYPE = 'admission_policy_evidence_reply' as const;
+export interface AdmissionPolicyEvidenceRequest {
+  version: 1; type: typeof ADMISSION_POLICY_EVIDENCE_TYPE; contextId: string;
+  kind: 'genesis' | 'page'; head: AdmissionPolicyHead; digest: string | null; index: number;
+}
+export interface AdmissionPolicyEvidenceReply {
+  version: 1; type: typeof ADMISSION_POLICY_EVIDENCE_REPLY_TYPE; request: AdmissionPolicyEvidenceRequest;
+  artifact: string; bytes: number; count: number; data: string;
+}
+export function parseAdmissionPolicyEvidenceRequest(value: unknown, contextValue: AdmissionPolicyObservers): AdmissionPolicyEvidenceRequest {
+  const context = parseAdmissionPolicyObservers(contextValue), raw = bounded(value, ADMISSION_POLICY_CHUNK_REQUEST_MAX_BYTES);
+  if (!exactWitnessFields(raw, ['version','type','contextId','kind','head','digest','index']) || raw.version !== 1 || raw.type !== ADMISSION_POLICY_EVIDENCE_TYPE
+    || raw.contextId !== admissionPolicyObserversId(context) || !['genesis','page'].includes(raw.kind as string)
+    || !Number.isSafeInteger(raw.index) || (raw.index as number) < 0 || (raw.index as number) >= 8
+    || (raw.kind === 'genesis' ? raw.digest !== null : typeof raw.digest !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(raw.digest))) throw new Error('Invalid policy evidence request');
+  const head = parseAdmissionPolicyHead(raw.head);
+  if (head.revision < context.genesis.revision || (raw.kind === 'genesis' || head.revision === context.genesis.revision) && !sameAdmissionPolicyHead(head, context.genesis)) throw new Error('Policy evidence differs from pinned genesis');
+  return { version: 1, type: ADMISSION_POLICY_EVIDENCE_TYPE, contextId: raw.contextId as string, kind: raw.kind as 'genesis' | 'page', head, digest: raw.digest as string | null, index: raw.index as number };
+}
+export function createAdmissionPolicyEvidenceRequest(context: AdmissionPolicyObservers, kind: 'genesis' | 'page', head: AdmissionPolicyHead, digest: string | null = null, index = 0) {
+  return parseAdmissionPolicyEvidenceRequest({ version: 1, type: ADMISSION_POLICY_EVIDENCE_TYPE, contextId: admissionPolicyObserversId(context), kind, head, digest, index }, context);
+}
+export function parseAdmissionPolicyEvidenceReply(value: unknown, request: AdmissionPolicyEvidenceRequest, context: AdmissionPolicyObservers): AdmissionPolicyEvidenceReply {
+  const selected = parseAdmissionPolicyEvidenceRequest(request, context), raw = bounded(value, ADMISSION_POLICY_CHUNK_REPLY_MAX_BYTES);
+  if (!exactWitnessFields(raw, ['version','type','request','artifact','bytes','count','data']) || raw.version !== 1 || raw.type !== ADMISSION_POLICY_EVIDENCE_REPLY_TYPE
+    || JSON.stringify(parseAdmissionPolicyEvidenceRequest(raw.request, context)) !== JSON.stringify(selected) || !hash(raw.artifact)
+    || !Number.isSafeInteger(raw.bytes) || (raw.bytes as number) < 1 || (raw.bytes as number) > 512 * 1024
+    || raw.count !== Math.ceil((raw.bytes as number) / ADMISSION_POLICY_CHUNK_BYTES) || selected.index >= (raw.count as number) || typeof raw.data !== 'string') throw new Error('Invalid policy evidence reply');
+  const bytes = Buffer.from(raw.data, 'base64url');
+  if (bytes.toString('base64url') !== raw.data || bytes.length !== Math.min(ADMISSION_POLICY_CHUNK_BYTES, (raw.bytes as number) - selected.index * ADMISSION_POLICY_CHUNK_BYTES)) throw new Error('Invalid policy evidence encoding');
+  return { version: 1, type: ADMISSION_POLICY_EVIDENCE_REPLY_TYPE, request: selected, artifact: raw.artifact, bytes: raw.bytes as number, count: raw.count as number, data: raw.data };
+}
+export function createAdmissionPolicyEvidenceReply(bytes: Uint8Array, request: AdmissionPolicyEvidenceRequest, context: AdmissionPolicyObservers): AdmissionPolicyEvidenceReply {
+  return parseAdmissionPolicyEvidenceReply({ version: 1, type: ADMISSION_POLICY_EVIDENCE_REPLY_TYPE, request, artifact: digest(bytes), bytes: bytes.byteLength,
+    count: Math.ceil(bytes.byteLength / ADMISSION_POLICY_CHUNK_BYTES), data: Buffer.from(bytes.subarray(request.index * ADMISSION_POLICY_CHUNK_BYTES, (request.index + 1) * ADMISSION_POLICY_CHUNK_BYTES)).toString('base64url') }, request, context);
+}
+export function assembleAdmissionPolicyEvidence(values: readonly unknown[], request: AdmissionPolicyEvidenceRequest, context: AdmissionPolicyObservers): Uint8Array {
+  if (!Array.isArray(values) || values.length < 1 || values.length > 8 || request.index !== 0) throw new Error('Invalid policy evidence fragments');
+  const first = parseAdmissionPolicyEvidenceReply(values[0], request, context);
+  if (values.length !== first.count) throw new Error('Incomplete policy evidence');
+  const parts = values.map((value, index) => {
+    const part = parseAdmissionPolicyEvidenceReply(value, { ...request, index }, context);
+    if (part.artifact !== first.artifact || part.bytes !== first.bytes || part.count !== first.count) throw new Error('Policy evidence fragments disagree');
+    return Buffer.from(part.data, 'base64url');
+  });
+  const bytes = Buffer.concat(parts, first.bytes);
+  if (digest(bytes) !== first.artifact) throw new Error('Policy evidence digest mismatch');
+  return Uint8Array.from(bytes);
+}

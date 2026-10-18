@@ -47,3 +47,19 @@ it('times out a source, reclaims no occupied slot early and expires cached bytes
     expect(cached.health().cachedBytes).toBe(0); expect(cachedSource).toHaveBeenCalledTimes(1);
   } finally { await cached.close(); }
 });
+
+it('serves only pinned original genesis and checks page digest/context before returning private evidence', async () => {
+  const { createAdmissionPolicyEvidenceRequest } = await import('@resonance/core/admission-policy-transfer');
+  const genesis = vi.fn(async () => n.first), page = vi.fn(async () => new Uint8Array([1]));
+  const responder = createAdmissionPolicyTransferResponder({ context: n.context, successor: async () => n.advance, genesis, page });
+  try {
+    const request = createAdmissionPolicyEvidenceRequest(n.context, 'genesis', n.context.genesis);
+    expect((await responder.exchange(request)).type).toBe('admission_policy_evidence_reply');
+    await expect(responder.exchange({ ...request, head: n.advance.commitment.next })).rejects.toThrow();
+    expect(genesis).toHaveBeenCalledTimes(1);
+    await expect(responder.exchange(createAdmissionPolicyEvidenceRequest(n.context, 'page', n.advance.commitment.next, 'sha256:' + 'a'.repeat(64)))).rejects.toThrow('differs');
+  } finally { await responder.close(); }
+  const wrong = createAdmissionPolicyTransferResponder({ context: n.context, successor: async () => n.advance, genesis: async () => n.second });
+  try { await expect(wrong.exchange(createAdmissionPolicyEvidenceRequest(n.context, 'genesis', n.context.genesis))).rejects.toThrow('pins'); }
+  finally { await wrong.close(); }
+});

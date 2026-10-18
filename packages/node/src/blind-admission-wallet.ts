@@ -7,6 +7,8 @@ import {
   assertSecureRelayTransportEndpoint, createAdmissionRequestBindingV2,
   presentBlindAdmissionTokenV2, verifyBlindAdmissionTokenV2,
 } from '@resonance/core';
+import { archivedAdmissionPolicyDigest, inspectResolvedAdmissionPolicy, inspectResolvedAdmissionPolicyKey, type ResolvedAdmissionPolicyKey, type ResolvedAdmissionPolicy, type ArchivedAdmissionPolicy } from '@resonance/core/admission-policy-archive';
+import type { AdmissionPolicyKey } from '@resonance/core/admission-policy';
 import type { AdmissionCapabilityRequestContextV2 } from './relay-client.js';
 import { openEncryptedLocalState } from './encrypted-local-state.js';
 
@@ -43,6 +45,8 @@ export interface BlindAdmissionWalletV2 {
   /** The operational caller must authenticate and pin this signed policy first. */
   planRetirement(policy: SignedAdmissionPolicy, configuration?: unknown): AdmissionWalletRetirementPlan;
   retire(policy: SignedAdmissionPolicy, approvedDigest: string, configuration?: unknown): AdmissionWalletRetirementPlan;
+  planResolvedRetirement(policy: ResolvedAdmissionPolicy, entry: ResolvedAdmissionPolicyKey, configuration?: unknown): AdmissionWalletRetirementPlan;
+  retireResolved(policy: ResolvedAdmissionPolicy, entry: ResolvedAdmissionPolicyKey, approvedDigest: string, configuration?: unknown): AdmissionWalletRetirementPlan;
   close(): void;
 }
 
@@ -63,16 +67,19 @@ export function openBlindAdmissionWalletV2(options: {
     return state;
   }
   function planRetirement(policy: SignedAdmissionPolicy, configuration?: unknown): AdmissionWalletRetirementPlan {
+    return plan(policy, admissionPolicyKeys(policy).find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === issuerKey), configuration);
+  }
+  function plan(policy: ArchivedAdmissionPolicy, entry: AdmissionPolicyKey | undefined, configuration?: unknown): AdmissionWalletRetirementPlan {
     ensureReady(); const state = live();
-    const now = (options.now ?? Date.now)(); assertAdmissionPolicyCurrent(policy, now);
-    const entry = admissionPolicyKeys(policy).find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === issuerKey);
-    if (!entry || entry.profile.scope.issuer !== scope.issuer || entry.profile.scope.community !== scope.community || entry.profile.scope.epoch !== scope.epoch) {
+    const now = (options.now ?? Date.now)();
+    if (now < policy.issuedAt || now >= policy.expiresAt) throw new Error('Community policy is not current');
+    if (!entry || admissionKeyFingerprint(entry.profile.issuerPublicKey) !== issuerKey || entry.profile.scope.issuer !== scope.issuer || entry.profile.scope.community !== scope.community || entry.profile.scope.epoch !== scope.epoch) {
       throw new Error('Wallet is absent from the signed community policy');
     }
     if (policy.activeKey === issuerKey) throw new Error('Cannot retire the active wallet; install a successor first');
     if (now < entry.retryUntil) throw new Error('Wallet history must remain until the key retry cutoff');
     const reservations = state.entries.flatMap(entry => entry.reservation ? [reservationDigest(entry.reservation)] : []);
-    const policyDigest = admissionPolicyDigest(policy);
+    const policyDigest = archivedAdmissionPolicyDigest(policy);
     return { kind: 'admission-wallet-retirement', issuerKey, scope: structuredClone(scope),
       authorityFingerprint: admissionAuthorityFingerprint(policy.authority), policyRevision: policy.revision, policyDigest,
       retryUntil: entry.retryUntil, tokensRemoved: state.entries.length, unusedTokensRemoved: state.entries.length - reservations.length,
@@ -81,20 +88,29 @@ export function openBlindAdmissionWalletV2(options: {
         'resonance:admission-wallet-retirement:v1', resolve(options.path), issuerKey, policyDigest, state, configuration ?? null,
       ])).digest('hex') };
   }
+  function retire(policy: ArchivedAdmissionPolicy, entry: AdmissionPolicyKey | undefined, approvedDigest: string, configuration?: unknown) {
+      const reviewed = plan(policy, entry, configuration);
+      if (approvedDigest !== reviewed.approvalDigest) throw new Error('Wallet history or setup changed; review cleanup again');
+      const state = live(), retiredAt = (options.now ?? Date.now)(); if (retiredAt < policy.issuedAt || retiredAt >= policy.expiresAt) throw new Error('Community policy is not current');
+      if (retiredAt < reviewed.retryUntil) throw new Error('Wallet history must remain until the key retry cutoff');
+      // The key fence, retry denials, and token removal share one flushed atomic snapshot.
+      storage.write({ version: 2, scope, entries: [],
+        retirement: { issuerKey, authorityFingerprint: reviewed.authorityFingerprint, policyRevision: policy.revision,
+          policyDigest: reviewed.policyDigest, retiredAt, retryUntil: reviewed.retryUntil,
+          tokensRemoved: reviewed.tokensRemoved, reservationsRemoved: reviewed.reservationsRemoved },
+        deniedReservations: [...new Set(state.entries.flatMap(entry => entry.reservation ? [reservationDigest(entry.reservation)] : []))].sort() });
+      return reviewed;
+  }
   return {
     planRetirement,
     retire(policy, approvedDigest, configuration) {
-      const plan = planRetirement(policy, configuration);
-      if (approvedDigest !== plan.approvalDigest) throw new Error('Wallet history or setup changed; review cleanup again');
-      const state = live(), retiredAt = (options.now ?? Date.now)(); assertAdmissionPolicyCurrent(policy, retiredAt);
-      if (retiredAt < plan.retryUntil) throw new Error('Wallet history must remain until the key retry cutoff');
-      // The key fence, retry denials, and token removal share one flushed atomic snapshot.
-      storage.write({ version: 2, scope, entries: [],
-        retirement: { issuerKey, authorityFingerprint: plan.authorityFingerprint, policyRevision: policy.revision,
-          policyDigest: plan.policyDigest, retiredAt, retryUntil: plan.retryUntil,
-          tokensRemoved: plan.tokensRemoved, reservationsRemoved: plan.reservationsRemoved },
-        deniedReservations: [...new Set(state.entries.flatMap(entry => entry.reservation ? [reservationDigest(entry.reservation)] : []))].sort() });
-      return plan;
+      return retire(policy, admissionPolicyKeys(policy).find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === issuerKey), approvedDigest, configuration);
+    },
+    planResolvedRetirement(handle, entry, configuration) {
+      return plan(inspectResolvedAdmissionPolicy(handle).policy, inspectResolvedAdmissionPolicyKey(handle, entry), configuration);
+    },
+    retireResolved(handle, entry, approvedDigest, configuration) {
+      return retire(inspectResolvedAdmissionPolicy(handle).policy, inspectResolvedAdmissionPolicyKey(handle, entry), approvedDigest, configuration);
     },
     async importTokens(tokens) {
       ensureReady(); live();

@@ -15,7 +15,7 @@ import { RelayTrafficMeter, relayDataFileBytes } from './relay-resource-meter.js
 import { PrivateReplayLog } from './private-replay-log.js';
 import { ADMISSION_POLICY_QUERY_TYPE, ADMISSION_POLICY_QUERY_REPLY_TYPE, ADMISSION_POLICY_QUERY_MAX_BYTES,
   ADMISSION_POLICY_QUERY_REPLY_MAX_BYTES, type AdmissionPolicyQueryReply } from '@resonance/core/admission-policy-query';
-import { ADMISSION_POLICY_CHUNK_TYPE, ADMISSION_POLICY_CHUNK_REPLY_TYPE, ADMISSION_POLICY_CHUNK_REQUEST_MAX_BYTES,
+import { ADMISSION_POLICY_EVIDENCE_TYPE, ADMISSION_POLICY_EVIDENCE_REPLY_TYPE, type AdmissionPolicyEvidenceReply, ADMISSION_POLICY_CHUNK_TYPE, ADMISSION_POLICY_CHUNK_REPLY_TYPE, ADMISSION_POLICY_CHUNK_REQUEST_MAX_BYTES,
   ADMISSION_POLICY_CHUNK_REPLY_MAX_BYTES, type AdmissionPolicyChunkReply } from '@resonance/core/admission-policy-transfer';
 import { DirectReachabilityObservations } from './direct-reachability.js';
 import {
@@ -314,7 +314,7 @@ export interface RelayConfig {
   admissionWitness?: AdmissionWitness;
   /** Public policy metadata, accepted only inside a one-use private request. */
   policyQuery?: (value: unknown, signal: AbortSignal) => Promise<AdmissionPolicyQueryReply>;
-  policyTransfer?: (value: unknown, signal: AbortSignal) => Promise<AdmissionPolicyChunkReply>;
+  policyTransfer?: (value: unknown, signal: AbortSignal) => Promise<AdmissionPolicyChunkReply | AdmissionPolicyEvidenceReply>;
   /** Shared queue for experimental private forwards; false is an explicit unmixed mode. */
   privateEntryMix?: PrivateEntryMixOptions | false;
   /** Independent shared queue for encrypted private replies; enabled by default. */
@@ -3492,7 +3492,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       // a short connection and never send the user's root identity.
       let frameCandidate: unknown;
       try { frameCandidate = JSON.parse(raw); } catch { /* handled by v1 parser below */ }
-      if (isObject(frameCandidate) && (frameCandidate.type === ADMISSION_POLICY_QUERY_TYPE || frameCandidate.type === ADMISSION_POLICY_CHUNK_TYPE)) {
+      if (isObject(frameCandidate) && (frameCandidate.type === ADMISSION_POLICY_QUERY_TYPE || frameCandidate.type === ADMISSION_POLICY_CHUNK_TYPE || frameCandidate.type === ADMISSION_POLICY_EVIDENCE_TYPE)) {
         clearTimeout(authTimeout);
         const query = frameCandidate.type === ADMISSION_POLICY_QUERY_TYPE;
         const respond = query ? cfg.policyQuery : cfg.policyTransfer;
@@ -3507,7 +3507,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           const reply = await respond(frameCandidate, controller.signal);
           if (controller.signal.aborted || stopping || ws.readyState !== WebSocket.OPEN) return;
           if (Buffer.byteLength(JSON.stringify(reply)) > (query ? ADMISSION_POLICY_QUERY_REPLY_MAX_BYTES : ADMISSION_POLICY_CHUNK_REPLY_MAX_BYTES)) throw new Error('Policy metadata reply too large');
-          sendClientResponse(serializeMessage(createMessage(query ? ADMISSION_POLICY_QUERY_REPLY_TYPE : ADMISSION_POLICY_CHUNK_REPLY_TYPE, reply, relayIdentity)), 'policy_query_complete');
+          sendClientResponse(serializeMessage(createMessage(query ? ADMISSION_POLICY_QUERY_REPLY_TYPE : frameCandidate.type === ADMISSION_POLICY_EVIDENCE_TYPE ? ADMISSION_POLICY_EVIDENCE_REPLY_TYPE : ADMISSION_POLICY_CHUNK_REPLY_TYPE, reply, relayIdentity)), 'policy_query_complete');
         } catch { if (ws.readyState === WebSocket.OPEN) ws.close(4003, 'policy_query_refused'); }
         finally { ws.removeListener('close', disconnected); controller.abort(); }
         return;
@@ -3576,6 +3576,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
               RELATIONSHIP_MAILBOX_DEPOSIT_FRAME_TYPE,
               ADMISSION_POLICY_QUERY_TYPE,
               ADMISSION_POLICY_CHUNK_TYPE,
+              ADMISSION_POLICY_EVIDENCE_TYPE,
             ]).has(operation.type as string)) throw new Error('Unsupported private operation');
             privateReply = {
               responseKey: opened.responseKey,

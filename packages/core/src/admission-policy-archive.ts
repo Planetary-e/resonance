@@ -317,6 +317,8 @@ interface ResolvedState {
   context: AdmissionPolicyObservers; head: AdmissionPolicyHead; policy: ArchivedAdmissionPolicy;
   /** Legacy-only, capped by the unchanged v2 wire limit. */
   legacyArchive?: AdmissionPolicyKey[];
+  /** Optional wallet catalogue, bounded independently of archive lifetime. */
+  retainedKeys?: AdmissionPolicyKey[];
 }
 declare const resolvedBrand: unique symbol;
 export interface ResolvedAdmissionPolicy { readonly [resolvedBrand]: true }
@@ -426,22 +428,67 @@ async function resolveStep(previous: ResolvedState, advance: ArchivedAdmissionPo
     legacyArchive: extendArchive(previous.legacyArchive!, advance.policy) };
 }
 export interface ResolveAdmissionPolicyOptions extends Operation {
-  context: AdmissionPolicyObservers; genesis: unknown; advances: readonly unknown[]; selectedHead: AdmissionPolicyHead; reader: AdmissionPolicyArchiveReader;
+  context: AdmissionPolicyObservers; genesis: unknown; advances: readonly unknown[] | AsyncIterable<unknown>; selectedHead: AdmissionPolicyHead; reader: AdmissionPolicyArchiveReader;
+  readGenesis?: (signal: AbortSignal) => Promise<unknown>;
+  retainIssuerKeys?: readonly string[];
 }
 /** Full original provenance; v3 cannot be a fresh genesis or bypass the signed transition chain. */
 export async function resolveAdmissionPolicy(options: ResolveAdmissionPolicyOptions): Promise<ResolvedAdmissionPolicy> {
   const budget = new Budget(options), context = parseAdmissionPolicyObservers(structuredClone(options.context)), reader = options.reader,
     selected = parseAdmissionPolicyHead(structuredClone(options.selectedHead));
-  if (!Array.isArray(options.advances) || options.advances.length > budget.limits.maxTransitions) throw new Error('Resolved policy transition limit exhausted');
-  const genesis = budget.snapshot(options.genesis), inputs = options.advances.map(v => budget.snapshot(v));
+  // Arrays retain the existing up-front snapshot guarantee. Streaming callers
+  // retain one item at a time; their next()/return() share this same deadline.
+  const source = options.advances;
+  if (Array.isArray(source) && source.length > budget.limits.maxTransitions) throw new Error('Resolved policy transition limit exhausted');
+  if (!Array.isArray(source) && (!source || typeof (source as AsyncIterable<unknown>)[Symbol.asyncIterator] !== 'function')) throw new Error('Invalid resolved policy history');
+  const inputs = Array.isArray(source) ? source.map(v => budget.snapshot(v)) : undefined;
+  const requested = options.retainIssuerKeys === undefined ? undefined : [...options.retainIssuerKeys];
+  if (requested && (requested.length > 72 || requested.some(value => !hashId(value)))) throw new Error('Invalid bounded resolved issuer catalogue');
+  const retained = requested ? new Map<string, AdmissionPolicyKey>() : undefined;
+  function collect(policy: ArchivedAdmissionPolicy) {
+    if (!retained) return;
+    for (const entry of policy.keys) retained.set(admissionKeyFingerprint(entry.profile.issuerPublicKey), entry);
+    if (policy.version !== 3) for (const entry of policy.archivedKeys ?? []) {
+      const fingerprint = admissionKeyFingerprint(entry.profile.issuerPublicKey);
+      if (requested!.includes(fingerprint)) retained.set(fingerprint, entry);
+    }
+    if (retained.size > 72) throw new Error('Resolved wallet profile history is full');
+  }
+  const genesis = budget.snapshot(options.readGenesis ? await budget.wait(() => options.readGenesis!(budget.controller.signal)) : options.genesis);
   const policy = await budget.wait(() => verifyAdmissionPolicy(genesis, context.authority)), head = admissionPolicyHead(policy);
   if (!sameAdmissionPolicyHead(head, context.genesis)) throw new Error('Resolved policy requires original signed genesis');
   let state: ResolvedState = { context, head, policy, legacyArchive: extendArchive([], policy) };
-  for (const input of inputs) {
-    budget.charge('maxTransitions', 1);
-    state = await resolveStep(state, await parseArchivedAdvance(input, context, budget), reader, budget);
+  collect(policy);
+  if (inputs) {
+    for (const input of inputs) {
+      budget.charge('maxTransitions', 1);
+      state = await resolveStep(state, await parseArchivedAdvance(input, context, budget), reader, budget);
+      collect(state.policy);
+    }
+  } else {
+    const iterator = (source as AsyncIterable<unknown>)[Symbol.asyncIterator]();
+    let finished = false;
+    try {
+      for (;;) {
+        const item = await budget.wait(() => iterator.next());
+        if (item.done) { finished = true; break; }
+        budget.charge('maxTransitions', 1);
+        const input = budget.snapshot(item.value);
+        state = await resolveStep(state, await parseArchivedAdvance(input, context, budget), reader, budget);
+        collect(state.policy);
+      }
+    } finally {
+      if (!finished && iterator.return) {
+        // Invoke cleanup even after cancellation, but never let an uncooperative
+        // iterator retain the wallet operation beyond its absolute deadline.
+        const cleanup = Promise.resolve().then(() => iterator.return!());
+        cleanup.catch(() => {});
+        await budget.wait(() => cleanup);
+      }
+    }
   }
   if (!sameAdmissionPolicyHead(state.head, selected)) throw new Error('Resolved policy selected head is stale or conflicting');
+  if (retained) state.retainedKeys = [...retained.values()];
   budget.check(); return resolvedHandle(state);
 }
 export async function resolveAdmissionPolicyAdvance(options: Operation & {
@@ -452,7 +499,14 @@ export async function resolveAdmissionPolicyAdvance(options: Operation & {
   budget.charge('maxTransitions', 1);
   const advance = await parseArchivedAdvance(input, previous.context, budget);
   if (!sameAdmissionPolicyHead(advance.commitment.next, selected)) throw new Error('Resolved successor differs from selected head');
-  return resolvedHandle(await resolveStep(previous, advance, reader, budget));
+  const state = await resolveStep(previous, advance, reader, budget);
+  if (previous.retainedKeys) {
+    const retained = new Map(previous.retainedKeys.map(entry => [admissionKeyFingerprint(entry.profile.issuerPublicKey), entry]));
+    for (const entry of state.policy.keys) retained.set(admissionKeyFingerprint(entry.profile.issuerPublicKey), entry);
+    if (retained.size > 72) throw new Error('Resolved wallet profile history is full');
+    state.retainedKeys = [...retained.values()];
+  }
+  return resolvedHandle(state);
 }
 export interface PreparedAdmissionPolicyV3 {
   body: AdmissionPolicyBodyV3; pages: Array<{ digest: string; bytes: Uint8Array }>;
@@ -523,4 +577,23 @@ export async function visitResolvedAdmissionPolicyArchive(options: Operation & {
       budget.charge('maxEntries', 1); await budget.wait(async () => { await visit(structuredClone(state.legacyArchive![i]), i); });
     }
   }
+}
+
+/** Opaque membership for a bounded retained wallet catalogue. Arbitrary entries
+ * supplied next to a resolved policy cannot manufacture retirement authority. */
+declare const resolvedKeyBrand: unique symbol;
+export interface ResolvedAdmissionPolicyKey { readonly [resolvedKeyBrand]: true }
+const resolvedKeys = new WeakMap<ResolvedAdmissionPolicyKey, { policy: ResolvedAdmissionPolicy; entry: AdmissionPolicyKey }>();
+export function retainedResolvedAdmissionPolicyKey(policy: ResolvedAdmissionPolicy, issuerKey: string): ResolvedAdmissionPolicyKey {
+  const state = resolvedState(policy);
+  const entry = [...state.policy.keys, ...(state.retainedKeys ?? [])].find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === issuerKey);
+  if (!entry) throw new Error('Issuer is absent from the bounded resolved wallet catalogue');
+  const handle = Object.freeze({}) as ResolvedAdmissionPolicyKey;
+  resolvedKeys.set(handle, { policy, entry: structuredClone(entry) }); return handle;
+}
+export function inspectResolvedAdmissionPolicyKey(policy: ResolvedAdmissionPolicy, membership: ResolvedAdmissionPolicyKey): AdmissionPolicyKey {
+  resolvedState(policy);
+  const value = resolvedKeys.get(membership);
+  if (!value || value.policy !== policy) throw new Error('Issuer requires its original resolved membership capability');
+  return structuredClone(value.entry);
 }

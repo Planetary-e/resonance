@@ -197,4 +197,23 @@ it('refuses cumulative exhaustion and cancellation while preserving the accepted
   await expect(lookupResolvedAdmissionPolicyKey({ policy: migrated.resolved, issuerKey: signed.activeKey, reader: async () => new Promise(() => {}),
     limits: { ...limits, timeoutMs: 10 } })).rejects.toThrow('timed out');
   expect(await lookupResolvedAdmissionPolicyKey({ policy: migrated.resolved, issuerKey: signed.activeKey, reader, limits })).toEqual({ entry: entries[65], archived: false });
-});
+}, 20000);
+
+
+it('streams original ancestry with cumulative limits and bounds stalled iterator reads and cleanup', async () => {
+  const all = [...advances, migrated.advance];
+  async function* streamed() { for (const advance of all) yield advance; }
+  const restored = await resolveAdmissionPolicy({ ...reopen(), advances: streamed() });
+  expect(inspectResolvedAdmissionPolicy(restored).head).toEqual(migrated.advance.commitment.next);
+  await expect(resolveAdmissionPolicy({ ...reopen(), advances: streamed(), limits: { ...limits, maxTransitions: 64 } })).rejects.toThrow('maxTransitions');
+  let cleaned = false;
+  const stalled: AsyncIterable<unknown> = { [Symbol.asyncIterator]: () => ({ next: () => new Promise(() => {}),
+    return: () => { cleaned = true; return new Promise(() => {}); } }) };
+  await expect(resolveAdmissionPolicy({ ...reopen(), advances: stalled, limits: { ...limits, timeoutMs: 10 } })).rejects.toThrow('timed out');
+  await Promise.resolve(); expect(cleaned).toBe(true);
+  await expect(resolveAdmissionPolicy({ ...reopen(), advances: [], readGenesis: async () => new Promise(() => {}),
+    limits: { ...limits, timeoutMs: 10 } })).rejects.toThrow('timed out');
+  const controller = new AbortController();
+  const cancelling: AsyncIterable<unknown> = { [Symbol.asyncIterator]: () => ({ next: async () => { controller.abort(); return { done: false, value: all[0] }; }, return: async () => ({ done: true, value: undefined }) }) };
+  await expect(resolveAdmissionPolicy({ ...reopen(), advances: cancelling, signal: controller.signal })).rejects.toThrow('cancelled');
+}, 20000);

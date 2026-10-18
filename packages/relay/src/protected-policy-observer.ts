@@ -344,6 +344,16 @@ export async function openProtectedPolicyObserver(options: {
         pending: saved.pending !== null, fenced, evidence: state.conflict ? structuredClone([state.advance!, state.conflict]) : [], ...writer!.historyUsage() };
     },
     policy() { return structuredClone(retained().state.policy); },
+    async originalGenesis(signal?: AbortSignal) {
+      live(); signal?.throwIfAborted(); const current = retained();
+      if (busy || current.state.conflict || current.saved.pending) throw new Error('Observer genesis unavailable during pending/conflicting work');
+      const initial = await decodePolicyObserverSnapshot(genesis, historyContext, context, key);
+      live(); signal?.throwIfAborted();
+      const latest = retained();
+      if (busy || latest.state.conflict || latest.saved.pending || initial.previous !== null
+        || !sameAdmissionPolicyHead(policyObserverStateHead(initial, context), context.genesis) || initial.policy.version === 3) throw new Error('Observer original genesis is unavailable');
+      return structuredClone(initial.policy);
+    },
     /** Read a signed successor from authenticated retained local history. This
      * makes no freshness claim and does not create or repair missing evidence. */
     async successor(value: unknown, signal?: AbortSignal) {

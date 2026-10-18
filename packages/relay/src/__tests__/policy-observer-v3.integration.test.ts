@@ -110,6 +110,7 @@ it('commits v3 pages and policy together with four durable copies and reopens or
   const n = await fixture(); await n.observer.advance(n.v3.advance, n.plan.pages);
   expect(n.stores.filter(s => s.describe().sequence === 2).length).toBeGreaterThanOrEqual(4);
   const reopened = await n.reopen(); expect(reopened.policy()).toEqual(n.policy);
+  expect(await reopened.originalGenesis()).toEqual(n.first);
   const request = createAdmissionPolicyHeadRequest(n.context, n.now+30001);
   expect((await reopened.observe(request)).head).toEqual(n.v3.advance.commitment.next);
   expect(Uint8Array.from(await reopened.archivePage(n.plan.pages[0].digest))).toEqual(n.plan.pages[0].bytes);
@@ -134,7 +135,8 @@ it('retains exact pending pages through replication interruption and refuses obs
 });
 it('reconstructs v3 from original ancestry after owner loss and requires retained pages on every restored reopening', async () => {
   const n = await fixture(); await n.observer.advance(n.v3.advance,n.plan.pages); const selected = await n.recover();
-  await selected.restored.ready(); expect(selected.restored.policy()).toEqual(n.policy); selected.restored.close();
+  await selected.restored.ready(); expect(selected.restored.policy()).toEqual(n.policy);
+  expect(await selected.restored.originalGenesis()).toEqual(n.first); selected.restored.close();
   selected.archive.close(); rmSync(n.options.directory,{recursive:true});
   const reopened = await openConfiguredPolicyObserver(selected.config,{transport:selected.childTransport,now:()=>n.now+30001}); cleanup.push(reopened.close);
   expect((await reopened.observe(createAdmissionPolicyHeadRequest(n.context,n.now+30001))).head).toEqual(n.v3.advance.commitment.next); reopened.close();

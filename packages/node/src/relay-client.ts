@@ -124,6 +124,8 @@ export interface RelayClient {
   /** Private-only public metadata query; no personal identifier or capability. */
   queryAdmissionPolicy?(context: AdmissionPolicyObservers): Promise<WalletPolicyObservation>;
   fetchAdmissionPolicySuccessor?(context: AdmissionPolicyObservers, previous: import('@resonance/core/admission-policy-freshness').AdmissionPolicyHead): Promise<import('@resonance/core/admission-policy-advance').AdmissionPolicyAdvance>;
+  fetchAdmissionPolicyGenesis?(context: AdmissionPolicyObservers, options?: { signal?: AbortSignal }): Promise<import('@resonance/core/admission-policy').SignedAdmissionPolicy>;
+  fetchAdmissionPolicyProofStep?(context: AdmissionPolicyObservers, previous: import('@resonance/core/admission-policy-transfer').AdmissionPolicyProofCursor, options?: { signal?: AbortSignal }): Promise<import('@resonance/core/admission-policy-transfer').AdmissionPolicyProofStep>;
   connect(): Promise<void>;
   disconnect(): void;
   /** Submit one self-authenticating v2 operation without sending the root DID. */

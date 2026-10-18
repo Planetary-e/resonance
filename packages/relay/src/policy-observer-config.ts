@@ -127,6 +127,7 @@ export async function serveConfiguredPolicyObserver(value: PolicyObserverConfigu
       { ...config.listen, allowSequentialRequests: true, onSocket: options.onSocket, onHandlerFailure: options.onHandlerFailure, acceptNewWork: options.acceptNewWork });
     if (signal?.aborted || closing) { await listener.close(); observer.close(); cancelled(); }
     return { endpoint: listener.endpoint, status: () => observer!.status(), policy: () => observer!.policy(),
+      originalGenesis: (signal?: AbortSignal) => observer!.originalGenesis(signal),
       archivePageAtHead: (head: unknown, digest: string, signal?: AbortSignal) => observer!.archivePageAtHead(head, digest, signal),
       archivePage: (digest: string, signal?: AbortSignal) => observer!.archivePage(digest, signal),
       async successor(value: unknown, signal?: AbortSignal) {

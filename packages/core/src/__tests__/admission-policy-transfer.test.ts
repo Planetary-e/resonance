@@ -45,3 +45,20 @@ it('does not trust a self-consistent transfer digest instead of authority authen
   const forged = values.map(v => ({ ...v, artifact: id, data: changed.subarray(v.index * 65536, (v.index + 1) * 65536).toString('base64url') }));
   await expect(assembleAdmissionPolicyTransfer(forged, n.context, n.context.genesis)).rejects.toThrow();
 });
+
+it('bounds evidence frames and binds every fragment to its exact original-genesis or historical-page request', async () => {
+  const { createAdmissionPolicyEvidenceRequest, createAdmissionPolicyEvidenceReply, assembleAdmissionPolicyEvidence, parseAdmissionPolicyEvidenceRequest, parseAdmissionPolicyEvidenceReply } = await import('../admission-policy-transfer.js');
+  const original = createAdmissionPolicyEvidenceRequest(n.context, 'genesis', n.context.genesis);
+  const bytes = Buffer.from(JSON.stringify(n.first));
+  const first = createAdmissionPolicyEvidenceReply(bytes, original, n.context);
+  const parts = Array.from({ length: first.count }, (_, index) => createAdmissionPolicyEvidenceReply(bytes, { ...original, index }, n.context));
+  expect(Buffer.from(assembleAdmissionPolicyEvidence(parts, original, n.context))).toEqual(bytes);
+  expect(() => parseAdmissionPolicyEvidenceRequest({ ...original, head: n.advance.commitment.next }, n.context)).toThrow('pinned genesis');
+  expect(() => parseAdmissionPolicyEvidenceRequest({ ...original, endpoint: 'wss://attacker.example/' }, n.context)).toThrow();
+  expect(() => parseAdmissionPolicyEvidenceRequest({ ...original, index: 8 }, n.context)).toThrow();
+  expect(() => parseAdmissionPolicyEvidenceReply({ ...first, data: first.data + '=' }, original, n.context)).toThrow();
+  const page = createAdmissionPolicyEvidenceRequest(n.context, 'page', n.advance.commitment.next, 'sha256:' + 'a'.repeat(64));
+  expect(() => parseAdmissionPolicyEvidenceReply(first, page, n.context)).toThrow();
+  expect(() => assembleAdmissionPolicyEvidence(parts.slice(1), original, n.context)).toThrow();
+  expect(() => assembleAdmissionPolicyEvidence([...parts].reverse(), original, n.context)).toThrow();
+});

@@ -3,7 +3,12 @@
 import { randomInt } from 'node:crypto';
 import { mailboxAcknowledgementBatches } from './mailbox-ack-batches.js';
 import { parseAdmissionPolicyObservers, parseAdmissionPolicyHead } from '@resonance/core/admission-policy-freshness';
-import { createAdmissionPolicyChunkRequest, parseAdmissionPolicyChunkReply, assembleAdmissionPolicyTransfer,
+import { verifyAdmissionPolicy } from '@resonance/core/admission-policy';
+import { sameAdmissionPolicyHead, admissionPolicyHead } from '@resonance/core/admission-policy-advance';
+import { archivedAdmissionPolicyDigest, verifyAdmissionPolicyV3, admissionPolicyArchivePageDigest, decodeAdmissionPolicyArchivePage, type ArchivedAdmissionPolicy } from '@resonance/core/admission-policy-archive';
+import { createAdmissionPolicyEvidenceRequest, parseAdmissionPolicyEvidenceReply, assembleAdmissionPolicyEvidence, assembleArchivedAdmissionPolicyTransfer,
+  ADMISSION_POLICY_EVIDENCE_REPLY_TYPE, type AdmissionPolicyEvidenceRequest, type AdmissionPolicyEvidenceReply, type AdmissionPolicyProofStep,
+  createAdmissionPolicyChunkRequest, parseAdmissionPolicyChunkReply, assembleAdmissionPolicyTransfer,
   ADMISSION_POLICY_CHUNK_REPLY_TYPE, type AdmissionPolicyChunkRequest, type AdmissionPolicyChunkReply } from '@resonance/core/admission-policy-transfer';
 import { createAdmissionPolicyQuery, parseAdmissionPolicyQueryReply, ADMISSION_POLICY_QUERY_REPLY_TYPE,
   type AdmissionPolicyQuery } from '@resonance/core/admission-policy-query';
@@ -93,6 +98,7 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
   [...entryUrls, ...destinations].forEach(assertSecureRelayTransportEndpoint);
   const events: Partial<RelayClientEvents> = {};
   const scheduler = createPrivateTrafficScheduler(config.privateTraffic);
+  const proofReservations = new WeakMap<PrivateOperation, (maximumBytes: number) => void>();
   const operations = new Set<PrivateOperation>();
   const operationRoutes = new WeakMap<PrivateOperation, Map<string, DiscoveredPrivateRoute>>();
 
@@ -102,7 +108,7 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
     operationRoutes.set(operation, new Map());
     try { return await work(operation); }
     catch (error) { throw operation.failure(error instanceof Error ? error : new Error(String(error))); }
-    finally { operation.dispose(); operations.delete(operation); operationRoutes.delete(operation); }
+    finally { operation.dispose(); operations.delete(operation); operationRoutes.delete(operation); proofReservations.delete(operation); }
   }
 
   async function admittedRequest(url: string, action: RelayAdmissionActionV2, request: unknown,
@@ -237,8 +243,10 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
       operation.check(signal);
       const entryUrl = entryUrls[(start + offset) % entryUrls.length];
       try {
+        proofReservations.get(operation)?.(MAX_PRIVATE_DISCOVERY_FRAME_BYTES);
         const entry = await discoverEntry(entryUrl, signal);
         operation.check(signal);
+        proofReservations.get(operation)?.(MAX_PRIVATE_DISCOVERY_FRAME_BYTES);
         const destination = await discoverDestination(entry, destinationUrl, signal);
         operation.check(signal);
         // Independently resolve DNS without opening a destination relay socket.
@@ -259,6 +267,7 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
   async function sendTo(destinationUrl: string, makeRaw: PrivateRequestBuilder, operation: PrivateOperation, signal: AbortSignal, valid = () => {}, accountDelivery = true): Promise<Message> {
     valid();
     const { entry, destination } = await discoverRoute(destinationUrl, operation, signal);
+    proofReservations.get(operation)?.(MAX_PRIVATE_FRAME_BYTES);
     operation.check(signal);
     valid();
     const prepared = await makeRaw();
@@ -361,7 +370,91 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
     return parseRelayMailbox(message, requestId, mailboxId);
   }
 
+  // Bound asynchronous signature/page verification by the SAME private operation.
+  async function evidenceWait<T>(operation: PrivateOperation, work: () => Promise<T>): Promise<T> {
+    operation.check(); let abort!: () => void;
+    const cancelled = new Promise<never>((_, reject) => { abort = () => reject(operation.signal.reason); operation.signal.addEventListener('abort', abort, { once: true }); });
+    try { const value = await Promise.race([Promise.resolve().then(work), cancelled]); operation.check(); return value; }
+    finally { operation.signal.removeEventListener('abort', abort); }
+  }
+  function proofTransport(operation: PrivateOperation) {
+    let requests = 0, reservedBytes = 0;
+    const reserve = (maximumBytes: number) => {
+      operation.check();
+      // Reserve wire response capacity before discovery/forward sockets, retaining charges on failure.
+      if (++requests > 32 || (reservedBytes += maximumBytes) > 32 * MAX_PRIVATE_FRAME_BYTES) { operation.cancel(new Error('Policy proof transfer budget exhausted'), 'PRIVATE_OPERATION_FAILED'); operation.check(); }
+    };
+    proofReservations.set(operation, reserve);
+    const exchange = (request: unknown) => firstReply(operation, () => JSON.stringify(request));
+    return {
+      async advance(context: ReturnType<typeof parseAdmissionPolicyObservers>, previous: Parameters<typeof createAdmissionPolicyChunkRequest>[1]) {
+        const chunks: AdmissionPolicyChunkReply[] = [];
+        let request = createAdmissionPolicyChunkRequest(context, previous);
+        do {
+          const reply = await exchange(request); operation.check();
+          if (reply.type !== ADMISSION_POLICY_CHUNK_REPLY_TYPE) throw new Error('Private relay did not return a policy chunk');
+          const part = parseAdmissionPolicyChunkReply(reply.payload, request, context); chunks.push(part);
+          request = createAdmissionPolicyChunkRequest(context, previous, part.artifact, chunks.length < part.count ? chunks.length : 0);
+        } while (chunks.length < chunks[0].count);
+        return evidenceWait(operation, () => assembleArchivedAdmissionPolicyTransfer(chunks, context, previous));
+      },
+      async evidence(context: ReturnType<typeof parseAdmissionPolicyObservers>, initial: AdmissionPolicyEvidenceRequest) {
+        const chunks: AdmissionPolicyEvidenceReply[] = []; let request = initial;
+        do {
+          const reply = await exchange(request); operation.check();
+          if (reply.type !== ADMISSION_POLICY_EVIDENCE_REPLY_TYPE) throw new Error('Private relay did not return policy evidence');
+          const part = parseAdmissionPolicyEvidenceReply(reply.payload, request, context); chunks.push(part); request = { ...initial, index: chunks.length };
+        } while (chunks.length < chunks[0].count);
+        operation.check(); return assembleAdmissionPolicyEvidence(chunks, initial, context);
+      },
+    };
+  }
+  function cancellableProof<T>(signal: AbortSignal | undefined, work: (operation: PrivateOperation) => Promise<T>) {
+    signal?.throwIfAborted();
+    return runOperation(async operation => {
+      const abort = () => operation.cancel(new Error('Policy proof transfer cancelled'));
+      signal?.addEventListener('abort', abort, { once: true });
+      try { signal?.throwIfAborted(); return await work(operation); }
+      finally { signal?.removeEventListener('abort', abort); }
+    });
+  }
+
   return {
+    async fetchAdmissionPolicyGenesis(contextValue, options = {}) {
+      const context = parseAdmissionPolicyObservers(contextValue);
+      return cancellableProof(options.signal, async operation => {
+        const bytes = await proofTransport(operation).evidence(context, createAdmissionPolicyEvidenceRequest(context, 'genesis', context.genesis));
+        const policy = await evidenceWait(operation, () => verifyAdmissionPolicy(JSON.parse(new TextDecoder('utf8', { fatal: true }).decode(bytes)), context.authority));
+        if (!sameAdmissionPolicyHead(admissionPolicyHead(policy), context.genesis)) throw new Error('Private genesis differs from original pins');
+        operation.check(); return policy;
+      });
+    },
+    async fetchAdmissionPolicyProofStep(contextValue, cursorValue, options = {}) {
+      const context = parseAdmissionPolicyObservers(contextValue), cursor = structuredClone(cursorValue), previous = parseAdmissionPolicyHead(cursor.head);
+      return cancellableProof(options.signal, async operation => {
+        const policy: ArchivedAdmissionPolicy = await evidenceWait<ArchivedAdmissionPolicy>(operation, () => cursor.policy.version === 3
+          ? verifyAdmissionPolicyV3(cursor.policy, context.authority) : verifyAdmissionPolicy(cursor.policy, context.authority));
+        if (previous.revision !== policy.revision || previous.digest !== archivedAdmissionPolicyDigest(policy)) throw new Error('Policy proof cursor differs from signed predecessor');
+        const transport = proofTransport(operation), advance = await transport.advance(context, previous);
+        const pages: AdmissionPolicyProofStep['pages'][number][] = [];
+        if (advance.policy.version === 3) {
+          const next = advance.policy.archive, prefix = policy.version === 3 ? policy.archive : { root: null, pageCount: 0, entryCount: 0, archiveBytes: 0 };
+          const count = next.pageCount - prefix.pageCount;
+          if (count < 0 || count > 2 || next.entryCount < prefix.entryCount || next.archiveBytes < prefix.archiveBytes) throw new Error('Policy proof append exceeds bounded step');
+          let digest = next.root, entries = next.entryCount, totalBytes = next.archiveBytes;
+          for (let index = next.pageCount - 1; index >= prefix.pageCount; index--) {
+            if (!digest) throw new Error('Policy proof page chain incomplete');
+            const bytes = await transport.evidence(context, createAdmissionPolicyEvidenceRequest(context, 'page', advance.commitment.next, digest));
+            if (admissionPolicyArchivePageDigest(bytes) !== digest) throw new Error('Policy proof page digest differs');
+            const page = await evidenceWait(operation, () => decodeAdmissionPolicyArchivePage(bytes));
+            if (page.contextId !== next.contextId || page.index !== index || page.firstEntry + page.entries.length !== entries) throw new Error('Policy proof page ancestry differs');
+            pages.unshift({ digest, bytes }); entries = page.firstEntry; totalBytes -= bytes.byteLength; digest = page.previous;
+          }
+          if (digest !== prefix.root || entries !== prefix.entryCount || totalBytes !== prefix.archiveBytes) throw new Error('Policy proof does not append to predecessor archive');
+        } else if (policy.version === 3) throw new Error('Policy proof cannot downgrade archive');
+        operation.check(); return { advance, pages };
+      });
+    },
     async fetchAdmissionPolicySuccessor(contextValue, previousValue) {
       const context = parseAdmissionPolicyObservers(contextValue), previous = parseAdmissionPolicyHead(previousValue);
       return runOperation(async operation => {

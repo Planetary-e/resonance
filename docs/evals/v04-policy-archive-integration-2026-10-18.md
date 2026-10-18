@@ -355,3 +355,162 @@ checks pass. The private client still uses the legacy assembler at
 `packages/node/src/private-relay-client.ts:388`; the next necessary change is
 resolved wallet installation and durable proof retention through that private
 route. Transport metadata alone cannot install a v3 policy.
+
+## Wallet v6 implementation contract
+
+Astra High bounded contract review: 19:50:13–19:52:30 UTC (**2m17s**).
+Implement a funded wallet proof journal, private backfill and resolved installation.
+Keep the existing 2 MiB profile snapshot, 72-profile limit, token filenames,
+reservations and permanent denials. The snapshot is the sole activation commit.
+No owner approval is needed to implement explicit configuration/refusal; actual
+activation requires a separately selected existing storage authority and finite
+allowance. Session wallet opening currently provides neither. Do not borrow relay
+reserves or silently choose a new global allowance. Missing configuration permits
+legacy operation but refuses proof migration/v3 installation.
+
+The proof store owns immutable encrypted original-genesis/advance records and
+canonical pages, plus bounded non-authorizing backfill progress. Require actual
+leases under the pinned authority, account for aggregate ciphertext, interrupted
+files, staged records and replacement peaks before creation. Existing wallet file
+peaks also remain charged (approximately 16 MiB per token-wallet file); no funding
+claim follows from having enough physical free disk.
+
+Install order: authenticate exact predecessor and complete archive; validate
+profiles/retirements; reserve/check peak; publish pages and advance durably; create
+required empty token wallet; atomically replace v6 profile proof reference; then
+publish the in-memory resolved capability. Before activation, staged bytes remain
+charged and the previous profile stays installed. After activation, missing proof
+or token files refuse reopen. Flush uncertainty poisons the handle.
+
+Reopen streams original signed ancestry with one cumulative core Budget, including
+iterator reads/cleanup and page verification, through the manifest's exact head.
+Retain existing array snapshot semantics; never collect the complete journal into
+an array or restart a budget per transition. New pinned wallets retain genesis
+and every advance. Pinned-v5 wallets backfill without changing active policy until
+proof equals their exact installed head/body, preserving observed floor/conflict.
+Unpinned legacy wallets need independent original observer pins; do not infer them.
+
+Private transport adds bounded original-genesis and archive-page frames via the
+existing private destination dispatch/scheduler and fixed configured observers.
+A proof-step method returns one signed advance plus at most two appended pages
+under one operation budget; metadata alone never installs a policy. Backfill is
+bounded and resumable. Keep legacy successor API refusing v3. Wire/fixture work
+and journal/wallet work may proceed in parallel only after their typed interface
+is frozen and with nonoverlapping ownership.
+
+Acceptance: real 66-profile wallet crossing the 65th rotation, new and pinned-v5
+migration, restart, missing/corrupt evidence, publication-boundary interruption,
+exact retry/retirement denials, wrong heads, cancellation, and funding exhaustion
+before activation. Expired intermediate policies cannot spend before the fresh
+observed head is installed. Full K2 and 100-profile paging remain separate gates.
+
+### Wallet implementation dispatch
+
+At 19:56–19:58 UTC the shared weekly counter reports **21% used**, with ordinary
+usage allowed (previous recorded observation: 16%). This is not attributable
+per-agent usage. B-HISTORY-LIFECYCLE and its cumulative effort/stop rules continue.
+Sol Medium owns private transport and its tests; Sol High owns durable wallet
+migration, streaming replay and its tests. Their file ownership does not overlap.
+The parent owns application integration and documentation; Astra reviews the
+integrated protocol changes before acceptance.
+
+Frozen transfer types: `AdmissionPolicyProofCursor` carries the predecessor
+`head` and signed `policy`; `AdmissionPolicyProofStep` carries the signed `advance`
+and zero to two `{ digest, bytes }` pages. `fetchAdmissionPolicyGenesis` and
+`fetchAdmissionPolicyProofStep` accept cancellation and use the existing private
+scheduler. The latter verifies the predecessor and derives the appended-page
+chain from signed roots/counts under one cumulative operation budget. A returned
+step is evidence for wallet resolution, never an installation capability.
+
+The app selects funding only through the explicit
+`RESONANCE_WALLET_PROOF_STORAGE_SELECTION_FILE` absolute JSON path. Its version-1
+selection pins `authorityDirectory`, `authorityId`, `walletDirectory`, proof
+`directory`, `maxCiphertextBytes`, `maxRecords`, and all archive `limits`. The
+authority must already exist and the wallet/proof scopes must already be reviewed
+through the existing storage adoption/new-scope mechanism. Opening never creates
+an authority, approves paths, raises a quota or borrows a relay allocation. The
+authority handle remains owned until the wallet closes. The selection fixture
+first correctly refused an unadopted authority; the fixture now explicitly
+approves its absent test scopes. Three selection/ownership tests pass.
+
+CI at `eece162` finished: all nine three-platform jobs pass; general tests report
+**3,210 passed / one failed**. The failure is the default five-second wrapper in
+the core v3 cumulative-limit test, which runs six 65-transition replays. Give that
+test a 20-second wrapper while retaining each production limit and its 10 ms
+stalled-reader assertion. No overall timeout or runtime limit is increased.
+
+Initial application check passes: the actual HTTP API creates a pinned v5 wallet,
+advances it privately, then backfills original proof under an explicitly selected
+authority and restarts without changing token-wallet bytes (one test, 9.93s).
+This is preliminary integration evidence, not acceptance of the wallet change.
+Astra's in-progress review identified three implementation gaps: preserving the
+independent authority argument during initial funded installation; promoting a
+fully staged v5 backfill after interruption; and retaining enough control headroom
+to reopen every committed proof store. Corrections and distinguishing tests are
+required before committing this candidate. These are unchanged-contract fixes,
+not new architecture alternatives or completed KPIs.
+
+### Private proof transport receipt
+
+Sol Medium's observed implementation/test span was 19:57:10–20:04:38 UTC
+(7m28s, including test runtime; earlier reading unclocked). The transport is
+implemented: exact original-genesis pins, signed predecessor cursor, zero to two
+appended canonical pages and private destination dispatch. The unchanged 10-second
+operation now also caps proof traffic at 32 socket attempts and 16 MiB of reserved
+response capacity, charging discovery at its existing 1 MiB frame cap and private
+forwarding at 512 KiB, including failures. These are conservative ceilings, not
+measured bandwidth and not satisfaction of K7's 1 MiB target.
+
+Evidence: 48/48 focused core/responder/private/observer cases; final private file
+7/7 (18.40s total); original-genesis restart/restoration 2/2; existing private
+legacy application 3/3. Initial fixture errors (serving a helper wrapper, forbidden
+query-string endpoint, unresolved deferred source during teardown) were corrected
+without production relaxation. No outstanding wire finding in Astra's review.
+
+Astra High reviewed the integrated candidate at 20:02:37–20:04:56 UTC (2m19s).
+The first three fixes are structurally present but await focused evidence. Three
+further P2s require correction: bounded per-record reads including initial genesis
+inside the operation budget; authenticated membership for exported resolved
+retirement methods; and cancellation/deadline coverage of activation's extra key
+import. Persisted proof references must also retain their resource envelope.
+The wallet candidate remains unaccepted until these corrections pass.
+
+### Wallet v6 acceptance receipt
+
+Sol High's observed implementation/test interval was 19:57:51–20:11:36 UTC
+(13m45s including commands/waits; earlier reading unclocked). Astra's targeted
+correction review took 20:10:18–20:10:44 UTC (26s). All initial findings were
+addressed; that review found one remaining funded-v5 opening verification outside
+the cancellation race. The final correction wraps it in `opening.wait`, preserving
+unfunded behavior. The parent inspected the correction and its passing gated
+verification/ownership-release regression. No further reviewer chain was needed.
+
+Final composed regression: **114/114 tests, 14 files, 142.10s**, with permitted
+loopback and actual process death. It covers core v3/transfer, managed wallet,
+freshness/retirement, funded proof, private wallet/proof transport, relay transfer/
+observer, and desktop selection/backfill/legacy update/transfer. The command is
+`npx vitest run --maxWorkers=1` with those 14 named test files. Logs:
+`/tmp/resonance-wallet-v6-final.log`. Tested non-document candidate content SHA-256:
+`31c26fbc93c31949c4315e0fafec560c24f75610e4c9161f612d155d5a0edd6f`.
+The full build then found a test-only TypeScript cast requiring `unknown` for an
+intentionally incomplete mutated authority. That erased type assertion was fixed;
+runtime tests were not repeated. `npm run build` and the explicit desktop server
+`tsc -b packages/app/tsconfig.server.json` both pass afterwards.
+
+Evidence includes 66 real profiles through 65 rotations, retained token retry
+denials, missing/corrupt/oversized proof refusal, exact authority/resource pins,
+one-byte/one-record exhaustion, same-cap reopening, cancellation, and an actual
+SIGKILL between completed backfill progress and profile activation. The desktop
+uses the actual private relay/API path for pinned-v5 migration. New proof and
+desktop tests are included in the three-OS CI jobs; their remote result is pending.
+
+Shared weekly usage was 21% at dispatch and 27% at 20:13:19 UTC; ordinary usage
+remains allowed. This six-point observed change includes concurrent account use
+and is not per-agent attribution. Medium transport needed fixture corrections;
+High migration needed the substantive review corrections listed above. Preserve
+risk-based routing and bounded review; this is not model-equivalence evidence.
+
+This accepts the local wallet/private-route implementation, not a complete KPI.
+Issuer/relay v3 consumers, profiles beyond 72, semantic retention and the full
+100-cycle/1,000-fault qualification remain under the same blocker. No merge,
+installer, release or deployment was made.
