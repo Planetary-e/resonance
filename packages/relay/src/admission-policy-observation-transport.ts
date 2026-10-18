@@ -17,10 +17,30 @@ export type AdmissionPolicyObservationTransport = (member: AdmissionPolicyObserv
 
 export const MAX_POLICY_OBSERVER_EXCHANGES = 8;
 
-export function createAdmissionPolicyObserverExchange(observer: { advance(value: unknown): Promise<unknown>; observe(request: unknown): unknown | Promise<unknown> },
+export function createAdmissionPolicyObserverExchange(observer: {
+  advance(value: unknown): Promise<unknown>; observe(request: unknown): unknown | Promise<unknown>;
+  /** Explicit local implementation capability; never accepted from a peer. */
+  maximumConcurrentObservations?: 1 | 2;
+},
   contextValue: AdmissionPolicyObservers, now = Date.now) {
   const context = parseAdmissionPolicyObservers(contextValue);
-  let pending = 0, tail: Promise<void> = Promise.resolve();
+  const maximumReaders = observer.maximumConcurrentObservations ?? 1;
+  if (maximumReaders !== 1 && maximumReaders !== 2) throw new Error('Invalid observer read concurrency');
+  let pending = 0, readers = 0, writing = false;
+  type Job = { write: boolean; run(): Promise<unknown>; resolve(value: unknown): void; reject(error: unknown): void };
+  const queue: Job[] = [];
+  function drain() {
+    while (!writing && queue.length) {
+      const next = queue[0];
+      if (next.write ? readers > 0 : readers >= maximumReaders) return;
+      queue.shift(); if (next.write) writing = true; else readers++;
+      const release = () => {
+        pending--; if (next.write) writing = false; else readers--;
+        drain();
+      };
+      void next.run().then(value => { release(); next.resolve(value); }, error => { release(); next.reject(error); });
+    }
+  }
   return async (value: unknown) => {
     if (!exactWitnessFields(value, ['request', 'advance']) || Buffer.byteLength(JSON.stringify(value)) > ADMISSION_POLICY_OBSERVATION_MAX_BYTES) throw new Error('Invalid policy observation frame');
     if (pending >= MAX_POLICY_OBSERVER_EXCHANGES) throw new Error('Policy observer queue is full');
@@ -31,17 +51,19 @@ export function createAdmissionPolicyObserverExchange(observer: { advance(value:
       parseAdmissionPolicyHeadRequest(request, context, now());
     };
     pending++;
-    // Protected observers serialize their authoritative writer. Each admitted
-    // caller still runs its OWN fresh history check; no observation is cached.
-    // Queue time consumes the original caller budget, even with clock rollback.
-    const operation = tail.then(async () => {
-      current();
-      if (input.advance !== null) await observer.advance(input.advance);
-      current(); // An applied update may outlive this request, but cannot return a late vote.
-      const reply = await observer.observe(request); current(); return reply;
+    // Each reader has its own fresh history challenge. Two read-only checks may
+    // overlap only when supported by the local observer. A queued policy update
+    // is an exclusive FIFO barrier, so later readers cannot bypass it. Waiting
+    // still consumes each caller's original monotonic and signed deadline.
+    return new Promise<unknown>((resolve, reject) => {
+      queue.push({ write: input.advance !== null, resolve, reject, async run() {
+        current();
+        if (input.advance !== null) await observer.advance(input.advance);
+        current(); // Applied updates may outlive a request, but cannot return a late vote.
+        const reply = await observer.observe(request); current(); return reply;
+      } });
+      drain();
     });
-    tail = operation.then(() => {}, () => {});
-    try { return await operation; } finally { pending--; }
   };
 }
 

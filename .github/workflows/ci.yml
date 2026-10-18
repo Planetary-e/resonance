@@ -96,6 +96,7 @@ jobs:
           npx vitest run --maxWorkers=1
           packages/core/src/__tests__/embedding-lifecycle.test.ts
           packages/core/src/__tests__/embedding-bounds.test.ts
+          scripts/fixtures/real-app-network.test.ts
           packages/core/src/__tests__/model-file-cache.test.ts
           packages/node/src/__tests__/command-model-lifetime.test.ts
           packages/app/src/server/__tests__/publication-outbox.integration.test.ts

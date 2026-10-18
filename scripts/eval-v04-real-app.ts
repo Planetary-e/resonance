@@ -15,7 +15,11 @@ import { createRealAppNetwork, realAppTestCa } from './fixtures/real-app-network
 
 const { values } = parseArgs({ options: { child: { type: 'boolean' }, 'protected-policy': { type: 'boolean' },
   'protected-admission': { type: 'boolean' }, 'concurrent-searches': { type: 'boolean' }, tls: { type: 'boolean' },
-  'tls-worker': { type: 'boolean' }, out: { type: 'string' } } });
+  'tls-worker': { type: 'boolean' }, 'peer-delay-ms': { type: 'string', default: '0' }, out: { type: 'string' } } });
+const peerDelayMs = Number(values['peer-delay-ms']);
+assert(/^\d+$/.test(values['peer-delay-ms']!) && Number.isSafeInteger(peerDelayMs) && peerDelayMs >= 0 && peerDelayMs <= 1000,
+  '--peer-delay-ms must be an integer between 0 and 1000');
+assert(!peerDelayMs || values.tls, '--peer-delay-ms requires --tls');
 assert(!values['concurrent-searches'] || values['protected-admission'], '--concurrent-searches requires --protected-admission');
 assert(!values['tls-worker'] || values.tls);
 if (values.tls && !values['tls-worker']) {
@@ -82,7 +86,7 @@ if (values.child) {
   const { approveAdmissionIssuerBatch } = await import('../packages/node/src/admission-issuer-ledger.js');
   const root = fileURLToPath(new URL('../', import.meta.url)), directory = mkdtempSync(join(tmpdir(), 'resonance-real-app-'));
   const processes: ChildProcess[] = [], cleanup: Array<() => void | Promise<void>> = [];
-  const network = createRealAppNetwork(Boolean(values.tls), cleanup);
+  const network = createRealAppNetwork(Boolean(values.tls), cleanup, peerDelayMs);
   const started = performance.now(), cpuStart = process.cpuUsage();
   let report: Record<string, unknown> | undefined, failure: unknown;
   const checkpoints: string[] = [];
@@ -329,6 +333,7 @@ if (values.child) {
           : 'Signed manual policy and real blinded tokens with a durable local issuer; observer freshness, quorum spends and eligibility distribution are tested separately, not composed here.',
         'Account/credential-field separation is not timing or content unlinkability; static fingerprints and match relationships remain observable to the destination.',
         'WebSocket payload counts exclude framing. TCP stream totals include TLS and WebSocket handshakes/records when enabled, but exclude TCP/IP headers, acknowledgements, retransmissions and final cleanup; CPU time is not energy and process RSS peaks are not simultaneous total memory.',
+        'Optional peer delay is an ordered, backpressured byte-stream delay in each direction, including TLS negotiation; it does not emulate TCP connection setup, IP packets, loss, retransmission or a bandwidth cap.',
         'Two concurrent model processes on this host; representative hardware and cold first-download experience remain unmeasured.'] };
   } catch (error) {
     failure = error;

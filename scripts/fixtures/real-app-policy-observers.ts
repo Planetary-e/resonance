@@ -13,6 +13,7 @@ import { openHistoryVolunteerService } from '../../packages/relay/src/history-vo
 import { listenHistoryAgreementReplica } from '../../packages/relay/src/history-agreement-exchange.js';
 import { createAdmissionPolicyQueryResponder } from '../../packages/relay/src/admission-policy-query.js';
 import type { RealAppNetwork } from './real-app-network.js';
+import { exchangeHistoryCheckpoint } from '../../packages/relay/src/history-checkpoint-exchange.js';
 
 export async function realAppPolicyObservers(directory: string, policy: SignedAdmissionPolicy, cleanup: Array<() => void | Promise<void>>, network: RealAppNetwork) {
   mkdirSync(directory);
@@ -46,7 +47,8 @@ export async function realAppPolicyObservers(directory: string, policy: SignedAd
     }
     historyListeners.push(retained);
     const observer = await openProtectedPolicyObserver({ directory: join(directory, `observer-${i}`), context, historyContext: root.context,
-      encryptionKey, signingKey, root: root.root, members, mode: 'create-new' }); cleanup.push(observer.close);
+      encryptionKey, signingKey, root: root.root, members, mode: 'create-new',
+      transport: (...args) => network.measure(`observer-history-${args[1].request.action}`, () => exchangeHistoryCheckpoint(...args)) }); cleanup.push(observer.close);
     await observer.ready(); const exchange = createAdmissionPolicyObserverExchange(observer, context);
     handlers.push(async value => {
       try { return await exchange(value); }

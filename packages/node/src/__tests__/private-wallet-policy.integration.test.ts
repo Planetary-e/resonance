@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { publicVerif } from '@cloudflare/privacypass-ts';
+import WebSocket from 'ws';
 import { createBlindAdmissionRequestV2, issueBlindAdmissionRequestV2, generateSigningKeyPair, createPublicationRecord, generatePublicationKeyMaterial } from '@resonance/core';
 import { createLocalBlindAdmissionVerifierV2, createRelayServer } from '@resonance/relay';
 import { admissionKeyFingerprint, signAdmissionPolicy, type AdmissionPolicyBody } from '@resonance/core/admission-policy';
@@ -24,7 +25,7 @@ beforeAll(async () => {
   const issuer = new publicVerif.Issuer(publicVerif.BlindRSAMode.PSS, scope.issuer, keys.privateKey, keys.publicKey); tokens = [];
   for (let i = 0; i < 6; i++) { const request = await createBlindAdmissionRequestV2(scope, keys.publicKey); tokens.push(await request.finalize(await issueBlindAdmissionRequestV2(issuer, request.request))); }
 });
-async function fixture() {
+async function fixture(entryDescriptorLifetimeMs = 60 * 60_000) {
   const directory = mkdtempSync(join(tmpdir(), 'private-wallet-policy-'));
   cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
   const authorityKey = generateSigningKeyPair(), observers = Array.from({ length: 5 }, generateSigningKeyPair);
@@ -38,7 +39,7 @@ async function fixture() {
   const queries: AdmissionPolicyQuery[] = [];
   const discovery = { reachability: 'direct' as const, supportedGroups: ['public'], storage: { capacityBytes: 1000000, availableBytes: 1000000 } };
   const entry = createRelayServer({ host: '127.0.0.1', port: 0, persistDir: join(directory, 'entry'),
-    relayDiscovery: { ...discovery, endpoints: ['ws://127.0.0.1:0/'] } });
+    relayDiscovery: { ...discovery, descriptorLifetimeMs: entryDescriptorLifetimeMs, endpoints: ['ws://127.0.0.1:0/'] } });
   const destination = createRelayServer({ host: '::1', port: 0, persistDir: join(directory, 'destination'), admissionVerifier: verifier,
     relayDiscovery: { ...discovery, endpoints: ['ws://[::1]:0/'] },
     // Controlled signed observer fixture. Protected-history quorum behavior has
@@ -112,6 +113,34 @@ it('checks the installed pins on direct calls and cannot bypass private freshnes
   const n = await fixture(), client = createRelayClient({ relayUrl: n.route.relayUrl, admissionCapabilityProvider: n.wallet.provider() }); cleanup.push(() => client.disconnect());
   await expect(client.submitPublicationOperation(n.record())).rejects.toThrow('fresh private policy observation');
   expect(n.queries).toHaveLength(0); expect(n.wallet.status().reserved).toBe(0); expect(n.verify).not.toHaveBeenCalled();
+});
+
+it('discovers one route per admitted operation while retaining separate policy queries and credentials', async () => {
+  const n = await fixture(), client = n.client(), discoveries: unknown[] = [];
+  const send = WebSocket.prototype.send;
+  vi.spyOn(WebSocket.prototype, 'send').mockImplementation(function (this: WebSocket, data, ...args: any[]) {
+    if (typeof data === 'string') {
+      try { const frame = JSON.parse(data); if (frame.type === 'private_discovery_request') discoveries.push(frame); } catch { /* Capture only JSON frames. */ }
+    }
+    return Reflect.apply(send, this, [data, ...args]);
+  } as typeof send);
+  expect((await client.submitPublicationOperation(n.record())).status).toBe('ok');
+  expect(discoveries).toHaveLength(1); expect(n.queries).toHaveLength(1); expect(n.wallet.status().reserved).toBe(1);
+  expect((await client.submitPublicationOperation(n.record())).status).toBe('ok');
+  expect(discoveries).toHaveLength(2); expect(n.queries).toHaveLength(2); expect(n.wallet.status().reserved).toBe(2);
+  expect(n.queries[0].request.challenge).not.toBe(n.queries[1].request.challenge);
+});
+
+it('refuses an operation route that expires during its policy query before reserving a credential', async () => {
+  const n = await fixture(1000);
+  n.setGate(signal => new Promise<void>((resolve, reject) => {
+    const done = () => { signal.removeEventListener('abort', cancel); resolve(); };
+    const timer = setTimeout(done, 1100);
+    const cancel = () => { clearTimeout(timer); reject(new Error('cancelled')); };
+    signal.addEventListener('abort', cancel, { once: true });
+  }));
+  await expect(n.client().submitPublicationOperation(n.record())).rejects.toThrow('independent');
+  expect(n.queries).toHaveLength(1); expect(n.verify).not.toHaveBeenCalled(); expect(n.wallet.status().reserved).toBe(0);
 });
 
 it('does not reserve a token when the publication expires while its policy query is in flight', async () => {

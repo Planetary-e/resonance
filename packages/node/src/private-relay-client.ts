@@ -81,6 +81,7 @@ interface PrivateContact {
   candidate: PrivateRouteCandidateV1;
   key: NonNullable<Awaited<ReturnType<typeof discoverRelayContactV1>>['transportKey']>;
 }
+type DiscoveredPrivateRoute = { entry: PrivateContact; destination: PrivateContact };
 
 export function createPrivateRelayClient(config: RelayClientConfig): RelayClient {
   const destinations = [...new Set([config.relayUrl, ...(config.fallbackUrls ?? [])])];
@@ -92,13 +93,15 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
   const events: Partial<RelayClientEvents> = {};
   const scheduler = createPrivateTrafficScheduler(config.privateTraffic);
   const operations = new Set<PrivateOperation>();
+  const operationRoutes = new WeakMap<PrivateOperation, Map<string, DiscoveredPrivateRoute>>();
 
   async function runOperation<T>(work: (operation: PrivateOperation) => Promise<T>): Promise<T> {
     const operation = createPrivateOperation();
     operations.add(operation);
+    operationRoutes.set(operation, new Map());
     try { return await work(operation); }
     catch (error) { throw operation.failure(error instanceof Error ? error : new Error(String(error))); }
-    finally { operation.dispose(); operations.delete(operation); }
+    finally { operation.dispose(); operations.delete(operation); operationRoutes.delete(operation); }
   }
 
   async function admittedRequest(url: string, action: RelayAdmissionActionV2, request: unknown,
@@ -122,6 +125,8 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
       ...(policyObservation ? { policyObservation } : {}) };
     const valid = () => {
       operation.check(signal);
+      const route = operationRoutes.get(operation)?.get(url);
+      if (route) assertRouteCurrent(route);
       requestValid();
       if (policyObservation && (performance.now() >= observationDeadline || Date.now() < policyObservation.query.request.issuedAt
         || Date.now() >= policyObservation.query.request.expiresAt)) throw new Error('Policy observation expired before transmission');
@@ -206,7 +211,20 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
     });
   }
 
-  async function discoverRoute(destinationUrl: string, operation: PrivateOperation, signal: AbortSignal): Promise<{ entry: PrivateContact; destination: PrivateContact }> {
+  function assertRouteCurrent({ entry, destination }: DiscoveredPrivateRoute) {
+    selectPrivateRouteV1([entry.candidate, destination.candidate]);
+    if (!isRelayTransportKeyActiveV1(entry.key, Date.now()) || !isRelayTransportKeyActiveV1(destination.key, Date.now())) {
+      throw new Error('Private route transport key expired');
+    }
+  }
+
+  async function discoverRoute(destinationUrl: string, operation: PrivateOperation, signal: AbortSignal): Promise<DiscoveredPrivateRoute> {
+    operation.check(signal);
+    // The nested policy query and its admitted request share the route already
+    // selected for this operation. No descriptor, connection or authorization
+    // is reused by another operation; expiry and TLS checks still apply.
+    const cached = operationRoutes.get(operation)?.get(destinationUrl);
+    if (cached) { assertRouteCurrent(cached); return cached; }
     let lastError: unknown;
     const start = randomInt(entryUrls.length);
     for (let offset = 0; offset < entryUrls.length; offset++) {
@@ -224,8 +242,9 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
           entry.candidate.remoteAddress, undefined, signal,
         );
         operation.check(signal);
-        selectPrivateRouteV1([entry.candidate, destination.candidate]);
-        return { entry, destination };
+        const route = { entry, destination }; assertRouteCurrent(route);
+        operationRoutes.get(operation)!.set(destinationUrl, route);
+        return route;
       } catch (error) { lastError = error; }
     }
     throw lastError instanceof Error ? lastError : new Error('No independent two-relay route is available');
@@ -237,7 +256,7 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
     operation.check(signal);
     valid();
     const prepared = await makeRaw();
-    const check = () => { valid(); if (typeof prepared !== 'string') prepared.valid(); };
+    const check = () => { valid(); assertRouteCurrent({ entry, destination }); if (typeof prepared !== 'string') prepared.valid(); };
     check();
     const plaintext = decodeUTF8(typeof prepared === 'string' ? prepared : prepared.raw);
     operation.check(signal);

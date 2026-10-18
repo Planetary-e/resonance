@@ -1,9 +1,10 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { once } from 'node:events';
 import { readFileSync } from 'node:fs';
 import { connect, createServer, type AddressInfo, type Socket } from 'node:net';
 import { connect as connectTls } from 'node:tls';
 import { createRealAppNetwork, realAppTestCa } from './real-app-network.js';
+import { createRelayTestDelay } from '../../packages/relay/src/__tests__/fixtures/relay-test-delay.js';
 
 async function echo(cleanup: Array<() => void | Promise<void>>) {
   let connections = 0;
@@ -37,9 +38,30 @@ it('counts both stream directions exactly and retains totals across endpoint res
     await exchange(connect(endpoint.port, '127.0.0.1'), 'abc');
     endpoint.disconnect(); endpoint.forwardTo(backend.port);
     await exchange(connect(endpoint.port, '127.0.0.1'), '12345');
-    expect(network.snapshot()).toEqual({ encrypted: false, scope: 'private-route-only', connections: 2, tcpStreamBytes: 16,
+    expect(network.snapshot()).toEqual({ encrypted: false, tcpNoDelay: true, simulatedOneWayDelayMs: 0, scope: 'private-route-only', connections: 2, tcpStreamBytes: 16,
+      stages: [], activeStages: 0, droppedStages: 0,
       categories: [{ category: 'entry', endpoints: 1, connections: 2, clientToServerBytes: 8, serverToClientBytes: 8 }] });
   } finally { for (const close of cleanup.reverse()) await close(); }
+});
+
+it('delays an ordered burst once instead of accumulating one delay for every chunk', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+  const stream = createRelayTestDelay(40), received: string[] = [];
+  stream.output.on('data', bytes => received.push(bytes.toString()));
+  const finished = once(stream.output, 'end');
+  try {
+    stream.input.write('first'); stream.input.end('second');
+    await vi.advanceTimersByTimeAsync(39); expect(received).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1); await finished;
+    expect(received).toEqual(['first', 'second']);
+  } finally { stream.close(); vi.useRealTimers(); }
+});
+
+it('closes delayed streams without delivering queued bytes after cancellation', async () => {
+  const stream = createRelayTestDelay(1000), received: Buffer[] = [];
+  stream.output.on('data', bytes => received.push(bytes));
+  const closed = once(stream.output, 'close'); stream.input.write('pending'); stream.close(); await closed;
+  expect(received).toEqual([]); expect(stream.input.destroyed && stream.output.destroyed).toBe(true);
 });
 
 it('counts encrypted handshakes while refusing an untrusted CA before the backend opens', async () => {

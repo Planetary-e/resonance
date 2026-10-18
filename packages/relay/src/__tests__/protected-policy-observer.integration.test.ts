@@ -37,8 +37,10 @@ async function fixture(limits: { maxArchiveBlocks?: number; maxArchiveBytes?: nu
   for (const role of roles) { const listener = await listenHistoryCheckpointReplica(role, { port: 0 }); listeners.push(listener); cleanup.push(listener.close); }
   const members = enrolled.context.members.map((publicKey, i) => ({ publicKey, endpoint: listeners[i].endpoint }));
   let online = new Set([0, 1, 2, 3, 4]), lost = false, gate: Promise<void> | undefined, calls = 0, time = f.now;
+  const headChallenges: string[] = [];
   const transport: HistoryCheckpointTransport = async (member, frame, signal) => {
     calls++; if (!online.has(enrolled.context.members.indexOf(member.publicKey))) throw new Error('volunteer offline');
+    if (frame.request.action === 'head') headChallenges.push(frame.request.challenge);
     if (gate) await gate;
     const response = await exchangeHistoryCheckpoint(member, frame, signal);
     if (lost && frame.request.action === 'append') throw new Error('durable reply lost');
@@ -51,7 +53,7 @@ async function fixture(limits: { maxArchiveBlocks?: number; maxArchiveBytes?: nu
   }
   const observer = await open('create-new'); expect(calls).toBe(0);
   return { ...f, enrolled, stores, roles, members, listeners, options, observer, open,
-    calls: () => calls, online: (...indices: number[]) => { online = new Set(indices); }, lost: (value: boolean) => { lost = value; },
+    calls: () => calls, headChallenges, online: (...indices: number[]) => { online = new Set(indices); }, lost: (value: boolean) => { lost = value; },
     gate: (value?: Promise<void>) => { gate = value; }, time: (value: number) => { time = value; } };
 }
 
@@ -187,12 +189,46 @@ it('charges queue waiting against the original monotonic deadline and continues 
   const exchange = createAdmissionPolicyObserverExchange(n.observer, n.context, () => n.now);
   let release!: () => void; n.gate(new Promise<void>(resolve => { release = resolve; }));
   const first = exchange({ request: createAdmissionPolicyHeadRequest(n.context, n.now), advance: null });
+  const second = exchange({ request: createAdmissionPolicyHeadRequest(n.context, n.now), advance: null });
   const expired = exchange({ request: createAdmissionPolicyHeadRequest(n.context, n.now, 100), advance: null });
   const refused = expect(expired).rejects.toThrow('expired in observer queue');
-  await delay(160); release(); await first; await refused;
-  expect(n.calls() - calls).toBe(5); // The expired queued caller never starts another history query.
+  await delay(160); release(); await Promise.all([first, second]); await refused;
+  expect(n.calls() - calls).toBe(10); // Both active reads run; the expired queued caller never starts a history query.
   const request = createAdmissionPolicyHeadRequest(n.context, n.now);
   expect(parseAdmissionPolicyHeadVote(await exchange({ request, advance: null }), request, n.context, n.now).head).toEqual(n.context.genesis);
+});
+
+it('overlaps two independent fresh reads while excluding mutations, recovery and a third reader', async () => {
+  const n = await fixture(); await n.observer.ready(); const calls = n.calls(), challenges = n.headChallenges.length;
+  let release!: () => void; n.gate(new Promise<void>(resolve => { release = resolve; }));
+  const requests = [createAdmissionPolicyHeadRequest(n.context, n.now), createAdmissionPolicyHeadRequest(n.context, n.now)];
+  const reads = requests.map(request => n.observer.observe(request));
+  await delay(0);
+  expect(n.calls() - calls).toBe(10); expect(new Set(n.headChallenges.slice(challenges)).size).toBe(2);
+  await expect(n.observer.observe(requests[0])).rejects.toThrow('already in progress');
+  await expect(n.observer.advance(n.advance)).rejects.toThrow('already in progress');
+  await expect(n.observer.ready()).rejects.toThrow('already in progress');
+  expect(() => n.observer.reviewRecoverySource()).toThrow('active');
+  release(); const replies = await Promise.all(reads);
+  replies.forEach((reply, i) => expect(parseAdmissionPolicyHeadVote(reply, requests[i], n.context, n.now).head).toEqual(n.context.genesis));
+  await n.observer.advance(n.advance);
+  expect((await n.observer.observe(requests[0])).head).toEqual(n.advance.commitment.next);
+});
+
+it('keeps a queued policy advance as an exclusive barrier between concurrent read groups', async () => {
+  const n = await fixture(); await n.observer.ready(); const calls = n.calls();
+  const exchange = createAdmissionPolicyObserverExchange(n.observer, n.context, () => n.now);
+  let release!: () => void; n.gate(new Promise<void>(resolve => { release = resolve; }));
+  const request = () => createAdmissionPolicyHeadRequest(n.context, n.now);
+  const before = [exchange({ request: request(), advance: null }), exchange({ request: request(), advance: null })];
+  const update = exchange({ request: request(), advance: n.advance });
+  const after = exchange({ request: request(), advance: null });
+  await delay(0); expect(n.calls() - calls).toBe(10); expect(n.observer.policy().revision).toBe(1);
+  release();
+  const earlier = await Promise.all(before);
+  for (const reply of earlier) expect((reply as { head: unknown }).head).toEqual(n.context.genesis);
+  expect((await update as { head: unknown }).head).toEqual(n.advance.commitment.next);
+  expect((await after as { head: unknown }).head).toEqual(n.advance.commitment.next);
 });
 
 it('serializes in-flight operations, captures the request and fences signatures after close', async () => {
@@ -203,7 +239,8 @@ it('serializes in-flight operations, captures the request and fences signatures 
   await expect(n.observer.advance(n.advance)).rejects.toThrow('already in progress'); release();
   expect((await observed).request).toEqual(original);
   n.gate(new Promise<void>(resolve => { release = resolve; }));
-  const late = n.observer.observe(original); n.observer.close(); release(); await expect(late).rejects.toThrow();
+  const late = n.observer.observe(original), concurrent = n.observer.observe(original);
+  n.observer.close(); release(); await Promise.all([expect(late).rejects.toThrow(), expect(concurrent).rejects.toThrow()]);
 });
 
 it('rechecks expiry and the monotonic request budget even with a frozen wall clock', async () => {

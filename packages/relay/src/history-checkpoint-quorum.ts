@@ -90,6 +90,7 @@ export function createHistoryCheckpointWriter(options: {
       initial, validate: valid });
   } catch (error) { key.secretKey.fill(0); throw error; }
   let closed = false, active: AbortController | undefined;
+  const observations = new Set<AbortController>();
   return {
     /** Exposes pending exact ciphertext for explicit retry after restart; never automatically sends. */
     read(): HistoryCheckpointWriterState { return structuredClone(storage.read()); },
@@ -98,18 +99,18 @@ export function createHistoryCheckpointWriter(options: {
     async observeCurrent(): Promise<HistoryExchangeResponse[]> {
       const state = storage.read();
       if (closed) throw new Error('History writer is closed');
-      if (active) throw new Error('History writer already has an active attempt');
+      if (active || observations.size >= 2) throw new Error('History writer already has an active attempt');
       if (state.pending || !state.committed) throw new Error('Current history observation needs a committed head without pending work');
-      const controller = new AbortController(); active = controller;
+      const controller = new AbortController(); observations.add(controller);
       try {
         return await collectCurrentHistoryHead({ context, key, rootId, block: state.committed.envelope, members, transport,
           timeoutMs, controller, isClosed: () => closed, retained: options.retained });
-      } finally { controller.abort(); if (active === controller) active = undefined; }
+      } finally { controller.abort(); observations.delete(controller); }
     },
     async replicate(value: unknown): Promise<HistoryWriteCertificate> {
       storage.read();
       if (closed) throw new Error('History writer is closed');
-      if (active) throw new Error('History writer already has an active attempt');
+      if (active || observations.size) throw new Error('History writer already has an active attempt');
       const started = performance.now(), expiresAt = Date.now() + timeoutMs;
       const controller = new AbortController(); active = controller;
       const live = () => {
@@ -149,16 +150,28 @@ export function createHistoryCheckpointWriter(options: {
           members.forEach((member, index) => {
             void Promise.resolve().then(async () => {
               if (settled) throw new Error('Attempt completed');
-              if (repair) await repair.synchronize(member, controller.signal);
-              live();
-              return transport(member, { request: requests[index], envelope: structuredClone(block) }, controller.signal);
-            }).then(response => {
-              if (settled) return;
-              live();
-              const receipt = parseHistoryExchangeResponse(response, requests[index], context);
-              if (options.requireCurrentHead && (receipt.head.sequence !== block.sequence || receipt.head.envelopeId !== id)) {
-                throw new Error('History acknowledgement advertises a newer head');
+              const append = async () => {
+                live();
+                const response = await transport(member, { request: requests[index], envelope: structuredClone(block) }, controller.signal);
+                live(); const receipt = parseHistoryExchangeResponse(response, requests[index], context);
+                if (options.requireCurrentHead && (receipt.head.sequence !== block.sequence || receipt.head.envelopeId !== id)) {
+                  throw new Error('History acknowledgement advertises a newer head');
+                }
+                return receipt;
+              };
+              // The authenticated append already enforces the exact predecessor,
+              // freeze barrier and durable write. A current protected replica
+              // needs no preliminary head query. A missing reply or lagging peer
+              // falls back to bounded repair, then a NEW append receipt; a head
+              // response is never promoted to evidence of a durable write.
+              if (repair && options.requireCurrentHead && !repair.requiresPrefixMaintenance) {
+                try { return await append(); }
+                catch { live(); if (settled) throw new Error('Attempt completed'); }
               }
+              if (repair) await repair.synchronize(member, controller.signal);
+              return append();
+            }).then(receipt => {
+              if (settled) return;
               live(); receipts.push(receipt);
               if (receipts.length === 4) finish(parseHistoryWriteCertificate({ version: 1, receipts }, block, rootId, context));
             }).catch(() => {}).finally(() => {
@@ -175,6 +188,6 @@ export function createHistoryCheckpointWriter(options: {
         return structuredClone(certificate);
       } finally { controller.abort(); if (active === controller) active = undefined; }
     },
-    close() { if (!closed) { closed = true; active?.abort(); storage.close(); key.secretKey.fill(0); } },
+    close() { if (!closed) { closed = true; active?.abort(); observations.forEach(controller => controller.abort()); storage.close(); key.secretKey.fill(0); } },
   };
 }

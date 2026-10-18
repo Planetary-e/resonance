@@ -32,12 +32,13 @@ function relay(port: number, host: string, endpoint: string, persistDir: string)
 }
 
 beforeAll(async () => {
-  servers.push(
-    relay(0, '127.0.0.1', 'ws://127.0.0.1:0/', dirs[0]),
-    relay(0, '::1', 'ws://[::1]:0/', dirs[1]),
-    relay(0, '127.0.0.1', 'ws://127.0.0.1:0/', dirs[2]),
-  );
-  for (const server of servers) await server.start();
+  servers.push(relay(0, '127.0.0.1', 'ws://127.0.0.1:0/', dirs[0]));
+  await servers[0].start();
+  // IPv4 and IPv6 listeners may legitimately have the same numeric port.
+  // Force that case so packet-injection tests must identify the full endpoint.
+  servers.push(relay(servers[0].getListeningPort()!, '::1', `ws://[::1]:${servers[0].getListeningPort()}/`, dirs[1]),
+    relay(0, '127.0.0.1', 'ws://127.0.0.1:0/', dirs[2]));
+  for (const server of servers.slice(1)) await server.start();
   ENTRY = `ws://127.0.0.1:${servers[0].getListeningPort()}/`;
   DESTINATION = `ws://[::1]:${servers[1].getListeningPort()}/`;
   SAME_DOMAIN = `ws://127.0.0.1:${servers[2].getListeningPort()}/`;
@@ -59,7 +60,8 @@ describe('personal client private transport', () => {
     const send = WebSocket.prototype.send; let changed = 0;
     const spy = vi.spyOn(WebSocket.prototype, 'send').mockImplementation(function(this: WebSocket, data: any, ...rest: any[]) {
       let frame: any; try { frame = JSON.parse(String(data)); } catch { /* Other protocol payload. */ }
-      if (frame?.type === type && (this as any)._socket?.localPort === servers[0].getListeningPort()) {
+      const socket = (this as WebSocket & { _socket?: { localAddress?: string; localPort?: number } })._socket;
+      if (frame?.type === type && socket?.localAddress === '127.0.0.1' && socket.localPort === servers[0].getListeningPort()) {
         changed++; return send.call(this, data, { binary: true }, rest.find(value => typeof value === 'function'));
       }
       return Reflect.apply(send, this, [data, ...rest]);

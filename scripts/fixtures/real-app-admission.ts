@@ -14,6 +14,9 @@ import { openAdmissionRoleCapture } from '../../packages/relay/src/admission-rol
 import { openHistoryVolunteerService } from '../../packages/relay/src/history-volunteer-service.js';
 import { listenHistoryAgreementReplica } from '../../packages/relay/src/history-agreement-exchange.js';
 import type { RealAppNetwork } from './real-app-network.js';
+import { exchangeHistoryCheckpoint } from '../../packages/relay/src/history-checkpoint-exchange.js';
+import { exchangeAdmissionPolicyObservation } from '../../packages/relay/src/admission-policy-observation-transport.js';
+import { requestAdmissionWitnessVote } from '../../packages/relay/src/admission-witness-transport.js';
 
 type Verifier = Awaited<ReturnType<typeof createConfiguredAdmissionVerifier>>;
 type VerifierOptions = Parameters<typeof createConfiguredAdmissionVerifier>[0];
@@ -56,7 +59,8 @@ export async function prepareRealAppAdmission(directory: string, cleanup: Array<
           members: historyKeys.map(key => Buffer.from(key.publicKey).toString('base64url')) };
         const members = context.members.map((publicKey, i) => ({ publicKey, endpoint: `ws://127.0.0.1:${i + 1}/history-checkpoint` }));
         const historyOptions = { directory: ownerDirectory, encryptionKey, authority: policy.authority, policy,
-          protection: { context, signingKey, members } };
+          protection: { context, signingKey, members,
+            transport: ((...args) => network.measure(`${role}-history-${args[1].request.action}`, () => exchangeHistoryCheckpoint(...args))) as typeof exchangeHistoryCheckpoint } };
         let history = await openProtectedAdmissionSpendHistory({ ...historyOptions, initialize: true,
           protection: { ...historyOptions.protection, initializeWriter: true } });
         cleanup.push(() => history.close()); const root = history.enrollment().root, retained: Listener[] = [];
@@ -83,6 +87,8 @@ export async function prepareRealAppAdmission(directory: string, cleanup: Array<
         history.close();
         const configured: VerifierOptions = { directory: ownerDirectory, encryptionKey, authority: policy.authority, policy,
           policyObservers: observers, historyProtection: historyOptions.protection, initialize: true, initializeSpendHistory: false,
+          policyObservationTransport: (...args) => network.measure(`${role}-policy`, () => exchangeAdmissionPolicyObservation(...args)),
+          witnessTransport: (...args) => network.measure('coordinator-witness', () => requestAdmissionWitnessVote(...args)),
           ...(role === 'witness' ? { witnessKey: roleKey } : { coordinatorKey: roleKey }) };
         options.push(configured); verifiers.push(await createConfiguredAdmissionVerifier(configured));
         cleanup.push(async () => { verifiers[index].close(); await verifiers[index].drainPolicyObservations(); });

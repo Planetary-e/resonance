@@ -33,7 +33,7 @@ async function fixture(timeoutMs = 10000, retained = true) {
     return (override ?? exchangeHistoryCheckpoint)(member, frame, signal);
   };
   const options = { directory: join(directory, 'owner'), localKey: f.localKey, context: f.context, signingKey: f.owner,
-    rootId: f.options.rootId, generation: 0, members, timeoutMs, transport };
+    rootId: f.options.rootId, generation: 0, members, timeoutMs, transport, requireCurrentHead: true };
   const retainedWriter = retained ? createRetainedHistoryCheckpointWriter({ ...options, initialize: true }) : undefined;
   const writer = retainedWriter ?? createHistoryCheckpointWriter({ ...options, initialize: true }); cleanup.push(writer.close);
   return { ...f, directory, stores, roles, members, options, frames, writer, retainedWriter,

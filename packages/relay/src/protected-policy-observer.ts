@@ -88,6 +88,7 @@ export async function openProtectedPolicyObserver(options: {
     timeoutMs: options.timeoutMs ?? 3000, transport: options.transport,
     maxArchiveBlocks: options.maxArchiveBlocks, maxArchiveBytes: options.maxArchiveBytes };
   let writer: ReturnType<typeof createRetainedHistoryCheckpointWriter> | undefined, closed = false, busy = false, fenced = false;
+  let observing = 0;
   let restoration: Awaited<ReturnType<typeof openPolicyObserverRestoration>> | undefined;
   // Only the committed and pending states are needed after opening. All retained
   // ciphertext is authenticated and replayed before these cached states are used.
@@ -116,7 +117,7 @@ export async function openProtectedPolicyObserver(options: {
   }
   async function exclusive<T>(operation: () => Promise<T>): Promise<T> {
     live(); if (fenced) throw new Error('Policy observer is permanently fenced for recovery');
-    if (busy) throw new Error('Protected policy observer operation is already in progress'); busy = true;
+    if (busy || observing) throw new Error('Protected policy observer operation is already in progress'); busy = true;
     try { return await operation(); } finally { busy = false; }
   }
   async function confirm() {
@@ -175,6 +176,7 @@ export async function openProtectedPolicyObserver(options: {
     if (existsSync(fencePath)) { const marker = openFence('open-existing'); marker.close(); fenced = true; }
   } catch (error) { close(); throw error; }
   return {
+    maximumConcurrentObservations: 2 as const,
     /** Aggregate local observations: no history replay, copies of policy content,
      * signatures or network probes. This does not establish a current quorum. */
     health() {
@@ -214,12 +216,12 @@ export async function openProtectedPolicyObserver(options: {
     /** Review is read-only. Applying its capability first durably confirms all
      * local evidence, then fences this directory before remote freeze begins. */
     reviewRecoverySource(): PolicyObserverRecoverySource {
-      live(); if (busy) throw new Error('Cannot review an active policy observer');
+      live(); if (busy || observing) throw new Error('Cannot review an active policy observer');
       const state = structuredClone(retained().state), digest = stateDigest();
       const source = Object.freeze({ directory: resolve(writerOptions.directory), contextId: historyCheckpointContextId(historyContext),
         genesisId, rootId, generation: root.generation, stateDigest: digest });
       recoverySources.set(source, { state, async fence() {
-        live(); if (busy) throw new Error('Cannot fence an active policy observer');
+        live(); if (busy || observing) throw new Error('Cannot fence an active policy observer');
         if (stateDigest() !== digest) throw new Error('Policy observer changed since recovery review');
         if (fenced) return;
         busy = true;
@@ -239,15 +241,20 @@ export async function openProtectedPolicyObserver(options: {
     },
     /** No persistent ready flag: every observation performs another fresh check. */
     ready() { return exclusive(async () => { const { state } = await confirm(); usable(state); }); },
-    observe(value: unknown) { return exclusive(async () => {
-      const request = parseAdmissionPolicyHeadRequest(value, context, now()), started = performance.now(), remaining = request.expiresAt - now();
-      const before = retained(); usable(before.state);
-      if (before.saved.pending) throw new Error('Complete the pending policy observer history first');
-      if (!before.saved.committed) throw new Error('Confirm the policy observer root before observing');
-      await writer!.observeCurrent(); live(); const { state } = retained();
-      if (performance.now() - started >= remaining) throw new Error('Policy observation completed too late');
-      usable(state); return createAdmissionPolicyHeadVote(request, policyObserverStateHead(state, context), context, signer, now());
-    }); },
+    async observe(value: unknown) {
+      live(); if (fenced) throw new Error('Policy observer is permanently fenced for recovery');
+      if (busy || observing >= 2) throw new Error('Protected policy observer operation is already in progress');
+      observing++;
+      try {
+        const request = parseAdmissionPolicyHeadRequest(value, context, now()), started = performance.now(), remaining = request.expiresAt - now();
+        const before = retained(); usable(before.state);
+        if (before.saved.pending) throw new Error('Complete the pending policy observer history first');
+        if (!before.saved.committed) throw new Error('Confirm the policy observer root before observing');
+        await writer!.observeCurrent(); live(); const { state } = retained();
+        if (performance.now() - started >= remaining) throw new Error('Policy observation completed too late');
+        usable(state); return createAdmissionPolicyHeadVote(request, policyObserverStateHead(state, context), context, signer, now());
+      } finally { observing--; }
+    },
     advance(value: unknown) { return exclusive(async () => {
       const advance = await parseAdmissionPolicyAdvance(value, context); live();
       const { state, block, saved } = retained();

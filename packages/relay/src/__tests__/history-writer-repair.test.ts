@@ -30,7 +30,7 @@ function fixture() {
   return { ...f, directory, stores, roles, members, retained, transport, options, writer };
 }
 
-it('repairs a returning fourth volunteer over real sockets and resumes after a lost repair reply and owner reopen', async () => {
+it.each([false, true])('repairs a returning fourth over real sockets and a lost reply with current-head enforcement %s', async requireCurrentHead => {
   const n = fixture(), listeners: Awaited<ReturnType<typeof listenHistoryCheckpointReplica>>[] = [];
   async function start(i: number) {
     const listener = await listenHistoryCheckpointReplica(n.roles[i], { port: listeners[i] ? Number(new URL(listeners[i].endpoint).port) : 0 });
@@ -47,14 +47,14 @@ it('repairs a returning fourth volunteer over real sockets and resumes after a l
     }
     return response;
   };
-  let writer = n.writer(true, { transport }); await writer.replicate(n.root);
+  let writer = n.writer(true, { transport, requireCurrentHead }); await writer.replicate(n.root);
   for (let i = 0; i < 2; i++) { const block = n.next(n.retained.at(-1)!); await writer.replicate(block); n.retained.push(block); }
   expect(n.stores[4].describe().sequence).toBe(0);
   await listeners[3].close(); await start(4);
   const next = n.next(n.retained.at(-1)!);
   await expect(writer.replicate(next)).rejects.toThrow('Four');
   expect(writer.read().pending).toEqual(next); expect(n.stores[4].describe().sequence).toBe(1); expect(attempts).toEqual([1]);
-  writer.close(); lose = false; writer = n.writer(false, { transport });
+  writer.close(); lose = false; writer = n.writer(false, { transport, requireCurrentHead });
   const cert = await writer.replicate(writer.read().pending); n.retained.push(next);
   expect(cert.receipts).toHaveLength(4); expect(cert.receipts.some(r => r.request.replica === n.members[4].publicKey)).toBe(true);
   expect(attempts).toEqual([1, 2, 3]); expect(n.stores[4].read().envelopes).toEqual(n.retained);
@@ -63,6 +63,39 @@ it('repairs a returning fourth volunteer over real sockets and resumes after a l
   expect(retry.receipts[0].request.challenge).not.toBe(cert.receipts[0].request.challenge);
   expect(attempts).toEqual([1, 2, 3, 3]); // Fresh target receipt, no duplicate prefix transfer.
 }, 60000);
+
+it('collects fresh exact-head append receipts in one exchange per current protected replica', async () => {
+  const n = fixture(), actions: string[] = [];
+  const writer = n.writer(true, { requireCurrentHead: true, transport: async (...args) => {
+    actions.push(args[1].request.action); return n.transport(...args);
+  } });
+  const first = await writer.replicate(n.root);
+  expect(actions).toEqual(Array(5).fill('append')); actions.length = 0;
+  const next = n.next(n.root), second = await writer.replicate(next);
+  expect(actions).toEqual(Array(5).fill('append'));
+  expect(second.receipts).toHaveLength(4);
+  expect(second.receipts.every(receipt => receipt.head.envelopeId === historyCheckpointEnvelopeId(next))).toBe(true);
+  expect(second.receipts[0].request.challenge).not.toBe(first.receipts[0].request.challenge);
+});
+
+it('requires another signed append receipt after an optimistic write loses its response', async () => {
+  const n = fixture(), dropped = new Set<string>(), actions = new Map<string, string[]>();
+  const writer = n.writer(true, { requireCurrentHead: true, transport: async (member, frame, signal) => {
+    const seen = actions.get(member.publicKey) ?? []; actions.set(member.publicKey, seen); seen.push(frame.request.action);
+    const response = await n.transport(member, frame, signal);
+    if (frame.request.action === 'append' && !dropped.has(member.publicKey)) {
+      dropped.add(member.publicKey); throw new Error('Lost accepted append response');
+    }
+    return response;
+  } });
+  const certificate = await writer.replicate(n.root);
+  expect(certificate.receipts).toHaveLength(4);
+  for (const receipt of certificate.receipts) {
+    expect(receipt.request.action).toBe('append');
+    expect(actions.get(receipt.request.replica)).toEqual(['append', 'head', 'append']);
+  }
+  expect(n.stores.every(store => store.read().envelopes.length === 1)).toBe(true);
+});
 
 it.each(['gap', 'fork', 'longer', 'corrupt'] as const)('rejects a %s retained prefix before sending and preserves the exact pending write', async kind => {
   const n = fixture(); let source = n.retained, calls = 0;
@@ -76,9 +109,10 @@ it.each(['gap', 'fork', 'longer', 'corrupt'] as const)('rejects a %s retained pr
   source = n.retained; await writer.replicate(b); expect(writer.read().pending).toBeNull();
 }, 30000); // Multiple real quorum writes/fsyncs; this is a safety test, not a five-second latency benchmark.
 
-it.each(['fork', 'newer', 'frozen'] as const)('never changes a %s replica or counts its head as a durable write receipt', async kind => {
+it.each((['fork', 'newer', 'frozen'] as const).flatMap(kind => [false, true].map(requireCurrentHead => ({ kind, requireCurrentHead }))))(
+  'never changes a $kind replica or counts its head as a write receipt (current-head $requireCurrentHead)', async ({ kind, requireCurrentHead }) => {
   const n = fixture(); let offline = 4; const actions: string[] = [];
-  const writer = n.writer(true, { transport: async (member, frame, signal) => {
+  const writer = n.writer(true, { requireCurrentHead, transport: async (member, frame, signal) => {
     const i = n.context.members.indexOf(member.publicKey); if (i === offline) throw new Error('offline');
     if (i === 4) actions.push(frame.request.action); return n.transport(member, frame, signal);
   } });
@@ -89,7 +123,8 @@ it.each(['fork', 'newer', 'frozen'] as const)('never changes a %s replica or cou
   if (kind === 'frozen') n.stores[4].freeze(createHistoryFreeze(n.context, 0, 1, randomBytes(32).toString('base64url'), n.owner));
   const before = n.stores[4].read(); offline = 3;
   await expect(writer.replicate(b)).rejects.toThrow('Four');
-  expect(actions).toEqual(['head']); expect(n.stores[4].read()).toEqual(before); expect(writer.read().pending).toEqual(b);
+  expect(actions).toEqual(requireCurrentHead ? ['append', 'head'] : ['head']);
+  expect(n.stores[4].read()).toEqual(before); expect(writer.read().pending).toEqual(b);
 });
 
 it('cannot turn a repaired prefix into a fourth acknowledgement when recovery freezes the member before the pending append', async () => {

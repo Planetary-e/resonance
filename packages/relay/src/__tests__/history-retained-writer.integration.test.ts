@@ -77,7 +77,7 @@ it('reclaims a returning fourth volunteer within four slots after approved repai
     }
     return result;
   };
-  let writer = n.writer(true, { maxArchiveBlocks: 4, transport }); await writer.replicate(n.root);
+  let writer = n.writer(true, { maxArchiveBlocks: 4, transport, requireCurrentHead: true }); await writer.replicate(n.root);
   const first = n.next(n.root), checkpoint = n.next(first, 'complete state', 'checkpoint');
   await writer.replicate(first); n.stores[4].append(first); await writer.replicate(checkpoint);
   const issuedAt = Date.now(), proposal = createHistoryCompactionProposal({ genesisId: n.options.rootId, rootId: n.options.rootId,
@@ -86,13 +86,13 @@ it('reclaims a returning fourth volunteer within four slots after approved repai
     votes: n.memberKeys.slice(0, 4).map(key => createHistoryCompactionVote(proposal, n.context, n.options.rootId, key, issuedAt)) };
   writer.retainCompactionAnchor(proof, writer.historyReviewDigest(), { reclaimReplicaPrefix: true });
   writer.retirePrefix(writer.planPrefixRetirement().approvalDigest); writer.close();
-  await n.listeners[3].close(); await n.start(4); writer = n.writer(false, { maxArchiveBlocks: 4, transport });
+  await n.listeners[3].close(); await n.start(4); writer = n.writer(false, { maxArchiveBlocks: 4, transport, requireCurrentHead: true });
   const tail = sealHistoryCheckpoint({ context: n.context, header: { kind: 'delta', generation: 0, sequence: 3,
     previous: historyCheckpointEnvelopeId(checkpoint), checkpointReserveBytes: 4096 },
     plaintext: Buffer.from('next accepted record'), encryptionKey: n.key, signingKey: n.owner });
   await expect(writer.replicate(tail)).rejects.toThrow('Four');
   expect(n.stores[4].read().envelopes).toEqual([n.root, checkpoint]); expect(writer.read().pending).toEqual(tail);
-  writer.close(); writer = n.writer(false, { maxArchiveBlocks: 4, transport });
+  writer.close(); writer = n.writer(false, { maxArchiveBlocks: 4, transport, requireCurrentHead: true });
   expect((await writer.replicate(tail)).receipts).toHaveLength(4);
   expect(authorizations).toEqual([true, true]); expect(n.stores[4].read().envelopes).toEqual([n.root, checkpoint, tail]);
   await writer.replicate(n.next(tail, 'next complete state', 'checkpoint'));
@@ -185,15 +185,15 @@ it('repairs from a durable checkpoint proof after owner reopen, survives a lost 
   expect(n.calls()).toBe(before); expect(writer.compactionAnchor()).toEqual(proof);
   await n.listeners[3].close(); await n.start(4); actions.length = 0;
   const target = n.next(block); await expect(writer.replicate(target)).rejects.toThrow('Four');
-  expect(actions).toEqual(['head:0', 'install:4']); expect(n.stores[4].describe().sequence).toBe(4);
+  expect(actions).toEqual(['append:6', 'head:0', 'install:4']); expect(n.stores[4].describe().sequence).toBe(4);
   expect(n.stores[4].read().envelopes).toEqual([n.root, checkpoint]); expect(writer.read().pending).toEqual(target);
   expect(() => writer.planPrefixRetirement()).toThrow('pending');
   loseInstall = false; refuseTarget = true; actions.length = 0;
   await expect(writer.replicate(target)).rejects.toThrow('Four');
-  expect(actions).toEqual(['head:0', 'append:5', 'append:6']); expect(writer.read().committed?.envelope).toEqual(block);
+  expect(actions).toEqual(['append:6', 'head:0', 'append:5', 'append:6']); expect(writer.read().committed?.envelope).toEqual(block);
   refuseTarget = false; actions.length = 0;
   const certificate = await writer.replicate(writer.read().pending);
-  expect(actions).toEqual(['head:0', 'append:6']);
+  expect(actions).toEqual(['append:6']);
   expect(certificate.receipts.every(r => r.request.action === 'append' && r.request.sequence === 6)).toBe(true);
   expect(certificate.receipts.some(r => r.request.replica === n.context.members[4])).toBe(true);
   expect(n.stores[4].read().envelopes).toEqual([n.root, checkpoint, block, target]);

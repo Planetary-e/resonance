@@ -80,6 +80,9 @@ export function createHistoryWriterRepair(options: {
     || proof.proposal.sequence > block.sequence)) throw new Error('Writer repair checkpoint belongs to another history');
   const certificateId = proof ? historyCompactionCertificateId(proof, context, compaction!.genesisId) : null;
   return {
+    // Explicit prefix reclamation must still reach the member before a new
+    // append; ordinary current-head writes can try their signed append first.
+    requiresPrefixMaintenance: Boolean(compaction?.reclaimPrefix),
     async synchronize(member: HistoryReplicaEndpoint, signal: AbortSignal, throughTarget = false) {
       function active() { live(); if (signal.aborted) throw new Error('History repair cancelled'); }
       async function send(sequence: number | null) {
