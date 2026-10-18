@@ -116,3 +116,20 @@ wallet, issuer, witness/coordinator and spend integration remains outstanding;
 the 65-transition core test is not the target composed scenario or a complete KPI.
 Latest shared weekly usage observed by the reviewer: **9%**, versus the prior
 7% observation; this does not attribute cost to a model or task.
+
+## Observer integration block
+
+The next bounded implementation preserves the existing protected observer writer
+and original ancestry. Sol High owns observer state/checkpoints/replay/restoration
+and bounded page transfer; no wallet or issuer migration is accepted implicitly.
+Acceptance requires authenticated pages and policy in one durable transition,
+existing four-copy confirmation, non-serving pending state, missing/corrupt-page
+refusal and restoration without depending on a disposable cache. Existing
+snapshot, wire and storage limits remain unchanged.
+
+The requested multi-current-key regression now passes: migration retains two
+current keys, a cutoff-only update writes no pages, premature archival refuses,
+and a later transition archives both keys with the shortened final cutoff.
+Reopening from original signed ancestry preserves both archived entries and the
+new current key. Focused core v3 file: **10 tests passed / 8.59s**. This is core
+coverage only; the protected composed scenario remains outstanding.

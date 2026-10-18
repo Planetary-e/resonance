@@ -107,6 +107,39 @@ it('extends v3 with the exact immutable prior root and resolves one authenticate
   expect(await lookupResolvedAdmissionPolicyKey({ policy: next.resolved, issuerKey: signed.activeKey, reader, limits })).toEqual({ entry: entries[65], archived: true });
 });
 
+it('retains multiple current keys through a cutoff-only update and archives their final cutoffs later', async () => {
+  const localPages = new Map(pages);
+  const localReader = async (digest: string) => {
+    const bytes = localPages.get(digest); if (!bytes) throw new Error('Missing archive page'); return bytes;
+  };
+  async function advance(from: ResolvedAdmissionPolicy, next: Parameters<typeof prepareAdmissionPolicyV3Successor>[0]['next']) {
+    const plan = await prepareAdmissionPolicyV3Successor({ previous: from, next, reader: localReader, limits });
+    for (const page of plan.pages) localPages.set(page.digest, page.bytes);
+    const policy = await signAdmissionPolicyV3(plan.body, authority, key.secretKey);
+    return { plan, ...await createResolvedAdmissionPolicyAdvance({ previous: from, policy, key, reader: localReader, limits }) };
+  }
+  const first = await advance(previous, { ...nextFields(65), keys: [entries[64], entries[65]] });
+  expect(first.plan.body.archive.entryCount).toBe(64);
+  const shortened = { ...entries[65], retryUntil: entries[65].spendUntil };
+  const cutoff = await advance(first.resolved, { revision: 67, issuedAt: 1651, expiresAt: 5000,
+    activeKey: first.plan.body.activeKey, keys: [entries[64], shortened] });
+  expect(cutoff.plan.pages).toHaveLength(0);
+  expect(cutoff.plan.body.archive).toEqual(first.plan.body.archive);
+  await expect(prepareAdmissionPolicyV3Successor({ previous: cutoff.resolved,
+    next: { ...nextFields(66), revision: 68, issuedAt: 1651 }, reader: localReader, limits })).rejects.toThrow('final retry');
+  const final = await advance(cutoff.resolved, { ...nextFields(66), revision: 68 });
+  expect(final.plan.body.archive.entryCount).toBe(66);
+  const reopened = await resolveAdmissionPolicy({ context, genesis,
+    advances: [...advances, first.advance, cutoff.advance, final.advance],
+    selectedHead: final.advance.commitment.next, reader: localReader, limits });
+  for (const entry of [entries[64], shortened]) {
+    expect(await lookupResolvedAdmissionPolicyKey({ policy: reopened,
+      issuerKey: admissionKeyFingerprint(entry.profile.issuerPublicKey), reader: localReader, limits })).toEqual({ entry, archived: true });
+  }
+  expect(await lookupResolvedAdmissionPolicyKey({ policy: reopened, issuerKey: final.plan.body.activeKey,
+    reader: localReader, limits })).toEqual({ entry: entries[66], archived: false });
+});
+
 it('refuses downgrade, v1 migration, omitted ancestry, stale/conflicting heads and digest-substituted advance bodies', async () => {
   const initial = await resolveAdmissionPolicy({ context, genesis, advances: [], selectedHead: context.genesis, reader, limits });
   await expect(prepareAdmissionPolicyV3Successor({ previous: initial, next: nextFields(65), reader, limits })).rejects.toThrow('v2 predecessor');
