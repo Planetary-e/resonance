@@ -21,9 +21,19 @@ const cleanup: Array<() => unknown | Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 let f: Awaited<ReturnType<typeof witnessFixture>>;
 beforeAll(async () => { f = await witnessFixture(); });
+type DiagnosticPhase = 'fixture-create' | 'capture-open' | 'capture-review' | 'capture-apply'
+  | 'disconnect-request' | 'disconnect-observed' | 'witness-release' | 'post-disconnect-assertions';
+async function diagnosticPhase<T>(phase: DiagnosticPhase, operation: () => T | Promise<T>): Promise<T> {
+  try { return await operation(); }
+  catch (cause) { throw new Error(`Protected admission test phase: ${phase}`, { cause }); }
+}
 async function fixture(captured = true, maxArchiveBlocks?: number) {
-  const n = await protectedRoleFixture(f, maxArchiveBlocks); cleanup.push(n.close);
-  if (captured) { const capture = await n.capture(); await capture.apply((await capture.review()).approvalDigest); capture.close(); }
+  const n = await diagnosticPhase('fixture-create', () => protectedRoleFixture(f, maxArchiveBlocks)); cleanup.push(n.close);
+  if (captured) {
+    const capture = await diagnosticPhase('capture-open', () => n.capture());
+    const review = await diagnosticPhase('capture-review', () => capture.review());
+    await diagnosticPhase('capture-apply', () => capture.apply(review.approvalDigest)); capture.close();
+  }
   function roles(includeSelf = false) {
     const value = createProtectedAdmissionRoles({ history: n.history, witnessKey: f.witnesses[0], coordinatorKey: f.coordinators[0], now: () => f.time,
       transport: async (member, request) => {
@@ -266,14 +276,18 @@ it('does not begin a new witness decision after its coordinator has disconnected
     } } });
   await server.start(); cleanup.push(() => server.stop()); cleanup.push(release);
   const before = n.history.read().applied, votes = n.history.roleState().witness!.votes.length, controller = new AbortController();
-  const response = requestAdmissionWitnessVote({ publicKey: Buffer.from(f.witnesses[0].publicKey).toString('base64url'),
-    endpoint: `ws://127.0.0.1:${server.getListeningPort()}/` }, createAdmissionWitnessRequest(n.claim(), f.coordinators[0]), controller.signal);
+  const { response } = await diagnosticPhase('disconnect-request', () => ({ response: requestAdmissionWitnessVote({ publicKey: Buffer.from(f.witnesses[0].publicKey).toString('base64url'),
+    endpoint: `ws://127.0.0.1:${server.getListeningPort()}/` }, createAdmissionWitnessRequest(n.claim(), f.coordinators[0]), controller.signal) }));
   const refused = expect(response).rejects.toThrow('cancelled');
-  await entered; expect(mayAccept()).toBe(true); controller.abort(); await refused;
-  await vi.waitFor(() => expect(mayAccept()).toBe(false), { timeout: 2000 });
-  release(); await finished;
-  expect(n.history.read().applied).toEqual(before); expect(n.history.read().pending).toBeNull();
-  expect(n.history.roleState().witness!.votes).toHaveLength(votes);
+  await diagnosticPhase('disconnect-observed', async () => {
+    await entered; expect(mayAccept()).toBe(true); controller.abort(); await refused;
+    await vi.waitFor(() => expect(mayAccept()).toBe(false), { timeout: 2000 });
+  });
+  await diagnosticPhase('witness-release', async () => { release(); await finished; });
+  await diagnosticPhase('post-disconnect-assertions', () => {
+    expect(n.history.read().applied).toEqual(before); expect(n.history.read().pending).toBeNull();
+    expect(n.history.roleState().witness!.votes).toHaveLength(votes);
+  });
 }, 15000);
 
 it('awaits four durable copies before a real relay socket sends the witness signature', async () => {
@@ -290,3 +304,14 @@ it('awaits four durable copies before a real relay socket sends the witness sign
   await entered; expect(replied).toBe(false); expect(n.history.read().pending).not.toBeNull();
   release(); const vote = await response; expect(vote).toMatchObject({ spend: c.spend }); expect(n.history.read().pending).toBeNull();
 }, 15000);
+
+
+it('retains the exact original failure as a cause behind a fixed diagnostic phase', async () => {
+  const cause = new Error('injected private diagnostic detail');
+  const error = await diagnosticPhase('capture-apply', () => { throw cause; }).catch(error => error);
+  expect(error.message).toBe('Protected admission test phase: capture-apply');
+  expect(error.cause).toBe(cause); expect(error.message).not.toContain(cause.message);
+  const nested = await diagnosticPhase('disconnect-observed', () => diagnosticPhase('capture-review', () => { throw cause; })).catch(error => error);
+  expect(nested.cause.message).toBe('Protected admission test phase: capture-review');
+  expect(nested.cause.cause).toBe(cause);
+});

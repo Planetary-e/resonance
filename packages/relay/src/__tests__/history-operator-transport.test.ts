@@ -9,7 +9,7 @@ import { afterEach, expect, it } from 'vitest';
 import { WebSocketServer } from 'ws';
 import { generateIdentity, RELAY_LINK_CHALLENGE_REQUEST_FRAME_TYPE } from '@resonance/core';
 import { historyCheckpointFixture } from './fixtures/history-checkpoint-fixture.js';
-import { createHistoryOperatorTransport, readHistoryOperatorTransportFile } from '../history-operator-transport.js';
+import { historyOperatorConnectionDetail, createHistoryOperatorTransport, readHistoryOperatorTransportFile } from '../history-operator-transport.js';
 import { loadExistingRelayIdentity, loadOrCreateRelayIdentity } from '../relay-identity-store.js';
 import type { AdmissionHistoryProtection } from '../protected-admission-history.js';
 import { policyObserverSetupFixture } from './fixtures/policy-observer-setup-fixture.js';
@@ -141,7 +141,7 @@ it('preserves sanitized handshake rejection evidence through a recovery discover
   expect(error).toBeInstanceOf(Error); expect(error.message).toMatch(/^History discovery cancelled or timed out; operator connection: /);
   expect(error.cause).toBeInstanceOf(Error); expect(error.cause.message).toBe('History discovery cancelled or timed out');
   const diagnostic = JSON.parse(error.message.split('; operator connection: ')[1]);
-  expect(diagnostic).toEqual({ stage: 'connecting', failure: 'rejected', failures: expect.any(Number), elapsedMs: expect.any(Number) });
+  expect(diagnostic).toEqual({ stage: 'connecting', failure: 'rejected', detail: 'unspecified', failures: expect.any(Number), elapsedMs: expect.any(Number) });
   expect(diagnostic.failures).toBeGreaterThan(0); expect(diagnostic.failures).toBeLessThanOrEqual(1_000_000);
   expect(diagnostic.elapsedMs).toBeGreaterThanOrEqual(0); expect(diagnostic.elapsedMs).toBeLessThanOrEqual(300_000);
   expect(error.message).not.toContain(privateReason); expect(error.message).not.toContain(identity.did);
@@ -196,4 +196,27 @@ it.skipIf(process.platform === 'win32')('refuses a named pipe identity without b
   loadOrCreateRelayIdentity(directory, 'operator retained secret').secretKey.fill(0);
   const path = join(directory, 'relay-identity.json'); rmSync(path); execFileSync('mkfifo', [path]);
   expect(() => loadExistingRelayIdentity(directory, 'operator retained secret')).toThrow('regular file');
+});
+
+
+it('adds only exact allowlisted connection details and rejects injected peer text', () => {
+  const cases = [
+    ['Invalid or expired relay link challenge', 'challenge-invalid-or-expired'],
+    ['Relay link acceptance is invalid or inactive', 'acceptance-invalid-or-inactive'],
+    ['Relay link responder does not match the pinned relay identity', 'identity-pin-mismatch'],
+    ['Relay link responder descriptor does not bind the contacted endpoint', 'endpoint-binding-mismatch'],
+    ['Relay link acceptance must be UTF-8 JSON', 'acceptance-encoding'],
+    ['Invalid relay link acceptance frame', 'acceptance-frame'],
+    ['Relay link handshake send failed', 'handshake-send'],
+  ];
+  for (const [message, detail] of cases) {
+    expect(historyOperatorConnectionDetail(message)).toBe(detail);
+    expect(historyOperatorConnectionDetail(`Error: ${message}`)).toBe(detail);
+    for (const suffix of [' https://private.invalid/secret', ' did:key:private', ' /private/key.json', '\n']) {
+      expect(historyOperatorConnectionDetail(message + suffix)).toBe('unspecified');
+      expect(historyOperatorConnectionDetail(`Error: ${message}${suffix}`)).toBe('unspecified');
+    }
+    expect(historyOperatorConnectionDetail(`Error: Error: ${message}`)).toBe('unspecified');
+  }
+  for (const message of ['https://private.invalid', 'did:key:private', '/private/key.json', 'unknown']) expect(historyOperatorConnectionDetail(message)).toBe('unspecified');
 });

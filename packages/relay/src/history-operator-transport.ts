@@ -18,6 +18,21 @@ import { RelayLinkManager, type RelayLinkManagerEvent } from './relay-link-clien
 import { loadExistingRelayIdentity } from './relay-identity-store.js';
 import { readRelayIdentityPassphrase } from './relay-identity-config.js';
 
+/** Exact local messages only: never copy peer-controlled text into diagnostics. */
+export function historyOperatorConnectionDetail(error: string) {
+  const message = error.startsWith('Error: ') ? error.slice(7) : error;
+  switch (message) {
+    case 'Invalid or expired relay link challenge': return 'challenge-invalid-or-expired';
+    case 'Relay link acceptance is invalid or inactive': return 'acceptance-invalid-or-inactive';
+    case 'Relay link responder does not match the pinned relay identity': return 'identity-pin-mismatch';
+    case 'Relay link responder descriptor does not bind the contacted endpoint': return 'endpoint-binding-mismatch';
+    case 'Relay link acceptance must be UTF-8 JSON': return 'acceptance-encoding';
+    case 'Invalid relay link acceptance frame': return 'acceptance-frame';
+    case 'Relay link handshake send failed': return 'handshake-send';
+    default: return 'unspecified';
+  }
+}
+
 export function readHistoryOperatorTransportFile(path: string, context: HistoryCheckpointContext) {
   const value = readOperatorJson(path, 64 * 1024);
   if (!exactWitnessFields(value, ['version', 'identityDirectory', 'identityPassphraseFile', 'expectedRelayId', 'linksFile', 'contacts', 'deadlineMs'])
@@ -57,12 +72,14 @@ export function createPinnedHistoryOperatorTransport<P extends { context: Histor
   let started: number | undefined;
   let stage: 'identity' | 'connecting' | 'connected' = 'identity';
   let failure: 'none' | 'identity' | 'rejected' | 'timeout' | 'cancelled' | 'connection' | 'protocol' | 'other' = 'none';
+  let detail: ReturnType<typeof historyOperatorConnectionDetail> = 'unspecified';
   let failures = 0;
   function connectionEvent(event: RelayLinkManagerEvent) {
     if (closed) return;
     if (event.kind === 'connected') { stage = 'connected'; return; }
     failures = Math.min(1_000_000, failures + 1);
     const error = event.error ?? '';
+    detail = historyOperatorConnectionDetail(error);
     failure = /^Error: Relay link closed before acceptance \(4\d{3}:/.test(error) ? 'rejected'
       : /timed out|\bETIMEDOUT\b/.test(error) ? 'timeout'
       : /cancelled/.test(error) ? 'cancelled'
@@ -71,7 +88,7 @@ export function createPinnedHistoryOperatorTransport<P extends { context: Histor
   }
   function commandFailure(error: unknown) {
     if (!config || started === undefined) return error;
-    const diagnostic = { stage, failure, failures, elapsedMs: Math.min(300_000, Math.max(0, Math.round(performance.now() - started))) };
+    const diagnostic = { stage, failure, detail, failures, elapsedMs: Math.min(300_000, Math.max(0, Math.round(performance.now() - started))) };
     return new Error(`${error instanceof Error ? error.message : 'Operator history command failed'}; operator connection: ${JSON.stringify(diagnostic)}`, { cause: error });
   }
   const lifetime = new AbortController();
