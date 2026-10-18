@@ -11,7 +11,7 @@ import { signAdmissionClaimAssignment } from '@resonance/core/admission-claim-as
 import { admissionPolicyHead, createAdmissionPolicyAdvance } from '@resonance/core/admission-policy-advance';
 import { createAdmissionPolicyHeadVote, parseAdmissionPolicyObservers, type AdmissionPolicyHead } from '@resonance/core/admission-policy-freshness';
 import { ADMISSION_POLICY_QUERY_REPLY_TYPE } from '@resonance/core/admission-policy-query';
-import { createHistoryFreeze, historyCheckpointEnvelopeId, sealHistoryCheckpoint } from '@resonance/core/history-checkpoint';
+import { createHistoryFreeze, historyCheckpointEnvelopeId, historyDigest, sealHistoryCheckpoint } from '@resonance/core/history-checkpoint';
 import { createHistoryExchangeRequest, parseHistoryExchangeResponse } from '@resonance/core/history-exchange';
 import { createHistorySuccessorProposal } from '@resonance/core/history-successor';
 import { createHistoryContinuationRoot } from '@resonance/core/history-continuation';
@@ -292,6 +292,10 @@ it.each(['owner', 'writer', 'archive'] as const)('resumes only the authenticated
   const f = await interruptedRestoreFixture(stage), before = readFileSync(f.destination.path);
   const resumption = await openProtectedIssuerRestoreResumption(f.options); cleanup.push(resumption.close);
   const review = resumption.review(); expect(review).toMatchObject({ initializeWriter: stage === 'owner', initializeArchive: stage !== 'archive', readiness: 'unverified', startsService: false });
+  expect(Object.keys(review)).toEqual(['kind', 'path', 'writerDirectory', 'contextId', 'genesisId', 'rootId', 'generation', 'replayDigest', 'stateDigest',
+    'initializeWriter', 'initializeArchive', 'requiresUnchangedRootQuorum', 'files', 'limits', 'members', 'timeoutMs', 'readiness', 'startsService', 'approvalDigest']);
+  const { approvalDigest, ...details } = review;
+  expect(approvalDigest).toBe(historyDigest(`resonance:protected-issuer-restoration-resumption:v1\n${JSON.stringify([details, historyDigest(f.key)])}`));
   f.n.online(3);
   if (stage !== 'archive') await expect(resumption.apply(review.approvalDigest)).rejects.toThrow('Four current');
   f.n.online(5); const result = await resumption.apply(review.approvalDigest);

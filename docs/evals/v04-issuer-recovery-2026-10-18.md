@@ -50,8 +50,10 @@ stop policy; ordinary compile/test plumbing corrections do not redefine the targ
 - Sol storage/source/resumption: 15:53:21–16:06:36 (795 seconds).
 - Sol recovery orchestration/commands: 15:53:41–16:05:23 (702 seconds).
 - Luna CI inventory: 15:54:36–15:55:27 (51 seconds).
-- Subsequent Astra review completed before the composed run; an exact separate
-  interval was not retained, so it is not fabricated here.
+- Astra implementation review: 16:02:00–16:05:48 (228 seconds), recovered from
+  its prospectively reported interval. A separate harness review was reported
+  approximately 15:56:29–15:56:45 (about 16 seconds); keep that estimate separate
+  from exact recorded totals.
 
 These intervals do not reconstruct unknown historical work or reset the cumulative
 blocker budget. Idle waiting is excluded from active effort accounting.
