@@ -35,5 +35,6 @@ export async function runPolicyObserverCommand(command: string, args: readonly s
       await observer.advance(value);
     }
     return { result: { result: `policy-observer-${command}`, status: observer.status(), readiness: command === 'status' ? 'unverified' : 'confirmed' } };
-  } finally { signal?.removeEventListener('abort', cancel); cancel(); }
+  } catch (error) { throw transport.failure(error); }
+  finally { signal?.removeEventListener('abort', cancel); cancel(); }
 }

@@ -141,6 +141,11 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
       return Object.assign((context: AdmissionCapabilityRequestContextV2) => api.capabilityFor(context), {
         policyObservers: () => { ready(); return structuredClone(stateV2(storage.read()).freshness?.context); },
         assertCurrent: (context: AdmissionCapabilityRequestContextV2) => { checkFreshness(context.policyObservation); },
+        assertMaintenanceDestination: (relayUrl: string) => {
+          ready(); const state = stateV2(storage.read()); if (!state.profiles.length) return;
+          const profile = state.profiles[state.active];
+          if (!profile.relayUrls.includes(normalizeAdmissionRelay(relayUrl))) throw new Error('Destination is not in the pinned access-token relay list');
+        },
       });
     },
     planRetirement(issuerKey: string) {

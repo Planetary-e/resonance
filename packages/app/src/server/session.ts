@@ -126,7 +126,12 @@ function createSessionRelayClient(urls: string[], identity: Identity,
     admissionCapabilityProvider: provider ? Object.assign((context: Parameters<typeof provider>[0]) => {
       if (!route && wallet!.configured()) throw new Error('Access tokens require a private route; direct delivery is disabled');
       return provider(context);
-    }, provider) : undefined,
+    }, provider, {
+      assertMaintenanceDestination(relayUrl: string) {
+        if (!route && wallet!.configured()) throw new Error('Access tokens require a private route; direct delivery is disabled');
+        provider.assertMaintenanceDestination?.(relayUrl);
+      },
+    }) : undefined,
   });
 }
 

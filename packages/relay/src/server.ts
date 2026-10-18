@@ -24,6 +24,7 @@ import {
   MAILBOX_DEPOSIT_FRAME_TYPE,
   MAILBOX_REQUEST_FRAME_TYPE,
   MAILBOX_RESPONSE_MESSAGE_TYPE,
+  MAX_FRESH_MAILBOX_ACK_IDS,
   MAX_RELAY_DISCOVERY_FRAME_BYTES,
   MAX_PRIVATE_REQUEST_LIFETIME_MS,
   MAX_PRIVATE_FRAME_BYTES,
@@ -194,7 +195,7 @@ import {
 } from './evidence-journal-compaction.js';
 import {
   RelayOperationLog,
-  RelayJournalCapacityError,
+  RelayJournalCapacityError, RelayJournalRecordSizeError,
   type RelayOperationLogEntry,
   type RelayReconciliationAdoptionLogEntry,
   type RelayPublicationOperationLogEntry,
@@ -1236,9 +1237,9 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     log('info', 'journal_compacted', { before, after: operationLog.length, removed });
   }
 
-  function appendOperation(entry: RelayOperationLogEntry): void {
+  function appendOperation(entry: RelayOperationLogEntry, maxRecordBytes?: number): void {
     try {
-      operationLog.append(entry);
+      operationLog.append(entry, undefined, maxRecordBytes);
     } catch (error) {
       if (!(error instanceof RelayJournalCapacityError)) throw error;
       if (operationLog.length !== lastCapacityCompactionLength
@@ -1250,7 +1251,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           lastCapacityCompactionExpiryCount = mailboxExpiredSinceCompaction;
         }
       }
-      operationLog.append(entry);
+      operationLog.append(entry, undefined, maxRecordBytes);
     }
   }
 
@@ -1283,7 +1284,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   ): number {
     const present = mailboxStore.presentEnvelopeIds(request.mailboxId, request.envelopeIds);
     if (present.length === 0) return 0;
-    appendOperation({ kind: 'mailbox-ack', request });
+    appendOperation({ kind: 'mailbox-ack', request }, present.length * JOURNAL_ACK_RESERVE_BYTES);
     const acknowledged = mailboxStore.acknowledge(request.mailboxId, request.envelopeIds);
     if (acknowledged > 0) {
       mailboxSyncNextAt.clear();
@@ -3930,12 +3931,11 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           sendOperationAck(ws, request.requestId, 'error', 'stale_timestamp');
           return;
         }
-        if (!await authorizeAdmission(
-          ws,
-          request.requestId,
-          frame.admission,
-          request.action === 'fetch' ? 'mailbox-fetch' : 'mailbox-acknowledge',
-          request,
+        // Owner-signed ACKs only retire accepted envelopes. Their complete journal
+        // proof must fit the space prepaid by the IDs actually present here.
+        // Keep this maintenance available when admission histories are offline.
+        if (request.action === 'fetch' && !await authorizeAdmission(
+          ws, request.requestId, frame.admission, 'mailbox-fetch', request,
         )) return;
         if (!rateLimiter.check(`transport:${ip}`, 'search')) {
           sendOperationAck(ws, request.requestId, 'error', 'rate_limited');
@@ -3950,10 +3950,22 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           sendClientResponse(serializeMessage(response), 'relationship_mailbox_fetch_complete');
           return;
         }
+        // Fresh proofs must remain portable to a replica with just one ID
+        // present. Historical repair proofs retain their original parser and
+        // independent per-present-envelope byte guard in the commit helper.
+        if (request.envelopeIds.length > MAX_FRESH_MAILBOX_ACK_IDS
+          && mailboxStore.presentEnvelopeIds(request.mailboxId, request.envelopeIds).length > 0) {
+          sendOperationAck(ws, request.requestId, 'error', 'acknowledgement_batch_too_large');
+          return;
+        }
         let acknowledged: number;
         try {
           acknowledged = commitMailboxAcknowledgement(request);
         } catch (err) {
+          if (err instanceof RelayJournalRecordSizeError) {
+            sendOperationAck(ws, request.requestId, 'error', 'acknowledgement_batch_too_large');
+            return;
+          }
           log('error', 'operation_commit_failed', { error: String(err) });
           sendOperationAck(ws, request.requestId, 'error', 'persistence_failed');
           return;
@@ -4017,12 +4029,11 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           sendOperationAck(ws, request.requestId, 'error', 'stale_timestamp');
           return;
         }
-        if (!await authorizeAdmission(
-          ws,
-          request.requestId,
-          frame.admission,
-          request.action === 'fetch' ? 'mailbox-fetch' : 'mailbox-acknowledge',
-          request,
+        // Owner-signed ACKs only retire accepted envelopes. Their complete journal
+        // proof must fit the space prepaid by the IDs actually present here.
+        // Keep this maintenance available when admission histories are offline.
+        if (request.action === 'fetch' && !await authorizeAdmission(
+          ws, request.requestId, frame.admission, 'mailbox-fetch', request,
         )) return;
         if (!rateLimiter.check(`transport:${ip}`, 'search')) {
           sendOperationAck(ws, request.requestId, 'error', 'rate_limited');
@@ -4047,10 +4058,21 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           return;
         }
 
+        // Enforce the same fresh-proof limit for publication mailboxes. A
+        // fully acknowledged/unknown retry still returns zero without writing.
+        if (request.envelopeIds.length > MAX_FRESH_MAILBOX_ACK_IDS
+          && mailboxStore.presentEnvelopeIds(request.mailboxId, request.envelopeIds).length > 0) {
+          sendOperationAck(ws, request.requestId, 'error', 'acknowledgement_batch_too_large');
+          return;
+        }
         let acknowledged: number;
         try {
           acknowledged = commitMailboxAcknowledgement(request);
         } catch (err) {
+          if (err instanceof RelayJournalRecordSizeError) {
+            sendOperationAck(ws, request.requestId, 'error', 'acknowledgement_batch_too_large');
+            return;
+          }
           log('error', 'operation_commit_failed', { error: String(err) });
           sendOperationAck(ws, request.requestId, 'error', 'persistence_failed');
           return;

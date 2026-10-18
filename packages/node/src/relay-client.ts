@@ -3,6 +3,7 @@
  */
 
 import WebSocket from 'ws';
+import { mailboxAcknowledgementBatches } from './mailbox-ack-batches.js';
 import { parseRelayAcknowledgement, parseRelayMailbox } from './relay-response.js';
 import { createPrivateRelayClient } from './private-relay-client.js';
 import type { PrivateTrafficScheduleOptions } from './private-traffic-scheduler.js';
@@ -79,7 +80,7 @@ export interface RelayClientConfig {
   privateTraffic?: PrivateTrafficScheduleOptions;
   /** Deprecated compatibility input; v2 uses a short connection per operation. */
   autoReconnect?: boolean;
-  /** Supplies an unlinkable capability for each exact v2 relay request. */
+  /** Supplies capabilities for admitted requests and an optional local destination guard for prepaid ACKs. */
   admissionCapabilityProvider?: AdmissionCapabilityProviderV2;
 }
 
@@ -107,6 +108,8 @@ export type AdmissionCapabilityProviderV2 = ((
   policyObservers?: () => AdmissionPolicyObservers | undefined;
   /** Recheck retained state immediately before socket transmission; never reserve. */
   assertCurrent?: (context: AdmissionCapabilityRequestContextV2) => void;
+  /** Local destination consent for prepaid maintenance; no policy query or token reservation. */
+  assertMaintenanceDestination?: (relayUrl: string) => void;
 };
 
 export interface RelayClientEvents {
@@ -133,6 +136,7 @@ export interface RelayClient {
     keys: PublicationKeyMaterial,
     envelope: EncryptedMailboxEnvelope,
   ): Promise<AckPayload>;
+  /** Returns the final batch's real receipt only after every batch meets the existing destination success rules. */
   acknowledgeMailbox(
     record: PublicationRecord,
     keys: PublicationKeyMaterial,
@@ -144,6 +148,7 @@ export interface RelayClient {
     keys: RelationshipKeyMaterial,
     envelope: EncryptedMailboxEnvelope,
   ): Promise<AckPayload>;
+  /** Returns the final batch's real receipt only after every batch meets the existing destination success rules. */
   acknowledgeRelationshipMailbox(
     keys: RelationshipKeyMaterial,
     envelopeIds: string[],
@@ -194,10 +199,11 @@ export function createRelayClient(config: RelayClientConfig): RelayClient {
     return error;
   }
   function directDeadline() { return performance.now() + 10_000; }
-  function exchange<T>(url: string, raw: () => string, select: (message: Message) => T, deadline: number): Promise<T> {
+  function exchange<T>(url: string, raw: () => string, select: (message: Message) => T, deadline: number, valid = () => {}): Promise<T> {
     return new Promise((resolve, reject) => {
       if (exchanges.size >= 64) throw new Error('Direct relay client operation capacity exhausted');
       if (performance.now() >= deadline) throw new OperationTimeout();
+      valid();
       // Serialization and capability errors belong to the returned promise,
       // never an uncaught WebSocket open callback.
       const request = raw();
@@ -218,7 +224,7 @@ export function createRelayClient(config: RelayClientConfig): RelayClient {
         if (settled) return;
         try {
           if (performance.now() >= deadline) throw new OperationTimeout();
-          socket.send(request);
+          valid(); socket.send(request);
         } catch (error) { finish(error instanceof Error ? error : new Error(String(error))); }
       });
       socket.on('message', (data, binary) => {
@@ -254,8 +260,9 @@ export function createRelayClient(config: RelayClientConfig): RelayClient {
   }
   function sendMailboxRequestToUrl(url: string, request: MailboxRequest, deadline: number): Promise<Message> {
     return exchange(url, () => serializeMailboxRequestFrame(createMailboxRequestFrame(request,
-      admissionFor(url, request.action === 'fetch' ? 'mailbox-fetch' : 'mailbox-acknowledge', request))),
-    message => expectedMailboxReply(message, request), deadline);
+      request.action === 'fetch' ? admissionFor(url, 'mailbox-fetch', request) : undefined)),
+    message => expectedMailboxReply(message, request), deadline, request.action === 'ack'
+      ? () => config.admissionCapabilityProvider?.assertMaintenanceDestination?.(url) : undefined);
   }
   function sendMailboxDepositToUrl(url: string, request: MailboxDepositRequest, deadline: number): Promise<AckPayload> {
     return exchange(url, () => serializeMailboxDepositFrame(createMailboxDepositFrame(request,
@@ -263,8 +270,9 @@ export function createRelayClient(config: RelayClientConfig): RelayClient {
   }
   function sendRelationshipMailboxRequestToUrl(url: string, request: RelationshipMailboxRequestV2, deadline: number): Promise<Message> {
     return exchange(url, () => serializeRelationshipMailboxRequestFrameV2(createRelationshipMailboxRequestFrameV2(request,
-      admissionFor(url, request.action === 'fetch' ? 'mailbox-fetch' : 'mailbox-acknowledge', request))),
-    message => expectedMailboxReply(message, request), deadline);
+      request.action === 'fetch' ? admissionFor(url, 'mailbox-fetch', request) : undefined)),
+    message => expectedMailboxReply(message, request), deadline, request.action === 'ack'
+      ? () => config.admissionCapabilityProvider?.assertMaintenanceDestination?.(url) : undefined);
   }
   function sendRelationshipMailboxDepositToUrl(url: string, request: RelationshipMailboxDepositV2, deadline: number): Promise<AckPayload> {
     return exchange(url, () => serializeRelationshipMailboxDepositFrameV2(createRelationshipMailboxDepositFrameV2(request,
@@ -281,8 +289,8 @@ export function createRelayClient(config: RelayClientConfig): RelayClient {
     }, deadline);
   }
 
-  async function sendMailboxRequest(request: MailboxRequest): Promise<Message> {
-    let lastError: unknown; const deadline = directDeadline();
+  async function sendMailboxRequest(request: MailboxRequest, deadline = directDeadline()): Promise<Message> {
+    let lastError: unknown;
     for (const url of allUrls) {
       try { return await sendMailboxRequestToUrl(url, request, deadline); } catch (error) { lastError = rememberFailure(error); }
     }
@@ -359,12 +367,15 @@ export function createRelayClient(config: RelayClientConfig): RelayClient {
       keys: PublicationKeyMaterial,
       envelopeIds: string[],
     ): Promise<AckPayload> {
-      const request = createMailboxRequest('ack', record, keys, envelopeIds);
-      const response = await sendMailboxRequest(request);
-      if (response.type !== MessageTypes.ACK) throw new Error('Unexpected mailbox acknowledgement type');
-      const ack = parseRelayAcknowledgement(response.payload);
-      if (ack.status !== 'ok') throw new Error(ack.message ?? 'Relay rejected mailbox acknowledgement');
-      return ack;
+      const deadline = directDeadline();
+      const requests = mailboxAcknowledgementBatches(envelopeIds).map(ids => createMailboxRequest('ack', record, keys, ids));
+      let last!: AckPayload;
+      for (const request of requests) {
+        const response = await sendMailboxRequest(request, deadline);
+        last = expectedAck(response, request.requestId, true);
+      }
+      // This is the final batch's actual receipt; success means every batch succeeded.
+      return last;
     },
 
     async fetchRelationshipMailbox(keys: RelationshipKeyMaterial): Promise<RelationshipMailboxFetchResult> {
@@ -409,21 +420,24 @@ export function createRelayClient(config: RelayClientConfig): RelayClient {
     },
 
     async acknowledgeRelationshipMailbox(keys, envelopeIds): Promise<AckPayload> {
-      const request = createRelationshipMailboxRequestV2('ack', keys, envelopeIds);
       const deadline = directDeadline();
-      const results = await Promise.allSettled(allUrls.map(async url => {
-        const response = await sendRelationshipMailboxRequestToUrl(url, request, deadline);
-        if (response.type !== MessageTypes.ACK) throw new Error('Unexpected relationship mailbox acknowledgement');
-        const ack = parseRelayAcknowledgement(response.payload);
-        if (ack.status !== 'ok') throw new Error(ack.message ?? 'Relay rejected relationship mailbox acknowledgement');
-        return ack;
-      }));
-      for (const result of results) if (result.status === 'rejected' && result.reason instanceof DisconnectedOperation) throw result.reason;
-      const success = results.find((result): result is PromiseFulfilledResult<AckPayload> =>
-        result.status === 'fulfilled');
-      if (success) return success.value;
-      const failed = results[0] as PromiseRejectedResult;
-      throw failed.reason instanceof Error ? failed.reason : new Error('All relay URLs failed');
+      const requests = mailboxAcknowledgementBatches(envelopeIds).map(ids => createRelationshipMailboxRequestV2('ack', keys, ids));
+      let last!: AckPayload;
+      for (const request of requests) {
+        const results = await Promise.allSettled(allUrls.map(async url => {
+          const response = await sendRelationshipMailboxRequestToUrl(url, request, deadline);
+          return expectedAck(response, request.requestId, true);
+        }));
+        for (const result of results) if (result.status === 'rejected' && result.reason instanceof DisconnectedOperation) throw result.reason;
+        const success = results.find((result): result is PromiseFulfilledResult<AckPayload> => result.status === 'fulfilled');
+        if (!success) {
+          const failed = results[0] as PromiseRejectedResult;
+          throw failed.reason instanceof Error ? failed.reason : new Error('All relay URLs failed');
+        }
+        last = success.value;
+      }
+      // Each batch retains relationship mailbox partial-success semantics.
+      return last;
     },
 
     async searchV2(input: CreateSearchRequestInputV2): Promise<SearchResponsePayloadV2> {

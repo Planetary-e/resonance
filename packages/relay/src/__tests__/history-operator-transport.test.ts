@@ -7,11 +7,14 @@ import { createServer, type Socket } from 'node:net';
 import { once } from 'node:events';
 import { afterEach, expect, it } from 'vitest';
 import { WebSocketServer } from 'ws';
-import { generateIdentity } from '@resonance/core';
+import { generateIdentity, RELAY_LINK_CHALLENGE_REQUEST_FRAME_TYPE } from '@resonance/core';
 import { historyCheckpointFixture } from './fixtures/history-checkpoint-fixture.js';
 import { createHistoryOperatorTransport, readHistoryOperatorTransportFile } from '../history-operator-transport.js';
 import { loadExistingRelayIdentity, loadOrCreateRelayIdentity } from '../relay-identity-store.js';
 import type { AdmissionHistoryProtection } from '../protected-admission-history.js';
+import { policyObserverSetupFixture } from './fixtures/policy-observer-setup-fixture.js';
+import { readPolicyObserverConfigurationFile } from '../policy-observer-config.js';
+import { runPolicyObserverRecoveryCommand } from '../policy-observer-recovery-command.js';
 
 const cleanup: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -58,6 +61,8 @@ it.each(['checkpoint', 'agreement', 'data', 'provision', 'compaction', 'compacti
 });
 it('keeps offline adapters lazy, refuses missing identity without replacement or direct fallback', async () => {
   const n = setup(), transport = createHistoryOperatorTransport(n.protection, n.path); cleanup.push(transport.close);
+  const offlineError = new Error('Unstarted local operation failed');
+  expect(transport.failure(offlineError)).toBe(offlineError);
   expect(existsSync(join(n.directory, 'identity'))).toBe(false);
   expect(n.directCalls()).toBe(0);
   const send = () => transport.protection.transport!(n.protection.members[0], {} as never, new AbortController().signal);
@@ -109,6 +114,39 @@ it('closes a silent pending handshake at the whole-session deadline without a di
   const [socket] = await connection; socket.resume(); const ended = once(socket, 'close');
   await rejection; await ended; expect(sockets.size).toBe(0); expect(n.directCalls()).toBe(0);
   await expect(Promise.resolve().then(() => transport.agreementTransport!(n.protection.members[0], {} as never, new AbortController().signal))).rejects.toThrow('unavailable');
+}, 10000);
+
+it('preserves sanitized handshake rejection evidence through a recovery discovery timeout without dispatching history work', async () => {
+  const n = await policyObserverSetupFixture(close => cleanup.push(close)); await n.prepare();
+  const server = new WebSocketServer({ port: 0, host: '127.0.0.1' }); await once(server, 'listening');
+  cleanup.push(async () => { for (const client of server.clients) client.terminate(); await new Promise<void>(resolve => server.close(() => resolve())); });
+  let handshakes = 0, dispatched = 0;
+  const privateReason = 'private-identity https://private.invalid/secret /private/key.json';
+  server.on('connection', socket => socket.on('message', data => {
+    if (JSON.parse(data.toString()).type === RELAY_LINK_CHALLENGE_REQUEST_FRAME_TYPE) {
+      handshakes++; socket.close(4003, privateReason);
+    } else dispatched++;
+  }));
+  const address = server.address(); if (!address || typeof address === 'string') throw new Error('Missing port');
+  const identity = loadOrCreateRelayIdentity(join(n.directory, 'operator-identity'), 'operator retained secret');
+  writeFileSync(join(n.directory, 'operator-passphrase'), 'operator retained secret');
+  const config = readPolicyObserverConfigurationFile(n.configPath), links = join(n.directory, 'operator-links.json');
+  writeFileSync(links, JSON.stringify({ version: 2, members: config.historyContext.members.map(publicKey => ({ publicKey, relayId: generateIdentity().did })),
+    bridge: { relayId: generateIdentity().did, endpoint: `ws://127.0.0.1:${address.port}/` } }));
+  const path = join(n.directory, 'operator.json');
+  writeFileSync(path, JSON.stringify({ version: 1, identityDirectory: 'operator-identity', identityPassphraseFile: 'operator-passphrase',
+    expectedRelayId: identity.did, linksFile: 'operator-links.json', contacts: [], deadlineMs: 1000 })); identity.secretKey.fill(0);
+  const error = await runPolicyObserverRecoveryCommand('recovery-plan', [n.configPath, join(n.directory, 'recovery'), 'unavailable', '1'],
+    undefined, { transportFile: path }).then(() => { throw new Error('Unexpected recovery discovery success'); }, error => error);
+  expect(error).toBeInstanceOf(Error); expect(error.message).toMatch(/^History discovery cancelled or timed out; operator connection: /);
+  expect(error.cause).toBeInstanceOf(Error); expect(error.cause.message).toBe('History discovery cancelled or timed out');
+  const diagnostic = JSON.parse(error.message.split('; operator connection: ')[1]);
+  expect(diagnostic).toEqual({ stage: 'connecting', failure: 'rejected', failures: expect.any(Number), elapsedMs: expect.any(Number) });
+  expect(diagnostic.failures).toBeGreaterThan(0); expect(diagnostic.failures).toBeLessThanOrEqual(1_000_000);
+  expect(diagnostic.elapsedMs).toBeGreaterThanOrEqual(0); expect(diagnostic.elapsedMs).toBeLessThanOrEqual(300_000);
+  expect(error.message).not.toContain(privateReason); expect(error.message).not.toContain(identity.did);
+  expect(error.message).not.toContain(n.directory); expect(error.message).not.toContain('private.invalid');
+  expect(handshakes).toBeGreaterThan(0); expect(dispatched).toBe(0);
 }, 10000);
 
 it('refuses a different retained infrastructure identity before dialing any history transport', async () => {

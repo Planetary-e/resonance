@@ -14,7 +14,7 @@ import { readAdmissionHistoryLinksFile } from './admission-history-config.js';
 import { parseHistoryBridgeContact } from './history-bridge-config.js';
 import { isHistoryRelayId } from './history-relay-bridge.js';
 import { HistoryRelayRouter } from './history-relay-router.js';
-import { RelayLinkManager } from './relay-link-client.js';
+import { RelayLinkManager, type RelayLinkManagerEvent } from './relay-link-client.js';
 import { loadExistingRelayIdentity } from './relay-identity-store.js';
 import { readRelayIdentityPassphrase } from './relay-identity-config.js';
 
@@ -52,6 +52,28 @@ export function createPinnedHistoryOperatorTransport<P extends { context: Histor
   const config = path === undefined ? undefined : readHistoryOperatorTransportFile(path, protection.context);
   let router: HistoryRelayRouter | undefined, manager: RelayLinkManager | undefined, identity: Identity | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined, closed = false;
+  // Only finite metadata is retained. Peer-provided text, identities and routing
+  // pins must never enter the command's connection diagnostic.
+  let started: number | undefined;
+  let stage: 'identity' | 'connecting' | 'connected' = 'identity';
+  let failure: 'none' | 'identity' | 'rejected' | 'timeout' | 'cancelled' | 'connection' | 'protocol' | 'other' = 'none';
+  let failures = 0;
+  function connectionEvent(event: RelayLinkManagerEvent) {
+    if (closed) return;
+    if (event.kind === 'connected') { stage = 'connected'; return; }
+    failures = Math.min(1_000_000, failures + 1);
+    const error = event.error ?? '';
+    failure = /^Error: Relay link closed before acceptance \(4\d{3}:/.test(error) ? 'rejected'
+      : /timed out|\bETIMEDOUT\b/.test(error) ? 'timeout'
+      : /cancelled/.test(error) ? 'cancelled'
+      : /\b(?:ECONNREFUSED|ECONNRESET|ENOTFOUND|EHOSTUNREACH)\b|closed before acceptance/.test(error) ? 'connection'
+      : /Invalid relay link/.test(error) ? 'protocol' : 'other';
+  }
+  function commandFailure(error: unknown) {
+    if (!config || started === undefined) return error;
+    const diagnostic = { stage, failure, failures, elapsedMs: Math.min(300_000, Math.max(0, Math.round(performance.now() - started))) };
+    return new Error(`${error instanceof Error ? error.message : 'Operator history command failed'}; operator connection: ${JSON.stringify(diagnostic)}`, { cause: error });
+  }
   const lifetime = new AbortController();
   function close() {
     if (closed) return; closed = true;
@@ -71,9 +93,11 @@ export function createPinnedHistoryOperatorTransport<P extends { context: Histor
     if (closed || !config) throw new Error('Operator history transport is unavailable');
     if (router) return router;
     try {
+      started = performance.now();
       identity = loadExistingRelayIdentity(config.identityDirectory, readRelayIdentityPassphrase(undefined, config.identityPassphraseFile)!);
       if (identity.did !== config.expectedRelayId) throw new Error('Operator infrastructure identity does not match its retained pin');
       router = new HistoryRelayRouter({ members: config.members, waitForConnection: true, serializeRequests: true });
+      stage = 'connecting';
       let sequence = Date.now();
       manager = new RelayLinkManager(identity, () => {
         const now = Date.now(); sequence = Math.max(sequence + 1, now);
@@ -82,10 +106,10 @@ export function createPinnedHistoryOperatorTransport<P extends { context: Histor
           capabilities: { storesPublications: false, storesMailboxes: false, answersQueries: false, forwardsQueries: false, replicaExchange: false },
           storage: { capacityBytes: 0, availableBytes: 0 } }, identity!);
       }, { targets: config.targets, maxConnections: 5, historyLinks: router, signal: lifetime.signal,
-        handshakeTimeoutMs: Math.min(15000, config.deadlineMs), reconnectBaseMs: 250, reconnectMaxMs: 1000 });
-      timer = setTimeout(close, config.deadlineMs); manager.start();
+        handshakeTimeoutMs: Math.min(15000, config.deadlineMs), reconnectBaseMs: 250, reconnectMaxMs: 1000, onEvent: connectionEvent });
+      timer = setTimeout(() => { if (failure === 'none') failure = 'timeout'; close(); }, config.deadlineMs); manager.start();
       return router;
-    } catch (error) { close(); throw error; }
+    } catch (error) { failure = stage === 'identity' ? 'identity' : 'other'; close(); throw error; }
   }
   const agreementTransport: HistoryAgreementTransport = (member, frame, signal) => config ? session(signal).agreement(member, frame, combined(signal)) : exchangeHistoryAgreement(member, frame, combined(signal));
   const dataTransport: HistoryAgreementDataTransport = (member, frame, signal) => config ? session(signal).transfer(member, frame, combined(signal)) : exchangeHistoryAgreementData(member, frame, combined(signal));
@@ -101,6 +125,6 @@ export function createPinnedHistoryOperatorTransport<P extends { context: Histor
     protection: { ...protection, transport: ((member, frame, signal) => config
       ? session(signal).checkpoint(member, frame, combined(signal))
       : (protection.transport ?? exchangeHistoryCheckpoint)(member, frame, combined(signal))) as HistoryCheckpointTransport } as Omit<P, 'transport'> & { transport: HistoryCheckpointTransport },
-    agreementTransport, dataTransport, provisionTransport, compactionTransport, compactionControlTransport, frontierTransport, close,
+    agreementTransport, dataTransport, provisionTransport, compactionTransport, compactionControlTransport, frontierTransport, close, failure: commandFailure,
   };
 }

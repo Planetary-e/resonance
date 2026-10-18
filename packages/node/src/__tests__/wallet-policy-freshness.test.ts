@@ -144,3 +144,18 @@ it('rechecks a policy update and closed wallet through the provider without allo
   expect(n.wallet.status().reserved).toBe(1);
   n.wallet.close(); expect(() => provider.assertCurrent!(context)).toThrow('closed');
 });
+
+it('permits prepaid maintenance for active pins after policy expiry and token exhaustion without changing wallet state', async () => {
+  const n = await fixture(), provider = n.wallet.provider();
+  for (let i = 0; i < 3; i++) n.wallet.capabilityFor({ ...n.request,
+    requestBinding: createAdmissionRequestBindingV2('search', { request: i }), policyObservation: n.observation() });
+  expect(n.wallet.status()).toMatchObject({ available: 0, reserved: 3 });
+  n.setNow(n.first.expiresAt + 1);
+  const paths = ['admission-profile.json', 'admission-wallet.json'].map(file => join(n.directory, file));
+  const before = paths.map(path => readFileSync(path));
+  expect(() => provider.assertMaintenanceDestination!(relayUrl.slice(0, -1))).not.toThrow();
+  expect(() => provider.assertMaintenanceDestination!('ws://127.0.0.1:33099/')).toThrow('pinned');
+  expect(paths.map(path => readFileSync(path))).toEqual(before);
+  expect(() => provider({ ...n.request, policyObservation: n.observation() })).toThrow('not current');
+  n.wallet.close(); expect(() => provider.assertMaintenanceDestination!(relayUrl)).toThrow('closed');
+});

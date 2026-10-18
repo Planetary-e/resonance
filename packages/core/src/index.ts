@@ -322,6 +322,7 @@ export {
   MAILBOX_REQUEST_FRAME_TYPE,
   MAILBOX_DEPOSIT_FRAME_TYPE,
   MAILBOX_RESPONSE_MESSAGE_TYPE,
+  MAX_FRESH_MAILBOX_ACK_IDS,
   type MatchNoticePayload,
   type MailboxPayloadType,
   type PublicationMailboxRecipient,

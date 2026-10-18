@@ -68,5 +68,6 @@ export async function runPolicyObserverRecoveryCommand(command: string, raw: rea
       maxArchiveBlocks: config.limits.archiveBlocks, maxArchiveBytes: config.limits.archiveBytes,
       restore: { preparation, approvedDigest: approved! } }); cancelled();
     return { result: { result: 'policy-history-restored', directory: destination, status: restored.status(), readiness: 'unverified', startsService: false } };
-  } finally { signal?.removeEventListener('abort', cancel); cancel(); encryptionKey?.fill(0); signingKey.secretKey.fill(0); }
+  } catch (error) { throw transport ? transport.failure(error) : error; }
+  finally { signal?.removeEventListener('abort', cancel); cancel(); encryptionKey?.fill(0); signingKey.secretKey.fill(0); }
 }

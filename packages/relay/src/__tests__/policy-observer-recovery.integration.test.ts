@@ -132,8 +132,19 @@ it('cancels an active unresponsive freeze, preserves the source fence and resume
     return transport(member, frame, signal);
   };
   const recovery = await initialize(n), controller = new AbortController(); stuck = true;
-  const operation = recovery.advance({ signal: controller.signal }); await reached; controller.abort();
-  await expect(operation).rejects.toThrow(/cancelled|closed/); expect(n.observer.status().fenced).toBe(true);
+  const operation = recovery.advance({ signal: controller.signal }); await reached;
+  // Bound cancellation itself independently of fixture setup and the complete
+  // resumed recovery. The injected transport never observes the abort signal.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const settlement = Promise.race([operation, new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Active freeze did not settle within 1000ms after abort')), 1000);
+    })]);
+    const cancelledAt = performance.now(); controller.abort();
+    await expect(settlement).rejects.toThrow(/cancelled|closed/);
+    expect(performance.now() - cancelledAt).toBeLessThan(1000);
+  } finally { clearTimeout(timer); }
+  expect(n.observer.status().fenced).toBe(true);
   expect(() => recovery.status()).toThrow('closed'); stuck = false;
   const reopened = await openPolicyObserverRecovery(n.recoveryOptions); cleanup.push(reopened.close); await finish(reopened);
-});
+}, 30000);

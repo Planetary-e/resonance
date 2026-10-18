@@ -115,6 +115,11 @@ export class RelayJournalCapacityError extends Error {
   constructor() { super('Relay journal storage quota exhausted'); }
 }
 
+/** A record exceeded its own prepaid allowance, independently of journal space. */
+export class RelayJournalRecordSizeError extends Error {
+  constructor() { super('Relay journal record exceeds its reserved byte limit'); }
+}
+
 export class RelayOperationLog {
   private readonly directory: string;
   private readonly reservation: StorageReservationLease | undefined;
@@ -190,7 +195,8 @@ export class RelayOperationLog {
     return this.records;
   }
 
-  append(entry: RelayOperationLogEntry, committedAt = Date.now()): RelayOperationLogRecord {
+  /** maxRecordBytes includes the complete serialized record and trailing newline. */
+  append(entry: RelayOperationLogEntry, committedAt = Date.now(), maxRecordBytes = Number.POSITIVE_INFINITY): RelayOperationLogRecord {
     if (this.failed) throw new Error('Relay operation log requires restart after an append failure');
     this.reservation?.assertWritable();
     if (!isLogEntry(entry) || !isTimestamp(committedAt)) throw new Error('Invalid relay operation log entry');
@@ -203,6 +209,10 @@ export class RelayOperationLog {
     const record: RelayOperationLogRecord = { ...base, recordId: recordId(base) };
     const serialized = `${JSON.stringify(record)}\n`;
     const writtenBytes = Buffer.byteLength(serialized, 'utf8');
+    if (maxRecordBytes !== Number.POSITIVE_INFINITY && (!Number.isSafeInteger(maxRecordBytes) || maxRecordBytes < 0)) {
+      throw new Error('Invalid relay journal record byte limit');
+    }
+    if (writtenBytes > maxRecordBytes) throw new RelayJournalRecordSizeError();
     const reservedBytes = this.reservedBytesAfterAppend(entry);
     if (!Number.isSafeInteger(reservedBytes) || reservedBytes < 0) {
       throw new Error('Invalid relay journal reserve');

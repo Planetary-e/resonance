@@ -232,9 +232,19 @@ if (values.child) {
     assert(search.results.some((result: any) => result.publicationId === a.publications[0].publicationId), 'Expected Python offer not retrieved');
     passed('Real-text private search retrieves the complementary offer');
     const mailboxCounts: number[] = [];
+    const mailboxMaintenance: Array<{ consumedTokens: number; removedEnvelopes: number; acknowledgementSpends: number }> = [];
     for (const [app, publication] of [[alice, a.publications[0]], [bob, b.publications[0]]] as const) {
       const held = await app.request('/api/private-requests/hold-mailbox', { kind: 'publication-mailbox', id: publication.publicationId });
+      const walletBefore = await app.request('/api/admission-wallet'), spendStart = spends.length;
+      const envelopesBefore = destination.getStats().mailbox_envelopes;
       assert.equal((await app.request(`/api/private-requests/${held.saved}/release`, {})).result.kind, 'mailbox');
+      const consumedTokens = walletBefore.available - (await app.request('/api/admission-wallet')).available;
+      const removedEnvelopes = envelopesBefore - destination.getStats().mailbox_envelopes;
+      const acknowledgementSpends = spends.slice(spendStart).filter(spend => spend.action === 'mailbox-acknowledge').length;
+      assert.equal(consumedTokens, 1, 'Fetch consumes one token; acknowledgement is prepaid maintenance');
+      assert(removedEnvelopes > 0, 'A successful mailbox release must durably retire its delivered envelopes');
+      assert.equal(acknowledgementSpends, 0);
+      mailboxMaintenance.push({ consumedTokens, removedEnvelopes, acknowledgementSpends });
       const matches = await app.request('/api/matches'); assert(matches.length >= 1, 'Encrypted match notice was not delivered'); mailboxCounts.push(matches.length);
       const count = matches.length; await app.relock();
       const repeated = await app.request('/api/private-requests/hold-mailbox', { kind: 'publication-mailbox', id: publication.publicationId });
@@ -333,11 +343,15 @@ if (values.child) {
       bindings.set(spend.binding, spend.token); tokenBindings.set(spend.token, spend.binding);
       assert(allWire.every(frame => !frame.includes(spend.token)), 'Admission token exposed outside encrypted transport');
     }
-    assert(bindings.size >= 8); assert(spends.some(s => s.action === 'mailbox-acknowledge'));
+    assert(bindings.size >= 8); assert(spends.every(s => s.action !== 'mailbox-acknowledge'));
     passed('No root account identifier, plaintext item text or spent token appears in captured network frames; distinct request bindings use distinct tokens');
     const cpu = process.cpuUsage(cpuStart);
-    report = { measuredAt: new Date().toISOString(), completed: true, checkpoints, applicationMemory, model: 'nomic-ai/nomic-embed-text-v1', dtype: 'fp32', remoteModelDownloads: false,
-      applicationProcesses: 2, published: 3, mailboxMatchCounts: mailboxCounts, distinctRequestBindings: bindings.size, distinctSpentTokens: tokenBindings.size,
+    // Keep `completed` as the all-gates-pass flag used by saved evaluations.
+    // Finishing the scenario after a measured concurrency failure is not a pass.
+    report = { measuredAt: new Date().toISOString(), completed: concurrencyPassed, scenarioCompleted: true,
+      ...(concurrencyPassed ? {} : { failure: { name: 'ConcurrentSearchFailure' } }),
+      checkpoints, applicationMemory, model: 'nomic-ai/nomic-embed-text-v1', dtype: 'fp32', remoteModelDownloads: false,
+      applicationProcesses: 2, published: 3, mailboxMatchCounts: mailboxCounts, mailboxMaintenance, distinctRequestBindings: bindings.size, distinctSpentTokens: tokenBindings.size,
       protectedPolicy: protectedPolicy ? { observers: 5, durableHistories: 25, privateQueries: protectedPolicy.queries(), issuerAndRelayFreshness: true, quorumLossRefusedBeforeSpend: true } : null,
       protectedAdmission: protectedAdmission ? { witnesses: 5, coordinators: 1, durableHistories: 30, restartedOwners: 6,
         retainedDoubleSpendRefusal: true, quorumLossRefused: true } : null,
@@ -361,7 +375,7 @@ if (values.child) {
         'Two concurrent model processes on this host; representative hardware and cold first-download experience remain unmeasured.'] };
   } catch (error) {
     failure = error;
-    report = { measuredAt: new Date().toISOString(), completed: false, checkpoints, applicationMemory, concurrentSearches, apiTimings, faultCooldownMs, historyTransport,
+    report = { measuredAt: new Date().toISOString(), completed: false, scenarioCompleted: false, checkpoints, applicationMemory, concurrentSearches, apiTimings, faultCooldownMs, historyTransport,
       capture: { parentComplete: captureComplete, parentFrameCount: frameCount, parentFrameLimit: captureFrameLimit }, transport: network.snapshot(),
       failure: { name: error instanceof Error ? error.name : 'UnknownError' } };
   } finally {
@@ -383,7 +397,8 @@ if (values.child) {
   if (values.out) {
     const output = resolve(root, values.out); assert(output.endsWith('.json')); mkdirSync(dirname(output), { recursive: true });
     writeFileSync(output, JSON.stringify(report, null, 2) + '\n', { flag: 'wx' });
-    console.log(JSON.stringify({ output, checkpoints: checkpoints.length, resources: report.resources }, null, 2));
+    console.log(JSON.stringify({ output, completed: report.completed, scenarioCompleted: report.scenarioCompleted,
+      checkpoints: checkpoints.length, failure: report.failure, resources: report.resources }, null, 2));
   } else console.log(JSON.stringify(report, null, 2));
   if (failure) throw failure;
   if (!concurrencyPassed) process.exitCode = 1;

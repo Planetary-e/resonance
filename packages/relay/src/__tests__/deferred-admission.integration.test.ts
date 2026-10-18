@@ -14,7 +14,7 @@ import { createRelayServer } from '../server.js';
 import { connectRelayLinkV1, type RelayLinkConnection } from '../relay-link-client.js';
 import { createDeferredAdmission } from '../deferred-admission.js';
 
-it('closes all six user frame families while transport listens, without replay marks, mailbox writes or verifier calls', async () => {
+it('refuses new admission while listening and permits only bounded owner-signed acknowledgement maintenance', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'deferred-admission-')), gate = createDeferredAdmission();
   const relay = createRelayServer({ port: 0, host: '127.0.0.1', persistDir: directory, admissionVerifier: gate.verifier, adminApiKey: 'test',
     relayDiscovery: { endpoints: ['ws://127.0.0.1:0/'], reachability: 'direct', supportedGroups: ['public'],
@@ -49,12 +49,12 @@ it('closes all six user frame families while transport listens, without replay m
     const frames = [createPublicationOperationFrame(alice, capability),
       createPublicationOperationFrame(createPublicationTombstone(alice, 'withdrawn', publicationKeys.signingKeyPair, now), capability), search,
       createMailboxRequestFrame(createMailboxRequest('fetch', alice, publicationKeys), capability),
-      createMailboxRequestFrame(createMailboxRequest('ack', alice, publicationKeys, [envelope.envelopeId]), capability),
       createMailboxDepositFrame(createMailboxDepositRequest(matchId, alice, bob, publicationKeys, envelope, now), capability),
       relationshipFetch,
-      createRelationshipMailboxRequestFrameV2(createRelationshipMailboxRequestV2('ack', recipient, [channelEnvelope.envelopeId]), capability),
       createRelationshipMailboxDepositFrameV2(createRelationshipMailboxDepositV2(recipient.relationshipId, sender, channelEnvelope), capability)];
     for (const frame of frames) expect((await send(frame)).payload.message).toBe('admission_unavailable');
+    expect((await send(createMailboxRequestFrame(createMailboxRequest('ack', alice, publicationKeys, [envelope.envelopeId])))).payload.message).toBe('unknown_mailbox');
+    expect((await send(createRelationshipMailboxRequestFrameV2(createRelationshipMailboxRequestV2('ack', recipient, [channelEnvelope.envelopeId])))).payload.message).toBe('acknowledged:0');
     expect(relay.getStats()).toMatchObject({ admission_ready: false, stored_publications: 0, mailbox_envelopes: 0, journal_entries: 0 });
     expect((await fetch(`http://127.0.0.1:${port}/health`)).status).toBe(503);
     expect(await (await fetch(`http://127.0.0.1:${port}/stats?key=test`)).json()).toMatchObject({ admission_ready: false });

@@ -1,6 +1,7 @@
 /** Short-lived personal-client transport through two authenticated relay hops. */
 
 import { randomInt } from 'node:crypto';
+import { mailboxAcknowledgementBatches } from './mailbox-ack-batches.js';
 import { parseAdmissionPolicyObservers, parseAdmissionPolicyHead } from '@resonance/core/admission-policy-freshness';
 import { createAdmissionPolicyChunkRequest, parseAdmissionPolicyChunkReply, assembleAdmissionPolicyTransfer,
   ADMISSION_POLICY_CHUNK_REPLY_TYPE, type AdmissionPolicyChunkRequest, type AdmissionPolicyChunkReply } from '@resonance/core/admission-policy-transfer';
@@ -136,6 +137,11 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
     const capability = provider?.(capabilityContext);
     valid();
     return { raw: serialize(capability), valid };
+  }
+
+  function maintenanceRequest(url: string, raw: string): PreparedPrivateRequest {
+    const valid = () => config.admissionCapabilityProvider?.assertMaintenanceDestination?.(url);
+    valid(); return { raw, valid };
   }
 
   async function discoverEntry(endpoint: string, signal: AbortSignal): Promise<PrivateContact> {
@@ -325,14 +331,14 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
     });
   }
 
-  function firstReply(operation: PrivateOperation, makeRaw: (url: string, signal: AbortSignal) => ReturnType<PrivateRequestBuilder>, valid = () => {}): Promise<Message> {
+  function firstReply(operation: PrivateOperation, makeRaw: (url: string, signal: AbortSignal) => ReturnType<PrivateRequestBuilder>, valid = () => {}, destinationValid: (url: string) => void = () => {}): Promise<Message> {
     return scheduler.schedule(async signal => {
       let lastError: unknown;
       let unknownOutcome: PrivateOperationError | undefined;
       for (const url of destinations) {
         operation.check(signal);
         valid();
-        try { return await sendTo(url, () => makeRaw(url, signal), operation, signal, valid); }
+        try { return await sendTo(url, () => makeRaw(url, signal), operation, signal, () => { valid(); destinationValid(url); }); }
         catch (error) {
           lastError = error;
           if (error instanceof PrivateOperationError && error.outcome === 'unknown') unknownOutcome = error;
@@ -460,12 +466,16 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
     },
     async acknowledgeMailbox(record, keys, envelopeIds) {
       return runOperation(async operation => {
-        const request = createMailboxRequest('ack', record, keys, envelopeIds);
-        const reply = await firstReply(operation, (url, signal) => admittedRequest(url, 'mailbox-acknowledge', request,
-          cap => serializeMailboxRequestFrame(createMailboxRequestFrame(request, cap)), operation, signal));
-        const ack = expectedAck(reply, request.requestId);
-        operation.check();
-        return ack;
+        const requests = mailboxAcknowledgementBatches(envelopeIds).map(ids => createMailboxRequest('ack', record, keys, ids));
+        let last!: AckPayload;
+        for (const request of requests) {
+          operation.check();
+          const reply = await firstReply(operation, url => maintenanceRequest(url, serializeMailboxRequestFrame(createMailboxRequestFrame(request))),
+            undefined, url => config.admissionCapabilityProvider?.assertMaintenanceDestination?.(url));
+          last = expectedAck(reply, request.requestId); operation.check();
+        }
+        // The returned receipt belongs to the final batch, after all batches succeeded.
+        return last;
       });
     },
     async fetchRelationshipMailbox(keys: RelationshipKeyMaterial): Promise<RelationshipMailboxFetchResult> {
@@ -505,21 +515,25 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
     },
     async acknowledgeRelationshipMailbox(keys, envelopeIds) {
       return runOperation(async operation => {
-        const request = createRelationshipMailboxRequestV2('ack', keys, envelopeIds);
-        const results = await Promise.allSettled(destinations.map(url => scheduler.schedule(async signal => {
-          const reply = await sendTo(url, () => admittedRequest(url, 'mailbox-acknowledge', request,
-            cap => serializeRelationshipMailboxRequestFrameV2(createRelationshipMailboxRequestFrameV2(request, cap)), operation, signal), operation, signal);
-          const ack = expectedAck(reply, request.requestId);
-          operation.check(signal);
-          return ack;
-        }, operation.signal)));
-        const success = results.find((result): result is PromiseFulfilledResult<AckPayload> =>
-          result.status === 'fulfilled');
-        if (success) return success.value;
-        const failed = (results.find(result => result.status === 'rejected'
-          && result.reason instanceof PrivateOperationError && result.reason.outcome === 'unknown')
-          ?? results[0]) as PromiseRejectedResult;
-        throw failed.reason instanceof Error ? failed.reason : new Error('No private mailbox destination answered');
+        const requests = mailboxAcknowledgementBatches(envelopeIds).map(ids => createRelationshipMailboxRequestV2('ack', keys, ids));
+        let last!: AckPayload;
+        for (const request of requests) {
+          operation.check();
+          const results = await Promise.allSettled(destinations.map(url => scheduler.schedule(async signal => {
+            const reply = await sendTo(url, () => maintenanceRequest(url, serializeRelationshipMailboxRequestFrameV2(createRelationshipMailboxRequestFrameV2(request))),
+              operation, signal, () => config.admissionCapabilityProvider?.assertMaintenanceDestination?.(url));
+            const ack = expectedAck(reply, request.requestId); operation.check(signal); return ack;
+          }, operation.signal)));
+          const success = results.find((result): result is PromiseFulfilledResult<AckPayload> => result.status === 'fulfilled');
+          if (!success) {
+            const failed = (results.find(result => result.status === 'rejected'
+              && result.reason instanceof PrivateOperationError && result.reason.outcome === 'unknown') ?? results[0]) as PromiseRejectedResult;
+            throw failed.reason instanceof Error ? failed.reason : new Error('No private mailbox destination answered');
+          }
+          last = success.value;
+        }
+        // One timely validated destination per batch retains the existing partial-success contract.
+        return last;
       });
     },
     async searchV2(input): Promise<SearchResponsePayloadV2> {
