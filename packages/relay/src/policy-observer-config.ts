@@ -11,7 +11,7 @@ import { parseAdmissionHistoryArchiveLimits } from './admission-history-config.j
 import { readOperatorFile, readOperatorSigningKey, readOperatorStorageKey } from './admission-operator-files.js';
 import { openProtectedPolicyObserver, PolicySuccessorUnavailableError } from './protected-policy-observer.js';
 import { readArchivedPolicySuccessor } from './policy-observer-archive.js';
-import { createAdmissionPolicyObserverExchange, listenAdmissionPolicyObserver } from './admission-policy-observation-transport.js';
+import { createAdmissionPolicyObserverExchange, listenAdmissionPolicyObserver, type PolicyObservationHandlerDiagnostic } from './admission-policy-observation-transport.js';
 import type { HistoryCheckpointTransport } from './history-checkpoint-exchange.js';
 import type { PolicyObserverHealth } from './history-health.js';
 
@@ -99,7 +99,7 @@ export async function openConfiguredPolicyObserver(value: PolicyObserverConfigur
  * loopback listener. Public TLS/reverse routing remains separately configured. */
 export async function serveConfiguredPolicyObserver(value: PolicyObserverConfiguration, options: {
   transport?: HistoryCheckpointTransport; timeoutMs?: number; now?: () => number; signal?: AbortSignal;
-  onSocket?: (socket: Socket) => void; acceptNewWork?: (bytes: number) => boolean;
+  onSocket?: (socket: Socket) => void; onHandlerFailure?: (diagnostic: PolicyObservationHandlerDiagnostic) => void; acceptNewWork?: (bytes: number) => boolean;
 } = {}) {
   const config = parsePolicyObserverConfiguration(value, '/'), signal = options.signal;
   let observer: Awaited<ReturnType<typeof openConfiguredPolicyObserver>> | undefined;
@@ -120,7 +120,7 @@ export async function serveConfiguredPolicyObserver(value: PolicyObserverConfigu
     if (signal?.aborted || closing) { observer.close(); cancelled(); }
     await observer.ready(); cancelled();
     listener = await listenAdmissionPolicyObserver(createAdmissionPolicyObserverExchange(observer, config.context, options.now),
-      { ...config.listen, allowSequentialRequests: true, onSocket: options.onSocket, acceptNewWork: options.acceptNewWork });
+      { ...config.listen, allowSequentialRequests: true, onSocket: options.onSocket, onHandlerFailure: options.onHandlerFailure, acceptNewWork: options.acceptNewWork });
     if (signal?.aborted || closing) { await listener.close(); observer.close(); cancelled(); }
     return { endpoint: listener.endpoint, status: () => observer!.status(), policy: () => observer!.policy(),
       async successor(value: unknown, signal?: AbortSignal) {

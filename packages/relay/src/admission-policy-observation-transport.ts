@@ -114,6 +114,22 @@ export function createAdmissionPolicyObserverExchange(observer: {
   };
 }
 
+export function policyObservationFailureCategory(error: unknown) {
+  const message = error instanceof Error ? error.message : '';
+  switch (message) {
+    case 'Policy observation expired in observer queue': return 'queue-expired';
+    case 'Invalid or expired admission policy head request': return 'request-invalid-or-expired';
+    case 'Policy observation completed too late': return 'observation-too-late';
+    case 'Four current history heads unavailable': return 'history-quorum-unavailable';
+    case 'Current history observation completed too late': return 'history-observation-too-late';
+    case 'Four durable history acknowledgements unavailable': return 'history-write-quorum-unavailable';
+    default: return 'unspecified';
+  }
+}
+export interface PolicyObservationHandlerDiagnostic {
+  phase: 'observation-handler'; category: ReturnType<typeof policyObservationFailureCategory>;
+}
+
 /** No lifecycle authority: the caller owns the observer and closes it only after
  * this listener has awaited all work that was already admitted to its handler. */
 export async function listenAdmissionPolicyObserver(exchange: (value: unknown) => Promise<unknown>, options: {
@@ -121,6 +137,7 @@ export async function listenAdmissionPolicyObserver(exchange: (value: unknown) =
   /** Trusted local opt-in. One request at a time; the original connection expiry remains absolute. */
   allowSequentialRequests?: boolean;
   onSocket?: (socket: Socket) => void;
+  onHandlerFailure?: (diagnostic: PolicyObservationHandlerDiagnostic) => void;
   /** A fresh observation can cause replica traffic even without an update. */
   acceptNewWork?: (bytes: number) => boolean;
 } = {}) {
@@ -178,7 +195,12 @@ export async function listenAdmissionPolicyObserver(exchange: (value: unknown) =
                 used = false; idle.set(connection.socket, ws); reserveAdmissionSlot();
               }
             });
-          } catch { if (ws.readyState === WebSocket.OPEN) ws.close(4003, 'policy_observation_refused'); }
+          } catch (error) {
+            try {
+              void Promise.resolve(options.onHandlerFailure?.({ phase: 'observation-handler', category: policyObservationFailureCategory(error) })).catch(() => {});
+            } catch { /* Local diagnostics cannot affect refusal or cleanup. */ }
+            if (ws.readyState === WebSocket.OPEN) ws.close(4003, 'policy_observation_refused');
+          }
         })();
         active.add(work); void work.finally(() => active.delete(work));
       });
@@ -222,7 +244,7 @@ export function exchangeAdmissionPolicyObservation(member: Parameters<AdmissionP
     try { socket = new WebSocket(member.endpoint, { ...relayTlsClientOptions, handshakeTimeout: 3000, maxPayload: ADMISSION_POLICY_HEAD_MAX_BYTES, followRedirects: false, perMessageDeflate: false }); }
     catch { finish(new Error('Policy observation connection failed')); return; }
     socket.on('error', () => finish(new Error('Policy observation connection failed')));
-    socket.on('close', () => finish(new Error('Policy observation connection closed')));
+    socket.on('close', code => finish(new Error(`Policy observation connection closed (${Number.isInteger(code) && code >= 1000 && code <= 4999 ? code : 1006})`)));
     socket.on('upgrade', response => {
       if (done) return;
       try { onSocket?.(response.socket); } catch { finish(new Error('Policy observation accounting failed')); }

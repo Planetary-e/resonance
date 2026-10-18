@@ -22,7 +22,8 @@ try {
       + '       replica-serve <enrollment.json> <member-key.json> <storage.key> <directory> <port>\n'
       + 'Preparation and enrollment never start an observer. Existing operation requires separate fresh quorum readiness.\n');
   } else {
-    const operation = await runPolicyObserverCommand(command, args, controller.signal, { transportFile: process.env.RESONANCE_HISTORY_OPERATOR_TRANSPORT_FILE });
+    const operation = await runPolicyObserverCommand(command, args, controller.signal, { transportFile: process.env.RESONANCE_HISTORY_OPERATOR_TRANSPORT_FILE,
+      onHandlerFailure: diagnostic => { process.stderr.write(JSON.stringify({ event: 'policy-observer-handler-failure', ...diagnostic }) + '\n'); } });
     process.stdout.write(JSON.stringify(operation.result) + '\n');
     if (operation.close) {
       if (!controller.signal.aborted) await new Promise<void>(resolve => controller.signal.addEventListener('abort', () => resolve(), { once: true }));

@@ -79,15 +79,15 @@ it('runs preparation, five volunteer processes, quorum-gated initialization and 
     ['--import', loader, main, command, ...args], { cwd: n.directory, timeout: 20000 })).stdout);
   async function serve(command: string, args: string[]) {
     const child = spawn(process.execPath, ['--import', loader, main, command, ...args], { cwd: n.directory, stdio: ['ignore', 'pipe', 'pipe'] });
-    let errors = ''; child.stderr.on('data', bytes => { errors += String(bytes); }); const exited = once(child, 'exit');
+    let errors = ''; child.stderr.on('data', bytes => { errors = (errors + String(bytes)).slice(-8192); }); const exited = once(child, 'exit'), closed = once(child, 'close');
     const lines = createInterface({ input: child.stdout });
     let stopped = false;
-    const stop = async () => { if (stopped) return; stopped = true; lines.close(); if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM'); await exited; };
+    const stop = async () => { if (stopped) return; stopped = true; lines.close(); if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM'); await exited; await closed; };
     cleanup.push(stop);
     const timer = setTimeout(() => child.kill('SIGKILL'), 20000);
     try {
       const line = await Promise.race([once(lines, 'line').then(([line]) => line), exited.then(() => { throw new Error(`CLI exited before listening: ${errors}`); })]);
-      return { message: JSON.parse(line), stop };
+      return { message: JSON.parse(line), stop, diagnostics: () => errors.split('\n').filter(line => line.startsWith('{\"event\":\"policy-observer-handler-failure\"')).join('\n') };
     } finally { clearTimeout(timer); }
   }
   const plan = await run('setup-plan'); await run('setup-create', ['--approve', plan.approvalDigest, ...n.args]);
@@ -107,7 +107,10 @@ it('runs preparation, five volunteer processes, quorum-gated initialization and 
   expect(await run('ready', [n.configPath])).toMatchObject({ readiness: 'confirmed' });
   const observer = await serve('serve', [n.configPath]), request = createAdmissionPolicyHeadRequest(n.context);
   const response = await exchangeAdmissionPolicyObservation({ publicKey: n.input.members[0].publicKey, endpoint: observer.message.endpoint },
-    { request, advance: n.advance }, new AbortController().signal);
+    { request, advance: n.advance }, new AbortController().signal).catch(async cause => {
+      await observer.stop(); // Child close guarantees stderr has drained before diagnostic capture.
+      throw new Error(`CLI policy observation failed; handler diagnostics: ${observer.diagnostics()}`, { cause });
+    });
   expect(parseAdmissionPolicyHeadVote(response, request, n.context, Date.now()).head).toEqual(n.advance.commitment.next);
   await observer.stop();
   expect((await run('status', [n.configPath])).status.head).toEqual(n.advance.commitment.next);

@@ -1,3 +1,4 @@
+import type { PolicyObservationHandlerDiagnostic } from './admission-policy-observation-transport.js';
 /** Callable local operations for an explicitly configured existing observer. */
 import { ADMISSION_POLICY_ADVANCE_MAX_BYTES } from '@resonance/core/admission-policy-advance';
 import { readOperatorFile } from './admission-operator-files.js';
@@ -6,7 +7,7 @@ import { runPolicyObserverRecoveryCommand } from './policy-observer-recovery-com
 import { runPolicyObserverSetupCommand } from './policy-observer-setup-command.js';
 import { createPinnedHistoryOperatorTransport } from './history-operator-transport.js';
 
-export async function runPolicyObserverCommand(command: string, args: readonly string[], signal?: AbortSignal, options: { transportFile?: string } = {}) {
+export async function runPolicyObserverCommand(command: string, args: readonly string[], signal?: AbortSignal, options: { transportFile?: string; onHandlerFailure?: (diagnostic: PolicyObservationHandlerDiagnostic) => void } = {}) {
   if (command.startsWith('recovery-')) return { ...await runPolicyObserverRecoveryCommand(command, args, signal, options), close: undefined };
   if (command.startsWith('setup-') || command.startsWith('replica-') || command === 'enrollment-export'
     || command === 'initialize' || command === 'initialize-plan') return runPolicyObserverSetupCommand(command, args, signal, options);
@@ -16,7 +17,7 @@ export async function runPolicyObserverCommand(command: string, args: readonly s
   const config = readPolicyObserverConfigurationFile(args[0]);
   if (command === 'serve') {
     if (options.transportFile !== undefined) throw new Error('A bounded operator transport cannot run a continuous policy observer service');
-    const service = await serveConfiguredPolicyObserver(config, { signal });
+    const service = await serveConfiguredPolicyObserver(config, { signal, onHandlerFailure: options.onHandlerFailure });
     return { result: { result: 'policy-observer-listening', endpoint: service.endpoint, status: service.status() }, close: service.close };
   }
   const transport = createPinnedHistoryOperatorTransport({ context: config.historyContext }, options.transportFile, signal);

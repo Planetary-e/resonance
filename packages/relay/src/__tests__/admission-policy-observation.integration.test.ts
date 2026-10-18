@@ -7,7 +7,7 @@ import { createAdmissionPolicyHeadRequest, createAdmissionPolicyHeadVote, parseA
 import { signAdmissionPolicy } from '@resonance/core/admission-policy';
 import { openAdmissionPolicyObserver } from '../admission-policy-observer.js';
 import { collectAdmissionPolicyObservation } from '../admission-policy-observation.js';
-import { createAdmissionPolicyObserverExchange, exchangeAdmissionPolicyObservation, listenAdmissionPolicyObserver,
+import { createAdmissionPolicyObserverExchange, exchangeAdmissionPolicyObservation, listenAdmissionPolicyObserver, policyObservationFailureCategory,
   ADMISSION_POLICY_OBSERVATION_MAX_BYTES } from '../admission-policy-observation-transport.js';
 import { policyObserverFixture } from './fixtures/policy-observer-fixture.js';
 
@@ -218,4 +218,41 @@ it('bounds raw connections and rejects binary, oversized and repeated request fr
   const repeated = await listenAdmissionPolicyObserver(async () => { calls++; return {}; }, { maxConnections: 1 }); cleanup.push(repeated.close);
   const socket = new WebSocket(repeated.endpoint); socket.on('error', () => {}); await once(socket, 'open'); const closed = once(socket, 'close');
   socket.send('{}'); socket.send('{}'); await closed; expect(calls).toBe(1);
+});
+
+it('reports finite local handler categories, ignores callback failures, and retains only numeric client close codes', async () => {
+  const diagnostics: unknown[] = [];
+  for (const throws of [false, true]) {
+    const listener = await listenAdmissionPolicyObserver(async () => { throw new Error('private did:key:secret https://private.invalid /private/key'); }, {
+      onHandlerFailure(value) { diagnostics.push(value); if (throws) throw new Error('private callback failure'); },
+    }); cleanup.push(listener.close);
+    const error = await exchangeAdmissionPolicyObservation({ publicKey: '', endpoint: listener.endpoint }, {} as never,
+      new AbortController().signal).catch(error => error);
+    expect(error).toBeInstanceOf(Error); expect((error as Error).message).toBe('Policy observation connection closed (4003)');
+    expect(diagnostics.at(-1)).toEqual({ phase: 'observation-handler', category: 'unspecified' });
+    expect(JSON.stringify(diagnostics)).not.toMatch(/private|secret|did:key/);
+    await listener.close();
+  }
+  const server = new WebSocketServer({ port: 0, host: '127.0.0.1' }); await once(server, 'listening');
+  cleanup.push(() => new Promise<void>(resolve => { for (const socket of server.clients) socket.terminate(); server.close(() => resolve()); }));
+  server.on('connection', socket => socket.on('message', () => socket.close(4003, 'private reason /private/key')));
+  const address = server.address(); if (!address || typeof address === 'string') throw new Error('Missing test address');
+  await expect(exchangeAdmissionPolicyObservation({ publicKey: '', endpoint: `ws://127.0.0.1:${address.port}/policy-head` }, {} as never,
+    new AbortController().signal)).rejects.toThrow('Policy observation connection closed (4003)');
+});
+
+
+it('classifies only exact local expiry and quorum messages without substring injection', () => {
+  const cases = [
+    ['Policy observation expired in observer queue', 'queue-expired'],
+    ['Invalid or expired admission policy head request', 'request-invalid-or-expired'],
+    ['Policy observation completed too late', 'observation-too-late'],
+    ['Four current history heads unavailable', 'history-quorum-unavailable'],
+    ['Current history observation completed too late', 'history-observation-too-late'],
+    ['Four durable history acknowledgements unavailable', 'history-write-quorum-unavailable'],
+  ];
+  for (const [message, category] of cases) {
+    expect(policyObservationFailureCategory(new Error(message))).toBe(category);
+    expect(policyObservationFailureCategory(new Error(message + ' /private/key'))).toBe('unspecified');
+  }
 });
