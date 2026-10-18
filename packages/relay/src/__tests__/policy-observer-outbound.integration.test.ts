@@ -11,30 +11,45 @@ import { policyObserverSetupFixture } from './fixtures/policy-observer-setup-fix
 const cleanup: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 
+async function runChild(n: Awaited<ReturnType<typeof policyObserverOutboundFixture>>, command: string, args = [n.configPath]) {
+  const main = fileURLToPath(new URL('../policy-observer-main.ts', import.meta.url)), loader = import.meta.resolve('tsx');
+  n.resetExchangeTrace();
+  try {
+    const result = await promisify(execFile)(process.execPath, ['--import', loader, main, command, ...args], {
+      cwd: n.directory, timeout: 20000, env: { ...process.env, RESONANCE_HISTORY_OPERATOR_TRANSPORT_FILE: n.transportFile } });
+    await waitForPolicyLinks(() => !n.bridge.getRelayLinkStatus().inboundRelayIds.includes(n.operatorId));
+    expect(result.stderr).toBe(''); return JSON.parse(result.stdout);
+  } catch (error) {
+    throw new Error(`Policy observer ${command} failed; bounded member trace: ${JSON.stringify(n.exchangeTrace())}`, { cause: error });
+  }
+}
+
 it('uses the explicit finite maintenance budget for a cold durable write without changing personal observation deadlines', async () => {
-  let delay = false, delayed = false;
-  const n = await policyObserverOutboundFixture(close => cleanup.push(close), { beforeExchange: async (_replica, method, frame) => {
-    if (delay && !delayed && method === 'checkpoint' && (frame as { request?: { action?: string } }).request?.action === 'append') {
-      delayed = true; await new Promise(resolve => setTimeout(resolve, 3500));
+  let delay = false; const delayed = new Set<number>();
+  const n = await policyObserverOutboundFixture(close => cleanup.push(close), { trace: true, beforeExchange: async (replica, method, frame) => {
+    if (delay && replica < 2 && !delayed.has(replica) && method === 'checkpoint' && (frame as { request?: { action?: string } }).request?.action === 'append') {
+      delayed.add(replica); await new Promise(resolve => setTimeout(resolve, 3500));
     }
   } });
   const options = { transportFile: n.transportFile };
   const plan = await runPolicyObserverCommand('initialize-plan', [n.configPath], undefined, options);
   await runPolicyObserverCommand('initialize', ['--approve', (plan.result as { approvalDigest: string }).approvalDigest, n.configPath], undefined, options);
-  delay = true;
-  const ready = await runPolicyObserverCommand('ready', [n.configPath], undefined, options);
-  expect(delayed).toBe(true); expect(ready.result).toMatchObject({ readiness: 'confirmed' });
+  await runPolicyObserverCommand('ready', [n.configPath], undefined, options);
+  await waitForPolicyLinks(() => !n.bridge.getRelayLinkStatus().inboundRelayIds.includes(n.operatorId));
+  const advanceFile = join(n.directory, 'advance.json'); writeFileSync(advanceFile, JSON.stringify(n.advance));
+  delay = true; const started = performance.now();
+  const advanced = await runChild(n, 'advance', [n.configPath, advanceFile]), elapsed = performance.now() - started;
+  expect(delayed).toEqual(new Set([0, 1])); expect(elapsed).toBeGreaterThanOrEqual(3500);
+  // Cold process startup is outside the signed maintenance exchange. The
+  // existing child timeout bounds that total; inspect the actual delayed work.
+  expect(n.exchangeTrace().some(entry => entry.member < 2 && entry.action === 'append'
+    && entry.status === 'succeeded' && entry.durationMs >= 3500)).toBe(true);
+  expect(advanced).toMatchObject({ readiness: 'confirmed', status: { head: n.advance.commitment.next } });
 }, 30000);
 
 it('initializes and recovers a policy observer through a pinned bridge using only outbound owner and volunteer links', async () => {
-  const n = await policyObserverOutboundFixture(close => cleanup.push(close));
-  const main = fileURLToPath(new URL('../policy-observer-main.ts', import.meta.url)), loader = import.meta.resolve('tsx');
-  const run = async (command: string, args = [n.configPath]) => {
-    const result = await promisify(execFile)(process.execPath, ['--import', loader, main, command, ...args], {
-      cwd: n.directory, timeout: 20000, env: { ...process.env, RESONANCE_HISTORY_OPERATOR_TRANSPORT_FILE: n.transportFile } });
-    await waitForPolicyLinks(() => !n.bridge.getRelayLinkStatus().inboundRelayIds.includes(n.operatorId));
-    expect(result.stderr).toBe(''); return JSON.parse(result.stdout);
-  };
+  const n = await policyObserverOutboundFixture(close => cleanup.push(close), { trace: true });
+  const run = (command: string, args = [n.configPath]) => runChild(n, command, args);
   const offline = async (command: string, args?: string[]) => {
     // A missing passphrase makes even an attempted infrastructure-key read fail.
     renameSync(n.secret, n.secret + '.offline');

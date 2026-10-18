@@ -17,12 +17,13 @@ import type { RealAppNetwork } from './real-app-network.js';
 import { exchangeHistoryCheckpoint } from '../../packages/relay/src/history-checkpoint-exchange.js';
 import { exchangeAdmissionPolicyObservation } from '../../packages/relay/src/admission-policy-observation-transport.js';
 import { requestAdmissionWitnessVote } from '../../packages/relay/src/admission-witness-transport.js';
+import { createRealAppHistoryLinks } from './real-app-history-links.js';
 
 type Verifier = Awaited<ReturnType<typeof createConfiguredAdmissionVerifier>>;
 type VerifierOptions = Parameters<typeof createConfiguredAdmissionVerifier>[0];
 type Listener = Awaited<ReturnType<typeof listenHistoryAgreementReplica>>;
 
-export async function prepareRealAppAdmission(directory: string, cleanup: Array<() => void | Promise<void>>, network: RealAppNetwork) {
+export async function prepareRealAppAdmission(directory: string, cleanup: Array<() => void | Promise<void>>, network: RealAppNetwork, historyLinks = false) {
   mkdirSync(directory);
   const witnesses = Array.from({ length: 5 }, generateSigningKeyPair), coordinator = generateSigningKeyPair();
   const historyKeys = Array.from({ length: 5 }, generateSigningKeyPair).sort((a, b) => {
@@ -31,6 +32,8 @@ export async function prepareRealAppAdmission(directory: string, cleanup: Array<
   });
   cleanup.push(() => [...witnesses, coordinator, ...historyKeys].forEach(key => key.secretKey.fill(0)));
   const verifiers: Verifier[] = [], options: VerifierOptions[] = [], listeners: Listener[][] = [], endpoints: string[] = [];
+  const links = historyLinks ? await createRealAppHistoryLinks(join(directory, 'history-links'), historyKeys, 6, 'admission-history', network, cleanup) : undefined;
+  const linkedOwners: Array<Awaited<ReturnType<NonNullable<typeof links>['owner']>>> = [];
   for (let i = 0; i < 5; i++) {
     const server = createRelayServer({ port: 0, host: '127.0.0.1', persistDir: join(directory, `witness-server-${i}`),
       admissionWitness: { vote: async (request, acceptNew) => {
@@ -58,9 +61,15 @@ export async function prepareRealAppAdmission(directory: string, cleanup: Array<
           policyDigest: `sha256:${admissionPolicyDigest(policy)}`, quorum: 4,
           members: historyKeys.map(key => Buffer.from(key.publicKey).toString('base64url')) };
         const members = context.members.map((publicKey, i) => ({ publicKey, endpoint: `ws://127.0.0.1:${i + 1}/history-checkpoint` }));
+        let linked: Awaited<ReturnType<NonNullable<typeof links>['owner']>> | undefined;
         const historyOptions = { directory: ownerDirectory, encryptionKey, authority: policy.authority, policy,
           protection: { context, signingKey, members,
-            transport: ((...args) => network.measure(`${role}-history-${args[1].request.action}`, () => exchangeHistoryCheckpoint(...args))) as typeof exchangeHistoryCheckpoint } };
+            transport: ((...args) => network.measure(`${role}-history-${args[1].request.action}`, async () => {
+              if (links && !linked) throw new Error('History owner has not completed enrollment');
+              return (linked?.transport ?? exchangeHistoryCheckpoint)(...args);
+            })) as typeof exchangeHistoryCheckpoint } };
+        // Initialize the owner's root locally before enrolling any replica; no
+        // readiness or network RPC occurs until all five services are enrolled.
         let history = await openProtectedAdmissionSpendHistory({ ...historyOptions, initialize: true,
           protection: { ...historyOptions.protection, initializeWriter: true } });
         cleanup.push(() => history.close()); const root = history.enrollment().root, retained: Listener[] = [];
@@ -68,6 +77,7 @@ export async function prepareRealAppAdmission(directory: string, cleanup: Array<
           const localKey = randomBytes(32); cleanup.push(() => { localKey.fill(0); });
           const service = openHistoryVolunteerService({ directory: join(directory, `owner-${index}-replica-${j}`), context,
             genesisId: historyCheckpointEnvelopeId(root), localKey, signingKey: historyKeys[j], initialize: root }); cleanup.push(service.close);
+          if (links) { links.enroll(index, j, context, service); continue; }
           const listener = await listenHistoryAgreementReplica({ ...service, checkpoint(value) {
             try { return service.checkpoint(value); }
             catch (error) {
@@ -78,6 +88,10 @@ export async function prepareRealAppAdmission(directory: string, cleanup: Array<
           members[j].endpoint = await network.protect('admission-history', listener.checkpointEndpoint);
         }
         listeners.push(retained);
+        if (links) {
+          linked = await links.owner(index); linkedOwners.push(linked);
+          historyOptions.protection.members = linked.members;
+        }
         history.close(); history = await openProtectedAdmissionSpendHistory(historyOptions); await history.ready();
         const localOptions = { directory: ownerDirectory, encryptionKey, policy, signingKey: roleKey, initialize: true };
         const local = role === 'witness' ? createAdmissionWitness(localOptions) : createAdmissionQuorumGate(localOptions);
@@ -100,12 +114,15 @@ export async function prepareRealAppAdmission(directory: string, cleanup: Array<
         async restart() {
           for (let i = 0; i < verifiers.length; i++) {
             verifiers[i].close(); await verifiers[i].drainPolicyObservations();
+            // Retain the exact history transport closure and infrastructure pins;
+            // reopening six local owners never enrolls or initializes new data.
             verifiers[i] = await createConfiguredAdmissionVerifier({ ...options[i], initialize: false });
           }
         },
         async loseWitnessQuorum() {
           // Each of two witnesses loses two history copies: only three witnesses
           // can produce a durably retained new vote. Policy observers remain up.
+          for (const owner of linkedOwners.slice(3, 5)) { owner.closeReplica(3); owner.closeReplica(4); }
           await Promise.all(listeners.slice(3, 5).flatMap(group => group.slice(3).map(listener => listener.close())));
         },
       };

@@ -27,12 +27,59 @@ async function pair(options: { handler?: HistoryLinkHandler; clientHandler?: His
   const b = new HistoryRelayLink(remote, 'pinned-client', { allowedRelayIds: ['pinned-client'], budget: bBudget,
     handler: options.handler ?? ((_method, value) => value), timeoutMs: options.timeoutMs, incomingBudget: options.serverIncomingBudget });
   cleanup.push(() => { a.close(); b.close(); });
-  const received: Record<string, unknown>[] = [], sizes: number[] = [];
-  client.on('message', raw => { sizes.push(Buffer.byteLength(raw.toString())); a.handle(raw.toString()); });
+  const received: Record<string, unknown>[] = [], replies: Record<string, unknown>[] = [], sizes: number[] = [];
+  client.on('message', raw => { sizes.push(Buffer.byteLength(raw.toString())); replies.push(JSON.parse(raw.toString())); a.handle(raw.toString()); });
   remote.on('message', raw => { sizes.push(Buffer.byteLength(raw.toString())); received.push(JSON.parse(raw.toString())); if (!options.rawServer) b.handle(raw.toString()); });
-  return { a, b, client, remote, aBudget, bBudget, received, sizes };
+  return { a, b, client, remote, aBudget, bBudget, received, replies, sizes };
 }
 const signal = () => new AbortController().signal;
+
+it('exchanges a small payload in opening frames while retaining exact acknowledgements and releasing both reservations', async () => {
+  const n = await pair(), value = { challenge: 'fresh per request', text: 'mañana 🌏' };
+  expect(await n.a.request('checkpoint', value, signal())).toEqual(value);
+  await waitFor(() => n.bBudget.usage().operations === 0);
+  expect(n.received.map(frame => frame.kind)).toEqual(['open', 'ack']);
+  expect(n.replies.map(frame => frame.kind)).toEqual(['ack', 'open']);
+  const encoded = Buffer.from(JSON.stringify(value));
+  expect(n.received[0]).toMatchObject({ bytes: encoded.length, data: encoded.toString('base64url') });
+  expect(n.replies[0]).toMatchObject({ side: 'request', offset: encoded.length });
+  expect(n.received[1]).toMatchObject({ side: 'response', offset: encoded.length });
+  expect(n.aBudget.usage()).toEqual({ bytes: 0, operations: 0 });
+  expect(n.bBudget.usage()).toEqual({ bytes: 0, operations: 0 });
+});
+
+it.each([0, 1])('uses the declared frame limit at the inline/chunk boundary +%i', async extra => {
+  const n = await pair(), value = { text: 'x'.repeat(HISTORY_LINK_CHUNK_BYTES - 11 + extra) };
+  expect(Buffer.byteLength(JSON.stringify(value))).toBe(HISTORY_LINK_CHUNK_BYTES + extra);
+  expect(await n.a.request('checkpoint', value, signal())).toEqual(value);
+  await waitFor(() => n.bBudget.usage().operations === 0);
+  expect(typeof n.received[0].data).toBe(extra ? 'undefined' : 'string');
+  expect(n.received.some(frame => frame.kind === 'data')).toBe(Boolean(extra));
+  expect(Math.max(...n.sizes)).toBeLessThanOrEqual(HISTORY_LINK_MAX_FRAME_BYTES);
+});
+
+it.each(['size', 'noncanonical', 'utf8', 'json', 'oversize', 'extra', 'old-version'])(
+  'rejects a malformed inline %s before invoking a history handler', async fault => {
+    let calls = 0; const n = await pair({ rawServer: true, handler: () => { calls++; return {}; } });
+    const data = fault === 'utf8' ? Buffer.from([0xc0, 0xaf]) : fault === 'json' ? Buffer.from('xx') : Buffer.from('{}');
+    const frame = { type: fault === 'old-version' ? 'relay_history_v1' : HISTORY_LINK_FRAME_TYPE,
+      id: 'a'.repeat(32), kind: 'open', side: 'request', method: 'checkpoint',
+      bytes: fault === 'size' ? 3 : fault === 'oversize' ? HISTORY_LINK_CHUNK_BYTES + 1 : data.length,
+      data: fault === 'noncanonical' ? 'e31' : data.toString('base64url'), maxResponse: 4096,
+      ...(fault === 'extra' ? { unknown: true } : {}) };
+    n.b.handle(JSON.stringify(frame));
+    await Promise.resolve();
+    expect(calls).toBe(0); expect(n.bBudget.usage()).toEqual({ bytes: 0, operations: 0 });
+    expect(n.remote.readyState).not.toBe(WebSocket.OPEN);
+});
+
+it('rejects an inline response before the request acknowledgement', async () => {
+  const n = await pair({ rawServer: true }), pending = n.a.request('checkpoint', {}, signal());
+  const refused = expect(pending).rejects.toThrow('closed'); await waitFor(() => n.received.length > 0);
+  n.remote.send(JSON.stringify({ type: HISTORY_LINK_FRAME_TYPE, id: n.received[0].id,
+    kind: 'open', side: 'response', bytes: 2, data: 'e30' }));
+  await refused; expect(n.aBudget.usage()).toEqual({ bytes: 0, operations: 0 });
+});
 
 it('transfers large UTF-8 payloads with acknowledged bounded chunks in both directions', async () => {
   const n = await pair({ clientHandler: (_method, value) => value });

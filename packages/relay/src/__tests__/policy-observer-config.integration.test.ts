@@ -4,12 +4,15 @@ import { join } from 'node:path';
 import { execFile, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { promisify } from 'node:util';
+import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
 import { createAdmissionPolicyHeadRequest, parseAdmissionPolicyHeadVote } from '@resonance/core/admission-policy-freshness';
 import { exchangeAdmissionPolicyObservation } from '../admission-policy-observation-transport.js';
 import { parsePolicyObserverConfiguration, readPolicyObserverConfigurationFile, openConfiguredPolicyObserver, serveConfiguredPolicyObserver } from '../policy-observer-config.js';
 import { runPolicyObserverCommand } from '../policy-observer-command.js';
+import { HistoryLinkBudget } from '../history-relay-link.js';
+import type { HistoryCheckpointTransport } from '../history-checkpoint-exchange.js';
 import { policyObserverRestoreFixture } from './fixtures/policy-observer-restore-fixture.js';
 
 const cleanup: Array<() => void | Promise<void>> = [];
@@ -53,6 +56,33 @@ it('inspects existing state without contacting volunteers and never creates a re
   const result = await runPolicyObserverCommand('status', [n.configPath]); expect(result.result).toMatchObject({ readiness: 'unverified' });
   const missing = join(n.directory, 'missing-owner'); await expect(openConfiguredPolicyObserver({ ...n.config, directory: missing })).rejects.toThrow('missing');
   expect(existsSync(join(missing, 'history-writer.json'))).toBe(false);
+});
+
+it('advertises two supplied-transport readers and serves queued challenges within the shared eight-operation budget', async () => {
+  const n = await fixture(), budget = new HistoryLinkBudget();
+  const challenges: string[] = []; let peak = 0, refused = 0;
+  const transport: HistoryCheckpointTransport = async (member, frame, signal) => {
+    let release: () => void;
+    try { release = budget.acquire(); } catch (error) { refused++; throw error; }
+    peak = Math.max(peak, budget.usage().operations);
+    try {
+      if (frame.request.action === 'head') { challenges.push(frame.request.challenge); await delay(60, undefined, { signal }); }
+      return await n.transport(member, frame, signal);
+    } finally { release(); }
+  };
+  const supplied = await openConfiguredPolicyObserver(n.config, { transport }); cleanup.push(supplied.close);
+  expect(supplied.maximumConcurrentObservations).toBe(2); supplied.close();
+  const direct = await openConfiguredPolicyObserver(n.config); cleanup.push(direct.close);
+  expect(direct.maximumConcurrentObservations).toBe(2); direct.close();
+  const service = await serveConfiguredPolicyObserver(n.config, { transport }); cleanup.push(service.close);
+  challenges.length = 0; peak = 0;
+  const member = { publicKey: n.enrolled.context.owner, endpoint: service.endpoint };
+  const requests = Array.from({ length: 4 }, () => createAdmissionPolicyHeadRequest(n.context));
+  const replies = await Promise.all(requests.map(request => exchangeAdmissionPolicyObservation(member,
+    { request, advance: null }, AbortSignal.timeout(10000))));
+  replies.forEach((reply, i) => expect(parseAdmissionPolicyHeadVote(reply, requests[i], n.context, Date.now()).head).toEqual(n.context.genesis));
+  expect(challenges.length).toBeGreaterThanOrEqual(16); expect(challenges.length).toBeLessThanOrEqual(20); expect(new Set(challenges).size).toBe(4);
+  expect(peak).toBe(8); expect(refused).toBe(0); expect(budget.usage()).toEqual({ bytes: 0, operations: 0 });
 });
 
 it('requires four current copies before listening, performs signed operations and drains shutdown before reopening', async () => {

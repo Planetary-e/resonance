@@ -24,7 +24,7 @@ afterEach(async () => {
   }));
   for (const close of cleanup.splice(0).reverse()) await close();
 });
-async function fixture(limits: { maxArchiveBlocks?: number; maxArchiveBytes?: number } = {}) {
+async function fixture(limits: { maxArchiveBlocks?: number; maxArchiveBytes?: number; maximumConcurrentObservations?: 1 | 2 } = {}) {
   const f = await policyObserverFixture(); cleanup.push(f.close);
   const enrolled = await createPolicyObserverHistoryRoot({ context: f.context, signingKey: f.keys[0], encryptionKey: f.options.encryptionKey, policy: f.first, now: () => f.now });
   const stores = enrolled.context.members.map((replica, i) => openHistoryCheckpointStore({ directory: join(f.directory, `r${i}`), context: enrolled.context,
@@ -155,8 +155,8 @@ it('does not turn a new directory, different role or different history identifie
   expect(historyCheckpointContextId({ ...n.enrolled.context, role: 'relay-admission-spends' })).not.toBe(historyCheckpointContextId(n.enrolled.context));
 });
 
-it('serves five concurrent witness challenges through actual sockets with a fresh history check for each', async () => {
-  const n = await fixture(); await n.observer.ready(); const calls = n.calls();
+it.each([1, 2] as const)('serves five concurrent witness challenges through actual sockets with %i reader(s) and a fresh history check for each', async maximumConcurrentObservations => {
+  const n = await fixture({ maximumConcurrentObservations }); await n.observer.ready(); const calls = n.calls();
   const exchange = createAdmissionPolicyObserverExchange(n.observer, n.context, () => n.now);
   const listener = await listenAdmissionPolicyObserver(exchange); cleanup.push(listener.close);
   const member = { publicKey: Buffer.from(n.keys[0].publicKey).toString('base64url'), endpoint: listener.endpoint };
@@ -168,7 +168,7 @@ it('serves five concurrent witness challenges through actual sockets with a fres
   for (let i = 0; i < results.length; i++) {
     const result = results[i]; if (result.status === 'fulfilled') expect(parseAdmissionPolicyHeadVote(result.value, requests[i], n.context, n.now).head).toEqual(n.context.genesis);
   }
-  expect(n.calls() - calls).toBe(25);
+  expect(n.calls() - calls).toBeGreaterThanOrEqual(20); expect(n.calls() - calls).toBeLessThanOrEqual(25);
 });
 
 it('bounds admitted observer work including blocked transports and snapshots queued input', async () => {
@@ -180,12 +180,12 @@ it('bounds admitted observer work including blocked transports and snapshots que
   inputs[7].request.challenge = randomBytes(32).toString('base64url');
   await expect(exchange(inputs[0])).rejects.toThrow('queue is full');
   release(); const replies = await Promise.all(pending);
-  expect(parseAdmissionPolicyHeadVote(replies[7], original, n.context, n.now).request).toEqual(original); expect(n.calls() - calls).toBe(40);
+  expect(parseAdmissionPolicyHeadVote(replies[7], original, n.context, n.now).request).toEqual(original); expect(n.calls() - calls).toBeGreaterThanOrEqual(32); expect(n.calls() - calls).toBeLessThanOrEqual(40);
   expect(parseAdmissionPolicyHeadVote(await exchange(inputs[0]), inputs[0].request, n.context, n.now).head).toEqual(n.context.genesis);
 });
 
-it('charges queue waiting against the original monotonic deadline and continues after expired work', async () => {
-  const n = await fixture(); await n.observer.ready(); const calls = n.calls();
+it.each([1, 2] as const)('charges queue waiting against the original monotonic deadline with %i reader(s) and continues after expired work', async maximumConcurrentObservations => {
+  const n = await fixture({ maximumConcurrentObservations }); await n.observer.ready(); const calls = n.calls();
   const exchange = createAdmissionPolicyObserverExchange(n.observer, n.context, () => n.now);
   let release!: () => void; n.gate(new Promise<void>(resolve => { release = resolve; }));
   const first = exchange({ request: createAdmissionPolicyHeadRequest(n.context, n.now), advance: null });
@@ -193,18 +193,39 @@ it('charges queue waiting against the original monotonic deadline and continues 
   const expired = exchange({ request: createAdmissionPolicyHeadRequest(n.context, n.now, 100), advance: null });
   const refused = expect(expired).rejects.toThrow('expired in observer queue');
   await delay(160); release(); await Promise.all([first, second]); await refused;
-  expect(n.calls() - calls).toBe(10); // Both active reads run; the expired queued caller never starts a history query.
+  expect(n.calls() - calls).toBeGreaterThanOrEqual(8); expect(n.calls() - calls).toBeLessThanOrEqual(10); // Only the two valid reads query history.
   const request = createAdmissionPolicyHeadRequest(n.context, n.now);
   expect(parseAdmissionPolicyHeadVote(await exchange({ request, advance: null }), request, n.context, n.now).head).toEqual(n.context.genesis);
 });
 
+it('enforces an explicit single reader before transport work and uses a new challenge after it releases', async () => {
+  const n = await fixture({ maximumConcurrentObservations: 1 }); await n.observer.ready();
+  expect(n.observer.maximumConcurrentObservations).toBe(1);
+  const calls = n.calls(), challenges = n.headChallenges.length;
+  let release!: () => void; n.gate(new Promise<void>(resolve => { release = resolve; }));
+  const first = createAdmissionPolicyHeadRequest(n.context, n.now), second = createAdmissionPolicyHeadRequest(n.context, n.now);
+  const reading = n.observer.observe(first);
+  try {
+    await delay(0); expect(n.calls() - calls).toBe(4);
+    await expect(n.observer.observe(second)).rejects.toThrow('already in progress');
+    await expect(n.observer.advance(n.advance)).rejects.toThrow('already in progress');
+    await expect(n.observer.ready()).rejects.toThrow('already in progress');
+    expect(() => n.observer.reviewRecoverySource()).toThrow('active');
+    expect(n.calls() - calls).toBe(4);
+  } finally { release(); }
+  expect(parseAdmissionPolicyHeadVote(await reading, first, n.context, n.now).head).toEqual(n.context.genesis);
+  expect(parseAdmissionPolicyHeadVote(await n.observer.observe(second), second, n.context, n.now).head).toEqual(n.context.genesis);
+  expect(n.calls() - calls).toBeGreaterThanOrEqual(8); expect(n.calls() - calls).toBeLessThanOrEqual(10); expect(new Set(n.headChallenges.slice(challenges)).size).toBe(2);
+});
+
 it('overlaps two independent fresh reads while excluding mutations, recovery and a third reader', async () => {
   const n = await fixture(); await n.observer.ready(); const calls = n.calls(), challenges = n.headChallenges.length;
+  expect(n.observer.maximumConcurrentObservations).toBe(2);
   let release!: () => void; n.gate(new Promise<void>(resolve => { release = resolve; }));
   const requests = [createAdmissionPolicyHeadRequest(n.context, n.now), createAdmissionPolicyHeadRequest(n.context, n.now)];
   const reads = requests.map(request => n.observer.observe(request));
   await delay(0);
-  expect(n.calls() - calls).toBe(10); expect(new Set(n.headChallenges.slice(challenges)).size).toBe(2);
+  expect(n.calls() - calls).toBeGreaterThanOrEqual(8); expect(n.calls() - calls).toBeLessThanOrEqual(10); expect(new Set(n.headChallenges.slice(challenges)).size).toBe(2);
   await expect(n.observer.observe(requests[0])).rejects.toThrow('already in progress');
   await expect(n.observer.advance(n.advance)).rejects.toThrow('already in progress');
   await expect(n.observer.ready()).rejects.toThrow('already in progress');
@@ -215,15 +236,15 @@ it('overlaps two independent fresh reads while excluding mutations, recovery and
   expect((await n.observer.observe(requests[0])).head).toEqual(n.advance.commitment.next);
 });
 
-it('keeps a queued policy advance as an exclusive barrier between concurrent read groups', async () => {
-  const n = await fixture(); await n.observer.ready(); const calls = n.calls();
+it.each([1, 2] as const)('keeps a queued policy advance as an exclusive barrier with %i reader(s)', async maximumConcurrentObservations => {
+  const n = await fixture({ maximumConcurrentObservations }); await n.observer.ready(); const calls = n.calls();
   const exchange = createAdmissionPolicyObserverExchange(n.observer, n.context, () => n.now);
   let release!: () => void; n.gate(new Promise<void>(resolve => { release = resolve; }));
   const request = () => createAdmissionPolicyHeadRequest(n.context, n.now);
   const before = [exchange({ request: request(), advance: null }), exchange({ request: request(), advance: null })];
   const update = exchange({ request: request(), advance: n.advance });
   const after = exchange({ request: request(), advance: null });
-  await delay(0); expect(n.calls() - calls).toBe(10); expect(n.observer.policy().revision).toBe(1);
+  await delay(0); expect(n.calls() - calls).toBe(4 * maximumConcurrentObservations); expect(n.observer.policy().revision).toBe(1);
   release();
   const earlier = await Promise.all(before);
   for (const reply of earlier) expect((reply as { head: unknown }).head).toEqual(n.context.genesis);
@@ -243,8 +264,8 @@ it('serializes in-flight operations, captures the request and fences signatures 
   n.observer.close(); release(); await Promise.all([expect(late).rejects.toThrow(), expect(concurrent).rejects.toThrow()]);
 });
 
-it('rechecks expiry and the monotonic request budget even with a frozen wall clock', async () => {
-  const n = await fixture(); await n.observer.ready();
+it.each([1, 2] as const)('rechecks expiry and the monotonic request budget with %i reader(s) even with a frozen wall clock', async maximumConcurrentObservations => {
+  const n = await fixture({ maximumConcurrentObservations }); await n.observer.ready();
   const calls = n.calls(); await expect(n.observer.observe({ ...createAdmissionPolicyHeadRequest(n.context, n.now), extra: true })).rejects.toThrow(); expect(n.calls()).toBe(calls);
   n.gate(delay(160)); await expect(n.observer.observe(createAdmissionPolicyHeadRequest(n.context, n.now, 100))).rejects.toThrow('too late');
   let release!: () => void; n.gate(new Promise<void>(resolve => { release = resolve; }));

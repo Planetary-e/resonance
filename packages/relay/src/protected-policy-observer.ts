@@ -69,9 +69,14 @@ export async function openProtectedPolicyObserver(options: {
   restore?: { preparation: PreparedPolicyObserverRestore; approvedDigest: string };
   expectedRestorationDigest?: string;
   timeoutMs?: number; transport?: WriterOptions['transport']; maxArchiveBlocks?: number; maxArchiveBytes?: number;
+  /** Defaults to two independent fresh reads, each with at most four live
+   * member RPCs. Callers may explicitly serialize reads through one reader. */
+  maximumConcurrentObservations?: 1 | 2;
   now?: () => number;
 }) {
   const run = captureStorageReservationOperation();
+  const maximumConcurrentObservations = options.maximumConcurrentObservations ?? 2;
+  if (maximumConcurrentObservations !== 1 && maximumConcurrentObservations !== 2) throw new Error('Invalid policy observation concurrency');
   if (!['create-new', 'open-existing'].includes(options.mode)) throw new Error('Protected policy observer requires an explicit open mode');
   if (!(options.encryptionKey instanceof Uint8Array) || options.encryptionKey.length !== 32) throw new Error('Protected policy observer requires a 32-byte encryption key');
   const context = parseAdmissionPolicyObservers(options.context), historyContext = parseHistoryCheckpointContext(options.historyContext);
@@ -176,7 +181,7 @@ export async function openProtectedPolicyObserver(options: {
     if (existsSync(fencePath)) { const marker = openFence('open-existing'); marker.close(); fenced = true; }
   } catch (error) { close(); throw error; }
   return {
-    maximumConcurrentObservations: 2 as const,
+    maximumConcurrentObservations,
     /** Aggregate local observations: no history replay, copies of policy content,
      * signatures or network probes. This does not establish a current quorum. */
     health() {
@@ -243,7 +248,7 @@ export async function openProtectedPolicyObserver(options: {
     ready() { return exclusive(async () => { const { state } = await confirm(); usable(state); }); },
     async observe(value: unknown) {
       live(); if (fenced) throw new Error('Policy observer is permanently fenced for recovery');
-      if (busy || observing >= 2) throw new Error('Protected policy observer operation is already in progress');
+      if (busy || observing >= maximumConcurrentObservations) throw new Error('Protected policy observer operation is already in progress');
       observing++;
       try {
         const request = parseAdmissionPolicyHeadRequest(value, context, now()), started = performance.now(), remaining = request.expiresAt - now();

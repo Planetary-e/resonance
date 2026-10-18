@@ -88,6 +88,9 @@ export async function openConfiguredPolicyObserver(value: PolicyObserverConfigur
     return await openProtectedPolicyObserver({ directory: config.directory, encryptionKey, signingKey, context: config.context,
       historyContext: config.historyContext, root: config.root, genesis: config.genesis, members: config.members, mode: 'open-existing',
       maxArchiveBytes: config.limits.archiveBytes, maxArchiveBlocks: config.limits.archiveBlocks,
+      // Each fresh read has at most four live member RPCs, so two readers
+      // fit the supplied owner/router transport's eight-operation shared cap.
+      maximumConcurrentObservations: 2,
       transport: options.transport, timeoutMs: options.timeoutMs, now: options.now });
   } finally { encryptionKey?.fill(0); signingKey.secretKey.fill(0); }
 }

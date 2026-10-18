@@ -11,7 +11,7 @@ import { HISTORY_COMPACTION_CONTROL_MAX_BYTES } from '@resonance/core/history-co
 import { HISTORY_EXCHANGE_MAX_BYTES } from './history-checkpoint-exchange.js';
 import { HISTORY_AGREEMENT_MAX_RESPONSE_BYTES } from './history-agreement-exchange.js';
 
-export const HISTORY_LINK_FRAME_TYPE = 'relay_history_v1';
+export const HISTORY_LINK_FRAME_TYPE = 'relay_history_v2';
 export const HISTORY_LINK_CHUNK_BYTES = 128 * 1024;
 export const HISTORY_LINK_MAX_FRAME_BYTES = Math.ceil(HISTORY_LINK_CHUNK_BYTES * 4 / 3) + 1024;
 const MAX_BUFFERED_BYTES = 256 * 1024;
@@ -172,27 +172,7 @@ export class HistoryRelayLink {
         || decoded.length !== Math.min(HISTORY_LINK_CHUNK_BYTES, receiving.data.length - receiving.offset)) throw new Error('Unbound history chunk');
       decoded.copy(receiving.data, receiving.offset); receiving.offset += decoded.length;
       this.send({ id: state.id, kind: 'ack', side: receiving.side, offset: receiving.offset }, state);
-      if (receiving.offset === receiving.data.length) {
-        const value: unknown = JSON.parse(new TextDecoder('utf8', { fatal: true }).decode(receiving.data));
-        this.live(state); // Parsing/validation work consumes the same complete-exchange deadline.
-        receiving.release(); state.receiving = undefined;
-        if (state.local) { state.resolve?.(value); this.finish(state); }
-        else {
-          state.runningHandler = true;
-          // Any signature/authorization/storage failure returns only a generic refusal.
-          Promise.resolve().then(() => {
-            this.live(state);
-            return this.options.handler!(state.method, value, { signal: state.controller.signal, deadline: state.deadline });
-          })
-            .then(response => { this.live(state); this.startPayload(state, 'response', response); })
-            .catch(() => this.finish(state, new Error('History service refused the exchange'), true))
-            .finally(() => {
-              state.runningHandler = false;
-              // Cancellation cannot make still-running service work disappear from the global cap.
-              if (this.exchanges.get(state.id) !== state) state.release();
-            });
-        }
-      }
+      if (receiving.offset === receiving.data.length) this.completePayload(state);
     } catch {
       this.close(); this.socket.close(4000, 'invalid_history_link_frame');
     }
@@ -230,9 +210,20 @@ export class HistoryRelayLink {
 
   private openPayload(frame: Record<string, unknown>) {
     const local = frame.side === 'response';
+    const inline = Object.hasOwn(frame, 'data');
+    const fields = local ? ['type', 'id', 'kind', 'side', 'bytes'] : ['type', 'id', 'kind', 'side', 'bytes', 'method', 'maxResponse'];
+    if (inline) fields.push('data');
     if ((frame.side !== 'request' && !local)
-      || !exactWitnessFields(frame, local ? ['type', 'id', 'kind', 'side', 'bytes'] : ['type', 'id', 'kind', 'side', 'bytes', 'method', 'maxResponse'])
+      || !exactWitnessFields(frame, fields)
       || !Number.isSafeInteger(frame.bytes) || (frame.bytes as number) < 1) throw new Error('Invalid history payload');
+    // An opening frame may carry at most one complete, bounded chunk. Validate
+    // its encoding before reserving buffers or starting any history role.
+    if (inline && ((frame.bytes as number) > HISTORY_LINK_CHUNK_BYTES || typeof frame.data !== 'string'
+      || frame.data.length > Math.ceil(HISTORY_LINK_CHUNK_BYTES * 4 / 3) || !/^[A-Za-z0-9_-]+$/.test(frame.data))) {
+      throw new Error('Invalid inline history payload');
+    }
+    const decoded = inline ? Buffer.from(frame.data as string, 'base64url') : undefined;
+    if (decoded && (decoded.length !== frame.bytes || decoded.toString('base64url') !== frame.data)) throw new Error('Invalid inline history bytes');
     let state = this.exchanges.get(frame.id as string);
     if (local) {
       if (!state) return;
@@ -250,10 +241,34 @@ export class HistoryRelayLink {
     this.live(state);
     try {
       const release = this.options.budget.reserve(frame.bytes as number);
-      try { state.receiving = { side: frame.side as Side, data: Buffer.alloc(frame.bytes as number), offset: 0, release }; }
+      try { state.receiving = { side: frame.side as Side, data: decoded ?? Buffer.alloc(frame.bytes as number), offset: decoded?.length ?? 0, release }; }
       catch (error) { release(); throw error; }
-      this.send({ id: state.id, kind: 'ack', side: frame.side, offset: 0 }, state);
+      this.send({ id: state.id, kind: 'ack', side: frame.side, offset: state.receiving.offset }, state);
     } catch { this.finish(state, new Error('History link capacity reached'), true); }
+    if (decoded && state.receiving) this.completePayload(state);
+  }
+
+  private completePayload(state: Exchange) {
+    const receiving = state.receiving!;
+    const value: unknown = JSON.parse(new TextDecoder('utf8', { fatal: true }).decode(receiving.data));
+    this.live(state); // Parsing consumes the same complete-exchange deadline.
+    receiving.release(); state.receiving = undefined;
+    if (state.local) { state.resolve?.(value); this.finish(state); }
+    else {
+      state.runningHandler = true;
+      // Per-request signature/authorization/storage checks are unchanged.
+      Promise.resolve().then(() => {
+        this.live(state);
+        return this.options.handler!(state.method, value, { signal: state.controller.signal, deadline: state.deadline });
+      })
+        .then(response => { this.live(state); this.startPayload(state, 'response', response); })
+        .catch(() => this.finish(state, new Error('History service refused the exchange'), true))
+        .finally(() => {
+          state.runningHandler = false;
+          // Cancellation cannot uncharge service work that is still running.
+          if (this.exchanges.get(state.id) !== state) state.release();
+        });
+    }
   }
 
   private startPayload(state: Exchange, side: Side, value: unknown) {
@@ -261,9 +276,11 @@ export class HistoryRelayLink {
     const encoded = JSON.stringify(value), size = typeof encoded === 'string' ? Buffer.byteLength(encoded) : 0;
     if (!size || size > (side === 'request' ? LIMITS[state.method][0] : state.maxResponse)) throw new Error('History link payload too large');
     const release = this.options.budget.reserve(size);
-    try { state.sending = { side, data: Buffer.from(encoded), offset: 0, release }; }
+    const inline = size <= HISTORY_LINK_CHUNK_BYTES;
+    try { state.sending = { side, data: Buffer.from(encoded), offset: inline ? size : 0, release }; }
     catch (error) { release(); throw error; }
     this.send({ id: state.id, kind: 'open', side, bytes: size,
+      ...(inline ? { data: state.sending.data.toString('base64url') } : {}),
       ...(side === 'request' ? { method: state.method, maxResponse: state.maxResponse } : {}) }, state);
   }
 

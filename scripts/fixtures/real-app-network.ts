@@ -5,6 +5,7 @@ import { connect, type AddressInfo, type Socket } from 'node:net';
 import { createServer } from 'node:tls';
 import { fileURLToPath } from 'node:url';
 import { createRelayTestEndpoints, type RelayTestEndpoint } from '../../packages/relay/src/__tests__/fixtures/relay-test-endpoint.js';
+import { RELAY_TEST_DELAY_WINDOW_BYTES } from '../../packages/relay/src/__tests__/fixtures/relay-test-delay.js';
 
 export const realAppTestCa = fileURLToPath(new URL('../../packages/relay/src/__tests__/fixtures/tls/test-ca.crt', import.meta.url));
 type Cleanup = Array<() => void | Promise<void>>;
@@ -73,7 +74,9 @@ export function createRealAppNetwork(encrypted: boolean, cleanup: Cleanup, oneWa
         clientToServerBytes: selected.reduce((n, row) => n + row.clientToServerBytes, 0),
         serverToClientBytes: selected.reduce((n, row) => n + row.serverToClientBytes, 0) };
     });
-    return { encrypted, tcpNoDelay: true, simulatedOneWayDelayMs: oneWayDelayMs, scope: encrypted ? 'all-exposed-peer-endpoints' : 'private-route-only', categories,
+    return { encrypted, tcpNoDelay: true, simulatedOneWayDelayMs: oneWayDelayMs,
+      ...(oneWayDelayMs ? { delayModel: 'bounded-byte-fifo-v2', delayWindowBytes: RELAY_TEST_DELAY_WINDOW_BYTES } : {}),
+      scope: encrypted ? 'all-exposed-peer-endpoints' : 'private-route-only', categories,
       stages: stages.slice(), activeStages, droppedStages,
       connections: categories.reduce((n, row) => n + row.connections, 0),
       tcpStreamBytes: categories.reduce((n, row) => n + row.clientToServerBytes + row.serverToClientBytes, 0) };

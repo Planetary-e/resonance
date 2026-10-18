@@ -1,6 +1,14 @@
 # Protected application under simulated stream delay
 
-Status: **mailbox workflow fails the existing ten-second delivery limit**.
+Status: **historical failure under an incorrectly calibrated stream fixture**.
+
+Follow-up inspection found that the two-stage delay queue timestamps later
+fragments after earlier fragments have waited. In a deterministic eight-chunk,
+56-byte burst, only two chunks arrived after the intended 40 ms. The remaining
+chunks incurred extra waits despite fitting the buffer. The small sequential
+echo screen below did not detect this defect. The observed HTTP failure is real,
+but it cannot establish failure under a uniform 25 ms one-way delay. Preserve
+these raw results as evidence of the original experiment, not as a latency gate.
 
 The real two-process application uses cached FP32 Nomic embeddings, private
 two-relay routes, blind credentials, five witnesses, five policy observers and
@@ -9,9 +17,9 @@ No production freshness, decision or delivery deadline was increased.
 
 ## Measurement
 
-The fixture adds 25 ms in each direction to accepted byte-stream chunks. Ordered
-transforms preserve backpressure; already waiting chunks do not each incur a
-fresh full delay. TCP_NODELAY avoids measuring the proxy's Nagle buffering as
+The original fixture attempted to add 25 ms in each direction to accepted
+byte-stream chunks, but the later burst regression disproves its intended
+fragmentation-independent delay. TCP_NODELAY avoids measuring the proxy's Nagle buffering as
 the intended delay. A real WSS echo calibration measures **55.190792 ms** added
 median round-trip time, within the declared 49–65 ms screen. It covers ten
 sequential alternating 200/5,000-byte echoes per condition.

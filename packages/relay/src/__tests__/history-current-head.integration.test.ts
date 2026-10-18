@@ -1,5 +1,10 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { randomBytes } from 'node:crypto';
+import { once } from 'node:events';
+import type { AddressInfo } from 'node:net';
+import WebSocket, { WebSocketServer } from 'ws';
+import { generateIdentity } from '@resonance/core';
+import { HistoryRelayRouter } from '../history-relay-router.js';
 import { appendFileSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -50,7 +55,7 @@ it.each([512 * 1024, 2 * 1024 * 1024])('observes a %i-byte committed payload usi
   const paths = [join(n.options.directory, 'history-writer.json'), ...n.stores.map((_, i) => join(n.directory, `r${i}`, HISTORY_MANIFEST_FILENAME))];
   const before = paths.map(path => readFileSync(path)); n.frames.length = 0;
   const receipts = await n.writer.observeCurrent(), requestBytes = n.frames.reduce((sum, request) => sum + request.bytes, 0);
-  expect(receipts).toHaveLength(4); expect(n.frames).toHaveLength(5);
+  expect(receipts).toHaveLength(4); expect(n.frames.length).toBeGreaterThanOrEqual(4); expect(n.frames.length).toBeLessThanOrEqual(5);
   expect(n.frames.every(({ frame }) => frame.request.action === 'head' && frame.envelope === null)).toBe(true);
   expect(() => parseHistoryWriteCertificate({ version: 1, receipts }, block, n.options.rootId, n.context)).toThrow();
   expect(requestBytes).toBeLessThan(6000); expect(requestBytes).toBeLessThan(previousRequests / 100);
@@ -59,6 +64,47 @@ it.each([512 * 1024, 2 * 1024 * 1024])('observes a %i-byte committed payload usi
     currentHeadRequestBytes: requestBytes, fourAcceptedResponseBytes: receipts.reduce((sum, receipt) => sum + Buffer.byteLength(JSON.stringify(receipt)), 0) };
   if (process.env.RESONANCE_HEAD_METRICS_PATH) appendFileSync(process.env.RESONANCE_HEAD_METRICS_PATH, JSON.stringify(metrics) + '\n');
 }, 30000);
+
+it('collects two fresh quorums through the shared eight-slot router while an initial member hangs', async () => {
+  const n = await fixture(); await n.writer.replicate(n.root); n.frames.length = 0;
+  const ownerId = generateIdentity().did, ids = n.members.map(() => generateIdentity().did);
+  const router = new HistoryRelayRouter({ members: n.members.map((member, i) => ({ publicKey: member.publicKey, relayId: ids[i] })),
+    serializeRequests: true }); cleanup.push(() => router.close());
+  const peers = ids.map(() => new HistoryRelayRouter({ acceptedRelayIds: [ownerId], handler(_method, value, context) {
+    const frame = value as HistoryExchangeFrame, i = n.context.members.indexOf(frame.request.replica);
+    if (i === 0) return new Promise(resolve => context.signal.addEventListener('abort', () => resolve({ cancelled: true }), { once: true }));
+    return n.roles[i].exchange(value);
+  } }));
+  peers.forEach(peer => cleanup.push(() => peer.close()));
+  for (let i = 0; i < 5; i++) {
+    const server = new WebSocketServer({ host: '127.0.0.1', port: 0 }); await once(server, 'listening');
+    cleanup.push(async () => { for (const socket of server.clients) socket.terminate(); await new Promise<void>(resolve => server.close(() => resolve())); });
+    const connection = once(server, 'connection'), socket = new WebSocket(`ws://127.0.0.1:${(server.address() as AddressInfo).port}`);
+    socket.on('error', () => {}); cleanup.push(() => socket.terminate());
+    const [remote] = await connection as [WebSocket]; await once(socket, 'open'); remote.on('error', () => {});
+    socket.on('message', raw => router.handle(raw.toString(), ids[i], socket));
+    remote.on('message', raw => peers[i].handle(raw.toString(), ownerId, remote));
+    router.attach(ids[i], socket); peers[i].attach(ownerId, remote);
+  }
+  let peak = 0, refused = 0;
+  n.override(async (member, frame, signal) => {
+    const pending = router.checkpoint(member, frame, signal); peak = Math.max(peak, router.usage().operations);
+    try { return await pending; } catch (error) { if (!signal.aborted) refused++; throw error; }
+  });
+  const receipts = await Promise.all([n.writer.observeCurrent(), n.writer.observeCurrent()]);
+  expect(peak).toBe(8); expect(refused).toBe(0); expect(router.usage()).toEqual({ bytes: 0, operations: 0 });
+  expect(n.frames).toHaveLength(10); expect(new Set(n.frames.map(({ frame }) => frame.request.challenge)).size).toBe(2);
+  for (const quorum of receipts) {
+    expect(quorum).toHaveLength(4); expect(new Set(quorum.map(receipt => receipt.request.replica)).size).toBe(4);
+    expect(quorum.some(receipt => receipt.request.replica === n.context.members[0])).toBe(false);
+    expect(quorum.some(receipt => receipt.request.replica === n.context.members[4])).toBe(true);
+    const request = quorum[0].request;
+    const candidates = n.frames.filter(({ frame }) => frame.request.challenge === request.challenge);
+    expect(candidates).toHaveLength(5);
+    expect(candidates.every(({ frame }) => frame.request.issuedAt === request.issuedAt && frame.request.expiresAt === request.expiresAt)).toBe(true);
+    expect(() => parseHistoryWriteCertificate({ version: 1, receipts: quorum }, n.root, n.options.rootId, n.context)).toThrow();
+  }
+});
 
 it('repairs only the returning lagging fourth and then returns to metadata-only reads', async () => {
   const n = await fixture(); n.online(0, 1, 2, 3); await n.writer.replicate(n.root);

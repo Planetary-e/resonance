@@ -15,12 +15,16 @@ import { createRealAppNetwork, realAppTestCa } from './fixtures/real-app-network
 
 const { values } = parseArgs({ options: { child: { type: 'boolean' }, 'protected-policy': { type: 'boolean' },
   'protected-admission': { type: 'boolean' }, 'concurrent-searches': { type: 'boolean' }, tls: { type: 'boolean' },
+  'history-links': { type: 'boolean' },
   'tls-worker': { type: 'boolean' }, 'peer-delay-ms': { type: 'string', default: '0' }, out: { type: 'string' } } });
 const peerDelayMs = Number(values['peer-delay-ms']);
 assert(/^\d+$/.test(values['peer-delay-ms']!) && Number.isSafeInteger(peerDelayMs) && peerDelayMs >= 0 && peerDelayMs <= 1000,
   '--peer-delay-ms must be an integer between 0 and 1000');
 assert(!peerDelayMs || values.tls, '--peer-delay-ms requires --tls');
 assert(!values['concurrent-searches'] || values['protected-admission'], '--concurrent-searches requires --protected-admission');
+assert(!values['history-links'] || values.tls, '--history-links requires --tls');
+assert(!values['history-links'] || values['protected-policy'] || values['protected-admission'],
+  '--history-links requires --protected-policy or --protected-admission');
 assert(!values['tls-worker'] || values.tls);
 if (values.tls && !values['tls-worker']) {
   // Node loads additional authorities at process startup. Trust is confined to
@@ -87,6 +91,26 @@ if (values.child) {
   const root = fileURLToPath(new URL('../', import.meta.url)), directory = mkdtempSync(join(tmpdir(), 'resonance-real-app-'));
   const processes: ChildProcess[] = [], cleanup: Array<() => void | Promise<void>> = [];
   const network = createRealAppNetwork(Boolean(values.tls), cleanup, peerDelayMs);
+  const historyLinks = Boolean(values['history-links']);
+  const historyTransport = {
+    mode: historyLinks ? 'authenticated-persistent-relay-links' : 'fresh-websocket-per-history-rpc',
+    topology: {
+      policy: values['protected-policy'] || values['protected-admission']
+        ? { owners: 5, durableHistories: 25, volunteers: historyLinks ? 5 : 25, historiesPerVolunteer: historyLinks ? 5 : 1,
+          persistentOwnerLinks: historyLinks ? 25 : 0, maximumConcurrentObservations: 2, maximumConcurrentMemberRpcsPerRead: 4 } : null,
+      admission: values['protected-admission']
+        ? { owners: 6, durableHistories: 30, volunteers: historyLinks ? 5 : 30, historiesPerVolunteer: historyLinks ? 6 : 1,
+          persistentOwnerLinks: historyLinks ? 30 : 0, restartRetainsTransportPins: true } : null,
+    },
+    ...(historyLinks ? { sharedBudgetPerRouter: { maximumOperations: 8, maximumBufferBytes: 64 * 1024 * 1024 }, maximumHistoriesPerCollection: 8 } : {}),
+    limitations: historyLinks
+      ? ['Two separate five-volunteer pools when admission is enabled; policy-only uses one pool. All services and owners share one process and host.',
+        'Persistent authenticated relay links retain infrastructure identity pins; each history RPC still verifies its signed request and durable signed reply.',
+        'Only history RPC transport is persistent; policy observations and admission witness RPCs still open a fresh connection.',
+        'Owner restarts reopen local role state with the same live transport pins; relay process restart, reconnection under churn and independent operators are unmeasured.',
+        'Quorum-loss faults close selected enrolled history services while other histories and shared relay links remain available. Production request deadlines are unchanged.']
+      : ['Protected history RPCs open fresh WebSocket connections; this mode does not measure persistent history relay links.'],
+  };
   const started = performance.now(), cpuStart = process.cpuUsage();
   let report: Record<string, unknown> | undefined, failure: unknown;
   const checkpoints: string[] = [];
@@ -114,12 +138,12 @@ if (values.child) {
     const profile = { version: 1 as const, scope, issuerPublicKey: `-----BEGIN PUBLIC KEY-----\n${der}\n-----END PUBLIC KEY-----`, relayUrls: [destinationUrl] };
     const authorityKeys = generateSigningKeyPair(), authority = Buffer.from(authorityKeys.publicKey).toString('base64url'), now = Date.now();
     const admission = values['protected-admission']
-      ? await (await import('./fixtures/real-app-admission.js')).prepareRealAppAdmission(join(directory, 'admission'), cleanup, network) : undefined;
+      ? await (await import('./fixtures/real-app-admission.js')).prepareRealAppAdmission(join(directory, 'admission'), cleanup, network, historyLinks) : undefined;
     const policy = await signAdmissionPolicy({ version: 1, kind: 'admission-policy', revision: 1, issuedAt: now - 1000, expiresAt: now + 3600000,
       activeKey: admissionKeyFingerprint(profile.issuerPublicKey), keys: [{ profile, notBefore: now - 1000, issueUntil: now + 1800000, spendUntil: now + 2400000, retryUntil: now + 3000000,
         ...(admission ? { witnesses: admission.witnessSet } : {}) }] }, authority, authorityKeys.secretKey);
     const protectedPolicy = values['protected-policy'] || admission
-      ? await (await import('./fixtures/real-app-policy-observers.js')).realAppPolicyObservers(join(directory, 'policy'), policy, cleanup, network) : undefined;
+      ? await (await import('./fixtures/real-app-policy-observers.js')).realAppPolicyObservers(join(directory, 'policy'), policy, cleanup, network, historyLinks) : undefined;
     const protectedAdmission = admission && await admission.activate(policy, protectedPolicy!.context);
     const verifier = protectedAdmission ? undefined : await createConfiguredAdmissionVerifier({ directory: join(directory, 'destination'), authority, policy, encryptionKey: randomBytes(32), initialize: true,
       policyObservers: protectedPolicy?.context });
@@ -312,12 +336,12 @@ if (values.child) {
     assert(bindings.size >= 8); assert(spends.some(s => s.action === 'mailbox-acknowledge'));
     passed('No root account identifier, plaintext item text or spent token appears in captured network frames; distinct request bindings use distinct tokens');
     const cpu = process.cpuUsage(cpuStart);
-    report = { measuredAt: new Date().toISOString(), checkpoints, applicationMemory, model: 'nomic-ai/nomic-embed-text-v1', dtype: 'fp32', remoteModelDownloads: false,
+    report = { measuredAt: new Date().toISOString(), completed: true, checkpoints, applicationMemory, model: 'nomic-ai/nomic-embed-text-v1', dtype: 'fp32', remoteModelDownloads: false,
       applicationProcesses: 2, published: 3, mailboxMatchCounts: mailboxCounts, distinctRequestBindings: bindings.size, distinctSpentTokens: tokenBindings.size,
       protectedPolicy: protectedPolicy ? { observers: 5, durableHistories: 25, privateQueries: protectedPolicy.queries(), issuerAndRelayFreshness: true, quorumLossRefusedBeforeSpend: true } : null,
       protectedAdmission: protectedAdmission ? { witnesses: 5, coordinators: 1, durableHistories: 30, restartedOwners: 6,
         retainedDoubleSpendRefusal: true, quorumLossRefused: true } : null,
-      apiTimings, faultCooldownMs, concurrentSearches, transport: network.snapshot(),
+      apiTimings, faultCooldownMs, concurrentSearches, historyTransport, transport: network.snapshot(),
       capture: { complete: captureComplete, parentFrameCount: frameCount, applicationFrameCounts: snapshots.map(s => s.frameCount),
         parentFrameLimit: captureFrameLimit, applicationFrameLimit: 10000, byteLimitPerProcess: captureByteLimit },
       actions: Object.fromEntries([...new Set(spends.map(s => s.action))].map(action => [action, spends.filter(s => s.action === action).length])),
@@ -325,7 +349,7 @@ if (values.child) {
         parentPeakRssBytes: process.resourceUsage().maxRSS * 1024, applicationPeakRssBytes: snapshots.map(s => s.peakRssBytes),
         cpuSeconds: (cpu.user + cpu.system) / 1e6 + snapshots.reduce((n, s) => n + s.cpuSeconds, 0), node: process.version, platform: process.platform, architecture: process.arch },
       limitations: ['Local IPv4/IPv6 loopback domains on one computer; not independent operators or Internet deployment.',
-        values.tls ? 'Every exposed peer endpoint uses WSS with an isolated test CA; auxiliary services terminate TLS at loopback proxies. Local HTTP application APIs and in-process issuer work are outside peer transport totals.'
+        values.tls ? 'Every exposed peer endpoint uses WSS with an isolated test CA; auxiliary services use TLS loopback proxies where needed. Local HTTP application APIs and in-process issuer work are outside peer transport totals.'
           : 'Plain loopback WS; TCP-stream measurements cover only entry and destination endpoints, not auxiliary protected services.',
         'Actual desktop backend APIs and embeddings; no graphical user interaction or native installer is certified.',
         protectedAdmission ? 'Five protected observers, five witnesses and one coordinator use 55 local durable history services; eligibility distribution and independent operators remain separate.'
@@ -337,7 +361,7 @@ if (values.child) {
         'Two concurrent model processes on this host; representative hardware and cold first-download experience remain unmeasured.'] };
   } catch (error) {
     failure = error;
-    report = { measuredAt: new Date().toISOString(), completed: false, checkpoints, applicationMemory, concurrentSearches, apiTimings, faultCooldownMs,
+    report = { measuredAt: new Date().toISOString(), completed: false, checkpoints, applicationMemory, concurrentSearches, apiTimings, faultCooldownMs, historyTransport,
       capture: { parentComplete: captureComplete, parentFrameCount: frameCount, parentFrameLimit: captureFrameLimit }, transport: network.snapshot(),
       failure: { name: error instanceof Error ? error.name : 'UnknownError' } };
   } finally {

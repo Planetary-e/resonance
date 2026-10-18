@@ -15,7 +15,7 @@ export async function waitForPolicyLinks(test: () => boolean) {
   while (!test()) { if (Date.now() >= deadline) throw new Error('Policy history links did not settle'); await new Promise(r => setTimeout(r, 10)); }
 }
 export async function policyObserverOutboundFixture(register: (close: () => void | Promise<void>) => void,
-  options: { coLocated?: boolean; beforeExchange?: (replica: number, method: HistoryRoleMethod, frame: unknown) => Promise<void> } = {}) {
+  options: { coLocated?: boolean; trace?: boolean; beforeExchange?: (replica: number, method: HistoryRoleMethod, frame: unknown) => Promise<void> } = {}) {
   const n = await policyObserverSetupFixture(register); await n.prepare();
   for (let i = 0; i < 5; i++) await n.enroll(i);
   const enrollment = readPolicyObserverEnrollment(n.enrollmentPath);
@@ -36,6 +36,14 @@ export async function policyObserverOutboundFixture(register: (close: () => void
     relayDiscovery: { ...discovery, endpoints: ['ws://127.0.0.1:0/'], reachability: 'direct' } });
   await bridge.start(); register(() => bridge.stop({ graceful: false }));
   const endpoint = bridge.getRelayDescriptor()!.endpoints[0];
+  // Test-only diagnostics retain bounded metadata, never protocol values or operator files.
+  type ExchangeTrace = { member: number; method: HistoryRoleMethod; action: string | null; startedMs: number;
+    durationMs: number; status: 'waiting' | 'handling' | 'succeeded' | 'failed'; failure?: 'timeout' | 'cancelled' | 'storage' | 'other' };
+  const trace: ExchangeTrace[] = [], traceStart = performance.now();
+  function exchangeTrace() {
+    return trace.map(entry => ({ ...entry, durationMs: entry.status === 'waiting' || entry.status === 'handling'
+      ? Math.round(performance.now() - traceStart - entry.startedMs) : entry.durationMs }));
+  }
   let coLocatedFile: string | undefined;
   const roles = n.keys.map((_, i) => {
     const value = { version: 1,
@@ -44,11 +52,27 @@ export async function policyObserverOutboundFixture(register: (close: () => void
     if (options.coLocated && i === 0) {
       coLocatedFile = join(n.directory, 'co-located-volunteer.json'); writeFileSync(coLocatedFile, JSON.stringify(value)); return undefined;
     }
-    if (!options.beforeExchange) return openConfiguredHistoryVolunteer(parseHistoryVolunteerConfiguration(value, n.directory));
+    if (!options.beforeExchange && !options.trace) return openConfiguredHistoryVolunteer(parseHistoryVolunteerConfiguration(value, n.directory));
     const { version: _version, controllers, ...history } = value;
     const collection = openConfiguredHistoryVolunteerCollection(parseHistoryVolunteerCollection({ version: 1, kind: 'history-volunteer-collection', histories: [history], controllers }, n.directory));
     const router = new HistoryRelayRouter({ acceptedRelayIds: [bridgeId], handler: async (method, frame) => {
-      await options.beforeExchange!(i, method, frame); return collection.handle(method, frame);
+      const action = (frame as { request?: { action?: unknown } } | null)?.request?.action;
+      const entry: ExchangeTrace = { member: i, method,
+        action: typeof action === 'string' && ['append', 'install', 'head', 'read', 'freeze', 'repair', 'seal', 'continuation'].includes(action) ? action : null,
+        startedMs: Math.round(performance.now() - traceStart), durationMs: 0, status: 'waiting' };
+      if (options.trace) { if (trace.length === 64) trace.shift(); trace.push(entry); }
+      const started = performance.now();
+      try {
+        await options.beforeExchange?.(i, method, frame); entry.status = 'handling';
+        const result = await collection.handle(method, frame); entry.status = 'succeeded'; return result;
+      } catch (error) {
+        entry.status = 'failed';
+        const code = (error as NodeJS.ErrnoException)?.code, message = error instanceof Error ? error.message : '';
+        entry.failure = code === 'ETIMEDOUT' || /timed out|deadline|expired/i.test(message) ? 'timeout'
+          : code === 'ECANCELED' || /cancelled|aborted/i.test(message) ? 'cancelled'
+          : ['EACCES', 'EPERM', 'EIO', 'ENOSPC', 'EROFS', 'EBUSY', 'ENOENT', 'EMFILE', 'ENFILE'].includes(code ?? '') ? 'storage' : 'other';
+        throw error;
+      } finally { entry.durationMs = Math.round(performance.now() - started); }
     } });
     return { router, close() { router.close(); collection.close(); } };
   });
@@ -66,5 +90,6 @@ export async function policyObserverOutboundFixture(register: (close: () => void
     members: n.input.members.map((member, i) => ({ publicKey: member.publicKey, relayId: ids[i] })), bridge: { relayId: bridgeId, endpoint } }));
   const transportFile = join(n.directory, 'transport.json'); writeFileSync(transportFile, JSON.stringify({ version: 1, identityDirectory: maintenanceDirectory,
     identityPassphraseFile: secret, expectedRelayId: maintenanceId, linksFile: links, contacts: [], deadlineMs: 15000 }));
-  return { ...n, enrollment, bridge, bridgeRouter, volunteers, roles, transportFile, secret, operatorId, identityDirectory, links, coLocatedFile };
+  return { ...n, enrollment, bridge, bridgeRouter, volunteers, roles, transportFile, secret, operatorId, identityDirectory, links, coLocatedFile,
+    exchangeTrace, resetExchangeTrace() { trace.length = 0; } };
 }

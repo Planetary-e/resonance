@@ -14,8 +14,9 @@ import { listenHistoryAgreementReplica } from '../../packages/relay/src/history-
 import { createAdmissionPolicyQueryResponder } from '../../packages/relay/src/admission-policy-query.js';
 import type { RealAppNetwork } from './real-app-network.js';
 import { exchangeHistoryCheckpoint } from '../../packages/relay/src/history-checkpoint-exchange.js';
+import { createRealAppHistoryLinks } from './real-app-history-links.js';
 
-export async function realAppPolicyObservers(directory: string, policy: SignedAdmissionPolicy, cleanup: Array<() => void | Promise<void>>, network: RealAppNetwork) {
+export async function realAppPolicyObservers(directory: string, policy: SignedAdmissionPolicy, cleanup: Array<() => void | Promise<void>>, network: RealAppNetwork, historyLinks = false) {
   mkdirSync(directory);
   const keys = Array.from({ length: 5 }, generateSigningKeyPair), handlers: Array<(value: unknown) => Promise<unknown>> = [];
   cleanup.push(() => keys.forEach(key => key.secretKey.fill(0)));
@@ -27,7 +28,9 @@ export async function realAppPolicyObservers(directory: string, policy: SignedAd
   const context = parseAdmissionPolicyObservers({ version: 1, kind: 'admission-policy-observers', authority: policy.authority,
     genesis: admissionPolicyHead(policy), quorum: 4,
     members: keys.map((key, i) => ({ publicKey: Buffer.from(key.publicKey).toString('base64url'), endpoint: listeners[i].endpoint })) });
+  const links = historyLinks ? await createRealAppHistoryLinks(join(directory, 'history-links'), keys, 5, 'policy-history', network, cleanup) : undefined;
   const historyListeners: Array<Array<Awaited<ReturnType<typeof listenHistoryAgreementReplica>>>> = [];
+  const linkedOwners: Array<Awaited<ReturnType<NonNullable<typeof links>['owner']>>> = [];
   for (let i = 0; i < 5; i++) {
     const encryptionKey = randomBytes(32), signingKey = keys[i]; cleanup.push(() => { encryptionKey.fill(0); });
     const root = await createPolicyObserverHistoryRoot({ context, policy, encryptionKey, signingKey }), members = [], retained = [];
@@ -35,6 +38,7 @@ export async function realAppPolicyObservers(directory: string, policy: SignedAd
       const localKey = randomBytes(32); cleanup.push(() => { localKey.fill(0); });
       const service = openHistoryVolunteerService({ directory: join(directory, `observer-${i}-replica-${j}`), context: root.context,
         genesisId: historyCheckpointEnvelopeId(root.root), localKey, signingKey: keys[j], initialize: root.root }); cleanup.push(service.close);
+      if (links) { links.enroll(i, j, root.context, service); continue; }
       const listener = await listenHistoryAgreementReplica({ ...service, checkpoint(value) {
         try { return service.checkpoint(value); }
         catch (error) {
@@ -46,9 +50,14 @@ export async function realAppPolicyObservers(directory: string, policy: SignedAd
         endpoint: await network.protect('policy-history', listener.checkpointEndpoint) });
     }
     historyListeners.push(retained);
+    const linked = links && await links.owner(i);
+    if (linked) linkedOwners.push(linked);
     const observer = await openProtectedPolicyObserver({ directory: join(directory, `observer-${i}`), context, historyContext: root.context,
-      encryptionKey, signingKey, root: root.root, members, mode: 'create-new',
-      transport: (...args) => network.measure(`observer-history-${args[1].request.action}`, () => exchangeHistoryCheckpoint(...args)) }); cleanup.push(observer.close);
+      encryptionKey, signingKey, root: root.root, members: linked?.members ?? members, mode: 'create-new',
+      // Each fresh read keeps at most four member RPCs live, so two readers
+      // fit the persistent router's shared eight-operation budget.
+      maximumConcurrentObservations: 2,
+      transport: (...args) => network.measure(`observer-history-${args[1].request.action}`, () => (linked?.transport ?? exchangeHistoryCheckpoint)(...args)) }); cleanup.push(observer.close);
     await observer.ready(); const exchange = createAdmissionPolicyObserverExchange(observer, context);
     handlers.push(async value => {
       try { return await exchange(value); }
@@ -62,6 +71,9 @@ export async function realAppPolicyObservers(directory: string, policy: SignedAd
   const responder = createAdmissionPolicyQueryResponder({ context, policy: () => policy }); cleanup.push(responder.close);
   return { context, queries: () => queries,
     query: (value: unknown, signal: AbortSignal) => { queries++; return responder.exchange(value, signal); },
-    async loseHistoryQuorums() { await Promise.all(historyListeners.flatMap(listeners => listeners.slice(3).map(listener => listener.close()))); },
+    async loseHistoryQuorums() {
+      for (const owner of linkedOwners) { owner.closeReplica(3); owner.closeReplica(4); }
+      await Promise.all(historyListeners.flatMap(listeners => listeners.slice(3).map(listener => listener.close())));
+    },
   };
 }
