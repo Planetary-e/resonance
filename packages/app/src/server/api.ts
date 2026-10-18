@@ -214,8 +214,9 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
   if (url === '/api/admission-wallet/policy' && method === 'POST') {
     if (!requireAuth(req, res)) return true;
     const body = await readBody(req);
-    if (typeof body.authority !== 'string') { error(res, 'Provide the independently verified community authority key'); return true; }
-    try { await installAdmissionPolicy(body.policy, body.authority); json(res, { ok: true }); }
+    if ((!exactWitnessFields(body, ['policy', 'authority']) && !exactWitnessFields(body, ['policy', 'authority', 'observers']))
+      || typeof body.authority !== 'string') { error(res, 'Provide the signed policy, independently verified authority and optional observer pins'); return true; }
+    try { await installAdmissionPolicy(body.policy, body.authority, body.observers); json(res, { ok: true }); }
     catch (err) { error(res, err instanceof Error ? err.message : 'Policy update failed', 409); }
     return true;
   }

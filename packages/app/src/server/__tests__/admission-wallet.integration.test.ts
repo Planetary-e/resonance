@@ -8,6 +8,8 @@ import { publicVerif } from '@cloudflare/privacypass-ts';
 import { EmbeddingEngine, createAdmissionRequestBindingV2, generateSigningKeyPair, createBlindAdmissionRequestV2, issueBlindAdmissionRequestV2 } from '@resonance/core';
 import { createRelayServer, createConfiguredAdmissionVerifier, type RelayServer } from '@resonance/relay';
 import { signAdmissionPolicy, admissionKeyFingerprint, type SignedAdmissionPolicy, type AdmissionWalletProfileV1 } from '@resonance/core/admission-policy';
+import { admissionPolicyHead } from '@resonance/core/admission-policy-advance';
+import { parseAdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
 import { issueAdmissionBatch, openAdmissionIssuerLedger } from '@resonance/node';
 import { createAppServer, type AppServer } from '../server.js';
 import { getSession, lockSession } from '../session.js';
@@ -265,5 +267,20 @@ it('reviews and applies authenticated wallet cleanup locally, blocks old retries
     expect((await request('/api/admission-wallet/retirement-plan', { keyFingerprint })).status).toBe(409);
     expect(wire).not.toHaveBeenCalled();
     for (const secret of tokens) expect(JSON.stringify(plan) + JSON.stringify(status)).not.toContain(secret);
+    const observers = parseAdmissionPolicyObservers({ version: 1, kind: 'admission-policy-observers', authority,
+      genesis: admissionPolicyHead(next), quorum: 4, members: Array.from({ length: 5 }, (_, i) => {
+        const key = generateSigningKeyPair(), publicKey = Buffer.from(key.publicKey).toString('base64url'); key.secretKey.fill(0);
+        return { publicKey, endpoint: `ws://127.0.0.1:${35000 + i}/` };
+      }) });
+    expect((await request('/api/admission-wallet/policy', { policy: next, authority, observers }, false)).status).toBe(401);
+    for (const bad of [null, [], { policy: next, authority, observers, extra: true }]) {
+      expect((await request('/api/admission-wallet/policy', bad)).status).toBe(400);
+    }
+    expect((await request('/api/admission-wallet/policy', { policy: next, authority, observers })).status).toBe(200);
+    await restart();
+    expect((await request('/api/admission-wallet')).body).toMatchObject({ available: 2, reserved: 0,
+      freshness: { required: true, installedRevision: 4, observedRevision: 4, conflicted: false } });
+    expect(wire).not.toHaveBeenCalled();
+    expect(() => getSession()!.admissionWallet.capabilityFor(retiredRequest)).toThrow('fresh private policy observation');
   } finally { wire.mockRestore(); }
 }, 15000);

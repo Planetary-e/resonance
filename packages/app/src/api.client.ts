@@ -362,6 +362,7 @@ export interface AdmissionWalletStatus {
   available: number; reserved: number; total: number; capacity: number; availableCapacity: number;
   archived: Array<{ scope: { issuer: string; community: string; epoch: string }; keyFingerprint: string; available: number; reserved: number; permanentlyRetired: boolean; canRetire: boolean; tokensRemoved?: number; reservationsRemoved?: number }>;
   pendingIssuance?: { batchId: string; requests: string[] };
+  freshness?: { required: true; installedRevision: number; observedRevision: number; conflicted: boolean };
   policy?: { currentKeys: number; archivedKeys: number; revision: number; authorityFingerprint: string; expiresAt: number; issueUntil: number; spendUntil: number; retryUntil: number };
 }
 export function getAdmissionWallet() { return api<AdmissionWalletStatus>('GET', '/api/admission-wallet'); }
@@ -374,7 +375,7 @@ export function requestAdmissionTokens(count: number) { return api('POST', '/api
 export function completeAdmissionIssuance(response: unknown) { return api<{ imported: number }>('POST', '/api/admission-wallet/complete', response); }
 export function cancelAdmissionIssuance() { return api('POST', '/api/admission-wallet/cancel'); }
 
-export function installAdmissionPolicy(policy: unknown, authority: string) { return api('POST', '/api/admission-wallet/policy', { policy, authority }); }
+export function installAdmissionPolicy(policy: unknown, authority: string, observers?: unknown) { return api('POST', '/api/admission-wallet/policy', { policy, authority, observers }); }
 
 export interface AdmissionWalletRetirementPlan {
   kind: 'admission-wallet-retirement'; issuerKey: string; scope: NonNullable<AdmissionWalletStatus['scope']>;

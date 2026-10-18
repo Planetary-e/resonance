@@ -6,10 +6,14 @@ import { openEncryptedLocalState } from './encrypted-local-state.js';
 import { openBlindAdmissionWalletV2, type BlindAdmissionWalletV2 } from './blind-admission-wallet.js';
 import { admissionKeyFingerprint, normalizeAdmissionRelay, parseAdmissionWalletProfile, type AdmissionWalletProfileV1 } from './admission-wallet-profile.js';
 import { createAdmissionIssuanceBatch, validateAdmissionIssuanceResponse, type AdmissionIssuanceRequest } from './blind-admission-issuance.js';
-import type { AdmissionCapabilityRequestContextV2 } from './relay-client.js';
+import { parseAdmissionPolicyObservers, admissionPolicyObserversId } from '@resonance/core/admission-policy-freshness';
+import { admissionPolicyHead, sameAdmissionPolicyHead, parseAdmissionPolicyAdvance } from '@resonance/core/admission-policy-advance';
+import { inspectWalletPolicyObservation, parseWalletPolicyFreshness, type WalletPolicyFreshness, type WalletPolicyObservation } from './wallet-policy-freshness.js';
+import type { AdmissionCapabilityProviderV2, AdmissionCapabilityRequestContextV2 } from './relay-client.js';
 export type { AdmissionWalletProfileV1 } from './admission-wallet-profile.js';
 
 export interface AdmissionWalletStatus {
+  freshness?: { required: true; installedRevision: number; observedRevision: number; conflicted: boolean };
   configured: boolean; scope?: AdmissionWalletProfileV1['scope']; keyFingerprint?: string; relayUrls?: string[];
   available: number; reserved: number; total: number; capacity: number; availableCapacity: number;
   archived: Array<{ scope: AdmissionWalletProfileV1['scope']; keyFingerprint: string; available: number; reserved: number; permanentlyRetired: boolean; canRetire: boolean; tokensRemoved?: number; reservationsRemoved?: number }>;
@@ -17,7 +21,7 @@ export interface AdmissionWalletStatus {
   policy?: { currentKeys: number; archivedKeys: number; revision: number; authorityFingerprint: string; expiresAt: number; issueUntil: number; spendUntil: number; retryUntil: number };
 }
 interface StateV1 { version: 1; profile: AdmissionWalletProfileV1 | null }
-interface StateV2 { version: 2 | 3 | 4; active: number; profiles: AdmissionWalletProfileV1[]; policy?: SignedAdmissionPolicy }
+interface StateV2 { version: 2 | 3 | 4 | 5; active: number; profiles: AdmissionWalletProfileV1[]; policy?: SignedAdmissionPolicy; freshness?: WalletPolicyFreshness }
 type State = StateV1 | StateV2;
 const MAX_PROFILES = MAX_ADMISSION_KEYS;
 const MAX_PROFILE_HISTORY = MAX_ADMISSION_KEYS + MAX_ARCHIVED_ADMISSION_KEYS;
@@ -31,8 +35,9 @@ function validState(value: unknown): value is State {
     && (state.profile === null || (!!state.profile && typeof state.profile === 'object'));
   return ((state.version === 2 && Object.keys(state).sort().join(',') === 'active,profiles,version')
     || ((state.version === 3 || state.version === 4) && Object.keys(state).sort().join(',') === 'active,policy,profiles,version' && !!state.policy
-      && (state.version === 4 ? state.policy.version === 2 : state.policy.version === 1)))
-    && Array.isArray(state.profiles) && state.profiles.length >= 1 && state.profiles.length <= (state.version === 4 ? MAX_PROFILE_HISTORY : MAX_PROFILES)
+      && (state.version === 4 ? state.policy.version === 2 : state.policy.version === 1))
+    || (state.version === 5 && Object.keys(state).sort().join(',') === 'active,freshness,policy,profiles,version' && !!state.policy && !!state.freshness))
+    && Array.isArray(state.profiles) && state.profiles.length >= 1 && state.profiles.length <= (state.version >= 4 ? MAX_PROFILE_HISTORY : MAX_PROFILES)
     && Number.isInteger(state.active) && state.active >= 0 && state.active < state.profiles.length;
 }
 
@@ -56,6 +61,7 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
     const state = stateV2(storage.read());
     if (state.policy) {
       await verifyAdmissionPolicy(state.policy, state.policy.authority);
+      if (state.freshness) parseWalletPolicyFreshness(state.freshness, state.policy);
       for (const profile of state.profiles) if (!admissionPolicyKeys(state.policy).some(entry => JSON.stringify(entry.profile) === JSON.stringify(profile))) throw new Error('Wallet profile is absent from its signed policy');
       if (admissionKeyFingerprint(state.profiles[state.active].issuerPublicKey) !== state.policy.activeKey) throw new Error('Wallet active key differs from signed policy');
     }
@@ -111,7 +117,20 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
     const cutoff = use === 'issue' ? entry?.issueUntil : use === 'spend' ? entry?.spendUntil : entry?.retryUntil;
     if (!entry || now < entry.notBefore || now >= cutoff!) throw new Error('Issuer key is not active for this operation under the community policy');
   }
-  return {
+  function checkFreshness(observation: WalletPolicyObservation | undefined) {
+    ready(); const state = stateV2(storage.read()); if (!state.freshness) return;
+    const inspected = inspectWalletPolicyObservation(state.freshness, observation, (options.now ?? Date.now)());
+    if (inspected.state !== state.freshness) storage.write({ ...state, freshness: inspected.state });
+    if (inspected.error) throw new Error(inspected.error);
+    assertAdmissionPolicyCurrent(state.policy!, (options.now ?? Date.now)());
+  }
+  const api = {
+    provider(): AdmissionCapabilityProviderV2 {
+      return Object.assign((context: AdmissionCapabilityRequestContextV2) => api.capabilityFor(context), {
+        policyObservers: () => { ready(); return structuredClone(stateV2(storage.read()).freshness?.context); },
+        assertCurrent: (context: AdmissionCapabilityRequestContextV2) => { checkFreshness(context.policyObservation); },
+      });
+    },
     planRetirement(issuerKey: string) {
       const { wallet, policy, state } = retirementTarget(issuerKey);
       return wallet.planRetirement(policy, state);
@@ -125,7 +144,8 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
       const state = stateV2(storage.read());
       if (!state.profiles.length) return { configured: false, available: 0, reserved: 0, total: 0, capacity: 4096, availableCapacity: 256, archived: [] };
       const { wallet, profile } = active();
-      return { configured: true, scope: structuredClone(profile.scope), relayUrls: [...profile.relayUrls],
+      return { ...(state.freshness ? { freshness: { required: true as const, installedRevision: state.freshness.installed.revision,
+        observedRevision: state.freshness.observed.revision, conflicted: !!state.freshness.conflict } } : {}), configured: true, scope: structuredClone(profile.scope), relayUrls: [...profile.relayUrls],
         keyFingerprint: admissionKeyFingerprint(profile.issuerPublicKey), ...wallet.summary(),
         archived: state.profiles.flatMap((prior, index) => {
           if (index === state.active) return [];
@@ -164,14 +184,35 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
         wallets.push(wallet);
       } finally { busy = false; }
     },
-    async installPolicy(value: unknown, authority: string) {
+    async installPolicy(value: unknown, authority: string, observersValue?: unknown) {
       ready(); if (pending) throw new Error('Finish or cancel the pending token request before changing community policy');
       busy = true; const opened: BlindAdmissionWalletV2[] = [];
       try {
         const previous = stateV2(storage.read());
         if (previous.policy && previous.policy.authority !== authority) throw new Error('Community authority is already pinned');
-        const policy = await verifyAdmissionPolicy(value, authority);
+        // Copy caller inputs before asynchronous signature verification.
+        const input = structuredClone(value), observers = observersValue === undefined ? undefined : parseAdmissionPolicyObservers(observersValue);
+        let freshness = previous.freshness;
+        if (freshness?.conflict) throw new Error('Wallet policy observations conflict; spending is fenced');
+        if (freshness && observers && admissionPolicyObserversId(observers) !== admissionPolicyObserversId(freshness.context)) throw new Error('Policy observers are already pinned');
+        const advance = freshness && input && typeof input === 'object' && 'commitment' in input
+          ? await parseAdmissionPolicyAdvance(input, freshness.context) : undefined;
+        const policy = advance?.policy ?? await verifyAdmissionPolicy(input, authority);
         storage.read(); assertAdmissionPolicyCurrent(policy, (options.now ?? Date.now)());
+        if (freshness) {
+          if (advance) {
+            if (!sameAdmissionPolicyHead(advance.commitment.previous, freshness.installed)
+              && !sameAdmissionPolicyHead(advance.commitment.next, freshness.installed)) throw new Error('Policy update must extend the retained wallet transition');
+            const next = advance.commitment.next;
+            if (next.revision === freshness.observed.revision && !sameAdmissionPolicyHead(next, freshness.observed)) throw new Error('Policy update conflicts with the observed wallet floor');
+            freshness = { ...freshness, installed: next, observed: next.revision > freshness.observed.revision ? next : freshness.observed };
+          } else if (admissionPolicyDigest(policy) !== freshness.installed.digest) throw new Error('Pinned policy freshness requires a signed immediate successor');
+        } else if (observers) {
+          const head = admissionPolicyHead(policy);
+          if (observers.authority !== authority || !sameAdmissionPolicyHead(head, observers.genesis)) throw new Error('Initial observer pins must match this independently verified genesis policy');
+          freshness = { context: observers, installed: head, observed: head };
+        }
+        if (freshness) parseWalletPolicyFreshness(freshness, policy);
         if (previous.policy) assertAdmissionPolicySuccessor(previous.policy, policy);
         const profiles = [...previous.profiles];
         for (const profile of profiles) if (!admissionPolicyKeys(policy).some(entry => JSON.stringify(entry.profile) === JSON.stringify(profile))) {
@@ -185,7 +226,7 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
         }
         const active = profiles.findIndex(profile => admissionKeyFingerprint(profile.issuerPublicKey) === policy.activeKey);
         validateRetiredWallets({ version: policy.version === 2 ? 4 : 3, active, profiles, policy }, [...wallets, ...opened]);
-        storage.write({ version: policy.version === 2 ? 4 : 3, active, profiles, policy });
+        storage.write({ version: freshness ? 5 : policy.version === 2 ? 4 : 3, active, profiles, policy, ...(freshness ? { freshness } : {}) });
         wallets.push(...opened); opened.length = 0;
       } finally { opened.forEach(wallet => wallet.close()); busy = false; }
     },
@@ -227,6 +268,7 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
     cancelIssuance() { ready(); pending = undefined; },
     capabilityFor(context: AdmissionCapabilityRequestContextV2) {
       ready(); const state = stateV2(storage.read()); if (!state.profiles.length) return undefined;
+      checkFreshness(context.policyObservation);
       const normalized = { ...context, relayUrl: normalizeAdmissionRelay(context.relayUrl) };
       // Search ALL old reservations before allocating from the active profile. An old retry
       // must fail at the relay if its epoch is retired, never silently spend a fresh token.
@@ -243,5 +285,6 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
     },
     close() { if (closed) return; closed = true; pending = undefined; wallets.forEach(wallet => wallet.close()); storage.close(); key.fill(0); },
   };
+  return api;
 }
 export type ManagedAdmissionWallet = Awaited<ReturnType<typeof openManagedAdmissionWallet>>;

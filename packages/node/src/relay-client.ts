@@ -6,6 +6,8 @@ import WebSocket from 'ws';
 import { parseRelayAcknowledgement, parseRelayMailbox } from './relay-response.js';
 import { createPrivateRelayClient } from './private-relay-client.js';
 import type { PrivateTrafficScheduleOptions } from './private-traffic-scheduler.js';
+import type { AdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
+import type { WalletPolicyObservation } from './wallet-policy-freshness.js';
 import {
   assertSecureRelayTransportEndpoint, relayTlsClientOptions,
   MAX_SIGNED_MESSAGE_BYTES,
@@ -95,11 +97,17 @@ export interface AdmissionCapabilityRequestContextV2 {
   relayUrl: string;
   action: RelayAdmissionActionV2;
   requestBinding: string;
+  policyObservation?: WalletPolicyObservation;
 }
 
-export type AdmissionCapabilityProviderV2 = (
+export type AdmissionCapabilityProviderV2 = ((
   context: AdmissionCapabilityRequestContextV2,
-) => AdmissionCapabilityV2 | undefined;
+) => AdmissionCapabilityV2 | undefined) & {
+  /** Independently pinned context, read only after releasing queued work. */
+  policyObservers?: () => AdmissionPolicyObservers | undefined;
+  /** Recheck retained state immediately before socket transmission; never reserve. */
+  assertCurrent?: (context: AdmissionCapabilityRequestContextV2) => void;
+};
 
 export interface RelayClientEvents {
   onMatch?: (payload: MatchPayload) => void;

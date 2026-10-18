@@ -14,6 +14,7 @@ export default function AdmissionWallet({ privateDeliveryAvailable, onChange }: 
   const [response, setResponse] = useState('');
   const [authority, setAuthority] = useState('');
   const [policyText, setPolicyText] = useState('');
+  const [observersText, setObserversText] = useState('');
   const [changing, setChanging] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -60,9 +61,9 @@ export default function AdmissionWallet({ privateDeliveryAvailable, onChange }: 
   async function installPolicy(event: React.FormEvent) {
     event.preventDefault(); setBusy(true); setMessage(''); setRetirementPlan(null);
     try {
-      const result = await installAdmissionPolicy(JSON.parse(policyText), authority.trim());
+      const result = await installAdmissionPolicy(JSON.parse(policyText), authority.trim(), observersText.trim() ? JSON.parse(observersText) : undefined);
       setMessage(result.error ?? 'Signed community policy saved. Earlier wallet history is retained; automatic checks are paused.');
-      if (!result.error) { setPolicyText(''); setAuthority(''); setChanging(false); }
+      if (!result.error) { setPolicyText(''); setObserversText(''); setAuthority(''); setChanging(false); }
       await refresh(); await onChange();
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Invalid signed policy'); }
     finally { setBusy(false); }
@@ -91,8 +92,13 @@ export default function AdmissionWallet({ privateDeliveryAvailable, onChange }: 
       <form onSubmit={installPolicy}>
         <label htmlFor="wallet-authority">Verified community authority key</label>
         <input id="wallet-authority" value={authority} onChange={event => setAuthority(event.target.value)} maxLength={44} disabled={busy} required />
-        <label htmlFor="wallet-policy">Signed community policy (JSON)</label>
-        <textarea id="wallet-policy" value={policyText} onChange={event => setPolicyText(event.target.value)} rows={5} maxLength={524288} disabled={busy} spellCheck={false} required />
+        <label htmlFor="wallet-policy">Signed community policy or immediate successor (JSON)</label>
+        <textarea id="wallet-policy" value={policyText} onChange={event => setPolicyText(event.target.value)} rows={5} maxLength={528384} disabled={busy} spellCheck={false} required />
+        {!status?.freshness && <>
+          <label htmlFor="wallet-observers">Verified volunteer observer setup (optional JSON)</label>
+          <textarea id="wallet-observers" value={observersText} onChange={event => setObserversText(event.target.value)} rows={4} maxLength={8192} disabled={busy} spellCheck={false} />
+          <p className="text-sm">Verify these five volunteer keys and the original policy independently. Enabling this requires four current observations before each released send. It cannot be disabled by importing another policy.</p>
+        </>}
         <button className="btn btn-primary btn-sm" disabled={busy || !!status?.pendingIssuance}>Verify and apply policy</button>
       </form>
     </details>}
@@ -102,6 +108,11 @@ export default function AdmissionWallet({ privateDeliveryAvailable, onChange }: 
       <p className="text-sm" style={{ overflowWrap: 'anywhere' }}>Authority fingerprint: {status.policy.authorityFingerprint}</p>
       <p className="text-sm">Current key: issuance ends {new Date(status.policy.issueUntil).toLocaleString()}; new uses end {new Date(status.policy.spendUntil).toLocaleString()}; recorded retries end {new Date(status.policy.retryUntil).toLocaleString()}.</p>
     </div>}
+    {status?.freshness && <p role="status">{status.freshness.conflicted
+      ? 'Conflicting community policy observations are retained. Spending is blocked.'
+      : status.freshness.observedRevision > status.freshness.installedRevision
+        ? `Policy revision ${status.freshness.observedRevision} was observed. Import each signed successor before sending.`
+        : 'Each released send checks four volunteer observers privately before reserving a token. No background checks are made.'}</p>}
     {!status ? <p>Loading wallet…</p> : status.configured && !changing ? <>
       <p><strong>{status.available} available</strong> · {status.reserved} reserved · {status.total}/{status.capacity} history slots used</p>
       <p>Issuer: {status.scope?.issuer} · Community: {status.scope?.community} · Token period: {status.scope?.epoch}</p>

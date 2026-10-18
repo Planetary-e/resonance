@@ -117,13 +117,14 @@ function configuredPrivateRoute(): PrivatePublicationRoute | undefined {
 
 function createSessionRelayClient(urls: string[], identity: Identity,
   route = session?.privatePublicationRoute ?? configuredPrivateRoute(), wallet = session?.admissionWallet): RelayClient {
+  const provider = wallet?.provider();
   return createRelayClient({
     ...(route ?? { relayUrl: urls[0] ?? '', fallbackUrls: urls.slice(1) }),
     identity, autoReconnect: true,
-    admissionCapabilityProvider: wallet ? context => {
-      if (!route && wallet.configured()) throw new Error('Access tokens require a private route; direct delivery is disabled');
-      return wallet.capabilityFor(context);
-    } : undefined,
+    admissionCapabilityProvider: provider ? Object.assign((context: Parameters<typeof provider>[0]) => {
+      if (!route && wallet!.configured()) throw new Error('Access tokens require a private route; direct delivery is disabled');
+      return provider(context);
+    }, provider) : undefined,
   });
 }
 
@@ -914,7 +915,7 @@ async function unlockSessionOnce(password: string, relayUrl: string, signal?: Ab
     catch { throw new WalletLoadError(); }
     finally { walletKey.fill(0); }
     currentUnlock();
-    const capabilityProvider = (context: Parameters<ManagedAdmissionWallet['capabilityFor']>[0]) => admissionWallet!.capabilityFor(context);
+    const capabilityProvider = admissionWallet.provider();
     publicationOutbox = openPublicationOutbox({
       path: join(getDataDir(), 'publication-outbox.json'), encryptionKey: outboxKey,
       admissionCapabilityProvider: capabilityProvider,
@@ -1249,11 +1250,11 @@ export async function configureAdmissionWallet(profile: unknown): Promise<void> 
   if (session !== s) throw new Error('Session locked during wallet setup');
 }
 
-export async function installAdmissionPolicy(policy: unknown, authority: string): Promise<void> {
+export async function installAdmissionPolicy(policy: unknown, authority: string, observers?: unknown): Promise<void> {
   const s = session!;
   if (!s.privatePublicationRoute && !s.admissionWallet.configured()) throw new Error('Wallet setup requires the private transport pilot');
   s.requestOutbox.setAutomaticMailboxes(false); stopAutomaticMailboxSync(s);
-  await s.admissionWallet.installPolicy(policy, authority);
+  await s.admissionWallet.installPolicy(policy, authority, observers);
   if (session !== s) throw new Error('Session locked during policy update');
 }
 

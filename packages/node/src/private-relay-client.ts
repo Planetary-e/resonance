@@ -5,6 +5,7 @@ import { parseAdmissionPolicyObservers } from '@resonance/core/admission-policy-
 import { createAdmissionPolicyQuery, parseAdmissionPolicyQueryReply, ADMISSION_POLICY_QUERY_REPLY_TYPE,
   type AdmissionPolicyQuery } from '@resonance/core/admission-policy-query';
 import WebSocket from 'ws';
+import type { WalletPolicyObservation } from './wallet-policy-freshness.js';
 import { parseRelayAcknowledgement, parseRelayMailbox } from './relay-response.js';
 import {
   MAX_PRIVATE_FRAME_BYTES,
@@ -71,6 +72,9 @@ import type {
   RelationshipMailboxFetchResult,
 } from './relay-client.js';
 
+interface PreparedPrivateRequest { raw: string; valid: () => void }
+type PrivateRequestBuilder = () => string | PreparedPrivateRequest | Promise<string | PreparedPrivateRequest>;
+
 interface PrivateContact {
   candidate: PrivateRouteCandidateV1;
   key: NonNullable<Awaited<ReturnType<typeof discoverRelayContactV1>>['transportKey']>;
@@ -95,12 +99,36 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
     finally { operation.dispose(); operations.delete(operation); }
   }
 
-  function admissionFor(url: string, action: RelayAdmissionActionV2, request: unknown): AdmissionCapabilityV2 | undefined {
-    return config.admissionCapabilityProvider?.({
-      relayUrl: url,
-      action,
-      requestBinding: createAdmissionRequestBindingV2(action, request),
-    });
+  async function admittedRequest(url: string, action: RelayAdmissionActionV2, request: unknown,
+    serialize: (capability: AdmissionCapabilityV2 | undefined) => string, operation: PrivateOperation, signal: AbortSignal, requestValid = () => {}): Promise<PreparedPrivateRequest> {
+    const provider = config.admissionCapabilityProvider;
+    const context = provider?.policyObservers?.();
+    let policyObservation: WalletPolicyObservation | undefined;
+    let observationDeadline = Infinity;
+    if (context) {
+      let query: AdmissionPolicyQuery | undefined;
+      const reply = await sendTo(url, () => {
+        query = createAdmissionPolicyQuery(context);
+        observationDeadline = performance.now() + query.request.expiresAt - query.request.issuedAt;
+        return JSON.stringify(query);
+      }, operation, signal, undefined, false);
+      operation.check(signal);
+      if (!query || reply.type !== ADMISSION_POLICY_QUERY_REPLY_TYPE) throw new Error('Private relay did not return a policy observation');
+      policyObservation = { query, reply: parseAdmissionPolicyQueryReply(reply.payload, query, context, Date.now()) };
+    }
+    const capabilityContext = { relayUrl: url, action, requestBinding: createAdmissionRequestBindingV2(action, request),
+      ...(policyObservation ? { policyObservation } : {}) };
+    const valid = () => {
+      operation.check(signal);
+      requestValid();
+      if (policyObservation && (performance.now() >= observationDeadline || Date.now() < policyObservation.query.request.issuedAt
+        || Date.now() >= policyObservation.query.request.expiresAt)) throw new Error('Policy observation expired before transmission');
+      provider?.assertCurrent?.(capabilityContext);
+    };
+    valid();
+    const capability = provider?.(capabilityContext);
+    valid();
+    return { raw: serialize(capability), valid };
   }
 
   async function discoverEntry(endpoint: string, signal: AbortSignal): Promise<PrivateContact> {
@@ -201,12 +229,15 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
     throw lastError instanceof Error ? lastError : new Error('No independent two-relay route is available');
   }
 
-  async function sendTo(destinationUrl: string, makeRaw: () => string, operation: PrivateOperation, signal: AbortSignal, valid = () => {}): Promise<Message> {
+  async function sendTo(destinationUrl: string, makeRaw: PrivateRequestBuilder, operation: PrivateOperation, signal: AbortSignal, valid = () => {}, accountDelivery = true): Promise<Message> {
     valid();
     const { entry, destination } = await discoverRoute(destinationUrl, operation, signal);
     operation.check(signal);
     valid();
-    const plaintext = decodeUTF8(makeRaw());
+    const prepared = await makeRaw();
+    const check = () => { valid(); if (typeof prepared !== 'string') prepared.valid(); };
+    check();
+    const plaintext = decodeUTF8(typeof prepared === 'string' ? prepared : prepared.raw);
     operation.check(signal);
     const exchange = await createPrivateRequestV1(
       plaintext, entry.key, destination.key,
@@ -238,9 +269,9 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
         if (settled) return;
         try {
           operation.check(signal);
-          valid();
+          check();
           // Once handed to the socket, failure cannot prove non-delivery.
-          operation.markSent();
+          if (accountDelivery) operation.markSent();
           socket.send(requestRaw);
         } catch (error) { finish(error instanceof Error ? error : new Error(String(error))); }
       });
@@ -273,14 +304,14 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
     });
   }
 
-  function firstReply(operation: PrivateOperation, makeRaw: (url: string) => string, valid = () => {}): Promise<Message> {
+  function firstReply(operation: PrivateOperation, makeRaw: (url: string, signal: AbortSignal) => ReturnType<PrivateRequestBuilder>, valid = () => {}): Promise<Message> {
     return scheduler.schedule(async signal => {
       let lastError: unknown;
       let unknownOutcome: PrivateOperationError | undefined;
       for (const url of destinations) {
         operation.check(signal);
         valid();
-        try { return await sendTo(url, () => makeRaw(url), operation, signal, valid); }
+        try { return await sendTo(url, () => makeRaw(url, signal), operation, signal, valid); }
         catch (error) {
           lastError = error;
           if (error instanceof PrivateOperationError && error.outcome === 'unknown') unknownOutcome = error;
@@ -344,8 +375,8 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
           }
         };
         valid();
-        const reply = await firstReply(operation, url => serializePublicationOperationFrame(
-          createPublicationOperationFrame(publication, admissionFor(url, 'publication-write', publication))), valid);
+        const reply = await firstReply(operation, (url, signal) => admittedRequest(url, 'publication-write', publication,
+          cap => serializePublicationOperationFrame(createPublicationOperationFrame(publication, cap)), operation, signal, valid), valid);
         const ack = expectedAck(reply, publication.publicationId);
         operation.check();
         return ack;
@@ -354,8 +385,8 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
     async fetchMailbox(record: PublicationRecord, keys: PublicationKeyMaterial): Promise<MailboxFetchResult> {
       return runOperation(async operation => {
         const request = createMailboxRequest('fetch', record, keys);
-        const reply = await firstReply(operation, url => serializeMailboxRequestFrame(
-          createMailboxRequestFrame(request, admissionFor(url, 'mailbox-fetch', request))));
+        const reply = await firstReply(operation, (url, signal) => admittedRequest(url, 'mailbox-fetch', request,
+          cap => serializeMailboxRequestFrame(createMailboxRequestFrame(request, cap)), operation, signal));
         const envelopes = expectedMailbox(reply, request.requestId, record.mailbox.id);
         const notices: Message<MatchNoticePayload>[] = [];
         const relationshipMessages: RelationshipMessageV2[] = [];
@@ -372,8 +403,8 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
     async depositMailboxEnvelope(matchId, sender, recipient: PublicationMailboxRecipient, keys, envelope) {
       return runOperation(async operation => {
         const request = createMailboxDepositRequest(matchId, sender, recipient, keys, envelope);
-        const reply = await firstReply(operation, url => serializeMailboxDepositFrame(
-          createMailboxDepositFrame(request, admissionFor(url, 'mailbox-deposit', request))));
+        const reply = await firstReply(operation, (url, signal) => admittedRequest(url, 'mailbox-deposit', request,
+          cap => serializeMailboxDepositFrame(createMailboxDepositFrame(request, cap)), operation, signal));
         const ack = expectedAck(reply, request.requestId);
         operation.check();
         return ack;
@@ -382,8 +413,8 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
     async acknowledgeMailbox(record, keys, envelopeIds) {
       return runOperation(async operation => {
         const request = createMailboxRequest('ack', record, keys, envelopeIds);
-        const reply = await firstReply(operation, url => serializeMailboxRequestFrame(
-          createMailboxRequestFrame(request, admissionFor(url, 'mailbox-acknowledge', request))));
+        const reply = await firstReply(operation, (url, signal) => admittedRequest(url, 'mailbox-acknowledge', request,
+          cap => serializeMailboxRequestFrame(createMailboxRequestFrame(request, cap)), operation, signal));
         const ack = expectedAck(reply, request.requestId);
         operation.check();
         return ack;
@@ -393,8 +424,8 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
       return runOperation(async operation => {
         const request = createRelationshipMailboxRequestV2('fetch', keys);
         const results = await Promise.allSettled(destinations.map(url => scheduler.schedule(async signal => {
-          const reply = await sendTo(url, () => serializeRelationshipMailboxRequestFrameV2(
-            createRelationshipMailboxRequestFrameV2(request, admissionFor(url, 'mailbox-fetch', request))), operation, signal);
+          const reply = await sendTo(url, () => admittedRequest(url, 'mailbox-fetch', request,
+            cap => serializeRelationshipMailboxRequestFrameV2(createRelationshipMailboxRequestFrameV2(request, cap)), operation, signal), operation, signal);
           const envelopes = expectedMailbox(reply, request.requestId, keys.mailboxId);
           operation.check(signal);
           return envelopes;
@@ -417,8 +448,8 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
     async depositRelationshipMailboxEnvelope(recipientRelationshipId, keys, envelope) {
       return runOperation(async operation => {
         const request = createRelationshipMailboxDepositV2(recipientRelationshipId, keys, envelope);
-        const reply = await firstReply(operation, url => serializeRelationshipMailboxDepositFrameV2(
-          createRelationshipMailboxDepositFrameV2(request, admissionFor(url, 'mailbox-deposit', request))));
+        const reply = await firstReply(operation, (url, signal) => admittedRequest(url, 'mailbox-deposit', request,
+          cap => serializeRelationshipMailboxDepositFrameV2(createRelationshipMailboxDepositFrameV2(request, cap)), operation, signal));
         const ack = expectedAck(reply, request.requestId);
         operation.check();
         return ack;
@@ -428,8 +459,8 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
       return runOperation(async operation => {
         const request = createRelationshipMailboxRequestV2('ack', keys, envelopeIds);
         const results = await Promise.allSettled(destinations.map(url => scheduler.schedule(async signal => {
-          const reply = await sendTo(url, () => serializeRelationshipMailboxRequestFrameV2(
-            createRelationshipMailboxRequestFrameV2(request, admissionFor(url, 'mailbox-acknowledge', request))), operation, signal);
+          const reply = await sendTo(url, () => admittedRequest(url, 'mailbox-acknowledge', request,
+            cap => serializeRelationshipMailboxRequestFrameV2(createRelationshipMailboxRequestFrameV2(request, cap)), operation, signal), operation, signal);
           const ack = expectedAck(reply, request.requestId);
           operation.check(signal);
           return ack;
@@ -446,8 +477,8 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
     async searchV2(input): Promise<SearchResponsePayloadV2> {
       return runOperation(async operation => {
         const request = createSearchRequestV2(input);
-        const reply = await firstReply(operation, url => serializeSearchRequestFrameV2(
-          createSearchRequestFrameV2(request, admissionFor(url, 'search', request))));
+        const reply = await firstReply(operation, (url, signal) => admittedRequest(url, 'search', request,
+          cap => serializeSearchRequestFrameV2(createSearchRequestFrameV2(request, cap)), operation, signal));
         if (reply.type === MessageTypes.ACK) {
           expectedAck(reply, request.searchId);
           throw new Error('Unexpected private search acknowledgement');
