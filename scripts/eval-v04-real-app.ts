@@ -11,10 +11,27 @@ import { parseArgs } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
 import WebSocket from 'ws';
 import { env } from '@huggingface/transformers';
+import { createRealAppNetwork, realAppTestCa } from './fixtures/real-app-network.js';
 
 const { values } = parseArgs({ options: { child: { type: 'boolean' }, 'protected-policy': { type: 'boolean' },
-  'protected-admission': { type: 'boolean' }, 'concurrent-searches': { type: 'boolean' }, out: { type: 'string' } } });
+  'protected-admission': { type: 'boolean' }, 'concurrent-searches': { type: 'boolean' }, tls: { type: 'boolean' },
+  'tls-worker': { type: 'boolean' }, out: { type: 'string' } } });
 assert(!values['concurrent-searches'] || values['protected-admission'], '--concurrent-searches requires --protected-admission');
+assert(!values['tls-worker'] || values.tls);
+if (values.tls && !values['tls-worker']) {
+  // Node loads additional authorities at process startup. Trust is confined to
+  // this evaluation's children; never install a CA or disable verification.
+  const environment: NodeJS.ProcessEnv = { ...process.env, NODE_EXTRA_CA_CERTS: realAppTestCa };
+  delete environment.NODE_TLS_REJECT_UNAUTHORIZED;
+  const worker = fork(fileURLToPath(import.meta.url), [...process.argv.slice(2), '--tls-worker'], {
+    execArgv: ['--import', import.meta.resolve('tsx')], env: environment, stdio: 'inherit' });
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => worker.kill(signal));
+  const code = await new Promise<number>((resolve, reject) => {
+    worker.once('error', reject); worker.once('exit', code => resolve(code ?? 1));
+  });
+  process.exit(code);
+}
+if (values.tls) assert(process.env.NODE_EXTRA_CA_CERTS === realAppTestCa && process.env.NODE_TLS_REJECT_UNAUTHORIZED === undefined);
 env.allowRemoteModels = false;
 const captureFrameLimit = values['concurrent-searches'] ? 20000 : 10000, captureByteLimit = 32 * 1024 * 1024;
 const wire: string[] = []; let frameBytes = 0, frameCount = 0, captureComplete = true;
@@ -63,9 +80,9 @@ if (values.child) {
   const { createRelayServer, createConfiguredAdmissionVerifier } = await import('@resonance/relay');
   const { openAdmissionIssuerLedger } = await import('@resonance/node');
   const { approveAdmissionIssuerBatch } = await import('../packages/node/src/admission-issuer-ledger.js');
-  const { createRelayTestEndpoints } = await import('../packages/relay/src/__tests__/fixtures/relay-test-endpoint.js');
   const root = fileURLToPath(new URL('../', import.meta.url)), directory = mkdtempSync(join(tmpdir(), 'resonance-real-app-'));
   const processes: ChildProcess[] = [], cleanup: Array<() => void | Promise<void>> = [];
+  const network = createRealAppNetwork(Boolean(values.tls), cleanup);
   const started = performance.now(), cpuStart = process.cpuUsage();
   let report: Record<string, unknown> | undefined, failure: unknown;
   const checkpoints: string[] = [];
@@ -85,21 +102,20 @@ if (values.child) {
     child.on('message', receive); child.once('exit', exited); child.once('error', finish);
   });
   try {
-    const [entryAddress] = await createRelayTestEndpoints(1); cleanup.push(entryAddress.close);
-    const [destinationAddress] = await createRelayTestEndpoints(1, '::1'); cleanup.push(destinationAddress.close);
-    const entryUrl = `ws://127.0.0.1:${entryAddress.port}/`, destinationUrl = `ws://[::1]:${destinationAddress.port}/`;
+    const entryAddress = await network.address('entry'), destinationAddress = await network.address('destination', '::1');
+    const entryUrl = entryAddress.url, destinationUrl = destinationAddress.url;
     const scope = { issuer: 'real-app-local-evaluation', community: 'public', epoch: new Date().toISOString().slice(0, 7) };
     const keys = await publicVerif.Issuer.generateKey(publicVerif.BlindRSAMode.PSS, { modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]) });
     const der = Buffer.from(await crypto.subtle.exportKey('spki', keys.publicKey)).toString('base64');
     const profile = { version: 1 as const, scope, issuerPublicKey: `-----BEGIN PUBLIC KEY-----\n${der}\n-----END PUBLIC KEY-----`, relayUrls: [destinationUrl] };
     const authorityKeys = generateSigningKeyPair(), authority = Buffer.from(authorityKeys.publicKey).toString('base64url'), now = Date.now();
     const admission = values['protected-admission']
-      ? await (await import('./fixtures/real-app-admission.js')).prepareRealAppAdmission(join(directory, 'admission'), cleanup) : undefined;
+      ? await (await import('./fixtures/real-app-admission.js')).prepareRealAppAdmission(join(directory, 'admission'), cleanup, network) : undefined;
     const policy = await signAdmissionPolicy({ version: 1, kind: 'admission-policy', revision: 1, issuedAt: now - 1000, expiresAt: now + 3600000,
       activeKey: admissionKeyFingerprint(profile.issuerPublicKey), keys: [{ profile, notBefore: now - 1000, issueUntil: now + 1800000, spendUntil: now + 2400000, retryUntil: now + 3000000,
         ...(admission ? { witnesses: admission.witnessSet } : {}) }] }, authority, authorityKeys.secretKey);
     const protectedPolicy = values['protected-policy'] || admission
-      ? await (await import('./fixtures/real-app-policy-observers.js')).realAppPolicyObservers(join(directory, 'policy'), policy, cleanup) : undefined;
+      ? await (await import('./fixtures/real-app-policy-observers.js')).realAppPolicyObservers(join(directory, 'policy'), policy, cleanup, network) : undefined;
     const protectedAdmission = admission && await admission.activate(policy, protectedPolicy!.context);
     const verifier = protectedAdmission ? undefined : await createConfiguredAdmissionVerifier({ directory: join(directory, 'destination'), authority, policy, encryptionKey: randomBytes(32), initialize: true,
       policyObservers: protectedPolicy?.context });
@@ -108,9 +124,12 @@ if (values.child) {
     let lastAccepted: { capability: Parameters<NonNullable<typeof verifier>['verifyAndSpend']>[0]; context: Parameters<NonNullable<typeof verifier>['verifyAndSpend']>[1] } | undefined;
     const spends: Array<{ action: string; binding: string; token: string; serialized: string; status: string }> = [];
     const discovery = (endpoint: string) => ({ endpoints: [endpoint], reachability: 'direct' as const, supportedGroups: ['public'], storage: { capacityBytes: 4000000, availableBytes: 3000000 }, maxKnownRelays: 8 });
-    const entry = createRelayServer({ port: 0, host: '127.0.0.1', persistDir: join(directory, 'entry'), relayDiscovery: discovery(entryUrl) });
+    const entry = createRelayServer({ port: 0, host: '127.0.0.1', tls: network.tls,
+      identityPassphrase: values.tls ? randomBytes(32).toString('base64url') : undefined,
+      persistDir: join(directory, 'entry'), relayDiscovery: discovery(entryUrl) });
     await entry.start(); cleanup.push(() => entry.stop()); entryAddress.forwardTo(entry.getListeningPort()!);
-    const destination = createRelayServer({ port: 0, host: '::1', persistDir: join(directory, 'destination'), relayDiscovery: discovery(destinationUrl),
+    const destination = createRelayServer({ port: 0, host: '::1', tls: network.tls, persistDir: join(directory, 'destination'), relayDiscovery: discovery(destinationUrl),
+      identityPassphrase: values.tls ? randomBytes(32).toString('base64url') : undefined,
       policyQuery: protectedPolicy?.query,
       admissionVerifier: { async verifyAndSpend(capability, context) {
         const decision = await activeVerifier().verifyAndSpend(capability, context);
@@ -203,6 +222,7 @@ if (values.child) {
       rateWindowStarted = performance.now();
       const apps = [alice, bob], before = await Promise.all(apps.map(app => app.snapshot()));
       const initialBytes = frameBytes + before.reduce((n, s) => n + s.frameBytes, 0), initialCpu = process.cpuUsage();
+      const initialTransport = network.snapshot();
       const outcomes: Array<{ round: number; client: number; status: number; durationMs: number;
         consumedTokens: number; failureCategory: string | null }> = [];
       const initialSpends = spends.filter(s => s.status === 'accepted').length;
@@ -233,6 +253,8 @@ if (values.child) {
         consumedTokens: outcomes.reduce((n, outcome) => n + outcome.consumedTokens, 0),
         cooldownMs, outcomes, allSucceeded: concurrencyPassed,
         websocketPayloadBytes: frameBytes + after.reduce((n, s) => n + s.frameBytes, 0) - initialBytes,
+        tcpStreamBytes: network.snapshot().tcpStreamBytes - initialTransport.tcpStreamBytes,
+        peerConnections: network.snapshot().connections - initialTransport.connections,
         cpuSeconds: (cpu.user + cpu.system) / 1e6 + after.reduce((n, s, i) => n + s.cpuSeconds - before[i].cpuSeconds, 0) };
       console.error(`CONCURRENT_SEARCHES ${JSON.stringify(concurrentSearches)}`);
       if (concurrencyPassed) passed('Three paired real-application searches complete with all protected histories and no credential reuse');
@@ -291,25 +313,27 @@ if (values.child) {
       protectedPolicy: protectedPolicy ? { observers: 5, durableHistories: 25, privateQueries: protectedPolicy.queries(), issuerAndRelayFreshness: true, quorumLossRefusedBeforeSpend: true } : null,
       protectedAdmission: protectedAdmission ? { witnesses: 5, coordinators: 1, durableHistories: 30, restartedOwners: 6,
         retainedDoubleSpendRefusal: true, quorumLossRefused: true } : null,
-      apiTimings, faultCooldownMs, concurrentSearches,
+      apiTimings, faultCooldownMs, concurrentSearches, transport: network.snapshot(),
       capture: { complete: captureComplete, parentFrameCount: frameCount, applicationFrameCounts: snapshots.map(s => s.frameCount),
         parentFrameLimit: captureFrameLimit, applicationFrameLimit: 10000, byteLimitPerProcess: captureByteLimit },
       actions: Object.fromEntries([...new Set(spends.map(s => s.action))].map(action => [action, spends.filter(s => s.action === action).length])),
       resources: { durationMs: Math.round(performance.now() - started), websocketPayloadBytes: frameBytes + snapshots.reduce((n, s) => n + s.frameBytes, 0),
         parentPeakRssBytes: process.resourceUsage().maxRSS * 1024, applicationPeakRssBytes: snapshots.map(s => s.peakRssBytes),
         cpuSeconds: (cpu.user + cpu.system) / 1e6 + snapshots.reduce((n, s) => n + s.cpuSeconds, 0), node: process.version, platform: process.platform, architecture: process.arch },
-      limitations: ['Local IPv4/IPv6 loopback domains on one computer; not independent operators, Internet or TLS deployment.',
+      limitations: ['Local IPv4/IPv6 loopback domains on one computer; not independent operators or Internet deployment.',
+        values.tls ? 'Every exposed peer endpoint uses WSS with an isolated test CA; auxiliary services terminate TLS at loopback proxies. Local HTTP application APIs and in-process issuer work are outside peer transport totals.'
+          : 'Plain loopback WS; TCP-stream measurements cover only entry and destination endpoints, not auxiliary protected services.',
         'Actual desktop backend APIs and embeddings; no graphical user interaction or native installer is certified.',
         protectedAdmission ? 'Five protected observers, five witnesses and one coordinator use 55 local durable history services; eligibility distribution and independent operators remain separate.'
           : protectedPolicy ? 'Five protected observers with 25 local durable histories, issuer/relay freshness and private wallet checks are composed here; spend-witness quorum durability and eligibility distribution remain separate.'
           : 'Signed manual policy and real blinded tokens with a durable local issuer; observer freshness, quorum spends and eligibility distribution are tested separately, not composed here.',
         'Account/credential-field separation is not timing or content unlinkability; static fingerprints and match relationships remain observable to the destination.',
-        'Wire payload counts exclude TCP/TLS/WebSocket headers; per-process peak RSS values are not simultaneous total memory and CPU time is not energy.',
+        'WebSocket payload counts exclude framing. TCP stream totals include TLS and WebSocket handshakes/records when enabled, but exclude TCP/IP headers, acknowledgements, retransmissions and final cleanup; CPU time is not energy and process RSS peaks are not simultaneous total memory.',
         'Two concurrent model processes on this host; representative hardware and cold first-download experience remain unmeasured.'] };
   } catch (error) {
     failure = error;
     report = { measuredAt: new Date().toISOString(), completed: false, checkpoints, applicationMemory, concurrentSearches, apiTimings, faultCooldownMs,
-      capture: { parentComplete: captureComplete, parentFrameCount: frameCount, parentFrameLimit: captureFrameLimit },
+      capture: { parentComplete: captureComplete, parentFrameCount: frameCount, parentFrameLimit: captureFrameLimit }, transport: network.snapshot(),
       failure: { name: error instanceof Error ? error.name : 'UnknownError' } };
   } finally {
     for (const child of processes.reverse()) {

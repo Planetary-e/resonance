@@ -12,14 +12,16 @@ import { createPolicyObserverHistoryRoot, openProtectedPolicyObserver } from '..
 import { openHistoryVolunteerService } from '../../packages/relay/src/history-volunteer-service.js';
 import { listenHistoryAgreementReplica } from '../../packages/relay/src/history-agreement-exchange.js';
 import { createAdmissionPolicyQueryResponder } from '../../packages/relay/src/admission-policy-query.js';
+import type { RealAppNetwork } from './real-app-network.js';
 
-export async function realAppPolicyObservers(directory: string, policy: SignedAdmissionPolicy, cleanup: Array<() => void | Promise<void>>) {
+export async function realAppPolicyObservers(directory: string, policy: SignedAdmissionPolicy, cleanup: Array<() => void | Promise<void>>, network: RealAppNetwork) {
   mkdirSync(directory);
   const keys = Array.from({ length: 5 }, generateSigningKeyPair), handlers: Array<(value: unknown) => Promise<unknown>> = [];
   cleanup.push(() => keys.forEach(key => key.secretKey.fill(0)));
   const listeners: Array<Awaited<ReturnType<typeof listenAdmissionPolicyObserver>>> = [];
   for (let i = 0; i < 5; i++) {
-    const listener = await listenAdmissionPolicyObserver(value => handlers[i](value)); listeners.push(listener); cleanup.push(listener.close);
+    const listener = await listenAdmissionPolicyObserver(value => handlers[i](value)); cleanup.push(listener.close);
+    listeners.push({ ...listener, endpoint: await network.protect('policy-observer', listener.endpoint) });
   }
   const context = parseAdmissionPolicyObservers({ version: 1, kind: 'admission-policy-observers', authority: policy.authority,
     genesis: admissionPolicyHead(policy), quorum: 4,
@@ -39,7 +41,8 @@ export async function realAppPolicyObservers(directory: string, policy: SignedAd
           throw error;
         }
       } }); cleanup.push(listener.close); retained.push(listener);
-      members.push({ publicKey: Buffer.from(keys[j].publicKey).toString('base64url'), endpoint: listener.checkpointEndpoint });
+      members.push({ publicKey: Buffer.from(keys[j].publicKey).toString('base64url'),
+        endpoint: await network.protect('policy-history', listener.checkpointEndpoint) });
     }
     historyListeners.push(retained);
     const observer = await openProtectedPolicyObserver({ directory: join(directory, `observer-${i}`), context, historyContext: root.context,

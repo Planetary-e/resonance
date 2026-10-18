@@ -13,12 +13,13 @@ import { openProtectedAdmissionSpendHistory } from '../../packages/relay/src/pro
 import { openAdmissionRoleCapture } from '../../packages/relay/src/admission-role-capture.js';
 import { openHistoryVolunteerService } from '../../packages/relay/src/history-volunteer-service.js';
 import { listenHistoryAgreementReplica } from '../../packages/relay/src/history-agreement-exchange.js';
+import type { RealAppNetwork } from './real-app-network.js';
 
 type Verifier = Awaited<ReturnType<typeof createConfiguredAdmissionVerifier>>;
 type VerifierOptions = Parameters<typeof createConfiguredAdmissionVerifier>[0];
 type Listener = Awaited<ReturnType<typeof listenHistoryAgreementReplica>>;
 
-export async function prepareRealAppAdmission(directory: string, cleanup: Array<() => void | Promise<void>>) {
+export async function prepareRealAppAdmission(directory: string, cleanup: Array<() => void | Promise<void>>, network: RealAppNetwork) {
   mkdirSync(directory);
   const witnesses = Array.from({ length: 5 }, generateSigningKeyPair), coordinator = generateSigningKeyPair();
   const historyKeys = Array.from({ length: 5 }, generateSigningKeyPair).sort((a, b) => {
@@ -38,7 +39,8 @@ export async function prepareRealAppAdmission(directory: string, cleanup: Array<
           throw error;
         }
       }, close() {} } });
-    await server.start(); cleanup.push(() => server.stop()); endpoints.push(`ws://127.0.0.1:${server.getListeningPort()!}/`);
+    await server.start(); cleanup.push(() => server.stop());
+    endpoints.push(await network.protect('witness', `ws://127.0.0.1:${server.getListeningPort()!}/`));
   }
   const witnessSet = { version: 1 as const, quorum: 4 as const,
     members: witnesses.map((key, i) => ({ publicKey: Buffer.from(key.publicKey).toString('base64url'), endpoint: endpoints[i] })),
@@ -69,7 +71,7 @@ export async function prepareRealAppAdmission(directory: string, cleanup: Array<
               throw error;
             }
           } }); cleanup.push(listener.close); retained.push(listener);
-          members[j].endpoint = listener.checkpointEndpoint;
+          members[j].endpoint = await network.protect('admission-history', listener.checkpointEndpoint);
         }
         listeners.push(retained);
         history.close(); history = await openProtectedAdmissionSpendHistory(historyOptions); await history.ready();

@@ -184,6 +184,7 @@ The five-target placement goal remains conditional on enough eligible volunteers
     - [x] Check direct-listener certificate validity and advertised hostnames at startup; reject public-source connections to a cleartext listener
     - [x] Inventory production inbound/outbound socket paths and their remaining deployment checks in `docs/developers/v0.4-connection-audit.md`
     - [x] Verify 110 IPv4/IPv6 TLS boundary cases, complete private WSS delivery across certificate renewal/restart, and actual loopback TLS proxy rotation; correct Node IPv6 SAN validation without bypassing trust or date checks (`docs/developers/v0.4-connection-audit.md`)
+    - [x] Compose the real application with TLS on all 67 peer endpoints, pass nine checkpoints and six paired searches, and measure encrypted TCP stream bytes including handshakes; record 38.96 MB and 5,563 connections without claiming Internet or energy validation (`docs/evals/v04-protected-app-tls-2026-10-18.md`)
 - [ ] Add challenge-response connection authentication with nonces and replay protection
   - [x] Bind each signed relay-link opening to a fresh nonce issued on that receiving socket; reject a captured opening on a second socket
 - [ ] Verify relay and peer signatures on acknowledgements, matches, inventories, receipts, and forwarded operations
