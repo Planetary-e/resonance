@@ -2,7 +2,7 @@ import { MAX_ADMISSION_POLICY_BYTES } from '@resonance/core/admission-policy';
 /** Community permits and durable batch approval. Enrolled issuers collect fresh
  * public policy metadata from pinned volunteers only during explicit commands. */
 import { existsSync, writeFileSync } from 'node:fs';
-import { openAdmissionIssuerLedger } from '../packages/node/src/admission-issuer-ledger.js';
+import { openAdmissionIssuerLedger, approveAdmissionIssuerBatch } from '../packages/node/src/admission-issuer-ledger.js';
 import { readOperatorFile } from '../packages/relay/src/admission-operator-files.js';
 import { collectAdmissionPolicyObservation } from '../packages/relay/src/admission-policy-observation.js';
 import { ADMISSION_POLICY_ADVANCE_MAX_BYTES } from '@resonance/core/admission-policy-advance';
@@ -70,7 +70,7 @@ async function main() {
       writeFileSync(output!, JSON.stringify(invitation) + '\n', { flag: 'wx', mode: 0o600 });
       console.log(`Permit for ${invitation.count} tokens saved. Keep it private; give it to one eligible recipient.`);
     } else if (command === 'issue') {
-      const response = await ledger.approve(permit, request, await observation());
+      const response = await approveAdmissionIssuerBatch(ledger, permit, request, observation);
       writeFileSync(output!, JSON.stringify(response) + '\n', { flag: 'wx', mode: 0o600 });
       console.log(`Approved ${response.responses.length} blinded tokens. Exact response saved; retries do not use more allowance.`);
     } else console.log(JSON.stringify(ledger.status()));

@@ -8,7 +8,7 @@ import { admissionKeyFingerprint, signAdmissionPolicy, type AdmissionWalletProfi
 import { admissionPolicyHead, createAdmissionPolicyAdvance } from '@resonance/core/admission-policy-advance';
 import { createAdmissionPolicyHeadVote, parseAdmissionPolicyObservers, type AdmissionPolicyHead } from '@resonance/core/admission-policy-freshness';
 import { ADMISSION_POLICY_QUERY_REPLY_TYPE } from '@resonance/core/admission-policy-query';
-import { openAdmissionIssuerLedger } from '../admission-issuer-ledger.js';
+import { openAdmissionIssuerLedger, approveAdmissionIssuerBatch } from '../admission-issuer-ledger.js';
 import { createAdmissionIssuanceBatch } from '../blind-admission-issuance.js';
 
 let keys: CryptoKeyPair, profile: AdmissionWalletProfileV1;
@@ -76,9 +76,40 @@ it('retains a batch reservation if its observation expires during signing and re
   const n = await fixture(), permit = n.ledger.grant(n.proof()), batch = await createAdmissionIssuanceBatch(profile, 1), proof = n.proof();
   const pending = n.ledger.approve(permit, batch.request, proof); n.clock(proof.certificate.votes[0].request.expiresAt);
   await expect(pending).rejects.toThrow('observation expired');
-  expect(n.ledger.status()).toMatchObject({ allocatedPermits: 1, boundPermits: 1, completedPermits: 0 }); await n.reopen();
+  expect(n.ledger.status()).toMatchObject({ allocatedPermits: 1, boundPermits: 1, completedPermits: 0, preparedPermits: 1 }); await n.reopen();
   const other = await createAdmissionIssuanceBatch(profile, 1);
   await expect(n.ledger.approve(permit, other.request)).rejects.toThrow('already bound');
+  const signing = vi.spyOn(publicVerif.Issuer.prototype, 'issue');
   expect(await batch.finalize(await n.ledger.approve(permit, batch.request, n.proof()))).toHaveLength(1);
+  expect(signing).not.toHaveBeenCalled(); expect(n.ledger.status()).toMatchObject({ preparedPermits: 0, completedPermits: 1 });
   n.ledger.preparePolicyObservation(); n.ledger.cancelPolicyObservation(); expect(() => n.ledger.grant()).toThrow('new issuer policy observation');
+});
+
+it('does not promote prepared signatures after issuance closes even while approved-response recovery would be allowed', async () => {
+  const n = await fixture(), permit = n.ledger.grant(n.proof()), batch = await createAdmissionIssuanceBatch(profile, 1), proof = n.proof();
+  const pending = n.ledger.approve(permit, batch.request, proof); n.clock(proof.certificate.votes[0].request.expiresAt);
+  await expect(pending).rejects.toThrow('observation expired'); await n.reopen();
+  n.clock(n.body.keys[0].issueUntil);
+  const signing = vi.spyOn(publicVerif.Issuer.prototype, 'issue');
+  await expect(n.ledger.approve(permit, batch.request, n.proof())).rejects.toThrow('retired or inactive');
+  expect(signing).not.toHaveBeenCalled(); expect(n.ledger.status()).toMatchObject({ preparedPermits: 1, completedPermits: 0, boundPermits: 1 });
+});
+
+it.each([false, true])('refreshes slow batch approval once, without resigning or bypassing a newer quorum head (%s)', async newer => {
+  const n = await fixture(), permit = n.ledger.grant(n.proof()), batch = await createAdmissionIssuanceBatch(profile, 1);
+  const original = publicVerif.Issuer.prototype.issue;
+  const signing = vi.spyOn(publicVerif.Issuer.prototype, 'issue').mockImplementation(async function (this: InstanceType<typeof publicVerif.Issuer>, ...args) {
+    const response = await Reflect.apply(original, this, args); n.clock(n.body.issuedAt + 5000); return response;
+  });
+  let observations = 0;
+  const observe = async () => n.proof(++observations === 2 && newer ? n.advance.commitment.next : n.context.genesis);
+  const result = approveAdmissionIssuerBatch(n.ledger, permit, batch.request, observe);
+  if (newer) {
+    await expect(result).rejects.toThrow('newer');
+    expect(n.ledger.status()).toMatchObject({ preparedPermits: 1, completedPermits: 0 });
+  } else {
+    expect(await batch.finalize(await result)).toHaveLength(1);
+    expect(n.ledger.status()).toMatchObject({ preparedPermits: 0, completedPermits: 1 });
+  }
+  expect(observations).toBe(2); expect(signing).toHaveBeenCalledTimes(1);
 });

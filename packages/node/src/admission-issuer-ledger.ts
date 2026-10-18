@@ -16,14 +16,17 @@ export interface AdmissionIssuancePermit {
   keyFingerprint: string; count: number; secret: string;
 }
 export interface AdmissionIssuerPolicy { batchSize: number; maxPermits: number }
-interface Entry { permitHash: string; batchId?: string; response?: AdmissionIssuanceResponse }
+interface Entry { permitHash: string; batchId?: string; preparedResponse?: AdmissionIssuanceResponse; response?: AdmissionIssuanceResponse }
 interface Totals { allocatedPermits: number; boundPermits: number; completedPermits: number }
 interface BaseState { profile: AdmissionWalletProfileV1; policy: AdmissionIssuerPolicy; entries: Entry[]; communityPolicy?: SignedAdmissionPolicy; freshness?: AdmissionPolicyTrust }
-type State = (BaseState & { version: 1 }) | (BaseState & {
+type State = (BaseState & { version: 1 | 3 }) | (BaseState & {
   version: 2; communityPolicy: SignedAdmissionPolicy; retirement: Totals & { retiredAt: number };
 });
 const DOMAIN = 'resonance:admission-issuer-ledger:v1';
 const MAX_BYTES = 8 * 1024 * 1024;
+export class IssuerPolicyObservationExpiredError extends Error {
+  constructor() { super('Issuer policy observation expired; collect a new observation for the exact reserved batch'); this.name = 'IssuerPolicyObservationExpiredError'; }
+}
 const hex = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 function exact(value: unknown, keys: string[]): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).sort().join(',') === keys.sort().join(',');
@@ -48,7 +51,7 @@ function validState(value: unknown, profile: AdmissionWalletProfileV1): value is
   if (!exact(value, ['version', 'profile', 'policy', 'entries',
     ...(version === 2 || (value as State)?.communityPolicy ? ['communityPolicy'] : []), ...(version === 2 ? ['retirement'] : []),
     ...((value as State)?.freshness ? ['freshness'] : [])])
-    || (version !== 1 && version !== 2)
+    || (version !== 1 && version !== 2 && version !== 3)
     || JSON.stringify(value.profile) !== JSON.stringify(profile)) return false;
   try { validatePolicy(value.policy); } catch { return false; }
   if (value.freshness) { try { if (!value.communityPolicy) return false; parseAdmissionPolicyTrust(value.freshness, value.communityPolicy as SignedAdmissionPolicy); } catch { return false; } }
@@ -63,15 +66,16 @@ function validState(value: unknown, profile: AdmissionWalletProfileV1): value is
   }
   const permits = new Set<string>(); const batches = new Set<string>();
   for (const entry of value.entries) {
-    if (!exact(entry, entry?.response !== undefined ? ['permitHash', 'batchId', 'response'] : entry?.batchId !== undefined ? ['permitHash', 'batchId'] : ['permitHash'])
+    if (!exact(entry, entry?.response !== undefined ? ['permitHash', 'batchId', 'response']
+      : version === 3 && entry?.preparedResponse !== undefined ? ['permitHash', 'batchId', 'preparedResponse'] : entry?.batchId !== undefined ? ['permitHash', 'batchId'] : ['permitHash'])
       || !hex(entry.permitHash) || permits.has(entry.permitHash)) return false;
     permits.add(entry.permitHash);
     if (entry.batchId !== undefined) {
       if (!hex(entry.batchId) || batches.has(entry.batchId)) return false;
       batches.add(entry.batchId);
     }
-    if (entry.response !== undefined) {
-      const response = entry.response;
+    if (entry.response !== undefined || entry.preparedResponse !== undefined) {
+      const response = entry.response ?? entry.preparedResponse;
       if (!exact(response, ['version', 'kind', 'batchId', 'responses']) || response.version !== 1 || response.kind !== 'admission-issuance-response'
         || response.batchId !== entry.batchId || !Array.isArray(response.responses) || response.responses.length !== value.policy.batchSize
         || response.responses.some(bytes => typeof bytes !== 'string' || bytes.length !== 342 || Buffer.from(bytes, 'base64url').length !== 256
@@ -141,10 +145,8 @@ export async function openAdmissionIssuerLedger(options: {
     const head = inspected.state.installed;
     const assertCurrent = () => {
       const retained = live().freshness, now = (options.now ?? Date.now)();
-      if (!retained || retained.conflict || !sameAdmissionPolicyHead(retained.installed, head) || !sameAdmissionPolicyHead(retained.observed, head)
-        || performance.now() >= pending.deadline || now < pending.query.request.issuedAt || now >= pending.query.request.expiresAt) {
-        throw new Error('Issuer policy observation expired or changed');
-      }
+      if (!retained || retained.conflict || !sameAdmissionPolicyHead(retained.installed, head) || !sameAdmissionPolicyHead(retained.observed, head)) throw new Error('Issuer policy observation changed');
+      if (performance.now() >= pending.deadline || now < pending.query.request.issuedAt || now >= pending.query.request.expiresAt) throw new IssuerPolicyObservationExpiredError();
     };
     assertCurrent(); return assertCurrent;
   }
@@ -237,7 +239,7 @@ export async function openAdmissionIssuerLedger(options: {
     },
     status() {
       const state = storage.read(), { policy, entries } = state, counts = totals(state), retired = state.version === 2;
-      return { ...policy, ...counts, permanentlyRetired: retired, retainedEntries: entries.length,
+      return { ...policy, ...counts, preparedPermits: entries.filter(entry => entry.preparedResponse).length, permanentlyRetired: retired, retainedEntries: entries.length,
         ...(state.freshness ? { policyFreshness: { requiresObservation: true, installedRevision: state.freshness.installed.revision,
           observedRevision: state.freshness.observed.revision, conflict: !!state.freshness.conflict } } : {}),
         remainingPermits: retired ? 0 : policy.maxPermits - counts.allocatedPermits,
@@ -272,10 +274,17 @@ export async function openAdmissionIssuerLedger(options: {
         // Reserve the ENTIRE batch before the first blind signature. A crash or lost
         // output leaves only this exact batch eligible. Nothing ever refunds its allowance.
         if (!entry.batchId) storage.write({ ...state, entries: state.entries.map((item, i) => i === index ? { ...item, batchId: request.batchId } : item) });
-        const response = await issuer.issue(request);
+        const response = entry.preparedResponse ?? await issuer.issue(request);
+        if (state.freshness && !entry.preparedResponse) {
+          // Keep completed crypto private across an expired observation or a
+          // crash. Prepared signatures are NOT an approved cached response:
+          // promotion still needs a fresh quorum and the active issuance window.
+          const reserved = live();
+          storage.write({ ...reserved, version: 3, entries: reserved.entries.map((item, i) => i === index ? { ...item, preparedResponse: response } : item) });
+        }
         checkPolicy(); assertCurrent();
         const reserved = storage.read(); // Lock/close during crypto must prevent output.
-        storage.write({ ...reserved, entries: reserved.entries.map((item, i) => i === index ? { ...item, response } : item) });
+        storage.write({ ...reserved, entries: reserved.entries.map((item, i) => i === index ? { permitHash: item.permitHash, batchId: request.batchId, response } : item) });
         assertCurrent();
         return structuredClone(response); // Only a durably cached response may leave this boundary.
       } finally { busy = false; }
@@ -284,3 +293,14 @@ export async function openAdmissionIssuerLedger(options: {
   };
 }
 export type AdmissionIssuerLedger = Awaited<ReturnType<typeof openAdmissionIssuerLedger>>;
+
+/** One explicit signing command may refresh an expired observation once. It
+ * never retries changed policy, missing quorum, storage errors or another batch. */
+export async function approveAdmissionIssuerBatch(ledger: AdmissionIssuerLedger, permit: unknown, request: unknown, observe: () => Promise<unknown>) {
+  const originalPermit = structuredClone(permit), originalRequest = structuredClone(request);
+  try { return await ledger.approve(originalPermit, originalRequest, await observe()); }
+  catch (error) {
+    if (!(error instanceof IssuerPolicyObservationExpiredError)) throw error;
+    return ledger.approve(originalPermit, originalRequest, await observe());
+  }
+}

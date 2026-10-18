@@ -11,7 +11,7 @@ import { parseArgs } from 'node:util';
 import WebSocket from 'ws';
 import { env } from '@huggingface/transformers';
 
-const { values } = parseArgs({ options: { child: { type: 'boolean' }, out: { type: 'string' } } });
+const { values } = parseArgs({ options: { child: { type: 'boolean' }, 'protected-policy': { type: 'boolean' }, out: { type: 'string' } } });
 env.allowRemoteModels = false;
 const wire: string[] = []; let frameBytes = 0;
 const originalSend = WebSocket.prototype.send;
@@ -51,6 +51,7 @@ if (values.child) {
   const { signAdmissionPolicy, admissionKeyFingerprint } = await import('@resonance/core/admission-policy');
   const { createRelayServer, createConfiguredAdmissionVerifier } = await import('@resonance/relay');
   const { openAdmissionIssuerLedger } = await import('@resonance/node');
+  const { approveAdmissionIssuerBatch } = await import('../packages/node/src/admission-issuer-ledger.js');
   const { createRelayTestEndpoints } = await import('../packages/relay/src/__tests__/fixtures/relay-test-endpoint.js');
   const root = fileURLToPath(new URL('../', import.meta.url)), directory = mkdtempSync(join(tmpdir(), 'resonance-real-app-'));
   const processes: ChildProcess[] = [], cleanup: Array<() => void | Promise<void>> = [];
@@ -79,13 +80,17 @@ if (values.child) {
     const authorityKeys = generateSigningKeyPair(), authority = Buffer.from(authorityKeys.publicKey).toString('base64url'), now = Date.now();
     const policy = await signAdmissionPolicy({ version: 1, kind: 'admission-policy', revision: 1, issuedAt: now - 1000, expiresAt: now + 3600000,
       activeKey: admissionKeyFingerprint(profile.issuerPublicKey), keys: [{ profile, notBefore: now - 1000, issueUntil: now + 1800000, spendUntil: now + 2400000, retryUntil: now + 3000000 }] }, authority, authorityKeys.secretKey);
-    const verifier = await createConfiguredAdmissionVerifier({ directory: join(directory, 'destination'), authority, policy, encryptionKey: randomBytes(32), initialize: true });
-    cleanup.push(verifier.close);
+    const protectedPolicy = values['protected-policy']
+      ? await (await import('./fixtures/real-app-policy-observers.js')).realAppPolicyObservers(join(directory, 'policy'), policy, cleanup) : undefined;
+    const verifier = await createConfiguredAdmissionVerifier({ directory: join(directory, 'destination'), authority, policy, encryptionKey: randomBytes(32), initialize: true,
+      policyObservers: protectedPolicy?.context });
+    cleanup.push(async () => { verifier.close(); await verifier.drainPolicyObservations(); });
     const spends: Array<{ action: string; binding: string; token: string; serialized: string; status: string }> = [];
     const discovery = (endpoint: string) => ({ endpoints: [endpoint], reachability: 'direct' as const, supportedGroups: ['public'], storage: { capacityBytes: 4000000, availableBytes: 3000000 }, maxKnownRelays: 8 });
     const entry = createRelayServer({ port: 0, host: '127.0.0.1', persistDir: join(directory, 'entry'), relayDiscovery: discovery(entryUrl) });
     await entry.start(); cleanup.push(() => entry.stop()); entryAddress.forwardTo(entry.getListeningPort()!);
     const destination = createRelayServer({ port: 0, host: '::1', persistDir: join(directory, 'destination'), relayDiscovery: discovery(destinationUrl),
+      policyQuery: protectedPolicy?.query,
       admissionVerifier: { async verifyAndSpend(capability, context) {
         const decision = await verifier.verifyAndSpend(capability, context);
         spends.push({ action: context.action, binding: context.requestBinding, token: capability.token, serialized: JSON.stringify(capability), status: decision.status });
@@ -94,7 +99,14 @@ if (values.child) {
     await destination.start(); cleanup.push(() => destination.stop()); destinationAddress.forwardTo(destination.getListeningPort()!);
     assert.equal(entry.observeRelayDescriptor(destination.getRelayDescriptor()!), 'accepted');
     const issuer = await openAdmissionIssuerLedger({ path: join(directory, 'issuer.json'), expectedProfile: profile, privateKey: keys.privateKey, create: { batchSize: 16, maxPermits: 2 } });
-    cleanup.push(issuer.close); await issuer.installPolicy(policy, authority);
+    cleanup.push(issuer.close); await issuer.installPolicy(policy, authority, { observers: protectedPolicy?.context });
+    async function issuerProof() {
+      if (!protectedPolicy) return undefined;
+      const prepared = issuer.preparePolicyObservation();
+      const { collectAdmissionPolicyObservation } = await import('../packages/relay/src/admission-policy-observation.js');
+      return { version: 1 as const, type: 'admission_policy_query_reply' as const,
+        certificate: await collectAdmissionPolicyObservation({ context: protectedPolicy.context, request: prepared.query.request }) };
+    }
     async function startApp(name: string) {
       const child = fork(fileURLToPath(import.meta.url), ['--child'], { cwd: root, execArgv: ['--import', import.meta.resolve('tsx')],
         env: { ...process.env, RESONANCE_DATA_DIR: join(directory, name), RESONANCE_EVAL_DESTINATION: destinationUrl,
@@ -104,15 +116,16 @@ if (values.child) {
       child.stderr?.on('data', bytes => { diagnostic = (diagnostic + bytes.toString()).slice(-4096); });
       let ready: { port: number }; try { ready = await waitMessage(child, 'ready'); } catch (error) { throw new Error(`${name}: ${error}; ${diagnostic}`); }
       let auth = ''; const base = `http://127.0.0.1:${ready.port}`, password = `evaluation-only-${name}-${randomBytes(16).toString('hex')}`;
-      async function request(path: string, body?: unknown) {
+      async function request(path: string, body?: unknown, expectedStatus = 200) {
         const response = await fetch(base + path, { method: body === undefined ? 'GET' : 'POST', signal: AbortSignal.timeout(90000),
           headers: { authorization: `Bearer ${auth}`, 'content-type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
-        const data = await response.json(); assert.equal(response.status, 200, `${name} ${path}: ${JSON.stringify(data)}`); return data;
+        const data = await response.json(); assert.equal(response.status, expectedStatus, `${name} ${path}: ${JSON.stringify(data)}`); return data;
       }
       await request('/api/init', { password }); auth = (await request('/api/unlock', { password })).token;
       await request('/api/admission-wallet/configure', profile);
+      if (protectedPolicy) await request('/api/admission-wallet/policy', { policy, authority, observers: protectedPolicy.context });
       const pending = (await request('/api/admission-wallet/request', { count: 16 })).request;
-      const permit = issuer.grant(), response = await issuer.approve(permit, pending);
+      const permit = issuer.grant(await issuerProof()), response = await approveAdmissionIssuerBatch(issuer, permit, pending, issuerProof);
       assert.equal((await request('/api/admission-wallet/complete', response)).imported, 16);
       async function snapshot(): Promise<Snapshot> { const pending = waitMessage(child, 'snapshot'); child.send('snapshot'); return pending; }
       async function relock() { await request('/api/lock', {}); auth = (await request('/api/unlock', { password })).token; }
@@ -143,6 +156,15 @@ if (values.child) {
       assert.equal((await app.request('/api/matches')).length, count, 'Mailbox reread duplicated a match');
     }
     passed('Both applications decrypt and retain match notices; lock/unlock plus another mailbox check does not duplicate them');
+    if (protectedPolicy) {
+      const before = await alice.request('/api/admission-wallet'), beforeSpends = spends.length;
+      await protectedPolicy.loseHistoryQuorums();
+      const refusal = await alice.request('/api/search', { text: texts[2], type: 'need' }, 503);
+      assert.equal(typeof refusal.error, 'string');
+      assert.equal((await alice.request('/api/admission-wallet')).available, before.available);
+      assert.equal(spends.length, beforeSpends);
+      passed('Protected observer history quorum loss refuses an actual app search before reserving or redeeming another token');
+    }
     const snapshots = [await alice.snapshot(), await bob.snapshot()], allWire = [...wire, ...snapshots.flatMap(s => s.wire)];
     for (const snapshot of snapshots) {
       assert(allWire.every(frame => !frame.includes(snapshot.did)), 'Account identity leaked to a network frame');
@@ -162,13 +184,15 @@ if (values.child) {
     const cpu = process.cpuUsage(cpuStart);
     report = { measuredAt: new Date().toISOString(), checkpoints, model: 'nomic-ai/nomic-embed-text-v1', dtype: 'fp32', remoteModelDownloads: false,
       applicationProcesses: 2, published: 3, mailboxMatchCounts: mailboxCounts, distinctRequestBindings: bindings.size, distinctSpentTokens: tokenBindings.size,
+      protectedPolicy: protectedPolicy ? { observers: 5, durableHistories: 25, privateQueries: protectedPolicy.queries(), issuerAndRelayFreshness: true, quorumLossRefusedBeforeSpend: true } : null,
       actions: Object.fromEntries([...new Set(spends.map(s => s.action))].map(action => [action, spends.filter(s => s.action === action).length])),
       resources: { durationMs: Math.round(performance.now() - started), websocketPayloadBytes: frameBytes + snapshots.reduce((n, s) => n + s.frameBytes, 0),
         parentPeakRssBytes: process.resourceUsage().maxRSS * 1024, applicationPeakRssBytes: snapshots.map(s => s.peakRssBytes),
         cpuSeconds: (cpu.user + cpu.system) / 1e6 + snapshots.reduce((n, s) => n + s.cpuSeconds, 0), node: process.version, platform: process.platform, architecture: process.arch },
       limitations: ['Local IPv4/IPv6 loopback domains on one computer; not independent operators, Internet or TLS deployment.',
         'Actual desktop backend APIs and embeddings; no graphical user interaction or native installer is certified.',
-        'Signed manual policy and real blinded tokens with a durable local issuer; observer freshness, quorum spends and eligibility distribution are tested separately, not composed here.',
+        protectedPolicy ? 'Five protected observers with 25 local durable histories, issuer/relay freshness and private wallet checks are composed here; spend-witness quorum durability and eligibility distribution remain separate.'
+          : 'Signed manual policy and real blinded tokens with a durable local issuer; observer freshness, quorum spends and eligibility distribution are tested separately, not composed here.',
         'Account/credential-field separation is not timing or content unlinkability; static fingerprints and match relationships remain observable to the destination.',
         'Wire payload counts exclude TCP/TLS/WebSocket headers; per-process peak RSS values are not simultaneous total memory and CPU time is not energy.',
         'Two concurrent model processes on this host; representative hardware and cold first-download experience remain unmeasured.'] };
