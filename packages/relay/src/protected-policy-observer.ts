@@ -174,6 +174,13 @@ export async function openProtectedPolicyObserver(options: {
     if (existsSync(fencePath)) { const marker = openFence('open-existing'); marker.close(); fenced = true; }
   } catch (error) { close(); throw error; }
   return {
+    /** Aggregate local observations: no history replay, copies of policy content,
+     * signatures or network probes. This does not establish a current quorum. */
+    health() {
+      const { state, saved } = retained(); let policyCurrent = true;
+      try { assertAdmissionPolicyCurrent(state.policy, now()); } catch { policyCurrent = false; }
+      return { pending: saved.pending !== null, policyCurrent, blocked: state.conflict !== null, fenced, ...writer!.historyUsage() };
+    },
     status() {
       const { state, saved } = retained();
       return { head: structuredClone(policyObserverStateHead(state, context)), blocked: state.conflict !== null,

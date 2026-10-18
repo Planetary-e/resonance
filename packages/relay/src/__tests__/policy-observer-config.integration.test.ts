@@ -67,6 +67,25 @@ it('requires four current copies before listening, performs signed operations an
   const reopened = await openConfiguredPolicyObserver(n.config); cleanup.push(reopened.close); expect(reopened.policy()).toEqual(n.second);
 });
 
+it('reports local policy expiry and retained conflicts without making fresh network requests', async () => {
+  const n = await fixture(); let now: number | undefined, calls = 0;
+  const service = await serveConfiguredPolicyObserver(n.config, { now: () => now ?? Date.now(),
+    transport: (...args) => { calls++; return n.transport(...args); } }); cleanup.push(service.close);
+  const before = calls;
+  expect(service.health()).toMatchObject({ listening: true, policyCurrent: true, blocked: false, fenced: false, pending: false });
+  now = n.first.expiresAt;
+  expect(service.health()).toMatchObject({ listening: true, policyCurrent: false }); expect(calls).toBe(before);
+  now = undefined;
+  const member = { publicKey: n.enrolled.context.owner, endpoint: service.endpoint };
+  const invoke = (advance: typeof n.advance) => exchangeAdmissionPolicyObservation(member,
+    { request: createAdmissionPolicyHeadRequest(n.context), advance }, AbortSignal.timeout(10000));
+  await invoke(n.advance); await expect(invoke(n.conflict)).rejects.toThrow();
+  const after = calls, health = service.health();
+  expect(health).toMatchObject({ listening: true, policyCurrent: true, blocked: true, pending: false, retainedBlocks: 3 });
+  expect(calls).toBe(after); expect(health).not.toHaveProperty('evidence'); expect(health).not.toHaveProperty('head');
+  await service.close(); expect(() => service.health()).toThrow('closed');
+});
+
 it('refuses blocked and locally fenced observers on startup while retaining inspectable evidence', async () => {
   const n = await fixture(), observer = await openConfiguredPolicyObserver(n.config); cleanup.push(observer.close);
   await observer.advance(n.advance); await expect(observer.advance(n.conflict)).rejects.toThrow('equivocated'); observer.close();
@@ -114,6 +133,7 @@ it('waits for an admitted update during shutdown even after its client loses the
   const rejected = response.catch(error => error); await admitted;
   let closed = false; const closing = service.close().then(() => { closed = true; });
   await Promise.resolve(); expect(closed).toBe(false);
+  expect(service.health()).toMatchObject({ listening: false, pending: true });
   try { await expect(openConfiguredPolicyObserver(n.config)).rejects.toThrow(/owned|lock|already open/); }
   finally { release(); }
   await closing; expect(await rejected).toBeInstanceOf(Error);

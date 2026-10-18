@@ -1,6 +1,26 @@
 import { expect, it, vi } from 'vitest';
 import { parseRelayHistoryHealth, readRelayHistoryHealth } from '../history-health.js';
 
+it('reports an optional observer without disclosing policy heads, keys or conflict evidence', () => {
+  const usage = { pending: false, listening: true, policyCurrent: true, blocked: false, fenced: false,
+    retainedBlocks: 2, retainedCiphertextBytes: 800, maximumBlocks: 100, maximumCiphertextBytes: 16000000 };
+  const privateUsage = { ...usage, head: { revision: 2, digest: 'private-head' }, evidence: ['private-policy'], key: 'private-key', endpoint: 'private-endpoint' };
+  const expected = { owner: null, volunteer: null, transport: null };
+  expect(readRelayHistoryHealth({ ownerConfigured: false, observerConfigured: true })).toEqual({ ...expected, observer: { state: 'starting' } });
+  expect(readRelayHistoryHealth({ ownerConfigured: false, observerConfigured: true,
+    observer: () => { throw new Error('private path'); } })).toEqual({ ...expected, observer: { state: 'unavailable' } });
+  const result = readRelayHistoryHealth({ ownerConfigured: false, observerConfigured: true, observer: () => privateUsage });
+  expect(result).toEqual({ ...expected, observer: { state: 'available', usage } });
+  expect(JSON.stringify(result)).not.toContain('private');
+  expect(readRelayHistoryHealth({ ownerConfigured: false, observer: () => privateUsage })).toEqual(expected);
+  expect(parseRelayHistoryHealth({ ...expected, observer: null })).toEqual({ ...expected, observer: null });
+  for (const [field, value] of [['retainedBlocks', -1], ['retainedCiphertextBytes', Infinity], ['maximumBlocks', 1.5],
+    ['maximumCiphertextBytes', '8'], ['pending', null], ['listening', 'true'], ['policyCurrent', undefined], ['blocked', 0], ['fenced', []]]) {
+    expect(parseRelayHistoryHealth({ ...expected, observer: { state: 'available', usage: { ...usage, [field as string]: value } } })?.observer)
+      .toEqual({ state: 'unavailable' });
+  }
+});
+
 it('distinguishes unopened, absent and unavailable roles without returning private error details', () => {
   const failed = vi.fn(() => { throw new Error('private owner-key.json and peer activity'); });
   expect(readRelayHistoryHealth({ ownerConfigured: true })).toEqual({ owner: { state: 'starting' }, volunteer: null, transport: null });

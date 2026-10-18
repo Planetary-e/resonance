@@ -152,6 +152,7 @@ const policyObserverFile = process.env.RELAY_POLICY_OBSERVER_FILE;
 const policyObserverLinksFile = process.env.RELAY_POLICY_OBSERVER_LINKS_FILE;
 if (policyObserverLinksFile && !policyObserverFile) throw new Error('Policy observer relay links require RELAY_POLICY_OBSERVER_FILE');
 const policyObserverConfig = policyObserverFile ? readPolicyObserverConfigurationFile(policyObserverFile) : undefined;
+let observerService: Awaited<ReturnType<typeof serveConfiguredPolicyObserver>> | undefined;
 if (historyLinksFile && !historyFile) throw new Error('History relay links require RELAY_ADMISSION_HISTORY_FILE');
 if (historyFile && !policyFiles.every(Boolean)) throw new Error('Protected history requires all three signed admission policy files');
 function policyFile(path: string, maximum = 64 * 1024) { if (statSync(path).size > maximum) throw new Error('Admission policy input is too large'); return readFileSync(path, 'utf8'); }
@@ -249,6 +250,7 @@ try {
     resourceMeter,
     historyLinks: historyRouter,
     historyHealth: () => readRelayHistoryHealth({ ownerConfigured: !!historyFile, owner: admissionHistoryHealth,
+      observerConfigured: !!policyObserverConfig, observer: observerService?.health,
       volunteer: historyVolunteer?.health, transport: historyRouter ? () => historyRouter!.health() : undefined }),
     adminApiKey: process.env.RELAY_ADMIN_API_KEY || null,
     acceptNewWork: ownerPolicy ? bytes => ownerPolicy.allowNewWork(bytes) : undefined,
@@ -287,7 +289,6 @@ let lan: Awaited<ReturnType<typeof startLanDiscovery>> | null = null;
 let shuttingDown = false;
 let opening: Promise<void> | undefined;
 const observerLifetime = new AbortController();
-let observerService: Awaited<ReturnType<typeof serveConfiguredPolicyObserver>> | undefined;
 let observerOpening: Promise<void> | undefined;
 async function shutdown(code: number) {
   if (shuttingDown) return; shuttingDown = true;

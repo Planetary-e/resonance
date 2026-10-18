@@ -12,6 +12,7 @@ import { readOperatorFile, readOperatorSigningKey, readOperatorStorageKey } from
 import { openProtectedPolicyObserver } from './protected-policy-observer.js';
 import { createAdmissionPolicyObserverExchange, listenAdmissionPolicyObserver } from './admission-policy-observation-transport.js';
 import type { HistoryCheckpointTransport } from './history-checkpoint-exchange.js';
+import type { PolicyObserverHealth } from './history-health.js';
 
 export const POLICY_OBSERVER_CONFIGURATION_MAX_BYTES = 2 * HISTORY_ENVELOPE_MAX_BYTES + 64 * 1024;
 export function parsePolicyObserverMemberPins(value: unknown, keys: readonly string[]) {
@@ -114,6 +115,9 @@ export async function serveConfiguredPolicyObserver(value: PolicyObserverConfigu
     listener = await listenAdmissionPolicyObserver(createAdmissionPolicyObserverExchange(observer, config.context, options.now),
       { ...config.listen, onSocket: options.onSocket, acceptNewWork: options.acceptNewWork });
     if (signal?.aborted || closing) { await listener.close(); observer.close(); cancelled(); }
-    return { endpoint: listener.endpoint, status: () => observer!.status(), close };
+    return { endpoint: listener.endpoint, status: () => observer!.status(), close,
+      health(): PolicyObserverHealth {
+        return { ...observer!.health(), listening: !closing };
+      } };
   } catch (error) { await close(); throw error; }
 }

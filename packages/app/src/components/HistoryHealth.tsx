@@ -2,10 +2,22 @@ import type { RelayHistoryHealth } from '@resonance/relay';
 
 const mib = (bytes: number) => (bytes / 1048576).toFixed(2);
 export default function HistoryHealth({ health }: { health: RelayHistoryHealth | null | undefined }) {
-  if (!health || (!health.owner && !health.volunteer && !health.transport)) return null;
-  const { owner, volunteer, transport } = health;
+  if (!health || (!health.owner && !health.volunteer && !health.transport && !health.observer)) return null;
+  const { owner, volunteer, transport, observer } = health;
   return <section className="relay-section" aria-label="History contribution">
     <h4>History contribution</h4>
+    {observer?.state === 'starting' && <p role="status">Policy observer is starting. Its listener is not ready.</p>}
+    {observer?.state === 'unavailable' && <p role="status">Policy observer status is unavailable. Retain its history for inspection.</p>}
+    {observer?.state === 'available' && <>
+      <p role="status">{observer.usage.blocked ? 'Policy observer retains conflicting signed policies and cannot certify a current policy.'
+        : observer.usage.fenced ? 'This observer location was retired by recovery.'
+          : !observer.usage.policyCurrent ? 'Policy observer needs a current signed policy.'
+            : !observer.usage.listening ? 'Policy observer is stopping; accepted work is draining.'
+              : 'Policy observer is listening. Each observation still requires four current history copies.'}</p>
+      {observer.usage.pending && <p>An unfinished policy update is retained for an exact retry.</p>}
+      <p className="text-sm">Observer history: {observer.usage.retainedBlocks} / {observer.usage.maximumBlocks} blocks,
+        {' '}{mib(observer.usage.retainedCiphertextBytes)} / {mib(observer.usage.maximumCiphertextBytes)} MiB of encrypted payloads.</p>
+    </>}
     {owner?.state === 'starting' && <p role="status">Preparing your protected history.</p>}
     {owner?.state === 'unavailable' && <p role="status">Your history status is unavailable. Checking status does not clear saved history.</p>}
     {owner?.state === 'available' && <>

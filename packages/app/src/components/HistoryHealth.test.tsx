@@ -3,6 +3,27 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import HistoryHealth from './HistoryHealth.js';
 import type { RelayHistoryHealth } from '@resonance/relay';
 
+it('distinguishes observer startup and local policy failures without implying a current remote quorum', () => {
+  const health: RelayHistoryHealth = { owner: null, volunteer: null, transport: null, observer: { state: 'starting' } };
+  expect(renderToStaticMarkup(<HistoryHealth health={health} />)).toContain('Its listener is not ready');
+  health.observer = { state: 'unavailable' };
+  expect(renderToStaticMarkup(<HistoryHealth health={health} />)).toContain('Retain its history for inspection');
+  const usage = { pending: false, listening: true, policyCurrent: true, blocked: false, fenced: false,
+    retainedBlocks: 2, retainedCiphertextBytes: 800, maximumBlocks: 100, maximumCiphertextBytes: 16000000 };
+  health.observer = { state: 'available', usage };
+  const html = renderToStaticMarkup(<HistoryHealth health={health} />);
+  expect(html).toContain('Each observation still requires four current history copies');
+  expect(html).toContain('Observer history: 2 / 100 blocks'); expect(html).toContain('do not confirm current remote copies');
+  for (const [change, text] of [
+    [{ pending: true }, 'unfinished policy update'], [{ listening: false }, 'accepted work is draining'],
+    [{ policyCurrent: false }, 'needs a current signed policy'], [{ blocked: true }, 'conflicting signed policies'],
+    [{ fenced: true }, 'retired by recovery'],
+  ] as const) {
+    health.observer = { state: 'available', usage: { ...usage, ...change } };
+    expect(renderToStaticMarkup(<HistoryHealth health={health} />)).toContain(text);
+  }
+});
+
 it('explains local retention, unfinished work and unknown observations without reporting a live quorum', () => {
   const health: RelayHistoryHealth = {
     owner: { state: 'available', usage: { initialized: true, busy: false, pending: true,

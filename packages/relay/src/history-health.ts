@@ -4,6 +4,9 @@ export interface HistoryOwnerHealth {
   retainedBlocks: number; retainedCiphertextBytes: number;
   maximumBlocks: number; maximumCiphertextBytes: number;
 }
+export interface PolicyObserverHealth extends Omit<HistoryOwnerHealth, 'initialized' | 'busy'> {
+  listening: boolean; policyCurrent: boolean; blocked: boolean; fenced: boolean;
+}
 export interface HistoryVolunteerHealth {
   /** Omitted by older single-history runtimes. Collection limits are sums. */
   histories?: number;
@@ -24,6 +27,7 @@ export interface HistoryTransportHealth {
 }
 export type HistoryRoleHealth<T> = { state: 'available'; usage: T } | { state: 'starting' | 'unavailable' };
 export interface RelayHistoryHealth {
+  observer?: HistoryRoleHealth<PolicyObserverHealth> | null;
   owner: HistoryRoleHealth<HistoryOwnerHealth> | null;
   volunteer: HistoryRoleHealth<HistoryVolunteerHealth> | null;
   transport: HistoryRoleHealth<HistoryTransportHealth> | null;
@@ -37,9 +41,11 @@ function observe<T>(configured: boolean, read?: () => T): HistoryRoleHealth<T> |
 /** Never return errors, pins, roots, payloads, keys, request bindings or peer lists. */
 export function readRelayHistoryHealth(options: {
   ownerConfigured: boolean; owner?: () => HistoryOwnerHealth;
+  observerConfigured?: boolean; observer?: () => PolicyObserverHealth;
   volunteer?: () => HistoryVolunteerHealth; transport?: () => HistoryTransportHealth;
 }): RelayHistoryHealth {
-  return parseRelayHistoryHealth({ owner: observe(options.ownerConfigured, options.owner), volunteer: observe(!!options.volunteer, options.volunteer),
+  return parseRelayHistoryHealth({ ...(options.observerConfigured ? { observer: observe(true, options.observer) } : {}),
+    owner: observe(options.ownerConfigured, options.owner), volunteer: observe(!!options.volunteer, options.volunteer),
     transport: observe(!!options.transport, options.transport) })!;
 }
 
@@ -78,6 +84,9 @@ export function parseRelayHistoryHealth(value: unknown): RelayHistoryHealth | nu
     else transport.usage.configuredLocalMembers = count;
   }
   return {
+    ...(Object.hasOwn(value, 'observer') ? { observer: role<PolicyObserverHealth>(value.observer,
+      ['retainedBlocks', 'retainedCiphertextBytes', 'maximumBlocks', 'maximumCiphertextBytes'],
+      ['pending', 'listening', 'policyCurrent', 'blocked', 'fenced']) } : {}),
     owner: role(value.owner, ['retainedBlocks', 'retainedCiphertextBytes', 'maximumBlocks', 'maximumCiphertextBytes'], ['initialized', 'busy', 'pending']),
     volunteer,
     transport,

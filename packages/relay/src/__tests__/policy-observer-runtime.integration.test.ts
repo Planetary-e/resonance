@@ -61,6 +61,10 @@ it('serves an existing observer through the ordinary background runtime, account
   expect((await observe(n, runtime.endpoint())).head.revision).toBe(1);
   expect((await observe(n, runtime.endpoint(), n.advance)).head.revision).toBe(2);
   const stats = await runtime.stats(); expect(stats.transport_ingress_bytes).toBeGreaterThan(0); expect(stats.transport_egress_bytes).toBeGreaterThan(0);
+  expect(stats.history.observer).toMatchObject({ state: 'available', usage: {
+    listening: true, policyCurrent: true, pending: false, blocked: false, fenced: false, retainedBlocks: 2 } });
+  expect(Object.keys(stats.history.observer.usage).sort()).toEqual(['blocked', 'fenced', 'listening', 'maximumBlocks',
+    'maximumCiphertextBytes', 'pending', 'policyCurrent', 'retainedBlocks', 'retainedCiphertextBytes']);
   await runtime.close(); if (process.platform !== 'win32') expect(runtime.child.exitCode).toBe(0);
   if (process.platform !== 'win32') {
     const usage = JSON.parse(readFileSync(join(n.identityDirectory, 'relay-resource-usage.json'), 'utf8'));
@@ -91,7 +95,9 @@ it('requires four reachable copies on startup and handles shutdown while outboun
   expect(insufficient.child.exitCode).toBe(1); expect(insufficient.endpoint()).toBe('');
   expect(insufficient.output()).toContain('policy_observer_startup_failed');
   await n.bridge.stop({ graceful: false });
-  const waiting = start(n); await waiting.listening(); const started = performance.now(); await waiting.close();
+  const waiting = start(n); await waiting.listening();
+  expect((await waiting.stats()).history.observer).toEqual({ state: 'starting' });
+  const started = performance.now(); await waiting.close();
   expect(performance.now() - started).toBeLessThan(10000); expect(waiting.endpoint()).toBe('');
   const retained = await openConfiguredPolicyObserver(readPolicyObserverConfigurationFile(n.configPath)); cleanup.push(retained.close);
   expect(retained.policy()).toEqual(n.first);
@@ -113,6 +119,7 @@ it('uses its own enrolled replica plus three remote volunteers without a self-li
   expect((await observe(n, runtime.endpoint(), n.advance)).head.revision).toBe(2);
   const stats = await runtime.stats(); expect(stats.history.volunteer).toMatchObject({ state: 'available', usage: { retainedBlocks: 2 } });
   expect(stats.history.transport).toMatchObject({ state: 'available', usage: { configuredLocalMembers: 1, configuredMembers: 5 } });
+  expect(stats.history.observer).toMatchObject({ state: 'available', usage: { listening: true, retainedBlocks: 2 } });
   await n.volunteers[2].stop({ graceful: false });
   await expect(observe(n, runtime.endpoint())).rejects.toThrow(); await runtime.close();
   const unavailable = start(n); await unavailable.exited; expect(unavailable.child.exitCode).toBe(1); expect(unavailable.endpoint()).toBe('');
