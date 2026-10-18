@@ -21,7 +21,8 @@
     "eval:witness-reconfiguration": "node --import tsx src/witness-reconfiguration.ts",
     "eval:history-checkpoints": "node --import tsx src/history-checkpoints.ts",
     "eval:history-successors": "node --import tsx src/history-successors.ts",
-    "eval:protected-roles": "node --import tsx src/protected-role-costs.ts"
+    "eval:protected-roles": "node --import tsx src/protected-role-costs.ts",
+    "eval:private-schedule-tls": "node --import tsx src/run-private-schedule-tls.ts"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.3.0",
