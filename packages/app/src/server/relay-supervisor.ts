@@ -33,6 +33,8 @@ const SERVICE_FILES = {
   admissionAuthorityFile: 'RELAY_ADMISSION_AUTHORITY_FILE',
   admissionPolicyFile: 'RELAY_ADMISSION_POLICY_FILE',
   admissionPolicyKeyFile: 'RELAY_ADMISSION_POLICY_KEY_FILE',
+  admissionObserversFile: 'RELAY_ADMISSION_OBSERVERS_FILE',
+  admissionPolicyAdvanceFile: 'RELAY_ADMISSION_POLICY_ADVANCE_FILE',
 } as const;
 type ServiceFile = keyof typeof SERVICE_FILES;
 export type RelayServiceRoleFiles = Partial<Record<ServiceFile, string>>;
@@ -72,6 +74,7 @@ function validateRoleFiles(files: RelayServiceRoleFiles): void {
   if (files.policyObserverLinksFile && !files.policyObserverFile) throw new Error('Policy observer links require an observer configuration');
   const policy = [files.admissionAuthorityFile, files.admissionPolicyFile, files.admissionPolicyKeyFile];
   if ((policy.some(Boolean) && !policy.every(Boolean)) || (files.admissionHistoryFile && !policy.every(Boolean))
+    || ((files.admissionObserversFile || files.admissionPolicyAdvanceFile) && !policy.every(Boolean))
     || ((files.admissionHistoryLinksFile || files.admissionHistoryDirectory) && !files.admissionHistoryFile)) {
     throw new Error('Protected admission requires its history and all three signed-policy files; relay links also require history');
   }

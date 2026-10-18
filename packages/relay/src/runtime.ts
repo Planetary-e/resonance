@@ -5,6 +5,9 @@
 import { readFileSync, statSync } from 'node:fs';
 import { createRelayContactHintV1 } from '@resonance/core';
 import { MAX_ADMISSION_POLICY_BYTES } from '@resonance/core/admission-policy';
+import { ADMISSION_POLICY_ADVANCE_MAX_BYTES } from '@resonance/core/admission-policy-advance';
+import { parseAdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
+import { readOperatorJson } from './admission-operator-files.js';
 import { copyAdmissionSigningKey } from '@resonance/core/admission-witness';
 import { log } from './logger.js';
 import { localRelayEndpoints, startLanDiscovery } from './lan-discovery.js';
@@ -145,6 +148,11 @@ const policyFiles = [process.env.RELAY_ADMISSION_AUTHORITY_FILE, process.env.REL
 if (policyFiles.some(Boolean) && (!policyFiles.every(Boolean) || admissionSettings.some(Boolean))) {
   throw new Error('Supply all three signed admission policy files and omit the manual issuer settings');
 }
+const admissionObserversFile = process.env.RELAY_ADMISSION_OBSERVERS_FILE;
+const admissionAdvanceFile = process.env.RELAY_ADMISSION_POLICY_ADVANCE_FILE;
+if ((admissionObserversFile || admissionAdvanceFile) && !policyFiles.every(Boolean)) throw new Error('Admission freshness requires all three signed policy files');
+const admissionObservers = admissionObserversFile ? parseAdmissionPolicyObservers(readOperatorJson(admissionObserversFile, 16384)) : undefined;
+const admissionAdvance = admissionAdvanceFile ? readOperatorJson(admissionAdvanceFile, ADMISSION_POLICY_ADVANCE_MAX_BYTES) : undefined;
 const historyFile = process.env.RELAY_ADMISSION_HISTORY_FILE;
 const historyDirectory = process.env.RELAY_ADMISSION_HISTORY_DIRECTORY || undefined;
 if (historyDirectory && (!historyFile || historyDirectory.length > 4096 || /[\x00-\x1f\x7f]/.test(historyDirectory) || !historyDirectory.trim())) {
@@ -200,7 +208,7 @@ const ownerPolicy = ownerBandwidth !== undefined || ownerTotalBandwidth !== unde
   }) : null;
 
 let historyProtection: ReturnType<typeof loadAdmissionHistoryProtectionFile> | undefined;
-let admissionVerifier: (AdmissionCapabilityVerifierV2 & { close(): void; witness?: AdmissionWitness; historyHealth?: () => HistoryOwnerHealth }) | undefined;
+let admissionVerifier: (AdmissionCapabilityVerifierV2 & { close(): void; witness?: AdmissionWitness; historyHealth?: () => HistoryOwnerHealth; drainPolicyObservations?: () => Promise<void> }) | undefined;
 let admissionHistoryHealth: (() => HistoryOwnerHealth) | undefined;
 let historyVolunteer: ReturnType<typeof openConfiguredHistoryVolunteer> | ReturnType<typeof openConfiguredHistoryVolunteerCollection> | undefined;
 let historyRouter: HistoryRelayRouter | undefined;
@@ -216,6 +224,7 @@ async function openAdmission() {
         initialize: process.env.RELAY_ADMISSION_POLICY_INITIALIZE === 'true', witnessKey, coordinatorKey,
         historyProtection, historyDirectory, initializeSpendHistory: historyProtection ? false : undefined,
         onWitnessSocket: socket => resourceMeter.observe(socket),
+        policyObservers: admissionObservers, policyAdvance: admissionAdvance, onPolicySocket: socket => resourceMeter.observe(socket),
         initializeWitnessState: process.env.RELAY_ADMISSION_WITNESS_INITIALIZE === 'true' ? true : undefined })
       : admissionSettings.every(Boolean)
       ? createLocalBlindAdmissionVerifierV2({
@@ -308,6 +317,7 @@ async function shutdown(code: number) {
   if (shuttingDown) return; shuttingDown = true;
   await policyQueryResponder?.close();
   await policyTransferResponder?.close();
+  await admissionVerifier?.drainPolicyObservations?.();
   // Stop admitting observer work and drain accepted updates while their history
   // connections still exist. During startup, cancellation closes the pending owner.
   observerLifetime.abort();

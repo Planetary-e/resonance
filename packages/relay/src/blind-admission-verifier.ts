@@ -27,6 +27,9 @@ export function createLocalBlindAdmissionVerifierV2(options: {
   keyPolicies?: () => Array<{ scope: BlindAdmissionScopeV2; issuerPublicKey: CryptoKey; mode: 'all' | 'replay-only' | 'none' }>;
   /** Persist a quorum certificate before the local spend can be accepted. */
   beforeSpend?: (spend: string, context: AdmissionVerificationContextV2, issuerPublicKey: CryptoKey) => Promise<void>;
+  /** Only valid tokens reach this live-policy boundary. Invalid tokens never
+   * cause observer fan-out; exact retries still require a fresh observation. */
+  withCurrentPolicy?: <T>(operation: (assertCurrent: () => void) => Promise<T>) => Promise<T>;
   maxSpends?: number;
   /** Configured relays use an encrypted, key-attributed ledger. Omit only for legacy manual configuration. */
   history?: AdmissionSpendLedger;
@@ -61,18 +64,24 @@ export function createLocalBlindAdmissionVerifierV2(options: {
         const previous = history.get(spend);
         if (previous !== undefined && (previous.action !== context.action || previous.binding !== context.requestBinding)) return { status: 'rejected', reason: 'double_spend' };
         if (previous === undefined && current.mode === 'replay-only') return { status: 'rejected', reason: 'key_retired' };
-        if (options.beforeSpend) await options.beforeSpend(spend, context, entry.issuerPublicKey);
-        if (closed) throw new Error('Admission spend log is unavailable');
-        history.size();
-        const final = policy().find(key => key.issuerPublicKey === entry.issuerPublicKey);
-        if (!final || final.mode === 'none') return { status: 'rejected', reason: 'key_retired' };
-        const result = await recordSpend(spend, context, final.mode, issuerKey);
-        if (closed) throw new Error('Admission spend log is unavailable');
-        history.size();
-        const completed = policy().find(key => key.issuerPublicKey === entry.issuerPublicKey);
-        if (!completed || completed.mode === 'none' || history.isRetired(issuerKey)
-          || (result.status === 'accepted' && completed.mode !== 'all')) return { status: 'rejected', reason: 'key_retired' };
-        return result;
+        const commit = async (assertCurrent: () => void): Promise<AdmissionDecisionV2> => {
+          assertCurrent();
+          if (options.beforeSpend) await options.beforeSpend(spend, context, entry.issuerPublicKey);
+          if (closed) throw new Error('Admission spend log is unavailable');
+          assertCurrent();
+          history.size();
+          const final = policy().find(key => key.issuerPublicKey === entry.issuerPublicKey);
+          if (!final || final.mode === 'none') return { status: 'rejected', reason: 'key_retired' };
+          const result = await recordSpend(spend, context, final.mode, issuerKey);
+          if (closed) throw new Error('Admission spend log is unavailable');
+          assertCurrent();
+          history.size();
+          const completed = policy().find(key => key.issuerPublicKey === entry.issuerPublicKey);
+          if (!completed || completed.mode === 'none' || history.isRetired(issuerKey)
+            || (result.status === 'accepted' && completed.mode !== 'all')) return { status: 'rejected', reason: 'key_retired' };
+          return result;
+        };
+        return options.withCurrentPolicy ? options.withCurrentPolicy(commit) : commit(() => {});
       }
       return { status: 'rejected', reason: 'invalid_token' };
     },

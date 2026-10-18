@@ -9,6 +9,10 @@ import { openProtectedAdmissionSpendHistory, type AdmissionHistoryProtection } f
 import { createAdmissionWitness, createAdmissionQuorumGate, type AdmissionWitnessTransport } from './admission-witness.js';
 import { historyCheckpointContextId } from '@resonance/core/history-checkpoint';
 import { createProtectedAdmissionRoles } from './protected-admission-roles.js';
+import { verifyAdmissionWitnessRequest } from '@resonance/core/admission-witness';
+import type { AdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
+import { createAdmissionPolicyFreshnessGate } from './admission-policy-freshness-gate.js';
+import { exchangeAdmissionPolicyObservation, type AdmissionPolicyObservationTransport } from './admission-policy-observation-transport.js';
 
 export async function createConfiguredAdmissionVerifier(options: {
   directory: string; authority: string; policy: unknown; encryptionKey: Uint8Array; initialize?: boolean;
@@ -16,6 +20,9 @@ export async function createConfiguredAdmissionVerifier(options: {
   witnessKey?: SigningKeyPair; coordinatorKey?: SigningKeyPair;
   initializeWitnessState?: boolean; witnessTransport?: AdmissionWitnessTransport; witnessTimeoutMs?: number;
   onWitnessSocket?: (socket: Socket) => void;
+  policyObservers?: AdmissionPolicyObservers; policyAdvance?: unknown;
+  policyObservationTransport?: AdmissionPolicyObservationTransport; policyObservationTimeoutMs?: number;
+  onPolicySocket?: (socket: Socket) => void;
   historyProtection?: AdmissionHistoryProtection;
   /** Explicit protected spend/writer location; policy and witness state stay in directory. */
   historyDirectory?: string;
@@ -31,13 +38,16 @@ export async function createConfiguredAdmissionVerifier(options: {
   let witness: ReturnType<typeof createAdmissionWitness> | ReturnType<typeof createProtectedAdmissionRoles>['witness'];
   let quorum: ReturnType<typeof createAdmissionQuorumGate> | ReturnType<typeof createProtectedAdmissionRoles>['quorum'];
   let protectedRoles: ReturnType<typeof createProtectedAdmissionRoles> | undefined;
+  let freshness: ReturnType<typeof createAdmissionPolicyFreshnessGate> | undefined;
   let history: ReturnType<typeof openAdmissionSpendHistory> | Awaited<ReturnType<typeof openProtectedAdmissionSpendHistory>> | undefined;
   try {
     const pinnedContext = store.protectedHistoryContext();
     const contextId = options.historyProtection ? historyCheckpointContextId(options.historyProtection.context) : undefined;
     if (pinnedContext && pinnedContext !== contextId) throw new Error('Retained policy requires its original protected history context; local fallback is forbidden');
     if (options.historyDirectory && !pinnedContext) throw new Error('A separate history location requires a reviewed policy/history binding before startup');
-    const policy = await store.install(options.policy, options.authority);
+    const policy = await store.install(options.policy, options.authority, { observers: options.policyObservers, advance: options.policyAdvance });
+    if (store.freshness()) freshness = createAdmissionPolicyFreshnessGate({ store, now, timeoutMs: options.policyObservationTimeoutMs,
+      transport: options.policyObservationTransport ?? ((member, frame, signal) => exchangeAdmissionPolicyObservation(member, frame, signal, options.onPolicySocket)) });
     const historyOptions = { directory: options.directory, encryptionKey: options.encryptionKey, policy, now,
       initialize: options.initializeSpendHistory ?? options.initialize, maxSpends: options.maxSpends };
     if (options.historyProtection) {
@@ -61,6 +71,7 @@ export async function createConfiguredAdmissionVerifier(options: {
     const entries: Array<AdmissionPolicyKey & { issuerPublicKey: CryptoKey }> = [];
     for (const entry of policy.keys) entries.push({ ...entry, issuerPublicKey: (await parseAdmissionWalletProfile(entry.profile)).publicKey });
     const verifier = createLocalBlindAdmissionVerifierV2({ directory: options.directory, maxSpends: options.maxSpends, history,
+      withCurrentPolicy: freshness?.run,
       async beforeSpend(spend, context, publicKey) {
         const entry = entries.find(entry => entry.issuerPublicKey === publicKey)!;
         if (!entry.witnesses) return;
@@ -74,8 +85,20 @@ export async function createConfiguredAdmissionVerifier(options: {
             : time >= entry.spendUntil ? 'replay-only' as const : 'all' as const }));
       },
     });
-    return { verifyAndSpend: verifier.verifyAndSpend, witness,
+    const guardedWitness = witness && freshness ? { close: witness.close, async vote(value: unknown, acceptNew?: () => boolean) {
+      const issuerKey = (value as { issuerKey?: unknown } | null)?.issuerKey;
+      const entry = entries.find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === issuerKey);
+      if (!entry?.witnesses || !verifyAdmissionWitnessRequest(value, entry.witnesses)) throw new Error('Unauthenticated admission vote request');
+      const request = structuredClone(value);
+      return freshness!.run(async assertCurrent => {
+        assertCurrent(); const result = await witness!.vote(request, () => { assertCurrent(); return acceptNew?.() ?? true; });
+        assertCurrent(); return result;
+      });
+    } } : witness;
+    return { verifyAndSpend: verifier.verifyAndSpend, witness: guardedWitness,
+      policyFreshnessHealth: freshness?.health,
       historyHealth: history && 'health' in history ? history.health : undefined,
-      close() { protectedRoles?.close(); quorum?.close(); witness?.close(); verifier.close(); store.close(); } };
-  } catch (error) { history?.close(); protectedRoles?.close(); quorum?.close(); witness?.close(); store.close(); throw error; }
+      drainPolicyObservations: () => freshness?.close() ?? Promise.resolve(),
+      close() { void freshness?.close(); protectedRoles?.close(); quorum?.close(); witness?.close(); verifier.close(); store.close(); } };
+  } catch (error) { void freshness?.close(); history?.close(); protectedRoles?.close(); quorum?.close(); witness?.close(); store.close(); throw error; }
 }

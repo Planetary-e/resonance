@@ -45,6 +45,9 @@ jobs:
           packages/relay/src/__tests__/admission-policy-observation.integration.test.ts
           packages/relay/src/__tests__/admission-policy-query.test.ts
           packages/core/src/__tests__/admission-policy-query.test.ts
+          packages/core/src/__tests__/admission-policy-trust.test.ts
+          packages/relay/src/__tests__/admission-policy-freshness-gate.test.ts
+          packages/relay/src/__tests__/configured-policy-freshness.integration.test.ts
           packages/core/src/__tests__/admission-policy-transfer.test.ts
           packages/relay/src/__tests__/admission-policy-transfer.test.ts
           packages/node/src/__tests__/wallet-policy-freshness.test.ts

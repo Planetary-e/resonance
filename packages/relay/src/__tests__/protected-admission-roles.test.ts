@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url';
 import { admissionKeyFingerprint, signAdmissionPolicy } from '@resonance/core/admission-policy';
 import { createAdmissionRequestBindingV2, presentBlindAdmissionTokenV2 } from '@resonance/core';
 import { createAdmissionWitnessRequest } from '@resonance/core/admission-witness';
+import { createAdmissionPolicyAdvance, admissionPolicyHead } from '@resonance/core/admission-policy-advance';
+import { createAdmissionPolicyHeadVote, parseAdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
 import { createAdmissionWitness, createAdmissionQuorumGate } from '../admission-witness.js';
 import { createProtectedAdmissionRoles } from '../protected-admission-roles.js';
 import { createConfiguredAdmissionVerifier } from '../configured-admission-verifier.js';
@@ -105,8 +107,16 @@ it('retains coordinator certificates before authorizing and resumes the exact pe
 
 it('routes configured blind-token admission through protected coordinator evidence before the protected spend', async () => {
   const { n } = await fixture(); n.history.close();
+  const observers = parseAdmissionPolicyObservers({ version: 1, kind: 'admission-policy-observers', authority: f.authority,
+    genesis: admissionPolicyHead(f.policy), quorum: 4, members: f.body.keys[0].witnesses!.members });
+  let observed = observers.genesis; const challenges = new Set<string>();
   const verifier = await createConfiguredAdmissionVerifier({ ...n.options, historyProtection: n.options.protection,
     initialize: true, initializeSpendHistory: false, initializeWitnessState: true,
+    policyObservers: observers, policyObservationTransport: async (member, frame) => {
+      challenges.add(frame.request.challenge);
+      return createAdmissionPolicyHeadVote(frame.request, observed, observers,
+        f.witnesses.find(key => Buffer.from(key.publicKey).toString('base64url') === member.publicKey)!, f.time);
+    },
     witnessKey: f.witnesses[0], coordinatorKey: f.coordinators[0], witnessTransport: async (member, request) => {
       const i = f.witnesses.findIndex(key => Buffer.from(key.publicKey).toString('base64url') === member.publicKey);
       if (!i) throw new Error('fifth witness offline'); return n.witnesses[i].vote(request);
@@ -118,6 +128,11 @@ it('routes configured blind-token admission through protected coordinator eviden
   expect(await verifier.verifyAndSpend(capability, context)).toEqual({ status: 'accepted' });
   const sequences = n.stores.map(store => store.describe().sequence);
   expect(await verifier.verifyAndSpend(capability, context)).toEqual({ status: 'replay' });
+  expect(challenges.size).toBe(2);
+  expect(n.stores.map(store => store.describe().sequence)).toEqual(sequences);
+  const second = await signAdmissionPolicy({ ...f.body, revision: 2 }, f.authority, f.authorityKey.secretKey);
+  observed = (await createAdmissionPolicyAdvance(f.policy, second, observers, f.authorityKey)).commitment.next;
+  await expect(verifier.verifyAndSpend(capability, context)).rejects.toThrow('newer');
   expect(n.stores.map(store => store.describe().sequence)).toEqual(sequences);
   verifier.close(); await n.reopen(); await n.history.ready();
   expect(n.history.read().image.state.spends).toHaveLength(1); expect(n.history.roleState().coordinator!.certificates).toHaveLength(2);

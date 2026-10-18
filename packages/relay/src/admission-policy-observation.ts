@@ -8,7 +8,9 @@ import { createAdmissionPolicyHeadRequest, parseAdmissionPolicyHeadRequest, pars
 import { exchangeAdmissionPolicyObservation, type AdmissionPolicyObservationFrame, type AdmissionPolicyObservationTransport } from './admission-policy-observation-transport.js';
 
 export async function collectAdmissionPolicyObservation(options: {
-  context: AdmissionPolicyObservers; policy: unknown; advance?: unknown;
+  /** Omit policy only for a head-only check: callers must retain the returned
+   * floor and match their authenticated installed policy before authorizing work. */
+  context: AdmissionPolicyObservers; policy?: unknown; advance?: unknown;
   /** Preserve a personal caller's fresh challenge when collecting behind its private route. */
   request?: unknown;
   transport?: AdmissionPolicyObservationTransport; signal?: AbortSignal; timeoutMs?: number; now?: () => number;
@@ -23,11 +25,13 @@ export async function collectAdmissionPolicyObservation(options: {
   const suppliedRequest = options.request === undefined ? undefined : parseAdmissionPolicyHeadRequest(options.request, context, requestNow);
   if (suppliedRequest) deadline = Math.min(deadline, performance.now() + suppliedRequest.expiresAt - requestNow);
   const check = () => { signal?.throwIfAborted(); if (performance.now() >= deadline) throw new Error('Policy observation timed out'); };
-  check(); const policy = await verifyAdmissionPolicy(policyInput, context.authority); check(); assertAdmissionPolicyCurrent(policy, now());
-  const expected = admissionPolicyHead(policy), advance = advanceInput === undefined ? null : await parseAdmissionPolicyAdvance(advanceInput, context);
+  if (policyInput === undefined && advanceInput !== undefined) throw new Error('Policy activation requires its authenticated policy');
+  check(); const policy = policyInput === undefined ? undefined : await verifyAdmissionPolicy(policyInput, context.authority);
+  check(); if (policy) assertAdmissionPolicyCurrent(policy, now());
+  const expected = policy && admissionPolicyHead(policy), advance = advanceInput === undefined ? null : await parseAdmissionPolicyAdvance(advanceInput, context);
   check();
-  if (expected.revision < context.genesis.revision || (expected.revision === context.genesis.revision && !sameAdmissionPolicyHead(expected, context.genesis))) throw new Error('Requested policy conflicts with the pinned genesis');
-  if (advance && !matchesAdmissionPolicyHead(policy, advance.commitment.next)) throw new Error('Policy activation differs from the requested head');
+  if (expected && (expected.revision < context.genesis.revision || (expected.revision === context.genesis.revision && !sameAdmissionPolicyHead(expected, context.genesis)))) throw new Error('Requested policy conflicts with the pinned genesis');
+  if (advance && !matchesAdmissionPolicyHead(policy!, advance.commitment.next)) throw new Error('Policy activation differs from the requested head');
   const request = suppliedRequest ? parseAdmissionPolicyHeadRequest(suppliedRequest, context, now()) : createAdmissionPolicyHeadRequest(context, now(), timeout);
   const frame: AdmissionPolicyObservationFrame = { request, advance };
   return new Promise((resolve, reject) => {
@@ -46,12 +50,13 @@ export async function collectAdmissionPolicyObservation(options: {
       try {
         check();
         const vote = parseAdmissionPolicyHeadVote(value, request, context, now());
-        if (vote.observer !== member.publicKey || !matchesAdmissionPolicyHead(policy, vote.head)
+        if (vote.observer !== member.publicKey || policy && !matchesAdmissionPolicyHead(policy, vote.head)
+          || vote.head.revision < context.genesis.revision || vote.head.revision === context.genesis.revision && !sameAdmissionPolicyHead(vote.head, context.genesis)
           || (advance && !sameAdmissionPolicyHead(vote.head, advance.commitment.next))) throw new Error('Wrong observer or policy head');
-        const branch = votes.get(vote.head.transition) ?? []; branch.push(vote); votes.set(vote.head.transition, branch);
+        const branchId = JSON.stringify(vote.head), branch = votes.get(branchId) ?? []; branch.push(vote); votes.set(branchId, branch);
         if (branch.length >= 4) {
           const certificate = parseAdmissionPolicyHeadCertificate({ version: 1, kind: 'admission-policy-head-certificate', votes: branch }, request, context, vote.head, now());
-          try { check(); assertAdmissionPolicyCurrent(policy, now()); }
+          try { check(); if (policy) assertAdmissionPolicyCurrent(policy, now()); }
           catch (error) { finish(error); return; }
           finish(undefined, certificate);
         }

@@ -2,8 +2,9 @@
 import { createHash } from 'node:crypto';
 import { sign, verify, type SigningKeyPair } from './crypto.js';
 import { exactWitnessFields, witnessBytes, copyAdmissionSigningKey } from './admission-witness.js';
-import { admissionPolicyDigest, assertAdmissionPolicySuccessor, verifyAdmissionPolicy, MAX_ADMISSION_POLICY_BYTES,
+import { admissionPolicyDigest, assertAdmissionPolicySuccessor, verifyAdmissionPolicy,
   type SignedAdmissionPolicy } from './admission-policy.js';
+import { MAX_ADMISSION_POLICY_BYTES } from './admission-policy-limits.js';
 import { admissionPolicyObserversId, parseAdmissionPolicyHead, parseAdmissionPolicyObservers,
   type AdmissionPolicyHead, type AdmissionPolicyObservers } from './admission-policy-freshness.js';
 

@@ -73,8 +73,9 @@ describe('desktop relay service definitions', () => {
     vi.stubEnv('RESONANCE_RELAY_ENTRY', '/opt/Resonance/relay.mjs');
     const retained = { identityPassphraseFile: '/private/passphrase.txt', historyBridgeFile: '/private/bridge.json', admissionHistoryFile: '/private/history.json',
       admissionHistoryLinksFile: '/private/links.json', admissionAuthorityFile: '/private/authority.pub',
+      admissionObserversFile: '/private/observers.json', admissionPolicyAdvanceFile: '/private/policy-advance.json',
       admissionPolicyFile: '/private/policy.json', admissionPolicyKeyFile: '/private/storage.hex', admissionHistoryDirectory: '/private/restored history', publicEndpoints: ['wss://bridge.example/'] };
-    for (const variable of ['IDENTITY_PASSPHRASE', 'HISTORY_VOLUNTEER', 'HISTORY_BRIDGE', 'ADMISSION_HISTORY', 'ADMISSION_HISTORY_LINKS', 'ADMISSION_AUTHORITY', 'ADMISSION_POLICY', 'ADMISSION_POLICY_KEY']) {
+    for (const variable of ['IDENTITY_PASSPHRASE', 'HISTORY_VOLUNTEER', 'HISTORY_BRIDGE', 'ADMISSION_HISTORY', 'ADMISSION_HISTORY_LINKS', 'ADMISSION_AUTHORITY', 'ADMISSION_POLICY', 'ADMISSION_POLICY_KEY', 'ADMISSION_OBSERVERS', 'ADMISSION_POLICY_ADVANCE']) {
       vi.stubEnv(`RESONANCE_RELAY_${variable}_FILE`, undefined);
     }
     vi.stubEnv('RESONANCE_RELAY_PUBLIC_ENDPOINTS', undefined);
