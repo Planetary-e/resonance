@@ -15,17 +15,33 @@ export const ADMISSION_POLICY_OBSERVATION_MAX_BYTES = ADMISSION_POLICY_ADVANCE_M
 export type AdmissionPolicyObservationTransport = (member: AdmissionPolicyObservers['members'][number],
   frame: AdmissionPolicyObservationFrame, signal: AbortSignal) => Promise<unknown>;
 
+export const MAX_POLICY_OBSERVER_EXCHANGES = 8;
+
 export function createAdmissionPolicyObserverExchange(observer: { advance(value: unknown): Promise<unknown>; observe(request: unknown): unknown | Promise<unknown> },
   contextValue: AdmissionPolicyObservers, now = Date.now) {
   const context = parseAdmissionPolicyObservers(contextValue);
+  let pending = 0, tail: Promise<void> = Promise.resolve();
   return async (value: unknown) => {
     if (!exactWitnessFields(value, ['request', 'advance']) || Buffer.byteLength(JSON.stringify(value)) > ADMISSION_POLICY_OBSERVATION_MAX_BYTES) throw new Error('Invalid policy observation frame');
+    if (pending >= MAX_POLICY_OBSERVER_EXCHANGES) throw new Error('Policy observer queue is full');
     const input = structuredClone(value), request = parseAdmissionPolicyHeadRequest(input.request, context, now());
-    if (input.advance !== null) await observer.advance(input.advance);
-    // Revalidate after durable publication: a timed-out update may have been
-    // applied, but cannot yield a late observation or roll the policy back.
-    parseAdmissionPolicyHeadRequest(request, context, now());
-    return observer.observe(request);
+    const deadline = performance.now() + request.expiresAt - now();
+    const current = () => {
+      if (performance.now() >= deadline) throw new Error('Policy observation expired in observer queue');
+      parseAdmissionPolicyHeadRequest(request, context, now());
+    };
+    pending++;
+    // Protected observers serialize their authoritative writer. Each admitted
+    // caller still runs its OWN fresh history check; no observation is cached.
+    // Queue time consumes the original caller budget, even with clock rollback.
+    const operation = tail.then(async () => {
+      current();
+      if (input.advance !== null) await observer.advance(input.advance);
+      current(); // An applied update may outlive this request, but cannot return a late vote.
+      const reply = await observer.observe(request); current(); return reply;
+    });
+    tail = operation.then(() => {}, () => {});
+    try { return await operation; } finally { pending--; }
   };
 }
 
@@ -37,7 +53,7 @@ export async function listenAdmissionPolicyObserver(exchange: (value: unknown) =
   /** A fresh observation can cause replica traffic even without an update. */
   acceptNewWork?: (bytes: number) => boolean;
 } = {}) {
-  const limit = options.maxConnections ?? 4, timeout = options.connectionTimeoutMs ?? 10_000;
+  const limit = options.maxConnections ?? MAX_POLICY_OBSERVER_EXCHANGES, timeout = options.connectionTimeoutMs ?? 10_000;
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 8 || !Number.isSafeInteger(timeout)
     || timeout < 50 || timeout > 30_000) throw new Error('Invalid policy observation listener bounds');
   const server = createServer({ maxHeaderSize: 4096 }, (_request, response) => { response.writeHead(404); response.end(); });

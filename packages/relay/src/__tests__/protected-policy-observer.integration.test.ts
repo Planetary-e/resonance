@@ -14,6 +14,7 @@ import { openHistoryCheckpointStore } from '../history-checkpoint-store.js';
 import { createRetainedHistoryCheckpointWriter } from '../history-retained-writer.js';
 import { parseAdmissionHistoryConfiguration } from '../admission-history-config.js';
 import { policyObserverFixture } from './fixtures/policy-observer-fixture.js';
+import { createAdmissionPolicyObserverExchange, exchangeAdmissionPolicyObservation, listenAdmissionPolicyObserver } from '../admission-policy-observation-transport.js';
 
 const cleanup: Array<() => void | Promise<void>> = [];
 const children: ChildProcess[] = [];
@@ -150,6 +151,48 @@ it('does not turn a new directory, different role or different history identifie
   expect(() => parseAdmissionHistoryConfiguration({ version: 1, context: n.enrolled.context, members: n.members, ownerKeyFile: 'owner.key' })).toThrow('history role');
   expect(policyObserverHistoryContext(n.context, n.enrolled.context.owner)).toEqual(n.enrolled.context);
   expect(historyCheckpointContextId({ ...n.enrolled.context, role: 'relay-admission-spends' })).not.toBe(historyCheckpointContextId(n.enrolled.context));
+});
+
+it('serves five concurrent witness challenges through actual sockets with a fresh history check for each', async () => {
+  const n = await fixture(); await n.observer.ready(); const calls = n.calls();
+  const exchange = createAdmissionPolicyObserverExchange(n.observer, n.context, () => n.now);
+  const listener = await listenAdmissionPolicyObserver(exchange); cleanup.push(listener.close);
+  const member = { publicKey: Buffer.from(n.keys[0].publicKey).toString('base64url'), endpoint: listener.endpoint };
+  n.gate(delay(120));
+  const requests = Array.from({ length: 5 }, () => createAdmissionPolicyHeadRequest(n.context, n.now));
+  const results = await Promise.allSettled(requests.map(request => exchangeAdmissionPolicyObservation(member,
+    { request, advance: null }, new AbortController().signal)));
+  expect(results.map(result => result.status)).toEqual(Array(5).fill('fulfilled'));
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i]; if (result.status === 'fulfilled') expect(parseAdmissionPolicyHeadVote(result.value, requests[i], n.context, n.now).head).toEqual(n.context.genesis);
+  }
+  expect(n.calls() - calls).toBe(25);
+});
+
+it('bounds admitted observer work including blocked transports and snapshots queued input', async () => {
+  const n = await fixture(); await n.observer.ready(); const calls = n.calls();
+  const exchange = createAdmissionPolicyObserverExchange(n.observer, n.context, () => n.now);
+  let release!: () => void; n.gate(new Promise<void>(resolve => { release = resolve; }));
+  const inputs = Array.from({ length: 8 }, () => ({ request: createAdmissionPolicyHeadRequest(n.context, n.now), advance: null }));
+  const original = structuredClone(inputs[7].request), pending = inputs.map(exchange);
+  inputs[7].request.challenge = randomBytes(32).toString('base64url');
+  await expect(exchange(inputs[0])).rejects.toThrow('queue is full');
+  release(); const replies = await Promise.all(pending);
+  expect(parseAdmissionPolicyHeadVote(replies[7], original, n.context, n.now).request).toEqual(original); expect(n.calls() - calls).toBe(40);
+  expect(parseAdmissionPolicyHeadVote(await exchange(inputs[0]), inputs[0].request, n.context, n.now).head).toEqual(n.context.genesis);
+});
+
+it('charges queue waiting against the original monotonic deadline and continues after expired work', async () => {
+  const n = await fixture(); await n.observer.ready(); const calls = n.calls();
+  const exchange = createAdmissionPolicyObserverExchange(n.observer, n.context, () => n.now);
+  let release!: () => void; n.gate(new Promise<void>(resolve => { release = resolve; }));
+  const first = exchange({ request: createAdmissionPolicyHeadRequest(n.context, n.now), advance: null });
+  const expired = exchange({ request: createAdmissionPolicyHeadRequest(n.context, n.now, 100), advance: null });
+  const refused = expect(expired).rejects.toThrow('expired in observer queue');
+  await delay(160); release(); await first; await refused;
+  expect(n.calls() - calls).toBe(5); // The expired queued caller never starts another history query.
+  const request = createAdmissionPolicyHeadRequest(n.context, n.now);
+  expect(parseAdmissionPolicyHeadVote(await exchange({ request, advance: null }), request, n.context, n.now).head).toEqual(n.context.genesis);
 });
 
 it('serializes in-flight operations, captures the request and fences signatures after close', async () => {
