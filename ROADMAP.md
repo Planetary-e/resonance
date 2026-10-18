@@ -389,6 +389,7 @@ The five-target placement goal remains conditional on enough eligible volunteers
     - [x] Release native embedding sessions after setup, failed unlock and lock; drain in-flight inference before release and prevent a new model allocation until cleanup settles
     - [ ] Reduce and bound real application model-loading memory peaks on supported devices; explicit disposal alone does not demonstrate a peak reduction
       - [x] Eliminate redundant cached-model streams without changing embeddings; verify 200 byte-identical vectors, cold download/offline reload and actual application peaks falling from 2,012/1,485 to 1,080/1,098 MiB (`docs/developers/v0.4-model-memory.md`)
+      - [x] Bound new matching inputs and native concurrency; verify eight maximum-length requests plus overflow, cancellation before desktop side effects and native draining on close (`docs/developers/v0.4-inference-bounds.md`)
   - [ ] Measure stronger observers, total traffic, and CPU/energy costs before selecting production timing defaults; quiet-period observer protection remains unresolved
   - [ ] Run colluding-operator, multi-domain Sybil, and timing-correlation adversaries with quantitative privacy targets
     - [x] Demonstrate 32/32 source-operation joins with both hop keys, acceptance of distinct Sybil keys/domains and exact conditional capture under the client's cyclic fallback model; retain explicit local/model limitations in `docs/evals/private-adversaries-2026-10-18.md`

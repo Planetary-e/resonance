@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { createInterface } from 'node:readline';
 import {
   EmbeddingEngine,
+  assertEmbeddingText,
   perturbWithLevel,
   hashEmbedding,
   getSharedProjectionMatrix,
@@ -54,6 +55,7 @@ export async function publishCommand(
     return;
   }
 
+  assertEmbeddingText(text);
   const mgr = createIdentityManager();
   if (!mgr.exists()) {
     console.error('No identity found. Run "resonance init" first.');
@@ -66,10 +68,9 @@ export async function publishCommand(
 
   // Initialize embedding engine
   const engine = new EmbeddingEngine();
-  await engine.initialize();
-
-  // Embed with matching-aware rewriting
-  const embedding = await engine.embedForMatching(text, itemType);
+  let embedding: Float32Array;
+  try { await engine.initialize(); embedding = await engine.embedForMatching(text, itemType); }
+  finally { await engine.dispose(); }
 
   // Perturb
   const { perturbed, epsilon } = perturbWithLevel(embedding, privacyLevel);
@@ -108,15 +109,16 @@ export async function publishCommand(
   // Publish to relay unless --local-only
   if (!options.localOnly) {
     const relayUrl = options.relay ?? 'ws://localhost:9090';
+    let client: ReturnType<typeof createRelayClient> | undefined;
     try {
-      const client = createRelayClient({ relayUrl, identity });
+      client = createRelayClient({ relayUrl, identity });
       const ack = await client.submitPublicationOperation(record);
       if (ack.status !== 'ok') throw new Error(ack.message ?? 'Relay rejected publication');
       store.updateItemStatus(id, 'published');
       console.log(`  Status:   published (relay: ${relayUrl})`);
     } catch (err) {
       console.log(`  Status:   local (relay unavailable)`);
-    }
+    } finally { client?.disconnect(); }
   } else {
     console.log(`  Status:   local`);
   }

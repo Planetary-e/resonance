@@ -28,7 +28,8 @@ export {
   privacyLevelToEpsilon,
 } from './perturbation.js';
 
-export { EmbeddingEngine, rewriteForMatching, type EmbeddingPrefix } from './embedding.js';
+export { EmbeddingEngine, rewriteForMatching, assertEmbeddingText, EmbeddingInputError, MAX_EMBEDDING_TEXT_BYTES,
+  MAX_EMBEDDING_TOKENS, MAX_EMBEDDING_OPERATIONS, EMBEDDING_OPERATION_MS, type EmbeddingPrefix, type EmbeddingRequestOptions } from './embedding.js';
 
 export { BOOTSTRAP_RELAYS, DEFAULT_RELAY_PORT } from './bootstrap.js';
 export { assertSecureRelayTransportEndpoint, isPrivateRelayAddress, checkRelayTlsServerIdentity, relayTlsClientOptions } from './relay-transport.js';

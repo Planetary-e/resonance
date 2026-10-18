@@ -39,6 +39,56 @@ beforeAll(async () => {
   expect((await request('/api/init', { password: 'test-password-for-outbox' })).status).toBe(200);
   token = (await request('/api/unlock', { password: 'test-password-for-outbox' })).body.token;
 }, 15_000);
+
+it.each(['/api/items', '/api/search'])('rejects invalid/excessive descriptions before embedding or local persistence: %s', async path => {
+  const engine = vi.mocked(EmbeddingEngine.prototype.embedForMatching), beforeCalls = engine.mock.calls.length;
+  const s = getSession()!, beforeItems = s.store.listItems().length, beforeHolds = s.requestOutbox.list().length;
+  for (const text of [{ unexpected: true }, '   ', 'x'.repeat(8193), '😀'.repeat(2049)]) {
+    expect((await request(path, { text, type: 'need', delivery: 'hold' })).status).toBe(400);
+  }
+  expect(engine.mock.calls.length).toBe(beforeCalls);
+  expect(s.store.listItems()).toHaveLength(beforeItems); expect(s.requestOutbox.list()).toHaveLength(beforeHolds);
+});
+
+it.each([['/api/items', 'send'], ['/api/items', 'hold'], ['/api/search', 'send'], ['/api/search', 'hold']])(
+  'does not save or send late inference after HTTP disconnect: %s %s', async (path, delivery) => {
+    const s = getSession()!, send = vi.spyOn(s.relayClient, 'submitPublicationOperation'), search = vi.spyOn(s.relayClient, 'searchV2');
+    const insert = vi.spyOn(s.store, 'insertItem'), publicationHold = vi.spyOn(s.publicationOutbox, 'hold'), searchHold = vi.spyOn(s.requestOutbox, 'hold');
+    let start!: () => void, finish!: (value: Float32Array) => void, signal: AbortSignal | undefined;
+    const started = new Promise<void>(resolve => { start = resolve; }), inference = new Promise<Float32Array>(resolve => { finish = resolve; });
+    vi.mocked(EmbeddingEngine.prototype.embedForMatching).mockImplementationOnce((_text, _type, _prefix, options) => {
+      signal = options?.signal; start(); return inference;
+    });
+    const controller = new AbortController();
+    const pending = fetch(base + path, { method: 'POST', signal: controller.signal,
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({ text: 'An interrupted description', type: 'need', delivery }) }).catch(error => error);
+    try {
+      await started; expect(signal).toBeDefined(); controller.abort();
+      await vi.waitFor(() => expect(signal!.aborted).toBe(true));
+      finish(new Float32Array(768)); await new Promise(resolve => setImmediate(resolve));
+      expect(send).not.toHaveBeenCalled(); expect(search).not.toHaveBeenCalled(); expect(insert).not.toHaveBeenCalled();
+      expect(publicationHold).not.toHaveBeenCalled(); expect(searchHold).not.toHaveBeenCalled();
+    } finally {
+      controller.abort(); finish(new Float32Array(768)); await pending;
+      send.mockRestore(); search.mockRestore(); insert.mockRestore(); publicationHold.mockRestore(); searchHold.mockRestore();
+    }
+  });
+
+it('does not start a search when the session locks during inference', async () => {
+  const s = getSession()!, search = vi.spyOn(s.relayClient, 'searchV2');
+  let start!: () => void, finish!: (value: Float32Array) => void;
+  const started = new Promise<void>(resolve => { start = resolve; }), inference = new Promise<Float32Array>(resolve => { finish = resolve; });
+  vi.mocked(EmbeddingEngine.prototype.embedForMatching).mockImplementationOnce(() => { start(); return inference; });
+  const pending = request('/api/search', { text: 'Do not send after locking', type: 'need' });
+  try {
+    await started; expect((await request('/api/lock', {})).status).toBe(200);
+    finish(new Float32Array(768)); expect((await pending).status).not.toBe(200); expect(search).not.toHaveBeenCalled();
+  } finally {
+    finish(new Float32Array(768)); await pending; search.mockRestore();
+    token = (await request('/api/unlock', { password: 'test-password-for-outbox' }, false)).body.token;
+  }
+});
 afterAll(async () => {
   lockSession(); if (app) await app.stop();
   for (const relay of relays.reverse()) await relay.stop();

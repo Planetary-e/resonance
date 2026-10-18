@@ -3,6 +3,7 @@
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { EmbeddingInputError } from '@resonance/core';
 import { localHttpBoundary } from './local-http-boundary.js';
 import { issueSessionToken, matchesSessionToken, onSessionTokenChange } from './local-session-auth.js';
 import { readLocalJsonBody } from './local-json-body.js';
@@ -297,10 +298,10 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
     if (!['need', 'offer'].includes(type)) { error(res, 'Type must be need or offer'); return true; }
     if (!['low', 'medium', 'high'].includes(privacy)) { error(res, 'Privacy must be low, medium, or high'); return true; }
     try {
-      const result = await publishItem(text, type as any, privacy as any, delivery);
+      const result = await publishItem(text, type as any, privacy as any, delivery, localApiLifetime(req).signal);
       json(res, result);
     } catch (err) {
-      error(res, err instanceof Error ? err.message : 'Could not save publication', 503);
+      error(res, err instanceof Error ? err.message : 'Could not save publication', err instanceof EmbeddingInputError ? 400 : 503);
     }
     return true;
   }
@@ -394,11 +395,11 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
     if (typeof text !== 'string' || !['need', 'offer'].includes(type)) { error(res, 'Valid search text and type required'); return true; }
     if (body.delivery !== undefined && body.delivery !== 'send' && body.delivery !== 'hold') { error(res, 'Delivery must be send or hold'); return true; }
     try {
-      if (body.delivery === 'hold') { const held = await holdSearch(text, type as any); json(res, { saved: held.id }); return true; }
-      const results = await searchRelay(text, type as any);
+      if (body.delivery === 'hold') { const held = await holdSearch(text, type as any, localApiLifetime(req).signal); json(res, { saved: held.id }); return true; }
+      const results = await searchRelay(text, type as any, localApiLifetime(req).signal);
       json(res, { results });
     } catch (err) {
-      error(res, err instanceof Error ? err.message : 'Search failed', 503);
+      error(res, err instanceof Error ? err.message : 'Search failed', err instanceof EmbeddingInputError ? 400 : 503);
     }
     return true;
   }

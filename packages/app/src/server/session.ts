@@ -11,6 +11,7 @@ import { parseStorageDirectories } from '@resonance/relay';
 import {
   assertSecureRelayTransportEndpoint,
   EmbeddingEngine,
+  assertEmbeddingText,
   perturbWithLevel,
   hashEmbedding,
   getSharedProjectionMatrix,
@@ -1014,12 +1015,14 @@ export function lockSession(): void {
   relayActivity = 'not-checked';
 }
 
-export async function publishItem(text: string, type: ItemType, privacy: PrivacyLevel, delivery: 'send' | 'hold' = 'send'): Promise<{
+export async function publishItem(text: string, type: ItemType, privacy: PrivacyLevel, delivery: 'send' | 'hold' = 'send', signal?: AbortSignal): Promise<{
   id: string; status: string; dims: number;
 }> {
   const s = session!;
+  assertEmbeddingText(text); signal?.throwIfAborted();
   if (delivery === 'hold' && !s.privatePublicationRoute) throw new Error('Local hold requires the private transport pilot');
-  const embedding = await s.engine.embedForMatching(text, type);
+  const embedding = await s.engine.embedForMatching(text, type, 'search_document', { signal });
+  signal?.throwIfAborted();
   if (session !== s) throw new Error('Session locked before saving');
   // LSH: hash the embedding instead of perturbing it
   const hash = hashEmbedding(embedding, getSharedProjectionMatrix());
@@ -1217,11 +1220,12 @@ export function setAutomaticMailboxChecks(enabled: boolean): void {
   if (!enabled) stopAutomaticMailboxSync(s);
 }
 
-export async function holdSearch(text: string, type: ItemType) {
+export async function holdSearch(text: string, type: ItemType, signal?: AbortSignal) {
   const s = session!;
+  assertEmbeddingText(text); signal?.throwIfAborted();
   if (!s.privatePublicationRoute) throw new Error('Search hold requires the private transport pilot');
-  if (!text.trim() || Buffer.byteLength(text) > 8192) throw new Error('Saved search must contain 1–8192 bytes of text');
-  const embedding = await s.engine.embedForMatching(text, type);
+  const embedding = await s.engine.embedForMatching(text, type, 'search_document', { signal });
+  signal?.throwIfAborted();
   if (session !== s) throw new Error('Session locked before saving');
   const fingerprint = Buffer.from(hashEmbedding(embedding, getSharedProjectionMatrix())).toString('base64');
   return s.requestOutbox.hold({ kind: 'search', text, itemType: type, fingerprint }, s.privatePublicationRoute);
@@ -1320,11 +1324,14 @@ export async function completeAdmissionIssuance(response: unknown) {
 }
 export function cancelAdmissionIssuance() { session!.admissionWallet.cancelIssuance(); }
 
-export async function searchRelay(text: string, type: ItemType): Promise<Array<{
+export async function searchRelay(text: string, type: ItemType, signal?: AbortSignal): Promise<Array<{
   publicationId: string; similarity: number; itemType: string;
 }>> {
   const s = session!;
-  const embedding = await s.engine.embedForMatching(text, type);
+  assertEmbeddingText(text); signal?.throwIfAborted();
+  const embedding = await s.engine.embedForMatching(text, type, 'search_document', { signal });
+  signal?.throwIfAborted();
+  if (session !== s) throw new Error('Session locked before search');
   // LSH: hash the query — relay sees only the binary hash, not the embedding
   const hash = hashEmbedding(embedding, getSharedProjectionMatrix());
   try {

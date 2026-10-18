@@ -19,7 +19,9 @@ it('shares concurrent initialization and releases a late model after disposal du
 });
 
 it.each([false, true])('waits for active inference before native release (inference rejects: %s)', async fails => {
-  const inference = pending<any>(), dispose = vi.fn(async () => {}), pipe = Object.assign(vi.fn(() => inference.promise), { dispose });
+  const inference = pending<any>(), dispose = vi.fn(async () => {}), pipe = Object.assign(vi.fn(() => inference.promise), {
+    dispose, tokenizer: vi.fn(() => ({ input_ids: { dims: [1, 16] } })),
+  });
   vi.mocked(pipeline).mockResolvedValue(pipe as any); const engine = new EmbeddingEngine(); await engine.initialize();
   const running = engine.embed('private text'), outcome = fails ? expect(running).rejects.toThrow('inference failed') : expect(running).resolves.toEqual(new Float32Array([1]));
   const closing = engine.dispose(); await Promise.resolve(); expect(dispose).not.toHaveBeenCalled();
