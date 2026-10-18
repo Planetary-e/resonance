@@ -51,8 +51,42 @@ async function fixture() {
     const socket = new WebSocket(`ws://127.0.0.1:${port}/api/events?token=${token}`, origin ? { origin } : {});
     cleanup.push(async () => socket.terminate()); return socket;
   }
-  return { request, init, unlock, events, base };
+  return { request, init, unlock, events, base, port };
 }
+
+it('returns a valid service result after the old ten-second socket cutoff', async () => {
+  const f = await fixture(); await f.init(); const token = await f.unlock();
+  vi.spyOn(sessions, 'startRelayMode').mockImplementationOnce(async () => {
+    await new Promise(resolve => setTimeout(resolve, 10500)); return { port: 12345 };
+  });
+  const response = await f.request('/api/relay/start', {}, { authorization: `Bearer ${token}` });
+  expect(response.status).toBe(200); expect(response.json()).toEqual({ port: 12345 });
+}, 20000);
+
+it('refuses a delayed authenticated body after token rotation before executing its operation', async () => {
+  const f = await fixture(); await f.init(); const token = await f.unlock();
+  const start = vi.spyOn(sessions, 'startRelayMode').mockResolvedValue({ port: 12345 });
+  const pending = httpRequest({ hostname: '127.0.0.1', port: f.port, path: '/api/relay/start', method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-length': 2 } });
+  pending.on('error', () => {});
+  const response = once(pending, 'response'); pending.write('{');
+  await new Promise(resolve => setTimeout(resolve, 30));
+  await f.unlock();
+  const [refused] = await response; refused.resume(); pending.end('}');
+  expect(refused.statusCode).toBe(401); expect(start).not.toHaveBeenCalled();
+});
+
+it('does not finish unlocking after the caller disappears during model initialization', async () => {
+  const f = await fixture(); await f.init(); let entered!: () => void, release!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; }), gate = new Promise<void>(resolve => { release = resolve; });
+  vi.mocked(EmbeddingEngine.prototype.initialize).mockImplementationOnce(async () => { entered(); await gate; });
+  cleanup.push(async () => release());
+  const pending = httpRequest({ hostname: '127.0.0.1', port: f.port, path: '/api/unlock', method: 'POST' });
+  pending.on('error', () => {}); pending.end(JSON.stringify({ password: 'local-boundary-test-password' }));
+  await started; pending.destroy(); await new Promise(resolve => setTimeout(resolve, 30)); release();
+  await new Promise(resolve => setTimeout(resolve, 30)); expect(sessions.isUnlocked()).toBe(false);
+  expect(await f.unlock()).toHaveLength(64);
+});
 
 it('rejects foreign origins and rebinding hosts before bootstrap or session access', async () => {
   const f = await fixture();

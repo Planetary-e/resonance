@@ -118,7 +118,7 @@ it.each(['cancel', 'lock', 'disconnect'] as const)('cancels outstanding history 
   if (action === 'cancel') expect((await n.request('/api/relay/history/cancel', {})).body.active).toBe(true);
   else if (action === 'lock') expect((await n.request('/api/lock', {})).status).toBe(200);
   else controller.abort();
-  expect((await pending).status).toBe(action === 'disconnect' ? 0 : 409);
+  expect((await pending).status).toBe(action === 'disconnect' ? 0 : action === 'lock' ? 401 : 409);
   await waitFor(async () => { try { await runRelayHistoryOperation(async () => undefined); return silent.clients.size === 0; } catch { return false; } });
   if (action === 'lock') await n.unlock();
   expect((await n.request('/api/relay/maintenance')).body.active).toBe(true);

@@ -147,7 +147,7 @@ it.each(['cancel', 'lock', 'disconnect'] as const)('cancels a partially frozen d
   if (action === 'cancel') expect((await n.request('/api/relay/history/cancel', {})).body.active).toBe(true);
   else if (action === 'lock') expect((await n.request('/api/lock', {})).status).toBe(200);
   else controller.abort();
-  expect((await pending).status).toBe(action === 'disconnect' ? 0 : 409);
+  expect((await pending).status).toBe(action === 'disconnect' ? 0 : action === 'lock' ? 401 : 409);
   if (action === 'lock') await n.unlock();
   const deadline = performance.now() + 5000;
   while (true) {

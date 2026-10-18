@@ -4,8 +4,9 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { localHttpBoundary } from './local-http-boundary.js';
-import { issueSessionToken, matchesSessionToken } from './local-session-auth.js';
-import { readLocalJsonBody as readBody } from './local-json-body.js';
+import { issueSessionToken, matchesSessionToken, onSessionTokenChange } from './local-session-auth.js';
+import { readLocalJsonBody } from './local-json-body.js';
+import { localApiLifetime, LOCAL_API_OPERATION_MS, LOCAL_API_HISTORY_MS } from './local-api-lifetime.js';
 import { exactWitnessFields } from '@resonance/core/admission-witness';
 import { historyRecoveryActions, type RelayHistoryRecoveryAction } from './history-recovery.js';
 import {
@@ -59,6 +60,8 @@ function utcTimestamp(value: string): string {
 const responseOrigins = new WeakMap<Res, string>();
 
 function json(res: Res, data: unknown, status = 200): void {
+  if (res.destroyed || res.writableEnded) return;
+  localApiLifetime(res.req).assertCurrent();
   res.writeHead(status, {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': responseOrigins.get(res) ?? '',
@@ -67,6 +70,21 @@ function json(res: Res, data: unknown, status = 200): void {
     'Cache-Control': 'no-store',
   });
   res.end(JSON.stringify(data));
+}
+
+function requestAbortController(req: Req): AbortController {
+  const controller = new AbortController(), signal = localApiLifetime(req).signal;
+  if (signal.aborted) controller.abort(signal.reason);
+  else signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true });
+  return controller;
+}
+
+async function readBody(req: Req) {
+  const body = await readLocalJsonBody(req);
+  // A token valid when headers arrived cannot authorize a body completed after
+  // locking or rotating the session. Also recheck after an event-loop stall.
+  localApiLifetime(req).assertCurrent();
+  return body;
 }
 
 function error(res: Res, message: string, status = 400): void {
@@ -88,6 +106,11 @@ function requireAuth(req: Req, res: Res): boolean {
     return false;
   }
   resetInactivityTimer();
+  if (req.url !== '/api/lock') {
+    const owner = getSession();
+    localApiLifetime(req).admit(req.url?.startsWith('/api/relay/history/') ? LOCAL_API_HISTORY_MS : LOCAL_API_OPERATION_MS,
+      () => getSession() === owner && hasAuthentication(req), onSessionTokenChange);
+  }
   return true;
 }
 
@@ -140,7 +163,8 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
     const password = body.password;
     if (typeof password !== 'string' || !password) { error(res, 'Password required'); return true; }
     try {
-      const result = await initSession(password);
+      const lifetime = localApiLifetime(req); lifetime.admit(LOCAL_API_HISTORY_MS);
+      const result = await initSession(password, lifetime.signal); lifetime.assertCurrent();
       json(res, result);
     } catch (err) {
       error(res, err instanceof ModelLoadError ? err.message : 'Internal error',
@@ -155,7 +179,8 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
     const password = body.password;
     if (typeof password !== 'string' || !password) { error(res, 'Password required'); return true; }
     try {
-      const result = await unlockSession(password, relayUrl);
+      const lifetime = localApiLifetime(req); lifetime.admit(LOCAL_API_HISTORY_MS);
+      const result = await unlockSession(password, relayUrl, lifetime.signal); lifetime.assertCurrent();
       if (!isUnlocked()) throw new Error('Session locked during unlock');
       json(res, { ...result, token: issueSessionToken() });
     } catch (err) {
@@ -499,7 +524,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
     '/api/relay/storage/limit/review', '/api/relay/storage/limit/apply', '/api/relay/storage/limit/cancel',
     '/api/relay/storage/scope/review', '/api/relay/storage/scope/apply', '/api/relay/storage/scope/cancel'].includes(url!) && method === 'POST') {
     if (!requireAuth(req, res)) return true;
-    const owner = getSession(), controller = new AbortController();
+    const owner = getSession(), controller = requestAbortController(req);
     const disconnected = () => { if (!res.writableEnded) controller.abort(); };
     res.once('close', disconnected);
     try {
@@ -539,7 +564,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
   }
   if (['/api/relay/history/collection/review', '/api/relay/history/collection/apply'].includes(url!) && method === 'POST') {
     if (!requireAuth(req, res)) return true;
-    const controller = new AbortController(), disconnected = () => { if (!res.writableEnded) controller.abort(); };
+    const controller = requestAbortController(req), disconnected = () => { if (!res.writableEnded) controller.abort(); };
     res.once('close', disconnected);
     try {
       const body = await readBody(req), applying = url!.endsWith('/apply');
@@ -561,7 +586,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
   }
   if (['/api/relay/history/volunteer-activation/review', '/api/relay/history/volunteer-activation/apply'].includes(url!) && method === 'POST') {
     if (!requireAuth(req, res)) return true;
-    const controller = new AbortController(), disconnected = () => { if (!res.writableEnded) controller.abort(); };
+    const controller = requestAbortController(req), disconnected = () => { if (!res.writableEnded) controller.abort(); };
     res.once('close', disconnected);
     try {
       const body = await readBody(req), applying = url!.endsWith('/apply');
@@ -577,7 +602,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
 
   if (url === '/api/relay/history/storage' && method === 'POST') {
     if (!requireAuth(req, res)) return true;
-    const controller = new AbortController(), disconnected = () => { if (!res.writableEnded) controller.abort(); };
+    const controller = requestAbortController(req), disconnected = () => { if (!res.writableEnded) controller.abort(); };
     res.once('close', disconnected);
     try {
       if (!exactWitnessFields(await readBody(req), [])) throw new Error('Storage inventory uses saved locations and accepts no extra fields');
@@ -596,7 +621,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
   }
   if (url === '/api/relay/history/setup' && method === 'POST') {
     if (!requireAuth(req, res)) return true;
-    const controller = new AbortController(), disconnected = () => { if (!res.writableEnded) controller.abort(); };
+    const controller = requestAbortController(req), disconnected = () => { if (!res.writableEnded) controller.abort(); };
     res.once('close', disconnected);
     try {
       const body = await readBody(req);
@@ -617,7 +642,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
   }
   if (url === '/api/relay/history/recovery' && method === 'POST') {
     if (!requireAuth(req, res)) return true;
-    const controller = new AbortController(), disconnected = () => { if (!res.writableEnded) controller.abort(); };
+    const controller = requestAbortController(req), disconnected = () => { if (!res.writableEnded) controller.abort(); };
     res.once('close', disconnected);
     try {
       const body = await readBody(req);
@@ -644,7 +669,7 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
   }
   if (['/api/relay/history/activation/review', '/api/relay/history/activation/apply'].includes(url!) && method === 'POST') {
     if (!requireAuth(req, res)) return true;
-    const controller = new AbortController(), disconnected = () => { if (!res.writableEnded) controller.abort(); };
+    const controller = requestAbortController(req), disconnected = () => { if (!res.writableEnded) controller.abort(); };
     res.once('close', disconnected);
     try {
       const body = await readBody(req), applying = url!.endsWith('/apply');

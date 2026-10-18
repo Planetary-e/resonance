@@ -772,7 +772,8 @@ function wireEvents(s: Session): void {
   // after a sync commits the corresponding local state.
 }
 
-export async function initSession(password: string): Promise<{ did: string }> {
+export async function initSession(password: string, signal?: AbortSignal): Promise<{ did: string }> {
+  signal?.throwIfAborted();
   if (identityOperationInProgress) throw new Error('A local identity operation is already in progress');
   identityOperationInProgress = true;
   const epoch = lockEpoch;
@@ -782,31 +783,35 @@ export async function initSession(password: string): Promise<{ did: string }> {
     if (mgr.exists()) throw new Error('Identity already initialized');
     // A failed or cancelled model load must not leave a half-created identity.
     await loadEmbeddingEngine();
+    signal?.throwIfAborted();
     if (epoch !== lockEpoch) throw new Error('Session locked during initialization');
     const identity = await mgr.create(password);
     try {
+      signal?.throwIfAborted();
       const store = await openStoreAsync(getDbPath(), deriveStoreKey(identity));
       store.close(); return { did: identity.did };
     } finally { identity.secretKey.fill(0); }
   } finally { identityOperationInProgress = false; }
 }
 
-export async function unlockSession(password: string, relayUrl: string): Promise<{ did: string }> {
+export async function unlockSession(password: string, relayUrl: string, signal?: AbortSignal): Promise<{ did: string }> {
+  signal?.throwIfAborted();
   if (identityOperationInProgress) throw new Error('A local identity operation is already in progress');
   identityOperationInProgress = true;
-  try { return await unlockSessionOnce(password, relayUrl); }
+  try { return await unlockSessionOnce(password, relayUrl, signal); }
   finally { identityOperationInProgress = false; }
 }
 
-async function unlockSessionOnce(password: string, relayUrl: string): Promise<{ did: string }> {
+async function unlockSessionOnce(password: string, relayUrl: string, signal?: AbortSignal): Promise<{ did: string }> {
   const epoch = lockEpoch;
-  const currentUnlock = () => { if (epoch !== lockEpoch) throw new Error('Session locked during unlock'); };
+  const currentUnlock = () => { signal?.throwIfAborted(); if (epoch !== lockEpoch) throw new Error('Session locked during unlock'); };
   if (session) {
     const current = session;
     // A new browser page needs a fresh token, even when the backend is still
     // unlocked. Never let the existing in-memory identity bypass authentication.
     const verified = await current.identityMgr.load(password);
     try {
+      currentUnlock();
       if (session !== current || verified.did !== current.identity.did) throw new Error('Session changed during unlock');
       return { did: current.identity.did };
     } finally { verified.secretKey.fill(0); }

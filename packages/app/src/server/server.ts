@@ -14,6 +14,7 @@ import { localHttpBoundary } from './local-http-boundary.js';
 import { localUiFile } from './local-ui-files.js';
 import { matchesSessionToken, onSessionTokenChange } from './local-session-auth.js';
 import { LocalJsonBodyError } from './local-json-body.js';
+import { createLocalApiLifetimes } from './local-api-lifetime.js';
 
 // Resolve UI directory: works in tsx (ESM), esbuild CJS, and pkg snapshot
 function resolveUiDir(): string {
@@ -61,6 +62,7 @@ export function createAppServer(config: AppServerConfig): AppServer {
   let wss: WebSocketServer;
   const wsClients = new Map<WebSocket, string>();
   const rawSockets = new Set<Socket>();
+  const apiLifetimes = createLocalApiLifetimes();
   let unsubscribeToken: (() => void) | undefined;
 
   // Broadcast events to all connected WebSocket clients
@@ -108,13 +110,16 @@ export function createAppServer(config: AppServerConfig): AppServer {
 
         // API routes
         if (url.startsWith('/api/')) {
+          const lifetime = apiLifetimes.open(req, res);
+          if (!lifetime) return;
           try {
             const handled = await handleApi(req, res, relayUrl);
-            if (!handled) {
+            if (!handled && !res.destroyed && !res.writableEnded) {
               res.writeHead(404, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ error: 'Not found' }));
             }
           } catch (error) {
+            if (res.destroyed || res.writableEnded) return;
             if (error instanceof LocalJsonBodyError) {
               if (!res.headersSent) res.writeHead(error.statusCode, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store',
                 'Access-Control-Allow-Origin': localHttpBoundary(req).origin, 'Access-Control-Allow-Credentials': 'true', 'Vary': 'Origin' });
@@ -126,7 +131,7 @@ export function createAppServer(config: AppServerConfig): AppServer {
               res.writeHead(503, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ error: 'Local state is unavailable. Lock and unlock to inspect saved delivery state.' }));
             } else res.end();
-          }
+          } finally { lifetime.close(); }
           return;
         }
 
@@ -140,7 +145,7 @@ export function createAppServer(config: AppServerConfig): AppServer {
         stream.on('error', () => res.destroy()); res.on('close', () => stream.destroy()); stream.pipe(res);
       });
       httpServer.maxConnections = 128;
-      httpServer.setTimeout(10000, socket => socket.destroy());
+      httpServer.setTimeout(10000, socket => { if (!apiLifetimes.isProcessing(socket)) socket.destroy(); });
       httpServer.on('connection', socket => { rawSockets.add(socket); socket.once('close', () => rawSockets.delete(socket)); });
 
       wss = new WebSocketServer({ noServer: true, maxPayload: 1024, perMessageDeflate: false });
