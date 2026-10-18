@@ -39,6 +39,7 @@ import {
   getRelayHistoryCollectionInput, planRelayHistoryCollectionActivation, applyRelayHistoryCollectionActivation,
   getRelayPolicyObserverInput, planRelayPolicyObserverActivation, applyRelayPolicyObserverActivation,
   getRelayPolicyObserverSetupInput, performRelayPolicyObserverSetup,
+  getRelayPolicyObserverRecoveryInput, performRelayPolicyObserverRecovery,
   publishItem,
   listSessionItems,
   releaseHeldPublication,
@@ -633,6 +634,31 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
       const result = await measureRelayHistoryStorage(controller.signal);
       if (!res.destroyed) json(res, result);
     } catch (err) { if (!res.destroyed) error(res, err instanceof Error ? err.message : 'Storage inventory unavailable', 409); }
+    finally { res.removeListener('close', disconnected); }
+    return true;
+  }
+
+  if (url === '/api/relay/history/policy-observer/recovery' && method === 'GET') {
+    if (!requireAuth(req, res)) return true;
+    try { json(res, { input: getRelayPolicyObserverRecoveryInput() }); }
+    catch (err) { error(res, err instanceof Error ? err.message : 'Saved observer recovery selection unavailable', 409); }
+    return true;
+  }
+  if (url === '/api/relay/history/policy-observer/recovery' && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    const controller = requestAbortController(req), disconnected = () => { if (!res.writableEnded) controller.abort(); };
+    res.once('close', disconnected);
+    try {
+      const body = await readBody(req);
+      const actions = ['plan', 'start', 'status', 'step', 'review', 'restore', 'resume-plan', 'resume', 'export-plan', 'export'];
+      const applying = body && ['start', 'restore', 'resume', 'export'].includes(body.action as string);
+      if (!body || !actions.includes(body.action as string) || !exactWitnessFields(body, ['action', 'input', ...(applying ? ['approvalDigest'] : [])])) {
+        throw new Error('Supply a fixed observer recovery action and its exact fields');
+      }
+      const result = await performRelayPolicyObserverRecovery(body.action as import('./policy-observer-recovery.js').RelayPolicyObserverRecoveryAction,
+        body.input, body.approvalDigest, controller.signal);
+      if (!res.destroyed) json(res, result);
+    } catch (err) { if (!res.destroyed) error(res, err instanceof Error ? err.message : 'Observer recovery failed; retain the workspace and history', 409); }
     finally { res.removeListener('close', disconnected); }
     return true;
   }

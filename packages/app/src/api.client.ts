@@ -410,6 +410,15 @@ export function cancelRelayHistoryOperation() { return api<{ active: boolean }>(
 
 export interface RelayHistoryCollectionInput { configurationFile: string }
 export interface RelayPolicyObserverInput { configurationFile: string; linksFile: string }
+export type { RelayPolicyObserverRecoveryInput, RelayPolicyObserverRecoveryAction, RelayPolicyObserverRecoveryResult } from './policy-observer-recovery.types';
+export function getRelayPolicyObserverRecoveryInput() {
+  return api<{ input: import('./policy-observer-recovery.types').RelayPolicyObserverRecoveryInput | null }>('GET', '/api/relay/history/policy-observer/recovery');
+}
+export function runRelayPolicyObserverRecovery(action: import('./policy-observer-recovery.types').RelayPolicyObserverRecoveryAction,
+  input: import('./policy-observer-recovery.types').RelayPolicyObserverRecoveryInput, approvalDigest?: string) {
+  return api<{ input: import('./policy-observer-recovery.types').RelayPolicyObserverRecoveryInput; result: import('./policy-observer-recovery.types').RelayPolicyObserverRecoveryResult }>(
+    'POST', '/api/relay/history/policy-observer/recovery', { action, input, ...(['start', 'restore', 'resume', 'export'].includes(action) ? { approvalDigest } : {}) });
+}
 export type { RelayPolicyObserverSetupInput, RelayPolicyObserverSetupResult } from './policy-observer-setup.types';
 export function getRelayPolicyObserverSetupInput() {
   return api<{ input: import('./policy-observer-setup.types').RelayPolicyObserverSetupInput | null }>('GET', '/api/relay/history/policy-observer/setup');
@@ -419,6 +428,7 @@ export function runRelayPolicyObserverSetup(action: 'review' | 'apply', input: i
     'POST', '/api/relay/history/policy-observer/setup', { action, input, ...(action === 'apply' ? { approvalDigest } : {}) });
 }
 export interface RelayPolicyObserverReview {
+  replacement: { kind: 'policy-observer-generation-replacement'; workspaceDirectory: string; previousDirectory: string; previousRootId: string; rootId: string; generation: number } | null;
   kind: 'policy-observer-activation'; configurationFile: string; contextId: string; genesisId: string; rootId: string; directory: string;
   owner: string; authority: string; generation: number; head: { revision: number; digest: string; transition: string };
   pending: boolean; blocked: boolean; fenced: boolean; members: Array<{ publicKey: string; endpoint: string }>;

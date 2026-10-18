@@ -10,6 +10,7 @@ import { openConfiguredPolicyObserver, readPolicyObserverConfigurationFile, POLI
 import { readAdmissionHistoryLinksFile } from '../../../relay/src/admission-history-config.js';
 import { relayServiceRuntime, validateRelayServicePaths, type RelayServiceRoleFiles } from './relay-supervisor.js';
 import type { RelayConfig } from './session.js';
+import { openDesktopPolicyObserverReplacement } from './policy-observer-replacement.js';
 
 export interface RelayPolicyObserverInput { configurationFile: string; linksFile: string }
 export interface RelayPolicyObserverBinding {
@@ -68,13 +69,14 @@ export async function withRelayPolicyObserverActivation<T>(raw: unknown, previou
   }
   const prior = previous.policyObserverBinding ?? (previous.runtime?.policyObserverFile
     ? snapshot({ configurationFile: previous.runtime.policyObserverFile, linksFile: previous.runtime.policyObserverLinksFile ?? '' }).binding : undefined);
-  if (prior && ['contextId', 'genesisId', 'rootId', 'directory'].some(field => prior[field as keyof RelayPolicyObserverBinding] !== original.binding[field as keyof RelayPolicyObserverBinding])) {
-    throw new Error('Observer selection must retain its history and location; changing generation or owner requires reviewed recovery');
-  }
+  const replacing = prior && ['contextId', 'genesisId', 'rootId', 'directory'].some(field => prior[field as keyof RelayPolicyObserverBinding] !== original.binding[field as keyof RelayPolicyObserverBinding]);
   const runtime = relayServiceRuntime(previous.runtime, { ...retainedRoleFiles,
     policyObserverFile: input.configurationFile, policyObserverLinksFile: input.linksFile });
   const service = { ...runtime, dataDir: getDataDir(), port: previous.port, adminKey: previous.adminKey ?? '', contacts: previous.contacts ?? [], controls: previous.controls };
   validateRelayServicePaths(service);
+  let replacement: Awaited<ReturnType<typeof openDesktopPolicyObserverReplacement>> | undefined;
+  try {
+  if (replacing) replacement = await openDesktopPolicyObserverReplacement(previous, prior!, input, original.config, signal);
   const observer = await openConfiguredPolicyObserver(original.config);
   try {
     const status = observer.status(), retained = observer.reviewRecoverySource(), policy = observer.policy();
@@ -85,10 +87,12 @@ export async function withRelayPolicyObserverActivation<T>(raw: unknown, previou
       head: status.head, pending: status.pending, blocked: status.blocked, fenced: status.fenced,
       policyCurrent, policyExpiresAt: policy.expiresAt,
       members: original.config.members, routing: original.routing?.members ?? null,
+      replacement: replacement?.review ?? null,
       retainedDigest: retained.stateDigest, startsService: false, readiness: 'unverified' };
     const review = { ...details, approvalDigest: historyDigest(`resonance:desktop-policy-observer:v1\n${JSON.stringify([input, original.binding, original.layout, previous, runtime, details])}`) };
     const check = () => {
       signal.throwIfAborted(); const current = snapshot(input);
+      replacement?.assertCurrent();
       validateRelayServicePaths(service);
       if (JSON.stringify(current.binding) !== JSON.stringify(original.binding) || JSON.stringify(current.layout) !== JSON.stringify(original.layout)
         || JSON.stringify(current.config) !== JSON.stringify(original.config) || JSON.stringify(current.routing) !== JSON.stringify(original.routing)
@@ -105,4 +109,5 @@ export async function withRelayPolicyObserverActivation<T>(raw: unknown, previou
       return { result: 'policy-observer-selected', startsService: false, readiness: 'unverified' };
     } });
   } finally { observer.close(); }
+  } finally { replacement?.close(); }
 }

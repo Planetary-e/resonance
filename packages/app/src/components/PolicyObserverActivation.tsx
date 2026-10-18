@@ -31,13 +31,15 @@ export default function PolicyObserverActivation({ onBusyChange, blocked = false
       <label className="form-group" style={{ display: 'block' }}>Pinned relay routing file (optional)
         <input type="text" value={input.linksFile} disabled={blocked || busy} autoComplete="off" spellCheck={false} onChange={event => change('linksFile', event.target.value)} />
       </label>
-      <p className="text-sm">With no routing file, the observer uses the five direct endpoints in its configuration. Prepare its history in the setup section below. Lost-state recovery currently uses the Node operator commands.</p>
+      <p className="text-sm">With no routing file, the observer uses the five direct endpoints in its configuration. Use the setup and recovery sections below to prepare its history.</p>
       <button type="submit" className="btn btn-secondary" disabled={blocked || busy}>Review observer selection</button>
     </form>
     {plan && <section className="history-activation-review" aria-label="Review policy observer">
       <h4>Review policy observer</h4>
       <p>Retained policy revision {plan.head.revision} · history generation {plan.generation} · {plan.pending ? 'pending replication' : 'no pending write'}.</p>
       <p>Policy expiry: {new Date(plan.policyExpiresAt).toLocaleString()}.</p>
+      {plan.replacement && <p role="status">This selects recovered generation {plan.replacement.generation}, independently checked against its saved recovery workspace.
+        The previous history folder remains retained. Approval replaces only the selected observer configuration and leaves the relay paused.</p>}
       <dl style={{ overflowWrap: 'anywhere' }}>
         <dt>History folder</dt><dd>{plan.directory}</dd><dt>Community authority</dt><dd>{plan.authority}</dd>
         <dt>Observer key</dt><dd>{plan.owner}</dd><dt>Original history</dt><dd>{plan.genesisId}</dd>
