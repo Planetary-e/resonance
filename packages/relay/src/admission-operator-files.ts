@@ -20,7 +20,7 @@ export function readOperatorFile(path: string, maximum: number): Buffer {
 }
 export function readOperatorJson(path: string, maximum: number): unknown {
   const bytes = readOperatorFile(path, maximum);
-  try { return JSON.parse(bytes.toString('utf8')); }
+  try { return JSON.parse(new TextDecoder('utf8', { fatal: true, ignoreBOM: true }).decode(bytes)); }
   catch { throw new Error('Admission history input is not valid JSON'); }
   finally { bytes.fill(0); }
 }

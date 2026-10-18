@@ -82,7 +82,13 @@ export function openEncryptedLocalState<T>(options: {
       if (bytes.length > maximumBytes) throw new Error('Encrypted outbox file exceeds capacity');
       let legacy: T | undefined;
       let encoded: string | undefined;
-      try { legacy = options.decodeLegacy?.(bytes); if (legacy === undefined) encoded = bytes.toString('utf8'); }
+      try {
+        legacy = options.decodeLegacy?.(bytes);
+        if (legacy === undefined) {
+          try { encoded = new TextDecoder('utf8', { fatal: true, ignoreBOM: true }).decode(bytes); }
+          catch { throw new Error('Encrypted outbox file is invalid'); }
+        }
+      }
       finally { bytes.fill(0); }
       if (legacy !== undefined) {
         if (!options.validate(legacy)) throw new Error('Encrypted outbox legacy state is invalid');
@@ -99,12 +105,16 @@ export function openEncryptedLocalState<T>(options: {
         }
         const nonce = Buffer.from(record.nonce, 'base64url');
         const tag = Buffer.from(record.tag, 'base64url');
-        if (nonce.length !== 12 || tag.length !== 16) throw new Error('Encrypted outbox file is invalid');
+        const ciphertext = Buffer.from(record.ciphertext, 'base64url');
+        if (nonce.length !== 12 || tag.length !== 16 || nonce.toString('base64url') !== record.nonce
+          || tag.toString('base64url') !== record.tag || ciphertext.toString('base64url') !== record.ciphertext) throw new Error('Encrypted outbox file is invalid');
         const decipher = createDecipheriv('aes-256-gcm', key, nonce);
         decipher.setAAD(aad); decipher.setAuthTag(tag);
-        const plaintext = Buffer.concat([decipher.update(Buffer.from(record.ciphertext, 'base64url')), decipher.final()]);
+        const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
         try {
-          const value: unknown = JSON.parse(plaintext.toString('utf8'));
+          let value: unknown;
+          try { value = JSON.parse(new TextDecoder('utf8', { fatal: true, ignoreBOM: true }).decode(plaintext)); }
+          catch { throw new Error('Encrypted outbox state is invalid'); }
           if (!options.validate(value)) throw new Error('Encrypted outbox state is invalid');
           state = value;
         } finally { plaintext.fill(0); }
