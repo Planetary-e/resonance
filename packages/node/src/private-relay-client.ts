@@ -1,7 +1,9 @@
 /** Short-lived personal-client transport through two authenticated relay hops. */
 
 import { randomInt } from 'node:crypto';
-import { parseAdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
+import { parseAdmissionPolicyObservers, parseAdmissionPolicyHead } from '@resonance/core/admission-policy-freshness';
+import { createAdmissionPolicyChunkRequest, parseAdmissionPolicyChunkReply, assembleAdmissionPolicyTransfer,
+  ADMISSION_POLICY_CHUNK_REPLY_TYPE, type AdmissionPolicyChunkRequest, type AdmissionPolicyChunkReply } from '@resonance/core/admission-policy-transfer';
 import { createAdmissionPolicyQuery, parseAdmissionPolicyQueryReply, ADMISSION_POLICY_QUERY_REPLY_TYPE,
   type AdmissionPolicyQuery } from '@resonance/core/admission-policy-query';
 import WebSocket from 'ws';
@@ -335,6 +337,33 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
   }
 
   return {
+    async fetchAdmissionPolicySuccessor(contextValue, previousValue) {
+      const context = parseAdmissionPolicyObservers(contextValue), previous = parseAdmissionPolicyHead(previousValue);
+      return runOperation(async operation => {
+        const fetchChunk = async (request: AdmissionPolicyChunkRequest) => {
+          const message = await firstReply(operation, () => JSON.stringify(request));
+          operation.check();
+          if (message.type !== ADMISSION_POLICY_CHUNK_REPLY_TYPE) throw new Error('Private relay did not return a policy chunk');
+          return parseAdmissionPolicyChunkReply(message.payload, request, context);
+        };
+        const first = await fetchChunk(createAdmissionPolicyChunkRequest(context, previous));
+        const chunks: AdmissionPolicyChunkReply[] = [first]; let next = 1;
+        // At most four chunk requests share the original operation deadline and
+        // the ordinary private traffic scheduler. No nested operation budgets.
+        const workers = await Promise.allSettled(Array.from({ length: Math.min(4, first.count - 1) }, async () => {
+          try {
+            while (next < first.count) {
+              operation.check(); const index = next++;
+              chunks[index] = await fetchChunk(createAdmissionPolicyChunkRequest(context, previous, first.artifact, index));
+            }
+          } catch (error) { operation.cancel(error instanceof Error ? error : new Error('Policy chunk transfer failed'), 'PRIVATE_OPERATION_FAILED'); throw error; }
+        }));
+        const failed = workers.find(result => result.status === 'rejected');
+        if (failed?.status === 'rejected') throw failed.reason;
+        operation.check(); const advance = await assembleAdmissionPolicyTransfer(chunks, context, previous);
+        operation.check(); return advance;
+      });
+    },
     async queryAdmissionPolicy(contextValue) {
       const context = parseAdmissionPolicyObservers(contextValue);
       return runOperation(async operation => {
@@ -346,7 +375,7 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
         operation.check();
         if (!query || reply.type !== ADMISSION_POLICY_QUERY_REPLY_TYPE) throw new Error('Private relay did not return a policy observation');
         const certificate = parseAdmissionPolicyQueryReply(reply.payload, query, context, Date.now());
-        operation.check(); return certificate;
+        operation.check(); return { query, reply: certificate };
       });
     },
     async connect() {

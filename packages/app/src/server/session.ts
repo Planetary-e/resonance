@@ -101,6 +101,7 @@ export interface Session {
   publicationOutbox: PublicationOutbox;
   requestOutbox: PrivateRequestOutbox;
   admissionWallet: ManagedAdmissionWallet;
+  policyUpdate?: AbortController;
   mailboxSync?: { controller: AbortController; client: RelayClient; pending: Promise<number> };
   privatePublicationRoute?: PrivatePublicationRoute;
 }
@@ -985,6 +986,7 @@ export function lockSession(): void {
   if (inactivityTimer) { clearTimeout(inactivityTimer); inactivityTimer = null; }
   if (!session) return;
   stopAutomaticMailboxSync(session);
+  session.policyUpdate?.abort();
   session.requestOutbox.close();
   session.publicationOutbox.close();
   // VULN-16: Zero key material
@@ -1256,6 +1258,29 @@ export async function installAdmissionPolicy(policy: unknown, authority: string,
   s.requestOutbox.setAutomaticMailboxes(false); stopAutomaticMailboxSync(s);
   await s.admissionWallet.installPolicy(policy, authority, observers);
   if (session !== s) throw new Error('Session locked during policy update');
+}
+
+/** One explicit catch-up step, with no token allocation or periodic polling. */
+export async function updateAdmissionPolicy(signal?: AbortSignal) {
+  const s = session!;
+  if (!s.privatePublicationRoute) throw new Error('A private route is required to fetch community policies');
+  if (s.policyUpdate) throw new Error('A community policy update is already in progress');
+  const pins = s.admissionWallet.policyUpdatePins(), controller = new AbortController();
+  const client = createSessionRelayClient([], s.identity, s.privatePublicationRoute, s.admissionWallet);
+  s.policyUpdate = controller;
+  const lifetime = AbortSignal.any([controller.signal, AbortSignal.timeout(25000), ...(signal ? [signal] : [])]);
+  const cancel = () => client.disconnect(), current = () => { lifetime.throwIfAborted(); if (session !== s) throw new Error('Session changed during policy update'); };
+  lifetime.addEventListener('abort', cancel, { once: true });
+  try {
+    current();
+    const observation = await client.queryAdmissionPolicy!(pins.context); current();
+    const observed = s.admissionWallet.observePolicy(observation); current();
+    if (observed.previous.revision === observed.observed.revision) return { updated: false, revision: observed.previous.revision, remaining: 0 };
+    const advance = await client.fetchAdmissionPolicySuccessor!(observed.context, observed.previous); current();
+    await s.admissionWallet.installPolicy(advance, observed.context.authority, undefined, lifetime); current();
+    const after = s.admissionWallet.policyUpdatePins();
+    return { updated: true, revision: after.previous.revision, remaining: Math.max(0, after.observed.revision - after.previous.revision) };
+  } finally { lifetime.removeEventListener('abort', cancel); client.disconnect(); if (s.policyUpdate === controller) delete s.policyUpdate; }
 }
 
 export async function importAdmissionTokens(tokens: readonly string[]): Promise<number> {

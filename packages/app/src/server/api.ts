@@ -13,7 +13,7 @@ import {
   getSession,
   ModelLoadError,
   WalletLoadError,
-  getAdmissionWalletStatus, configureAdmissionWallet, importAdmissionTokens, installAdmissionPolicy,
+  getAdmissionWalletStatus, configureAdmissionWallet, importAdmissionTokens, installAdmissionPolicy, updateAdmissionPolicy,
   requestAdmissionTokens, completeAdmissionIssuance, cancelAdmissionIssuance, planAdmissionWalletRetirement, retireAdmissionWallet,
   listExternalMailboxMatches,
   getRelayActivity,
@@ -218,6 +218,13 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
       || typeof body.authority !== 'string') { error(res, 'Provide the signed policy, independently verified authority and optional observer pins'); return true; }
     try { await installAdmissionPolicy(body.policy, body.authority, body.observers); json(res, { ok: true }); }
     catch (err) { error(res, err instanceof Error ? err.message : 'Policy update failed', 409); }
+    return true;
+  }
+  if (url === '/api/admission-wallet/update' && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    if (!exactWitnessFields(await readBody(req), [])) { error(res, 'Policy update uses the saved private route and accepts no fields'); return true; }
+    try { json(res, await updateAdmissionPolicy(localApiLifetime(req).signal)); }
+    catch (err) { error(res, err instanceof Error ? err.message : 'Private policy update failed', 409); }
     return true;
   }
   if (url === '/api/admission-wallet/import' && method === 'POST') {

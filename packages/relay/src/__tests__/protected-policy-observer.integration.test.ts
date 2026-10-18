@@ -85,6 +85,18 @@ it('fences a coherent stale backup even if it was already open and previously pa
   await expect(restored.ready()).rejects.toThrow('Four');
 });
 
+it('serves exact signed retained successors after restart without a network quorum or reconstructed history', async () => {
+  const n = await fixture(); await n.observer.ready(); await n.observer.advance(n.advance); await n.observer.advance(n.later);
+  n.observer.close(); const observer = await n.open(), calls = n.calls(); n.online();
+  expect(await observer.successor(n.context.genesis)).toEqual(n.advance);
+  expect(await observer.successor(n.advance.commitment.next)).toEqual(n.later);
+  expect(n.calls()).toBe(calls);
+  await expect(observer.successor({ ...n.context.genesis, transition: 'a'.repeat(64) })).rejects.toThrow('differs');
+  await expect(observer.successor(n.later.commitment.next)).rejects.toThrow('outside');
+  await expect(observer.successor(n.context.genesis, AbortSignal.abort())).rejects.toThrow();
+  observer.close(); await expect(observer.successor(n.context.genesis)).rejects.toThrow('closed');
+});
+
 it('retains exact accepted ciphertext through lost replies and restart without rolling back to the last local certificate', async () => {
   const n = await fixture(); await n.observer.ready(); n.online(0, 1, 2, 3); n.lost(true);
   await expect(n.observer.advance(n.advance)).rejects.toThrow('Four');

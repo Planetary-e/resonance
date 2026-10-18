@@ -9,8 +9,8 @@ import { openEncryptedLocalState } from '@resonance/core/local-state';
 import { captureStorageReservationOperation } from '@resonance/core/storage-reservations';
 import { assertAdmissionPolicyCurrent } from '@resonance/core/admission-policy';
 import { admissionPolicyObserversId, createAdmissionPolicyHeadVote, parseAdmissionPolicyHeadRequest,
-  parseAdmissionPolicyObservers, type AdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
-import { parseAdmissionPolicyAdvance } from '@resonance/core/admission-policy-advance';
+  parseAdmissionPolicyObservers, parseAdmissionPolicyHead, type AdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
+import { parseAdmissionPolicyAdvance, sameAdmissionPolicyHead } from '@resonance/core/admission-policy-advance';
 import { historyCheckpointContextId, historyCheckpointEnvelopeId, historyCheckpointEnvelopeByteLength, historyCheckpointReserveBucket, historyDigest,
   parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, sealHistoryCheckpoint,
   type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
@@ -187,6 +187,24 @@ export async function openProtectedPolicyObserver(options: {
         pending: saved.pending !== null, fenced, evidence: state.conflict ? structuredClone([state.advance!, state.conflict]) : [], ...writer!.historyUsage() };
     },
     policy() { return structuredClone(retained().state.policy); },
+    /** Read a signed successor from authenticated retained local history. This
+     * makes no freshness claim and does not create or repair missing evidence. */
+    async successor(value: unknown, signal?: AbortSignal) {
+      live(); signal?.throwIfAborted(); const previous = parseAdmissionPolicyHead(value);
+      const current = retained();
+      if (current.state.conflict || current.saved.pending) throw new Error('Observer policy history is unavailable for transfer');
+      const baseline = states.get(rootId)!, baselineHead = policyObserverStateHead(baseline, context);
+      let state = baseline;
+      if (!baseline.advance || !sameAdmissionPolicyHead(baseline.advance.previous, previous)) {
+        const sequence = previous.revision - baselineHead.revision + 1;
+        if (!Number.isSafeInteger(sequence) || sequence < 1 || sequence > (current.saved.committed?.envelope.sequence ?? -1)) {
+          throw new Error('Requested policy successor is outside this retained generation');
+        }
+        state = await decode(writer!.historyBlock(sequence)); live(); signal?.throwIfAborted();
+      }
+      if (state.conflict || !state.advance || !sameAdmissionPolicyHead(state.advance.previous, previous)) throw new Error('Retained policy successor differs from request');
+      return structuredClone({ commitment: state.advance, policy: state.policy });
+    },
     /** Local knowledge for explicit recovery review, including an unacknowledged
      * pending head/conflict. This is neither a global view nor signing readiness. */
     recoveryState() { return structuredClone(retained().state); },

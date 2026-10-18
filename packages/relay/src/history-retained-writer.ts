@@ -23,6 +23,7 @@ export function createRetainedHistoryCheckpointWriter(options: Omit<Parameters<t
   return { ...writer,
     /** Retained payloads only. After retirement, compactionAnchor() authenticates the omitted prefix. */
     history: () => archive.blocks(), historyStatus: () => archive.read(),
+    historyBlock: (sequence: number) => archive.prefix().blockAt(sequence),
     historyUsage: () => archive.usage(),
     historyReviewDigest: () => archive.reviewDigest(),
     retainCompactionAnchor: archive.retainCompactionAnchor,

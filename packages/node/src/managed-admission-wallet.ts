@@ -117,14 +117,26 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
     const cutoff = use === 'issue' ? entry?.issueUntil : use === 'spend' ? entry?.spendUntil : entry?.retryUntil;
     if (!entry || now < entry.notBefore || now >= cutoff!) throw new Error('Issuer key is not active for this operation under the community policy');
   }
-  function checkFreshness(observation: WalletPolicyObservation | undefined) {
+  function checkFreshness(observation: WalletPolicyObservation | undefined, updating = false) {
     ready(); const state = stateV2(storage.read()); if (!state.freshness) return;
     const inspected = inspectWalletPolicyObservation(state.freshness, observation, (options.now ?? Date.now)());
     if (inspected.state !== state.freshness) storage.write({ ...state, freshness: inspected.state });
-    if (inspected.error) throw new Error(inspected.error);
+    if (inspected.error) {
+      if (updating && !inspected.state.conflict) return;
+      throw new Error(inspected.error);
+    }
     assertAdmissionPolicyCurrent(state.policy!, (options.now ?? Date.now)());
   }
   const api = {
+    policyUpdatePins() {
+      ready(); const freshness = stateV2(storage.read()).freshness;
+      if (!freshness) throw new Error('Pin independently verified policy observers before a private update');
+      if (freshness.conflict) throw new Error('Wallet policy observations conflict; spending is fenced');
+      return structuredClone({ context: freshness.context, previous: freshness.installed, observed: freshness.observed });
+    },
+    observePolicy(observation: WalletPolicyObservation) {
+      api.policyUpdatePins(); checkFreshness(observation, true); return api.policyUpdatePins();
+    },
     provider(): AdmissionCapabilityProviderV2 {
       return Object.assign((context: AdmissionCapabilityRequestContextV2) => api.capabilityFor(context), {
         policyObservers: () => { ready(); return structuredClone(stateV2(storage.read()).freshness?.context); },
@@ -184,7 +196,8 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
         wallets.push(wallet);
       } finally { busy = false; }
     },
-    async installPolicy(value: unknown, authority: string, observersValue?: unknown) {
+    async installPolicy(value: unknown, authority: string, observersValue?: unknown, signal?: AbortSignal) {
+      signal?.throwIfAborted();
       ready(); if (pending) throw new Error('Finish or cancel the pending token request before changing community policy');
       busy = true; const opened: BlindAdmissionWalletV2[] = [];
       try {
@@ -198,7 +211,7 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
         const advance = freshness && input && typeof input === 'object' && 'commitment' in input
           ? await parseAdmissionPolicyAdvance(input, freshness.context) : undefined;
         const policy = advance?.policy ?? await verifyAdmissionPolicy(input, authority);
-        storage.read();
+        storage.read(); signal?.throwIfAborted();
         // A fresh observed later head can require replaying an expired immediate
         // predecessor. Retain that authenticated step without authorizing use of
         // its keys; the final observed revision must still be current.
@@ -227,11 +240,12 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
         for (const entry of policy.keys) {
           if (profiles.some(profile => admissionKeyFingerprint(profile.issuerPublicKey) === admissionKeyFingerprint(entry.profile.issuerPublicKey))) continue;
           if (profiles.length >= (policy.version === 2 ? MAX_PROFILE_HISTORY : MAX_PROFILES)) throw new Error('Wallet profile history is full');
-          const parsed = await parseAdmissionWalletProfile(entry.profile); storage.read();
+          const parsed = await parseAdmissionWalletProfile(entry.profile); storage.read(); signal?.throwIfAborted();
           opened.push(open(profiles.length, parsed)); profiles.push(parsed.profile);
         }
         const active = profiles.findIndex(profile => admissionKeyFingerprint(profile.issuerPublicKey) === policy.activeKey);
         validateRetiredWallets({ version: policy.version === 2 ? 4 : 3, active, profiles, policy }, [...wallets, ...opened]);
+        signal?.throwIfAborted();
         storage.write({ version: freshness ? 5 : policy.version === 2 ? 4 : 3, active, profiles, policy, ...(freshness ? { freshness } : {}) });
         wallets.push(...opened); opened.length = 0;
       } finally { opened.forEach(wallet => wallet.close()); busy = false; }

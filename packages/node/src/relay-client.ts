@@ -119,7 +119,8 @@ export interface RelayClientEvents {
 
 export interface RelayClient {
   /** Private-only public metadata query; no personal identifier or capability. */
-  queryAdmissionPolicy?(context: import('@resonance/core/admission-policy-freshness').AdmissionPolicyObservers): Promise<import('@resonance/core/admission-policy-query').AdmissionPolicyQueryReply>;
+  queryAdmissionPolicy?(context: AdmissionPolicyObservers): Promise<WalletPolicyObservation>;
+  fetchAdmissionPolicySuccessor?(context: AdmissionPolicyObservers, previous: import('@resonance/core/admission-policy-freshness').AdmissionPolicyHead): Promise<import('@resonance/core/admission-policy-advance').AdmissionPolicyAdvance>;
   connect(): Promise<void>;
   disconnect(): void;
   /** Submit one self-authenticating v2 operation without sending the root DID. */

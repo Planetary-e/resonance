@@ -28,6 +28,7 @@ import { readPolicyObserverConfigurationFile, serveConfiguredPolicyObserver } fr
 import { exchangeHistoryCheckpoint } from './history-checkpoint-exchange.js';
 import { shareHistoryOwnerRoutes } from './history-owner-routing.js';
 import { createAdmissionPolicyQueryResponder } from './admission-policy-query.js';
+import { createAdmissionPolicyTransferResponder } from './admission-policy-transfer.js';
 import { exchangeAdmissionPolicyObservation } from './admission-policy-observation-transport.js';
 
 const relayPort = parseNonNegativeInteger(process.env.RELAY_PORT, 9090, 'RELAY_PORT');
@@ -180,6 +181,10 @@ const policyQueryResponder = policyObserverConfig ? createAdmissionPolicyQueryRe
   policy() { if (!observerService) throw new Error('Policy observer is not ready'); return observerService.policy(); },
   transport: (member, frame, signal) => exchangeAdmissionPolicyObservation(member, frame, signal, socket => resourceMeter.observe(socket)),
 }) : undefined;
+const policyTransferResponder = policyObserverConfig ? createAdmissionPolicyTransferResponder({
+  context: policyObserverConfig.context,
+  successor(previous, signal) { if (!observerService) throw new Error('Policy observer is not ready'); return observerService.successor(previous, signal); },
+}) : undefined;
 const ownerPolicy = ownerBandwidth !== undefined || ownerTotalBandwidth !== undefined || ownerCpu !== undefined
   || ownerSchedule !== undefined || ownerExternalPower
   ? new OwnerResourcePolicy({
@@ -255,6 +260,7 @@ try {
     admissionVerifier: deferred?.verifier ?? admissionVerifier,
     admissionWitness: deferred && witnessKey ? deferred.witness : admissionVerifier?.witness,
     policyQuery: policyQueryResponder?.exchange,
+    policyTransfer: policyTransferResponder?.exchange,
     resourceMeter,
     historyLinks: historyRouter,
     historyHealth: () => readRelayHistoryHealth({ ownerConfigured: !!historyFile, owner: admissionHistoryHealth,
@@ -301,6 +307,7 @@ let observerOpening: Promise<void> | undefined;
 async function shutdown(code: number) {
   if (shuttingDown) return; shuttingDown = true;
   await policyQueryResponder?.close();
+  await policyTransferResponder?.close();
   // Stop admitting observer work and drain accepted updates while their history
   // connections still exist. During startup, cancellation closes the pending owner.
   observerLifetime.abort();

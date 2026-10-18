@@ -45,6 +45,8 @@ jobs:
           packages/relay/src/__tests__/admission-policy-observation.integration.test.ts
           packages/relay/src/__tests__/admission-policy-query.test.ts
           packages/core/src/__tests__/admission-policy-query.test.ts
+          packages/core/src/__tests__/admission-policy-transfer.test.ts
+          packages/relay/src/__tests__/admission-policy-transfer.test.ts
           packages/node/src/__tests__/wallet-policy-freshness.test.ts
           packages/node/src/__tests__/private-wallet-policy.integration.test.ts
           packages/relay/src/__tests__/history-current-head.integration.test.ts
@@ -93,6 +95,8 @@ jobs:
           packages/app/src/server/__tests__/policy-observer-setup.integration.test.ts
           packages/app/src/server/__tests__/policy-observer-recovery.integration.test.ts
           packages/app/src/server/__tests__/private-policy-query.integration.test.ts
+          packages/app/src/server/__tests__/private-policy-transfer.integration.test.ts
+          packages/app/src/server/__tests__/admission-policy-update.integration.test.ts
           packages/app/src/server/__tests__/relay-loader-path.test.ts
 
   test:

@@ -376,6 +376,7 @@ export function completeAdmissionIssuance(response: unknown) { return api<{ impo
 export function cancelAdmissionIssuance() { return api('POST', '/api/admission-wallet/cancel'); }
 
 export function installAdmissionPolicy(policy: unknown, authority: string, observers?: unknown) { return api('POST', '/api/admission-wallet/policy', { policy, authority, observers }); }
+export function updateAdmissionPolicy() { return api<{ updated: boolean; revision: number; remaining: number }>('POST', '/api/admission-wallet/update', {}); }
 
 export interface AdmissionWalletRetirementPlan {
   kind: 'admission-wallet-retirement'; issuerKey: string; scope: NonNullable<AdmissionWalletStatus['scope']>;

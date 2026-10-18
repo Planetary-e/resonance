@@ -10,6 +10,7 @@
     "./admission-policy": "./src/admission-policy.ts",
     "./admission-policy-freshness": "./src/admission-policy-freshness.ts",
     "./admission-policy-query": "./src/admission-policy-query.ts",
+    "./admission-policy-transfer": "./src/admission-policy-transfer.ts",
     "./admission-policy-advance": "./src/admission-policy-advance.ts",
     "./admission-witness": "./src/admission-witness.ts",
     "./admission-rotation": "./src/admission-rotation.ts",

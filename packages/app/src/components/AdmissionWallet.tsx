@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { getAdmissionWallet, configureAdmissionWallet, importAdmissionTokens, requestAdmissionTokens, completeAdmissionIssuance, cancelAdmissionIssuance, installAdmissionPolicy, planAdmissionWalletRetirement, retireAdmissionWallet, type AdmissionWalletRetirementPlan, type AdmissionWalletStatus } from '../api.client';
+import { getAdmissionWallet, configureAdmissionWallet, importAdmissionTokens, requestAdmissionTokens, completeAdmissionIssuance, cancelAdmissionIssuance, installAdmissionPolicy, updateAdmissionPolicy, planAdmissionWalletRetirement, retireAdmissionWallet, type AdmissionWalletRetirementPlan, type AdmissionWalletStatus } from '../api.client';
 
 export default function AdmissionWallet({ privateDeliveryAvailable, onChange }: {
   privateDeliveryAvailable: boolean; onChange: () => Promise<unknown>;
@@ -68,6 +68,13 @@ export default function AdmissionWallet({ privateDeliveryAvailable, onChange }: 
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Invalid signed policy'); }
     finally { setBusy(false); }
   }
+  async function updatePolicy() {
+    setBusy(true); setMessage(''); setRetirementPlan(null);
+    try {
+      const result = await updateAdmissionPolicy();
+      setMessage(result.error ?? (result.updated ? `Policy revision ${result.revision} installed.${result.remaining ? ` ${result.remaining} more revisions remain; update again to continue.` : ''}` : 'The installed policy matches this fresh observation.'));
+    } finally { await refresh(); await onChange(); setBusy(false); }
+  }
   async function reviewRetirement(key: string) {
     setBusy(true); setMessage(''); setRetirementPlan(null);
     try {
@@ -113,6 +120,8 @@ export default function AdmissionWallet({ privateDeliveryAvailable, onChange }: 
       : status.freshness.observedRevision > status.freshness.installedRevision
         ? `Policy revision ${status.freshness.observedRevision} was observed. Import each signed successor before sending.`
         : 'Each released send checks four volunteer observers privately before reserving a token. No background checks are made.'}</p>}
+    {status?.freshness && <button className="btn btn-primary btn-sm" disabled={busy || !privateDeliveryAvailable || !!status.pendingIssuance || status.freshness.conflicted}
+      onClick={() => void updatePolicy()}>Update community policy</button>}
     {!status ? <p>Loading wallet…</p> : status.configured && !changing ? <>
       <p><strong>{status.available} available</strong> · {status.reserved} reserved · {status.total}/{status.capacity} history slots used</p>
       <p>Issuer: {status.scope?.issuer} · Community: {status.scope?.community} · Token period: {status.scope?.epoch}</p>

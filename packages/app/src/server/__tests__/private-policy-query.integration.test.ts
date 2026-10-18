@@ -76,14 +76,14 @@ it('queries five protected observers over two private hops without a personal id
     return Reflect.apply(send, this, [data, ...rest]);
   });
   const first = await n.client.queryAdmissionPolicy!(n.context); spy.mockRestore();
-  expect(first.certificate.votes).toHaveLength(4); expect(first.certificate.votes[0].head.revision).toBe(1);
+  expect(first.reply.certificate.votes).toHaveLength(4); expect(first.reply.certificate.votes[0].head.revision).toBe(1);
   expect(wire.length).toBeGreaterThan(0); expect(wire.join('\n')).not.toContain('admission_policy_query'); expect(wire.join('\n')).not.toContain(n.identity.did);
   expect(n.capability).not.toHaveBeenCalled(); expect(n.admission).not.toHaveBeenCalled();
-  n.setReply(() => first); await expect(n.client.queryAdmissionPolicy!(n.context)).rejects.toThrow();
+  n.setReply(() => first.reply); await expect(n.client.queryAdmissionPolicy!(n.context)).rejects.toThrow();
   expect((n.queries[0] as any).request.challenge).not.toBe((n.queries[1] as any).request.challenge);
   n.setReply(); const advance = await createAdmissionPolicyAdvance(n.first, n.second, n.context, n.key);
   for (const observer of n.observers) await observer.advance(advance); n.setPolicy(n.second);
-  expect((await n.client.queryAdmissionPolicy!(n.context)).certificate.votes[0].head).toEqual(advance.commitment.next);
+  expect((await n.client.queryAdmissionPolicy!(n.context)).reply.certificate.votes[0].head).toEqual(advance.commitment.next);
 }, 60000);
 
 it('refuses direct metadata requests and owner-paused queries before observer fanout', async () => {
