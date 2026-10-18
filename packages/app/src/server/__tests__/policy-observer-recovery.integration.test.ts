@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync, symlinkSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
@@ -12,6 +12,7 @@ import { lockSession, loadRelayConfig } from '../session.js';
 import { installRelayService } from '../relay-supervisor.js';
 import { runDesktopPolicyObserverRecovery, type RelayPolicyObserverRecoveryAction, type RelayPolicyObserverRecoveryInput } from '../policy-observer-recovery.js';
 import { readRelayStorageLocations } from '../history-storage-registry.js';
+import { policyObserverActivationServiceFiles } from '../policy-observer-activation.js';
 
 vi.mock('../relay-supervisor.js', async original => ({ ...await original<typeof import('../relay-supervisor.js')>(),
   installRelayService: vi.fn(), uninstallRelayService: vi.fn(), relayServiceStats: vi.fn(async () => null) }));
@@ -86,6 +87,7 @@ it('recovers accepted policies through the app, resumes across lock and separate
   expect((await n.call('export', resume.approvalDigest)).status).toBe(409);
   await n.run('export', exported.approvalDigest);
   const restoredConfig = readPolicyObserverConfigurationFile(n.input.outputFile);
+  expect(restoredConfig.archiveDirectory).toBe(join(n.input.workspaceDirectory, 'download'));
   expect(restoredConfig.root.generation).toBe(1); expect(restoredConfig.genesis).toEqual(readPolicyObserverConfigurationFile(n.configPath).genesis);
   expect(loadRelayConfig().policyObserverBinding).toEqual(originalBinding);
   const nextInput = { configurationFile: n.input.outputFile, linksFile: '' };
@@ -105,10 +107,29 @@ it('recovers accepted policies through the app, resumes across lock and separate
   expect(loadRelayConfig().policyObserverBinding).toEqual(originalBinding);
   expect((await n.request('/api/relay/history/policy-observer/apply', { input: nextInput, approvalDigest: fresh.body.approvalDigest })).status).toBe(200);
   expect(loadRelayConfig().policyObserverBinding!.rootId).toBe(selected.body.rootId);
+  expect(loadRelayConfig().policyObserverBinding!.archiveDirectory).toBe(realpathSync(restoredConfig.archiveDirectory!));
   const locations = readRelayStorageLocations(n.runtime);
-  expect(locations.directories).toEqual(expect.arrayContaining([realpathSync(n.ownerDirectory), realpathSync(n.input.workspaceDirectory), realpathSync(n.input.restoredDirectory)]));
+  expect(locations.directories).toEqual(expect.arrayContaining([realpathSync(n.ownerDirectory), realpathSync(n.input.workspaceDirectory), realpathSync(n.input.restoredDirectory), realpathSync(restoredConfig.archiveDirectory!)]));
   expect(locations.files).toContain(realpathSync(n.input.outputFile));
   expect(loadRelayConfig().enabled).toBe(false); expect(installRelayService).not.toHaveBeenCalled();
+}, 60000);
+
+it('binds the canonical recovery archive location and invalidates a retargeted parent link before service startup', async () => {
+  const n = await fixture(); await n.init(); await n.pause(); const plan = await n.run('plan');
+  await n.run('start', plan.approvalDigest); await n.finish(); await n.restore();
+  const exported = await n.run('export-plan'); await n.run('export', exported.approvalDigest);
+  const config = readPolicyObserverConfigurationFile(n.input.outputFile), alias = join(n.directory, 'archive-parent');
+  symlinkSync(n.input.workspaceDirectory, alias, 'junction');
+  writeFileSync(n.input.outputFile, JSON.stringify({ ...config, archiveDirectory: join(alias, 'download') }));
+  const input = { configurationFile: n.input.outputFile, linksFile: '' };
+  const reviewed = await n.request('/api/relay/history/policy-observer/review', { input }); expect(reviewed.status, JSON.stringify(reviewed.body)).toBe(200);
+  expect((await n.request('/api/relay/history/policy-observer/apply', { input, approvalDigest: reviewed.body.approvalDigest })).status).toBe(200);
+  const saved = loadRelayConfig(); expect(saved.policyObserverBinding!.archiveDirectory).toBe(realpathSync(config.archiveDirectory!));
+  expect(policyObserverActivationServiceFiles(saved).policyObserverFile).toBe(n.input.outputFile);
+  const other = join(n.directory, 'different-archive'); mkdirSync(join(other, 'download'), { recursive: true });
+  unlinkSync(alias); symlinkSync(other, alias, 'junction');
+  expect(() => policyObserverActivationServiceFiles(saved)).toThrow('changed');
+  expect(installRelayService).not.toHaveBeenCalled();
 }, 60000);
 
 it('keeps the fenced source and recovery journal after settings failure and resumes without silently treating source errors as loss', async () => {

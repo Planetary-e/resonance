@@ -4,12 +4,13 @@ import { dirname, resolve } from 'node:path';
 import type { Socket } from 'node:net';
 import { assertSecureRelayTransportEndpoint } from '@resonance/core';
 import { exactWitnessFields } from '@resonance/core/admission-witness';
-import { parseAdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
+import { parseAdmissionPolicyObservers, parseAdmissionPolicyHead } from '@resonance/core/admission-policy-freshness';
 import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointEnvelopeId, parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { assertPolicyObserverHistoryContext } from './policy-observer-history-replay.js';
 import { parseAdmissionHistoryArchiveLimits } from './admission-history-config.js';
 import { readOperatorFile, readOperatorSigningKey, readOperatorStorageKey } from './admission-operator-files.js';
-import { openProtectedPolicyObserver } from './protected-policy-observer.js';
+import { openProtectedPolicyObserver, PolicySuccessorUnavailableError } from './protected-policy-observer.js';
+import { readArchivedPolicySuccessor } from './policy-observer-archive.js';
 import { createAdmissionPolicyObserverExchange, listenAdmissionPolicyObserver } from './admission-policy-observation-transport.js';
 import type { HistoryCheckpointTransport } from './history-checkpoint-exchange.js';
 import type { PolicyObserverHealth } from './history-health.js';
@@ -43,8 +44,9 @@ export function parsePolicyObserverListener(value: unknown) {
   return { port: port as number, maxConnections: maxConnections as number, connectionTimeoutMs: connectionTimeoutMs as number };
 }
 export function parsePolicyObserverConfiguration(value: unknown, base: string) {
+  const hasArchive = !!value && typeof value === 'object' && Object.hasOwn(value, 'archiveDirectory');
   if (!exactWitnessFields(value, ['version', 'kind', 'context', 'historyContext', 'genesis', 'root', 'members',
-    'directory', 'signingKeyFile', 'storageKeyFile', 'limits', 'listen']) || value.version !== 1 || value.kind !== 'policy-observer-configuration') {
+    'directory', 'signingKeyFile', 'storageKeyFile', 'limits', 'listen', ...(hasArchive ? ['archiveDirectory'] : [])]) || value.version !== 1 || value.kind !== 'policy-observer-configuration') {
     throw new Error('Invalid policy observer configuration');
   }
   const context = parseAdmissionPolicyObservers(value.context), historyContext = parseHistoryCheckpointContext(value.historyContext);
@@ -56,10 +58,12 @@ export function parsePolicyObserverConfiguration(value: unknown, base: string) {
   }
   const members = parsePolicyObserverMemberPins(value.members, historyContext.members);
   const path = (raw: unknown) => parsePolicyObserverPath(raw, base);
+  const archiveDirectory = hasArchive ? path(value.archiveDirectory) : undefined;
+  if (archiveDirectory && (root.kind !== 'continuation' || archiveDirectory === path(value.directory))) throw new Error('Policy archive needs a separate retained recovery download');
   return { version: 1 as const, kind: 'policy-observer-configuration' as const, context, historyContext, genesis, root, members,
     directory: path(value.directory), signingKeyFile: path(value.signingKeyFile), storageKeyFile: path(value.storageKeyFile),
     limits: parseAdmissionHistoryArchiveLimits(value.limits),
-    listen: parsePolicyObserverListener(value.listen) };
+    listen: parsePolicyObserverListener(value.listen), ...(archiveDirectory ? { archiveDirectory } : {}) };
 }
 export type PolicyObserverConfiguration = ReturnType<typeof parsePolicyObserverConfiguration>;
 export function readPolicyObserverConfigurationFile(path: string) {
@@ -116,7 +120,18 @@ export async function serveConfiguredPolicyObserver(value: PolicyObserverConfigu
       { ...config.listen, onSocket: options.onSocket, acceptNewWork: options.acceptNewWork });
     if (signal?.aborted || closing) { await listener.close(); observer.close(); cancelled(); }
     return { endpoint: listener.endpoint, status: () => observer!.status(), policy: () => observer!.policy(),
-      successor: (previous: unknown, signal?: AbortSignal) => observer!.successor(previous, signal), close,
+      async successor(value: unknown, signal?: AbortSignal) {
+        cancelled(); const previous = parseAdmissionPolicyHead(value);
+        try { return await observer!.successor(previous, signal); }
+        catch (error) {
+          if (!(error instanceof PolicySuccessorUnavailableError) || !config.archiveDirectory) throw error;
+          const successor = await readArchivedPolicySuccessor(config, previous, signal);
+          cancelled(); signal?.throwIfAborted();
+          const current = observer!.status();
+          if (current.blocked || current.pending) throw new Error('Observer policy history changed during archive transfer');
+          return successor;
+        }
+      }, close,
       health(): PolicyObserverHealth {
         return { ...observer!.health(), listening: !closing };
       } };

@@ -10,7 +10,10 @@ import { readRelayStorageRegistry, readRelayStorageLocations, relayStorageRegist
 export function relayStorageDirectories(config: RelayConfig, runtimeDirectory: string): string[] {
   const directories = [runtimeDirectory, ...(config.historyStorageDirectories ?? []), ...readRelayStorageRegistry(runtimeDirectory)];
   if (config.runtime?.admissionHistoryDirectory) directories.push(config.runtime.admissionHistoryDirectory);
-  if (config.runtime?.policyObserverFile) directories.push(readPolicyObserverConfigurationFile(config.runtime.policyObserverFile).directory);
+  if (config.runtime?.policyObserverFile) {
+    const observer = readPolicyObserverConfigurationFile(config.runtime.policyObserverFile);
+    directories.push(observer.directory, ...(observer.archiveDirectory ? [observer.archiveDirectory] : []));
+  }
   if (config.runtime?.historyVolunteerCollectionFile) directories.push(...readHistoryVolunteerCollectionFile(config.runtime.historyVolunteerCollectionFile).histories.map(history => history.directory));
   if (config.historyActivationInput) directories.push(config.historyActivationInput.historyDirectory);
   if (config.historyVolunteerActivationInput) directories.push(config.historyVolunteerActivationInput.directory);

@@ -1,12 +1,14 @@
 import { afterEach, expect, it } from 'vitest';
-import { existsSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, rmSync, readdirSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { openEncryptedLocalState } from '@resonance/core/local-state';
 import { historySuccessorProposalId } from '@resonance/core/history-successor';
-import { readPolicyObserverConfigurationFile } from '../policy-observer-config.js';
+import { openConfiguredPolicyObserver, readPolicyObserverConfigurationFile, serveConfiguredPolicyObserver } from '../policy-observer-config.js';
+import { readArchivedPolicySuccessor } from '../policy-observer-archive.js';
+import { HISTORY_DOWNLOAD_FILENAME } from '../history-ancestry-download.js';
 import { runPolicyObserverCommand } from '../policy-observer-command.js';
 import { runPolicyObserverRecoveryCommand } from '../policy-observer-recovery-command.js';
 import { policyObserverReplayDigest } from '../policy-observer-history-replay.js';
@@ -15,8 +17,10 @@ import { policyObserverRecoveryFixture } from './fixtures/policy-observer-recove
 
 const cleanup: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
-async function fixture() {
-  const n = await policyObserverRecoveryFixture(close => cleanup.push(close)); await n.observer.advance(n.advance); n.observer.close();
+async function fixture(twoAdvances = false) {
+  const n = await policyObserverRecoveryFixture(close => cleanup.push(close)); await n.observer.advance(n.advance);
+  if (twoAdvances) await n.observer.advance(n.later);
+  n.observer.close();
   const signingKeyFile = join(n.directory, 'owner-key.json'), storageKeyFile = join(n.directory, 'storage.key');
   writeFileSync(signingKeyFile, JSON.stringify({ publicKey: Buffer.from(n.owner.publicKey).toString('base64url'), secretKey: Buffer.from(n.owner.secretKey).toString('base64url') }), { mode: 0o600 });
   writeFileSync(storageKeyFile, n.key.toString('hex'), { mode: 0o600 });
@@ -40,6 +44,68 @@ async function complete(n: Awaited<ReturnType<typeof fixture>>) {
   await n.call('recovery-restore', ['--approve', reviewed.approvalDigest, ...n.prefix, n.destination]);
 }
 
+it('serves an older signed policy after recovery using its complete retained archive without network requests or file changes', async () => {
+  const n = await fixture(true); await complete(n); await n.call('recovery-export', [...n.prefix, n.destination, n.output]);
+  const config = readPolicyObserverConfigurationFile(n.output), archive = config.archiveDirectory!;
+  const orphan = join(archive, `.download-${'1'.repeat(32)}.tmp`); writeFileSync(orphan, 'retained interrupted write');
+  const snapshot = () => Object.fromEntries(readdirSync(archive).sort().map(name => [name, readFileSync(join(archive, name)).toString('base64')]));
+  const service = await serveConfiguredPolicyObserver(config, { timeoutMs: 10000 }); cleanup.push(service.close);
+  const before = snapshot(), received = n.received();
+  expect(await service.successor(n.context.genesis)).toEqual(n.advance);
+  expect(await service.successor(n.advance.commitment.next)).toEqual(n.later);
+  expect(n.received()).toBe(received); expect(snapshot()).toEqual(before);
+  // The oldest requested transition can be found before the tail is checked.
+  // Corrupting that later block must still prevent any earlier result escaping.
+  const manifest = openEncryptedLocalState<{ blocks: string[] }>({ path: join(archive, HISTORY_DOWNLOAD_FILENAME), key: n.key,
+    domain: 'resonance:history-ancestry-download:v1', maxBytes: 2 * 1024 * 1024, mode: 'open-existing', initial: { blocks: [] },
+    validate: (value): value is { blocks: string[] } => !!value && typeof value === 'object' && 'blocks' in value });
+  const newest = join(archive, `${manifest.read().blocks[0].slice(7)}.block`); manifest.close();
+  const original = readFileSync(newest); writeFileSync(newest, Buffer.from([0xff]));
+  await expect(service.successor(n.context.genesis)).rejects.toThrow('encoding'); expect(readFileSync(newest)).toEqual(Buffer.from([0xff]));
+  writeFileSync(newest, original);
+  const controller = new AbortController(), cancelled = service.successor(n.context.genesis, controller.signal); queueMicrotask(() => controller.abort());
+  await expect(cancelled).rejects.toThrow(); expect(await service.successor(n.context.genesis)).toEqual(n.advance);
+  const pending = service.successor(n.context.genesis); await service.close(); await expect(pending).rejects.toThrow();
+  expect(snapshot()).toEqual(before);
+  const legacy = { ...config }; delete legacy.archiveDirectory;
+  const older = await serveConfiguredPolicyObserver(legacy, { timeoutMs: 10000 }); cleanup.push(older.close);
+  await expect(older.successor(n.context.genesis)).rejects.toThrow('outside this retained generation');
+}, 30000);
+
+it('refuses missing, owned, incomplete and mismatched archives without recreating or repairing them', async () => {
+  const n = await fixture(true); await complete(n); await n.call('recovery-export', [...n.prefix, n.destination, n.output]);
+  const config = readPolicyObserverConfigurationFile(n.output), archive = config.archiveDirectory!, path = join(archive, HISTORY_DOWNLOAD_FILENAME);
+  const bytes = readFileSync(path), read = () => readArchivedPolicySuccessor(config, n.context.genesis);
+  const open = () => openEncryptedLocalState<Record<string, unknown> & { blocks: string[] }>({ path, key: n.key,
+    domain: 'resonance:history-ancestry-download:v1', maxBytes: 2 * 1024 * 1024, mode: 'open-existing', initial: { blocks: [] },
+    validate: (value): value is Record<string, unknown> & { blocks: string[] } => !!value && typeof value === 'object' && 'blocks' in value });
+  const owned = open(), saved = owned.read();
+  try { await expect(read()).rejects.toThrow(); } finally { owned.close(); }
+  for (const invalid of [
+    { ...saved, blocks: saved.blocks.slice(1) }, { ...saved, blocks: saved.blocks.slice(0, -1) },
+    { ...saved, blocks: [...saved.blocks, saved.blocks[0]] }, { ...saved, contextId: 'sha256:' + '0'.repeat(64) },
+    { ...saved, proposal: { ...(saved.proposal as object), sequence: 0 } },
+  ]) {
+    const state = open(); state.write(invalid); state.close(); const damaged = readFileSync(path);
+    await expect(read()).rejects.toThrow(); expect(readFileSync(path)).toEqual(damaged); writeFileSync(path, bytes);
+  }
+  renameSync(path, path + '.retained');
+  await expect(read()).rejects.toThrow(); expect(existsSync(path)).toBe(false); renameSync(path + '.retained', path);
+  renameSync(archive, archive + '.retained');
+  await expect(read()).rejects.toThrow(); expect(existsSync(archive)).toBe(false); renameSync(archive + '.retained', archive);
+  await expect(readArchivedPolicySuccessor(config, n.context.genesis, AbortSignal.abort())).rejects.toThrow();
+  expect(await read()).toEqual(n.advance); expect(readFileSync(path)).toEqual(bytes);
+}, 30000);
+
+it('preserves terminal conflict evidence when reading a historical transition from a restored archive', async () => {
+  const n = await fixture(), owner = await openConfiguredPolicyObserver(readPolicyObserverConfigurationFile(n.configPath));
+  try { await expect(owner.advance(n.conflict)).rejects.toThrow('equivocated'); } finally { owner.close(); }
+  await complete(n); await n.call('recovery-export', [...n.prefix, n.destination, n.output]);
+  const config = readPolicyObserverConfigurationFile(n.output), path = join(config.archiveDirectory!, HISTORY_DOWNLOAD_FILENAME), before = readFileSync(path);
+  await expect(readArchivedPolicySuccessor(config, n.context.genesis)).rejects.toThrow('conflict evidence');
+  expect(readFileSync(path)).toEqual(before);
+}, 30000);
+
 it('runs reviewed source fencing, every recovery phase, restoration, export and fresh readiness through actual Node CLI processes', async () => {
   const n = await fixture(), main = fileURLToPath(new URL('../policy-observer-main.ts', import.meta.url)), loader = import.meta.resolve('tsx');
   const run = async (command: string, args = n.prefix) => JSON.parse((await promisify(execFile)(process.execPath,
@@ -58,6 +124,7 @@ it('runs reviewed source fencing, every recovery phase, restoration, export and 
   expect(await run('recovery-restore', ['--approve', reviewed.approvalDigest, ...n.prefix, n.destination])).toMatchObject({ readiness: 'unverified', startsService: false });
   expect(await run('recovery-export', [...n.prefix, n.destination, n.output])).toMatchObject({ readiness: 'unverified', startsService: false });
   const exported = readPolicyObserverConfigurationFile(n.output); expect(exported.root.kind).toBe('continuation'); expect(exported.directory).toBe(n.destination);
+  expect(exported.archiveDirectory).toBe(join(n.recoveryOptions.directory, 'download'));
   expect((await run('ready', [n.output])).readiness).toBe('confirmed');
   const later = join(n.directory, 'later.json'); writeFileSync(later, JSON.stringify(n.later));
   expect((await run('advance', [n.output, later])).status.head).toEqual(n.later.commitment.next);

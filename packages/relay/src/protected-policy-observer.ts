@@ -23,6 +23,7 @@ import { openPolicyObserverRestoration, type PreparedPolicyObserverRestore } fro
 export { policyObserverHistoryContext } from './policy-observer-history-replay.js';
 
 export const POLICY_OBSERVER_RECOVERY_FENCE = 'policy-observer-recovery-fence.json';
+export class PolicySuccessorUnavailableError extends Error {}
 export interface PolicyObserverRecoverySource {
   readonly directory: string; readonly contextId: string; readonly genesisId: string;
   readonly rootId: string; readonly generation: number; readonly stateDigest: string;
@@ -198,11 +199,13 @@ export async function openProtectedPolicyObserver(options: {
       if (!baseline.advance || !sameAdmissionPolicyHead(baseline.advance.previous, previous)) {
         const sequence = previous.revision - baselineHead.revision + 1;
         if (!Number.isSafeInteger(sequence) || sequence < 1 || sequence > (current.saved.committed?.envelope.sequence ?? -1)) {
-          throw new Error('Requested policy successor is outside this retained generation');
+          throw new PolicySuccessorUnavailableError('Requested policy successor is outside this retained generation');
         }
         state = await decode(writer!.historyBlock(sequence)); live(); signal?.throwIfAborted();
       }
       if (state.conflict || !state.advance || !sameAdmissionPolicyHead(state.advance.previous, previous)) throw new Error('Retained policy successor differs from request');
+      const latest = retained();
+      if (latest.state.conflict || latest.saved.pending) throw new Error('Observer policy history changed during transfer');
       return structuredClone({ commitment: state.advance, policy: state.policy });
     },
     /** Local knowledge for explicit recovery review, including an unacknowledged

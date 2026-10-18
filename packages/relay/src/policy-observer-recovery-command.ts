@@ -1,5 +1,5 @@
 /** Explicit recovery commands. Configuration export does not start an observer. */
-import { resolve } from 'node:path';
+import { resolve, join } from 'node:path';
 import { readOperatorSigningKey, readOperatorStorageKey, writeOperatorJsonNew } from './admission-operator-files.js';
 import { POLICY_OBSERVER_CONFIGURATION_MAX_BYTES, openConfiguredPolicyObserver, readPolicyObserverConfigurationFile } from './policy-observer-config.js';
 import { openPolicyObserverRecovery, preparePolicyObserverRecovery } from './policy-observer-recovery.js';
@@ -53,7 +53,8 @@ export async function runPolicyObserverRecoveryCommand(command: string, raw: rea
     if (command === 'recovery-export') {
       const inspected = await recovery.inspectRestored(destination, signal); cancelled();
       const output = resolve(args[3]);
-      writeOperatorJsonNew(output, { ...config, directory: destination, root: inspected.continuation }, POLICY_OBSERVER_CONFIGURATION_MAX_BYTES);
+      writeOperatorJsonNew(output, { ...config, directory: destination, root: inspected.continuation,
+        archiveDirectory: join(options.directory, 'download') }, POLICY_OBSERVER_CONFIGURATION_MAX_BYTES);
       return { result: { result: 'policy-restoration-configuration-exported', output, status: inspected.status, readiness: 'unverified', startsService: false } };
     }
     const { preparation, continuation } = await recovery.reviewRestore(destination, signal); cancelled();

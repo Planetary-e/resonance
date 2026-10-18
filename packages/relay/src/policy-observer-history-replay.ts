@@ -1,8 +1,8 @@
 /** Offline semantic replay. Historical certificates never authorize live signing. */
 import { createHash } from 'node:crypto';
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
-import { admissionPolicyObserversId, parseAdmissionPolicyObservers, type AdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
-import { sameAdmissionPolicyHead } from '@resonance/core/admission-policy-advance';
+import { admissionPolicyObserversId, parseAdmissionPolicyObservers, parseAdmissionPolicyHead, type AdmissionPolicyObservers, type AdmissionPolicyHead } from '@resonance/core/admission-policy-freshness';
+import { sameAdmissionPolicyHead, type AdmissionPolicyAdvance } from '@resonance/core/admission-policy-advance';
 import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointContextId, historyCheckpointEnvelopeId, historyDigest, isHistoryDigest,
   openHistoryCheckpoint, parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope,
   type HistoryCheckpointContext, type HistoryCheckpointEnvelope, type HistoryEncryptedEnvelope } from '@resonance/core/history-checkpoint';
@@ -43,6 +43,9 @@ export async function replayPolicyObserverHistory(options: {
   /** Still-available authenticated local knowledge, including pending evidence.
    * Complete loss cannot recover facts never copied to another device. */
   minimumState?: unknown;
+  /** Optional historical lookup; returned only after the entire selected chain
+   * and all conflict evidence have passed semantic verification. */
+  successorOf?: AdmissionPolicyHead;
   maxBlocks?: number; maxBytes?: number; timeoutMs?: number; signal?: AbortSignal;
 }) {
   const context = parseAdmissionPolicyObservers(options.context), historyContext = parseHistoryCheckpointContext(options.historyContext);
@@ -55,6 +58,8 @@ export async function replayPolicyObserverHistory(options: {
     || maxBytes < 1 || maxBytes > 256 * 1024 * 1024 || timeoutMs < 50 || timeoutMs > 300000) throw new Error('Invalid policy observer replay bounds or pins');
   const key = Uint8Array.from(options.encryptionKey), started = performance.now();
   const suppliedMinimum = options.minimumState; // The parser snapshots before its first await.
+  const target = options.successorOf === undefined ? undefined : parseAdmissionPolicyHead(options.successorOf);
+  let successor: AdmissionPolicyAdvance | undefined;
   let state: AdmissionPolicyObserverState | undefined, genesis: HistoryEncryptedEnvelope | undefined;
   let head: HistoryCheckpointEnvelope | undefined, rootId = '', ids: string[] = [], bytes = 0, blocks = 0, generations = 0, generationBytes = 0;
   function live() { if (options.signal?.aborted || performance.now() - started >= timeoutMs) throw new Error('Policy observer replay cancelled or timed out'); }
@@ -82,6 +87,10 @@ export async function replayPolicyObserverHistory(options: {
         assertPolicyObserverStateSuccessor(state!, next, context); state = next; ids.push(id); generationBytes += size;
       }
       live();
+      if (target && block.kind === 'checkpoint' && !state!.conflict && state!.advance
+        && sameAdmissionPolicyHead(state!.advance.previous, target)) {
+        successor = structuredClone({ commitment: state!.advance, policy: state!.policy });
+      }
       if (minimum && sameAdmissionPolicyHead(policyObserverStateHead(state!, context), policyObserverStateHead(minimum, context))
         && (!minimum.conflict || state!.conflict && samePolicyObserverAdvance(state!.conflict, minimum.conflict))) foundMinimum = true;
       if (generationBytes > 64 * 1024 * 1024) throw new Error('Policy observer replay generation capacity exceeded');
@@ -94,6 +103,7 @@ export async function replayPolicyObserverHistory(options: {
     assertHistorySuccessorChain(proposal, ids);
     if (!foundMinimum) throw new Error('Selected policy history omits known local state or conflict evidence; preserve and reconcile the local history');
     return { state, genesis, contextId, genesisId, proposalId, replayDigest: policyObserverReplayDigest(contextId, genesisId, proposalId, state),
-      head: { rootId, generation: head.generation, sequence: head.sequence, envelopeId: historyCheckpointEnvelopeId(head) }, blocks, bytes, generations };
+      head: { rootId, generation: head.generation, sequence: head.sequence, envelopeId: historyCheckpointEnvelopeId(head) }, blocks, bytes, generations,
+      ...(target ? { successor } : {}) };
   } finally { key.fill(0); }
 }

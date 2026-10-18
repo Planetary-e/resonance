@@ -15,6 +15,7 @@ import { openDesktopPolicyObserverReplacement } from './policy-observer-replacem
 export interface RelayPolicyObserverInput { configurationFile: string; linksFile: string }
 export interface RelayPolicyObserverBinding {
   contextId: string; genesisId: string; rootId: string; directory: string;
+  archiveDirectory?: string;
   files: Array<{ path: string; digest: string }>;
 }
 function absolute(value: unknown) {
@@ -26,7 +27,8 @@ export function parseRelayPolicyObserverInput(value: unknown): RelayPolicyObserv
   return { configurationFile: absolute(value.configurationFile), linksFile: value.linksFile === '' ? '' : absolute(value.linksFile) };
 }
 export function parseRelayPolicyObserverBinding(value: unknown): RelayPolicyObserverBinding {
-  if (!exactWitnessFields(value, ['contextId', 'genesisId', 'rootId', 'directory', 'files'])
+  const hasArchive = !!value && typeof value === 'object' && Object.hasOwn(value, 'archiveDirectory');
+  if (!exactWitnessFields(value, ['contextId', 'genesisId', 'rootId', 'directory', 'files', ...(hasArchive ? ['archiveDirectory'] : [])])
     || !isHistoryDigest(value.contextId) || !isHistoryDigest(value.genesisId) || !isHistoryDigest(value.rootId)
     || !Array.isArray(value.files) || value.files.length < 1 || value.files.length > 4) throw new Error('Invalid retained observer binding');
   const files = value.files.map(raw => {
@@ -34,7 +36,8 @@ export function parseRelayPolicyObserverBinding(value: unknown): RelayPolicyObse
     return { path: absolute(raw.path), digest: raw.digest };
   });
   if (new Set(files.map(file => file.path)).size !== files.length) throw new Error('Duplicate retained observer file');
-  return { contextId: value.contextId, genesisId: value.genesisId, rootId: value.rootId, directory: absolute(value.directory), files };
+  return { contextId: value.contextId, genesisId: value.genesisId, rootId: value.rootId, directory: absolute(value.directory), files,
+    ...(hasArchive ? { archiveDirectory: absolute(value.archiveDirectory) } : {}) };
 }
 function snapshot(input: RelayPolicyObserverInput) {
   const config = readPolicyObserverConfigurationFile(input.configurationFile);
@@ -48,7 +51,8 @@ function snapshot(input: RelayPolicyObserverInput) {
   const routing = input.linksFile ? readAdmissionHistoryLinksFile(input.linksFile, config.historyContext) : undefined;
   const binding: RelayPolicyObserverBinding = { contextId: historyCheckpointContextId(config.historyContext),
     genesisId: historyCheckpointEnvelopeId(config.genesis), rootId: historyCheckpointEnvelopeId(config.root),
-    directory: canonicalHistorySetupPath(config.directory), files };
+    directory: canonicalHistorySetupPath(config.directory), files,
+    ...(config.archiveDirectory ? { archiveDirectory: canonicalHistorySetupPath(config.archiveDirectory) } : {}) };
   return { config, routing, layout, binding };
 }
 export function policyObserverActivationServiceFiles(previous: RelayConfig): RelayServiceRoleFiles {
@@ -63,8 +67,11 @@ export async function withRelayPolicyObserverActivation<T>(raw: unknown, previou
     review: Record<string, unknown>; apply(digest: string, beforeSave?: () => void): { result: 'policy-observer-selected'; startsService: false; readiness: 'unverified' } }) => Promise<T>) {
   signal.throwIfAborted(); const input = parseRelayPolicyObserverInput(raw), original = snapshot(input);
   const runtimePath = canonicalHistorySetupPath(runtimeDirectory), directory = original.binding.directory;
+  const archive = original.binding.archiveDirectory;
   if (historySetupContains(runtimePath, directory) || historySetupContains(directory, runtimePath)
-    || original.binding.files.some(file => historySetupContains(directory, file.path) || historySetupContains(runtimePath, file.path))) {
+    || original.binding.files.some(file => historySetupContains(directory, file.path) || historySetupContains(runtimePath, file.path))
+    || archive && ([runtimePath, directory].some(path => historySetupContains(path, archive) || historySetupContains(archive, path))
+      || original.binding.files.some(file => historySetupContains(archive, file.path)))) {
     throw new Error('Keep observer history, configuration, keys and relay runtime in separate locations');
   }
   const prior = previous.policyObserverBinding ?? (previous.runtime?.policyObserverFile
@@ -83,6 +90,7 @@ export async function withRelayPolicyObserverActivation<T>(raw: unknown, previou
     let policyCurrent = true; try { assertAdmissionPolicyCurrent(policy, Date.now()); } catch { policyCurrent = false; }
     const details = { kind: 'policy-observer-activation', configurationFile: input.configurationFile,
       contextId: original.binding.contextId, genesisId: original.binding.genesisId, rootId: original.binding.rootId, directory,
+      archiveDirectory: archive ?? null,
       owner: original.config.historyContext.owner, authority: original.config.context.authority, generation: original.config.root.generation,
       head: status.head, pending: status.pending, blocked: status.blocked, fenced: status.fenced,
       policyCurrent, policyExpiresAt: policy.expiresAt,
