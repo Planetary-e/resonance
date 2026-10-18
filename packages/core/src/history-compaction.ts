@@ -33,6 +33,12 @@ const voteBytes = (v: HistoryCompactionVote) => Buffer.from(`${DOMAIN}:vote\n${J
  * Supply now when processing a request; omit it only for historical evidence. */
 export function parseHistoryCompactionProposal(value: unknown, context: HistoryCheckpointContext, genesisId: string,
   now?: number): HistoryCompactionProposal {
+  // V1 certificates attest only to retained ciphertext. Admission compaction
+  // assumes a correct owner; a policy observer itself may be Byzantine. An
+  // owner-signed snapshot cannot prove that discarded transitions contained no
+  // terminal conflict. Refuse at the shared parsing boundary, including old
+  // certificates, before a store can retain, install or prune their prefix.
+  if (context.role === 'policy-observer') throw new Error('Policy history compaction requires semantic ancestry evidence');
   if (!isHistoryDigest(genesisId) || !exactWitnessFields(value, proposalFields) || value.version !== 1
     || value.kind !== 'history-compaction-proposal' || value.contextId !== historyCheckpointContextId(context)
     || value.genesisId !== genesisId || !isHistoryDigest(value.rootId) || !integer(value.generation)
