@@ -271,6 +271,7 @@ decisions recorded in that study, not an unbounded series of tuning PRs.
   - [ ] Define automated Sybil-resistant eligibility and fair invitation distribution; resolve authority rotation, conflicting signed policies across devices, emergency-update distribution, and safe history compaction
 - [ ] Support community or quorum issuance without requiring a permanent issuer service
   - [x] Implement explicit offline volunteer batch approval without a permanent issuer service; one authoritative permit ledger enforces local budgets, while distributed issuance and automated eligibility remain open
+  - [x] Retain one authority-signed allocation per community period, derive new issuer quotas from its bounded total, require claim-bound grants and signed policy, and preserve exact retries and sealed retirement; verify the real offline CLI workflow and document the honest-local-software boundary (`docs/developers/v0.4-issuance-allocations.md`)
   - [x] Document offline volunteer issuance and the need for an audited threshold scheme before splitting one issuer key among volunteers
 - [ ] Replicate spent-token identifiers and define deterministic handling of double spends during partitions
   - [x] Specify fail-closed four-of-five witness certificates for one-malicious-witness tolerance; local spent-ID copying is explicitly insufficient

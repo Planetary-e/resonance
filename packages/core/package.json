@@ -8,6 +8,7 @@
     ".": "./src/index.ts",
     "./local-state": "./src/local-encrypted-state.ts",
     "./admission-policy": "./src/admission-policy.ts",
+    "./admission-issuance-allocation": "./src/admission-issuance-allocation.ts",
     "./admission-policy-freshness": "./src/admission-policy-freshness.ts",
     "./admission-policy-query": "./src/admission-policy-query.ts",
     "./admission-policy-transfer": "./src/admission-policy-transfer.ts",

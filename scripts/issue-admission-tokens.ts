@@ -1,3 +1,4 @@
+import { MAX_ADMISSION_ISSUANCE_ALLOCATION_BYTES } from '@resonance/core/admission-issuance-allocation';
 import { MAX_ADMISSION_POLICY_BYTES } from '@resonance/core/admission-policy';
 /** Community permits and durable batch approval. Enrolled issuers collect fresh
  * public policy metadata from pinned volunteers only during explicit commands. */
@@ -19,6 +20,11 @@ async function main() {
   if ((command === 'grant' || command === 'issue' || command === 'policy') && args.shift() !== '--approve') throw new Error('Granting, signing, or installing policy requires --approve');
   const claimRequired = command === 'init' && args[0] === '--claim-required';
   if (claimRequired) args.shift();
+  let allocationPath: string | undefined, allocationAuthorityPath: string | undefined;
+  if (command === 'init-allocation') {
+    if (args.shift() !== '--authority-file' || !(allocationAuthorityPath = args.shift()) || allocationAuthorityPath.startsWith('--')
+      || args.shift() !== '--allocation-file' || !(allocationPath = args.shift()) || allocationPath.startsWith('--')) throw new Error('Allocation initialization requires independently pinned authority and signed allocation files');
+  }
   let claimPath: string | undefined;
   if (command === 'grant' && args[0] === '--claim-file') { args.shift(); claimPath = args.shift(); if (!claimPath || claimPath.startsWith('--')) throw new Error('Claim option requires an operator file'); }
   let observersPath: string | undefined, advancePath: string | undefined;
@@ -29,7 +35,7 @@ async function main() {
     else if (option === '--advance' && !advancePath) advancePath = path;
     else throw new Error('Unknown or repeated issuer policy option');
   }
-  const expected = { init: 5, grant: 4, issue: 6, status: 3, policy: 5, 'plan-retirement': 4, retire: 4 }[command ?? ''];
+  const expected = { init: 5, 'init-allocation': 3, grant: 4, issue: 6, status: 3, policy: 5, 'plan-retirement': 4, retire: 4 }[command ?? ''];
   if (!expected || args.length !== expected) throw new Error('Invalid issuer command');
   const [profilePath, privateKeyPath, ledgerPath, first, second, third] = args;
   const output = command === 'grant' ? first : command === 'issue' ? third : undefined;
@@ -56,6 +62,7 @@ async function main() {
   try { privateKey = await crypto.subtle.importKey('pkcs8', bytes, { name: 'RSA-PSS', hash: 'SHA-384' }, true, ['sign']); }
   finally { bytes.fill(0); }
   const ledger = await openAdmissionIssuerLedger({ path: ledgerPath, expectedProfile: profile, privateKey,
+    ...(command === 'init-allocation' ? { allocation: { manifest: json(allocationPath!, MAX_ADMISSION_ISSUANCE_ALLOCATION_BYTES), authority: read(allocationAuthorityPath!, 256).trim() } } : {}),
     ...(command === 'init' ? { ...(claimRequired ? { claimRequired: true } : {}), create: { batchSize: Number(first), maxPermits: Number(second) } } : {}) });
   const observation = async () => {
     if (!ledger.status().policyFreshness) return undefined;
@@ -90,6 +97,7 @@ catch (error) {
   console.error(error instanceof Error ? error.message : 'Issuer operation failed');
   console.error('Usage: node --import tsx scripts/issue-admission-tokens.ts <command>');
   console.error('  init [--claim-required] profile.json private.pem ledger.json <batch-size:1–32> <max-permits:1–256>');
+  console.error('  init-allocation --authority-file authority.pub --allocation-file signed-allocation.json profile.json private.pem ledger.json');
   console.error('  grant --approve [--claim-file operator-claim.json] profile.json private.pem ledger.json permit.json');
   console.error('  issue --approve profile.json private.pem ledger.json permit.json request.json response.json');
   console.error('  policy --approve [--observers observers.json] [--advance advance.json] profile.json private.pem ledger.json authority.pub policy.json');

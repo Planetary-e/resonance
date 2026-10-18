@@ -1,6 +1,8 @@
 /** Offline invitation admission. No member identifier is added to issuance or redemption. */
 import { verifyAdmissionPolicy, assertAdmissionPolicyCurrent, assertAdmissionPolicySuccessor,
   admissionAuthorityFingerprint, admissionPolicyDigest, admissionPolicyKeys, isArchivedAdmissionKey, type SignedAdmissionPolicy } from '@resonance/core/admission-policy';
+import { verifyAdmissionIssuanceAllocation, admissionIssuanceAllocationDigest, assertAdmissionIssuanceAllocationCurrent,
+  selectAdmissionIssuerAllocation, type SignedAdmissionIssuanceAllocation } from '@resonance/core/admission-issuance-allocation';
 import { createHash, hkdfSync, randomBytes } from 'node:crypto';
 import { resolve } from 'node:path';
 import { openEncryptedLocalState } from './encrypted-local-state.js';
@@ -19,9 +21,10 @@ export interface AdmissionIssuerPolicy { batchSize: number; maxPermits: number }
 interface ClaimBinding { digest: string; binding: string; secret: string }
 interface Entry { claim?: ClaimBinding; permitHash: string; batchId?: string; preparedResponse?: AdmissionIssuanceResponse; response?: AdmissionIssuanceResponse }
 interface Totals { allocatedPermits: number; boundPermits: number; completedPermits: number }
-interface BaseState { claimMode?: 'operator-claim-required-v1'; profile: AdmissionWalletProfileV1; policy: AdmissionIssuerPolicy; entries: Entry[]; communityPolicy?: SignedAdmissionPolicy; freshness?: AdmissionPolicyTrust }
-type State = (BaseState & { version: 1 | 3 | 4 }) | (BaseState & {
-  version: 2 | 5; communityPolicy: SignedAdmissionPolicy; retirement: Totals & { retiredAt: number };
+interface AllocationBinding { authority: string; manifest: SignedAdmissionIssuanceAllocation; digest: string }
+interface BaseState { allocation?: AllocationBinding; claimMode?: 'operator-claim-required-v1'; profile: AdmissionWalletProfileV1; policy: AdmissionIssuerPolicy; entries: Entry[]; communityPolicy?: SignedAdmissionPolicy; freshness?: AdmissionPolicyTrust }
+type State = (BaseState & { version: 1 | 3 | 4 | 6 }) | (BaseState & {
+  version: 2 | 5 | 7; communityPolicy: SignedAdmissionPolicy; retirement: Totals & { retiredAt: number };
 });
 const DOMAIN = 'resonance:admission-issuer-ledger:v1';
 const MAX_BYTES = 8 * 1024 * 1024;
@@ -40,7 +43,7 @@ function validatePolicy(policy: unknown): asserts policy is AdmissionIssuerPolic
 }
 function permitHash(secret: string) { return createHash('sha256').update(`${DOMAIN}:permit\n${secret}`).digest('hex'); }
 function totals(state: State): Totals {
-  if ((state.version === 2 || state.version === 5)) {
+  if ((state.version === 2 || state.version === 5 || state.version === 7)) {
     const { allocatedPermits, boundPermits, completedPermits } = state.retirement;
     return { allocatedPermits, boundPermits, completedPermits };
   }
@@ -50,16 +53,19 @@ function totals(state: State): Totals {
 function validState(value: unknown, profile: AdmissionWalletProfileV1): value is State {
   const version = (value as State | null)?.version;
   if (!exact(value, ['version', 'profile', 'policy', 'entries',
-    ...(version === 2 || version === 5 || (value as State)?.communityPolicy ? ['communityPolicy'] : []), ...(version === 2 || version === 5 ? ['retirement'] : []),
-    ...(version === 4 || version === 5 ? ['claimMode'] : []),
+    ...(version === 2 || version === 5 || version === 7 || (value as State)?.communityPolicy ? ['communityPolicy'] : []), ...(version === 2 || version === 5 || version === 7 ? ['retirement'] : []),
+    ...(version === 4 || version === 5 || version === 6 || version === 7 ? ['claimMode'] : []),
+    ...(version === 6 || version === 7 ? ['allocation'] : []),
     ...((value as State)?.freshness ? ['freshness'] : [])])
-    || (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5)
+    || (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5 && version !== 6 && version !== 7)
     || JSON.stringify(value.profile) !== JSON.stringify(profile)) return false;
-  if ((version === 4 || version === 5) && value.claimMode !== 'operator-claim-required-v1') return false;
+  if ((version === 4 || version === 5 || version === 6 || version === 7) && value.claimMode !== 'operator-claim-required-v1') return false;
+  if ((version === 6 || version === 7) && (!exact(value.allocation, ['authority', 'manifest', 'digest'])
+    || !canonicalClaim(value.allocation.authority) || typeof value.allocation.digest !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(value.allocation.digest))) return false;
   try { validatePolicy(value.policy); } catch { return false; }
   if (value.freshness) { try { if (!value.communityPolicy) return false; parseAdmissionPolicyTrust(value.freshness, value.communityPolicy as SignedAdmissionPolicy); } catch { return false; } }
   if (!Array.isArray(value.entries) || value.entries.length > value.policy.maxPermits) return false;
-  if (version === 2 || version === 5) {
+  if (version === 2 || version === 5 || version === 7) {
     const r = value.retirement;
     return value.entries.length === 0 && !!value.communityPolicy
       && exact(r, ['retiredAt','allocatedPermits','boundPermits','completedPermits'])
@@ -70,12 +76,12 @@ function validState(value: unknown, profile: AdmissionWalletProfileV1): value is
   const permits = new Set<string>(); const batches = new Set<string>(); const claims = new Set<string>();
   for (const entry of value.entries) {
     if (!exact(entry, [...(entry?.response !== undefined ? ['permitHash', 'batchId', 'response']
-      : (version === 3 || version === 4) && entry?.preparedResponse !== undefined ? ['permitHash', 'batchId', 'preparedResponse'] : entry?.batchId !== undefined ? ['permitHash', 'batchId'] : ['permitHash']), ...(version === 4 ? ['claim'] : [])])
+      : (version === 3 || version === 4 || version === 6) && entry?.preparedResponse !== undefined ? ['permitHash', 'batchId', 'preparedResponse'] : entry?.batchId !== undefined ? ['permitHash', 'batchId'] : ['permitHash']), ...(version === 4 || version === 6 ? ['claim'] : [])])
       || !hex(entry.permitHash) || permits.has(entry.permitHash)) return false;
-    if (version === 4) {
+    if (version === 4 || version === 6) {
       const claim = entry.claim;
       if (!exact(claim, ['digest', 'binding', 'secret']) || !hex(claim.digest) || claims.has(claim.digest)
-        || claim.binding !== claimScopeBinding(profile, value.policy) || !canonicalClaim(claim.secret) || permitHash(claim.secret) !== entry.permitHash) return false;
+        || claim.binding !== claimScopeBinding(profile, value.policy, (value.allocation as AllocationBinding | undefined)?.digest) || !canonicalClaim(claim.secret) || permitHash(claim.secret) !== entry.permitHash) return false;
       claims.add(claim.digest);
     }
     permits.add(entry.permitHash);
@@ -98,8 +104,8 @@ function canonicalClaim(value: unknown): value is string {
   return typeof value === 'string' && /^[A-Za-z0-9_-]{43}$/.test(value) && Buffer.from(value, 'base64url').length === 32
     && Buffer.from(value, 'base64url').toString('base64url') === value;
 }
-function claimScopeBinding(profile: AdmissionWalletProfileV1, policy: AdmissionIssuerPolicy) {
-  return createHash('sha256').update(JSON.stringify(['resonance:operator-claim-scope:v1', profile.scope, admissionKeyFingerprint(profile.issuerPublicKey), policy.batchSize])).digest('hex');
+function claimScopeBinding(profile: AdmissionWalletProfileV1, policy: AdmissionIssuerPolicy, allocationDigest?: string) {
+  return createHash('sha256').update(JSON.stringify(['resonance:operator-claim-scope:v1', profile.scope, admissionKeyFingerprint(profile.issuerPublicKey), policy.batchSize, ...(allocationDigest ? [allocationDigest] : [])])).digest('hex');
 }
 
 /** create is explicit initialization only. Ordinary opens MUST find the existing ledger.
@@ -107,14 +113,24 @@ function claimScopeBinding(profile: AdmissionWalletProfileV1, policy: AdmissionI
  * defeats local allowance enforcement and is not a distributed issuance protocol.
  */
 export async function openAdmissionIssuerLedger(options: {
-  path: string; expectedProfile: unknown; privateKey: CryptoKey; create?: AdmissionIssuerPolicy; claimRequired?: boolean; now?: () => number;
+  path: string; expectedProfile: unknown; privateKey: CryptoKey; create?: AdmissionIssuerPolicy; claimRequired?: boolean; allocation?: { manifest: unknown; authority: string }; expectedAllocationAuthority?: string; now?: () => number;
 }) {
+  const allocationInput = options.allocation === undefined ? undefined : structuredClone(options.allocation);
+  const expectedAllocationAuthority = options.expectedAllocationAuthority;
+  if (allocationInput && (options.create !== undefined || options.claimRequired !== undefined)) throw new Error('Signed allocation creation does not accept quota or claim-mode overrides');
   if (options.claimRequired !== undefined && (!options.create || options.claimRequired !== true)) throw new Error('Claim-required mode is explicit creation only');
   const privateKey = options.privateKey;
-  const create = options.create === undefined ? undefined : structuredClone(options.create);
+  let create = options.create === undefined ? undefined : structuredClone(options.create);
   if (create) validatePolicy(create);
   const issuer = await prepareAdmissionBatchIssuer({ expectedProfile: options.expectedProfile, privateKey });
   const profile = structuredClone(issuer.profile);
+  let allocation: AllocationBinding | undefined;
+  if (allocationInput) {
+    const manifest = await verifyAdmissionIssuanceAllocation(allocationInput.manifest, allocationInput.authority);
+    const selected = selectAdmissionIssuerAllocation(manifest, profile);
+    create = { batchSize: selected.batchSize, maxPermits: selected.maxPermits };
+    allocation = { manifest, authority: allocationInput.authority, digest: admissionIssuanceAllocationDigest(manifest) };
+  }
   const privateBytes = Buffer.from(await crypto.subtle.exportKey('pkcs8', privateKey));
   let key: Buffer;
   try { key = Buffer.from(hkdfSync('sha256', privateBytes, Buffer.alloc(0), DOMAIN, 32)); }
@@ -123,13 +139,21 @@ export async function openAdmissionIssuerLedger(options: {
   try {
     storage = openEncryptedLocalState<State>({ path: options.path, key, domain: DOMAIN, maxBytes: MAX_BYTES,
       mode: create ? 'create-new' : 'open-existing',
-      initial: { version: options.claimRequired ? 4 : 1, ...(options.claimRequired ? { claimMode: 'operator-claim-required-v1' as const } : {}), profile, policy: create ?? { batchSize: 1, maxPermits: 1 }, entries: [] },
+      initial: { version: allocation ? 6 : options.claimRequired ? 4 : 1, ...(allocation ? { allocation } : {}), ...(options.claimRequired || allocation ? { claimMode: 'operator-claim-required-v1' as const } : {}), profile, policy: create ?? { batchSize: 1, maxPermits: 1 }, entries: [] },
       validate: (value): value is State => validState(value, profile) });
   } finally { key.fill(0); }
-  try { const state = storage.read(), policy = state.communityPolicy; if (policy) {
+  try { const state = storage.read(), policy = state.communityPolicy;
+    if (expectedAllocationAuthority !== undefined && state.allocation?.authority !== expectedAllocationAuthority) throw new Error('Issuer allocation authority does not match its independent pin');
+    if (state.allocation) {
+      const verified = await verifyAdmissionIssuanceAllocation(state.allocation.manifest, state.allocation.authority);
+      const selected = selectAdmissionIssuerAllocation(verified, profile);
+      if (admissionIssuanceAllocationDigest(verified) !== state.allocation.digest || selected.batchSize !== state.policy.batchSize || selected.maxPermits !== state.policy.maxPermits) throw new Error('Retained issuer allocation does not match its derived quota');
+      if (policy && policy.authority !== state.allocation.authority) throw new Error('Community policy authority does not match the pinned issuer allocation');
+    }
+    if (policy) {
     await verifyAdmissionPolicy(policy, policy.authority);
     if (!admissionPolicyKeys(policy).some(entry => JSON.stringify(entry.profile) === JSON.stringify(profile))) throw new Error('Issuer is absent from its signed community policy');
-    if ((state.version === 2 || state.version === 5)) {
+    if ((state.version === 2 || state.version === 5 || state.version === 7)) {
       // Retirement seals this policy as historical evidence; it need not remain current at every subsequent open.
       const id = admissionKeyFingerprint(profile.issuerPublicKey), entry = admissionPolicyKeys(policy).find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === id)!;
       if (policy.activeKey === id || state.retirement.retiredAt < entry.retryUntil) throw new Error('Invalid permanent issuer retirement');
@@ -137,14 +161,20 @@ export async function openAdmissionIssuerLedger(options: {
     }
   } } catch (error) { storage.close(); throw error; }
   let busy = false, observation: { query: AdmissionPolicyQuery; deadline: number } | undefined;
-  function live() { const state = storage.read(); if ((state.version === 2 || state.version === 5)) throw new Error('Issuer ledger is permanently retired'); return state; }
+  function live() { const state = storage.read(); if ((state.version === 2 || state.version === 5 || state.version === 7)) throw new Error('Issuer ledger is permanently retired'); return state; }
   function checkPolicy(recover = false) {
-    const policy = live().communityPolicy; if (!policy) return;
+    const state = live(), policy = state.communityPolicy;
+    if (!policy) { if (state.allocation) throw new Error('Issuer allocation requires an installed signed community policy'); return; }
+    if (state.allocation && policy.authority !== state.allocation.authority) throw new Error('Community policy authority does not match the pinned issuer allocation');
     const now = (options.now ?? Date.now)(); assertAdmissionPolicyCurrent(policy, now);
     const id = admissionKeyFingerprint(profile.issuerPublicKey);
     const entry = admissionPolicyKeys(policy).find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === id);
     if (!entry || isArchivedAdmissionKey(policy, id) || now < entry.notBefore || now >= (recover ? entry.spendUntil : entry.issueUntil)
       || (!recover && policy.activeKey !== id)) throw new Error('Issuer is retired or inactive under the signed community policy');
+  }
+  function checkAllocationIssuance() {
+    const allocation = live().allocation;
+    if (allocation) assertAdmissionIssuanceAllocationCurrent(allocation.manifest, (options.now ?? Date.now)());
   }
   function ready() { live(); if (busy) throw new Error('Issuer approval or policy update is already in progress'); }
   function checkFreshness(reply: unknown) {
@@ -218,12 +248,13 @@ export async function openAdmissionIssuerLedger(options: {
       const retiredAt = (options.now ?? Date.now)(); assertAdmissionPolicyCurrent(state.communityPolicy!, retiredAt);
       if (retiredAt < plan.retryUntil) throw new Error('Issuer history must remain until the key retry cutoff');
       // One flushed snapshot seals the key, preserves lifetime accounting, and removes all per-permit evidence.
-      storage.write({ ...state, version: state.version === 4 ? 5 : 2, communityPolicy: state.communityPolicy!, entries: [],
+      storage.write({ ...state, version: state.version === 6 ? 7 : state.version === 4 ? 5 : 2, communityPolicy: state.communityPolicy!, entries: [],
         retirement: { retiredAt, ...totals(state) } });
       return plan;
     },
     async installPolicy(value: unknown, authority: string, pins: { observers?: unknown; advance?: unknown } = {}) {
       ready(); const state = storage.read();
+      if (state.allocation && state.allocation.authority !== authority) throw new Error('Community policy authority does not match the pinned issuer allocation');
       if (state.communityPolicy && state.communityPolicy.authority !== authority) throw new Error('Community authority is already pinned');
       busy = true; observation = undefined;
       try {
@@ -256,7 +287,7 @@ export async function openAdmissionIssuerLedger(options: {
       } finally { busy = false; }
     },
     status() {
-      const state = storage.read(), { policy, entries } = state, counts = totals(state), retired = (state.version === 2 || state.version === 5);
+      const state = storage.read(), { policy, entries } = state, counts = totals(state), retired = (state.version === 2 || state.version === 5 || state.version === 7);
       return { ...policy, ...counts, preparedPermits: entries.filter(entry => entry.preparedResponse).length, permanentlyRetired: retired, retainedEntries: entries.length,
         ...(state.freshness ? { policyFreshness: { requiresObservation: true, installedRevision: state.freshness.installed.revision,
           observedRevision: state.freshness.observed.revision, conflict: !!state.freshness.conflict } } : {}),
@@ -267,7 +298,7 @@ export async function openAdmissionIssuerLedger(options: {
     },
     /** An explicit community invitation, with no recipient/account field. Never refund or reuse. */
     grant(policyReply?: unknown): AdmissionIssuancePermit {
-      ready(); if (live().version === 4) throw new Error('Operator-approved claim required; unbound grants are disabled');
+      ready(); if (live().version === 4 || live().version === 6) throw new Error('Operator-approved claim required; unbound grants are disabled');
       const assertCurrent = checkFreshness(policyReply); checkPolicy(); const state = storage.read();
       if (state.entries.length >= state.policy.maxPermits) throw new Error('Issuer permit allowance exhausted');
       const secret = randomBytes(32).toString('base64url');
@@ -278,12 +309,14 @@ export async function openAdmissionIssuerLedger(options: {
     },
     /** One manually approved opaque claim per fixed batch, within this pinned local ledger only. */
     grantForClaim(handle: unknown, policyReply?: unknown): AdmissionIssuancePermit {
-      ready(); if (live().version !== 4) throw new Error('Ledger was not created in claim-required mode');
+      ready(); if (live().version !== 4 && live().version !== 6) throw new Error('Ledger was not created in claim-required mode');
       if (!canonicalClaim(handle)) throw new Error('Claim handle must be canonical base64url for exactly 32 opaque bytes');
-      const assertCurrent = checkFreshness(policyReply); checkPolicy(); const state = storage.read();
-      const binding = claimScopeBinding(profile, state.policy);
+      const assertCurrent = checkFreshness(policyReply); const state = storage.read();
+      const binding = claimScopeBinding(profile, state.policy, state.allocation?.digest);
       const digest = createHash('sha256').update(JSON.stringify(['resonance:operator-claim:v1', binding, handle])).digest('hex');
       const previous = state.entries.find(entry => entry.claim?.digest === digest);
+      checkPolicy(!!state.allocation && !!previous);
+      if (!previous) checkAllocationIssuance();
       if (!previous && state.entries.length >= state.policy.maxPermits) throw new Error('Issuer permit allowance exhausted');
       const secret = previous?.claim!.secret ?? randomBytes(32).toString('base64url');
       if (!previous) storage.write({ ...state, entries: [...state.entries, { permitHash: permitHash(secret), claim: { digest, binding, secret } }] });
@@ -302,7 +335,7 @@ export async function openAdmissionIssuerLedger(options: {
       if (state.entries.some((other, i) => i !== index && other.batchId === request.batchId)) throw new Error('Batch is already assigned to another permit');
       const assertCurrent = checkFreshness(policyReply);
       if (entry.response) { checkPolicy(true); assertCurrent(); return structuredClone(entry.response); }
-      checkPolicy();
+      checkPolicy(); checkAllocationIssuance();
       busy = true;
       try {
         // Reserve the ENTIRE batch before the first blind signature. A crash or lost
@@ -314,9 +347,9 @@ export async function openAdmissionIssuerLedger(options: {
           // crash. Prepared signatures are NOT an approved cached response:
           // promotion still needs a fresh quorum and the active issuance window.
           const reserved = live();
-          storage.write({ ...reserved, version: reserved.version === 4 ? 4 : 3, entries: reserved.entries.map((item, i) => i === index ? { ...item, preparedResponse: response } : item) });
+          storage.write({ ...reserved, version: reserved.version === 6 ? 6 : reserved.version === 4 ? 4 : 3, entries: reserved.entries.map((item, i) => i === index ? { ...item, preparedResponse: response } : item) });
         }
-        checkPolicy(); assertCurrent();
+        checkPolicy(); checkAllocationIssuance(); assertCurrent();
         const reserved = storage.read(); // Lock/close during crypto must prevent output.
         storage.write({ ...reserved, entries: reserved.entries.map((item, i) => i === index ? { permitHash: item.permitHash, ...(item.claim ? { claim: item.claim } : {}), batchId: request.batchId, response } : item) });
         assertCurrent();
