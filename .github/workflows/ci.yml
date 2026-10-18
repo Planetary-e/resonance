@@ -64,6 +64,8 @@ jobs:
           packages/relay/src/__tests__/protected-issuer-enrollment.test.ts
           packages/node/src/__tests__/protected-admission-issuer-ledger.test.ts
           packages/node/src/__tests__/protected-issuer-command.integration.test.ts
+          packages/node/src/__tests__/admission-issuer-history-replay.test.ts
+          packages/node/src/__tests__/protected-issuer-restore.integration.test.ts
           packages/node/src/__tests__/private-wallet-policy.integration.test.ts
           packages/relay/src/__tests__/blind-admission-verifier.test.ts
           packages/relay/src/__tests__/admission-decision-queue.test.ts

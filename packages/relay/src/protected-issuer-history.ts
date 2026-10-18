@@ -1,11 +1,13 @@
 /** Append-only full issuer images: exact durable intent, four retained copies, then local apply. */
 import { resolve } from 'node:path';
+import { existsSync, lstatSync, readdirSync } from 'node:fs';
 import type { SigningKeyPair } from '@resonance/core';
 import { copyAdmissionSigningKey, exactWitnessFields } from '@resonance/core/admission-witness';
 import { openEncryptedLocalState } from '@resonance/core/local-state';
 import { HISTORY_CHECKPOINT_MAX_PAYLOAD, historyCheckpointContextId, historyCheckpointEnvelopeByteLength, historyCheckpointEnvelopeId,
-  isHistoryDigest, openHistoryCheckpoint, parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, sealHistoryCheckpoint,
+  historyDigest, isHistoryDigest, openHistoryCheckpoint, parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, sealHistoryCheckpoint,
   type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
+import { historySuccessorProposalId } from '@resonance/core/history-successor';
 import { HISTORY_RECOVERY_MAX_BLOCKS, HISTORY_RECOVERY_MAX_BYTES } from '@resonance/core/history-exchange';
 import { createRetainedHistoryCheckpointWriter } from './history-retained-writer.js';
 
@@ -13,11 +15,20 @@ type Writer = ReturnType<typeof createRetainedHistoryCheckpointWriter>;
 type WriterOptions = Parameters<typeof createRetainedHistoryCheckpointWriter>[0];
 export const MAX_PROTECTED_ISSUER_HISTORY_BYTES = 32 * 1024 * 1024;
 export const MAX_PROTECTED_ISSUER_IMAGE_BYTES = HISTORY_CHECKPOINT_MAX_PAYLOAD;
-export interface ProtectedIssuerHistoryState<T> {
-  version: 1; kind: 'protected-admission-issuer'; context: HistoryCheckpointContext;
+export interface ProtectedIssuerHistoryRestoration<T> {
+  genesis: HistoryCheckpointEnvelope; root: HistoryCheckpointEnvelope; baseline: T; replayDigest: string;
+}
+interface ProtectedIssuerHistoryBase<T> {
+  kind: 'protected-admission-issuer'; context: HistoryCheckpointContext;
   root: HistoryCheckpointEnvelope; image: T;
   applied: { sequence: number; id: string } | null; pending: HistoryCheckpointEnvelope | null;
 }
+export type ProtectedIssuerHistoryState<T> = ProtectedIssuerHistoryBase<T> & ({ version: 1 } | {
+  version: 2; restoration: Omit<ProtectedIssuerHistoryRestoration<T>, 'root'>;
+});
+/** Binds the immutable restored baseline to its original enrollment and selected proposal. */
+export const protectedIssuerReplayDigest = (contextId: string, genesisId: string, proposalId: string, image: unknown): string =>
+  historyDigest(`resonance:admission-issuer-replay:v1\n${JSON.stringify([contextId, genesisId, proposalId, image])}`);
 export interface ProtectedIssuerHistoryOptions<T> {
   /** Same file, domain and key as the local-only issuer. Its parser rejects the protected outer shape. */
   path: string; writerDirectory: string; domain: string; encryptionKey: Uint8Array;
@@ -25,6 +36,11 @@ export interface ProtectedIssuerHistoryOptions<T> {
   initial: T;
   /** Authenticate and normalize the complete issuer image, including its allocation and all retained decisions. */
   validate(value: unknown): T | Promise<T>;
+  /** Trusted business semantics, used for live and retained generation transitions. */
+  assertTransition?(previous: T, next: T): void | Promise<void>;
+  validateGenesis?(image: T): void | Promise<void>;
+  /** Internal trusted restoration input. Business APIs must require their reviewed capability first. */
+  restore?: ProtectedIssuerHistoryRestoration<T>;
   initialize?: boolean; initializeWriter?: boolean; initializeArchive?: boolean;
   timeoutMs?: number; transport?: WriterOptions['transport']; maxArchiveBlocks?: number; maxArchiveBytes?: number;
 }
@@ -60,8 +76,9 @@ export async function openProtectedIssuerHistory<T>(options: ProtectedIssuerHist
   // Capture caller-owned mutable data and both keys before the first asynchronous validator.
   const context = parseHistoryCheckpointContext(structuredClone(options.context));
   const key = Buffer.from(options.encryptionKey), signer = copyAdmissionSigningKey(options.signingKey);
+  const restoreInput = options.restore === undefined ? undefined : structuredClone(options.restore);
   const initialInput = structuredClone(options.initial), members = structuredClone(options.members);
-  const path = resolve(options.path), writerDirectory = resolve(options.writerDirectory), domain = options.domain, validate = options.validate;
+  const path = resolve(options.path), writerDirectory = resolve(options.writerDirectory), domain = options.domain, validate = options.validate, assertTransition = options.assertTransition, validateGenesis = options.validateGenesis;
   const initialize = options.initialize === true, initializeWriter = options.initializeWriter === true, initializeArchive = options.initializeArchive === true;
   const timeoutMs = options.timeoutMs, transport = options.transport;
   const maximumBlocks = options.maxArchiveBlocks ?? HISTORY_RECOVERY_MAX_BLOCKS, maximumBytes = options.maxArchiveBytes ?? HISTORY_RECOVERY_MAX_BYTES;
@@ -78,6 +95,13 @@ export async function openProtectedIssuerHistory<T>(options: ProtectedIssuerHist
     const before = imageBytes(value); before.fill(0);
     const normalized = structuredClone(await validate(structuredClone(value)));
     const after = imageBytes(normalized); after.fill(0); return normalized;
+  }
+  async function transition(previous: T, next: T) {
+    await assertTransition?.(structuredClone(previous), structuredClone(next));
+  }
+  function baseline(state: ProtectedIssuerHistoryState<T>): T {
+    if (state.version !== 2) throw new Error('Continuation requires retained restored baseline');
+    return state.restoration.baseline;
   }
   async function decode(block: HistoryCheckpointEnvelope): Promise<T> {
     const bytes = openHistoryCheckpoint(block, context, key);
@@ -104,7 +128,9 @@ export async function openProtectedIssuerHistory<T>(options: ProtectedIssuerHist
   async function finishPending(): Promise<boolean> {
     const before = readState(), pending = before.pending;
     if (!pending) return false;
-    const image = await decode(pending); readState(); writerMatches();
+    const image = pending.kind === 'continuation' && pending.sequence === 0 && id(pending) === id(before.root)
+      ? await normalize(baseline(before)) : await decode(pending);
+    await transition(before.image, image); readState(); writerMatches();
     const committed = writer!.read().committed;
     const fresh = !committed || id(committed.envelope) !== id(pending);
     if (fresh) await writer!.replicate(pending);
@@ -123,34 +149,69 @@ export async function openProtectedIssuerHistory<T>(options: ProtectedIssuerHist
     if (context.role !== 'admission-issuer' || key.length !== 32 || Buffer.from(signer.publicKey).toString('base64url') !== context.owner) {
       throw new Error('Wrong protected issuer history role, owner, or encryption key');
     }
+    if (restoreInput && !initialize) throw new Error('Protected issuer restoration is only for explicit fresh creation');
     if (!initialize && (initializeWriter || initializeArchive)) throw new Error('Issuer writer and archive initialization require fresh owner creation');
     if (!Number.isSafeInteger(maximumBlocks) || maximumBlocks < 1 || maximumBlocks > HISTORY_RECOVERY_MAX_BLOCKS
       || !Number.isSafeInteger(maximumBytes) || maximumBytes < 1 || maximumBytes > HISTORY_RECOVERY_MAX_BYTES) throw new Error('Invalid protected issuer archive bounds');
     const contextId = historyCheckpointContextId(context);
+    function assertNewRestoreDestination() {
+      if (existsSync(path)) throw new Error('Protected issuer restore requires a new owner path');
+      if (existsSync(writerDirectory) && (!lstatSync(writerDirectory).isDirectory() || readdirSync(writerDirectory).length)) {
+        throw new Error('Protected issuer restore requires an empty new writer directory');
+      }
+    }
     let initial: ProtectedIssuerHistoryState<T> | undefined;
     if (initialize) {
-      const image = await normalize(initialInput), plaintext = imageBytes(image);
-      try {
-        const header = { kind: 'checkpoint', generation: 0, sequence: 0, previous: null } as const;
-        if (historyCheckpointEnvelopeByteLength({ context, header, plaintextBytes: plaintext.length }) > maximumBytes) {
-          throw new Error('Protected issuer root needs archive capacity before intent');
-        }
-        const root = sealHistoryCheckpoint({ context, header, plaintext, encryptionKey: key, signingKey: signer });
-        initial = { version: 1, kind: 'protected-admission-issuer', context, root, image, applied: null, pending: root };
+      if (restoreInput) {
+        assertNewRestoreDestination();
+        const genesis = parseHistoryCheckpointEnvelope(restoreInput.genesis, context), root = parseHistoryCheckpointEnvelope(restoreInput.root, context);
+        if (genesis.kind !== 'checkpoint' || genesis.generation !== 0 || genesis.sequence !== 0 || root.kind !== 'continuation') throw new Error('Protected issuer restore needs its original genesis and certified continuation');
+        await validateGenesis?.(await decode(genesis));
+        const image = await normalize(restoreInput.baseline), replayDigest = protectedIssuerReplayDigest(contextId, id(genesis), historySuccessorProposalId(root.proposal), image);
+        if (restoreInput.replayDigest !== replayDigest) throw new Error('Protected issuer restore baseline differs from reviewed selected history');
+        if (Buffer.byteLength(JSON.stringify(root)) > maximumBytes) throw new Error('Protected issuer root needs archive capacity before intent');
+        initial = { version: 2, kind: 'protected-admission-issuer', context, root, image, applied: null, pending: root,
+          restoration: { genesis, baseline: structuredClone(image), replayDigest } };
         assertOuterCapacity(initial);
-      } finally { plaintext.fill(0); }
+      } else {
+        const image = await normalize(initialInput); await validateGenesis?.(image);
+        const plaintext = imageBytes(image);
+        try {
+          const header = { kind: 'checkpoint', generation: 0, sequence: 0, previous: null } as const;
+          if (historyCheckpointEnvelopeByteLength({ context, header, plaintextBytes: plaintext.length }) > maximumBytes) {
+            throw new Error('Protected issuer root needs archive capacity before intent');
+          }
+          const root = sealHistoryCheckpoint({ context, header, plaintext, encryptionKey: key, signingKey: signer });
+          initial = { version: 1, kind: 'protected-admission-issuer', context, root, image, applied: null, pending: root };
+          assertOuterCapacity(initial);
+        } finally { plaintext.fill(0); }
+      }
     }
+    if (restoreInput) assertNewRestoreDestination(); // Recheck after all asynchronous validation and before the first owner intent.
     storage = openEncryptedLocalState<ProtectedIssuerHistoryState<T>>({ path, key, domain, maxBytes: MAX_PROTECTED_ISSUER_HISTORY_BYTES,
       initial: initial!, mode: initialize ? 'create-new' : 'open-existing',
       validate(value): value is ProtectedIssuerHistoryState<T> {
-        return exactWitnessFields(value, ['version', 'kind', 'context', 'root', 'image', 'applied', 'pending'])
-          && value.version === 1 && value.kind === 'protected-admission-issuer';
+        return (exactWitnessFields(value, ['version', 'kind', 'context', 'root', 'image', 'applied', 'pending']) && value.version === 1
+          || exactWitnessFields(value, ['version', 'kind', 'context', 'root', 'image', 'applied', 'pending', 'restoration']) && value.version === 2)
+          && value.kind === 'protected-admission-issuer';
       } });
     const state = readState();
     if (historyCheckpointContextId(state.context) !== contextId) throw new Error('Protected issuer history pins changed');
     const root = parseHistoryCheckpointEnvelope(state.root, context);
-    if (root.kind !== 'checkpoint' || root.generation !== 0 || root.sequence !== 0) throw new Error('Invalid protected issuer history root');
-    const rootImage = await decode(root), image = await normalize(state.image);
+    if (root.sequence !== 0 || (state.version === 1 ? root.kind !== 'checkpoint' || root.generation !== 0 : root.kind !== 'continuation')) throw new Error('Invalid protected issuer history root');
+    const genesis = state.version === 2 ? parseHistoryCheckpointEnvelope(state.restoration?.genesis, context) : root;
+    if (genesis.kind !== 'checkpoint' || genesis.generation !== 0 || genesis.sequence !== 0) throw new Error('Protected issuer requires its original enrolled genesis');
+    const genesisImage = await decode(genesis); await validateGenesis?.(genesisImage);
+    let rootImage = genesisImage;
+    if (state.version === 2) {
+      if (!exactWitnessFields(state.restoration, ['genesis', 'baseline', 'replayDigest']) || root.kind !== 'continuation') throw new Error('Invalid protected issuer restoration capture');
+      rootImage = await normalize(state.restoration.baseline);
+      if (JSON.stringify(rootImage) !== JSON.stringify(state.restoration.baseline)
+        || state.restoration.replayDigest !== protectedIssuerReplayDigest(contextId, id(genesis), historySuccessorProposalId(root.proposal), rootImage)) {
+        throw new Error('Protected issuer restored baseline differs from selected history');
+      }
+    }
+    const image = await normalize(state.image);
     if (JSON.stringify(image) !== JSON.stringify(state.image)) throw new Error('Noncanonical protected issuer image');
     if (state.applied === null) {
       if (!state.pending || id(parseHistoryCheckpointEnvelope(state.pending, context)) !== id(root)
@@ -160,22 +221,36 @@ export async function openProtectedIssuerHistory<T>(options: ProtectedIssuerHist
         || !isHistoryDigest(state.applied.id) || (state.applied.sequence === 0 && state.applied.id !== id(root))) throw new Error('Invalid protected issuer applied head');
       if (state.pending !== null) {
         const pending = parseHistoryCheckpointEnvelope(state.pending, context);
-        if (pending.kind !== 'checkpoint' || pending.generation !== 0 || pending.sequence !== state.applied.sequence + 1
+        if (pending.kind !== 'checkpoint' || pending.generation !== root.generation || pending.sequence !== state.applied.sequence + 1
           || pending.previous !== state.applied.id) throw new Error('Invalid protected issuer pending successor');
-        await decode(pending);
+        await transition(image, await decode(pending));
       }
     }
     assertOuterCapacity(state);
     // Creation capabilities never recreate a missing writer/archive for committed owner history.
     if ((initializeWriter || initializeArchive) && state.applied !== null) throw new Error('Cannot initialize writer or archive for applied issuer history');
     writer = createRetainedHistoryCheckpointWriter({ directory: writerDirectory, localKey: key, context, signingKey: signer,
-      rootId: id(root), generation: 0, members, requireCurrentHead: true, initialize: initializeWriter, initializeArchive,
+      rootId: id(root), generation: root.generation, genesisId: id(genesis), ...(root.kind === 'continuation' ? { continuation: root } : {}),
+      members, requireCurrentHead: true, initialize: initializeWriter, initializeArchive,
       timeoutMs, transport, maxArchiveBlocks: maximumBlocks, maxArchiveBytes: maximumBytes });
     writerMatches();
-    // Full checkpoints let the local image be checked against owner-signed ciphertext on every reopen.
+    // Authenticate every retained transition from this generation's immutable baseline.
+    let previous = rootImage, last: HistoryCheckpointEnvelope | undefined;
+    for (const block of writer.history()) {
+      const blockId = id(block);
+      if (!last) {
+        if (blockId !== id(root)) throw new Error('Protected issuer retained history lost its generation root');
+      } else {
+        if (block.kind !== 'checkpoint' || block.generation !== root.generation || block.sequence !== last.sequence + 1 || block.previous !== id(last)) throw new Error('Protected issuer retained history has a gap or wrong generation');
+        const next = await decode(block); await transition(previous, next); previous = next;
+      }
+      last = block;
+    }
+    // Root continuations carry a selected boundary, never replacement image ciphertext.
     if (state.applied) {
       const block = writer.historyBlock(state.applied.sequence);
-      if (!block || id(block) !== state.applied.id || JSON.stringify(await decode(block)) !== JSON.stringify(image)) {
+      const retained = block && (id(block) === id(root) ? rootImage : await decode(block));
+      if (!block || id(block) !== state.applied.id || JSON.stringify(retained) !== JSON.stringify(image)) {
         throw new Error('Protected issuer applied image does not match retained signed checkpoint');
       }
     }
@@ -199,11 +274,11 @@ export async function openProtectedIssuerHistory<T>(options: ProtectedIssuerHist
         assertServing(); let state = available();
         const usage = writer!.historyUsage(); let blocks = usage.retainedBlocks, bytes = usage.retainedCiphertextBytes;
         for (const input of inputs) {
-          const image = await normalize(input); assertServing();
+          const image = await normalize(input); await transition(state.image, image); assertServing();
           if (state.applied!.sequence >= Number.MAX_SAFE_INTEGER - 1) throw new Error('Protected issuer history sequence capacity exhausted');
           const plaintext = imageBytes(image);
           try {
-            const header = { kind: 'checkpoint', generation: 0, sequence: state.applied!.sequence + 1, previous: state.applied!.id } as const;
+            const header = { kind: 'checkpoint', generation: state.root.generation, sequence: state.applied!.sequence + 1, previous: state.applied!.id } as const;
             bytes += historyCheckpointEnvelopeByteLength({ context, header, plaintextBytes: plaintext.length }); blocks++;
             if (blocks > usage.maximumBlocks || bytes > usage.maximumCiphertextBytes) throw new Error('Protected issuer history archive capacity exceeded before intent');
             const pending = sealHistoryCheckpoint({ context, header, plaintext, encryptionKey: key, signingKey: signer });
@@ -217,12 +292,12 @@ export async function openProtectedIssuerHistory<T>(options: ProtectedIssuerHist
     commit(value: T) {
       const input = structuredClone(value);
       return exclusive(async () => {
-        assertServing(); const before = available(), image = await normalize(input); assertServing();
+        assertServing(); const before = available(), image = await normalize(input); await transition(before.image, image); assertServing();
         if (JSON.stringify(image) === JSON.stringify(before.image)) return;
         if (before.applied!.sequence >= Number.MAX_SAFE_INTEGER - 1) throw new Error('Protected issuer history sequence capacity exhausted');
         const plaintext = imageBytes(image); let pending: HistoryCheckpointEnvelope;
         try {
-          const header = { kind: 'checkpoint', generation: 0, sequence: before.applied!.sequence + 1, previous: before.applied!.id } as const;
+          const header = { kind: 'checkpoint', generation: before.root.generation, sequence: before.applied!.sequence + 1, previous: before.applied!.id } as const;
           const required = historyCheckpointEnvelopeByteLength({ context, header, plaintextBytes: plaintext.length }), usage = writer!.historyUsage();
           if (usage.retainedBlocks + 1 > usage.maximumBlocks || usage.retainedCiphertextBytes + required > usage.maximumCiphertextBytes) {
             throw new Error('Protected issuer history archive capacity exceeded before intent');

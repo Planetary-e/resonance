@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -16,6 +16,7 @@ import { createHistoryCheckpointReplica, type HistoryCheckpointTransport } from 
 import { openHistoryCheckpointStore } from '../../../relay/src/history-checkpoint-store.js';
 import { historyCheckpointFixture } from '../../../relay/src/__tests__/fixtures/history-checkpoint-fixture.js';
 import { openProtectedAdmissionIssuerLedger, type ProtectedAdmissionIssuerLedger } from '../protected-admission-issuer-ledger.js';
+import type { PreparedProtectedIssuerRestore } from '../admission-issuer-history-restore.js';
 import { openAdmissionIssuerLedger } from '../admission-issuer-ledger.js';
 import { createAdmissionIssuanceBatch } from '../blind-admission-issuance.js';
 
@@ -191,4 +192,15 @@ it('retains prepared signatures but refuses to complete them once issuance or al
   await n.reopen(); expect(n.ledger.status()).toMatchObject({ preparedPermits: 1, completedPermits: 0 });
   await expect(n.ledger.approve(permit, batch.request, n.proof())).rejects.toThrow('retired or inactive');
   expect(signing).toHaveBeenCalledTimes(1); expect(n.ledger.status()).toMatchObject({ preparedPermits: 1, completedPermits: 0 });
+});
+
+it('requires the node reviewed restore capability and rejects generic restoration or semantic-validation overrides', async () => {
+  const n = await fixture(), original = readFileSync(n.options.path);
+  const restore = { preparation: Object.create(null) as PreparedProtectedIssuerRestore, approvedDigest: `sha256:${'0'.repeat(64)}` };
+  await expect(openProtectedAdmissionIssuerLedger({ ...n.options, restore })).rejects.toThrow('matching reviewed history');
+  for (const override of [{ restore: {} }, { assertTransition: () => {} }, { validateGenesis: () => {} }]) {
+    await expect(openProtectedAdmissionIssuerLedger({ ...n.options, protection: Object.assign({}, n.options.protection, override) })).rejects.toThrow('business API capability');
+  }
+  await expect(openProtectedAdmissionIssuerLedger({ ...n.options, initialize: { allocation: n.allocation, communityPolicy: n.policy, observers: n.observerContext }, restore })).rejects.toThrow('mutually exclusive');
+  expect(readFileSync(n.options.path)).toEqual(original);
 });

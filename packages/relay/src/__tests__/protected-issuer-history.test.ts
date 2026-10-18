@@ -1,14 +1,20 @@
 import { afterEach, expect, it, vi } from 'vitest';
+import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openEncryptedLocalState } from '@resonance/core/local-state';
-import { historyCheckpointContextId, historyCheckpointEnvelopeId, openHistoryCheckpoint } from '@resonance/core/history-checkpoint';
+import { createHistoryFreeze, historyCheckpointContextId, historyCheckpointEnvelopeId, openHistoryCheckpoint } from '@resonance/core/history-checkpoint';
+import { createHistoryExchangeRequest, parseHistoryExchangeResponse } from '@resonance/core/history-exchange';
+import { createHistorySuccessorProposal, historySuccessorProposalId } from '@resonance/core/history-successor';
+import { createHistoryContinuationRoot } from '@resonance/core/history-continuation';
+import { createHistoryAgreementReplica } from '../history-checkpoint-agreement.js';
+import { createHistoryAgreementCoordinator } from '../history-agreement-coordinator.js';
 import { createHistoryCheckpointReplica, type HistoryCheckpointTransport } from '../history-checkpoint-exchange.js';
 import { openHistoryCheckpointStore } from '../history-checkpoint-store.js';
 import { HISTORY_WRITER_FILENAME } from '../history-checkpoint-quorum.js';
 import { HISTORY_WRITER_ARCHIVE_FILENAME } from '../history-writer-archive.js';
-import { openProtectedIssuerHistory, type ProtectedIssuerHistoryOptions } from '../protected-issuer-history.js';
+import { openProtectedIssuerHistory, protectedIssuerReplayDigest, type ProtectedIssuerHistoryOptions, type ProtectedIssuerHistoryState } from '../protected-issuer-history.js';
 import { historyCheckpointFixture } from './fixtures/history-checkpoint-fixture.js';
 vi.mock('node:fs', async original => { const fs = await original<typeof import('node:fs')>(); return { ...fs, renameSync: vi.fn(fs.renameSync) }; });
 const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
@@ -162,4 +168,92 @@ it('refuses a coherent owner, writer and archive backup after a current owner ad
   expect(n.history.read()).toEqual(accepted); expect(n.history.status().applied).toEqual(acceptedHead);
   expect(n.stores.filter(store => store.describe().envelopeId === acceptedHead.id).length).toBeGreaterThanOrEqual(4);
   expect(n.stores.every(store => store.describe().sequence <= 1)).toBe(true);
+});
+
+async function restoredFixture() {
+  const n = await fixture(); await n.history.ready();
+  const baseline: Image = { ...initial, grants: ['retained-assignment'] }; await n.history.commit(baseline); n.history.close();
+  const blocks = n.stores[0].read().envelopes, genesis = blocks[0], rootId = historyCheckpointEnvelopeId(genesis), issuedAt = Date.now(), challenge = randomBytes(32).toString('base64url');
+  const freeze = createHistoryFreeze(n.context, 0, 1, challenge, n.owner);
+  const receipts = await Promise.all(n.options.members.map(async member => {
+    const request = createHistoryExchangeRequest({ action: 'freeze', rootId, generation: 0, replica: member.publicKey,
+      challenge, issuedAt, expiresAt: issuedAt + 30000, sequence: 1, envelopeId: null }, n.context, n.owner);
+    return parseHistoryExchangeResponse(await n.options.transport!(member, { request, envelope: null, freeze }, new AbortController().signal), request, n.context);
+  }));
+  const proposal = createHistorySuccessorProposal({ version: 1, kind: 'frozen-history', rootId, generation: 0, nextGeneration: 1,
+    receipts: receipts.slice(0, 4), envelopes: blocks }, n.context, n.owner);
+  const voters = n.stores.map((store, index) => createHistoryAgreementReplica({ context: n.context, store, signingKey: n.memberKeys[index] }));
+  cleanup.push(() => voters.forEach(voter => voter.close()));
+  const coordinator = createHistoryAgreementCoordinator({ directory: join(n.directory, 'agreement'), localKey: n.localKey, context: n.context,
+    signingKey: n.owner, rootId, generation: 0, nextGeneration: 1, members: n.options.members, initialize: { proposal },
+    transport: async (member, frame) => voters[n.context.members.indexOf(member.publicKey)].exchange(frame) }); cleanup.push(coordinator.close);
+  const root = createHistoryContinuationRoot(proposal, await coordinator.run(), n.context);
+  const roles = n.stores.map((parent, index) => {
+    parent.activateContinuation(root);
+    const store = openHistoryCheckpointStore({ directory: join(n.directory, `g1-replica-${index}`), context: n.context, replica: n.context.members[index], localKey: n.localKey,
+      rootId: historyCheckpointEnvelopeId(root), generation: 1, initialize: root, parent }); cleanup.push(store.close);
+    const role = createHistoryCheckpointReplica({ context: n.context, store, signingKey: n.memberKeys[index] }); cleanup.push(role.close); return role;
+  });
+  let online = 5;
+  const options = { ...n.options, path: join(n.directory, 'restored.json'), writerDirectory: join(n.directory, 'restored-writer'),
+    transport: async (member: { publicKey: string }, frame: Parameters<HistoryCheckpointTransport>[1]) => {
+      const index = n.context.members.indexOf(member.publicKey); if (index >= online) throw new Error('offline'); return roles[index].exchange(frame);
+    } };
+  const restore = { genesis, root, baseline, replayDigest: protectedIssuerReplayDigest(historyCheckpointContextId(n.context), rootId, historySuccessorProposalId(root.proposal), baseline) };
+  const open = () => openProtectedIssuerHistory({ ...options, initialize: true, initializeWriter: true, restore });
+  return { ...n, baseline, options, restore, open, online(value: number) { online = value; } };
+}
+
+it('restores a certified continuation baseline, then authenticates new generation checkpoints and fresh readiness on reopen', async () => {
+  const n = await restoredFixture(), history = await n.open(); cleanup.push(history.close);
+  expect(history.read()).toEqual(n.baseline); expect(history.enrollment().root.kind).toBe('continuation');
+  expect(history.status()).toMatchObject({ ready: false, pending: true, applied: null });
+  n.online(3); await expect(history.ready()).rejects.toThrow('Four'); expect(history.read()).toEqual(n.baseline);
+  n.online(4); await history.ready();
+  await history.commit({ ...n.baseline, grants: [...n.baseline.grants, 'next-generation-assignment'] });
+  history.close();
+  const reopened = await openProtectedIssuerHistory(n.options); cleanup.push(reopened.close);
+  expect(reopened.read().grants).toHaveLength(2); expect(reopened.status()).toMatchObject({ ready: false, applied: { sequence: 1 } });
+  n.online(3); await expect(reopened.ready()).rejects.toThrow('Four'); n.online(4); await reopened.ready(); reopened.assertServing();
+  reopened.close();
+  const raw = openEncryptedLocalState<ProtectedIssuerHistoryState<Image>>({ path: n.options.path, key: n.key, domain: n.options.domain, maxBytes: 32 * 1024 * 1024,
+    mode: 'open-existing', initial: {} as ProtectedIssuerHistoryState<Image>, validate: (value): value is ProtectedIssuerHistoryState<Image> => !!value });
+  const state = raw.read(); expect(state.version).toBe(2);
+  if (state.version !== 2) throw new Error('Expected restored state'); expect(state.restoration.baseline).toEqual(n.baseline); raw.close();
+});
+
+it('refuses altered restoration baselines, existing destinations and missing restored writer evidence', async () => {
+  const n = await restoredFixture();
+  await expect(openProtectedIssuerHistory({ ...n.options, initialize: true, initializeWriter: true,
+    restore: { ...n.restore, baseline: { ...n.baseline, grants: [] } } })).rejects.toThrow('reviewed selected history');
+  expect(existsSync(n.options.path)).toBe(false);
+  mkdirSync(n.options.writerDirectory); writeFileSync(join(n.options.writerDirectory, 'existing'), 'retained');
+  await expect(n.open()).rejects.toThrow('empty new writer'); rmSync(n.options.writerDirectory, { recursive: true });
+  const history = await n.open(); cleanup.push(history.close); await history.ready(); history.close();
+  await expect(n.open()).rejects.toThrow('new owner');
+  const writerPath = join(n.options.writerDirectory, HISTORY_WRITER_FILENAME); rmSync(writerPath);
+  await expect(openProtectedIssuerHistory(n.options)).rejects.toThrow('missing'); expect(existsSync(writerPath)).toBe(false);
+});
+
+it('applies a restored baseline after certificate-before-owner-apply crash while still requiring fresh current copies', async () => {
+  const n = await restoredFixture(), history = await n.open(); cleanup.push(history.close);
+  vi.mocked(renameSync).mockImplementation((from, to) => { if (String(to) === n.options.path) throw new Error('restore apply failed'); actual.renameSync(from, to); });
+  await expect(history.ready()).rejects.toThrow('restore apply failed'); history.close(); vi.mocked(renameSync).mockImplementation(actual.renameSync);
+  const reopened = await openProtectedIssuerHistory(n.options); cleanup.push(reopened.close); n.online(0);
+  await expect(reopened.ready()).rejects.toThrow('Four'); expect(reopened.read()).toEqual(n.baseline); expect(reopened.status()).toMatchObject({ ready: false, pending: false, applied: { sequence: 0 } });
+  n.online(4); await reopened.ready(); reopened.assertServing();
+});
+
+it.each(['baseline', 'image', 'genesis', 'version'])('rejects tampered persisted restored %s without substituting its baseline for the current signed head', async damage => {
+  const n = await restoredFixture(), history = await n.open(); cleanup.push(history.close); await history.ready();
+  await history.commit({ ...n.baseline, grants: [...n.baseline.grants, 'signed-new-generation'] }); history.close();
+  const raw = openEncryptedLocalState<Record<string, any>>({ path: n.options.path, key: n.key, domain: n.options.domain, maxBytes: 32 * 1024 * 1024,
+    mode: 'open-existing', initial: {}, validate: (value): value is Record<string, any> => !!value });
+  const state = raw.read();
+  if (damage === 'baseline') state.restoration.baseline.grants = [];
+  if (damage === 'image') state.image = structuredClone(state.restoration.baseline);
+  if (damage === 'genesis') state.restoration.genesis = state.root;
+  if (damage === 'version') { state.version = 1; delete state.restoration; }
+  raw.write(state); raw.close();
+  await expect(openProtectedIssuerHistory(n.options)).rejects.toThrow();
 });
