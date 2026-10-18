@@ -54,26 +54,6 @@ jobs:
           packages/relay/src/__tests__/admission-policy-transfer.test.ts
           packages/node/src/__tests__/wallet-policy-freshness.test.ts
           packages/node/src/__tests__/issuer-policy-freshness.test.ts
-          packages/core/src/__tests__/admission-issuance-allocation.test.ts
-          packages/node/src/__tests__/admission-allocation-authority.test.ts
-          packages/node/src/__tests__/admission-allocation-authority-state.test.ts
-          packages/node/src/__tests__/protected-admission-allocation-authority.test.ts
-          packages/node/src/__tests__/protected-allocation-authority.integration.test.ts
-          packages/node/src/__tests__/protected-allocation-authority-crash.integration.test.ts
-          packages/node/src/__tests__/admission-issuer-allocation.test.ts
-          packages/core/src/__tests__/admission-claim-assignment.test.ts
-          packages/node/src/__tests__/admission-claim-assignment-authority.test.ts
-          packages/node/src/__tests__/admission-issuer-assignment.test.ts
-          packages/relay/src/__tests__/protected-issuer-history.test.ts
-          packages/relay/src/__tests__/protected-issuer-enrollment.test.ts
-          packages/relay/src/__tests__/protected-allocation-enrollment.test.ts
-          packages/node/src/__tests__/protected-admission-issuer-ledger.test.ts
-          packages/node/src/__tests__/protected-issuer-command.integration.test.ts
-          packages/node/src/__tests__/admission-issuer-history-replay.test.ts
-          packages/node/src/__tests__/protected-issuer-restore.integration.test.ts
-          packages/node/src/__tests__/admission-issuer-recovery.test.ts
-          packages/node/src/__tests__/protected-issuer-recovery-crash.integration.test.ts
-          packages/node/src/__tests__/protected-issuer-recovery-command.integration.test.ts
           packages/node/src/__tests__/private-wallet-policy.integration.test.ts
           packages/relay/src/__tests__/blind-admission-verifier.test.ts
           packages/relay/src/__tests__/admission-decision-queue.test.ts
@@ -98,6 +78,46 @@ jobs:
           packages/relay/src/__tests__/history-local-exchange.test.ts
           packages/relay/src/__tests__/history-volunteer-collection.test.ts
           packages/relay/src/__tests__/history-volunteer-collection.integration.test.ts
+
+  admission-durability:
+    # Keep process-death suites within a bounded job as coverage grows.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install test dependencies without native install scripts
+        run: npm ci --ignore-scripts
+      - name: Verify issuer and allocation durability through recovery and interruption
+        run: >-
+          npx vitest run --maxWorkers=1
+          packages/core/src/__tests__/admission-issuance-allocation.test.ts
+          packages/node/src/__tests__/admission-allocation-authority.test.ts
+          packages/node/src/__tests__/admission-allocation-authority-state.test.ts
+          packages/node/src/__tests__/protected-admission-allocation-authority.test.ts
+          packages/node/src/__tests__/protected-allocation-authority.integration.test.ts
+          packages/node/src/__tests__/protected-allocation-authority-crash.integration.test.ts
+          packages/node/src/__tests__/admission-issuer-allocation.test.ts
+          packages/core/src/__tests__/admission-claim-assignment.test.ts
+          packages/node/src/__tests__/admission-claim-assignment-authority.test.ts
+          packages/node/src/__tests__/admission-issuer-assignment.test.ts
+          packages/relay/src/__tests__/protected-issuer-history.test.ts
+          packages/relay/src/__tests__/protected-issuer-enrollment.test.ts
+          packages/relay/src/__tests__/protected-allocation-enrollment.test.ts
+          packages/node/src/__tests__/protected-admission-issuer-ledger.test.ts
+          packages/node/src/__tests__/protected-issuer-command.integration.test.ts
+          packages/node/src/__tests__/admission-issuer-history-replay.test.ts
+          packages/node/src/__tests__/protected-issuer-restore.integration.test.ts
+          packages/node/src/__tests__/admission-issuer-recovery.test.ts
+          packages/node/src/__tests__/protected-issuer-recovery-crash.integration.test.ts
+          packages/node/src/__tests__/protected-issuer-recovery-command.integration.test.ts
 
   desktop-boundaries:
     # Actual local API/process checks; no native compilation or app installers.

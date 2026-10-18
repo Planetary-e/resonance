@@ -86,6 +86,19 @@ their 5/15-second limits and production operation deadlines remain unchanged.
 The conflict setup now requires the exact equivocation error. All 12 affected
 tests pass locally in 19.69 seconds; this is not proof of a production timing fix.
 
+The same preceding run's Windows ownership job also hit its **15-minute job
+limit**. The job API records 16:13:24–16:28:28 UTC, and its check-run annotation
+explicitly reports the limit. The protected-history step started at 16:15:34;
+that step timestamp must not be mistaken for job startup. All 27 issuer recovery
+SIGKILL cases passed in 226.441 seconds before the overall job was cancelled.
+
+To retain growing coverage within the existing bounds, 20 issuer/allocation
+suites move to a separate `admission-durability` job on the same three operating
+systems, with one worker and the same 15-minute limit. Other ownership checks
+remain in place. The complete test-path multiset is preserved; no test or
+production timeout is increased and no installer is built. The new layout
+requires its own remote result.
+
 ## K8 dependency matrix
 
 | Operation | Authority dependency |
