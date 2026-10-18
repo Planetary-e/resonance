@@ -13,7 +13,7 @@ import { allocationAuthorityHistoryAnchor } from '../../admission-allocation-aut
 import { openProtectedAdmissionAllocationAuthority } from '../../protected-admission-allocation-authority.js';
 
 /** Five actual volunteer services; the history owner and allocation signer are distinct keys. */
-export async function protectedAllocationAuthorityFixture(register: (close: () => void | Promise<void>) => void) {
+export async function protectedAllocationAuthorityFixture(register: (close: () => void | Promise<void>) => void, settings: { writerSibling?: boolean } = {}) {
   const directory = realpathSync(mkdtempSync(join(tmpdir(), 'protected-allocation-')));
   register(() => rmSync(directory, { recursive: true, force: true }));
   const h = historyCheckpointFixture(), authorityKey = generateSigningKeyPair();
@@ -30,10 +30,12 @@ export async function protectedAllocationAuthorityFixture(register: (close: () =
   }
   const options: Parameters<typeof openProtectedAdmissionAllocationAuthority>[0] = {
     path: join(directory, 'owner', 'authority.json'), authority, secretKey: authorityKey.secretKey, mode: 'open-existing', now: () => now,
-    protection: { context, signingKey: h.owner, members, writerDirectory: join(directory, 'owner', 'writer'), timeoutMs: 10000 },
+    protection: { context, signingKey: h.owner, members, writerDirectory: join(directory, 'owner', settings.writerSibling ? 'authority.json.history' : 'writer'), timeoutMs: 10000 },
   };
   let journal = await openProtectedAdmissionAllocationAuthority({ ...options, mode: 'create-new' }); register(() => journal.close());
-  const genesis = journal.enrollment().root, genesisId = historyCheckpointEnvelopeId(genesis);
+  const genesis = journal.enrollment().root;
+  if (genesis.kind !== 'checkpoint') throw new Error('Fixture requires original authority genesis');
+  const genesisId = historyCheckpointEnvelopeId(genesis);
   for (let i = 0; i < 5; i++) {
     const volunteer = openHistoryVolunteerService({ directory: join(directory, `volunteer-${i}`), context, genesisId,
       localKey: randomBytes(32), signingKey: h.memberKeys[i], initialize: genesis }); services.push(volunteer); register(volunteer.close);

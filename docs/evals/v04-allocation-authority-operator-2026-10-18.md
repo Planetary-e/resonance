@@ -104,3 +104,58 @@ Recorded Gate 1 implementation/review intervals: Sol A16:44:18–16:47:17 (179s)
 Sol B16:44:31–16:52:10 (459s), Astra16:47:06–16:47:31 (25s),
 16:48:59–16:49:33 (34s),16:50:17–16:50:48 (31s). Additional brief interface/evidence
 checks were reported without a reliable elapsed interval and are not fabricated.
+
+### Gate 2 review resumption — October 18
+
+The owner resumed development after selecting Medium in the coordinating chat.
+Entry account counter: **2% weekly used** (shared account, not per-task cost).
+One fresh GPT-6.1 Sol **High** task starts at 18:18:57 UTC to close the two
+existing review findings; no additional implementers or benchmark runs are opened.
+The original destination spelling copy and its alias-retarget/caller-mutation
+regression are already present locally and require verification, not another fix.
+The remaining experiment distinguishes unsupported compaction endorsement from
+actual retirement of ancestry needed by authenticated authority recovery. Its
+falsifying result is a valid retained/retired history that cannot recover accepted
+authority work after owner loss. Such a result invokes the existing safety stop;
+it must not be silently patched and counted as a passing candidate.
+Preserve the prior CLI/crash evidence; run the final affected-path regression only
+after classification and review, if the candidate remains eligible to continue.
+
+The delegated investigation ended with a platform cybersecurity-risk classification,
+before returning a reproduction. It was not retried. No actual retirement/proof-loss
+result is available. Static inspection independently establishes that authority
+replay requires original genesis and every successor, while the common compaction
+parser lacked the authority-role refusal already present for issuers/observers.
+The safe preventive change adds that refusal and extends the existing negative
+test across proposal creation/parsing, votes and certificates. No stored history
+is deleted or rewritten by this change. Existing unsupported certificates also
+refuse parsing; this is intentional containment, not a migration mechanism.
+
+A separate read-only Astra High review approved only the preventive refusal and
+original-path snapshot semantics (18:21:06–18:21:38 UTC, 32 seconds). It did not
+investigate retirement, execute tests or approve semantic compaction. The failed
+Sol task's exact end time is unavailable and is not counted as zero. Coordinator
+work continued through the final evidence recording; earlier unknown effort remains.
+
+Validation on the working candidate:
+
+- Authority recovery/resumption: **19 tests / 2 files**, 8.94s.
+- Shared compaction core/control/store/coordinator: **77 tests / 4 files**.
+- Existing issuer ledger/restoration plus authority CLI/process death: **52 tests /
+  4 files**, 121.81s. This includes the 28 authority CLI/crash cases.
+- `npm run build` and `git diff --check`: pass.
+- The first mixed compaction/issuer run could not bind loopback sockets for its
+  two issuer tests (`EPERM`). Those two were rerun successfully with the required
+  local-network permission in the composed group; the 77 passing compaction tests
+  were not repeated. One initially specified issuer filename did not exist; its
+  absence was caught from the file count, and the actual issuer ledger/restoration
+  files were included in the final group.
+
+Logs: `/tmp/resonance-authority-review-focused.log`,
+`/tmp/resonance-authority-boundary-regression.log`,
+`/tmp/resonance-authority-composed-review.log`,
+`/tmp/resonance-authority-review-build.log`.
+The observed shared weekly counter moved **2% to 4%** during this block. This is
+not per-agent attribution or demonstrated savings. The operational implementation
+is tested; historical retirement investigation remains suspended, semantic archive
+migration remains unimplemented, and neither K2 nor K4 is complete.

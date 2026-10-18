@@ -60,3 +60,9 @@ export { openProtectedAdmissionAllocationAuthority, type ProtectedAdmissionAlloc
 export { readProtectedAllocationAuthorityRecoverySource, fenceProtectedAllocationAuthorityRecoverySource, type ProtectedAllocationAuthorityRecoverySource, type ProtectedAllocationAuthorityRecoveryEvidence } from './protected-admission-allocation-authority.js';
 export { replayProtectedAllocationAuthorityHistory, type ProtectedAllocationAuthorityReplayOptions } from './admission-allocation-authority-history-replay.js';
 export { prepareProtectedAllocationAuthorityRestore, type PreparedProtectedAllocationAuthorityRestore, type ProtectedAllocationAuthorityRestoration } from './admission-allocation-authority-history-restore.js';
+export { PROTECTED_ALLOCATION_AUTHORITY_RECOVERY_FILENAME, prepareProtectedAllocationAuthorityRecovery, openProtectedAllocationAuthorityRecovery,
+  type ProtectedAllocationAuthorityRecoveryOptions, type ProtectedAllocationAuthorityRecoveryReview, type ProtectedAllocationAuthorityRecoveryStatus,
+  type ProtectedAllocationAuthorityRecoveryResumptionOptions, type ProtectedAllocationAuthorityRecovery } from './admission-allocation-authority-recovery.js';
+export { openProtectedAllocationAuthorityRestoreResumption, type ProtectedAllocationAuthorityRestoreResumptionOptions,
+  type ProtectedAllocationAuthorityRestoreResumptionReview, type ProtectedAllocationAuthorityRestoreResumptionResult,
+  type ProtectedAllocationAuthorityRestoreResumption } from './admission-allocation-authority-restore-resumption.js';

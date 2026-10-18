@@ -38,6 +38,8 @@ export interface ProtectedHistoryRestoreResumptionStrategy<T, O extends Protecte
       replay: ProtectedHistoryRestoreResumptionReplay<T>; validate(value: unknown): Promise<T> | T;
     }>;
     deriveKey(): Promise<Uint8Array>;
+    /** Wipe any owned business secret on failed construction and handle close. */
+    dispose?(): void;
   };
   assertTransition(previous: T, next: T): Promise<void> | void;
   validateGenesis(image: T, context: HistoryCheckpointContext): Promise<void> | void;
@@ -48,15 +50,20 @@ export async function openProtectedHistoryRestoreResumption<T, O extends Protect
   const path = canonicalHistorySetupPath(options.destination.path), writerDirectory = canonicalHistorySetupPath(options.destination.writerDirectory);
   const context = parseHistoryCheckpointContext(structuredClone(options.context)), root = parseHistoryContinuationRoot(structuredClone(options.continuation), context);
   const authority = options.authority, preparation = strategy.snapshot(options);
+  let disposed = false, releaseSetupKeys: (() => void) | undefined;
+  function disposePreparation() { if (!disposed) { disposed = true; preparation.dispose?.(); } }
+  try {
   const members = structuredClone(options.members), timeoutMs = options.timeoutMs ?? 10000, replayTimeoutMs = options.replayTimeoutMs ?? 30000;
   const maximumBlocks = options.maxArchiveBlocks ?? HISTORY_RECOVERY_MAX_BLOCKS, maximumBytes = options.maxArchiveBytes ?? HISTORY_RECOVERY_MAX_BYTES;
-  const key = Uint8Array.from(options.encryptionKey), signer = copyAdmissionSigningKey(options.signingKey), signal = options.signal, transport = options.transport ?? exchangeHistoryCheckpoint;
+  const key = Uint8Array.from(options.encryptionKey); releaseSetupKeys = () => key.fill(0);
+  const signer = copyAdmissionSigningKey(options.signingKey); releaseSetupKeys = () => { key.fill(0); signer.secretKey.fill(0); };
+  const signal = options.signal, transport = options.transport ?? exchangeHistoryCheckpoint;
   let owner: ReturnType<typeof openEncryptedLocalState<ProtectedCheckpointOwnerState<T>>> | undefined;
   let writer: ReturnType<typeof createHistoryCheckpointWriter> | undefined, history: Pick<ProtectedCheckpointOwner<T>, 'close' | 'status'> | undefined;
   let closed = false, busy = false, applied = false, active: AbortController | undefined;
   function live() { if (closed || signal?.aborted) throw new Error(strategy.errors.closed); }
   function release() { history?.close(); history = undefined; writer?.close(); writer = undefined; owner?.close(); owner = undefined; }
-  function close() { if (!closed) { closed = true; active?.abort(); release(); key.fill(0); signer.secretKey.fill(0); } }
+  function close() { if (!closed) { closed = true; active?.abort(); try { release(); } finally { key.fill(0); signer.secretKey.fill(0); disposePreparation(); } } }
   const writerPath = join(writerDirectory, HISTORY_WRITER_FILENAME), archiveDirectory = join(writerDirectory, 'payloads'), archivePath = join(archiveDirectory, HISTORY_WRITER_ARCHIVE_FILENAME);
   const fencePath = join(writerDirectory, strategy.fenceFilename);
   function digestFile(file: string, maximum: number) {
@@ -145,4 +152,5 @@ export async function openProtectedHistoryRestoreResumption<T, O extends Protect
       }); }, close,
     };
   } catch (error) { close(); throw error; }
+  } catch (error) { releaseSetupKeys?.(); disposePreparation(); throw error; }
 }
