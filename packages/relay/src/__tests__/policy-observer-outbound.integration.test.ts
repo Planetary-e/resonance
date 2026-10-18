@@ -11,6 +11,21 @@ import { policyObserverSetupFixture } from './fixtures/policy-observer-setup-fix
 const cleanup: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 
+it('uses the explicit finite maintenance budget for a cold durable write without changing personal observation deadlines', async () => {
+  let delay = false, delayed = false;
+  const n = await policyObserverOutboundFixture(close => cleanup.push(close), { beforeExchange: async (_replica, method, frame) => {
+    if (delay && !delayed && method === 'checkpoint' && (frame as { request?: { action?: string } }).request?.action === 'append') {
+      delayed = true; await new Promise(resolve => setTimeout(resolve, 3500));
+    }
+  } });
+  const options = { transportFile: n.transportFile };
+  const plan = await runPolicyObserverCommand('initialize-plan', [n.configPath], undefined, options);
+  await runPolicyObserverCommand('initialize', ['--approve', (plan.result as { approvalDigest: string }).approvalDigest, n.configPath], undefined, options);
+  delay = true;
+  const ready = await runPolicyObserverCommand('ready', [n.configPath], undefined, options);
+  expect(delayed).toBe(true); expect(ready.result).toMatchObject({ readiness: 'confirmed' });
+}, 30000);
+
 it('initializes and recovers a policy observer through a pinned bridge using only outbound owner and volunteer links', async () => {
   const n = await policyObserverOutboundFixture(close => cleanup.push(close));
   const main = fileURLToPath(new URL('../policy-observer-main.ts', import.meta.url)), loader = import.meta.resolve('tsx');

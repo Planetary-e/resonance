@@ -23,7 +23,7 @@ export async function runPolicyObserverCommand(command: string, args: readonly s
   let observer: Awaited<ReturnType<typeof openConfiguredPolicyObserver>> | undefined;
   const cancel = () => { observer?.close(); transport.close(); }; signal?.addEventListener('abort', cancel, { once: true });
   try {
-    observer = await openConfiguredPolicyObserver(config, { transport: transport.protection.transport });
+    observer = await openConfiguredPolicyObserver(config, { transport: transport.protection.transport, timeoutMs: transport.maintenanceTimeoutMs });
     if (signal?.aborted) throw new Error('Policy observer command cancelled');
     if (command === 'ready') await observer.ready();
     else if (command === 'advance') {

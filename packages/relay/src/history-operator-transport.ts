@@ -94,6 +94,10 @@ export function createPinnedHistoryOperatorTransport<P extends { context: Histor
   const compactionControlTransport: HistoryCompactionControlTransport = (member, frame, signal) => config ? session(signal).compactionControl(member, frame, combined(signal)) : exchangeHistoryCompactionControl(member, frame, combined(signal));
   const frontierTransport: HistoryFrontierTransport = (member, request, signal) => config ? session(signal).frontier(member, request, combined(signal)) : exchangeHistoryFrontier(member, request, combined(signal));
   return {
+    // Explicit finite maintenance may include identity opening, a cold relay
+    // handshake and durable root repair. Personal observations keep their own
+    // short challenge window; this allowance is only for operator commands.
+    maintenanceTimeoutMs: config ? Math.min(30000, config.deadlineMs) : undefined,
     protection: { ...protection, transport: ((member, frame, signal) => config
       ? session(signal).checkpoint(member, frame, combined(signal))
       : (protection.transport ?? exchangeHistoryCheckpoint)(member, frame, combined(signal))) as HistoryCheckpointTransport } as Omit<P, 'transport'> & { transport: HistoryCheckpointTransport },
