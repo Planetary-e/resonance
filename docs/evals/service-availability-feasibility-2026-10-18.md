@@ -39,6 +39,12 @@ The current test fixture places 55 histories on two sets of five endpoints;
 it must not be modeled as 55 independent five-device cohorts. Neither the
 independent nor identical-member case calibrates its complete dependency graph.
 
+The subsequent protected allocation-authority work adds the explicit
+[operation dependency matrix](v04-protected-allocation-authority-2026-10-18.md#k8-dependency-matrix).
+It does not change the retained 55-history fixture or retrospectively qualify
+new physical placement; its signing owner and required quorum must be included
+when measuring operations that create allocations or assignments.
+
 ### Minimum individual availability for the 99% target
 
 | Required physical cohorts | Permanent withholders per cohort | Conditional operation success | Minimum `p` |

@@ -54,3 +54,5 @@ export { openAdmissionIssuerLedger, type AdmissionIssuerLedger, type AdmissionIs
 export { openProtectedAdmissionIssuerLedger, readProtectedIssuerRecoverySource, fenceProtectedIssuerRecoverySource, type ProtectedIssuerRecoverySource, type ProtectedIssuerRecoveryEvidence, type ProtectedAdmissionIssuerLedger, type ProtectedAdmissionIssuerLedgerOptions } from './protected-admission-issuer-ledger.js';
 
 export { openProtectedIssuerRestoreResumption, type ProtectedIssuerRestoreResumptionOptions } from './admission-issuer-restore-resumption.js';
+
+export { openProtectedAdmissionAllocationAuthority, type ProtectedAdmissionAllocationAuthorityOptions, type ProtectedAdmissionAllocationAuthority } from './protected-admission-allocation-authority.js';

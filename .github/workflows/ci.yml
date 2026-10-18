@@ -56,12 +56,17 @@ jobs:
           packages/node/src/__tests__/issuer-policy-freshness.test.ts
           packages/core/src/__tests__/admission-issuance-allocation.test.ts
           packages/node/src/__tests__/admission-allocation-authority.test.ts
+          packages/node/src/__tests__/admission-allocation-authority-state.test.ts
+          packages/node/src/__tests__/protected-admission-allocation-authority.test.ts
+          packages/node/src/__tests__/protected-allocation-authority.integration.test.ts
+          packages/node/src/__tests__/protected-allocation-authority-crash.integration.test.ts
           packages/node/src/__tests__/admission-issuer-allocation.test.ts
           packages/core/src/__tests__/admission-claim-assignment.test.ts
           packages/node/src/__tests__/admission-claim-assignment-authority.test.ts
           packages/node/src/__tests__/admission-issuer-assignment.test.ts
           packages/relay/src/__tests__/protected-issuer-history.test.ts
           packages/relay/src/__tests__/protected-issuer-enrollment.test.ts
+          packages/relay/src/__tests__/protected-allocation-enrollment.test.ts
           packages/node/src/__tests__/protected-admission-issuer-ledger.test.ts
           packages/node/src/__tests__/protected-issuer-command.integration.test.ts
           packages/node/src/__tests__/admission-issuer-history-replay.test.ts

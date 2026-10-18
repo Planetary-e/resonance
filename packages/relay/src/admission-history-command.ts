@@ -469,7 +469,7 @@ export async function runAdmissionHistoryCommand(command: string, raw: readonly 
       const args = approved ? raw.slice(2) : raw;
       if (args.length !== (command === 'replica-serve' ? 5 : 4) || (command === 'replica-enroll' && !approved)) throw new Error('Invalid replica command or missing digest approval');
       const [enrollmentPath, memberPath, keyPath, target, portText] = args, directory = resolve(target);
-      const pinned = readHistoryEnrollmentFile(enrollmentPath, ['relay-admission-spends', 'admission-issuer']), signingKey = readOperatorSigningKey(memberPath); cleanup.push(() => signingKey.secretKey.fill(0));
+      const pinned = readHistoryEnrollmentFile(enrollmentPath, ['relay-admission-spends', 'admission-issuer', 'admission-allocation-authority']), signingKey = readOperatorSigningKey(memberPath); cleanup.push(() => signingKey.secretKey.fill(0));
       const localKey = readOperatorStorageKey(keyPath); cleanup.push(() => localKey.fill(0));
       const member = Buffer.from(signingKey.publicKey).toString('base64url');
       if (!pinned.context.members.includes(member)) throw new Error('Volunteer key is not one of the five pinned members');

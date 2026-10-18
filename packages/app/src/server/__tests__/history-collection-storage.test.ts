@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdirSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { relayStorageDirectories, retainRelayStorageDirectories } from '../history-storage.js';
@@ -19,14 +19,19 @@ it('retains a configured observer owner directory after its background role is d
   const disabled = retainRelayStorageDirectories({ enabled: false, port: 9091 }, configured, runtimeDirectory);
   expect(relayStorageDirectories(disabled, runtimeDirectory).sort()).toEqual(directories.sort());
 });
-it('keeps every enrolled collection directory in storage inventory after the role is disabled', async () => {
-  const n = await historyVolunteerCollectionFixture(close => cleanup.push(close));
-  const runtimeDirectory = join(n.directory, 'relay-data'); mkdirSync(runtimeDirectory);
-  const configured: RelayConfig = { enabled: false, port: 9091, runtime: { nodePath: process.execPath, entryPath: '/test/main.js', workingDirectory: n.directory,
-    historyVolunteerCollectionFile: n.paths[0] } };
-  const directories = relayStorageDirectories(configured, runtimeDirectory);
-  for (const history of n.configs[0].histories) expect(directories).toContain(realpathSync(join(n.directory, history.directory)));
-  expect(directories).toHaveLength(6);
-  const disabled = retainRelayStorageDirectories({ enabled: false, port: 9091 }, configured, runtimeDirectory);
-  expect(relayStorageDirectories(disabled, runtimeDirectory).sort()).toEqual(directories.sort());
+describe('retained volunteer collection inventory', () => {
+  let n: Awaited<ReturnType<typeof historyVolunteerCollectionFixture>>;
+  // Initialize the five durable histories outside the synchronous inventory check.
+  beforeEach(async () => { n = await historyVolunteerCollectionFixture(close => cleanup.push(close)); }, 15000);
+
+  it('keeps every enrolled collection directory in storage inventory after the role is disabled', async () => {
+    const runtimeDirectory = join(n.directory, 'relay-data'); mkdirSync(runtimeDirectory);
+    const configured: RelayConfig = { enabled: false, port: 9091, runtime: { nodePath: process.execPath, entryPath: '/test/main.js', workingDirectory: n.directory,
+      historyVolunteerCollectionFile: n.paths[0] } };
+    const directories = relayStorageDirectories(configured, runtimeDirectory);
+    for (const history of n.configs[0].histories) expect(directories).toContain(realpathSync(join(n.directory, history.directory)));
+    expect(directories).toHaveLength(6);
+    const disabled = retainRelayStorageDirectories({ enabled: false, port: 9091 }, configured, runtimeDirectory);
+    expect(relayStorageDirectories(disabled, runtimeDirectory).sort()).toEqual(directories.sort());
+  }, 5000);
 });

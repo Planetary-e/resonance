@@ -6,7 +6,8 @@
   "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./protected-issuer-history": "./src/protected-issuer-history.ts"
+    "./protected-issuer-history": "./src/protected-issuer-history.ts",
+    "./protected-allocation-authority-history": "./src/protected-allocation-authority-history.ts"
   },
   "scripts": {
     "build": "tsc",

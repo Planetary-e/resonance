@@ -1,4 +1,4 @@
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -99,16 +99,26 @@ it('requires a new review for changed files, refuses invalid routing and prevent
   writeFileSync(n.configPath, original); expect(installRelayService).not.toHaveBeenCalled();
 }, 15000);
 
-it.each(['conflict', 'fence'] as const)('retains %s evidence and refuses to activate that observer', async kind => {
-  const n = await fixture(); await n.init(); await n.pause(); const observer = await n.open();
-  try {
-    if (kind === 'fence') await fencePolicyObserverRecoverySource(observer.reviewRecoverySource());
-    else { await observer.ready(); await observer.advance(n.advance); await expect(observer.advance(n.conflict)).rejects.toThrow(); }
-  } finally { observer.close(); }
-  const review = await n.review(); expect(review.status).toBe(200); expect(review.body[kind === 'fence' ? 'fenced' : 'blocked']).toBe(true);
-  expect((await n.apply(review.body.approvalDigest)).status).toBe(409); expect(installRelayService).not.toHaveBeenCalled();
-  const retained = await n.open(); try { expect(retained.status()[kind === 'fence' ? 'fenced' : 'blocked']).toBe(true); } finally { retained.close(); }
-}, 15000);
+describe.each(['conflict', 'fence'] as const)('observer with retained %s evidence', kind => {
+  let n: Awaited<ReturnType<typeof fixture>>;
+  // Persist genuine evidence before measuring activation's refusal to select it.
+  beforeEach(async () => {
+    n = await fixture(); await n.init(); await n.pause(); const observer = await n.open();
+    try {
+      if (kind === 'fence') await fencePolicyObserverRecoverySource(observer.reviewRecoverySource());
+      else {
+        await observer.ready(); await observer.advance(n.advance);
+        await expect(observer.advance(n.conflict)).rejects.toThrow('Community policy authority equivocated; retain evidence and stop observations');
+      }
+    } finally { observer.close(); }
+  }, 30000);
+
+  it(`retains ${kind} evidence and refuses to activate that observer`, async () => {
+    const review = await n.review(); expect(review.status).toBe(200); expect(review.body[kind === 'fence' ? 'fenced' : 'blocked']).toBe(true);
+    expect((await n.apply(review.body.approvalDigest)).status).toBe(409); expect(installRelayService).not.toHaveBeenCalled();
+    const retained = await n.open(); try { expect(retained.status()[kind === 'fence' ? 'fenced' : 'blocked']).toBe(true); } finally { retained.close(); }
+  }, 15000);
+});
 
 it('excludes competing owners and releases ownership after cancellation and changed configuration during approval', async () => {
   const n = await fixture(); await n.init(); await n.pause(); const held = await n.open();
