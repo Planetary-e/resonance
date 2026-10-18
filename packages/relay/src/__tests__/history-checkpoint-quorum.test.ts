@@ -181,6 +181,21 @@ it('rejects expired or invalid per-call deadlines/signals before publishing an i
   expect(calls).toBe(0);expect(writer.read().pending).toBeNull();
   await writer.replicate(n.root);expect(writer.read().committed).not.toBeNull();
 });
+it.each([undefined, 1250.5])('bounds the signed lifetime with fractional monotonic time and caller budget %s', async budget => {
+  const n = network(), started = 65535.999;
+  // This clock makes subtraction round upward to 30000.000000000007.
+  expect(Math.ceil((started + 30000) - started)).toBe(30001);
+  const clock = vi.spyOn(performance, 'now').mockReturnValue(started);
+  const requests: HistoryExchangeFrame['request'][] = [];
+  const writer = n.writer(true, { timeoutMs: 30000, transport: async (member, frame, signal) => {
+    requests.push(frame.request); return n.transport(member, frame, signal);
+  } });
+  try {
+    await writer.replicate(n.root, budget === undefined ? undefined : { deadline: started + budget });
+    expect(requests.length).toBeGreaterThanOrEqual(4);
+    expect(requests.every(request => request.expiresAt - request.issuedAt === Math.ceil(budget ?? 30000))).toBe(true);
+  } finally { clock.mockRestore(); }
+});
 it('snapshots the per-call cancellation signal and preserves exact intent when it aborts',async()=>{
   const n=network(),controller=new AbortController();let entered!:()=>void;const started=new Promise<void>(resolve=>{entered=resolve;});
   const writer=n.writer(true,{transport:async(_member,_frame,signal)=>{entered();return new Promise((_,reject)=>{if(signal.aborted)reject(new Error('cancelled'));else signal.addEventListener('abort',()=>reject(new Error('cancelled')),{once:true});});}});

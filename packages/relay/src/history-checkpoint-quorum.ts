@@ -115,7 +115,9 @@ export function createHistoryCheckpointWriter(options: {
       if (signal !== undefined && !(signal instanceof AbortSignal)) throw new Error('Invalid history operation signal');
       if (requestedDeadline !== undefined && (!Number.isFinite(requestedDeadline) || requestedDeadline < 0)) throw new Error('Invalid history operation deadline');
       const started = performance.now(), deadline = Math.min(started + timeoutMs, requestedDeadline ?? Infinity);
-      const attemptMs = Math.max(0, deadline - started), issuedAt = Date.now(), expiresAt = issuedAt + Math.ceil(attemptMs);
+      // Floating-point subtraction can round (started + timeoutMs) - started
+      // above timeoutMs. Keep the signed lifetime inside the configured bound.
+      const attemptMs = Math.max(0, deadline - started), issuedAt = Date.now(), expiresAt = issuedAt + Math.min(timeoutMs, Math.ceil(attemptMs));
       const controller = new AbortController(), cancel = () => controller.abort(); active = controller;
       signal?.addEventListener('abort', cancel, { once: true }); if (signal?.aborted) cancel();
       const live = () => {

@@ -7,7 +7,8 @@ import { admissionKeyFingerprint, signAdmissionPolicy, type AdmissionPolicyBody 
 import { createAdmissionPolicyAdvance, admissionPolicyHead } from '@resonance/core/admission-policy-advance';
 import { parseAdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
 
-export async function policyObserverFixture(options: { policyLifetimeMs?: number; keyLifetimeMs?: number } = {}) {
+export async function policyObserverFixture(options: { policyLifetimeMs?: number; keyLifetimeMs?: number; memberEndpoints?: string[] } = {}) {
+  if (options.memberEndpoints && options.memberEndpoints.length !== 5) throw new Error('Fixture needs five observer endpoints');
   const directory = mkdtempSync(join(tmpdir(), 'policy-observer-')), key = generateSigningKeyPair();
   const authority = Buffer.from(key.publicKey).toString('base64url'), keys = Array.from({ length: 5 }, generateSigningKeyPair);
   const issuerKeys = generateKeyPairSync('rsa', { modulusLength: 2048 });
@@ -21,7 +22,7 @@ export async function policyObserverFixture(options: { policyLifetimeMs?: number
   const fork = await signAdmissionPolicy({ ...body, revision: 2, expiresAt: body.expiresAt + 1 }, authority, key.secretKey);
   const third = await signAdmissionPolicy({ ...body, revision: 3 }, authority, key.secretKey);
   const context = parseAdmissionPolicyObservers({ version: 1, kind: 'admission-policy-observers', authority, genesis: admissionPolicyHead(first), quorum: 4,
-    members: keys.map((key, i) => ({ publicKey: Buffer.from(key.publicKey).toString('base64url'), endpoint: `ws://127.0.0.1:${33001 + i}/` })) });
+    members: keys.map((key, i) => ({ publicKey: Buffer.from(key.publicKey).toString('base64url'), endpoint: options.memberEndpoints?.[i] ?? `ws://127.0.0.1:${33001 + i}/` })) });
   const advance = await createAdmissionPolicyAdvance(first, second, context, key), conflict = await createAdmissionPolicyAdvance(first, fork, context, key);
   const later = await createAdmissionPolicyAdvance(second, third, context, key, advance.commitment.next);
   const observerOptions = { path: join(directory, 'observer.json'), encryptionKey: randomBytes(32), context, signingKey: keys[0], initialPolicy: first, now: () => now };

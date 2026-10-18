@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { writeFileSync, rmSync, readFileSync, readdirSync } from 'node:fs';
 import { admissionKeyFingerprint, signAdmissionPolicy, type AdmissionPolicyKey } from '@resonance/core/admission-policy';
 import { admissionPolicyHead, createAdmissionPolicyAdvance, createAdmissionPolicyAdvanceCommitment } from '@resonance/core/admission-policy-advance';
-import { createAdmissionPolicyHeadRequest, createAdmissionPolicyHeadVote, parseAdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
+import { createAdmissionPolicyHeadRequest, createAdmissionPolicyHeadVote } from '@resonance/core/admission-policy-freshness';
 import { parseAdmissionWitnessSet } from '@resonance/core/admission-witness';
 import { createResolvedAdmissionPolicyAdvance, prepareAdmissionPolicyV3Successor, resolveAdmissionPolicy, signAdmissionPolicyV3 } from '@resonance/core/admission-policy-archive';
 import { historyCheckpointEnvelopeId, historyCheckpointEnvelopeByteLength, historyCheckpointReserveBucket, openHistoryCheckpoint, sealHistoryCheckpoint } from '@resonance/core/history-checkpoint';
@@ -34,9 +34,26 @@ afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await c
 let rsa: string[];
 beforeAll(() => { rsa = Array.from({ length: 2 }, () => generateKeyPairSync('rsa', { modulusLength: 2048 }).publicKey.export({ type: 'spki', format: 'pem' }).toString()); });
 async function fixture(bounds: { maxArchiveBlocks?: number; maxArchiveBytes?: number } = {}) {
-  const f = await policyObserverFixture(); cleanup.push(f.close);
-  // Pin actual observer routes before any role is enrolled or transition signed.
-  f.context = parseAdmissionPolicyObservers({...f.context,members:f.context.members.map(member=>({...member,endpoint:new URL('/policy-head',member.endpoint).href}))});
+  type Exchange = Parameters<typeof listenAdmissionPolicyObserver>[0];
+  const listeners: Array<Awaited<ReturnType<typeof listenAdmissionPolicyObserver>> & { bind(exchange: Exchange): void }> = [];
+  // Hold OS-allocated listeners continuously, before creating context pins or
+  // signatures. Installing a local handler later never changes a trusted route.
+  try {
+    for (let i = 0; i < 5; i++) {
+      let exchange: Exchange = async () => { throw new Error('Fixture observer unavailable'); };
+      const listener = await listenAdmissionPolicyObserver((value, signal) => exchange(value, signal), { port: 0 });
+      cleanup.push(listener.close);
+      listeners.push({ ...listener, bind(value) { exchange = value; } });
+    }
+  } catch (error) { await Promise.all(listeners.map(listener => listener.close())); throw error; }
+  const f = await policyObserverFixture({ memberEndpoints: listeners.map(listener => listener.endpoint) }); cleanup.push(f.close);
+  function bindObserver(member: { endpoint: string }, exchange: Exchange) {
+    const listener = listeners.find(listener => listener.endpoint === member.endpoint);
+    if (!listener) throw new Error('Unknown fixture observer endpoint');
+    // Close live transports before their handlers' observers during teardown.
+    cleanup.push(listener.close);
+    listener.bind(exchange); return listener;
+  }
   const owner = f.keys[0], key = f.options.encryptionKey;
   const enrolled = await createPolicyObserverHistoryRoot({ context: f.context, signingKey: owner, encryptionKey: key, policy: f.first, now: () => f.now });
   const rootId = historyCheckpointEnvelopeId(enrolled.root), signingKeys = enrolled.context.members.map(p => f.keys.find(k => Buffer.from(k.publicKey).toString('base64url') === p)!);
@@ -103,7 +120,7 @@ async function fixture(bounds: { maxArchiveBlocks?: number; maxArchiveBytes?: nu
     const restored = await openProtectedPolicyObserver({ ...restoredOptions, mode: 'create-new', restore: { preparation: reviewed, approvedDigest: reviewed.review.approvalDigest } }); cleanup.push(restored.close);
     return { restored, restoredOptions, replay, blocks,config,archive,childTransport };
   }
-  return { ...f, authorityKey: f.key, options, enrolled, key, owner, stores, roles, members, v2, advance, plan, v3, policy, limits, entries, reader, recover, reopen,
+  return { ...f, bindObserver, authorityKey: f.key, options, enrolled, key, owner, stores, roles, members, v2, advance, plan, v3, policy, limits, entries, reader, recover, reopen,
     get time() { return time; }, setTime(value: number) { time = value; }, get observer() { return observer; }, lose(value: boolean) { lose = value; }, online(value: number) { online = value; } };
 }
 it('commits v3 pages and policy together with four durable copies and reopens original provenance', async () => {
@@ -224,7 +241,7 @@ async function remotePeer(n: Awaited<ReturnType<typeof fixture>>, settings: {max
   const sourceMember = n.context.members.find(m=>m.publicKey===Buffer.from(n.owner.publicKey).toString('base64url'))!;
   const targetMember = n.context.members.find(m=>m.publicKey===ownerKey)!;
   const sourceExchange = createAdmissionPolicyObserverExchange(n.observer,n.context,()=>n.now+30001);
-  const sourceListener = await listenAdmissionPolicyObserver(sourceExchange,{port:Number(new URL(sourceMember.endpoint).port)}); cleanup.push(sourceListener.close);
+  const sourceListener = n.bindObserver(sourceMember, sourceExchange);
   const enrolled = await createPolicyObserverHistoryRoot({context:n.context,signingKey:signer,encryptionKey:localKey,policy:n.first,now:()=>n.now});
   const stores = enrolled.context.members.map((replica,i)=>openHistoryCheckpointStore({directory:join(n.directory,`target-replica-${i}`),context:enrolled.context,replica,
     localKey:randomBytes(32),rootId:historyCheckpointEnvelopeId(enrolled.root),generation:0,initialize:enrolled.root})); stores.forEach(s=>cleanup.push(s.close));
@@ -247,7 +264,7 @@ async function remotePeer(n: Awaited<ReturnType<typeof fixture>>, settings: {max
       return reply;
     }}};
   let target = await openProtectedPolicyObserver({...options,mode:'create-new'}); cleanup.push(()=>target.close()); await target.ready(); await target.advance(n.advance);
-  const targetListener = await listenAdmissionPolicyObserver(createAdmissionPolicyObserverExchange(target,n.context,()=>n.now+30001),{port:Number(new URL(targetMember.endpoint).port)}); cleanup.push(targetListener.close);
+  const targetListener = n.bindObserver(targetMember, createAdmissionPolicyObserverExchange(target,n.context,()=>n.now+30001));
   return {get target(){return target;},sourceMember,targetMember,sourceListener,targetListener,stores,
     requests:()=>requests,mode(value:typeof mode){mode=value;},gate(value?:Promise<void>){delay=value;},onAppend(value?:()=>void){appendHook=value;},onPage(value?:()=>void){pageHook=value;},
     async reopen(){await targetListener.close();target.close();target=await openProtectedPolicyObserver({...options,mode:'open-existing'});return target;},
@@ -328,8 +345,7 @@ it('requires an already committed pinned source before remote ingestion can publ
 it('times out a silent first pinned source fairly and obtains the page from a healthy second source',async()=>{
   const n=await fixture();await n.observer.advance(n.v3.advance,n.plan.pages);const peer=await remotePeer(n);
   const ownKey=peer.targetMember.publicKey,silent=n.context.members.find(m=>m.publicKey!==ownKey&&m.publicKey!==peer.sourceMember.publicKey)!;
-  const listener=await listenAdmissionPolicyObserver(async(_request,signal)=>new Promise((_,reject)=>{signal?.addEventListener('abort',()=>reject(new Error('silent source cancelled')),{once:true});}),
-    {port:Number(new URL(silent.endpoint).port)});cleanup.push(listener.close);
+  n.bindObserver(silent,async(_request,signal)=>new Promise((_,reject)=>{signal?.addEventListener('abort',()=>reject(new Error('silent source cancelled')),{once:true});}));
   // Scheduling order changes; normalized independent pins/context ID remain identical.
   const context={...n.context,members:[silent,peer.sourceMember,...n.context.members.filter(m=>m.publicKey!==silent.publicKey&&m.publicKey!==peer.sourceMember.publicKey)]};
   const calls:string[]=[];const deadline=performance.now()+1200;
