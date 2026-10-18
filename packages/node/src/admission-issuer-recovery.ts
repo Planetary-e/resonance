@@ -1,3 +1,4 @@
+import type { ProtectedIssuerState as State } from './protected-admission-issuer-state.js';
 /** Fixed issuer recovery strategy. Public pins, journal bytes and review preimages remain stable. */
 import type { SigningKeyPair } from '@resonance/core';
 import type { HistoryCheckpointContext, HistoryEncryptedEnvelope } from '@resonance/core/history-checkpoint';
@@ -6,7 +7,7 @@ import type { HistoryCheckpointTransport, HistoryReplicaEndpoint } from '../../r
 import type { HistoryAgreementTransport, HistoryAgreementDataTransport, HistoryProvisionTransport } from '../../relay/src/history-agreement-exchange.js';
 import { openProtectedIssuerHistory, type ProtectedIssuerHistoryStatus } from '@resonance/relay/protected-issuer-history';
 import { parseAdmissionWalletProfile, type AdmissionWalletProfileV1 } from './admission-wallet-profile.js';
-import { DOMAIN, type State as IssuerState } from './admission-issuer-state.js';
+import { DOMAIN } from './admission-issuer-state.js';
 import { parseProtectedIssuerImage, assertProtectedIssuerImageSuccessor, assertProtectedIssuerGenesis } from './protected-admission-issuer-state.js';
 import { replayProtectedIssuerHistory } from './admission-issuer-history-replay.js';
 import { fenceProtectedIssuerRecoverySource, readProtectedIssuerRecoverySource, type ProtectedIssuerRecoverySource, type ProtectedIssuerRecoveryEvidence } from './protected-admission-issuer-ledger.js';
@@ -42,12 +43,12 @@ export interface ProtectedIssuerRecovery {
   close(): void;
 }
 type Captured = ProtectedHistoryRecoveryCaptured<ProtectedIssuerRecoveryOptions, { profile: AdmissionWalletProfileV1 }>;
-function replayOptions(p: Captured, blocks: Iterable<unknown>, minimum: IssuerState[] | null) {
+function replayOptions(p: Captured, blocks: Iterable<unknown>, minimum: State[] | null) {
   return { context: p.context, profile: p.profile, authority: p.authority, genesisId: p.genesisId,
     encryptionKey: p.key, maxBlocks: p.maxBlocks, maxBytes: p.maxBytes, timeoutMs: p.replayTimeoutMs, blocks,
     ...(minimum ? { minimumEvidence: minimum } : {}) };
 }
-const recovery = createProtectedHistoryRecovery<ProtectedIssuerRecoveryOptions, { profile: AdmissionWalletProfileV1 }, IssuerState, ProtectedIssuerRecoverySource,
+const recovery = createProtectedHistoryRecovery<ProtectedIssuerRecoveryOptions, { profile: AdmissionWalletProfileV1 }, State, ProtectedIssuerRecoverySource,
   PreparedProtectedIssuerRestore, ProtectedIssuerHistoryStatus, ProtectedIssuerRecoveryResumptionOptions,
   Awaited<ReturnType<typeof openProtectedIssuerRestoreResumption>>, 'protected-issuer-recovery-freeze'>({
   role: 'admission-issuer', filename: PROTECTED_ISSUER_RECOVERY_FILENAME, domain: 'resonance:admission-issuer-recovery:v1',
@@ -69,7 +70,7 @@ const recovery = createProtectedHistoryRecovery<ProtectedIssuerRecoveryOptions, 
   replay(p, blocks, minimum, proposal, signal) { return replayProtectedIssuerHistory({ ...replayOptions(p, blocks, minimum), proposal, signal }); },
   prepareRestore(p, blocks, minimum, destination, continuation, signal) { return prepareProtectedIssuerRestore({ ...replayOptions(p, blocks, minimum), destination, continuation, signal }); },
   openInspector(p, destination, replayDigest) {
-    return openProtectedIssuerHistory<IssuerState>({ ...destination, context: p.context, domain: DOMAIN, encryptionKey: p.key,
+    return openProtectedIssuerHistory<State>({ ...destination, context: p.context, domain: DOMAIN, encryptionKey: p.key,
       signingKey: p.signer, members: p.members, initial: undefined!, expectedRestorationDigest: replayDigest,
       validate: value => parseProtectedIssuerImage(value, { profile: p.profile, authority: p.authority }),
       assertTransition: assertProtectedIssuerImageSuccessor, validateGenesis: image => assertProtectedIssuerGenesis(image, p.context) });

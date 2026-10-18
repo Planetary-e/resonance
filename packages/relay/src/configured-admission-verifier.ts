@@ -1,8 +1,9 @@
+import { assertArchivedAdmissionPolicyCurrent, type ArchivedAdmissionPolicy, type AdmissionPolicyArchiveLimits } from '@resonance/core/admission-policy-archive';
 /** Offline-installed shared policy; persisted revision prevents ordinary rollback on restart. */
 import { join } from 'node:path';
 import type { Socket } from 'node:net';
 import type { SigningKeyPair } from '@resonance/core';
-import { openAdmissionPolicyStore, assertAdmissionPolicyCurrent, parseAdmissionWalletProfile, admissionKeyFingerprint, type AdmissionPolicyKey } from '@resonance/core/admission-policy';
+import { openAdmissionPolicyStore, parseAdmissionWalletProfile, admissionKeyFingerprint, type AdmissionPolicyKey } from '@resonance/core/admission-policy';
 import { createLocalBlindAdmissionVerifierV2 } from './blind-admission-verifier.js';
 import { openAdmissionSpendHistory } from './admission-spend-history.js';
 import { openProtectedAdmissionSpendHistory, type AdmissionHistoryProtection } from './protected-admission-history.js';
@@ -28,6 +29,9 @@ export async function createConfiguredAdmissionVerifier(options: {
   policyObservationTransportFactory?: (context: AdmissionPolicyObservers) => OwnedPolicyObservationTransport;
   onPolicySocket?: (socket: Socket) => void;
   historyProtection?: AdmissionHistoryProtection;
+  /** One bounded original proof backfill step, retained by the protected history before local activation. */
+  policyProofAppend?: unknown; policyProofLimits?: AdmissionPolicyArchiveLimits;
+  policyPages?: Array<{ digest: string; bytes: Uint8Array }>;
   /** Explicit protected spend/writer location; policy and witness state stay in directory. */
   historyDirectory?: string;
   /** An explicitly prepared protected spend history can precede policy/witness initialization. */
@@ -50,18 +54,41 @@ export async function createConfiguredAdmissionVerifier(options: {
     const contextId = options.historyProtection ? historyCheckpointContextId(options.historyProtection.context) : undefined;
     if (pinnedContext && pinnedContext !== contextId) throw new Error('Retained policy requires its original protected history context; local fallback is forbidden');
     if (options.historyDirectory && !pinnedContext) throw new Error('A separate history location requires a reviewed policy/history binding before startup');
-    const policy = await store.install(options.policy, options.authority, { observers: options.policyObservers, advance: options.policyAdvance });
-    if (store.freshness()) freshness = createAdmissionPolicyFreshnessGate({ store, now, timeoutMs: options.policyObservationTimeoutMs,
-      transport: options.policyObservationTransport, transportFactory: options.policyObservationTransportFactory, onSocket: options.onPolicySocket });
-    const historyOptions = { directory: options.directory, encryptionKey: options.encryptionKey, policy, now,
+    let policy: ArchivedAdmissionPolicy;
+    const historyOptions = { directory: options.directory, encryptionKey: options.encryptionKey, now,
       initialize: options.initializeSpendHistory ?? options.initialize, maxSpends: options.maxSpends };
     if (options.historyProtection) {
-      const protectedHistory = await openProtectedAdmissionSpendHistory({ ...historyOptions,
-        directory: options.historyDirectory ?? options.directory, authority: options.authority, protection: options.historyProtection });
+      const protectedHistory = await openProtectedAdmissionSpendHistory({ ...historyOptions, policy: options.policy,
+        directory: options.historyDirectory ?? options.directory, authority: options.authority, protection: options.historyProtection,
+        policyAdvance: options.policyAdvance, policyPages: options.policyPages, policyTrust: store.freshness() });
       history = protectedHistory;
       await protectedHistory.ready();
-      store.bindProtectedHistory(contextId!); // Durable before any admission can be returned to the caller.
-    } else history = openAdmissionSpendHistory(historyOptions);
+      if (options.policyProofAppend !== undefined) {
+        const trust = store.freshness();
+        if (!trust) throw new Error('Protected relay backfill requires independently pinned original observers');
+        await protectedHistory.backfillPolicyProof(options.policyProofAppend, trust, options.policyProofLimits);
+      }
+      policy = protectedHistory.policy();
+      const image = protectedHistory.read().image;
+      if (image.policyProof && image.policyTrust && image.policyProof.head.revision === image.policyTrust.installed.revision) {
+        const resolved = await protectedHistory.resolvedPolicy();
+        policy = store.mirrorResolved(resolved.capability, resolved.reference, resolved.freshness, contextId!);
+      } else {
+        if (policy.version === 3) throw new Error('Protected relay policy proof is incomplete');
+        await store.install(policy, options.authority, { observers: options.policyObservers, advance: options.policyAdvance });
+        store.bindProtectedHistory(contextId!);
+      }
+    } else {
+      if (options.policyProofAppend !== undefined || options.policyProofLimits !== undefined || options.policyPages !== undefined) throw new Error('Policy proof migration requires protected role history');
+      policy = await store.install(options.policy, options.authority, { observers: options.policyObservers, advance: options.policyAdvance });
+      history = openAdmissionSpendHistory({ ...historyOptions, policy });
+    }
+    if (store.freshness()) freshness = createAdmissionPolicyFreshnessGate({ store, now, timeoutMs: options.policyObservationTimeoutMs,
+      transport: options.policyObservationTransport, transportFactory: options.policyObservationTransportFactory, onSocket: options.onPolicySocket,
+      ...('observePolicy' in history && history.read().image.policyTrust ? { async observe(observation) {
+        try { await (history as Awaited<ReturnType<typeof openProtectedAdmissionSpendHistory>>).observePolicy(observation); }
+        finally { store.observe(observation); }
+      } } : {}) });
     const shared = { directory: options.directory, encryptionKey: options.encryptionKey, policy, now, maxSpends: options.maxSpends,
       initialize: options.initializeWitnessState ?? options.initialize };
     if ('roleState' in history) {
@@ -69,8 +96,10 @@ export async function createConfiguredAdmissionVerifier(options: {
         now, transport: options.witnessTransport, timeoutMs: options.witnessTimeoutMs, onTransportSocket: options.onWitnessSocket });
       witness = protectedRoles.witness; quorum = protectedRoles.quorum;
     } else {
-      if (options.witnessKey) witness = createAdmissionWitness({ ...shared, signingKey: options.witnessKey });
-      if (options.coordinatorKey) quorum = createAdmissionQuorumGate({ ...shared, signingKey: options.coordinatorKey, transport: options.witnessTransport,
+      if (policy.version === 3) throw new Error('Local witness entrypoints refuse v3');
+      const legacyShared = { ...shared, policy };
+      if (options.witnessKey) witness = createAdmissionWitness({ ...legacyShared, signingKey: options.witnessKey });
+      if (options.coordinatorKey) quorum = createAdmissionQuorumGate({ ...legacyShared, signingKey: options.coordinatorKey, transport: options.witnessTransport,
         timeoutMs: options.witnessTimeoutMs, onTransportSocket: options.onWitnessSocket });
     }
     const entries: Array<AdmissionPolicyKey & { issuerPublicKey: CryptoKey }> = [];
@@ -102,7 +131,7 @@ export async function createConfiguredAdmissionVerifier(options: {
         (prepared, assertLive, signal) => operation(assertLive, signal, prepared)) : decisions?.run,
       ...spendHooks,
       keyPolicies() {
-        const time = now(); assertAdmissionPolicyCurrent(policy, time);
+        const time = now(); assertArchivedAdmissionPolicyCurrent(policy, time);
         return entries.map(entry => ({ scope: entry.profile.scope, issuerPublicKey: entry.issuerPublicKey,
           mode: time < entry.notBefore || time >= entry.retryUntil ? 'none' as const
             : time >= entry.spendUntil ? 'replay-only' as const : 'all' as const }));

@@ -1,3 +1,4 @@
+import { admissionPolicyHistoryEntry, type ArchivedAdmissionPolicy, type AdmissionPolicyHistoryMembership } from '@resonance/core/admission-policy-archive';
 /** Key-attributed local spends and irreversible retirement in one encrypted snapshot. */
 import { resolve } from 'node:path';
 import { openEncryptedLocalState } from '@resonance/core/local-state';
@@ -45,16 +46,15 @@ export function decodeLegacyAdmissionSpendState(bytes: Buffer, authority: string
 }
 
 /** Structural history validation after the caller authenticates the signed policy. */
-export function parseAdmissionSpendState(value: unknown, policy: SignedAdmissionPolicy, limit = 10000): AdmissionSpendState {
+export function parseAdmissionSpendState(value: unknown, policy: ArchivedAdmissionPolicy, limit = 10000, membership?: AdmissionPolicyHistoryMembership): AdmissionSpendState {
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 10000
     || !fields(value, ['version','authority','spends','retiredIssuerKeys']) || value.version !== 2 || value.authority !== policy.authority
-    || !validRetiredIssuerKeys(value.retiredIssuerKeys, policy, '', 'local-spends')
+    || !validRetiredIssuerKeys(value.retiredIssuerKeys, policy, '', 'local-spends', membership)
     || !Array.isArray(value.spends) || value.spends.length > limit) throw new Error('Invalid admission spend state');
-  const known = new Set(admissionPolicyKeys(policy).map(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey)));
   const retired = new Set(value.retiredIssuerKeys), seen = new Set<string>();
   for (const row of value.spends) {
     if (!fields(row, ['issuerKey','spend','action','binding']) || !validSpend(row) || seen.has(row.spend as string)
-      || (row.issuerKey !== null && (typeof row.issuerKey !== 'string' || !known.has(row.issuerKey) || retired.has(row.issuerKey)))) {
+      || (row.issuerKey !== null && (typeof row.issuerKey !== 'string' || !admissionPolicyHistoryEntry(policy, membership, row.issuerKey) || retired.has(row.issuerKey)))) {
       throw new Error('Invalid admission spend state');
     }
     seen.add(row.spend as string);

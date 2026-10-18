@@ -1,11 +1,10 @@
+import { archivedAdmissionPolicyDigest as admissionPolicyDigest } from '@resonance/core/admission-policy-archive';
+import type { PolicyProofHistory, PolicyProofOperation, PolicyProofCache } from './admission-policy-history-proof.js';
 /** Offline semantic reconstruction. A complete result is historical evidence, never write readiness. */
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
-import { admissionPolicyDigest, assertAdmissionPolicySuccessor } from '@resonance/core/admission-policy';
-import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointContextId, historyCheckpointEnvelopeId, historyDigest,
-  isHistoryDigest, openHistoryCheckpoint, parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope,
-  type HistoryCheckpointContext, type HistoryCheckpointEnvelope, type HistoryEncryptedEnvelope } from '@resonance/core/history-checkpoint';
-import { assertHistorySuccessorChain, historySuccessorProposalId, parseHistorySuccessorProposal,
-  type HistorySuccessorProposal } from '@resonance/core/history-successor';
+import { assertAdmissionPolicySuccessor } from '@resonance/core/admission-policy';
+import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointContextId, historyCheckpointEnvelopeId, historyDigest, isHistoryDigest, openHistoryCheckpoint, parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, type HistoryCheckpointContext, type HistoryCheckpointEnvelope, type HistoryEncryptedEnvelope } from '@resonance/core/history-checkpoint';
+import { assertHistorySuccessorChain, historySuccessorProposalId, parseHistorySuccessorProposal, type HistorySuccessorProposal } from '@resonance/core/history-successor';
 import { HISTORY_COMPACTION_MAX_BYTES, parseHistoryCompactionCertificate, type HistoryCompactionCertificate } from '@resonance/core/history-compaction';
 import { assertHistoryCompactedSuccessorChain } from '@resonance/core/history-compacted-chain';
 import { parseAdmissionHistoryImage, parseAdmissionStateCheckpoint, reduceAdmissionHistory, type AdmissionHistoryImage } from './admission-history-records.js';
@@ -22,6 +21,7 @@ export async function replayAdmissionHistory(options: {
   /** Explicit historical proof. Input then consists of the original genesis,
    * the certified full-state checkpoint and its complete suffix/continuations. */
   compaction?: unknown;
+  blockSource?: () => Iterable<HistoryCheckpointEnvelope>;
 }) {
   const context = parseHistoryCheckpointContext(options.context), contextId = historyCheckpointContextId(context);
   if (context.role !== 'relay-admission-spends') throw new Error('Admission history requires its own history role');
@@ -58,6 +58,9 @@ export async function replayAdmissionHistory(options: {
       checkpoint: anchor.checkpoint, context, genesisId });
     else assertHistorySuccessorChain(selected, ids);
   }
+  const proofOperation: PolicyProofOperation = {}, proofCache: PolicyProofCache = new Map();
+  const proofHistory: PolicyProofHistory = { context, encryptionKey: key, operation: proofOperation, cache: proofCache,
+    signal: options.signal, deadline: started + timeoutMs, source: options.blockSource ?? (() => options.blocks as Iterable<HistoryCheckpointEnvelope>) };
   try {
     live();
     for (const raw of options.blocks) {
@@ -67,12 +70,13 @@ export async function replayAdmissionHistory(options: {
       const block = parseHistoryCheckpointEnvelope(raw, context), id = historyCheckpointEnvelopeId(block);
       if (!head) {
         if (block.kind !== 'checkpoint' || block.generation !== 0 || block.sequence !== 0 || id !== genesisId) throw new Error('Admission replay needs its independently pinned genesis');
-        genesis = block; image = await parseAdmissionHistoryImage(decode(block), context.authority, maxSpends);
+        genesis = block; image = await parseAdmissionHistoryImage(decode(block), context.authority, maxSpends, proofHistory);
         if (`sha256:${admissionPolicyDigest(image.policy)}` !== context.policyDigest) throw new Error('Admission genesis policy differs from its context');
         generations = 1; rootId = id; ids = [id]; generationBytes = size;
       } else if (compaction !== undefined && !consumedCompaction) {
         const certificate = parseHistoryCompactionCertificate(compaction, context, genesisId, block);
-        const replacement = (await parseAdmissionStateCheckpoint(decode(block), context.authority, maxSpends)).image;
+        const replacement = (await parseAdmissionStateCheckpoint(decode(block), context.authority, maxSpends, proofHistory)).image;
+        if (replacement.policyProof || image!.policy.version === 3 || replacement.policy.version === 3) throw new Error('Business-only compaction cannot replace original policy proof ancestry');
         assertAdmissionPolicySuccessor(image!.policy, replacement.policy);
         image = replacement;
         anchor = { certificate, checkpoint: block }; consumedCompaction = true;
@@ -86,7 +90,7 @@ export async function replayAdmissionHistory(options: {
         if (block.generation !== head.generation || block.sequence !== head.sequence + 1 || block.previous !== historyCheckpointEnvelopeId(head)) {
           throw new Error('Admission history has a gap, fork or wrong generation');
         }
-        image = (await reduceAdmissionHistory(image!, decode(block), maxSpends, block.kind)).image;
+        image = (await reduceAdmissionHistory(image!, decode(block), maxSpends, block.kind, proofHistory)).image;
         ids.push(id); generationBytes += size;
       }
       live();

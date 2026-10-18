@@ -2,20 +2,20 @@
  * never a cached permission; observations advance a durable minimum revision. */
 import { exactWitnessFields } from './admission-witness.js';
 import { parseAdmissionPolicyObservers, parseAdmissionPolicyHead, type AdmissionPolicyObservers, type AdmissionPolicyHead } from './admission-policy-freshness.js';
-import { matchesAdmissionPolicyHead, sameAdmissionPolicyHead } from './admission-policy-advance.js';
+import { sameAdmissionPolicyHead } from './admission-policy-advance.js';
 import { parseAdmissionPolicyQueryReply, type AdmissionPolicyQuery, type AdmissionPolicyQueryReply } from './admission-policy-query.js';
-import type { SignedAdmissionPolicy } from './admission-policy.js';
+import { archivedAdmissionPolicyDigest, type ArchivedAdmissionPolicy } from './admission-policy-archive.js';
 
 export interface AdmissionPolicyTrust {
   context: AdmissionPolicyObservers; installed: AdmissionPolicyHead; observed: AdmissionPolicyHead; conflict?: AdmissionPolicyHead;
 }
 export interface AdmissionPolicyObservation { query: AdmissionPolicyQuery; reply: AdmissionPolicyQueryReply }
-export function parseAdmissionPolicyTrust(value: unknown, policy: SignedAdmissionPolicy): AdmissionPolicyTrust {
+export function parseAdmissionPolicyTrust(value: unknown, policy: ArchivedAdmissionPolicy): AdmissionPolicyTrust {
   if (!exactWitnessFields(value, ['context', 'installed', 'observed'])
     && !exactWitnessFields(value, ['context', 'installed', 'observed', 'conflict'])) throw new Error('Invalid retained policy observer state');
   const context = parseAdmissionPolicyObservers(value.context), installed = parseAdmissionPolicyHead(value.installed), observed = parseAdmissionPolicyHead(value.observed);
   const conflict = value.conflict === undefined ? undefined : parseAdmissionPolicyHead(value.conflict);
-  if (context.authority !== policy.authority || !matchesAdmissionPolicyHead(policy, installed)
+  if (context.authority !== policy.authority || !(policy.revision === installed.revision && archivedAdmissionPolicyDigest(policy) === installed.digest)
     || [installed, observed].some(head => head.revision < context.genesis.revision
       || head.revision === context.genesis.revision && !sameAdmissionPolicyHead(head, context.genesis))
     || observed.revision < installed.revision || observed.revision === installed.revision && !sameAdmissionPolicyHead(observed, installed)) {

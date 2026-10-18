@@ -1,15 +1,15 @@
+import type { ProtectedIssuerState as State } from './protected-admission-issuer-state.js';
 /** In-process review capability for a complete selected issuer history. */
 import { existsSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { canonicalHistorySetupPath } from '../../relay/src/admission-history-setup.js';
 import { admissionAuthorityFingerprint } from '@resonance/core/admission-policy';
-import { historyCheckpointContextId, historyCheckpointEnvelopeId, historyDigest, parseHistoryCheckpointContext,
-  type HistoryCheckpointContext, type HistoryEncryptedEnvelope } from '@resonance/core/history-checkpoint';
+import { historyCheckpointContextId, historyCheckpointEnvelopeId, historyDigest, parseHistoryCheckpointContext, type HistoryCheckpointContext, type HistoryEncryptedEnvelope } from '@resonance/core/history-checkpoint';
 import { parseHistoryContinuationRoot, type HistoryContinuationRoot } from '@resonance/core/history-continuation';
 import { protectedIssuerReplayDigest } from '@resonance/relay/protected-issuer-history';
 import { historySuccessorProposalId } from '@resonance/core/history-successor';
 import { admissionKeyFingerprint, type AdmissionWalletProfileV1 } from './admission-wallet-profile.js';
-import { totals, type State } from './admission-issuer-state.js';
+import { totals } from './admission-issuer-state.js';
 import { replayProtectedIssuerHistory, type ProtectedIssuerReplayOptions } from './admission-issuer-history-replay.js';
 
 export interface ProtectedIssuerRestoration { genesis: HistoryEncryptedEnvelope; root: HistoryContinuationRoot; baseline: State; replayDigest: string }

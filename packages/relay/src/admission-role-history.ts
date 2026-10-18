@@ -1,9 +1,8 @@
+import { admissionPolicyHistoryEntry, admissionPolicyHistoryParticipant, assertArchivedAdmissionPolicyCurrent, type ArchivedAdmissionPolicy, type AdmissionPolicyHistoryMembership } from '@resonance/core/admission-policy-archive';
 /** Witness/coordinator decisions retained inside encrypted owner history.
  * Parsing proves signatures and membership, not freshness or safe restoration. */
-import { admissionKeyFingerprint, admissionPolicyKeys, assertAdmissionPolicyCurrent, isArchivedAdmissionKey,
-  type SignedAdmissionPolicy } from '@resonance/core/admission-policy';
-import { admissionSpendClaimId, exactWitnessFields, witnessBytes,
-  type AdmissionSpendCertificate, type AdmissionSpendClaim, type AdmissionWitnessVote } from '@resonance/core/admission-witness';
+import { admissionKeyFingerprint, isArchivedAdmissionKey } from '@resonance/core/admission-policy';
+import { admissionSpendClaimId, exactWitnessFields, witnessBytes, type AdmissionSpendCertificate, type AdmissionSpendClaim, type AdmissionWitnessVote } from '@resonance/core/admission-witness';
 import { planAdmissionHistoryRetirement, validRetiredIssuerKeys } from './admission-history-retirement.js';
 import { verifyRetainedAdmissionCertificate, verifyRetainedAdmissionVote } from './admission-role-verification.js';
 
@@ -21,26 +20,25 @@ export type AdmissionRoleMutation =
   | { version: 1; kind: 'coordinator-certificate'; at: number; certificate: AdmissionSpendCertificate }
   | { version: 1; kind: 'role-retire'; at: number; role: 'witness' | 'coordinator'; issuerKey: string };
 export const admissionRoleClaimIndex = (claim: AdmissionSpendClaim) => `${claim.issuerKey}:${claim.spend}`;
-const entryFor = (policy: SignedAdmissionPolicy, issuerKey: string) =>
-  admissionPolicyKeys(policy).find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === issuerKey);
+const entryFor = (policy: ArchivedAdmissionPolicy, issuerKey: string, membership?: AdmissionPolicyHistoryMembership) => admissionPolicyHistoryEntry(policy, membership, issuerKey);
 function capacity(limit: number) {
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 10000) throw new Error('Invalid admission role history capacity');
 }
 
-export function parseAdmissionRoleHistories(value: unknown, policy: SignedAdmissionPolicy, limit = 10000): AdmissionRoleHistories {
+export function parseAdmissionRoleHistories(value: unknown, policy: ArchivedAdmissionPolicy, limit = 10000, membership?: AdmissionPolicyHistoryMembership): AdmissionRoleHistories {
   capacity(limit);
   if (!exactWitnessFields(value, ['witness', 'coordinator'])) throw new Error('Invalid admission role histories');
-  const byKey = new Map(admissionPolicyKeys(policy).map(entry => [admissionKeyFingerprint(entry.profile.issuerPublicKey), entry]));
+
   let witness: AdmissionWitnessHistoryState | null = null, coordinator: AdmissionCoordinatorHistoryState | null = null;
   if (value.witness !== null) {
     const raw = value.witness;
     if (!exactWitnessFields(raw, ['version', 'witness', 'votes', 'retiredIssuerKeys']) || raw.version !== 2 || !witnessBytes(raw.witness, 32)
-      || ![...byKey.values()].some(entry => entry.witnesses?.members.some(member => member.publicKey === raw.witness))
-      || !validRetiredIssuerKeys(raw.retiredIssuerKeys, policy, raw.witness, 'witness')
+      || !admissionPolicyHistoryParticipant(policy, membership, 'witness', raw.witness)
+      || !validRetiredIssuerKeys(raw.retiredIssuerKeys, policy, raw.witness, 'witness', membership)
       || !Array.isArray(raw.votes) || raw.votes.length > limit) throw new Error('Invalid retained witness history');
     const seen = new Set<string>(), retired = new Set(raw.retiredIssuerKeys);
     for (const vote of raw.votes) {
-      const set = byKey.get(vote?.issuerKey)?.witnesses;
+      const set = entryFor(policy, vote?.issuerKey, membership)?.witnesses;
       if (!set || retired.has(vote?.issuerKey) || vote.witness !== raw.witness || !verifyRetainedAdmissionVote(vote, vote, set)
         || seen.has(admissionRoleClaimIndex(vote))) throw new Error('Invalid or conflicting retained witness vote');
       seen.add(admissionRoleClaimIndex(vote));
@@ -50,12 +48,12 @@ export function parseAdmissionRoleHistories(value: unknown, policy: SignedAdmiss
   if (value.coordinator !== null) {
     const raw = value.coordinator;
     if (!exactWitnessFields(raw, ['version', 'coordinator', 'certificates', 'retiredIssuerKeys']) || raw.version !== 2 || !witnessBytes(raw.coordinator, 32)
-      || ![...byKey.values()].some(entry => entry.witnesses?.coordinators.includes(raw.coordinator as string))
-      || !validRetiredIssuerKeys(raw.retiredIssuerKeys, policy, raw.coordinator, 'coordinator')
+      || !admissionPolicyHistoryParticipant(policy, membership, 'coordinator', raw.coordinator)
+      || !validRetiredIssuerKeys(raw.retiredIssuerKeys, policy, raw.coordinator, 'coordinator', membership)
       || !Array.isArray(raw.certificates) || raw.certificates.length > limit) throw new Error('Invalid retained coordinator history');
     const seen = new Set<string>(), retired = new Set(raw.retiredIssuerKeys);
     for (const certificate of raw.certificates) {
-      const claim = certificate?.votes?.[0], set = byKey.get(claim?.issuerKey)?.witnesses;
+      const claim = certificate?.votes?.[0], set = entryFor(policy, claim?.issuerKey, membership)?.witnesses;
       if (!set || !claim || !set.coordinators.includes(raw.coordinator) || retired.has(claim.issuerKey)
         || !verifyRetainedAdmissionCertificate(certificate, claim, set) || seen.has(admissionRoleClaimIndex(claim))) {
         throw new Error('Invalid or conflicting retained admission certificate');
@@ -105,8 +103,8 @@ export function assertAdmissionRoleRetention(before: AdmissionRoleHistories, aft
 }
 
 export function reduceAdmissionRoleHistory(roles: AdmissionRoleHistories, record: AdmissionRoleMutation,
-  policy: SignedAdmissionPolicy, limit = 10000): AdmissionRoleHistories {
-  capacity(limit); assertAdmissionPolicyCurrent(policy, record.at);
+  policy: ArchivedAdmissionPolicy, limit = 10000, membership?: AdmissionPolicyHistoryMembership): AdmissionRoleHistories {
+  capacity(limit); assertArchivedAdmissionPolicyCurrent(policy, record.at);
   const next = structuredClone(roles);
   if (record.kind === 'role-retire') {
     const state = next[record.role]; if (!state) throw new Error('Admission role has not been captured');
@@ -114,7 +112,7 @@ export function reduceAdmissionRoleHistory(roles: AdmissionRoleHistories, record
     const claims = record.role === 'witness' ? next.witness!.votes : next.coordinator!.certificates.map(cert => cert.votes[0]);
     planAdmissionHistoryRetirement({ role: record.role, participant, policy, issuerKey: record.issuerKey, state,
       retiredIssuerKeys: state.retiredIssuerKeys, entries: claims.length, remove: claims.filter(c => c.issuerKey === record.issuerKey).length,
-      maximumEntries: limit, now: record.at });
+      maximumEntries: limit, now: record.at, membership });
     state.retiredIssuerKeys = [...state.retiredIssuerKeys, record.issuerKey].sort();
     if (record.role === 'witness') next.witness!.votes = next.witness!.votes.filter(v => v.issuerKey !== record.issuerKey);
     else next.coordinator!.certificates = next.coordinator!.certificates.filter(c => c.votes[0].issuerKey !== record.issuerKey);
@@ -122,14 +120,14 @@ export function reduceAdmissionRoleHistory(roles: AdmissionRoleHistories, record
     const witness = record.kind === 'witness-vote', state = witness ? next.witness : next.coordinator;
     if (!state) throw new Error('Admission role has not been captured');
     const claim = witness ? record.vote : record.certificate?.votes?.[0];
-    const entry = entryFor(policy, claim?.issuerKey), set = entry?.witnesses;
+    const entry = entryFor(policy, claim?.issuerKey, membership), set = entry?.witnesses;
     if (!set || !claim || (witness ? record.vote.witness !== next.witness!.witness || !verifyRetainedAdmissionVote(record.vote, record.vote, set)
       : !set.coordinators.includes(next.coordinator!.coordinator) || !verifyRetainedAdmissionCertificate(record.certificate, claim, set))) {
       throw new Error('Invalid admission role decision');
     }
     const previous = witness ? next.witness!.votes.find(v => admissionRoleClaimIndex(v) === admissionRoleClaimIndex(claim))
       : next.coordinator!.certificates.find(c => admissionRoleClaimIndex(c.votes[0]) === admissionRoleClaimIndex(claim))?.votes[0];
-    if (state.retiredIssuerKeys.includes(claim.issuerKey) || isArchivedAdmissionKey(policy, claim.issuerKey)
+    if (state.retiredIssuerKeys.includes(claim.issuerKey) || (policy.version === 3 ? !policy.keys.some(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === claim.issuerKey) : isArchivedAdmissionKey(policy, claim.issuerKey))
       || record.at < entry!.notBefore || record.at >= (witness && !previous ? entry!.spendUntil : entry!.retryUntil)) {
       throw new Error('Admission role issuer is unavailable at the recorded time');
     }
@@ -139,5 +137,5 @@ export function reduceAdmissionRoleHistory(roles: AdmissionRoleHistories, record
       else next.coordinator!.certificates.push(structuredClone(record.certificate));
     }
   }
-  return parseAdmissionRoleHistories(next, policy, limit);
+  return parseAdmissionRoleHistories(next, policy, limit, membership);
 }

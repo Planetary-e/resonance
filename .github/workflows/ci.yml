@@ -127,6 +127,7 @@ jobs:
           packages/relay/src/__tests__/policy-observer-v3.integration.test.ts
           packages/relay/src/__tests__/policy-observer-65-rotations.integration.test.ts
           packages/node/src/__tests__/wallet-policy-proof.test.ts
+          packages/node/src/__tests__/protected-admission-consumers-v3.integration.test.ts
 
   desktop-boundaries:
     # Actual local API/process checks; no native compilation or app installers.

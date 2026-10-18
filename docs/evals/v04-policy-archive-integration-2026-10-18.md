@@ -588,3 +588,118 @@ wallet retirement case. The consumer implementer must restore that accepted
 behavior before integration. The test-only Windows correction does not include
 those in-progress production changes. Its log is
 `/tmp/resonance-wallet-windows-fixtures.log`.
+
+### General CI follow-up and active consumer validation
+
+Run `39162516807` completed: eight platform jobs passed; Windows durability
+retains the three fixture failures corrected locally in `c53e0d1`. General CI
+passed 3,239 cases and failed 25 across four files. Its log is
+`/tmp/resonance-083a619-general.log`. The distinguishing failures are invalid
+history requests created at the maximum lifetime and fixed loopback port 33002
+collisions. A bounded Sol Medium task owns only quorum lifetime arithmetic and
+its test, plus observer test port allocation. Confirm the causes and preserve
+production lifetime ceilings; do not hide failures with retries or larger caps.
+
+The consumer integration remains unaccepted. Its unchanged 120-second composed
+scenario exposed repeated prefix work and cumulative read-budget exhaustion.
+The implementer is validating bounded opaque-head/membership reuse without
+raising caps; offline restart and restoration must still authenticate original
+proofs. The previously regressed 66-profile wallet retirement case passes again.
+Sol High temporarily failed because its selected model was at capacity, then
+resumed the same bounded implementation; no new architectural alternative or
+KPI claim follows. Protocol review and negative/crash acceptance remain pending.
+
+### Consumer candidate submitted for review
+
+Sol High's frozen 28-file candidate is identified by content SHA-256
+`805b9b149bf0204fbbc9486d6821886e1cedb4ac83478f9be7b4c0f79dd9a864`
+(sorted relative path, NUL, bytes, NUL), excluding parent CI/docs changes.
+Full local command/file receipt: `/tmp/protected-consumer-candidate.json`.
+Observed interval20:17:18–21:11:47UTC (54m29s) includes commands/waits, not exact
+active labor; earlier reading is unclocked. Shared weekly account usage27→34%
+is not attributable per-agent cost. The implementation needed corrections to
+repeated prefix work, cumulative membership scans and test transport framing;
+the accepted wallet66 behavior was restored. No limit was raised.
+
+The65-archive composed scenario passed in87.38s with the fixed120s wrapper,
+real issuance/admission/replay, deletion of both owners and original funded
+replica restoration. Missing/altered original proof is rejected. Additional
+checks pass for three actual SIGKILL boundaries with real v3 bodies/pages,
+one-byte/one-record capacity, cancellation, quorum loss, opaque membership
+bindings and archived issuer retirement preserving totals and permanent denials.
+Affected seven-file regression passes143/143; wallet66 passes on the final
+candidate. These are implementation evidence, not full lifecycle qualification.
+Astra review and the final composed run are pending.
+
+Restored v3 APIs require an explicit funded original `ancestrySource`; existing
+configuration/CLI paths without that source refuse. Fresh v3 enrollment and
+proof-preserving semantic prefix retirement remain unsupported. No implicit
+source selection or expanded funding is introduced.
+
+Separately, the CI repair preserves the original monotonic deadline and caps
+its signed lifetime at the configured maximum, preventing floating subtraction
+from producing30001ms for a30000ms budget. A deterministic fractional-clock
+regression covers it. Observer tests now hold OS-allocated listeners before
+signing context endpoints, avoiding release/rebind races. Both affected suites
+pass50/50 in32.78s with permitted loopback access. An earlier sandbox run denied
+listener binding; it was not an application failure. Log:
+`/tmp/resonance-ci-request-bounds-tests-loopback.log`.
+
+Workspace build and explicit desktop-server compilation pass on the integrated
+candidate (`/tmp/resonance-protected-consumers-build.log`). The new consumer
+scenario is included in the existing three-OS admission durability CI job with
+its15-minute job limit unchanged. No installers or merge are triggered.
+
+### Protocol review corrections required
+
+Astra High review21:11:13–21:14:02UTC found two P2 issues; candidate acceptance
+is withheld. First, relay proof replay omitted the caller cancellation signal;
+both issuer and relay proof reconstruction failed to share the replay absolute
+deadline. Second, issuer installation awaited its initial cryptographic check
+before creating a budget, then parsing and pre-intent validation restarted
+budgets. Correct both by propagating one absolute computation deadline/signal
+and cumulative counters. Do not race the durable mutation itself. Gate crypto
+in distinguishing tests to prove cancellation/deadline release and no premature
+intent. No other material provenance, opaque capability, permanent-denial or
+intent/mirror ordering issue was found in this bounded review. Sol High owns
+this single correction round; final composed validation follows.
+
+### Review correction accepted; composed validation in progress
+
+The two P2 fixes pass five distinguishing tests in10.54s and TypeScript.
+Astra's scoped follow-up21:18:42–21:18:59UTC confirms both corrections: each
+replay uses its original absolute deadline and signal; issuer verification,
+parsing and pre-intent validation share the same budget. Durable mutation is
+not raced. No further material finding in the scoped correction review.
+
+Revised28-file content SHA-256:
+`a4832b3445d9f2e59281c764ae774a9bba93feb797b6b5fdd73cd306f3b1ffc0`.
+The receipt at `/tmp/protected-consumer-candidate.json` contains the correction
+command and file list. Shared account usage is36% at21:18:21UTC, versus27% at
+entry; this is not per-agent attribution. The resumed interval through21:18:43
+includes waiting and is not exact active effort.
+
+CI-only corrections are committed separately as `a39fd69`; no push yet.
+One14-file final affected-path run is active, log
+`/tmp/resonance-consumers-final.log`. It covers core v3/trust, full new consumer
+scenario and faults, wallet proof, issuer replay/restore, relay history/roles,
+freshness and desktop-server policy updates. Only relevant changes/failures
+justify repeating it. Full build follows on this revised candidate.
+
+### Final local consumer acceptance
+
+The reviewed candidate hash remains exactly
+`a4832b3445d9f2e59281c764ae774a9bba93feb797b6b5fdd73cd306f3b1ffc0`.
+Final composed run: **189/189 across14files**,273.23s total,
+`/tmp/resonance-consumers-final.log`. `npm run build` and explicit
+`npx tsc -b packages/app/tsconfig.server.json` both pass on the same candidate;
+log `/tmp/resonance-consumers-final-build.log`. Whitespace validation passes.
+The final run includes all new consumer cases and the relevant issuer/relay,
+core, wallet and desktop policy-update paths after the review fixes.
+
+This accepts the scoped local consumer implementation. It does not close K2/K3:
+operational CLI/configuration must retain/select funded original ancestry for
+restored v3, profile history beyond72 and full lifecycle/fault qualification
+remain. The blocked historical retirement investigation is not reopened.
+Cross-platform CI will qualify the pushed candidate separately; no merge or
+installer is authorized by this acceptance.

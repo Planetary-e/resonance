@@ -1,5 +1,6 @@
 /** Offline invitation admission. No member identifier is added to issuance or redemption. */
-import { assertAdmissionPolicyCurrent, admissionPolicyKeys, isArchivedAdmissionKey, type SignedAdmissionPolicy } from '@resonance/core/admission-policy';
+import { admissionPolicyKeys, isArchivedAdmissionKey, type SignedAdmissionPolicy } from '@resonance/core/admission-policy';
+import { assertArchivedAdmissionPolicyCurrent, type ArchivedAdmissionPolicy } from '@resonance/core/admission-policy-archive';
 import type { SignedAdmissionIssuanceAllocation } from '@resonance/core/admission-issuance-allocation';
 import type { SignedAdmissionClaimAssignment } from '@resonance/core/admission-claim-assignment';
 import { createHash, hkdfSync } from 'node:crypto';
@@ -16,9 +17,9 @@ export interface ClaimBinding { digest: string; binding: string; secret: string 
 export interface Entry { assignment?: SignedAdmissionClaimAssignment; claim?: ClaimBinding; permitHash: string; batchId?: string; preparedResponse?: AdmissionIssuanceResponse; response?: AdmissionIssuanceResponse }
 export interface Totals { allocatedPermits: number; boundPermits: number; completedPermits: number }
 export interface AllocationBinding { authority: string; manifest: SignedAdmissionIssuanceAllocation; digest: string }
-export interface BaseState { allocation?: AllocationBinding; claimMode?: 'operator-claim-required-v1' | 'authority-assigned-v1'; profile: AdmissionWalletProfileV1; policy: AdmissionIssuerPolicy; entries: Entry[]; communityPolicy?: SignedAdmissionPolicy; freshness?: AdmissionPolicyTrust }
-export type State = (BaseState & { version: 1 | 3 | 4 | 6 | 8 }) | (BaseState & {
-  version: 2 | 5 | 7 | 9; communityPolicy: SignedAdmissionPolicy; retirement: Totals & { retiredAt: number };
+export interface BaseState<P = SignedAdmissionPolicy> { allocation?: AllocationBinding; claimMode?: 'operator-claim-required-v1' | 'authority-assigned-v1'; profile: AdmissionWalletProfileV1; policy: AdmissionIssuerPolicy; entries: Entry[]; communityPolicy?: P; freshness?: AdmissionPolicyTrust }
+export type State<P = SignedAdmissionPolicy> = (BaseState<P> & { version: 1 | 3 | 4 | 6 | 8 }) | (BaseState<P> & {
+  version: 2 | 5 | 7 | 9; communityPolicy: P; retirement: Totals & { retiredAt: number };
 });
 export const DOMAIN = 'resonance:admission-issuer-ledger:v1';
 export const MAX_BYTES = 8 * 1024 * 1024;
@@ -36,7 +37,7 @@ export function validatePolicy(policy: unknown): asserts policy is AdmissionIssu
   }
 }
 export function permitHash(secret: string) { return createHash('sha256').update(`${DOMAIN}:permit\n${secret}`).digest('hex'); }
-export function totals(state: State): Totals {
+export function totals(state: State<ArchivedAdmissionPolicy>): Totals {
   if ((state.version === 2 || state.version === 5 || state.version === 7 || state.version === 9)) {
     const { allocatedPermits, boundPermits, completedPermits } = state.retirement;
     return { allocatedPermits, boundPermits, completedPermits };
@@ -112,18 +113,18 @@ export async function deriveAdmissionIssuerEncryptionKey(privateKey: CryptoKey) 
   finally { privateBytes.fill(0); }
 }
 
-export function assertAdmissionIssuerPolicy(state: State, profile: AdmissionWalletProfileV1, now: number, recover = false): void {
+export function assertAdmissionIssuerPolicy(state: State<ArchivedAdmissionPolicy>, profile: AdmissionWalletProfileV1, now: number, recover = false): void {
   const policy = state.communityPolicy;
   if (!policy) { if (state.allocation) throw new Error('Issuer allocation requires an installed signed community policy'); return; }
   if (state.allocation && policy.authority !== state.allocation.authority) throw new Error('Community policy authority does not match the pinned issuer allocation');
-  assertAdmissionPolicyCurrent(policy, now);
+  assertArchivedAdmissionPolicyCurrent(policy, now);
   const id = admissionKeyFingerprint(profile.issuerPublicKey);
-  const entry = admissionPolicyKeys(policy).find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === id);
-  if (!entry || isArchivedAdmissionKey(policy, id) || now < entry.notBefore || now >= (recover ? entry.spendUntil : entry.issueUntil)
+  const entry = (policy.version === 3 ? policy.keys : admissionPolicyKeys(policy)).find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === id);
+  if (!entry || (policy.version !== 3 && isArchivedAdmissionKey(policy, id)) || now < entry.notBefore || now >= (recover ? entry.spendUntil : entry.issueUntil)
     || (!recover && policy.activeKey !== id)) throw new Error('Issuer is retired or inactive under the signed community policy');
 }
 
-export function validateAdmissionIssuerPermit(value: unknown, state: State, profile: AdmissionWalletProfileV1): asserts value is AdmissionIssuancePermit {
+export function validateAdmissionIssuerPermit(value: unknown, state: State<ArchivedAdmissionPolicy>, profile: AdmissionWalletProfileV1): asserts value is AdmissionIssuancePermit {
   if (!exact(value, ['version', 'kind', 'scope', 'keyFingerprint', 'count', 'secret']) || value.version !== 1 || value.kind !== 'admission-issuance-permit'
     || !exact(value.scope, ['issuer', 'community', 'epoch'])
     || value.scope.issuer !== profile.scope.issuer || value.scope.community !== profile.scope.community || value.scope.epoch !== profile.scope.epoch

@@ -1,30 +1,28 @@
+import { admissionPolicyHistoryEntry, archivedAdmissionPolicyDigest, assertArchivedAdmissionPolicyCurrent, type ArchivedAdmissionPolicy, type AdmissionPolicyHistoryMembership } from '@resonance/core/admission-policy-archive';
 /** Local, irreversible retirement. A fence replaces per-token evidence, never the other way round. */
 import { createHash } from 'node:crypto';
-import { admissionAuthorityFingerprint, admissionKeyFingerprint, admissionPolicyDigest, admissionPolicyKeys, MAX_ADMISSION_KEYS, MAX_ARCHIVED_ADMISSION_KEYS,
-  assertAdmissionPolicyCurrent, type SignedAdmissionPolicy } from '@resonance/core/admission-policy';
+import { admissionAuthorityFingerprint, MAX_ADMISSION_KEYS, MAX_ARCHIVED_ADMISSION_KEYS } from '@resonance/core/admission-policy';
 
 export type AdmissionHistoryRole = 'witness' | 'coordinator' | 'local-spends';
-export function validRetiredIssuerKeys(value: unknown, policy: SignedAdmissionPolicy, participant: string, role: AdmissionHistoryRole): value is string[] {
+export function validRetiredIssuerKeys(value: unknown, policy: ArchivedAdmissionPolicy, participant: string, role: AdmissionHistoryRole, membership?: AdmissionPolicyHistoryMembership): value is string[] {
   return Array.isArray(value) && value.length <= MAX_ADMISSION_KEYS + MAX_ARCHIVED_ADMISSION_KEYS && new Set(value).size === value.length
-    && value.every(id => typeof id === 'string' && admissionPolicyKeys(policy).some(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === id
-      && (role === 'local-spends' || (role === 'witness' ? entry.witnesses?.members.some(member => member.publicKey === participant)
-        : entry.witnesses?.coordinators.includes(participant)))));
+    && value.every(id => { if (typeof id !== 'string') return false; const entry = admissionPolicyHistoryEntry(policy, membership, id); return !!entry && (role === 'local-spends' || (role === 'witness' ? entry.witnesses?.members.some(member => member.publicKey === participant) : entry.witnesses?.coordinators.includes(participant))); });
 }
 
 export function planAdmissionHistoryRetirement(input: {
-  role: AdmissionHistoryRole; participant: string; policy: SignedAdmissionPolicy; issuerKey: string;
-  state: unknown; retiredIssuerKeys: string[]; entries: number; remove: number; maximumEntries: number; now: number;
+  role: AdmissionHistoryRole; participant: string; policy: ArchivedAdmissionPolicy; issuerKey: string;
+  state: unknown; retiredIssuerKeys: string[]; entries: number; remove: number; maximumEntries: number; now: number; membership?: AdmissionPolicyHistoryMembership;
 }) {
   const { policy, issuerKey, role, participant } = input;
-  assertAdmissionPolicyCurrent(policy, input.now);
-  const entry = admissionPolicyKeys(policy).find(key => admissionKeyFingerprint(key.profile.issuerPublicKey) === issuerKey);
+  assertArchivedAdmissionPolicyCurrent(policy, input.now);
+  const entry = admissionPolicyHistoryEntry(policy, input.membership, issuerKey);
   if (!entry || (role !== 'local-spends' && (!entry.witnesses || !(role === 'witness' ? entry.witnesses.members.some(member => member.publicKey === participant)
     : entry.witnesses.coordinators.includes(participant))))) throw new Error('Issuer key is not assigned to this admission history role');
   if (issuerKey === policy.activeKey) throw new Error('Cannot permanently retire the active issuer key; install a successor first');
   if (input.now < entry.retryUntil) throw new Error('Admission history must remain until the key retry cutoff');
   if (input.retiredIssuerKeys.includes(issuerKey)) throw new Error('Issuer key is already permanently retired on this role');
   if (input.retiredIssuerKeys.length >= MAX_ADMISSION_KEYS + MAX_ARCHIVED_ADMISSION_KEYS) throw new Error('Admission retirement fence capacity exhausted');
-  const policyDigest = admissionPolicyDigest(policy);
+  const policyDigest = archivedAdmissionPolicyDigest(policy);
   const approvalDigest = 'sha256:' + createHash('sha256').update(JSON.stringify([
     'resonance:admission-history-retirement:v1', role, participant, policy.authority, policyDigest, issuerKey, input.state,
   ])).digest('hex');

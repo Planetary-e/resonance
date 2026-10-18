@@ -1,13 +1,14 @@
+import { AdmissionPolicyArchiveBudget, parseAdmissionPolicyProofReference } from '@resonance/core/admission-policy-archive';
+import type { PolicyProofOperation, PolicyProofCache } from '../../relay/src/admission-policy-history-proof.js';
+import type { ProtectedIssuerState as State } from './protected-admission-issuer-state.js';
 /** Complete authenticated issuer history replay. Historical evidence never grants live write authority. */
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
-import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointContextId, historyCheckpointEnvelopeId, isHistoryDigest,
-  openHistoryCheckpoint, parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope,
-  type HistoryCheckpointContext, type HistoryCheckpointEnvelope, type HistoryEncryptedEnvelope } from '@resonance/core/history-checkpoint';
+import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointContextId, historyCheckpointEnvelopeId, isHistoryDigest, openHistoryCheckpoint, parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, type HistoryCheckpointContext, type HistoryCheckpointEnvelope, type HistoryEncryptedEnvelope } from '@resonance/core/history-checkpoint';
 import { assertHistorySuccessorChain, historySuccessorProposalId, parseHistorySuccessorProposal, type HistorySuccessorProposal } from '@resonance/core/history-successor';
 import { protectedIssuerReplayDigest } from '@resonance/relay/protected-issuer-history';
 import { parseAdmissionWalletProfile, type AdmissionWalletProfileV1 } from './admission-wallet-profile.js';
-import { MAX_BYTES, type State } from './admission-issuer-state.js';
-import { parseProtectedIssuerImage, assertProtectedIssuerImageSuccessor, assertProtectedIssuerGenesis } from './protected-admission-issuer-state.js';
+import { MAX_BYTES } from './admission-issuer-state.js';
+import { parseProtectedIssuerImage, assertProtectedIssuerImageSuccessor, assertProtectedIssuerGenesis, validateProtectedIssuerPolicyProof } from './protected-admission-issuer-state.js';
 
 export interface ProtectedIssuerReplayOptions {
   context: HistoryCheckpointContext; genesisId: string; profile: AdmissionWalletProfileV1; authority: string;
@@ -48,12 +49,20 @@ export async function replayProtectedIssuerHistory(options: ProtectedIssuerRepla
     const minimum: State[] = [];
     for (const value of evidence) { live(); minimum.push(await parseProtectedIssuerImage(value, pins)); live(); }
     const found = minimum.map(() => false);
+    // Replay starts without a remembered head and verifies every original append once.
+    // Only the preceding/current opaque heads survive between complete business records.
+    const proofOperation: PolicyProofOperation = {}, proofCache: PolicyProofCache = new Map();
     async function decode(block: HistoryCheckpointEnvelope) {
       if (block.kind !== 'checkpoint') throw new Error('Issuer replay requires complete snapshots');
       const plaintext = openHistoryCheckpoint(block, context, key);
       try {
         if (plaintext.length > MAX_BYTES) throw new Error('Issuer history snapshot exceeds its bound');
-        return await parseProtectedIssuerImage(JSON.parse(new TextDecoder('utf8', { fatal: true }).decode(plaintext)), pins);
+        const raw = JSON.parse(new TextDecoder('utf8', { fatal: true }).decode(plaintext));
+        const reference = raw.policyProof && parseAdmissionPolicyProofReference(raw.policyProof);
+        const budget = reference ? proofOperation.budget ??= new AdmissionPolicyArchiveBudget({ limits: reference.limits, signal, deadline: started + timeoutMs }) : undefined;
+        const image = budget ? await budget.wait(() => parseProtectedIssuerImage(raw, pins)) : await parseProtectedIssuerImage(raw, pins);
+        await validateProtectedIssuerPolicyProof(image, { source: () => supplied, context, encryptionKey: key, signal, deadline: started + timeoutMs, operation: proofOperation, cache: proofCache });
+        return image;
       } finally { plaintext.fill(0); }
     }
     let state: State | undefined, genesis: HistoryEncryptedEnvelope | undefined, head: HistoryCheckpointEnvelope | undefined;

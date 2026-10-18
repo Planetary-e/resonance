@@ -1,12 +1,12 @@
+import type { ArchivedAdmissionPolicy } from '@resonance/core/admission-policy-archive';
 /** Explicit preparation/enrollment. No command resets missing accepted history or chooses new members. */
 import { existsSync, lstatSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
-import { MAX_ADMISSION_POLICY_BYTES, admissionPolicyDigest, assertAdmissionPolicyCurrent, verifyAdmissionPolicy } from '@resonance/core/admission-policy';
+import { MAX_ADMISSION_POLICY_BYTES, admissionPolicyDigest as legacyAdmissionPolicyDigest, assertAdmissionPolicyCurrent, verifyAdmissionPolicy } from '@resonance/core/admission-policy';
 import { exactWitnessFields } from '@resonance/core/admission-witness';
 import { reserveManagedStorage } from '@resonance/core/storage-reservations';
-import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointContextId, historyCheckpointEnvelopeId, historyDigest,
-  parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, type HistoryCheckpointContext } from '@resonance/core/history-checkpoint';
+import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointContextId, historyCheckpointEnvelopeId, historyDigest, parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, type HistoryCheckpointContext } from '@resonance/core/history-checkpoint';
 import { HISTORY_COMPACTION_MAX_BYTES, parseHistoryCompactionAttestation } from '@resonance/core/history-compaction';
 import { historyCompactionCertificateId } from '@resonance/core/history-compaction-control';
 import { HISTORY_COMPACTION_RETENTION_MAX_BYTES, parseHistoryCompactionRetention } from '@resonance/core/history-compaction-retention';
@@ -508,3 +508,5 @@ export async function runAdmissionHistoryCommand(command: string, raw: readonly 
     for (const close of cleanup.reverse()) close();
   }
 }
+
+function admissionPolicyDigest(policy: ArchivedAdmissionPolicy): string { if (policy.version === 3) throw new Error('This operator entrypoint explicitly refuses v3 policies'); return legacyAdmissionPolicyDigest(policy); }

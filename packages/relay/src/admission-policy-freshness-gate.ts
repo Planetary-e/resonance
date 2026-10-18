@@ -1,6 +1,7 @@
+import { assertArchivedAdmissionPolicyCurrent } from '@resonance/core/admission-policy-archive';
 /** One fresh infrastructure observation per admitted decision. No cached
  * readiness, personal identifiers, caller-selected endpoints or token contents. */
-import { assertAdmissionPolicyCurrent, type openAdmissionPolicyStore } from '@resonance/core/admission-policy';
+import { type openAdmissionPolicyStore } from '@resonance/core/admission-policy';
 import { sameAdmissionPolicyHead } from '@resonance/core/admission-policy-advance';
 import { createAdmissionPolicyQuery } from '@resonance/core/admission-policy-query';
 import { createAdmissionPolicyQueryResponder } from './admission-policy-query.js';
@@ -14,6 +15,7 @@ export function createAdmissionPolicyFreshnessGate(options: {
   transportFactory?: (context: AdmissionPolicyObservers) => OwnedPolicyObservationTransport;
   onSocket?: (socket: Socket) => void;
   timeoutMs?: number; now?: () => number;
+  observe?: (observation: import('@resonance/core/admission-policy-trust').AdmissionPolicyObservation) => void | Promise<void>;
 }) {
   const { store } = options, context = store.freshness()?.context, now = options.now ?? Date.now, timeout = options.timeoutMs ?? 3000;
   if (!context) throw new Error('Admission freshness requires independently pinned observers');
@@ -38,7 +40,7 @@ export function createAdmissionPolicyFreshnessGate(options: {
   function installed() {
     available(); const state = store.freshness();
     if (!state || state.conflict || !sameAdmissionPolicyHead(state.installed, state.observed)) throw new Error('Install the observed policy before admission; conflicting policies remain fenced');
-    assertAdmissionPolicyCurrent(store.current()!, now()); return state.installed;
+    assertArchivedAdmissionPolicyCurrent(store.currentResolved()!, now()); return state.installed;
   }
   return {
     health() { return { operations: operations.size, observationOperations: responder.health().operations, maximumOperations: 2 }; },
@@ -62,7 +64,7 @@ export function createAdmissionPolicyFreshnessGate(options: {
           const reply = await responder.exchange(query, controller.signal);
           controller.signal.throwIfAborted();
           if (performance.now() >= deadline) throw new Error('Admission policy observation expired');
-          store.observe({ query, reply });
+          await (options.observe ?? store.observe)({ query, reply });
           const head = installed();
           const assertCurrent = () => {
             available(); signal?.throwIfAborted();
@@ -95,7 +97,7 @@ export function createAdmissionPolicyFreshnessGate(options: {
         const reply = await responder.exchange(query, controller.signal);
         controller.signal.throwIfAborted();
         if (performance.now() >= deadline) throw new Error('Admission policy observation expired');
-        store.observe({ query, reply });
+        await (options.observe ?? store.observe)({ query, reply });
         const head = installed();
         const assertCurrent = () => {
           signal?.throwIfAborted(); controller.signal.throwIfAborted();

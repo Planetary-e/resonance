@@ -1,10 +1,9 @@
+import { archivedAdmissionPolicyDigest, verifyArchivedAdmissionPolicy, assertArchivedAdmissionPolicyCurrent, type ArchivedAdmissionPolicy } from '@resonance/core/admission-policy-archive';
 /** Explicit review of a complete selected image, before initializing a new protected directory. */
 import { existsSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { admissionAuthorityFingerprint, admissionPolicyDigest, assertAdmissionPolicyCurrent,
-  assertAdmissionPolicySuccessor, verifyAdmissionPolicy, type SignedAdmissionPolicy } from '@resonance/core/admission-policy';
-import { historyCheckpointContextId, historyDigest, parseHistoryCheckpointContext, type HistoryCheckpointContext,
-  type HistoryEncryptedEnvelope } from '@resonance/core/history-checkpoint';
+import { admissionAuthorityFingerprint, assertAdmissionPolicySuccessor } from '@resonance/core/admission-policy';
+import { historyCheckpointContextId, historyDigest, parseHistoryCheckpointContext, type HistoryCheckpointContext, type HistoryEncryptedEnvelope } from '@resonance/core/history-checkpoint';
 import { historyContinuationRootId, parseHistoryContinuationRoot, type HistoryContinuationRoot } from '@resonance/core/history-continuation';
 import { replayAdmissionHistory } from './admission-history-replay.js';
 import type { AdmissionHistoryImage } from './admission-history-records.js';
@@ -34,12 +33,13 @@ export async function prepareAdmissionHistoryRestore(options: Omit<Parameters<ty
   if (context.role !== 'relay-admission-spends') throw new Error('Admission history requires its own history role');
   if (existsSync(directory) && readdirSync(directory).length) throw new Error('Admission restore requires a new empty destination');
   const root = parseHistoryContinuationRoot(options.continuation, context), rootId = historyContinuationRootId(root);
-  const policy = await verifyAdmissionPolicy(options.policy, context.authority);
-  assertAdmissionPolicyCurrent(policy, (options.now ?? Date.now)());
+  const policy = await verifyArchivedAdmissionPolicy(options.policy, context.authority);
+  assertArchivedAdmissionPolicyCurrent(policy, (options.now ?? Date.now)());
   const replay = await replayAdmissionHistory({ ...options, context, proposal: root.proposal });
-  assertAdmissionPolicySuccessor(replay.image.policy, policy);
-  assertAdmissionPolicyCurrent(policy, (options.now ?? Date.now)());
-  const policyDigest = admissionPolicyDigest(policy);
+  if (replay.image.policy.version !== 3 && policy.version !== 3) assertAdmissionPolicySuccessor(replay.image.policy, policy);
+  else if (archivedAdmissionPolicyDigest(replay.image.policy) !== archivedAdmissionPolicyDigest(policy)) throw new Error('V3 restoration must retain its exact selected policy and proof');
+  assertArchivedAdmissionPolicyCurrent(policy, (options.now ?? Date.now)());
+  const policyDigest = archivedAdmissionPolicyDigest(policy);
   const approvalDigest = historyDigest(`resonance:admission-history-restore:v1\n${JSON.stringify([
     directory, replay.contextId, replay.genesisId, rootId, replay.replayDigest, policyDigest,
   ])}`);
@@ -61,10 +61,10 @@ export async function prepareAdmissionHistoryRestore(options: Omit<Parameters<ty
 
 /** Internal capability check. JSON reviews, booleans and fabricated/cloned facades cannot initialize a ledger. */
 export function readPreparedAdmissionRestore(value: PreparedAdmissionHistoryRestore, approvedDigest: string,
-  directory: string, context: HistoryCheckpointContext, policy: SignedAdmissionPolicy) {
+  directory: string, context: HistoryCheckpointContext, policy: ArchivedAdmissionPolicy) {
   const record = prepared.get(value);
   if (!record || typeof approvedDigest !== 'string' || approvedDigest !== record.approvalDigest
     || record.directory !== resolve(directory) || record.contextId !== historyCheckpointContextId(context)
-    || record.policyDigest !== admissionPolicyDigest(policy)) throw new Error('Admission restore needs matching reviewed history, policy and destination');
+    || record.policyDigest !== archivedAdmissionPolicyDigest(policy)) throw new Error('Admission restore needs matching reviewed history, policy and destination');
   return structuredClone({ root: record.root, restoration: record.restoration });
 }

@@ -1,12 +1,11 @@
+import { archivedAdmissionPolicyDigest as admissionPolicyDigest } from '@resonance/core/admission-policy-archive';
 /** Explicit, resumable composition of existing freeze/agreement/download/provision gates. */
 import { captureStorageReservationOperation } from '@resonance/core/storage-reservations';
 import { existsSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { copyAdmissionSigningKey, exactWitnessFields } from '@resonance/core/admission-witness';
 import { openEncryptedLocalState } from '@resonance/core/local-state';
-import { admissionPolicyDigest } from '@resonance/core/admission-policy';
-import { historyCheckpointContextId, historyCheckpointEnvelopeId, historyDigest, openHistoryCheckpoint,
-  parseHistoryCheckpointEnvelope, type HistoryEncryptedEnvelope } from '@resonance/core/history-checkpoint';
+import { historyCheckpointContextId, historyCheckpointEnvelopeId, historyDigest, openHistoryCheckpoint, parseHistoryCheckpointEnvelope, type HistoryEncryptedEnvelope } from '@resonance/core/history-checkpoint';
 import { createHistorySuccessorProposal, historySuccessorProposalId, parseHistorySuccessorProposal, type HistorySuccessorProposal } from '@resonance/core/history-successor';
 import { createHistoryContinuationRoot, historyContinuationRootId, parseHistoryContinuationRoot, type HistoryContinuationRoot } from '@resonance/core/history-continuation';
 import { HISTORY_AGREEMENT_MAX_VIEW } from '@resonance/core/history-agreement';

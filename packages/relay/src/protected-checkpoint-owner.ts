@@ -6,9 +6,7 @@ import { canonicalHistorySetupPath } from './admission-history-setup.js';
 import type { SigningKeyPair } from '@resonance/core';
 import { copyAdmissionSigningKey, exactWitnessFields } from '@resonance/core/admission-witness';
 import { openEncryptedLocalState } from '@resonance/core/local-state';
-import { HISTORY_CHECKPOINT_MAX_PAYLOAD, historyCheckpointContextId, historyCheckpointEnvelopeByteLength, historyCheckpointEnvelopeId,
-  historyDigest, isHistoryDigest, openHistoryCheckpoint, parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, sealHistoryCheckpoint,
-  type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
+import { HISTORY_CHECKPOINT_MAX_PAYLOAD, historyCheckpointContextId, historyCheckpointEnvelopeByteLength, historyCheckpointEnvelopeId, historyDigest, isHistoryDigest, openHistoryCheckpoint, parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, sealHistoryCheckpoint, type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { historySuccessorProposalId } from '@resonance/core/history-successor';
 import { HISTORY_RECOVERY_MAX_BLOCKS, HISTORY_RECOVERY_MAX_BYTES } from '@resonance/core/history-exchange';
 import { createRetainedHistoryCheckpointWriter } from './history-retained-writer.js';
@@ -37,10 +35,13 @@ export interface ProtectedCheckpointOwnerOptions<T> {
   context: HistoryCheckpointContext; signingKey: SigningKeyPair; members: WriterOptions['members'];
   initial: T;
   /** Authenticate and normalize the complete issuer image, including its allocation and all retained decisions. */
-  validate(value: unknown): T | Promise<T>;
+  validate(value: unknown, operation?: object): T | Promise<T>;
   /** Trusted business semantics, used for live and retained generation transitions. */
   assertTransition?(previous: T, next: T): void | Promise<void>;
   validateGenesis?(image: T): void | Promise<void>;
+  /** Original funded generations are required whenever a policy reference reaches behind this root. */
+  ancestrySource?: () => Iterable<HistoryCheckpointEnvelope>;
+  validateProof?(image: T, source: () => Iterable<HistoryCheckpointEnvelope>, operation?: object): void | Promise<void>;
   /** Internal trusted restoration input. Business APIs must require their reviewed capability first. */
   restore?: ProtectedCheckpointOwnerRestoration<T>;
   /** Internal exact interrupted restoration completion, approved by the dedicated resumption workflow. */
@@ -83,6 +84,7 @@ export interface ProtectedCheckpointOwner<T> {
   read(): T; commit(value: T, assertBeforeIntent?: () => void): Promise<void>; ready(): Promise<void>; assertServing(): void;
   assertCapacity(values: readonly T[]): Promise<void>;
   status(): ProtectedCheckpointOwnerStatus;
+  history(): Iterable<HistoryCheckpointEnvelope>;
   enrollment(): { context: HistoryCheckpointContext; root: HistoryCheckpointEnvelope };
   close(): void;
 }
@@ -119,6 +121,7 @@ export async function openProtectedCheckpointOwner<T>(options: ProtectedCheckpoi
   let storage: ReturnType<typeof openEncryptedLocalState<ProtectedCheckpointOwnerState<T>>> | undefined, writer: Writer | undefined;
   let closed = false, active = false, readyConfirmed = false, fenced = false;
   let originalGenesis: HistoryCheckpointEnvelope;
+  let proofOperation = {};
   const fencePath = join(writerDirectory, binding.fenceFilename);
   function readState(): ProtectedCheckpointOwnerState<T> {
     if (closed) throw new Error('Protected issuer history is closed');
@@ -129,9 +132,15 @@ export async function openProtectedCheckpointOwner<T>(options: ProtectedCheckpoi
   }
   async function normalize(value: unknown): Promise<T> {
     const before = imageBytes(value); before.fill(0);
-    const normalized = structuredClone(await validate(structuredClone(value)));
+    const normalized = structuredClone(await validate(structuredClone(value), proofOperation));
     const after = imageBytes(normalized); after.fill(0); return normalized;
   }
+  function* history(): Iterable<HistoryCheckpointEnvelope> {
+    readState();
+    if (options.ancestrySource) yield* options.ancestrySource();
+    if (writer) yield* writer.history();
+  }
+  async function validateProof(image: T) { await options.validateProof?.(structuredClone(image), history, proofOperation); }
   async function transition(previous: T, next: T) {
     await assertTransition?.(structuredClone(previous), structuredClone(next));
   }
@@ -167,7 +176,7 @@ export async function openProtectedCheckpointOwner<T>(options: ProtectedCheckpoi
     if (!pending) return false;
     const image = pending.kind === 'continuation' && pending.sequence === 0 && id(pending) === id(before.root)
       ? await normalize(baseline(before)) : await decode(pending);
-    await transition(before.image, image); readState(); writerMatches();
+    await transition(before.image, image); await validateProof(image); readState(); writerMatches();
     const committed = writer!.read().committed;
     const fresh = !committed || id(committed.envelope) !== id(pending);
     if (fresh) await writer!.replicate(pending);
@@ -177,7 +186,7 @@ export async function openProtectedCheckpointOwner<T>(options: ProtectedCheckpoi
     return fresh;
   }
   async function exclusive<R>(operation: () => Promise<R>): Promise<R> {
-    readState(); if (active) throw new Error('Protected issuer history operation is in progress'); active = true;
+    readState(); if (active) throw new Error('Protected issuer history operation is in progress'); active = true; proofOperation = {};
     try { return await operation(); }
     catch (error) { readyConfirmed = false; throw error; }
     finally { active = false; }
@@ -307,6 +316,8 @@ export async function openProtectedCheckpointOwner<T>(options: ProtectedCheckpoi
         throw new Error('Protected issuer applied image does not match retained signed checkpoint');
       }
     }
+    await validateProof(image);
+    if (state.pending) await validateProof(state.pending.kind === 'continuation' ? rootImage : await decode(state.pending));
     if (existsSync(fencePath)) { const marker = openFence('open-existing'); marker.close(); fenced = true; }
   } catch (error) { close(); throw error; }
   function retainedDigest() {
@@ -358,7 +369,7 @@ export async function openProtectedCheckpointOwner<T>(options: ProtectedCheckpoi
       return source;
     }); },
     read() { return structuredClone(readState().image); },
-    assertServing,
+    assertServing, history,
     status() { const state = readState(); return { ready: readyConfirmed, busy: active, fenced, pending: state.pending !== null,
       applied: structuredClone(state.applied), rootId: id(state.root), ...writer!.historyUsage() }; },
     enrollment() { const state = readState(); return { context: structuredClone(context), root: structuredClone(state.root) }; },
@@ -376,7 +387,7 @@ export async function openProtectedCheckpointOwner<T>(options: ProtectedCheckpoi
         assertServing(); let state = available();
         const usage = writer!.historyUsage(); let blocks = usage.retainedBlocks, bytes = usage.retainedCiphertextBytes;
         for (const input of inputs) {
-          const image = await normalize(input); await transition(state.image, image); assertServing();
+          const image = await normalize(input); await transition(state.image, image); await validateProof(image); assertServing();
           if (state.applied!.sequence >= Number.MAX_SAFE_INTEGER - 1) throw new Error('Protected issuer history sequence capacity exhausted');
           const plaintext = imageBytes(image);
           try {
@@ -394,7 +405,7 @@ export async function openProtectedCheckpointOwner<T>(options: ProtectedCheckpoi
     commit(value: T, assertBeforeIntent?: () => void) {
       const input = structuredClone(value);
       return exclusive(async () => {
-        assertServing(); const before = available(), image = await normalize(input); await transition(before.image, image); assertServing();
+        assertServing(); const before = available(), image = await normalize(input); await transition(before.image, image); await validateProof(image); assertServing();
         if (JSON.stringify(image) === JSON.stringify(before.image)) return;
         if (before.applied!.sequence >= Number.MAX_SAFE_INTEGER - 1) throw new Error('Protected issuer history sequence capacity exhausted');
         const plaintext = imageBytes(image); let pending: HistoryCheckpointEnvelope;

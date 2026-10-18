@@ -1,13 +1,12 @@
+import type { ArchivedAdmissionPolicy } from '@resonance/core/admission-policy-archive';
 /** Reviewed owner-policy preparation. The caller holds stopped-runtime exclusion
  * through review/apply and any subsequent desktop configuration write. */
 import { captureStorageReservationOperation } from '@resonance/core/storage-reservations';
 import { lstatSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { acquireLocalStateLock } from '@resonance/core/local-state';
-import { admissionPolicyDigest, assertAdmissionPolicyCurrent, assertAdmissionPolicySuccessor, openAdmissionPolicyStore,
-  verifyAdmissionPolicy } from '@resonance/core/admission-policy';
-import { historyCheckpointContextId, historyCheckpointEnvelopeId, historyDigest, isHistoryDigest, parseHistoryCheckpointEnvelope,
-  type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
+import { admissionPolicyDigest as legacyAdmissionPolicyDigest, assertAdmissionPolicyCurrent, assertAdmissionPolicySuccessor, openAdmissionPolicyStore, verifyAdmissionPolicy } from '@resonance/core/admission-policy';
+import { historyCheckpointContextId, historyCheckpointEnvelopeId, historyDigest, isHistoryDigest, parseHistoryCheckpointEnvelope, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { openProtectedAdmissionSpendHistory, type AdmissionHistoryProtection } from './protected-admission-history.js';
 
 export interface AdmissionHistoryActivationOptions {
@@ -112,3 +111,5 @@ export async function openAdmissionHistoryActivation(options: AdmissionHistoryAc
     };
   } catch (error) { close(); throw error; }
 }
+
+function admissionPolicyDigest(policy: ArchivedAdmissionPolicy): string { if (policy.version === 3) throw new Error('This operator entrypoint explicitly refuses v3 policies'); return legacyAdmissionPolicyDigest(policy); }

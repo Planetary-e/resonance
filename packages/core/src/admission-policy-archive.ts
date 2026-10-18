@@ -4,11 +4,9 @@ import { createHash } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { sign, verify, type SigningKeyPair } from './crypto.js';
 import { MAX_ADMISSION_POLICY_BYTES } from './admission-policy-limits.js';
-import { admissionAuthorityFingerprint, admissionPolicyDigest, admissionKeyFingerprint, admissionPolicyKeys, assertAdmissionPolicySuccessor, parseAdmissionPolicyBody, verifyAdmissionPolicy,
-  type AdmissionPolicyBody, type AdmissionPolicyKey, type SignedAdmissionPolicy } from './admission-policy.js';
+import { admissionAuthorityFingerprint, admissionPolicyDigest, admissionKeyFingerprint, admissionPolicyKeys, assertAdmissionPolicySuccessor, parseAdmissionPolicyBody, verifyAdmissionPolicy, type AdmissionPolicyBody, type AdmissionPolicyKey, type SignedAdmissionPolicy } from './admission-policy.js';
 import { ADMISSION_POLICY_ADVANCE_MAX_BYTES, admissionPolicyHead, createAdmissionPolicyAdvanceCommitment, parseAdmissionPolicyAdvance, parseAdmissionPolicyAdvanceCommitment, sameAdmissionPolicyHead, type AdmissionPolicyAdvanceCommitment } from './admission-policy-advance.js';
-import { admissionPolicyObserversId, parseAdmissionPolicyHead, parseAdmissionPolicyObservers,
-  type AdmissionPolicyHead, type AdmissionPolicyObservers } from './admission-policy-freshness.js';
+import { admissionPolicyObserversId, parseAdmissionPolicyHead, parseAdmissionPolicyObservers, type AdmissionPolicyHead, type AdmissionPolicyObservers } from './admission-policy-freshness.js';
 import { parseAdmissionWalletProfile } from './admission-profile.js';
 import { copyAdmissionSigningKey, exactWitnessFields, parseAdmissionWitnessSet, witnessBytes } from './admission-witness.js';
 
@@ -31,26 +29,35 @@ export interface AdmissionPolicyArchiveLimits {
   maxTransitions: number; maxPageReads: number; timeoutMs: number;
 }
 export type AdmissionPolicyArchiveReader = (digest: string, signal: AbortSignal) => Promise<Uint8Array>;
-interface Operation { limits: AdmissionPolicyArchiveLimits; signal?: AbortSignal }
-class Budget {
+interface Operation { limits: AdmissionPolicyArchiveLimits; signal?: AbortSignal; budget?: AdmissionPolicyArchiveBudget; deadline?: number }
+export class AdmissionPolicyArchiveBudget {
   readonly limits: AdmissionPolicyArchiveLimits;
   readonly controller = new AbortController();
-  private readonly deadline: number;
-  private readonly signal?: AbortSignal;
+  private deadline: number;
+  private readonly signals = new Set<AbortSignal>();
   private counts = { maxPages: 0, maxEntries: 0, maxArchiveBytes: 0, maxHistoryBytes: 0, maxTransitions: 0, maxPageReads: 0 };
   constructor(operation: Operation) {
-    this.signal = operation.signal;
+    this.addSignal(operation.signal);
     const value = structuredClone(operation.limits);
     if (!exactWitnessFields(value, ['maxPages','maxEntries','maxArchiveBytes','maxHistoryBytes','maxTransitions','maxPageReads','timeoutMs'])
       || Object.values(value).some(n => !integer(n)) || value.timeoutMs < 1 || value.timeoutMs > 2_147_483_647) throw new Error('Invalid archive limits');
-    this.limits = value; this.deadline = performance.now() + value.timeoutMs; this.check();
+    this.limits = Object.freeze(value); this.deadline = performance.now() + value.timeoutMs;
+    this.restrictDeadline(operation.deadline); this.check();
+  }
+  addSignal(signal?: AbortSignal) { if (signal) this.signals.add(signal); }
+  /** Inherit a caller's original monotonic deadline without resetting counters or extending time. */
+  restrictDeadline(deadline?: number) {
+    if (deadline !== undefined) {
+      if (!Number.isFinite(deadline)) throw new Error('Invalid archive deadline');
+      this.deadline = Math.min(this.deadline, deadline);
+    }
   }
   check() {
-    if (this.signal?.aborted || performance.now() >= this.deadline) {
+    if ([...this.signals].some(signal => signal.aborted) || performance.now() >= this.deadline) {
       this.controller.abort(); throw new Error('Archive operation cancelled or timed out');
     }
   }
-  charge(name: keyof Budget['counts'], amount: number) {
+  charge(name: keyof AdmissionPolicyArchiveBudget['counts'], amount: number) {
     this.check(); const count = this.counts[name] + amount;
     if (!integer(count) || count > this.limits[name]) throw new Error(`Archive limit exhausted: ${name}`);
     this.counts[name] = count;
@@ -68,15 +75,64 @@ class Budget {
     try {
       const refusal = new Promise<never>((_, reject) => {
         abort = () => { this.controller.abort(); reject(new Error('Archive operation cancelled or timed out')); };
-        this.signal?.addEventListener('abort', abort, { once: true });
+        for (const signal of this.signals) signal.addEventListener('abort', abort, { once: true });
         timer = setTimeout(abort, Math.max(1, this.deadline - performance.now()));
       });
       const result = await Promise.race([work(), refusal]); this.check(); return result;
     } finally {
       if (timer) clearTimeout(timer);
-      if (abort) this.signal?.removeEventListener('abort', abort);
+      if (abort) for (const signal of this.signals) signal.removeEventListener('abort', abort);
     }
   }
+}
+function operationBudget(options: Operation): AdmissionPolicyArchiveBudget {
+  if (!options.budget) return new AdmissionPolicyArchiveBudget(options);
+  if (JSON.stringify(options.budget.limits) !== JSON.stringify(options.limits)) throw new Error('Archive operation resource envelope differs');
+  options.budget.addSignal(options.signal); options.budget.restrictDeadline(options.deadline); options.budget.check(); return options.budget;
+}
+/** Bounded references are authorization-neutral until their retained original proof resolves. */
+export interface AdmissionPolicyProofReference {
+  version: 1; context: AdmissionPolicyObservers; genesis: AdmissionPolicyHead; head: AdmissionPolicyHead;
+  reference: string; limits: AdmissionPolicyArchiveLimits;
+}
+export interface AdmissionPolicyProofPage { digest: string; data: string }
+export type AdmissionPolicyProofAppend = { version: 1; kind: 'genesis'; policy: SignedAdmissionPolicy }
+  | { version: 1; kind: 'advance'; advance: ArchivedAdmissionPolicyAdvance; pages: AdmissionPolicyProofPage[] };
+export function admissionPolicyProofReference(contextValue: AdmissionPolicyObservers, headValue: AdmissionPolicyHead,
+  limits: AdmissionPolicyArchiveLimits): AdmissionPolicyProofReference {
+  const context = parseAdmissionPolicyObservers(structuredClone(contextValue)), head = parseAdmissionPolicyHead(structuredClone(headValue));
+  const bounded = new AdmissionPolicyArchiveBudget({ limits }).limits;
+  if (head.revision < context.genesis.revision || head.revision === context.genesis.revision && !sameAdmissionPolicyHead(head, context.genesis)) throw new Error('Proof head precedes original genesis');
+  const body = { version: 1 as const, context, genesis: context.genesis, head, limits: bounded };
+  return { ...body, reference: `sha256:${createHash('sha256').update('resonance:admission-policy-proof:v1\n').update(JSON.stringify(body)).digest('hex')}` };
+}
+export function parseAdmissionPolicyProofReference(value: unknown): AdmissionPolicyProofReference {
+  if (!exactWitnessFields(value, ['version','context','genesis','head','reference','limits']) || value.version !== 1) throw new Error('Invalid policy proof reference');
+  const parsed = admissionPolicyProofReference(value.context as AdmissionPolicyObservers, value.head as AdmissionPolicyHead, value.limits as AdmissionPolicyArchiveLimits);
+  if (!sameAdmissionPolicyHead(parseAdmissionPolicyHead(value.genesis), parsed.genesis) || parsed.reference !== value.reference) throw new Error('Policy proof reference differs from original pins and limits');
+  return parsed;
+}
+/** Structural boundary only. The streaming resolver authenticates every append before installation. */
+export function parseAdmissionPolicyProofAppend(value: unknown): AdmissionPolicyProofAppend {
+  if (exactWitnessFields(value, ['version','kind','policy']) && value.version === 1 && value.kind === 'genesis'
+    && (value.policy as { version?: unknown })?.version !== 3 && Buffer.byteLength(JSON.stringify(value)) <= MAX_ADMISSION_POLICY_BYTES + 128) return structuredClone(value) as unknown as AdmissionPolicyProofAppend;
+  if (!exactWitnessFields(value, ['version','kind','advance','pages']) || value.version !== 1 || value.kind !== 'advance'
+    || !Array.isArray(value.pages) || value.pages.length > 2 || Buffer.byteLength(JSON.stringify(value.advance)) > ADMISSION_POLICY_ADVANCE_MAX_BYTES) throw new Error('Invalid bounded policy proof append');
+  const pages = value.pages.map(page => {
+    if (!exactWitnessFields(page, ['digest','data']) || !hashId(page.digest) || typeof page.data !== 'string'
+      || page.data.length > Math.ceil(ADMISSION_POLICY_ARCHIVE_PAGE_MAX_BYTES * 4 / 3)) throw new Error('Invalid retained policy proof page');
+    const bytes = Buffer.from(page.data, 'base64url');
+    if (bytes.toString('base64url') !== page.data || admissionPolicyArchivePageDigest(bytes) !== page.digest) throw new Error('Policy proof page digest differs');
+    return { digest: page.digest, data: page.data };
+  });
+  if (new Set(pages.map(page => page.digest)).size !== pages.length) throw new Error('Duplicate policy proof pages');
+  return { version: 1, kind: 'advance', advance: structuredClone(value.advance) as ArchivedAdmissionPolicyAdvance, pages };
+}
+export async function verifyArchivedAdmissionPolicy(value: unknown, authority: string): Promise<ArchivedAdmissionPolicy> {
+  return (value as { version?: unknown })?.version === 3 ? verifyAdmissionPolicyV3(value, authority) : verifyAdmissionPolicy(value, authority);
+}
+export function assertArchivedAdmissionPolicyCurrent(policy: ArchivedAdmissionPolicy, now: number): void {
+  if (!integer(now) || now < policy.issuedAt || now >= policy.expiresAt) throw new Error('Community admission policy is not current; import a current signed revision');
 }
 function descriptor(value: unknown): AdmissionPolicyArchiveDescriptor {
   if (!exactWitnessFields(value, ['version','kind','contextId','root','pageCount','entryCount','archiveBytes'])
@@ -150,11 +206,11 @@ function extendArchive(expected: AdmissionPolicyKey[], policy: SignedAdmissionPo
   const extra = (policy.archivedKeys ?? []).filter(entry => !expected.some(old => admissionKeyFingerprint(old.profile.issuerPublicKey) === admissionKeyFingerprint(entry.profile.issuerPublicKey)));
   return [...expected, ...extra];
 }
-function checkDescriptorBounds(value: AdmissionPolicyArchiveDescriptor, budget: Budget) {
+function checkDescriptorBounds(value: AdmissionPolicyArchiveDescriptor, budget: AdmissionPolicyArchiveBudget) {
   budget.check();
   if (value.pageCount > budget.limits.maxPages || value.entryCount > budget.limits.maxEntries || value.archiveBytes > budget.limits.maxArchiveBytes) throw new Error('Archive descriptor exceeds limits');
 }
-async function scan(value: AdmissionPolicyArchiveDescriptor, expected: AdmissionPolicyKey[], reader: AdmissionPolicyArchiveReader, budget: Budget) {
+async function scan(value: AdmissionPolicyArchiveDescriptor, expected: AdmissionPolicyKey[], reader: AdmissionPolicyArchiveReader, budget: AdmissionPolicyArchiveBudget) {
   checkDescriptorBounds(value, budget);
   if (value.entryCount !== expected.length) throw new Error('Archive entry count differs from authenticated history');
   let digest = value.root, index = value.pageCount, remaining = value.entryCount, totalBytes = 0;
@@ -194,7 +250,7 @@ export interface VerifyAdmissionPolicyArchiveOptions extends Operation {
   selectedHead: AdmissionPolicyHead; descriptor: AdmissionPolicyArchiveDescriptor; reader: AdmissionPolicyArchiveReader;
 }
 export async function verifyAdmissionPolicyArchive(options: VerifyAdmissionPolicyArchiveOptions): Promise<VerifiedAdmissionPolicyArchive> {
-  const budget = new Budget(options), context = parseAdmissionPolicyObservers(structuredClone(options.context)),
+  const budget = operationBudget(options), context = parseAdmissionPolicyObservers(structuredClone(options.context)),
     selectedHead = parseAdmissionPolicyHead(structuredClone(options.selectedHead)), archive = descriptor(structuredClone(options.descriptor)), reader = options.reader;
   if (archive.contextId !== admissionPolicyObserversId(context)) throw new Error('Archive observer context differs');
   if (!Array.isArray(options.advances) || options.advances.length > budget.limits.maxTransitions) throw new Error('Archive transition limit exhausted');
@@ -221,7 +277,7 @@ export interface StagedAdmissionPolicyArchive {
 export async function appendAdmissionPolicyArchive(options: Operation & {
   handle: VerifiedAdmissionPolicyArchive; advance: unknown; selectedHead: AdmissionPolicyHead; reader: AdmissionPolicyArchiveReader;
 }): Promise<StagedAdmissionPolicyArchive> {
-  const budget = new Budget(options), retained = requireHandle(options.handle), reader = options.reader,
+  const budget = operationBudget(options), retained = requireHandle(options.handle), reader = options.reader,
     input = budget.snapshot(options.advance), selectedHead = parseAdmissionPolicyHead(structuredClone(options.selectedHead));
   budget.charge('maxTransitions', 1);
   const advance = await budget.wait(() => parseAdmissionPolicyAdvance(input, retained.context));
@@ -233,7 +289,7 @@ export async function appendAdmissionPolicyArchive(options: Operation & {
   return { descriptor: structuredClone(archive), pages,
     handle: retain({ context: retained.context, head: selectedHead, policy: advance.policy, descriptor: archive, expected }) };
 }
-function stagePages(prefix: AdmissionPolicyArchiveDescriptor, additions: AdmissionPolicyKey[], budget: Budget) {
+function stagePages(prefix: AdmissionPolicyArchiveDescriptor, additions: AdmissionPolicyKey[], budget: AdmissionPolicyArchiveBudget) {
   const archive = structuredClone(prefix), pages: StagedAdmissionPolicyArchive['pages'] = [];
   let entries: AdmissionPolicyKey[] = [];
   const page = (): AdmissionPolicyArchivePage => ({ version: 1, kind: 'admission-policy-archive-page', contextId: archive.contextId,
@@ -258,7 +314,7 @@ function stagePages(prefix: AdmissionPolicyArchiveDescriptor, additions: Admissi
 export async function lookupAdmissionPolicyArchive(options: Operation & {
   handle: VerifiedAdmissionPolicyArchive; issuerKey: string; reader: AdmissionPolicyArchiveReader;
 }): Promise<AdmissionPolicyKey | undefined> {
-  const budget = new Budget(options), retained = requireHandle(options.handle), issuerKey = options.issuerKey, reader = options.reader;
+  const budget = operationBudget(options), retained = requireHandle(options.handle), issuerKey = options.issuerKey, reader = options.reader;
   if (!hashId(issuerKey)) throw new Error('Invalid archived issuer fingerprint');
   await scan(retained.descriptor, retained.expected, reader, budget);
   const entry = retained.expected.find(value => admissionKeyFingerprint(value.profile.issuerPublicKey) === issuerKey);
@@ -318,7 +374,7 @@ interface ResolvedState {
   /** Legacy-only, capped by the unchanged v2 wire limit. */
   legacyArchive?: AdmissionPolicyKey[];
   /** Optional wallet catalogue, bounded independently of archive lifetime. */
-  retainedKeys?: AdmissionPolicyKey[];
+  retainedKeys?: AdmissionPolicyKey[]; retainedOnlyIssuerKeys?: readonly string[];
 }
 declare const resolvedBrand: unique symbol;
 export interface ResolvedAdmissionPolicy { readonly [resolvedBrand]: true }
@@ -338,7 +394,7 @@ export function inspectResolvedAdmissionPolicy(handle: ResolvedAdmissionPolicy) 
   return structuredClone({ context: state.context, head: state.head, policy: state.policy, currentKeys: state.policy.keys,
     archive: state.policy.version === 3 ? state.policy.archive : null });
 }
-async function walkPages(archive: AdmissionPolicyArchiveDescriptor, reader: AdmissionPolicyArchiveReader, budget: Budget,
+async function walkPages(archive: AdmissionPolicyArchiveDescriptor, reader: AdmissionPolicyArchiveReader, budget: AdmissionPolicyArchiveBudget,
   visit: (entries: AdmissionPolicyKey[], firstEntry: number) => void | Promise<void>,
   prefix = emptyAdmissionPolicyArchive(archive.contextId)) {
   checkDescriptorBounds(archive, budget);
@@ -368,7 +424,7 @@ function removedCurrent(previous: ArchivedAdmissionPolicy, next: AdmissionPolicy
   return previous.keys.filter(old => !next.keys.some(e => admissionKeyFingerprint(e.profile.issuerPublicKey) === admissionKeyFingerprint(old.profile.issuerPublicKey)));
 }
 async function validateV3Successor(previous: ResolvedState, next: SignedAdmissionPolicyV3 | AdmissionPolicyBodyV3,
-  reader: AdmissionPolicyArchiveReader, budget: Budget) {
+  reader: AdmissionPolicyArchiveReader, budget: AdmissionPolicyArchiveBudget) {
   const old = previous.policy;
   if (old.version === 1 || next.revision !== old.revision + 1 || next.issuedAt < old.issuedAt
     || next.archive.contextId !== admissionPolicyObserversId(previous.context)) throw new Error('V3 requires v2/v3 immediate ancestry and original context');
@@ -403,7 +459,7 @@ async function validateV3Successor(previous: ResolvedState, next: SignedAdmissio
     });
   }
 }
-async function parseArchivedAdvance(value: unknown, context: AdmissionPolicyObservers, budget: Budget): Promise<ArchivedAdmissionPolicyAdvance> {
+async function parseArchivedAdvance(value: unknown, context: AdmissionPolicyObservers, budget: AdmissionPolicyArchiveBudget): Promise<ArchivedAdmissionPolicyAdvance> {
   if (!exactWitnessFields(value, ['commitment','policy']) || Buffer.byteLength(JSON.stringify(value)) > ADMISSION_POLICY_ADVANCE_MAX_BYTES) throw new Error('Invalid archive policy advance');
   const commitment = parseAdmissionPolicyAdvanceCommitment(value.commitment, context);
   const policy = await budget.wait<ArchivedAdmissionPolicy>(() => (value.policy as { version?: unknown })?.version === 3
@@ -412,11 +468,14 @@ async function parseArchivedAdvance(value: unknown, context: AdmissionPolicyObse
   return { commitment, policy };
 }
 /** Signature/schema authentication only; installation requires resolveAdmissionPolicySuccessor. */
-export async function parseArchivedAdmissionPolicyAdvance(value: unknown, contextValue: AdmissionPolicyObservers, options: { signal?: AbortSignal; timeoutMs?: number } = {}): Promise<ArchivedAdmissionPolicyAdvance> {
+export async function parseArchivedAdmissionPolicyAdvance(value: unknown, contextValue: AdmissionPolicyObservers, options: { signal?: AbortSignal; timeoutMs?: number; budget?: AdmissionPolicyArchiveBudget } = {}): Promise<ArchivedAdmissionPolicyAdvance> {
   const context = parseAdmissionPolicyObservers(contextValue);
-  return parseArchivedAdvance(value, context, new Budget({ signal: options.signal, limits: { maxPages: 1, maxEntries: 1, maxArchiveBytes: 1, maxHistoryBytes: 1, maxTransitions: 1, maxPageReads: 1, timeoutMs: options.timeoutMs ?? 3000 } }));
+  const budget = options.budget ?? new AdmissionPolicyArchiveBudget({ signal: options.signal, limits: { maxPages: 1, maxEntries: 1, maxArchiveBytes: 1, maxHistoryBytes: 1, maxTransitions: 1, maxPageReads: 1, timeoutMs: options.timeoutMs ?? 3000 } });
+  budget.addSignal(options.signal);
+  if (options.timeoutMs !== undefined) budget.restrictDeadline(performance.now() + options.timeoutMs);
+  budget.check(); return parseArchivedAdvance(value, context, budget);
 }
-async function resolveStep(previous: ResolvedState, advance: ArchivedAdmissionPolicyAdvance, reader: AdmissionPolicyArchiveReader, budget: Budget): Promise<ResolvedState> {
+async function resolveStep(previous: ResolvedState, advance: ArchivedAdmissionPolicyAdvance, reader: AdmissionPolicyArchiveReader, budget: AdmissionPolicyArchiveBudget): Promise<ResolvedState> {
   if (!sameAdmissionPolicyHead(previous.head, advance.commitment.previous)) throw new Error('Resolved policy ancestry has a gap or fork');
   if (advance.policy.version === 3) {
     await validateV3Successor(previous, advance.policy, reader, budget);
@@ -431,10 +490,12 @@ export interface ResolveAdmissionPolicyOptions extends Operation {
   context: AdmissionPolicyObservers; genesis: unknown; advances: readonly unknown[] | AsyncIterable<unknown>; selectedHead: AdmissionPolicyHead; reader: AdmissionPolicyArchiveReader;
   readGenesis?: (signal: AbortSignal) => Promise<unknown>;
   retainIssuerKeys?: readonly string[];
+  /** Protected roles retain only referenced membership; wallet catalogue semantics remain unchanged. */
+  retainOnlyRequestedIssuerKeys?: boolean;
 }
 /** Full original provenance; v3 cannot be a fresh genesis or bypass the signed transition chain. */
 export async function resolveAdmissionPolicy(options: ResolveAdmissionPolicyOptions): Promise<ResolvedAdmissionPolicy> {
-  const budget = new Budget(options), context = parseAdmissionPolicyObservers(structuredClone(options.context)), reader = options.reader,
+  const budget = operationBudget(options), context = parseAdmissionPolicyObservers(structuredClone(options.context)), reader = options.reader,
     selected = parseAdmissionPolicyHead(structuredClone(options.selectedHead));
   // Arrays retain the existing up-front snapshot guarantee. Streaming callers
   // retain one item at a time; their next()/return() share this same deadline.
@@ -447,7 +508,7 @@ export async function resolveAdmissionPolicy(options: ResolveAdmissionPolicyOpti
   const retained = requested ? new Map<string, AdmissionPolicyKey>() : undefined;
   function collect(policy: ArchivedAdmissionPolicy) {
     if (!retained) return;
-    for (const entry of policy.keys) retained.set(admissionKeyFingerprint(entry.profile.issuerPublicKey), entry);
+    for (const entry of policy.keys) { const fingerprint = admissionKeyFingerprint(entry.profile.issuerPublicKey); if (!options.retainOnlyRequestedIssuerKeys || requested!.includes(fingerprint)) retained.set(fingerprint, entry); }
     if (policy.version !== 3) for (const entry of policy.archivedKeys ?? []) {
       const fingerprint = admissionKeyFingerprint(entry.profile.issuerPublicKey);
       if (requested!.includes(fingerprint)) retained.set(fingerprint, entry);
@@ -488,13 +549,13 @@ export async function resolveAdmissionPolicy(options: ResolveAdmissionPolicyOpti
     }
   }
   if (!sameAdmissionPolicyHead(state.head, selected)) throw new Error('Resolved policy selected head is stale or conflicting');
-  if (retained) state.retainedKeys = [...retained.values()];
+  if (retained) { state.retainedKeys = [...retained.values()]; if (options.retainOnlyRequestedIssuerKeys) state.retainedOnlyIssuerKeys = requested; }
   budget.check(); return resolvedHandle(state);
 }
 export async function resolveAdmissionPolicyAdvance(options: Operation & {
   previous: ResolvedAdmissionPolicy; advance: unknown; selectedHead: AdmissionPolicyHead; reader: AdmissionPolicyArchiveReader;
 }): Promise<ResolvedAdmissionPolicy> {
-  const budget = new Budget(options), previous = resolvedState(options.previous), input = budget.snapshot(options.advance),
+  const budget = operationBudget(options), previous = resolvedState(options.previous), input = budget.snapshot(options.advance),
     selected = parseAdmissionPolicyHead(structuredClone(options.selectedHead)), reader = options.reader;
   budget.charge('maxTransitions', 1);
   const advance = await parseArchivedAdvance(input, previous.context, budget);
@@ -502,9 +563,9 @@ export async function resolveAdmissionPolicyAdvance(options: Operation & {
   const state = await resolveStep(previous, advance, reader, budget);
   if (previous.retainedKeys) {
     const retained = new Map(previous.retainedKeys.map(entry => [admissionKeyFingerprint(entry.profile.issuerPublicKey), entry]));
-    for (const entry of state.policy.keys) retained.set(admissionKeyFingerprint(entry.profile.issuerPublicKey), entry);
+    for (const entry of state.policy.keys) { const fingerprint = admissionKeyFingerprint(entry.profile.issuerPublicKey); if (!previous.retainedOnlyIssuerKeys || previous.retainedOnlyIssuerKeys.includes(fingerprint)) retained.set(fingerprint, entry); }
     if (retained.size > 72) throw new Error('Resolved wallet profile history is full');
-    state.retainedKeys = [...retained.values()];
+    state.retainedKeys = [...retained.values()]; state.retainedOnlyIssuerKeys = previous.retainedOnlyIssuerKeys;
   }
   return resolvedHandle(state);
 }
@@ -516,7 +577,7 @@ export interface PreparedAdmissionPolicyV3 {
 export async function prepareAdmissionPolicyV3Successor(options: Operation & {
   previous: ResolvedAdmissionPolicy; next: Omit<AdmissionPolicyBodyV3, 'version' | 'kind' | 'archive'>; reader: AdmissionPolicyArchiveReader;
 }): Promise<PreparedAdmissionPolicyV3> {
-  const budget = new Budget(options), previous = resolvedState(options.previous), next = budget.snapshot(options.next), reader = options.reader;
+  const budget = operationBudget(options), previous = resolvedState(options.previous), next = budget.snapshot(options.next), reader = options.reader;
   if (!exactWitnessFields(next, ['revision','issuedAt','expiresAt','activeKey','keys'])) throw new Error('Invalid v3 successor fields');
   const contextId = admissionPolicyObserversId(previous.context), initial = emptyAdmissionPolicyArchive(contextId);
   const body = await budget.wait(() => parseAdmissionPolicyBodyV3({ ...next, version: 3, kind: 'admission-policy', archive: initial }));
@@ -534,7 +595,7 @@ export async function prepareAdmissionPolicyV3Successor(options: Operation & {
 export async function createResolvedAdmissionPolicyAdvance(options: Operation & {
   previous: ResolvedAdmissionPolicy; policy: unknown; key: SigningKeyPair; reader: AdmissionPolicyArchiveReader;
 }): Promise<{ advance: ArchivedAdmissionPolicyAdvance; resolved: ResolvedAdmissionPolicy }> {
-  const budget = new Budget(options), previous = resolvedState(options.previous), input = budget.snapshot(options.policy), reader = options.reader,
+  const budget = operationBudget(options), previous = resolvedState(options.previous), input = budget.snapshot(options.policy), reader = options.reader,
     key = copyAdmissionSigningKey(options.key);
   try {
     budget.charge('maxTransitions', 1);
@@ -548,7 +609,7 @@ export async function createResolvedAdmissionPolicyAdvance(options: Operation & 
 export async function lookupResolvedAdmissionPolicyKey(options: Operation & {
   policy: ResolvedAdmissionPolicy; issuerKey: string; reader: AdmissionPolicyArchiveReader;
 }): Promise<{ entry: AdmissionPolicyKey; archived: boolean } | undefined> {
-  const budget = new Budget(options), state = resolvedState(options.policy), issuerKey = options.issuerKey, reader = options.reader;
+  const budget = operationBudget(options), state = resolvedState(options.policy), issuerKey = options.issuerKey, reader = options.reader;
   if (!hashId(issuerKey)) throw new Error('Invalid issuer key');
   let found = state.policy.keys.find(e => admissionKeyFingerprint(e.profile.issuerPublicKey) === issuerKey), archived = false;
   if (state.policy.version === 3) {
@@ -566,7 +627,7 @@ export async function visitResolvedAdmissionPolicyArchive(options: Operation & {
   policy: ResolvedAdmissionPolicy; reader: AdmissionPolicyArchiveReader;
   visit: (entry: AdmissionPolicyKey, offset: number) => void | Promise<void>;
 }): Promise<void> {
-  const budget = new Budget(options), state = resolvedState(options.policy), reader = options.reader, visit = options.visit;
+  const budget = operationBudget(options), state = resolvedState(options.policy), reader = options.reader, visit = options.visit;
   if (state.policy.version === 3) {
     await walkPages(state.policy.archive, reader, budget, () => {});
     await walkPages(state.policy.archive, reader, budget, async (entries, offset) => {
@@ -596,4 +657,56 @@ export function inspectResolvedAdmissionPolicyKey(policy: ResolvedAdmissionPolic
   const value = resolvedKeys.get(membership);
   if (!value || value.policy !== policy) throw new Error('Issuer requires its original resolved membership capability');
   return structuredClone(value.entry);
+}
+
+export async function resolveAdmissionPolicyKey(options: Operation & {
+  policy: ResolvedAdmissionPolicy; issuerKey: string; reader: AdmissionPolicyArchiveReader;
+}): Promise<ResolvedAdmissionPolicyKey | undefined> {
+  const found = await lookupResolvedAdmissionPolicyKey(options);
+  if (!found) return undefined;
+  const handle = Object.freeze({}) as ResolvedAdmissionPolicyKey;
+  resolvedKeys.set(handle, { policy: options.policy, entry: found.entry }); return handle;
+}
+
+/** Authenticated membership for only the keys/participants referenced by one bounded business image. */
+declare const historyMembershipBrand: unique symbol;
+export interface AdmissionPolicyHistoryMembership { readonly [historyMembershipBrand]: true }
+const historyMemberships = new WeakMap<AdmissionPolicyHistoryMembership, { digest: string; entries: Map<string, AdmissionPolicyKey>; participants: Set<string> }>();
+export async function resolveAdmissionPolicyHistoryMembership(options: Operation & {
+  policy: ResolvedAdmissionPolicy; reader: AdmissionPolicyArchiveReader; issuerKeys: readonly string[];
+  participants?: readonly { role: 'witness' | 'coordinator'; publicKey: string }[];
+}): Promise<AdmissionPolicyHistoryMembership> {
+  if (options.issuerKeys.length > 10000 || options.issuerKeys.some(value => !hashId(value)) || (options.participants?.length ?? 0) > 2) throw new Error('Historical membership request exceeds bounded state');
+  const requested = new Set(options.issuerKeys), participants = structuredClone(options.participants ?? []);
+  const entries = new Map<string, AdmissionPolicyKey>(), present = new Set<string>(), state = resolvedState(options.policy);
+  const collect = (entry: AdmissionPolicyKey) => {
+    const id = admissionKeyFingerprint(entry.profile.issuerPublicKey);
+    if (requested.has(id)) entries.set(id, structuredClone(entry));
+    for (const participant of participants) if (participant.role === 'witness'
+      ? entry.witnesses?.members.some(member => member.publicKey === participant.publicKey)
+      : entry.witnesses?.coordinators.includes(participant.publicKey)) present.add(`${participant.role}:${participant.publicKey}`);
+  };
+  for (const entry of state.policy.keys) collect(entry);
+  if (entries.size < requested.size || present.size < new Set(participants.map(participant => `${participant.role}:${participant.publicKey}`)).size) {
+    const budget = operationBudget(options);
+    // Collect into private staged maps. Publish the opaque membership only after the complete walk succeeds.
+    if (state.policy.version === 3) await walkPages(state.policy.archive, options.reader, budget, values => { for (const entry of values) collect(entry); });
+    else for (const entry of state.legacyArchive ?? []) { budget.charge('maxEntries', 1); collect(entry); }
+    budget.check();
+  }
+  const handle = Object.freeze({}) as AdmissionPolicyHistoryMembership;
+  historyMemberships.set(handle, { digest: archivedAdmissionPolicyDigest(state.policy), entries, participants: present }); return handle;
+}
+export function admissionPolicyHistoryEntry(policy: ArchivedAdmissionPolicy, membership: AdmissionPolicyHistoryMembership | undefined, issuerKey: string): AdmissionPolicyKey | undefined {
+  if (policy.version !== 3) return admissionPolicyKeys(policy).find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === issuerKey);
+  const known = membership && historyMemberships.get(membership);
+  if (!known || known.digest !== archivedAdmissionPolicyDigest(policy)) throw new Error('Historical policy requires its original authenticated membership capability');
+  return structuredClone(known.entries.get(issuerKey) ?? policy.keys.find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === issuerKey));
+}
+export function admissionPolicyHistoryParticipant(policy: ArchivedAdmissionPolicy, membership: AdmissionPolicyHistoryMembership | undefined, role: 'witness' | 'coordinator', publicKey: string): boolean {
+  if (policy.version !== 3) return admissionPolicyKeys(policy).some(entry => role === 'witness'
+    ? entry.witnesses?.members.some(member => member.publicKey === publicKey) : entry.witnesses?.coordinators.includes(publicKey));
+  const known = membership && historyMemberships.get(membership);
+  if (!known || known.digest !== archivedAdmissionPolicyDigest(policy)) throw new Error('Historical participant requires authenticated original membership');
+  return known.participants.has(`${role}:${publicKey}`);
 }

@@ -1,3 +1,4 @@
+import { inspectResolvedAdmissionPolicy, parseAdmissionPolicyProofReference, archivedAdmissionPolicyDigest, verifyArchivedAdmissionPolicy, type ArchivedAdmissionPolicy, type AdmissionPolicyProofReference, type ResolvedAdmissionPolicy } from './admission-policy-archive.js';
 /** Backend-only shared community admission policy: a pinned authority, revisions and cutoffs. */
 import { createHash } from 'node:crypto';
 import { parseAdmissionWitnessSet, type AdmissionWitnessSet } from './admission-witness.js';
@@ -130,7 +131,8 @@ export function assertAdmissionPolicySuccessor(previous: AdmissionPolicyBody, ne
 }
 type State = { version: 1; authority: string | null; policy: SignedAdmissionPolicy | null }
   | { version: 2; authority: string; policy: SignedAdmissionPolicy; protectedHistoryContext: string }
-  | { version: 3; authority: string; policy: SignedAdmissionPolicy; protectedHistoryContext: string | null; freshness: AdmissionPolicyTrust };
+  | { version: 3; authority: string; policy: SignedAdmissionPolicy; protectedHistoryContext: string | null; freshness: AdmissionPolicyTrust }
+  | { version: 4; authority: string; policy: ArchivedAdmissionPolicy; protectedHistoryContext: string; freshness: AdmissionPolicyTrust; policyProof: AdmissionPolicyProofReference };
 const historyContextId = (value: unknown): value is string => typeof value === 'string' && /^sha256:[a-f0-9]{64}$/.test(value);
 /** The caller supplies a local storage key; signed content and the authority are public metadata. */
 export async function openAdmissionPolicyStore(options: { path: string; encryptionKey: Uint8Array; now?: () => number; mode?: 'create-new' | 'open-existing' }) {
@@ -142,18 +144,23 @@ export async function openAdmissionPolicyStore(options: { path: string; encrypti
         && bytes(value.authority, 32) && !!value.policy && historyContextId(value.protectedHistoryContext))
       || (exact(value, ['version','authority','policy','protectedHistoryContext','freshness']) && value.version === 3
         && bytes(value.authority, 32) && !!value.policy && (value.protectedHistoryContext === null || historyContextId(value.protectedHistoryContext))
-        && (() => { try { parseAdmissionPolicyTrust(value.freshness, value.policy as SignedAdmissionPolicy); return true; } catch { return false; } })()) });
-  let busy = false;
-  try { const state = storage.read(); if (state.policy) await verifyAdmissionPolicy(state.policy, state.authority!); }
+        && (() => { try { parseAdmissionPolicyTrust(value.freshness, value.policy as SignedAdmissionPolicy); return true; } catch { return false; } })())
+      || (exact(value, ['version','authority','policy','protectedHistoryContext','freshness','policyProof']) && value.version === 4
+        && bytes(value.authority, 32) && !!value.policy && historyContextId(value.protectedHistoryContext)
+        && (() => { try { parseAdmissionPolicyTrust(value.freshness, value.policy as ArchivedAdmissionPolicy); parseAdmissionPolicyProofReference(value.policyProof); return true; } catch { return false; } })()) });
+  let busy = false, resolved: ResolvedAdmissionPolicy | undefined;
+  try { const state = storage.read(); if (state.policy) await verifyArchivedAdmissionPolicy(state.policy, state.authority!); }
   catch (error) { storage.close(); throw error; }
   return {
-    current() { const state = storage.read(); return state.policy ? structuredClone(state.policy) : undefined; },
+    current() { const state = storage.read(); if (state.version === 4) throw new Error('Protected policy requires resolved retained history'); return state.policy ? structuredClone(state.policy) : undefined; },
+    retained() { return structuredClone(storage.read()); },
+    currentResolved() { const state = storage.read(); if (state.version === 4 && (!resolved || archivedAdmissionPolicyDigest(inspectResolvedAdmissionPolicy(resolved).policy) !== archivedAdmissionPolicyDigest(state.policy))) throw new Error('Protected policy mirror needs exact retained history validation'); return state.policy ? structuredClone(state.policy) : undefined; },
     protectedHistoryContext() { const state = storage.read(); return state.version !== 1 ? state.protectedHistoryContext ?? undefined : undefined; },
-    freshness() { const state = storage.read(); return state.version === 3 ? structuredClone(state.freshness) : undefined; },
+    freshness() { const state = storage.read(); return (state.version === 3 || state.version === 4) ? structuredClone(state.freshness) : undefined; },
     observe(observation: AdmissionPolicyObservation) {
       const state = storage.read();
       if (busy) throw new Error('Policy update is already in progress');
-      if (state.version !== 3) throw new Error('Policy observers have not been independently pinned');
+      if (state.version !== 3 && state.version !== 4) throw new Error('Policy observers have not been independently pinned');
       const inspected = inspectAdmissionPolicyObservation(state.freshness, observation, (options.now ?? Date.now)());
       if (inspected.state !== state.freshness) storage.write({ ...state, freshness: inspected.state });
       if (inspected.error) throw new Error(inspected.error);
@@ -168,11 +175,11 @@ export async function openAdmissionPolicyStore(options: { path: string; encrypti
         if (state.protectedHistoryContext !== contextId) throw new Error('Protected history context is already pinned');
         return;
       }
-      storage.write(state.version === 3 ? { ...state, protectedHistoryContext: contextId }
+      storage.write(state.version === 3 || state.version === 4 ? { ...state, protectedHistoryContext: contextId }
         : { version: 2, authority: state.authority, policy: state.policy, protectedHistoryContext: contextId });
     },
     async install(value: unknown, authority: string, pins: { observers?: unknown; advance?: unknown } = {}) {
-      const initial = storage.read(); if (busy) throw new Error('Policy update is already in progress');
+      const initial = storage.read(); if (initial.version === 4) throw new Error('Protected policy installation must commit retained history first'); if (busy) throw new Error('Policy update is already in progress');
       if (initial.authority && initial.authority !== authority) throw new Error('Community authority is already pinned');
       busy = true;
       try {
@@ -200,7 +207,7 @@ export async function openAdmissionPolicyStore(options: { path: string; encrypti
           if (advance || !matchesAdmissionPolicyHead(next, observers.genesis)) throw new Error('Initial observer binding requires its independently pinned genesis');
           freshness = parseAdmissionPolicyTrust({ context: observers, installed: observers.genesis, observed: observers.genesis }, next);
         } else if (advance) throw new Error('Policy transition requires independently pinned observers');
-        if (previous) assertAdmissionPolicySuccessor(previous, next);
+        if (previous) { if (previous.version === 3) throw new Error('Cannot use legacy installation after v3'); assertAdmissionPolicySuccessor(previous, next); }
         const current = storage.read();
         if (freshness) {
           const state: State = { version: 3, authority, policy: next,
@@ -209,6 +216,25 @@ export async function openAdmissionPolicyStore(options: { path: string; encrypti
         } else if (!previous || admissionPolicyDigest(previous) !== admissionPolicyDigest(next)) storage.write({ ...current, authority, policy: next });
         return structuredClone(next);
       } finally { busy = false; }
+    },
+    /** The protected history has already passed four-copy commit. This mirrors only that exact opaque capability. */
+    mirrorResolved(capability: ResolvedAdmissionPolicy, referenceValue: AdmissionPolicyProofReference, trustValue: AdmissionPolicyTrust, contextId: string) {
+      const before = storage.read(); if (busy) throw new Error('Policy update is already in progress');
+      const checked = inspectResolvedAdmissionPolicy(capability), policy = checked.policy, reference = parseAdmissionPolicyProofReference(referenceValue);
+      const freshness = parseAdmissionPolicyTrust(structuredClone(trustValue), policy);
+      if (!historyContextId(contextId) || !sameAdmissionPolicyHead(checked.head, reference.head) || !sameAdmissionPolicyHead(reference.head, freshness.installed)
+        || admissionPolicyObserversId(checked.context) !== admissionPolicyObserversId(freshness.context)
+        || admissionPolicyObserversId(reference.context) !== admissionPolicyObserversId(freshness.context)) throw new Error('Protected mirror differs from exact committed proof');
+      if (before.authority && before.authority !== policy.authority || before.version !== 1 && before.protectedHistoryContext && before.protectedHistoryContext !== contextId) throw new Error('Protected mirror independent pins changed');
+      const old = before.version === 3 || before.version === 4 ? before.freshness : undefined;
+      if (old && (old.conflict && JSON.stringify(old) !== JSON.stringify(freshness)
+        || admissionPolicyObserversId(old.context) !== admissionPolicyObserversId(freshness.context)
+        || freshness.installed.revision < old.installed.revision || freshness.observed.revision < old.observed.revision
+        || freshness.observed.revision === old.observed.revision && !sameAdmissionPolicyHead(freshness.observed, old.observed))) throw new Error('Protected mirror lost freshness floor or conflict');
+      if (before.version === 4 && JSON.stringify(before.policyProof.limits) !== JSON.stringify(reference.limits)) throw new Error('Protected proof funding limits changed');
+      const next: State = { version: 4, authority: policy.authority, policy, protectedHistoryContext: contextId, freshness, policyProof: reference };
+      if (JSON.stringify(before) !== JSON.stringify(next)) storage.write(next);
+      resolved = capability; return structuredClone(policy);
     },
     close() { storage.close(); },
   };

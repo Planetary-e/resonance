@@ -1,13 +1,14 @@
+import { admissionPolicyProofReference, parseAdmissionPolicyProofAppend, parseArchivedAdmissionPolicyAdvance, verifyArchivedAdmissionPolicy, archivedAdmissionPolicyDigest, assertArchivedAdmissionPolicyCurrent, type ArchivedAdmissionPolicy, type AdmissionPolicyArchiveLimits, type AdmissionPolicyHistoryMembership } from '@resonance/core/admission-policy-archive';
+import { parseAdmissionPolicyTrust, inspectAdmissionPolicyObservation, type AdmissionPolicyTrust, type AdmissionPolicyObservation } from '@resonance/core/admission-policy-trust';
+import { sameAdmissionPolicyHead } from '@resonance/core/admission-policy-advance';
+import { createAdmissionPolicyHistoryProof, type PolicyProofHistory, type PolicyProofOperation, type PolicyProofCache } from './admission-policy-history-proof.js';
 /** Same-file protection fence, durable pending ciphertext, four copies, then live admission state. */
 import { join, resolve } from 'node:path';
 import { realpathSync, statSync } from 'node:fs';
 import type { SigningKeyPair } from '@resonance/core';
 import { copyAdmissionSigningKey, exactWitnessFields, type AdmissionSpendCertificate } from '@resonance/core/admission-witness';
-import { admissionPolicyDigest, assertAdmissionPolicyCurrent, assertAdmissionPolicySuccessor,
-  isArchivedAdmissionKey, verifyAdmissionPolicy, type SignedAdmissionPolicy } from '@resonance/core/admission-policy';
-import { HISTORY_DELTA_MAX_PAYLOAD, historyCheckpointContextId, historyCheckpointEnvelopeId, historyCheckpointEnvelopeByteLength, historyCheckpointReserveBucket, historyDigest, isHistoryDigest, openHistoryCheckpoint,
-  parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, sealHistoryCheckpoint,
-  type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
+import { admissionKeyFingerprint, assertAdmissionPolicySuccessor, isArchivedAdmissionKey } from '@resonance/core/admission-policy';
+import { HISTORY_DELTA_MAX_PAYLOAD, historyCheckpointContextId, historyCheckpointEnvelopeId, historyCheckpointEnvelopeByteLength, historyCheckpointReserveBucket, historyDigest, isHistoryDigest, openHistoryCheckpoint, parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, sealHistoryCheckpoint, type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { openEncryptedLocalState } from '@resonance/core/local-state';
 import { historySuccessorProposalId } from '@resonance/core/history-successor';
 import { createHistoryCompactionProposal } from '@resonance/core/history-compaction';
@@ -18,11 +19,8 @@ import { readPreparedAdmissionRestore, type AdmissionHistoryRestoration, type Pr
 import { decodeLegacyAdmissionSpendState, parseAdmissionSpendState, type AdmissionSpendRecord } from './admission-spend-history.js';
 import { checkAdmissionLegacyRecovery, type AdmissionSpendState } from './admission-legacy-recovery.js';
 import { planAdmissionHistoryRetirement } from './admission-history-retirement.js';
-import { encodeAdmissionHistoryRecord, parseAdmissionHistoryImage, reduceAdmissionHistory,
-  type AdmissionHistoryImage, type AdmissionHistoryMutation, type AdmissionHistoryRecord, type AdmissionHistoryStateCheckpoint,
-  type AdmissionHistoryRoleCheckpoint } from './admission-history-records.js';
-import { admissionRoleHistoriesIdentity, assertAdmissionRoleRetention, parseAdmissionRoleHistories, type AdmissionRoleHistories,
-  type AdmissionRoleMutation } from './admission-role-history.js';
+import { encodeAdmissionHistoryRecord, parseAdmissionHistoryImage, reduceAdmissionHistory, type AdmissionHistoryImage, type AdmissionHistoryMutation, type AdmissionHistoryRecord, type AdmissionHistoryStateCheckpoint, type AdmissionHistoryRoleCheckpoint, type AdmissionHistoryProofCheckpoint } from './admission-history-records.js';
+import { admissionRoleHistoriesIdentity, assertAdmissionRoleRetention, parseAdmissionRoleHistories, type AdmissionRoleHistories, type AdmissionRoleMutation } from './admission-role-history.js';
 
 export type ProtectedAdmissionState = {
   context: HistoryCheckpointContext; root: HistoryCheckpointEnvelope;
@@ -40,6 +38,7 @@ export interface AdmissionHistoryProtection {
   promoteLocalHistory?: boolean;
   /** Creation only, into the independently reviewed new directory. Reopen omits this capability. */
   restore?: { preparation: PreparedAdmissionHistoryRestore; approvedDigest: string };
+  ancestrySource?: () => Iterable<HistoryCheckpointEnvelope>;
   timeoutMs?: number; transport?: WriterOptions['transport']; maxArchiveBlocks?: number; maxArchiveBytes?: number;
 }
 
@@ -48,6 +47,8 @@ interface ProtectedHistoryOptions {
   initialize?: boolean; maxSpends?: number; now?: () => number; protection: AdmissionHistoryProtection;
   /** Reviewed local state must still match before any pristine writer creation. */
   expectedStateDigest?: string;
+  policyAdvance?: unknown; policyPages?: Array<{ digest: string; bytes: Uint8Array }>;
+  policyTrust?: AdmissionPolicyTrust;
 }
 export async function openProtectedAdmissionSpendHistory(options: ProtectedHistoryOptions) {
   return openProtectedHistory(options, false);
@@ -66,8 +67,8 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
   if (options.expectedStateDigest !== undefined && !isHistoryDigest(options.expectedStateDigest)) throw new Error('Invalid reviewed history state digest');
   const limit = options.maxSpends ?? 10000, now = options.now ?? Date.now;
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 10000) throw new Error('Invalid admission spend history capacity');
-  const policy = await verifyAdmissionPolicy(options.policy, options.authority);
-  assertAdmissionPolicyCurrent(policy, now());
+  const policy = await verifyArchivedAdmissionPolicy(options.policy, options.authority);
+  assertArchivedAdmissionPolicyCurrent(policy, now());
   const p = options.protection, context = parseHistoryCheckpointContext(p.context), contextId = historyCheckpointContextId(context);
   if (context.role !== 'relay-admission-spends') throw new Error('Admission history requires its own history role');
   if (context.authority !== options.authority) throw new Error('Wrong admission history authority');
@@ -80,12 +81,19 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
     key.fill(0); signer.secretKey.fill(0); throw new Error('Wrong admission history owner or encryption key');
   }
   const participant = resolve(options.directory);
+  let proofSignal: AbortSignal | undefined;
+  let proofOperation: PolicyProofOperation = {};
+  const proofCache: PolicyProofCache = new Map();
+  const membershipCache = new Map<string, AdmissionPolicyHistoryMembership>();
+  function* source(): Iterable<HistoryCheckpointEnvelope> { read(); if (p.ancestrySource) yield* p.ancestrySource(); if (writer) yield* writer.history(); }
+  const proofHistory: PolicyProofHistory = { source, context, encryptionKey: key, cache: proofCache, membershipCache, get operation() { return proofOperation; }, get signal() { return proofSignal; } };
   let storage: ReturnType<typeof openEncryptedLocalState<AdmissionSpendState | ProtectedAdmissionState>> | undefined;
   let writer: ReturnType<typeof createRetainedHistoryCheckpointWriter> | undefined;
   let closed = false, active = false, readyConfirmed = false;
   let certificationController: AbortController | undefined;
   function baseline(state: AdmissionSpendState): ProtectedAdmissionState {
-    if (context.policyDigest !== `sha256:${admissionPolicyDigest(policy)}`) throw new Error('Baseline policy does not match pinned history');
+    if (policy.version === 3) throw new Error('Fresh protected v3 enrollment is unsupported; enroll original genesis first');
+    if (context.policyDigest !== `sha256:${archivedAdmissionPolicyDigest(policy)}`) throw new Error('Baseline policy does not match pinned history');
     const image: AdmissionHistoryImage = { version: 1, kind: 'admission-spend-checkpoint', policy, state: parseAdmissionSpendState(state, policy, limit) };
     const root = sealHistoryCheckpoint({ context, header: { kind: 'checkpoint', generation: 0, sequence: 0, previous: null },
       plaintext: encodeAdmissionHistoryRecord(image), encryptionKey: key, signingKey: signer });
@@ -116,10 +124,10 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
   async function nextImage(state: ProtectedAdmissionState): Promise<AdmissionHistoryImage> {
     if (!state.pending) return state.image;
     if (state.pending.sequence === 0) return state.version === 4
-      ? parseAdmissionHistoryImage(state.restoration.baseline, context.authority, limit)
-      : parseAdmissionHistoryImage(decode(state.pending), context.authority, limit);
+      ? parseAdmissionHistoryImage(state.restoration.baseline, context.authority, limit, proofHistory)
+      : parseAdmissionHistoryImage(decode(state.pending), context.authority, limit, proofHistory);
     if (state.pending.kind === 'continuation') throw new Error('Protected admission restore requires reviewed successor activation');
-    return (await reduceAdmissionHistory(state.image, decode(state.pending), limit, state.pending.kind)).image;
+    return (await reduceAdmissionHistory(state.image, decode(state.pending), limit, state.pending.kind, proofHistory)).image;
   }
   function available() {
     const state = read();
@@ -132,7 +140,7 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
   }
   async function exclusive<T>(operation: () => Promise<T>): Promise<T> {
     read(); if (active) throw new Error('Protected admission history operation is in progress');
-    active = true;
+    active = true; proofOperation = {};
     try { return await operation(); } finally { active = false; }
   }
   async function finishPending(): Promise<boolean> {
@@ -164,19 +172,19 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
     return { header: reservedHeader, capacity: { requiredBlocks, requiredCiphertextBytes, availableBlocks, availableCiphertextBytes,
       fits: requiredBlocks <= availableBlocks && requiredCiphertextBytes <= availableCiphertextBytes } };
   }
-  async function commit(value: AdmissionHistoryMutation | AdmissionHistoryStateCheckpoint | AdmissionHistoryRoleCheckpoint): Promise<void> {
+  async function commit(value: AdmissionHistoryMutation | AdmissionHistoryStateCheckpoint | AdmissionHistoryRoleCheckpoint | AdmissionHistoryProofCheckpoint): Promise<void> {
     const before = available();
     if (before.applied!.sequence >= Number.MAX_SAFE_INTEGER - 1) throw new Error('History sequence capacity exhausted');
-    const kind = value.kind === 'admission-state-checkpoint' || value.kind === 'admission-roles-checkpoint'
+    const kind = value.kind === 'admission-state-checkpoint' || value.kind === 'admission-roles-checkpoint' || value.kind === 'admission-policy-proof-checkpoint'
       || value.kind === 'policy' && Buffer.byteLength(JSON.stringify(value)) > HISTORY_DELTA_MAX_PAYLOAD ? 'checkpoint' : 'delta';
     const record: AdmissionHistoryRecord = kind === 'checkpoint' && value.kind === 'policy'
       ? { version: 1, kind: 'admission-policy-checkpoint', at: value.at, image: { ...before.image, policy: value.policy } } : value;
-    const reduced = await reduceAdmissionHistory(before.image, record, limit, kind); read();
+    const reduced = await reduceAdmissionHistory(before.image, record, limit, kind, proofHistory); read();
     const header = { kind, generation: before.root.generation, sequence: before.applied!.sequence + 1, previous: before.applied!.id } as const;
     const plaintext = encodeAdmissionHistoryRecord(reduced.record);
     let pending: HistoryCheckpointEnvelope;
     try {
-      const checkpoint = value.kind === 'admission-state-checkpoint';
+      const checkpoint = value.kind === 'admission-state-checkpoint' || value.kind === 'admission-policy-proof-checkpoint';
       const prepared = recordHeadroom(header, plaintext.length, reduced.image, checkpoint);
       if (!prepared.capacity.fits) {
         throw new Error(checkpoint ? 'State checkpoint needs retained archive headroom; no checkpoint intent was written'
@@ -184,11 +192,12 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
       }
       pending = sealHistoryCheckpoint({ context, header: prepared.header, plaintext, encryptionKey: key, signingKey: signer });
     } finally { plaintext.fill(0); }
+    proofSignal?.throwIfAborted();
     storage!.write({ ...before, pending });
     await finishPending();
   }
   function checkpointPlan() {
-    const state = available(), at = now(); assertAdmissionPolicyCurrent(state.image.policy, at);
+    const state = available(), at = now(); assertArchivedAdmissionPolicyCurrent(state.image.policy, at);
     if (state.applied!.sequence >= Number.MAX_SAFE_INTEGER - 1) throw new Error('History sequence capacity exhausted');
     const plaintext = encodeAdmissionHistoryRecord({ version: 1, kind: 'admission-state-checkpoint', at, image: state.image });
     const payloadBytes = plaintext.length; plaintext.fill(0);
@@ -206,7 +215,7 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
     const state = available(), roles = parseAdmissionRoleHistories(value, state.image.policy, limit);
     const image: AdmissionHistoryImage & { version: 2 } = { ...state.image, version: 2, roles };
     const record: AdmissionHistoryRoleCheckpoint = { version: 1, kind: 'admission-roles-checkpoint', at: now(), image };
-    await reduceAdmissionHistory(state.image, record, limit, 'checkpoint'); read();
+    await reduceAdmissionHistory(state.image, record, limit, 'checkpoint', proofHistory); read();
     const alreadyCaptured = state.image.version === 2 && admissionRoleHistoriesIdentity(state.image.roles) === admissionRoleHistoriesIdentity(roles);
     let capacity = { fits: true, requiredBlocks: 0, requiredCiphertextBytes: 0, availableBlocks: 0, availableCiphertextBytes: 0 };
     if (!alreadyCaptured) {
@@ -230,7 +239,8 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
       remove: claims.filter(claim => claim.issuerKey === issuerKey).length, maximumEntries: limit, now: now() });
   }
   function certificationCheckpoint() {
-    const state = available(); writerMatches();
+    const state = available();
+    if (state.image.policyProof) throw new Error('Policy proof ancestry requires proof-preserving certification; business-only certification is unsupported'); writerMatches();
     const checkpoint = writer!.read().committed?.envelope;
     if (!checkpoint || checkpoint.kind !== 'checkpoint' || checkpoint.sequence === 0
       || id(checkpoint) !== state.applied!.id) throw new Error('Certification requires the latest applied complete state checkpoint');
@@ -240,7 +250,7 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
       || JSON.stringify(record.image) !== JSON.stringify(state.image)) {
       throw new Error('Certification checkpoint does not preserve the current complete state');
     }
-    assertAdmissionPolicyCurrent(state.image.policy, record.at as number);
+    assertArchivedAdmissionPolicyCurrent(state.image.policy, record.at as number);
     const genesisId = state.version === 4 ? id(state.restoration.genesis) : id(state.root);
     const facts = { kind: 'admission-history-checkpoint-certification' as const, contextId, genesisId,
       rootId: id(state.root), generation: checkpoint.generation, sequence: checkpoint.sequence, envelopeId: id(checkpoint),
@@ -260,6 +270,7 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
   }
   function prefixRetirement() {
     const { checkpoint } = certificationCheckpoint(), state = available(), proof = writer!.compactionAnchor();
+    if (state.image.policyProof) throw new Error('Policy proof ancestry cannot be retired by business-only checkpoints');
     if (!proof || proof.proposal.envelopeId !== id(checkpoint)) throw new Error('Prefix retirement requires certification of the latest complete state');
     const archive = writer!.planPrefixRetirement();
     return { archive, review: { ...archive, kind: 'admission-history-prefix-retirement' as const,
@@ -267,7 +278,7 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
       approvalDigest: historyDigest(`resonance:admission-history-prefix-retirement:v1\n${JSON.stringify([participant, archive.approvalDigest, state.image])}`) } };
   }
   function close() {
-    if (!closed) { closed = true; certificationController?.abort(); writer?.close(); storage?.close(); key.fill(0); signer.secretKey.fill(0); }
+    if (!closed) { closed = true; certificationController?.abort(); proofCache.clear(); membershipCache.clear(); writer?.close(); storage?.close(); key.fill(0); signer.secretKey.fill(0); }
   }
   try {
     let initial: ProtectedAdmissionState | undefined;
@@ -275,7 +286,7 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
       if (p.restore) {
         const restored = readPreparedAdmissionRestore(p.restore.preparation, p.restore.approvedDigest, participant, context, policy);
         // Check this handle's encryption key before any initialization can publish state.
-        await parseAdmissionHistoryImage(decode(restored.restoration.genesis), context.authority, limit);
+        await parseAdmissionHistoryImage(decode(restored.restoration.genesis), context.authority, limit, proofHistory);
         initial = { version: 4, context, ...restored, image: structuredClone(restored.restoration.baseline), applied: null, pending: restored.root };
       } else initial = baseline({ version: 2, authority: policy.authority, spends: [], retiredIssuerKeys: [] });
     }
@@ -307,15 +318,26 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
     }
     const genesis = state.version === 4 ? parseHistoryCheckpointEnvelope(state.restoration.genesis, context) : root;
     if (genesis.generation !== 0 || genesis.sequence !== 0 || genesis.kind !== 'checkpoint') throw new Error('Invalid protected admission genesis');
-    const originalGenesis = await parseAdmissionHistoryImage(decode(genesis), context.authority, limit);
-    if (`sha256:${admissionPolicyDigest(originalGenesis.policy)}` !== context.policyDigest) throw new Error('Protected baseline policy mismatch');
-    const original = state.version === 4 ? await parseAdmissionHistoryImage(state.restoration.baseline, context.authority, limit) : originalGenesis;
-    assertAdmissionPolicySuccessor(originalGenesis.policy, original.policy);
+    if (!inspectionOnly) {
+      if (p.initializeWriter && state.applied !== null) throw new Error('Cannot initialize a writer for already applied admission history');
+      writer = createRetainedHistoryCheckpointWriter({ directory: join(participant, 'admission-history-writer'), localKey: key,
+        context, signingKey: signer, rootId: id(root), generation: root.generation, members: p.members,
+        genesisId: state.version === 4 ? id(state.restoration.genesis) : id(root),
+        requireCurrentHead: true,
+        ...(root.kind === 'continuation' ? { continuation: root } : {}),
+        initialize: p.initializeWriter, initializeArchive: p.initializeArchive, resumePristineArchive: p.resumePristineArchive, timeoutMs: p.timeoutMs, transport: p.transport,
+        maxArchiveBlocks: p.maxArchiveBlocks, maxArchiveBytes: p.maxArchiveBytes });
+      writerMatches();
+    }
+    const originalGenesis = await parseAdmissionHistoryImage(decode(genesis), context.authority, limit, proofHistory);
+    if (`sha256:${archivedAdmissionPolicyDigest(originalGenesis.policy)}` !== context.policyDigest) throw new Error('Protected baseline policy mismatch');
+    const original = state.version === 4 ? await parseAdmissionHistoryImage(state.restoration.baseline, context.authority, limit, proofHistory) : originalGenesis;
+    if (originalGenesis.policy.version !== 3 && original.policy.version !== 3) assertAdmissionPolicySuccessor(originalGenesis.policy, original.policy); else if (!original.policyProof) throw new Error('Restored v3 baseline lacks original policy proof');
     if (state.version === 4 && (root.kind !== 'continuation' || state.restoration.replayDigest !== admissionHistoryReplayDigest(contextId, id(genesis),
       historySuccessorProposalId(root.proposal), original))) throw new Error('Protected restoration does not match its selected image');
-    const image = await parseAdmissionHistoryImage(state.image, context.authority, limit);
-    assertAdmissionPolicySuccessor(original.policy, image.policy);
-    assertAdmissionPolicySuccessor(image.policy, policy);
+    const image = await parseAdmissionHistoryImage(state.image, context.authority, limit, proofHistory);
+    if (original.policy.version !== 3 && image.policy.version !== 3) assertAdmissionPolicySuccessor(original.policy, image.policy); else if (!image.policyProof) throw new Error('V3 image lacks retained original proof');
+    if (image.policy.version !== 3 && policy.version !== 3) assertAdmissionPolicySuccessor(image.policy, policy); else if (policy.revision < image.policy.revision || policy.revision === image.policy.revision && archivedAdmissionPolicyDigest(policy) !== archivedAdmissionPolicyDigest(image.policy)) throw new Error('Configured policy differs from retained protected head');
     if (original.state.retiredIssuerKeys.some(key => !image.state.retiredIssuerKeys.includes(key))) throw new Error('Protected history lost a baseline denial');
     if (original.version === 2) assertAdmissionRoleRetention(original.roles, image.version === 2 ? image.roles : { witness: null, coordinator: null });
     if (state.applied === null) {
@@ -335,17 +357,7 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
     if (options.expectedStateDigest !== undefined && historyDigest(JSON.stringify(state)) !== options.expectedStateDigest) {
       throw new Error('Retained admission state changed after review');
     }
-    if (!inspectionOnly) {
-      if (p.initializeWriter && state.applied !== null) throw new Error('Cannot initialize a writer for already applied admission history');
-      writer = createRetainedHistoryCheckpointWriter({ directory: join(participant, 'admission-history-writer'), localKey: key,
-        context, signingKey: signer, rootId: id(root), generation: root.generation, members: p.members,
-        genesisId: state.version === 4 ? id(state.restoration.genesis) : id(root),
-        requireCurrentHead: true,
-        ...(root.kind === 'continuation' ? { continuation: root } : {}),
-        initialize: p.initializeWriter, initializeArchive: p.initializeArchive, resumePristineArchive: p.resumePristineArchive, timeoutMs: p.timeoutMs, transport: p.transport,
-        maxArchiveBlocks: p.maxArchiveBlocks, maxArchiveBytes: p.maxArchiveBytes });
-      writerMatches();
-    }
+
   } catch (error) { close(); throw error; }
 
   return {
@@ -361,7 +373,7 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
       const state = read(), status = writer!.historyStatus();
       return state.pending && state.pending.sequence >= status.sequenceSlots ? Buffer.byteLength(JSON.stringify(state.pending)) : 0;
     },
-    policy(): SignedAdmissionPolicy { return structuredClone(serving().image.policy); },
+    policy(): ArchivedAdmissionPolicy { return structuredClone(serving().image.policy); },
     /** Trusted role adapters validate membership and retry identity before signing.
      * Pending state remains visible so an exact uncertain decision can resume. */
     roleState() {
@@ -399,7 +411,7 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
           }
           await finishPending();
         }
-        const before = available().image, reduced = await reduceAdmissionHistory(before, record, limit); read();
+        const before = available().image, reduced = await reduceAdmissionHistory(before, record, limit, 'delta', proofHistory); read();
         if (before.version !== 2 || reduced.image.version !== 2) throw new Error('Admission role has not been captured');
         if (admissionRoleHistoriesIdentity(before.roles) !== admissionRoleHistoriesIdentity(reduced.image.roles)) await commit(record);
       });
@@ -415,18 +427,60 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
     ready() { return exclusive(async () => {
       readyConfirmed = false;
       let fresh = await finishPending();
-      if (admissionPolicyDigest(read().image.policy) !== admissionPolicyDigest(policy)) {
-        await commit({ version: 1, kind: 'policy', at: now(), policy });
+      if (archivedAdmissionPolicyDigest(read().image.policy) !== archivedAdmissionPolicyDigest(policy)) {
+        const current = available().image;
+        if (current.policyProof) {
+          if (!current.policyTrust || !sameAdmissionPolicyHead(current.policyProof.head, current.policyTrust.installed)) throw new Error('Finish exact protected proof backfill before policy installation');
+          const advance = await parseArchivedAdmissionPolicyAdvance(options.policyAdvance, current.policyProof.context);
+          if (!sameAdmissionPolicyHead(advance.commitment.previous, current.policyTrust.installed) || archivedAdmissionPolicyDigest(advance.policy) !== archivedAdmissionPolicyDigest(policy)) throw new Error('Relay policy installation requires its exact immediate signed advance');
+          const append = parseAdmissionPolicyProofAppend({ version: 1, kind: 'advance', advance, pages: (options.policyPages ?? []).map(page => ({ digest: page.digest, data: Buffer.from(page.bytes).toString('base64url') })) });
+          const beforeTrust = options.policyTrust ?? current.policyTrust, head = advance.commitment.next;
+          const policyTrust = parseAdmissionPolicyTrust({ ...beforeTrust, installed: head, observed: head.revision > beforeTrust.observed.revision ? head : beforeTrust.observed }, policy);
+          await commit({ version: 1, kind: 'admission-policy-proof-checkpoint', at: now(), image: { ...current, policy,
+            policyTrust, policyProof: admissionPolicyProofReference(current.policyProof.context, head, current.policyProof.limits), policyProofAppend: append } });
+        } else {
+          if (policy.version === 3) throw new Error('Backfill original protected relay policy proof before installing v3');
+          await commit({ version: 1, kind: 'policy', at: now(), policy });
+        }
         fresh = true;
       }
       // Reopen must not turn a coherent stale owner backup or an old root receipt into live admission.
       if (!fresh) await writer!.replicate(writer!.read().committed!.envelope);
-      assertAdmissionPolicyCurrent(available().image.policy, now());
+      assertArchivedAdmissionPolicyCurrent(available().image.policy, now());
       readyConfirmed = true;
+    }); },
+    async resolvedPolicy(signal?: AbortSignal) {
+      const image = serving().image;
+      if (!image.policyProof || !image.policyTrust || !sameAdmissionPolicyHead(image.policyProof.head, image.policyTrust.installed)) throw new Error('Protected relay has not completed exact original proof backfill');
+      const proof = createAdmissionPolicyHistoryProof({ ...proofHistory, reference: image.policyProof, candidate: image, signal });
+      return { capability: await proof.matches(image.policy), reference: image.policyProof, freshness: image.policyTrust };
+    },
+    backfillPolicyProof(appendValue: unknown, trustValue: AdmissionPolicyTrust, limits?: AdmissionPolicyArchiveLimits, signal?: AbortSignal) {
+      const append = parseAdmissionPolicyProofAppend(appendValue), trust = structuredClone(trustValue);
+      return exclusive(async () => {
+        serving(); const image = available().image; proofSignal = signal;
+        try {
+          signal?.throwIfAborted(); const policyTrust = parseAdmissionPolicyTrust(trust, image.policy);
+          if (image.policyTrust && JSON.stringify(image.policyTrust) !== JSON.stringify(policyTrust)) throw new Error('Proof backfill must preserve retained installed freshness');
+          let head;
+          if (!image.policyProof) { if (append.kind !== 'genesis' || !limits) throw new Error('Relay proof backfill starts with original genesis and explicit limits'); head = policyTrust.context.genesis; }
+          else { if (append.kind !== 'advance' || !sameAdmissionPolicyHead(append.advance.commitment.previous, image.policyProof.head)) throw new Error('Relay proof backfill requires one exact next step'); head = append.advance.commitment.next; }
+          if (head.revision > policyTrust.installed.revision) throw new Error('Relay proof backfill exceeds installed head');
+          const policyProof = admissionPolicyProofReference(policyTrust.context, head, image.policyProof?.limits ?? limits!);
+          await commit({ version: 1, kind: 'admission-policy-proof-checkpoint', at: now(), image: { ...image, proofVersion: 1, policyTrust, policyProof, policyProofAppend: append } });
+          return { head, complete: sameAdmissionPolicyHead(head, policyTrust.installed) };
+        } finally { proofSignal = undefined; }
+      });
+    },
+    observePolicy(observation: AdmissionPolicyObservation) { return exclusive(async () => {
+      const image = serving().image; if (!image.policyTrust) throw new Error('Protected relay policy observers are absent');
+      const checked = inspectAdmissionPolicyObservation(image.policyTrust, observation, now());
+      if (checked.state !== image.policyTrust) await commit({ version: 1, kind: 'admission-policy-proof-checkpoint', at: now(), image: { ...image, policyTrust: checked.state } });
+      if (checked.error) throw new Error(checked.error);
     }); },
     size() { return serving().image.state.spends.length; },
     get(spend: string) { const row = serving().image.state.spends.find(row => row.spend === spend); return row ? { ...row } : undefined; },
-    isRetired(issuerKey: string) { const { image } = serving(); return image.state.retiredIssuerKeys.includes(issuerKey) || isArchivedAdmissionKey(image.policy, issuerKey); },
+    isRetired(issuerKey: string) { const { image } = serving(); return image.state.retiredIssuerKeys.includes(issuerKey) || (image.policy.version === 3 ? !image.policy.keys.some(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === issuerKey) : isArchivedAdmissionKey(image.policy, issuerKey)); },
     planCheckpoint() { if (active) throw new Error('Protected admission history operation is in progress'); return checkpointPlan(); },
     checkpoint(approvedDigest: string) { return exclusive(async () => {
       const before = serving(), plan = checkpointPlan();
@@ -487,7 +541,7 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
           await finishPending(); return;
         }
         const before = available().image, record = { version: 1 as const, kind: 'authorized-spend' as const, at: now(), certificate, row };
-        const reduced = await reduceAdmissionHistory(before, record, limit); read();
+        const reduced = await reduceAdmissionHistory(before, record, limit, 'delta', proofHistory); read();
         if (before.version === 2 && reduced.image.version === 2
           && admissionRoleHistoriesIdentity(before.roles) === admissionRoleHistoriesIdentity(reduced.image.roles)
           && JSON.stringify(before.state) === JSON.stringify(reduced.image.state)) return;
@@ -508,7 +562,7 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
       const previous = available().image.state.spends.find(r => r.spend === row.spend);
       // Even exact retries validate structure, attribution, permanent fences and the historical retry cutoff.
       const value = { version: 1 as const, kind: 'spend' as const, at: now(), row };
-      await reduceAdmissionHistory(state.image, value, limit); read();
+      await reduceAdmissionHistory(state.image, value, limit, 'delta', proofHistory); read();
       if (previous?.issuerKey === row.issuerKey) return;
       await commit(value);
       });
@@ -522,12 +576,14 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
     }); },
     planLegacyRecovery(proofs: unknown) { return exclusive(async () => {
       const { image } = available();
+      if (image.policy.version === 3) throw new Error('Legacy recovery is not migrated to v3');
       const checked = await checkAdmissionLegacyRecovery({ directory: participant, policy: image.policy, state: image.state, proofs, now });
       read(); return checked.plan;
     }); },
     recoverLegacy(proofs: unknown, approvedDigest: string) { return exclusive(async () => {
       serving();
       const { image } = available();
+      if (image.policy.version === 3) throw new Error('Legacy recovery is not migrated to v3');
       const checked = await checkAdmissionLegacyRecovery({ directory: participant, policy: image.policy, state: image.state, proofs, now });
       read();
       if (typeof approvedDigest !== 'string' || approvedDigest !== checked.plan.approvalDigest) throw new Error('Recovery evidence, history or approval changed; review recovery again');

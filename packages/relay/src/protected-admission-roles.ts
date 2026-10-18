@@ -1,10 +1,10 @@
+import { assertArchivedAdmissionPolicyCurrent } from '@resonance/core/admission-policy-archive';
 /** Role signatures/certificates become usable only after their decision is in
  * the protected four-copy owner history. Local role files are never a fallback. */
 import type { Socket } from 'node:net';
 import type { SigningKeyPair } from '@resonance/core';
-import { admissionKeyFingerprint, admissionPolicyKeys, assertAdmissionPolicyCurrent, isArchivedAdmissionKey } from '@resonance/core/admission-policy';
-import { admissionSpendClaimId, admissionWitnessSetId, copyAdmissionSigningKey, createAdmissionWitnessRequest, createAdmissionWitnessVote,
-  verifyAdmissionSpendCertificate, verifyAdmissionWitnessRequest, type AdmissionSpendClaim, type AdmissionSpendCertificate, type AdmissionWitnessRequest } from '@resonance/core/admission-witness';
+import { admissionKeyFingerprint, isArchivedAdmissionKey } from '@resonance/core/admission-policy';
+import { admissionSpendClaimId, admissionWitnessSetId, copyAdmissionSigningKey, createAdmissionWitnessRequest, createAdmissionWitnessVote, verifyAdmissionSpendCertificate, verifyAdmissionWitnessRequest, type AdmissionSpendClaim, type AdmissionSpendCertificate, type AdmissionWitnessRequest } from '@resonance/core/admission-witness';
 import { collectAdmissionWitnessVotes, type AdmissionWitness, type AdmissionWitnessTransport } from './admission-witness.js';
 import { requestAdmissionWitnessVote } from './admission-witness-transport.js';
 import type { openProtectedAdmissionSpendHistory } from './protected-admission-history.js';
@@ -17,7 +17,7 @@ export function createProtectedAdmissionRoles(options: {
   const { history } = options, now = options.now ?? Date.now, timeoutMs = options.timeoutMs ?? 3000;
   // The protected owner selects its policy at open/ready; a policy change opens
   // new adapters. Do not clone the complete spend/vote image for each lookup.
-  const policy = history.policy(), byKey = new Map(admissionPolicyKeys(policy).map(entry => [admissionKeyFingerprint(entry.profile.issuerPublicKey), entry]));
+  const policy = history.policy(), byKey = new Map(policy.keys.map(entry => [admissionKeyFingerprint(entry.profile.issuerPublicKey), entry]));
   let witnessKey: SigningKeyPair | undefined, coordinatorKey: SigningKeyPair | undefined, closed = false, voting = false, coordinating = false;
   let pending: AbortController | undefined;
   let voteFinished: Promise<void> | undefined;
@@ -25,9 +25,9 @@ export function createProtectedAdmissionRoles(options: {
   function close() { if (closed) return; closed = true; pending?.abort(); witnessKey?.secretKey.fill(0); coordinatorKey?.secretKey.fill(0); }
   const available = () => { if (closed) throw new Error('Protected admission roles are closed'); };
   function policyAndEntry(issuerKey: string) {
-    available(); assertAdmissionPolicyCurrent(policy, now());
+    available(); assertArchivedAdmissionPolicyCurrent(policy, now());
     const entry = byKey.get(issuerKey);
-    if (!entry?.witnesses || isArchivedAdmissionKey(policy, issuerKey) || now() < entry.notBefore || now() >= entry.retryUntil) {
+    if (!entry?.witnesses || (policy.version === 3 ? !byKey.has(issuerKey) : isArchivedAdmissionKey(policy, issuerKey)) || now() < entry.notBefore || now() >= entry.retryUntil) {
       throw new Error('Protected admission issuer is unavailable or retired');
     }
     return { policy, entry };

@@ -1,8 +1,9 @@
+import { admissionPolicyProofReference, parseAdmissionPolicyProofAppend, parseArchivedAdmissionPolicyAdvance, verifyArchivedAdmissionPolicy, archivedAdmissionPolicyDigest, assertArchivedAdmissionPolicyCurrent, inspectResolvedAdmissionPolicy, inspectResolvedAdmissionPolicyKey, retainedResolvedAdmissionPolicyKey, AdmissionPolicyArchiveBudget, parseAdmissionPolicyProofReference, type AdmissionPolicyArchiveLimits } from '@resonance/core/admission-policy-archive';
+import { type PolicyProofOperation, type PolicyProofCache } from '../../relay/src/admission-policy-history-proof.js';
+import type { ProtectedIssuerState as State } from './protected-admission-issuer-state.js';
 /** Volunteer-protected issuer. This API directly owns its encrypted image and decisions. */
-import { verifyAdmissionPolicy, assertAdmissionPolicyCurrent, assertAdmissionPolicySuccessor,
-  admissionAuthorityFingerprint, admissionPolicyDigest, admissionPolicyKeys, isArchivedAdmissionKey } from '@resonance/core/admission-policy';
-import { verifyAdmissionIssuanceAllocation, admissionIssuanceAllocationDigest, assertAdmissionIssuanceAllocationCurrent,
-  selectAdmissionIssuerAllocation } from '@resonance/core/admission-issuance-allocation';
+import { verifyAdmissionPolicy, assertAdmissionPolicyCurrent, assertAdmissionPolicySuccessor, admissionAuthorityFingerprint, admissionPolicyKeys, isArchivedAdmissionKey } from '@resonance/core/admission-policy';
+import { verifyAdmissionIssuanceAllocation, admissionIssuanceAllocationDigest, assertAdmissionIssuanceAllocationCurrent, selectAdmissionIssuerAllocation } from '@resonance/core/admission-issuance-allocation';
 import { verifyAdmissionClaimAssignment, type SignedAdmissionClaimAssignment } from '@resonance/core/admission-claim-assignment';
 import { createHash, randomBytes } from 'node:crypto';
 import { resolve } from 'node:path';
@@ -10,14 +11,13 @@ import { openProtectedIssuerHistory, readProtectedIssuerHistoryRecoverySource, f
 import { admissionKeyFingerprint, type AdmissionWalletProfileV1 } from './admission-wallet-profile.js';
 import { prepareAdmissionBatchIssuer, validateAdmissionIssuanceTarget, type AdmissionIssuanceResponse } from './blind-admission-issuance.js';
 import { admissionPolicyObserversId, parseAdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
-import { matchesAdmissionPolicyHead, parseAdmissionPolicyAdvance, sameAdmissionPolicyHead } from '@resonance/core/admission-policy-advance';
+import { sameAdmissionPolicyHead } from '@resonance/core/admission-policy-advance';
 import { createAdmissionPolicyQuery, type AdmissionPolicyQuery } from '@resonance/core/admission-policy-query';
 import { inspectAdmissionPolicyObservation, parseAdmissionPolicyTrust } from '@resonance/core/admission-policy-trust';
 
-import { parseProtectedIssuerImage, assertProtectedIssuerImageSuccessor, assertProtectedIssuerGenesis } from './protected-admission-issuer-state.js';
+import { parseProtectedIssuerImage, assertProtectedIssuerImageSuccessor, assertProtectedIssuerGenesis, validateProtectedIssuerPolicyProof } from './protected-admission-issuer-state.js';
 import { readPreparedProtectedIssuerRestore, type PreparedProtectedIssuerRestore } from './admission-issuer-history-restore.js';
-import { DOMAIN, permitHash, totals, canonicalClaim, claimDigest, claimScopeBinding,
-  assertAdmissionIssuerPolicy, validateAdmissionIssuerPermit, deriveAdmissionIssuerEncryptionKey, IssuerPolicyObservationExpiredError, type State, type AdmissionIssuancePermit } from './admission-issuer-state.js';
+import { DOMAIN, permitHash, totals, canonicalClaim, claimDigest, claimScopeBinding, assertAdmissionIssuerPolicy, validateAdmissionIssuerPermit, deriveAdmissionIssuerEncryptionKey, IssuerPolicyObservationExpiredError, type AdmissionIssuancePermit } from './admission-issuer-state.js';
 
 export interface ProtectedIssuerRecoverySource {
   readonly path: string; readonly writerDirectory: string; readonly contextId: string; readonly genesisId: string;
@@ -42,7 +42,7 @@ export interface ProtectedAdmissionIssuerLedgerOptions {
   expectedProfile: unknown;
   privateKey: CryptoKey;
   expectedAllocationAuthority: string;
-  protection: Omit<ProtectedIssuerHistoryOptions<State>, 'path' | 'domain' | 'encryptionKey' | 'initial' | 'validate' | 'initialize' | 'restore' | 'assertTransition' | 'validateGenesis' | 'resumeRestoration' | 'resumePristineArchive'>;
+  protection: Omit<ProtectedIssuerHistoryOptions<State>, 'path' | 'domain' | 'encryptionKey' | 'initial' | 'validate' | 'initialize' | 'restore' | 'assertTransition' | 'validateGenesis' | 'resumeRestoration' | 'resumePristineArchive' | 'validateProof'>;
   /** Fresh creation only. Existing local ledgers cannot be promoted through this API. */
   initialize?: { allocation: unknown; communityPolicy: unknown; observers: unknown };
   /** Reviewed restoration is an in-process capability, never a serialized snapshot or generic adapter option. */
@@ -50,7 +50,7 @@ export interface ProtectedAdmissionIssuerLedgerOptions {
   now?: () => number;
 }
 export async function openProtectedAdmissionIssuerLedger(options: ProtectedAdmissionIssuerLedgerOptions) {
-  if (Object.hasOwn(options.protection, 'restore') || Object.hasOwn(options.protection, 'assertTransition') || Object.hasOwn(options.protection, 'validateGenesis') || Object.hasOwn(options.protection, 'resumeRestoration') || Object.hasOwn(options.protection, 'resumePristineArchive')) {
+  if (Object.hasOwn(options.protection, 'restore') || Object.hasOwn(options.protection, 'assertTransition') || Object.hasOwn(options.protection, 'validateGenesis') || Object.hasOwn(options.protection, 'resumeRestoration') || Object.hasOwn(options.protection, 'resumePristineArchive') || Object.hasOwn(options.protection, 'validateProof')) {
     throw new Error('Protected issuer restoration and transition validation require the business API capability');
   }
   if (options.initialize && options.restore) throw new Error('Protected issuer initialization and restoration are mutually exclusive');
@@ -66,7 +66,20 @@ export async function openProtectedAdmissionIssuerLedger(options: ProtectedAdmis
     if (options.protection.context.authority !== authority) throw new Error('Protected issuer history authority differs from its independent allocation pin');
     const issuer = await prepareAdmissionBatchIssuer({ expectedProfile: options.expectedProfile, privateKey: options.privateKey });
     const profile = structuredClone(issuer.profile);
-    const validate = (value: unknown) => parseProtectedIssuerImage(value, { profile, authority });
+    const proofOperations = new WeakMap<object, PolicyProofOperation>(), proofCache: PolicyProofCache = new Map();
+    let operationSignal: AbortSignal | undefined, installProofOperation: PolicyProofOperation | undefined;
+    const proofOperation = (token: object) => {
+      if (installProofOperation) return installProofOperation;
+      let operation = proofOperations.get(token); if (!operation) { operation = {}; proofOperations.set(token, operation); } return operation;
+    };
+    const validate = (value: unknown, token?: object) => {
+      if (installProofOperation?.budget) return installProofOperation.budget.wait(() => parseProtectedIssuerImage(value, { profile, authority }));
+      const referenceValue = (value as State | null)?.policyProof;
+      if (!referenceValue || !token) return parseProtectedIssuerImage(value, { profile, authority });
+      const reference = parseAdmissionPolicyProofReference(referenceValue), operation = proofOperation(token);
+      const budget = operation.budget ??= new AdmissionPolicyArchiveBudget({ limits: reference.limits, signal: operationSignal });
+      return budget.wait(() => parseProtectedIssuerImage(value, { profile, authority }));
+    };
     let initial: State | undefined;
     if (options.initialize) {
       const manifest = await verifyAdmissionIssuanceAllocation(structuredClone(options.initialize.allocation), authority);
@@ -75,9 +88,9 @@ export async function openProtectedAdmissionIssuerLedger(options: ProtectedAdmis
       const selected = selectAdmissionIssuerAllocation(manifest, profile);
       const policy = await verifyAdmissionPolicy(structuredClone(options.initialize.communityPolicy), authority);
       assertAdmissionPolicyCurrent(policy, now());
-      if (options.protection.context.policyDigest !== `sha256:${admissionPolicyDigest(policy)}`) throw new Error('Protected issuer history policy differs from its independently pinned genesis');
+      if (options.protection.context.policyDigest !== `sha256:${archivedAdmissionPolicyDigest(policy)}`) throw new Error('Protected issuer history policy differs from its independently pinned genesis');
       const observers = parseAdmissionPolicyObservers(structuredClone(options.initialize.observers));
-      if (!matchesAdmissionPolicyHead(policy, observers.genesis)) throw new Error('Issuer observer enrollment requires its independently pinned genesis');
+      if (!(policy.revision === observers.genesis.revision && archivedAdmissionPolicyDigest(policy) === observers.genesis.digest)) throw new Error('Issuer observer enrollment requires its independently pinned genesis');
       initial = await validate({ version: 8, allocation: { manifest, authority, digest: admissionIssuanceAllocationDigest(manifest) },
         claimMode: 'authority-assigned-v1', profile, policy: { batchSize: selected.batchSize, maxPermits: selected.maxPermits }, entries: [], communityPolicy: policy,
         freshness: parseAdmissionPolicyTrust({ context: observers, installed: observers.genesis, observed: observers.genesis }, policy) });
@@ -86,6 +99,8 @@ export async function openProtectedAdmissionIssuerLedger(options: ProtectedAdmis
       if (policy.activeKey !== id || now() < entry.notBefore || now() >= entry.issueUntil || isArchivedAdmissionKey(policy, id)) throw new Error('Issuer is retired or inactive under the signed community policy');
     }
     const key = await deriveAdmissionIssuerEncryptionKey(options.privateKey);
+    const validateProof = (image: State, source: () => Iterable<import('@resonance/core/history-checkpoint').HistoryCheckpointEnvelope>, token?: object) =>
+      validateProtectedIssuerPolicyProof(image, { source, context: options.protection.context, encryptionKey: key, signal: operationSignal, operation: token ? proofOperation(token) : undefined, cache: proofCache });
     let storage: Awaited<ReturnType<typeof openProtectedIssuerHistory<State>>>;
     try {
       if (initial) {
@@ -95,9 +110,9 @@ export async function openProtectedAdmissionIssuerLedger(options: ProtectedAdmis
       const restored = options.restore === undefined ? undefined : readPreparedProtectedIssuerRestore(options.restore.preparation, options.restore.approvedDigest,
         { path: options.path, writerDirectory: options.protection.writerDirectory, context: options.protection.context, profile, authority });
       storage = await openProtectedIssuerHistory<State>({ ...options.protection, path: options.path, domain: DOMAIN, encryptionKey: key,
-        initialize: !!options.initialize || !!restored, initial: initial!, validate, assertTransition: assertProtectedIssuerImageSuccessor, validateGenesis: image => assertProtectedIssuerGenesis(image, options.protection.context), restore: restored, resumeRestoration: undefined, resumePristineArchive: false });
+        initialize: !!options.initialize || !!restored, initial: initial!, validate, validateProof, assertTransition: assertProtectedIssuerImageSuccessor, validateGenesis: image => assertProtectedIssuerGenesis(image, options.protection.context), restore: restored, resumeRestoration: undefined, resumePristineArchive: false });
     }
-    finally { key.fill(0); }
+    catch (error) { key.fill(0); throw error; }
     let busy = false, observation: { query: AdmissionPolicyQuery; deadline: number } | undefined;
     function live() { const state = storage.read(); if (state.version === 9) throw new Error('Issuer ledger is permanently retired'); return state; }
     function checkPolicy(recover = false) { assertAdmissionIssuerPolicy(live(), profile, (options.now ?? Date.now)(), recover); }
@@ -131,12 +146,17 @@ export async function openProtectedAdmissionIssuerLedger(options: ProtectedAdmis
       available(); const state = live(), policy = state.communityPolicy;
       if (!policy) throw new Error('Issuer retirement requires an installed signed community policy');
       if (policy.authority !== authority) throw new Error('Issuer retirement authority does not match the pinned community authority');
-      const now = (options.now ?? Date.now)(); assertAdmissionPolicyCurrent(policy, now);
+      const now = (options.now ?? Date.now)(); assertArchivedAdmissionPolicyCurrent(policy, now);
       const issuerKey = admissionKeyFingerprint(profile.issuerPublicKey);
-      const entry = admissionPolicyKeys(policy).find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === issuerKey)!;
+      const retainedPolicy = policy.version === 3 ? [...proofCache.values()].find(value => value.reference.reference === state.policyProof?.reference
+        && archivedAdmissionPolicyDigest(inspectResolvedAdmissionPolicy(value.policy).policy) === archivedAdmissionPolicyDigest(policy))?.policy : undefined;
+      const entry = policy.version === 3
+        ? retainedPolicy && inspectResolvedAdmissionPolicyKey(retainedPolicy, retainedResolvedAdmissionPolicyKey(retainedPolicy, issuerKey))
+        : admissionPolicyKeys(policy).find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === issuerKey);
+      if (!entry) throw new Error('Issuer retirement requires its exact resolved original membership');
       if (policy.activeKey === issuerKey) throw new Error('Cannot permanently retire the active issuer key; install a successor first');
       if (now < entry.retryUntil) throw new Error('Issuer history must remain until the key retry cutoff');
-      const ledgerPath = resolve(options.path), policyDigest = admissionPolicyDigest(policy), retained = totals(state);
+      const ledgerPath = resolve(options.path), policyDigest = archivedAdmissionPolicyDigest(policy), retained = totals(state);
       const approvalDigest = 'sha256:' + createHash('sha256').update(JSON.stringify([
         'resonance:admission-issuer-retirement:v1', ledgerPath, authority, issuerKey, policyDigest, state,
       ])).digest('hex');
@@ -204,13 +224,32 @@ export async function openProtectedAdmissionIssuerLedger(options: ProtectedAdmis
         if (approvedDigest !== plan.approvalDigest) throw new Error('Issuer history changed or approval does not match; review retirement again');
         busy = true; observation = undefined;
         try {
-          const state = live(), retiredAt = now(); assertAdmissionPolicyCurrent(state.communityPolicy!, retiredAt);
+          const state = live(), retiredAt = now(); assertArchivedAdmissionPolicyCurrent(state.communityPolicy!, retiredAt);
           if (retiredAt < plan.retryUntil) throw new Error('Issuer history must remain until the key retry cutoff');
           await storage.commit({ ...state, version: 9, communityPolicy: state.communityPolicy!, entries: [], retirement: { retiredAt, ...totals(state) } });
           storage.assertServing(); return plan;
         } finally { busy = false; }
       },
-      async installPolicy(value: unknown, authority: string, pins: { observers?: unknown; advance?: unknown } = {}) {
+      async backfillPolicyProof(appendValue: unknown, limits?: AdmissionPolicyArchiveLimits, signal?: AbortSignal) {
+        available(); const state = live(); busy = true; observation = undefined; operationSignal = signal;
+        try {
+          signal?.throwIfAborted(); const append = parseAdmissionPolicyProofAppend(appendValue);
+          if (!state.freshness || state.freshness.conflict) throw new Error('Issuer proof backfill requires independent nonconflicting original pins');
+          let head;
+          if (!state.policyProof) {
+            if (append.kind !== 'genesis' || !limits) throw new Error('Issuer proof backfill starts with original genesis and explicit limits');
+            head = state.freshness.context.genesis;
+          } else {
+            if (limits && JSON.stringify(limits) !== JSON.stringify(state.policyProof.limits)) throw new Error('Issuer proof limits are already pinned');
+            if (append.kind !== 'advance' || !sameAdmissionPolicyHead(append.advance.commitment.previous, state.policyProof.head)) throw new Error('Issuer backfill requires its next signed proof step');
+            head = append.advance.commitment.next;
+          }
+          if (head.revision > state.freshness.installed.revision) throw new Error('Issuer backfill exceeds its installed head');
+          await storage.commit({ ...state, proofVersion: 1, policyProof: admissionPolicyProofReference(state.freshness.context, head, state.policyProof?.limits ?? limits!), policyProofAppend: append });
+          return { head: structuredClone(head), complete: sameAdmissionPolicyHead(head, state.freshness.installed) };
+        } finally { busy = false; operationSignal = undefined; }
+      },
+      async installPolicy(value: unknown, authority: string, pins: { observers?: unknown; advance?: unknown; pages?: Array<{ digest: string; bytes: Uint8Array }>; signal?: AbortSignal } = {}) {
         available(); const state = storage.read();
         if (state.allocation && state.allocation.authority !== authority) throw new Error('Community policy authority does not match the pinned issuer allocation');
         if (state.communityPolicy && state.communityPolicy.authority !== authority) throw new Error('Community authority is already pinned');
@@ -218,31 +257,45 @@ export async function openProtectedAdmissionIssuerLedger(options: ProtectedAdmis
         try {
           const input = structuredClone(value), advanceInput = pins.advance === undefined ? undefined : structuredClone(pins.advance);
           const observers = pins.observers === undefined ? undefined : parseAdmissionPolicyObservers(pins.observers);
-          const policy = await verifyAdmissionPolicy(input, authority); storage.read();
+          operationSignal = pins.signal; operationSignal?.throwIfAborted();
+          const budget = new AdmissionPolicyArchiveBudget({ signal: operationSignal, limits: state.policyProof?.limits ?? {
+            maxPages: 1, maxEntries: 1, maxArchiveBytes: 1, maxHistoryBytes: 1, maxTransitions: 1, maxPageReads: 1, timeoutMs: 3000 } });
+          installProofOperation = { budget };
+          const policy = await budget.wait(() => verifyArchivedAdmissionPolicy(input, authority)); storage.read();
+          if (policy.version === 3 && !state.policyProof) throw new Error('Backfill original protected policy proof before installing v3');
           let freshness = state.freshness;
           if (freshness?.conflict) throw new Error('Issuer policy observations conflict; issuance is fenced');
           if (freshness && observers && admissionPolicyObserversId(observers) !== admissionPolicyObserversId(freshness.context)) throw new Error('Issuer policy observers are already pinned');
-          const advance = advanceInput === undefined ? undefined : await parseAdmissionPolicyAdvance(advanceInput, freshness?.context ?? observers!);
+          const advance = advanceInput === undefined ? undefined : await parseArchivedAdmissionPolicyAdvance(advanceInput, freshness?.context ?? observers!, { signal: operationSignal, budget });
           storage.read();
-          if (!advance || !freshness || policy.revision >= freshness.observed.revision) assertAdmissionPolicyCurrent(policy, (options.now ?? Date.now)());
+          if (!advance || !freshness || policy.revision >= freshness.observed.revision) assertArchivedAdmissionPolicyCurrent(policy, (options.now ?? Date.now)());
           if (freshness) {
             if (advance) {
-              if (!matchesAdmissionPolicyHead(policy, advance.commitment.next)
+              if (!(policy.revision === advance.commitment.next.revision && archivedAdmissionPolicyDigest(policy) === advance.commitment.next.digest)
                 || !sameAdmissionPolicyHead(advance.commitment.previous, freshness.installed) && !sameAdmissionPolicyHead(advance.commitment.next, freshness.installed)) {
                 throw new Error('Issuer policy update must extend its retained signed transition');
               }
               const head = advance.commitment.next;
               if (head.revision === freshness.observed.revision && !sameAdmissionPolicyHead(head, freshness.observed)) throw new Error('Issuer policy update conflicts with its observed floor');
               freshness = { ...freshness, installed: head, observed: head.revision > freshness.observed.revision ? head : freshness.observed };
-            } else if (!matchesAdmissionPolicyHead(policy, freshness.installed)) throw new Error('Issuer policy freshness requires a signed immediate successor');
+            } else if (!(policy.revision === freshness.installed.revision && archivedAdmissionPolicyDigest(policy) === freshness.installed.digest)) throw new Error('Issuer policy freshness requires a signed immediate successor');
           } else if (observers) {
-            if (advance || !matchesAdmissionPolicyHead(policy, observers.genesis)) throw new Error('Issuer observer enrollment requires its independently pinned genesis');
+            if (advance || !(policy.revision === observers.genesis.revision && archivedAdmissionPolicyDigest(policy) === observers.genesis.digest)) throw new Error('Issuer observer enrollment requires its independently pinned genesis');
             freshness = parseAdmissionPolicyTrust({ context: observers, installed: observers.genesis, observed: observers.genesis }, policy);
           } else if (advance) throw new Error('Issuer transition requires independently pinned observers');
-          if (state.communityPolicy) assertAdmissionPolicySuccessor(state.communityPolicy, policy);
-          if (!admissionPolicyKeys(policy).some(entry => JSON.stringify(entry.profile) === JSON.stringify(profile))) throw new Error('Issuer is absent from the signed community policy');
-          await storage.commit({ ...state, communityPolicy: policy, ...(freshness ? { freshness } : {}) });
-        } finally { busy = false; }
+          if (state.communityPolicy && state.communityPolicy.version !== 3 && policy.version !== 3) assertAdmissionPolicySuccessor(state.communityPolicy, policy);
+          if (policy.version !== 3 && !admissionPolicyKeys(policy).some(entry => JSON.stringify(entry.profile) === JSON.stringify(profile))) throw new Error('Issuer is absent from the signed community policy');
+          let proofFields = {};
+          if (state.policyProof) {
+            if (!advance || !freshness || !sameAdmissionPolicyHead(state.policyProof.head, state.freshness!.installed)) throw new Error('Finish exact installed proof backfill before advancing the issuer');
+            const append = parseAdmissionPolicyProofAppend({ version: 1, kind: 'advance', advance,
+              pages: (pins.pages ?? []).map(page => ({ digest: page.digest, data: Buffer.from(page.bytes).toString('base64url') })) });
+            proofFields = { policyProof: admissionPolicyProofReference(freshness.context, freshness.installed, state.policyProof.limits), policyProofAppend: append };
+          }
+          budget.check();
+          // The commit owns durable mutation; only its read-only validators race cancellation.
+          await storage.commit({ ...state, communityPolicy: policy, ...(freshness ? { freshness } : {}), ...proofFields }, () => budget.check());
+        } finally { busy = false; operationSignal = undefined; installProofOperation = undefined; }
       },
       status() {
         const state = storage.read(), { policy, entries } = state, counts = totals(state), retired = state.version === 9;
@@ -307,7 +360,7 @@ export async function openProtectedAdmissionIssuerLedger(options: ProtectedAdmis
           return structuredClone(response); // Only a durably cached response may leave this boundary.
         } finally { busy = false; }
       },
-      close() { observation = undefined; storage.close(); },
+      close() { observation = undefined; storage.close(); proofCache.clear(); key.fill(0); },
     };
     return api;
   } finally { options.protection.signingKey.secretKey.fill(0); }

@@ -1,10 +1,11 @@
+import type { ProtectedIssuerState as State } from './protected-admission-issuer-state.js';
 /** Fixed issuer entry for explicit, readiness-unverified restoration completion. */
 import { openProtectedIssuerHistory, MAX_PROTECTED_ISSUER_HISTORY_BYTES, PROTECTED_ISSUER_RECOVERY_FENCE, type ProtectedIssuerHistoryStatus } from '@resonance/relay/protected-issuer-history';
 import type { SigningKeyPair } from '@resonance/core';
 import type { HistoryContinuationRoot } from '@resonance/core/history-continuation';
 import type { HistoryCheckpointTransport, HistoryReplicaEndpoint } from '../../relay/src/history-checkpoint-exchange.js';
 import { prepareAdmissionBatchIssuer } from './blind-admission-issuance.js';
-import { DOMAIN, deriveAdmissionIssuerEncryptionKey, type State } from './admission-issuer-state.js';
+import { DOMAIN, deriveAdmissionIssuerEncryptionKey } from './admission-issuer-state.js';
 import { replayProtectedIssuerHistory, type ProtectedIssuerReplayOptions } from './admission-issuer-history-replay.js';
 import { parseProtectedIssuerImage, assertProtectedIssuerImageSuccessor, assertProtectedIssuerGenesis } from './protected-admission-issuer-state.js';
 import { openProtectedHistoryRestoreResumption, type ProtectedHistoryRestoreResumptionStrategy } from './protected-history-restore-resumption.js';

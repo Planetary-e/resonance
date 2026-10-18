@@ -2,8 +2,7 @@
 import type { SigningKeyPair } from '@resonance/core';
 import type { HistoryCheckpointContext, HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import type { createRetainedHistoryCheckpointWriter } from './history-retained-writer.js';
-import { openProtectedCheckpointOwner, checkpointOwnerReplayDigest, readProtectedCheckpointOwnerRecoverySource, fenceProtectedCheckpointOwnerRecoverySource,
-  MAX_PROTECTED_CHECKPOINT_OWNER_BYTES, MAX_PROTECTED_CHECKPOINT_IMAGE_BYTES } from './protected-checkpoint-owner.js';
+import { openProtectedCheckpointOwner, checkpointOwnerReplayDigest, readProtectedCheckpointOwnerRecoverySource, fenceProtectedCheckpointOwnerRecoverySource, MAX_PROTECTED_CHECKPOINT_OWNER_BYTES, MAX_PROTECTED_CHECKPOINT_IMAGE_BYTES } from './protected-checkpoint-owner.js';
 type WriterOptions = Parameters<typeof createRetainedHistoryCheckpointWriter>[0];
 export const MAX_PROTECTED_ISSUER_HISTORY_BYTES = MAX_PROTECTED_CHECKPOINT_OWNER_BYTES;
 export const MAX_PROTECTED_ISSUER_IMAGE_BYTES = MAX_PROTECTED_CHECKPOINT_IMAGE_BYTES;
@@ -27,10 +26,12 @@ export interface ProtectedIssuerHistoryOptions<T> {
   context: HistoryCheckpointContext; signingKey: SigningKeyPair; members: WriterOptions['members'];
   initial: T;
   /** Authenticate and normalize the complete issuer image, including its allocation and all retained decisions. */
-  validate(value: unknown): T | Promise<T>;
+  validate(value: unknown, operation?: object): T | Promise<T>;
   /** Trusted business semantics, used for live and retained generation transitions. */
   assertTransition?(previous: T, next: T): void | Promise<void>;
   validateGenesis?(image: T): void | Promise<void>;
+  ancestrySource?: () => Iterable<HistoryCheckpointEnvelope>;
+  validateProof?(image: T, source: () => Iterable<HistoryCheckpointEnvelope>, operation?: object): void | Promise<void>;
   /** Internal trusted restoration input. Business APIs must require their reviewed capability first. */
   restore?: ProtectedIssuerHistoryRestoration<T>;
   /** Internal exact interrupted restoration completion, approved by the dedicated resumption workflow. */
@@ -65,9 +66,10 @@ export interface ProtectedIssuerHistoryStatus {
 }
 export interface ProtectedIssuerHistory<T> {
   reviewRecoverySource(): Promise<ProtectedIssuerHistoryRecoverySource<T>>;
-  read(): T; commit(value: T): Promise<void>; ready(): Promise<void>; assertServing(): void;
+  read(): T; commit(value: T, assertBeforeIntent?: () => void): Promise<void>; ready(): Promise<void>; assertServing(): void;
   assertCapacity(values: readonly T[]): Promise<void>;
   status(): ProtectedIssuerHistoryStatus;
+  history(): Iterable<HistoryCheckpointEnvelope>;
   enrollment(): { context: HistoryCheckpointContext; root: HistoryCheckpointEnvelope };
   close(): void;
 }
