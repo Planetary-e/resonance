@@ -14,6 +14,7 @@ import { createRelayServer } from './server.js';
 import { createConfiguredAdmissionVerifier } from './configured-admission-verifier.js';
 import { loadAdmissionHistoryProtectionFile, readAdmissionHistoryLinksFile } from './admission-history-config.js';
 import { readHistoryVolunteerConfigurationFile, openConfiguredHistoryVolunteer } from './history-volunteer-config.js';
+import { readHistoryVolunteerCollectionFile, openConfiguredHistoryVolunteerCollection } from './history-volunteer-collection.js';
 import type { AdmissionCapabilityVerifierV2 } from './admission.js';
 import type { AdmissionWitness } from './admission-witness.js';
 import { readHistoryBridgeConfigurationFile } from './history-bridge-config.js';
@@ -49,13 +50,16 @@ const publicEndpoints = [...new Set([
 const configuredContacts = parseList(process.env.RELAY_CONTACTS);
 const historyVolunteerConfig = process.env.RELAY_HISTORY_VOLUNTEER_FILE
   ? readHistoryVolunteerConfigurationFile(process.env.RELAY_HISTORY_VOLUNTEER_FILE) : undefined;
+const historyVolunteerCollectionConfig = process.env.RELAY_HISTORY_VOLUNTEER_COLLECTION_FILE
+  ? readHistoryVolunteerCollectionFile(process.env.RELAY_HISTORY_VOLUNTEER_COLLECTION_FILE) : undefined;
+if (historyVolunteerConfig && historyVolunteerCollectionConfig) throw new Error('Choose one enrolled volunteer configuration or collection');
 const historyBridgeConfig = process.env.RELAY_HISTORY_BRIDGE_FILE
   ? readHistoryBridgeConfigurationFile(process.env.RELAY_HISTORY_BRIDGE_FILE) : undefined;
 const hintMap = new Map(configuredContacts.map(endpoint => (
   createRelayContactHintV1('configured', endpoint)
 )).map(hint => [hint.endpoint, hint]));
 // Explicit history controller pins take precedence over an unpinned contact hint.
-for (const hint of historyVolunteerConfig?.contacts ?? []) hintMap.set(hint.endpoint, hint);
+for (const hint of (historyVolunteerCollectionConfig ?? historyVolunteerConfig)?.contacts ?? []) hintMap.set(hint.endpoint, hint);
 const configuredHints = [...hintMap.values()];
 const bootstrapHints = parseList(process.env.RELAY_BOOTSTRAP_CONTACTS).map(endpoint => (
   createRelayContactHintV1('bootstrap', endpoint)
@@ -177,7 +181,7 @@ const ownerPolicy = ownerBandwidth !== undefined || ownerTotalBandwidth !== unde
 let historyProtection: ReturnType<typeof loadAdmissionHistoryProtectionFile> | undefined;
 let admissionVerifier: (AdmissionCapabilityVerifierV2 & { close(): void; witness?: AdmissionWitness; historyHealth?: () => HistoryOwnerHealth }) | undefined;
 let admissionHistoryHealth: (() => HistoryOwnerHealth) | undefined;
-let historyVolunteer: ReturnType<typeof openConfiguredHistoryVolunteer> | undefined;
+let historyVolunteer: ReturnType<typeof openConfiguredHistoryVolunteer> | ReturnType<typeof openConfiguredHistoryVolunteerCollection> | undefined;
 let historyRouter: HistoryRelayRouter | undefined;
 const deferred = historyLinksFile ? createDeferredAdmission() : undefined;
 function clearAdmissionKeys() {
@@ -210,7 +214,9 @@ try {
   }
   configuredHints.splice(0, configuredHints.length, ...hintMap.values());
   const ownerMembers = ownerRouting?.members;
-  historyVolunteer = historyVolunteerConfig ? openConfiguredHistoryVolunteer(historyVolunteerConfig,
+  historyVolunteer = historyVolunteerCollectionConfig ? openConfiguredHistoryVolunteerCollection(historyVolunteerCollectionConfig,
+    ownerPolicy ? bytes => ownerPolicy.allowNewWork(bytes) : undefined, ownerMembers, historyBridgeConfig?.routes)
+    : historyVolunteerConfig ? openConfiguredHistoryVolunteer(historyVolunteerConfig,
     ownerPolicy ? bytes => ownerPolicy.allowNewWork(bytes) : undefined, ownerMembers, historyBridgeConfig?.routes) : undefined;
   historyRouter = historyVolunteer?.router ?? (ownerMembers || historyBridgeConfig ? new HistoryRelayRouter({ members: ownerMembers,
     bridgeRoutes: historyBridgeConfig?.routes, acceptForward: ownerPolicy ? bytes => ownerPolicy.allowNewWork(bytes) : undefined, waitForConnection: true }) : undefined);

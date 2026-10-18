@@ -25,3 +25,14 @@ it('projects only aggregate fields and treats malformed counters as unavailable 
   expect(parseRelayHistoryHealth({ ...input, owner: { state: 'available', usage: { ...usage, initialized: 'true' } } })?.owner).toEqual({ state: 'unavailable' });
   for (const value of [null, undefined, [], false]) expect(parseRelayHistoryHealth(value)).toBeNull();
 });
+
+it('preserves a bounded collection count without exposing per-history identities', () => {
+  const usage = { generations: 5, maximumGenerations: 40, retainedBlocks: 6, stagedBlocks: 0, retainedCiphertextBytes: 12000,
+    manifestReserveBytes: 20971520, reservedBytes: 20983520, currentGenerationReservedBytes: 20983520, currentGenerationBlocks: 6,
+    maximumGenerationBytes: 83886080, maximumGenerationBlocks: 5000, maximumAncestryBytes: 1342177280 };
+  const input = { owner: null, volunteer: { state: 'available', usage: { ...usage, histories: 5, contexts: ['private-context'] } }, transport: null };
+  expect(parseRelayHistoryHealth(input)?.volunteer).toEqual({ state: 'available', usage: { ...usage, histories: 5 } });
+  expect(parseRelayHistoryHealth({ ...input, volunteer: { state: 'available', usage } })?.volunteer).toEqual({ state: 'available', usage });
+  for (const histories of [0, 9, 1.5, '5', undefined]) expect(parseRelayHistoryHealth({ ...input,
+    volunteer: { state: 'available', usage: { ...usage, histories } } })?.volunteer).toEqual({ state: 'unavailable' });
+});

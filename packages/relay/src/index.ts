@@ -128,6 +128,7 @@ export type { RelayHistoryHealth, HistoryOwnerHealth, HistoryVolunteerHealth, Hi
 export { parseRelayHistoryHealth } from './history-health.js';
 export type { HistoryRelayMemberRoute, HistoryRelayBridgeRoute } from './history-relay-bridge.js';
 export { readHistoryVolunteerConfigurationFile, openConfiguredHistoryVolunteer } from './history-volunteer-config.js';
+export { readHistoryVolunteerCollectionFile, parseHistoryVolunteerCollection, openConfiguredHistoryVolunteerCollection } from './history-volunteer-collection.js';
 export { discoverHistoryContinuations, type HistoryContinuationDiscovery } from './history-continuation-discovery.js';
 export { prepareAdmissionHistoryRecovery, openAdmissionHistoryRecovery, type AdmissionRecoveryReview } from './admission-history-recovery.js';
 

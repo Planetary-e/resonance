@@ -20,7 +20,7 @@ export function parseHistoryVolunteerConfiguration(raw: unknown, base: string) {
     || !exactWitnessFields(raw.limits, ['bytesPerGeneration', 'blocksPerGeneration', 'generations'])) throw new Error('Invalid history volunteer configuration');
   const context = parseHistoryCheckpointContext(raw.context);
   function file(value: unknown) {
-    if (typeof value !== 'string' || !value.length || value.length > 4096 || value.includes('\0')) throw new Error('Invalid history volunteer path');
+    if (typeof value !== 'string' || !value.length || value.length > 4096 || /[\x00-\x1f\x7f]/.test(value)) throw new Error('Invalid history volunteer path');
     return resolve(base, value);
   }
   const limits = raw.limits;
@@ -43,17 +43,21 @@ export function parseHistoryVolunteerConfiguration(raw: unknown, base: string) {
 }
 
 /** Opens existing state only. Enrollment/initialization remains an explicit operator operation. */
-export function openConfiguredHistoryVolunteer(config: ReturnType<typeof readHistoryVolunteerConfigurationFile>, acceptNew?: (bytes: number) => boolean,
-  ownerMembers?: readonly HistoryRelayMemberRoute[], bridgeRoutes?: readonly HistoryRelayBridgeRoute[]) {
+export function openConfiguredHistoryVolunteerStore(config: ReturnType<typeof readHistoryVolunteerConfigurationFile>, acceptNew?: () => boolean) {
   const signingKey = readOperatorSigningKey(config.signingKeyFile);
-  let localKey: Buffer | undefined, service: ReturnType<typeof openHistoryVolunteerService> | undefined;
+  let localKey: Buffer | undefined;
   try {
     localKey = readOperatorStorageKey(config.storageKeyFile);
-    let requestBytes = 0;
-    service = openHistoryVolunteerService({ context: config.context, genesisId: config.genesisId, directory: config.directory,
+    return openHistoryVolunteerService({ context: config.context, genesisId: config.genesisId, directory: config.directory,
       localKey, signingKey, maxBytes: config.maxBytes, maxBlocks: config.maxBlocks, maxGenerations: config.maxGenerations,
-      acceptNew: acceptNew ? () => acceptNew(requestBytes) : undefined });
-    const enrolled = service;
+      acceptNew });
+  } finally { localKey?.fill(0); signingKey.secretKey.fill(0); }
+}
+export function openConfiguredHistoryVolunteer(config: ReturnType<typeof readHistoryVolunteerConfigurationFile>, acceptNew?: (bytes: number) => boolean,
+  ownerMembers?: readonly HistoryRelayMemberRoute[], bridgeRoutes?: readonly HistoryRelayBridgeRoute[]) {
+  let requestBytes = 0;
+  const enrolled = openConfiguredHistoryVolunteerStore(config, acceptNew ? () => acceptNew(requestBytes) : undefined);
+  try {
     const router = new HistoryRelayRouter({ members: ownerMembers, bridgeRoutes, acceptForward: acceptNew, waitForConnection: !!ownerMembers || !!bridgeRoutes,
       acceptedRelayIds: config.contacts.map(c => c.expectedRelayId!),
       handler(method, value) {
@@ -64,6 +68,5 @@ export function openConfiguredHistoryVolunteer(config: ReturnType<typeof readHis
         finally { requestBytes = 0; }
       } });
     return { router, describe: () => enrolled.describe(), health: () => enrolled.health(), close() { router.close(); enrolled.close(); } };
-  } catch (error) { service?.close(); throw error; }
-  finally { localKey?.fill(0); signingKey.secretKey.fill(0); }
+  } catch (error) { enrolled.close(); throw error; }
 }

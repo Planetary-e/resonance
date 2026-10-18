@@ -10,6 +10,25 @@ import {
 afterEach(() => vi.unstubAllEnvs());
 
 describe('desktop relay service definitions', () => {
+  it('retains an explicit history collection across GUI restarts and carries only its path into all service definitions', () => {
+    vi.stubEnv('RESONANCE_RELAY_ENTRY', '/opt/Resonance/relay.mjs');
+    vi.stubEnv('RESONANCE_RELAY_HISTORY_VOLUNTEER_FILE', undefined);
+    vi.stubEnv('RESONANCE_RELAY_HISTORY_VOLUNTEER_COLLECTION_FILE', undefined);
+    const retained = { historyVolunteerCollectionFile: '/private/collection.json' };
+    expect(relayServiceRuntime(retained)).toMatchObject(retained);
+    expect(() => relayServiceRuntime({ ...retained, historyVolunteerFile: '/private/single.json' })).toThrow('Choose one');
+    const directory = mkdtempSync(join(tmpdir(), 'collection-service-'));
+    const options: RelayServiceOptions = { dataDir: directory, port: 9091, adminKey: 'test-only', contacts: [],
+      nodePath: process.execPath, entryPath: '/opt/Resonance/relay.mjs', workingDirectory: directory, ...retained };
+    try {
+      expect(relayServiceEnvironment(options)).toMatchObject({ RELAY_HISTORY_VOLUNTEER_COLLECTION_FILE: retained.historyVolunteerCollectionFile, RELAY_HISTORY_VOLUNTEER_FILE: '' });
+      for (const text of [macServicePlist(options), linuxServiceUnit(options), windowsServiceScript(options)]) {
+        expect(text).toContain('RELAY_HISTORY_VOLUNTEER_COLLECTION_FILE'); expect(text).toContain(retained.historyVolunteerCollectionFile);
+      }
+      vi.stubEnv('RESONANCE_RELAY_HISTORY_VOLUNTEER_COLLECTION_FILE', '');
+      expect(relayServiceRuntime(retained).historyVolunteerCollectionFile).toBe('');
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
   it('validates prepared directory paths separately from regular files before any native service action', () => {
     const directory = mkdtempSync(join(tmpdir(), 'relay-role-paths-')), file = join(directory, 'fixture-file'), history = join(directory, 'history');
     writeFileSync(file, 'path validation fixture'); mkdirSync(history);

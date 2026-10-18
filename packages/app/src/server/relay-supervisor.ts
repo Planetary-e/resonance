@@ -18,6 +18,7 @@ const SERVICE_FILES = {
   storageSelectionFile: 'RELAY_STORAGE_SELECTION_FILE',
   identityPassphraseFile: 'RELAY_IDENTITY_PASSPHRASE_FILE',
   historyVolunteerFile: 'RELAY_HISTORY_VOLUNTEER_FILE',
+  historyVolunteerCollectionFile: 'RELAY_HISTORY_VOLUNTEER_COLLECTION_FILE',
   historyBridgeFile: 'RELAY_HISTORY_BRIDGE_FILE',
   admissionHistoryFile: 'RELAY_ADMISSION_HISTORY_FILE',
   admissionHistoryDirectory: 'RELAY_ADMISSION_HISTORY_DIRECTORY',
@@ -60,6 +61,7 @@ function validateRoleFiles(files: RelayServiceRoleFiles): void {
       throw new Error('Invalid relay role configuration path');
     }
   }
+  if (files.historyVolunteerFile && files.historyVolunteerCollectionFile) throw new Error('Choose one volunteer role configuration or collection');
   const policy = [files.admissionAuthorityFile, files.admissionPolicyFile, files.admissionPolicyKeyFile];
   if ((policy.some(Boolean) && !policy.every(Boolean)) || (files.admissionHistoryFile && !policy.every(Boolean))
     || ((files.admissionHistoryLinksFile || files.admissionHistoryDirectory) && !files.admissionHistoryFile)) {

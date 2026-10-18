@@ -5,6 +5,8 @@ export interface HistoryOwnerHealth {
   maximumBlocks: number; maximumCiphertextBytes: number;
 }
 export interface HistoryVolunteerHealth {
+  /** Omitted by older single-history runtimes. Collection limits are sums. */
+  histories?: number;
   generations: number; maximumGenerations: number;
   retainedBlocks: number; stagedBlocks: number; retainedCiphertextBytes: number;
   manifestReserveBytes: number; reservedBytes: number;
@@ -59,10 +61,16 @@ export function parseRelayHistoryHealth(value: unknown): RelayHistoryHealth | nu
     }
     return { state: 'available', usage: usage as T };
   }
+  let volunteer = role<HistoryVolunteerHealth>(value.volunteer, ['generations', 'maximumGenerations', 'retainedBlocks', 'stagedBlocks', 'retainedCiphertextBytes',
+    'manifestReserveBytes', 'reservedBytes', 'currentGenerationReservedBytes', 'currentGenerationBlocks', 'maximumGenerationBytes', 'maximumGenerationBlocks', 'maximumAncestryBytes']);
+  if (volunteer?.state === 'available' && object(value.volunteer) && object(value.volunteer.usage) && Object.hasOwn(value.volunteer.usage, 'histories')) {
+    const count = value.volunteer.usage.histories;
+    if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 1 || count > 8) volunteer = { state: 'unavailable' };
+    else volunteer.usage.histories = count;
+  }
   return {
     owner: role(value.owner, ['retainedBlocks', 'retainedCiphertextBytes', 'maximumBlocks', 'maximumCiphertextBytes'], ['initialized', 'busy', 'pending']),
-    volunteer: role(value.volunteer, ['generations', 'maximumGenerations', 'retainedBlocks', 'stagedBlocks', 'retainedCiphertextBytes',
-      'manifestReserveBytes', 'reservedBytes', 'currentGenerationReservedBytes', 'currentGenerationBlocks', 'maximumGenerationBytes', 'maximumGenerationBlocks', 'maximumAncestryBytes']),
+    volunteer,
     transport: role(value.transport, ['configuredMembers', 'connectedDirectMembers', 'configuredOwnerBridges', 'connectedOwnerBridges',
       'configuredBridgeRoutes', 'connectedBridgeTargets', 'configuredControllers', 'connectedControllers', 'operations', 'maximumOperations', 'bufferBytes', 'maximumBufferBytes']),
   };

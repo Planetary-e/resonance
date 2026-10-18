@@ -53,6 +53,9 @@ jobs:
           packages/relay/src/__tests__/policy-observer-setup.integration.test.ts
           packages/relay/src/__tests__/policy-observer-setup-crash.integration.test.ts
           packages/relay/src/__tests__/policy-observer-outbound.integration.test.ts
+          packages/relay/src/__tests__/history-volunteer-collection.test.ts
+          packages/relay/src/__tests__/history-volunteer-collection.integration.test.ts
+          packages/app/src/server/__tests__/history-collection-storage.test.ts
 
   test:
     runs-on: ubuntu-latest

@@ -17,6 +17,7 @@ export default function HistoryHealth({ health }: { health: RelayHistoryHealth |
     </>}
     {volunteer && volunteer.state !== 'available' && <p role="status">Volunteer history status is unavailable. Checking status does not clear saved history.</p>}
     {volunteer?.state === 'available' && <>
+      {(volunteer.usage.histories ?? 1) > 1 && <p>Hosting {volunteer.usage.histories} independent histories. The following totals cover all of them.</p>}
       <p>Hosting {volunteer.usage.generations} / {volunteer.usage.maximumGenerations} history generations.</p>
       <p className="text-sm">Encrypted payloads: {mib(volunteer.usage.retainedCiphertextBytes)} MiB,
         {' '}{volunteer.usage.retainedBlocks} retained blocks and {volunteer.usage.stagedBlocks} staged blocks.</p>
