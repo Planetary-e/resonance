@@ -408,6 +408,20 @@ export function applyRelayHistoryActivation(input: RelayHistoryActivationInput, 
 }
 export function cancelRelayHistoryOperation() { return api<{ active: boolean }>('POST', '/api/relay/history/cancel'); }
 
+export interface RelayHistoryCollectionInput { configurationFile: string }
+export interface RelayHistoryCollectionReview {
+  kind: 'history-collection-activation'; configurationFile: string;
+  histories: Array<{ contextId: string; genesisId: string; member: string; directory: string }>;
+  controllers: Array<{ relayId: string; endpoint: string }>;
+  health: { histories: number; generations: number; retainedBlocks: number; reservedBytes: number; maximumGenerations: number };
+  readiness: 'unverified'; startsService: false; approvalDigest: string;
+}
+export function getRelayHistoryCollectionInput() { return api<{ input: RelayHistoryCollectionInput | null }>('GET', '/api/relay/history/collection'); }
+export function reviewRelayHistoryCollection(input: RelayHistoryCollectionInput) { return api<RelayHistoryCollectionReview>('POST', '/api/relay/history/collection/review', { input }); }
+export function applyRelayHistoryCollection(input: RelayHistoryCollectionInput, approvalDigest: string) {
+  return api<{ result: string; readiness: 'unverified'; startsService: false }>('POST', '/api/relay/history/collection/apply', { input, approvalDigest });
+}
+
 export interface RelayVolunteerActivationInput {
   enrollmentFile: string; signingKeyFile: string; storageKeyFile: string; directory: string; controllersFile: string; output: string;
   generationMiB: number; blocksPerGeneration: number; maximumGenerations: number;

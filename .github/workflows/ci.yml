@@ -61,6 +61,7 @@ jobs:
           packages/relay/src/__tests__/history-volunteer-collection.test.ts
           packages/relay/src/__tests__/history-volunteer-collection.integration.test.ts
           packages/app/src/server/__tests__/history-collection-storage.test.ts
+          packages/app/src/server/__tests__/history-collection-activation.integration.test.ts
 
   test:
     runs-on: ubuntu-latest

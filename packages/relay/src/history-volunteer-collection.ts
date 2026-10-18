@@ -4,7 +4,7 @@
 import { dirname, resolve } from 'node:path';
 import { realpathSync } from 'node:fs';
 import { exactWitnessFields } from '@resonance/core/admission-witness';
-import { historyCheckpointContextId, isHistoryDigest } from '@resonance/core/history-checkpoint';
+import { historyCheckpointContextId, historyDigest, isHistoryDigest } from '@resonance/core/history-checkpoint';
 import { readOperatorFile } from './admission-operator-files.js';
 import { historySetupContains } from './admission-history-setup.js';
 import { parseHistoryVolunteerConfiguration, openConfiguredHistoryVolunteerStore } from './history-volunteer-config.js';
@@ -92,6 +92,10 @@ export function openConfiguredHistoryVolunteerCollection(config: ReturnType<type
     router = new HistoryRelayRouter({ members: ownerMembers, bridgeRoutes, acceptForward: acceptNew,
       waitForConnection: !!ownerMembers || !!bridgeRoutes, serializeRequests: true, acceptedRelayIds: config.contacts.map(c => c.expectedRelayId!), handler: handle });
     return { router, handle, close,
+      reviewDigest() {
+        if (closed) throw new Error('Volunteer history collection is closed');
+        return historyDigest(JSON.stringify([...stores].map(([contextId, store]) => [contextId, store.reviewDigest()])));
+      },
       health(): HistoryVolunteerHealth & { histories: number } {
         if (closed) throw new Error('Volunteer history collection is closed');
         const all = [...stores.values()].map(store => store.health()), total = { ...all[0] };

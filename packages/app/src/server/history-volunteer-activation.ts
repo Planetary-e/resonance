@@ -10,6 +10,7 @@ import { readOperatorFile, readOperatorJson, readOperatorSigningKey, readOperato
 import { relayServiceRuntime, validateRelayServicePaths } from './relay-supervisor.js';
 import type { RelayConfig } from './session.js';
 import { historyActivationServiceFiles } from './history-activation.js';
+import { historyCollectionActivationServiceFiles } from './history-collection-activation.js';
 
 export interface RelayVolunteerActivationInput {
   enrollmentFile: string; signingKeyFile: string; storageKeyFile: string; directory: string; controllersFile: string; output: string;
@@ -49,6 +50,7 @@ function sameBinding(expected: RelayVolunteerBinding, actual: RelayVolunteerBind
 }
 /** A later launch must retain the reviewed role even if an old GUI launch variable differs. */
 export function volunteerActivationServiceFiles(previous: RelayConfig) {
+  if (previous.historyCollectionInput) return historyCollectionActivationServiceFiles(previous);
   if (!previous.historyVolunteerActivationInput) return {};
   const input = parseRelayVolunteerActivationInput(previous.historyVolunteerActivationInput);
   if (!previous.historyVolunteerBinding) throw new Error('Reviewed volunteer binding is missing; retain settings for recovery');
@@ -61,6 +63,7 @@ export async function withRelayVolunteerActivation<T>(raw: unknown, previous: Re
     apply: (digest: string, beforeWrite?: () => void) => { result: 'volunteer-service-configured'; startsService: false; readiness: 'unverified' };
     runtime: ReturnType<typeof relayServiceRuntime> }) => Promise<T>): Promise<T> {
   signal.throwIfAborted(); const input = parseRelayVolunteerActivationInput(raw);
+  if (previous.historyCollectionInput) throw new Error('Review the complete selected collection; single-history activation cannot drop its other histories');
   const canonical = () => pathFields.map(field => [field, canonicalHistorySetupPath(input[field])]);
   const layout = canonical(), directory = canonicalHistorySetupPath(input.directory), output = canonicalHistorySetupPath(input.output), runtimeDirectoryCanonical = canonicalHistorySetupPath(runtimeDirectory);
   if (historySetupContains(directory, runtimeDirectoryCanonical) || historySetupContains(runtimeDirectoryCanonical, directory)

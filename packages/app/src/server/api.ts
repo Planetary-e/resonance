@@ -35,6 +35,7 @@ import {
   planRelayStorageLimit, applyRelayStorageLimit, cancelRelayStorageLimit, getRelayStorageStatus,
   planRelayStorageScope, applyRelayStorageScope, cancelRelayStorageScope,
   getRelayVolunteerActivationInput, planRelayVolunteerActivation, applyRelayVolunteerActivation,
+  getRelayHistoryCollectionInput, planRelayHistoryCollectionActivation, applyRelayHistoryCollectionActivation,
   publishItem,
   listSessionItems,
   releaseHeldPublication,
@@ -526,6 +527,28 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
       }
       if (!res.destroyed) json(res, result);
     } catch (err) { if (!res.destroyed) error(res, err instanceof Error ? err.message : 'Storage setup failed; retain all files and maintenance', 409); }
+    finally { res.removeListener('close', disconnected); }
+    return true;
+  }
+
+  if (url === '/api/relay/history/collection' && method === 'GET') {
+    if (!requireAuth(req, res)) return true;
+    try { json(res, { input: getRelayHistoryCollectionInput() }); }
+    catch (err) { error(res, err instanceof Error ? err.message : 'Saved collection selection unavailable', 409); }
+    return true;
+  }
+  if (['/api/relay/history/collection/review', '/api/relay/history/collection/apply'].includes(url!) && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    const controller = new AbortController(), disconnected = () => { if (!res.writableEnded) controller.abort(); };
+    res.once('close', disconnected);
+    try {
+      const body = await readBody(req), applying = url!.endsWith('/apply');
+      if (!exactWitnessFields(body, applying ? ['input', 'approvalDigest'] : ['input'])
+        || (applying && (typeof body.approvalDigest !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(body.approvalDigest)))) throw new Error('Supply the collection selection and reviewed approval when applying');
+      const result = applying ? await applyRelayHistoryCollectionActivation(body.input, body.approvalDigest as string, controller.signal)
+        : await planRelayHistoryCollectionActivation(body.input, controller.signal);
+      if (!res.destroyed) json(res, result);
+    } catch (err) { if (!res.destroyed) error(res, err instanceof Error ? err.message : 'Collection selection failed; retain existing history', 409); }
     finally { res.removeListener('close', disconnected); }
     return true;
   }

@@ -4,6 +4,7 @@
  */
 
 import { exactWitnessFields } from '@resonance/core/admission-witness';
+import { parseRelayHistoryCollectionInput, parseRelayHistoryCollectionBinding, withRelayHistoryCollectionActivation } from './history-collection-activation.js';
 import { inventoryRelayHistoryStorage, retainRelayStorageDirectories, retainRelayHistoryOperationLocations } from './history-storage.js';
 import { parseStorageDirectories } from '@resonance/relay';
 import {
@@ -159,6 +160,8 @@ export function getRelayActivity(): RelayActivity {
 // --- Relay config persistence ---
 
 export interface RelayConfig {
+  historyCollectionInput?: import('./history-collection-activation.js').RelayHistoryCollectionInput;
+  historyCollectionBinding?: import('./history-collection-activation.js').RelayHistoryCollectionBinding;
   enabled: boolean;
   port: number;
   adminKey?: string;
@@ -210,6 +213,9 @@ export function loadRelayConfig(): RelayConfig {
     if ((value.historyVolunteerActivationInput === undefined) !== (value.historyVolunteerBinding === undefined)) throw new Error('Missing volunteer selection or binding');
     if (value.historyVolunteerActivationInput !== undefined) parseRelayVolunteerActivationInput(value.historyVolunteerActivationInput);
     if (value.historyVolunteerBinding !== undefined) parseRelayVolunteerBinding(value.historyVolunteerBinding);
+    if ((value.historyCollectionInput === undefined) !== (value.historyCollectionBinding === undefined)) throw new Error('Missing collection selection or binding');
+    if (value.historyCollectionInput !== undefined) parseRelayHistoryCollectionInput(value.historyCollectionInput);
+    if (value.historyCollectionBinding !== undefined) parseRelayHistoryCollectionBinding(value.historyCollectionBinding);
     return value as RelayConfig;
   } catch { throw new Error('Saved relay settings are invalid; retain them for recovery before changing the service'); }
 }
@@ -340,6 +346,7 @@ async function startRelayModeUnlocked(
     && await relayServiceStats(p, adminKey)) return { port: p };
   const service = { port: p, dataDir: getDataDir(), adminKey, contacts, controls, ...runtime };
   const next: RelayConfig = { enabled: true, port: p, adminKey, contacts, controls, runtime,
+    ...(previous.historyCollectionInput ? { historyCollectionInput: previous.historyCollectionInput, historyCollectionBinding: previous.historyCollectionBinding } : {}),
     ...(previous.historyActivationInput ? { historyActivationInput: previous.historyActivationInput } : {}),
     ...(previous.historyRecoveryInput ? { historyRecoveryInput: previous.historyRecoveryInput } : {}),
     ...(previous.historySetupInput ? { historySetupInput: previous.historySetupInput } : {}),
@@ -584,6 +591,21 @@ export function getRelayHistoryActivationInput() { return loadRelayConfig().hist
 export function getRelayHistoryRecoveryInput() { return loadRelayConfig().historyRecoveryInput ?? null; }
 export function getRelayHistorySetupInput() { return loadRelayConfig().historySetupInput ?? null; }
 export function getRelayVolunteerActivationInput() { return loadRelayConfig().historyVolunteerActivationInput ?? null; }
+export function getRelayHistoryCollectionInput() { return loadRelayConfig().historyCollectionInput ?? null; }
+export async function planRelayHistoryCollectionActivation(input: unknown, signal?: AbortSignal) {
+  return runRelayHistoryOperation(operationSignal => withRelayHistoryCollectionActivation(input, loadRelayConfig(), join(getDataDir(), 'relay-data'), operationSignal,
+    async prepared => prepared.review), signal);
+}
+export async function applyRelayHistoryCollectionActivation(input: unknown, digest: string, signal?: AbortSignal) {
+  return runRelayHistoryOperation(async operationSignal => {
+    const previous = loadRelayConfig();
+    return withRelayHistoryCollectionActivation(input, previous, join(getDataDir(), 'relay-data'), operationSignal, async prepared => {
+      const next = { ...previous, enabled: false, runtime: prepared.runtime, historyCollectionInput: prepared.input, historyCollectionBinding: prepared.binding };
+      const result = prepared.apply(digest, () => retainRelayHistoryOperationLocations(next, join(getDataDir(), 'relay-data'), previous));
+      saveRelayConfig(next); return { ...result, maintenanceActive: true };
+    });
+  }, signal);
+}
 export async function planRelayVolunteerActivation(input: unknown, signal?: AbortSignal) {
   return runRelayHistoryOperation(async operationSignal => withRelayVolunteerActivation(input, loadRelayConfig(), join(getDataDir(), 'relay-data'), operationSignal,
     async prepared => prepared.review), signal);

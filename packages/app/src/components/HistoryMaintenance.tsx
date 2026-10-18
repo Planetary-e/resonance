@@ -6,6 +6,7 @@ import HistorySetup from './HistorySetup';
 import HistoryStorage from './HistoryStorage';
 import RelayStorage from './RelayStorage';
 import HistoryVolunteerActivation from './HistoryVolunteerActivation';
+import HistoryCollectionActivation from './HistoryCollectionActivation';
 
 export default function HistoryMaintenance({ refreshRelay }: { refreshRelay?: () => Promise<unknown> }) {
   const [state, setState] = useState<RelayMaintenanceStatus | null>(null);
@@ -35,6 +36,7 @@ export default function HistoryMaintenance({ refreshRelay }: { refreshRelay?: ()
       <HistoryStorage onBusyChange={setOperationBusy} blocked={busy || operationBusy} />
       <HistorySetup onBusyChange={setOperationBusy} blocked={busy || operationBusy} />
       <HistoryVolunteerActivation onBusyChange={setOperationBusy} blocked={busy || operationBusy} />
+      <HistoryCollectionActivation onBusyChange={setOperationBusy} blocked={busy || operationBusy} />
       <HistoryRecovery onBusyChange={setOperationBusy} blocked={busy || operationBusy} />
       <HistoryActivation onBusyChange={setOperationBusy} blocked={busy || operationBusy} />
     </>}
