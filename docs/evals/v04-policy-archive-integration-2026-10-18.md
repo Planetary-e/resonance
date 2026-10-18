@@ -267,3 +267,35 @@ three-second operation ceilings; fixture setup may have its own test-wrapper
 allowance. Record exact failure/evidence without increasing production limits
 or silently tuning the scenario. This checks a necessary prerequisite of the
 full wallet/issuer/relay target and cannot qualify all of K2.
+
+Protected-observer scale check assigned to a fresh **Sol Medium** implementation
+context on clean `42a4af7`. Scope is only new test/fixture files, one fixed
+qualification run after fixture checks, no production edits or limit changes.
+Shared weekly entry observation is **16% used**; this is an account counter, not
+attributable task cost. Two independent five-replica observer histories must use
+the enrolled real observer channel and unchanged production defaults.
+
+### Fixed observer-scale result
+
+Sol Medium implemented only the new
+`packages/relay/src/__tests__/policy-observer-65-rotations.integration.test.ts`;
+parent reviewed its fixture, assertions and unchanged production limits. File
+SHA-256 `a8a1d3cedf1560bcc271c5f0f2f2a276380d8558c5408486eec5edd85be2c686`,
+baseline `42a4af7`. One permitted-loopback run passed **1/1**, **28.77s test /
+29.19s total**, 19:38:58–19:39:27 UTC. The initial sandbox invocation failed at
+bind before enrollment and supplied no qualification evidence. Relay TypeScript
+passes. No production edits, deadline increases or qualification reruns.
+
+Both observers complete all 65 transitions, with four acknowledged replicas
+checked on each step. The final transition transfers two canonical archive pages
+separately. Target reopening retains the exact original head; all 66 current/old
+keys and pins are checked, all 65 archive entries are visited, and missing/corrupt
+persisted migration checkpoints refuse reopening. Detailed per-operation/byte
+console output was suppressed in the captured run, so no detailed timing/storage
+claim is inferred. Captured output: `/tmp/resonance-observer-65-permitted.log`.
+The test joins the existing three-OS durability job without increasing its limit.
+
+This passes the fixed observer prerequisite. Wallet/issuer/relay integration,
+historical-head catch-up and K2's 100-cycle/1,000-fault requirements remain open.
+Windows follow-up CI for `eece162` now passes all three Windows jobs; the general
+CI run is still in progress as of this receipt.
