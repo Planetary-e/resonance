@@ -1,4 +1,4 @@
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { randomBytes } from 'node:crypto';
 import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
@@ -152,12 +152,17 @@ it('refuses empty/pending state and cannot replace a lost write acknowledgement 
   n.override(); await n.writer.replicate(next); expect(await n.writer.observeCurrent()).toHaveLength(4);
 });
 
-it('enforces a total deadline even if the adapter ignores cancellation', async () => {
-  // Durable setup is not the operation whose 150 ms deadline is under test.
-  const n = await fixture(); await n.writer.replicate(n.root); n.writer.close();
-  const writer = createRetainedHistoryCheckpointWriter({ ...n.options, timeoutMs: 150 }); cleanup.push(writer.close);
-  n.override(() => new Promise(() => {})); const start = performance.now();
-  await expect(writer.observeCurrent()).rejects.toThrow('Four'); expect(performance.now() - start).toBeLessThan(1000);
+describe('current-head deadline after durable setup', () => {
+  let n: Awaited<ReturnType<typeof fixture>>, writer: ReturnType<typeof createRetainedHistoryCheckpointWriter>;
+  beforeEach(async () => {
+    // Separate disk/socket setup from the unchanged 150 ms observation deadline.
+    n = await fixture(); await n.writer.replicate(n.root); n.writer.close();
+    writer = createRetainedHistoryCheckpointWriter({ ...n.options, timeoutMs: 150 }); cleanup.push(writer.close);
+  }, 30000);
+  it('enforces a total deadline even if the adapter ignores cancellation', async () => {
+    n.override(() => new Promise(() => {})); const start = performance.now();
+    await expect(writer.observeCurrent()).rejects.toThrow('Four'); expect(performance.now() - start).toBeLessThan(1000);
+  });
 });
 
 it('cancels an active read on close and prevents simultaneous writes', async () => {
