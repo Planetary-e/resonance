@@ -93,6 +93,21 @@ it('cannot replace observer pins or erase them with a plain policy reimport', as
   expect(n.wallet.provider().policyObservers!()).toEqual(n.context);
 });
 
+it('replays an expired intermediate only toward an already observed later head and never authorizes its keys', async () => {
+  const n = await fixture(), intermediate = await n.advance(n.first, n.context.genesis, { expiresAt: n.now + 1000 });
+  const current = await n.advance(intermediate.policy, intermediate.commitment.next);
+  n.setNow(n.now + 2000);
+  await expect(n.wallet.installPolicy(intermediate, n.authority)).rejects.toThrow('not current');
+  expect(() => n.wallet.capabilityFor({ ...n.request, policyObservation: n.observation(current.commitment.next) })).toThrow('newer community policy');
+  await n.wallet.installPolicy(intermediate, n.authority); await n.restart();
+  await expect(n.wallet.requestTokens(1)).rejects.toThrow('not current');
+  expect(() => n.wallet.capabilityFor({ ...n.request, policyObservation: n.observation(intermediate.commitment.next) })).toThrow('older than');
+  expect(n.wallet.status().reserved).toBe(0);
+  await n.wallet.installPolicy(current, n.authority);
+  n.wallet.capabilityFor({ ...n.request, policyObservation: n.observation(current.commitment.next) });
+  expect(n.wallet.status().reserved).toBe(1);
+});
+
 it('retains a same-revision conflicting quorum and fences spending and updates after restart', async () => {
   const n = await fixture(), advance = await n.advance(); await n.wallet.installPolicy(advance, n.authority);
   const fork = await n.advance(n.first, n.context.genesis, { expiresAt: n.first.expiresAt + 1 });

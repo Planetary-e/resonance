@@ -64,7 +64,7 @@ async function fixture() {
   let wallet = await openManagedAdmissionWallet(walletOptions); cleanup.push(() => { wallet.close(); walletOptions.encryptionKey.fill(0); });
   await wallet.installPolicy(policy, authority, context); await wallet.importTokens(tokens);
   function client() { const c = createRelayClient({ ...route, privateTraffic: { batchWindowMs: 10, jitterMs: 0 }, admissionCapabilityProvider: wallet.provider() }); cleanup.push(() => c.disconnect()); return c; }
-  const record = () => createPublicationRecord({ groupId: 'public', fingerprintEpoch: 'pilot-static-v1', fingerprint: new Uint8Array(64).fill(0xd6), itemType: 'offer', createdAt: Date.now(), expiresAt: Date.now() + 100000 }, generatePublicationKeyMaterial());
+  const record = (lifetime = 100000) => createPublicationRecord({ groupId: 'public', fingerprintEpoch: 'pilot-static-v1', fingerprint: new Uint8Array(64).fill(0xd6), itemType: 'offer', createdAt: Date.now(), expiresAt: Date.now() + lifetime }, generatePublicationKeyMaterial());
   return { directory, route, queries, verify, destination, context, authority, client, record, get wallet() { return wallet; },
     setGate(value?: typeof gate) { gate = value; }, setReplay() { replay = true; },
     async restart() { wallet.close(); wallet = await openManagedAdmissionWallet(walletOptions); },
@@ -113,3 +113,18 @@ it('checks the installed pins on direct calls and cannot bypass private freshnes
   await expect(client.submitPublicationOperation(n.record())).rejects.toThrow('fresh private policy observation');
   expect(n.queries).toHaveLength(0); expect(n.wallet.status().reserved).toBe(0); expect(n.verify).not.toHaveBeenCalled();
 });
+
+it('does not reserve a token when the publication expires while its policy query is in flight', async () => {
+  const n = await fixture();
+  await expect(n.client().submitPublicationOperation(n.record(500))).rejects.toMatchObject({ outcome: 'not-sent' });
+  expect(n.queries).toHaveLength(1); expect(n.wallet.status().reserved).toBe(0); expect(n.verify).not.toHaveBeenCalled();
+});
+
+it('keeps the original ten-second deadline while a policy responder stays silent', async () => {
+  const n = await fixture();
+  n.setGate(signal => new Promise((_, reject) => { signal.addEventListener('abort', () => reject(new Error('cancelled')), { once: true }); }));
+  const start = performance.now();
+  await expect(n.client().submitPublicationOperation(n.record())).rejects.toMatchObject({ outcome: 'not-sent', code: 'PRIVATE_OPERATION_TIMEOUT' });
+  expect(performance.now() - start).toBeLessThan(13000); expect(n.queries).toHaveLength(1);
+  expect(n.wallet.status().reserved).toBe(0); expect(n.verify).not.toHaveBeenCalled();
+}, 20000);

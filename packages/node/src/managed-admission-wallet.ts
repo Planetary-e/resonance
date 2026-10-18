@@ -198,7 +198,13 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
         const advance = freshness && input && typeof input === 'object' && 'commitment' in input
           ? await parseAdmissionPolicyAdvance(input, freshness.context) : undefined;
         const policy = advance?.policy ?? await verifyAdmissionPolicy(input, authority);
-        storage.read(); assertAdmissionPolicyCurrent(policy, (options.now ?? Date.now)());
+        storage.read();
+        // A fresh observed later head can require replaying an expired immediate
+        // predecessor. Retain that authenticated step without authorizing use of
+        // its keys; the final observed revision must still be current.
+        if (!advance || !freshness || policy.revision >= freshness.observed.revision) {
+          assertAdmissionPolicyCurrent(policy, (options.now ?? Date.now)());
+        }
         if (freshness) {
           if (advance) {
             if (!sameAdmissionPolicyHead(advance.commitment.previous, freshness.installed)
