@@ -1,5 +1,7 @@
 import { beforeAll, expect, it, vi } from 'vitest';
 import { mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -125,3 +127,87 @@ it('keeps an allowance bound if the operator closes while signing, and permits o
     expect(await batch.finalize(response)).toHaveLength(1); expect(() => ledger.grant()).toThrow('exhausted');
   } finally { ledger.close(); rmSync(directory, { recursive: true, force: true }); }
 });
+
+it('binds 100 repeated approvals to one recoverable local permit without exposing the operator claim', async () => {
+  const { directory, options } = setup(), handle = randomBytes(32).toString('base64url');
+  let ledger = await openAdmissionIssuerLedger({ ...options, claimRequired: true, create: { batchSize: 1, maxPermits: 2 } });
+  try {
+    expect(() => ledger.grant()).toThrow('claim required');
+    expect(() => ledger.grantForClaim('identity-or-free-text')).toThrow('canonical');
+    const permit = ledger.grantForClaim(handle);
+    for (let i = 0; i < 100; i++) expect(ledger.grantForClaim(handle)).toEqual(permit);
+    expect(ledger.status()).toMatchObject({ allocatedPermits: 1, remainingPermits: 1 });
+    ledger.close(); ledger = await openAdmissionIssuerLedger(options);
+    expect(ledger.grantForClaim(handle)).toEqual(permit);
+    const batch = await createAdmissionIssuanceBatch(profile, 1), response = await ledger.approve(permit, batch.request);
+    expect(await ledger.approve(permit, batch.request)).toEqual(response);
+    const different = await createAdmissionIssuanceBatch(profile, 1);
+    await expect(ledger.approve(permit, different.request)).rejects.toThrow('already bound');
+    ledger.close(); ledger = await openAdmissionIssuerLedger(options);
+    expect(ledger.grantForClaim(handle)).toEqual(permit);
+    expect(await ledger.approve(permit, batch.request)).toEqual(response);
+    const tokens = await batch.finalize(response), binding = createAdmissionRequestBindingV2('search', { claim: 'not carried' });
+    const capability = presentBlindAdmissionTokenV2(tokens[0], profile.scope, 'search', binding);
+    for (const object of [permit, batch.request, response, capability, ledger.status()]) {
+      expect(JSON.stringify(object)).not.toContain(handle); expect(JSON.stringify(object)).not.toContain('claimMode'); expect(JSON.stringify(object)).not.toContain('claimDigest');
+    }
+    expect(readFileSync(options.path, 'utf8')).not.toContain(handle); expect(readFileSync(options.path, 'utf8')).not.toContain(permit.secret);
+    ledger.grantForClaim(randomBytes(32).toString('base64url'));
+    expect(() => ledger.grantForClaim(randomBytes(32).toString('base64url'))).toThrow('allowance exhausted');
+    expect(ledger.grantForClaim(handle)).toEqual(permit);
+    expect(() => ledger.grant()).toThrow('claim required');
+  } finally { ledger.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+it('does not return a permit on failed claim persistence, and recovers a committed claim after output loss', async () => {
+  const { directory, options } = setup(), handle = randomBytes(32).toString('base64url');
+  let ledger = await openAdmissionIssuerLedger({ ...options, claimRequired: true, create: { batchSize: 1, maxPermits: 1 } });
+  try {
+    vi.mocked(renameSync).mockImplementationOnce(() => { throw new Error('claim disk failure'); });
+    expect(() => ledger.grantForClaim(handle)).toThrow('claim disk failure');
+    ledger.close(); ledger = await openAdmissionIssuerLedger(options);
+    expect(ledger.status().allocatedPermits).toBe(0);
+    const committed = ledger.grantForClaim(handle); // Caller loses output after the flushed snapshot.
+    ledger.close(); ledger = await openAdmissionIssuerLedger(options);
+    expect(ledger.grantForClaim(handle)).toEqual(committed); expect(ledger.status().allocatedPermits).toBe(1);
+    await expect(openAdmissionIssuerLedger({ ...options, claimRequired: true })).rejects.toThrow('creation only');
+  } finally { ledger.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+it('keeps retained legacy grant behavior and refuses claim-mode adoption on an existing ledger', async () => {
+  const { directory, options } = setup();
+  const ledger = await openAdmissionIssuerLedger({ ...options, create: { batchSize: 1, maxPermits: 1 } });
+  try {
+    expect(() => ledger.grantForClaim(randomBytes(32).toString('base64url'))).toThrow('not created');
+    expect(ledger.grant().count).toBe(1); ledger.close();
+    await expect(openAdmissionIssuerLedger({ ...options, claimRequired: true, create: { batchSize: 1, maxPermits: 1 } })).rejects.toThrow('already exists');
+  } finally { ledger.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+
+it('CLI reads a bounded approved claim file and recovers a grant whose output failed', async () => {
+  const { directory, options } = setup();
+  const script = fileURLToPath(new URL('../../../../scripts/issue-admission-tokens.ts', import.meta.url));
+  const profilePath = join(directory, 'profile.json'), keyPath = join(directory, 'private.pem'), claimPath = join(directory, 'operator-claim.json');
+  const handle = randomBytes(32).toString('base64url');
+  writeFileSync(profilePath, JSON.stringify(profile));
+  const der = Buffer.from(await crypto.subtle.exportKey('pkcs8', keys.privateKey));
+  try { writeFileSync(keyPath, `-----BEGIN PRIVATE KEY-----\n${der.toString('base64')}\n-----END PRIVATE KEY-----\n`, { mode: 0o600 }); }
+  finally { der.fill(0); }
+  writeFileSync(claimPath, JSON.stringify({ version: 1, kind: 'admission-operator-claim', handle }), { mode: 0o600 });
+  const args = [profilePath, keyPath, options.path];
+  const run = (...input: string[]) => spawnSync(process.execPath, ['--import', 'tsx', script, ...input], { encoding: 'utf8', timeout: 15000 });
+  try {
+    const initialized = run('init', '--claim-required', ...args, '1', '1'); expect(initialized.status, initialized.stderr).toBe(0);
+    const forbidden = run('grant', '--approve', ...args, join(directory, 'unbound.json')); expect(forbidden.status).toBe(1);
+    const lost = run('grant', '--approve', '--claim-file', claimPath, ...args, join(directory, 'missing', 'lost.json')); expect(lost.status).toBe(1);
+    const firstPath = join(directory, 'permit.json'), secondPath = join(directory, 'recovered.json');
+    const first = run('grant', '--approve', '--claim-file', claimPath, ...args, firstPath); expect(first.status, first.stderr).toBe(0);
+    const second = run('grant', '--approve', '--claim-file', claimPath, ...args, secondPath); expect(second.status, second.stderr).toBe(0);
+    expect(readFileSync(secondPath, 'utf8')).toBe(readFileSync(firstPath, 'utf8'));
+    const status = run('status', ...args); expect(status.status, status.stderr).toBe(0);
+    expect(JSON.parse(status.stdout)).toMatchObject({ allocatedPermits: 1, remainingPermits: 0 });
+    for (const result of [initialized, forbidden, lost, first, second, status]) expect(result.stdout + result.stderr).not.toContain(handle);
+    writeFileSync(claimPath, 'x'.repeat(1025)); expect(run('grant', '--approve', '--claim-file', claimPath, ...args, join(directory, 'oversized.json')).status).toBe(1);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+}, 30000);

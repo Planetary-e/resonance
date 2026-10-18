@@ -19,7 +19,7 @@ beforeAll(async () => {
 });
 const cleanup: Array<() => void> = [];
 afterEach(() => { vi.restoreAllMocks(); for (const close of cleanup.splice(0).reverse()) close(); });
-async function fixture() {
+async function fixture(claimRequired = false) {
   const directory = mkdtempSync(join(tmpdir(), 'issuer-freshness-')), authorityKey = generateSigningKeyPair(), observers = Array.from({ length: 5 }, generateSigningKeyPair);
   cleanup.push(() => { authorityKey.secretKey.fill(0); observers.forEach(k => k.secretKey.fill(0)); rmSync(directory, { recursive: true, force: true }); });
   const authority = Buffer.from(authorityKey.publicKey).toString('base64url'); let now = Date.now();
@@ -30,7 +30,7 @@ async function fixture() {
     members: observers.map((key, i) => ({ publicKey: Buffer.from(key.publicKey).toString('base64url'), endpoint: `ws://127.0.0.1:${33001 + i}/` })) });
   const advance = await createAdmissionPolicyAdvance(first, second, context, authorityKey), path = join(directory, 'ledger.json');
   const options = { path, expectedProfile: profile, privateKey: keys.privateKey, now: () => now };
-  let ledger = await openAdmissionIssuerLedger({ ...options, create: { batchSize: 1, maxPermits: 3 } }); cleanup.push(() => ledger.close());
+  let ledger = await openAdmissionIssuerLedger({ ...options, ...(claimRequired ? { claimRequired: true } : {}), create: { batchSize: 1, maxPermits: 3 } }); cleanup.push(() => ledger.close());
   await ledger.installPolicy(first, authority, { observers: context });
   const proof = (head: AdmissionPolicyHead = context.genesis) => {
     const { query } = ledger.preparePolicyObservation();
@@ -112,4 +112,24 @@ it.each([false, true])('refreshes slow batch approval once, without resigning or
     expect(n.ledger.status()).toMatchObject({ preparedPermits: 0, completedPermits: 1 });
   }
   expect(observations).toBe(2); expect(signing).toHaveBeenCalledTimes(1);
+});
+
+
+it('requires current freshness on claim retries and retains the exact permit through prepared and completed states', async () => {
+  const n = await fixture(true), handle = Buffer.alloc(32, 71).toString('base64url');
+  expect(() => n.ledger.grantForClaim(handle)).toThrow('new issuer policy observation');
+  const oldProof = n.proof(), permit = n.ledger.grantForClaim(handle, oldProof);
+  expect(() => n.ledger.grantForClaim(handle, oldProof)).toThrow('new issuer policy observation');
+  expect(n.ledger.grantForClaim(handle, n.proof())).toEqual(permit);
+  const batch = await createAdmissionIssuanceBatch(profile, 1), proof = n.proof();
+  const pending = n.ledger.approve(permit, batch.request, proof); n.clock(proof.certificate.votes[0].request.expiresAt);
+  await expect(pending).rejects.toThrow('observation expired');
+  expect(n.ledger.status()).toMatchObject({ allocatedPermits: 1, preparedPermits: 1, completedPermits: 0 });
+  await n.reopen(); expect(n.ledger.grantForClaim(handle, n.proof())).toEqual(permit);
+  const signing = vi.spyOn(publicVerif.Issuer.prototype, 'issue');
+  const response = await n.ledger.approve(permit, batch.request, n.proof()); expect(signing).not.toHaveBeenCalled();
+  await n.reopen(); expect(n.ledger.grantForClaim(handle, n.proof())).toEqual(permit);
+  expect(await n.ledger.approve(permit, batch.request, n.proof())).toEqual(response);
+  expect(n.ledger.status()).toMatchObject({ allocatedPermits: 1, preparedPermits: 0, completedPermits: 1 });
+  n.clock(n.body.keys[0].issueUntil); expect(() => n.ledger.grantForClaim(handle, n.proof())).toThrow('retired or inactive');
 });

@@ -234,3 +234,19 @@ it('keeps the issuer sealed after SIGKILL and stale-lock recovery', async () => 
     expect(() => reopened.grant()).toThrow('permanently retired'); await expect(reopened.approve(permit, batch.request)).rejects.toThrow('permanently retired');
   } finally { if (child.exitCode === null && child.signalCode === null) { child.kill('SIGKILL'); await exited; } }
 }, 15000);
+
+
+it('permanently fences claim-required mode without refunding its fixed permit', async () => {
+  const dir = directory(); let time = start;
+  const options = { path: file(dir), expectedProfile: profile, privateKey: keys.privateKey, now: () => time };
+  let ledger = await openAdmissionIssuerLedger({ ...options, claimRequired: true, create: { batchSize: 2, maxPermits: 2 } });
+  clean.push(() => ledger.close());
+  await ledger.installPolicy(old, authority);
+  const handle = Buffer.alloc(32, 72).toString('base64url'); ledger.grantForClaim(handle);
+  await ledger.installPolicy(policy, authority); time = policy.keys[0].retryUntil;
+  const plan = ledger.planRetirement(authority); ledger.retire(authority, plan.approvalDigest); ledger.close();
+  const state = raw(dir); expect(state.read().version).toBe(5); expect(state.read().entries).toEqual([]); state.close();
+  time = start; ledger = await openAdmissionIssuerLedger(options);
+  expect(ledger.status()).toMatchObject({ permanentlyRetired: true, allocatedPermits: 1, remainingPermits: 0, unallocatedPermitsCancelled: 1 });
+  expect(() => ledger.grantForClaim(handle)).toThrow('permanently retired'); expect(() => ledger.grant()).toThrow('permanently retired');
+});

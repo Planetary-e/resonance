@@ -17,6 +17,10 @@ async function main() {
     if (args.shift() !== '--approve' || !/^sha256:[a-f0-9]{64}$/.test(retirementApproval = args.shift() ?? '')) throw new Error('Retirement requires --approve and the reviewed digest');
   }
   if ((command === 'grant' || command === 'issue' || command === 'policy') && args.shift() !== '--approve') throw new Error('Granting, signing, or installing policy requires --approve');
+  const claimRequired = command === 'init' && args[0] === '--claim-required';
+  if (claimRequired) args.shift();
+  let claimPath: string | undefined;
+  if (command === 'grant' && args[0] === '--claim-file') { args.shift(); claimPath = args.shift(); if (!claimPath || claimPath.startsWith('--')) throw new Error('Claim option requires an operator file'); }
   let observersPath: string | undefined, advancePath: string | undefined;
   if (command === 'policy') while (args[0]?.startsWith('--')) {
     const option = args.shift(), path = args.shift();
@@ -38,6 +42,10 @@ async function main() {
   }
   function json(path: string, maxBytes?: number): unknown { try { return JSON.parse(read(path, maxBytes)); } catch { throw new Error('Issuer input must be bounded, readable JSON'); } }
   const profile = json(profilePath);
+  const claimFile = claimPath ? json(claimPath, 1024) : undefined;
+  if (claimFile !== undefined && (!claimFile || typeof claimFile !== 'object' || Array.isArray(claimFile)
+    || Object.keys(claimFile).sort().join(',') !== 'handle,kind,version'
+    || (claimFile as { version?: unknown }).version !== 1 || (claimFile as { kind?: unknown }).kind !== 'admission-operator-claim')) throw new Error('Invalid bounded operator claim file');
   const permit = command === 'issue' ? json(first) : undefined;
   const request = command === 'issue' ? json(second) : undefined;
   const pem = read(privateKeyPath).trim().match(/^-----BEGIN PRIVATE KEY-----\s+([A-Za-z0-9+/=\s]+)-----END PRIVATE KEY-----$/);
@@ -48,7 +56,7 @@ async function main() {
   try { privateKey = await crypto.subtle.importKey('pkcs8', bytes, { name: 'RSA-PSS', hash: 'SHA-384' }, true, ['sign']); }
   finally { bytes.fill(0); }
   const ledger = await openAdmissionIssuerLedger({ path: ledgerPath, expectedProfile: profile, privateKey,
-    ...(command === 'init' ? { create: { batchSize: Number(first), maxPermits: Number(second) } } : {}) });
+    ...(command === 'init' ? { ...(claimRequired ? { claimRequired: true } : {}), create: { batchSize: Number(first), maxPermits: Number(second) } } : {}) });
   const observation = async () => {
     if (!ledger.status().policyFreshness) return undefined;
     const { context, query } = ledger.preparePolicyObservation();
@@ -65,7 +73,8 @@ async function main() {
         observers: observersPath ? json(observersPath, 16384) : undefined, advance: advancePath ? json(advancePath, ADMISSION_POLICY_ADVANCE_MAX_BYTES) : undefined });
       console.log('Signed community policy installed; existing permits and reservations retained.');
     } else if (command === 'grant') {
-      const invitation = ledger.grant(await observation());
+      const proof = await observation();
+      const invitation = claimFile === undefined ? ledger.grant(proof) : ledger.grantForClaim((claimFile as { handle: unknown }).handle, proof);
       // If output fails, its allocated allowance remains consumed. Never roll back a grant.
       writeFileSync(output!, JSON.stringify(invitation) + '\n', { flag: 'wx', mode: 0o600 });
       console.log(`Permit for ${invitation.count} tokens saved. Keep it private; give it to one eligible recipient.`);
@@ -80,8 +89,8 @@ try { await main(); }
 catch (error) {
   console.error(error instanceof Error ? error.message : 'Issuer operation failed');
   console.error('Usage: node --import tsx scripts/issue-admission-tokens.ts <command>');
-  console.error('  init profile.json private.pem ledger.json <batch-size:1–32> <max-permits:1–256>');
-  console.error('  grant --approve profile.json private.pem ledger.json permit.json');
+  console.error('  init [--claim-required] profile.json private.pem ledger.json <batch-size:1–32> <max-permits:1–256>');
+  console.error('  grant --approve [--claim-file operator-claim.json] profile.json private.pem ledger.json permit.json');
   console.error('  issue --approve profile.json private.pem ledger.json permit.json request.json response.json');
   console.error('  policy --approve [--observers observers.json] [--advance advance.json] profile.json private.pem ledger.json authority.pub policy.json');
   console.error('  status profile.json private.pem ledger.json');
