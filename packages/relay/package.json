@@ -5,7 +5,8 @@
   "type": "module",
   "main": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./protected-issuer-history": "./src/protected-issuer-history.ts"
   },
   "scripts": {
     "build": "tsc",

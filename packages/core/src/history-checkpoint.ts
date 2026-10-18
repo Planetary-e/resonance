@@ -7,7 +7,7 @@ import { historyContinuationRootId, parseHistoryContinuationRoot, type HistoryCo
 
 export interface HistoryCheckpointContext {
   version: 1;
-  role: 'relay-admission-spends' | 'policy-observer';
+  role: 'relay-admission-spends' | 'policy-observer' | 'admission-issuer';
   historyId: string;
   owner: string;
   authority: string;
@@ -54,7 +54,7 @@ export const isHistoryDigest = (v: unknown): v is string => typeof v === 'string
 const integer = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 0;
 
 export function parseHistoryCheckpointContext(value: unknown): HistoryCheckpointContext {
-  if (!exactWitnessFields(value, contextFields) || value.version !== 1 || !['relay-admission-spends', 'policy-observer'].includes(value.role as string)
+  if (!exactWitnessFields(value, contextFields) || value.version !== 1 || !['relay-admission-spends', 'policy-observer', 'admission-issuer'].includes(value.role as string)
     || !witnessBytes(value.historyId, 32) || !witnessBytes(value.owner, 32) || !witnessBytes(value.authority, 32)
     || !isHistoryDigest(value.policyDigest) || value.quorum !== 4 || !Array.isArray(value.members)
     || value.members.length !== 5 || !value.members.every(v => witnessBytes(v, 32))

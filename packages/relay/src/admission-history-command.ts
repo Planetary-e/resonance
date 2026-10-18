@@ -6,7 +6,7 @@ import { MAX_ADMISSION_POLICY_BYTES, admissionPolicyDigest, assertAdmissionPolic
 import { exactWitnessFields } from '@resonance/core/admission-witness';
 import { reserveManagedStorage } from '@resonance/core/storage-reservations';
 import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointContextId, historyCheckpointEnvelopeId, historyDigest,
-  parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
+  parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, type HistoryCheckpointContext } from '@resonance/core/history-checkpoint';
 import { HISTORY_COMPACTION_MAX_BYTES, parseHistoryCompactionAttestation } from '@resonance/core/history-compaction';
 import { historyCompactionCertificateId } from '@resonance/core/history-compaction-control';
 import { HISTORY_COMPACTION_RETENTION_MAX_BYTES, parseHistoryCompactionRetention } from '@resonance/core/history-compaction-retention';
@@ -31,13 +31,13 @@ import { openAdmissionInitialReadiness } from './admission-history-readiness.js'
 
 const ENROLLMENT_MAX = HISTORY_ENVELOPE_MAX_BYTES + 65536;
 function empty(path: string) { if (existsSync(path) && readdirSync(path).length) throw new Error('New enrollment requires an empty destination'); }
-export function readHistoryEnrollmentFile(path: string) {
+export function readHistoryEnrollmentFile(path: string, allowedRoles: readonly HistoryCheckpointContext['role'][] = ['relay-admission-spends']) {
   const raw = readOperatorJson(path, ENROLLMENT_MAX);
   if (!exactWitnessFields(raw, ['version', 'kind', 'context', 'root']) || raw.version !== 1 || raw.kind !== 'admission-history-enrollment') {
     throw new Error('Invalid history enrollment file');
   }
   const context = parseHistoryCheckpointContext(raw.context), root = parseHistoryCheckpointEnvelope(raw.root, context);
-  if (context.role !== 'relay-admission-spends') throw new Error('Admission history requires its own history role');
+  if (!allowedRoles.includes(context.role)) throw new Error('Admission history requires its own history role');
   if (root.kind !== 'checkpoint' || root.generation !== 0 || root.sequence !== 0) throw new Error('Volunteer enrollment needs its independently pinned genesis');
   return { context, root, contextId: historyCheckpointContextId(context), genesisId: historyCheckpointEnvelopeId(root) };
 }
@@ -469,7 +469,7 @@ export async function runAdmissionHistoryCommand(command: string, raw: readonly 
       const args = approved ? raw.slice(2) : raw;
       if (args.length !== (command === 'replica-serve' ? 5 : 4) || (command === 'replica-enroll' && !approved)) throw new Error('Invalid replica command or missing digest approval');
       const [enrollmentPath, memberPath, keyPath, target, portText] = args, directory = resolve(target);
-      const pinned = readHistoryEnrollmentFile(enrollmentPath), signingKey = readOperatorSigningKey(memberPath); cleanup.push(() => signingKey.secretKey.fill(0));
+      const pinned = readHistoryEnrollmentFile(enrollmentPath, ['relay-admission-spends', 'admission-issuer']), signingKey = readOperatorSigningKey(memberPath); cleanup.push(() => signingKey.secretKey.fill(0));
       const localKey = readOperatorStorageKey(keyPath); cleanup.push(() => localKey.fill(0));
       const member = Buffer.from(signingKey.publicKey).toString('base64url');
       if (!pinned.context.members.includes(member)) throw new Error('Volunteer key is not one of the five pinned members');

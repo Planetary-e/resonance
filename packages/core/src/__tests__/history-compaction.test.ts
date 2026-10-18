@@ -70,3 +70,13 @@ it('refuses delta/genesis checkpoints, wrong owners and inconsistent generation 
   expect(() => createHistoryCompactionProposal(f.input, f.context, generateSigningKeyPair())).toThrow('owner');
   expect(() => createHistoryCompactionProposal({ ...f.input, rootId: historyDigest('different') }, f.context, f.owner)).toThrow();
 });
+
+it('refuses ciphertext-only compaction for admission issuer histories at the shared parsing boundary', () => {
+  const f = fixture(), context: HistoryCheckpointContext = { ...f.context, role: 'admission-issuer' };
+  const checkpoint = sealHistoryCheckpoint({ context, signingKey: f.owner, encryptionKey: randomBytes(32), plaintext: Buffer.from('issuer state'),
+    header: { kind: 'checkpoint', generation: 0, sequence: 1, previous: f.genesisId } });
+  expect(() => createHistoryCompactionProposal({ ...f.input, checkpoint }, context, f.owner)).toThrow('semantic ancestry');
+  expect(() => parseHistoryCompactionProposal(f.proposal, context, f.genesisId)).toThrow('semantic ancestry');
+  expect(() => createHistoryCompactionVote(f.proposal, context, f.genesisId, f.members[0], f.time)).toThrow('semantic ancestry');
+  expect(() => parseHistoryCompactionCertificate(f.certificate, context, f.genesisId, f.checkpoint)).toThrow('semantic ancestry');
+});
