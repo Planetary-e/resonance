@@ -1,6 +1,7 @@
 /** Explicit configuration for already prepared observer state. Never initializes
  * an owner, discovers replacement members, or relaxes a retained recovery fence. */
 import { dirname, resolve } from 'node:path';
+import type { Socket } from 'node:net';
 import { assertSecureRelayTransportEndpoint } from '@resonance/core';
 import { exactWitnessFields } from '@resonance/core/admission-witness';
 import { parseAdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
@@ -90,6 +91,7 @@ export async function openConfiguredPolicyObserver(value: PolicyObserverConfigur
  * loopback listener. Public TLS/reverse routing remains separately configured. */
 export async function serveConfiguredPolicyObserver(value: PolicyObserverConfiguration, options: {
   transport?: HistoryCheckpointTransport; timeoutMs?: number; now?: () => number; signal?: AbortSignal;
+  onSocket?: (socket: Socket) => void; acceptNewWork?: (bytes: number) => boolean;
 } = {}) {
   const config = parsePolicyObserverConfiguration(value, '/'), signal = options.signal;
   let observer: Awaited<ReturnType<typeof openConfiguredPolicyObserver>> | undefined;
@@ -109,7 +111,8 @@ export async function serveConfiguredPolicyObserver(value: PolicyObserverConfigu
     observer = await openConfiguredPolicyObserver(config, options);
     if (signal?.aborted || closing) { observer.close(); cancelled(); }
     await observer.ready(); cancelled();
-    listener = await listenAdmissionPolicyObserver(createAdmissionPolicyObserverExchange(observer, config.context, options.now), config.listen);
+    listener = await listenAdmissionPolicyObserver(createAdmissionPolicyObserverExchange(observer, config.context, options.now),
+      { ...config.listen, onSocket: options.onSocket, acceptNewWork: options.acceptNewWork });
     if (signal?.aborted || closing) { await listener.close(); observer.close(); cancelled(); }
     return { endpoint: listener.endpoint, status: () => observer!.status(), close };
   } catch (error) { await close(); throw error; }

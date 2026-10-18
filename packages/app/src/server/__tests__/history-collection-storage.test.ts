@@ -4,9 +4,21 @@ import { join } from 'node:path';
 import { relayStorageDirectories, retainRelayStorageDirectories } from '../history-storage.js';
 import type { RelayConfig } from '../session.js';
 import { historyVolunteerCollectionFixture } from '../../../../relay/src/__tests__/fixtures/history-volunteer-collection-fixture.js';
+import { policyObserverSetupFixture } from '../../../../relay/src/__tests__/fixtures/policy-observer-setup-fixture.js';
 
 const cleanup: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
+
+it('retains a configured observer owner directory after its background role is disabled', async () => {
+  const n = await policyObserverSetupFixture(close => cleanup.push(close)); await n.prepare();
+  mkdirSync(n.ownerDirectory); const runtimeDirectory = join(n.directory, 'observer-relay'); mkdirSync(runtimeDirectory);
+  const configured: RelayConfig = { enabled: false, port: 9091, runtime: { nodePath: process.execPath, entryPath: '/test/main.js', workingDirectory: n.directory,
+    policyObserverFile: n.configPath } };
+  const directories = relayStorageDirectories(configured, runtimeDirectory);
+  expect(directories).toContain(realpathSync(n.ownerDirectory));
+  const disabled = retainRelayStorageDirectories({ enabled: false, port: 9091 }, configured, runtimeDirectory);
+  expect(relayStorageDirectories(disabled, runtimeDirectory).sort()).toEqual(directories.sort());
+});
 it('keeps every enrolled collection directory in storage inventory after the role is disabled', async () => {
   const n = await historyVolunteerCollectionFixture(close => cleanup.push(close));
   const runtimeDirectory = join(n.directory, 'relay-data'); mkdirSync(runtimeDirectory);

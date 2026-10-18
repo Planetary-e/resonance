@@ -10,6 +10,30 @@ import {
 afterEach(() => vi.unstubAllEnvs());
 
 describe('desktop relay service definitions', () => {
+  it('retains the observer and its explicit routes across GUI restarts and renders them in each native service format', () => {
+    vi.stubEnv('RESONANCE_RELAY_ENTRY', '/opt/Resonance/relay.mjs');
+    vi.stubEnv('RESONANCE_RELAY_POLICY_OBSERVER_FILE', undefined);
+    vi.stubEnv('RESONANCE_RELAY_POLICY_OBSERVER_LINKS_FILE', undefined);
+    const retained = { policyObserverFile: '/private/observer.json', policyObserverLinksFile: '/private/observer-links.json' };
+    const runtime = relayServiceRuntime(retained);
+    expect(runtime.policyObserverFile).toBe(resolve(retained.policyObserverFile));
+    expect(runtime.policyObserverLinksFile).toBe(resolve(retained.policyObserverLinksFile));
+    expect(() => relayServiceRuntime({ policyObserverLinksFile: retained.policyObserverLinksFile })).toThrow('require');
+    const directory = mkdtempSync(join(tmpdir(), 'observer-service-'));
+    const options: RelayServiceOptions = { dataDir: directory, port: 9091, adminKey: 'test-only', contacts: [],
+      nodePath: process.execPath, entryPath: '/opt/Resonance/relay.mjs', workingDirectory: directory, ...retained };
+    try {
+      expect(relayServiceEnvironment(options)).toMatchObject({ RELAY_POLICY_OBSERVER_FILE: retained.policyObserverFile, RELAY_POLICY_OBSERVER_LINKS_FILE: retained.policyObserverLinksFile });
+      for (const text of [macServicePlist(options), linuxServiceUnit(options), windowsServiceScript(options)]) {
+        expect(text).toContain('RELAY_POLICY_OBSERVER_FILE'); expect(text).toContain(retained.policyObserverFile);
+        expect(text).toContain('RELAY_POLICY_OBSERVER_LINKS_FILE'); expect(text).toContain(retained.policyObserverLinksFile);
+      }
+      vi.stubEnv('RESONANCE_RELAY_POLICY_OBSERVER_FILE', '');
+      expect(() => relayServiceRuntime(retained)).toThrow('require');
+      vi.stubEnv('RESONANCE_RELAY_POLICY_OBSERVER_LINKS_FILE', '');
+      expect(relayServiceRuntime(retained)).toMatchObject({ policyObserverFile: '', policyObserverLinksFile: '' });
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
   it('retains an explicit history collection across GUI restarts and carries only its path into all service definitions', () => {
     vi.stubEnv('RESONANCE_RELAY_ENTRY', '/opt/Resonance/relay.mjs');
     vi.stubEnv('RESONANCE_RELAY_HISTORY_VOLUNTEER_FILE', undefined);

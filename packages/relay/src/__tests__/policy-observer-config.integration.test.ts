@@ -87,6 +87,21 @@ it('cancels startup during unresponsive readiness and releases directory ownersh
   await expect(runPolicyObserverCommand('ready', [n.configPath], AbortSignal.abort())).rejects.toThrow('cancelled');
 });
 
+it('accounts observer sockets and refuses fresh work before replica traffic while allowing an accepted update to drain', async () => {
+  const n = await fixture(); let allowed = false, sockets = 0, charged = 0, calls = 0;
+  const service = await serveConfiguredPolicyObserver(n.config, { transport: async (...args) => { calls++; return n.transport(...args); },
+    onSocket: () => { sockets++; }, acceptNewWork: bytes => { charged += bytes; return allowed; } }); cleanup.push(service.close);
+  const member = { publicKey: n.enrolled.context.owner, endpoint: service.endpoint };
+  const invoke = () => exchangeAdmissionPolicyObservation(member, { request: createAdmissionPolicyHeadRequest(n.context), advance: n.advance }, new AbortController().signal);
+  const before = calls; await expect(invoke()).rejects.toThrow(); expect(calls).toBe(before);
+  expect(service.status().head.revision).toBe(1); expect(charged).toBeGreaterThan(0); expect(sockets).toBe(1);
+  allowed = true; await invoke(); expect(service.status().head.revision).toBe(2); expect(calls).toBeGreaterThan(before);
+  await service.close();
+  const failedAccounting = await serveConfiguredPolicyObserver(n.config, { transport: n.transport, onSocket: () => { throw new Error('Meter unavailable'); } }); cleanup.push(failedAccounting.close);
+  await expect(exchangeAdmissionPolicyObservation({ ...member, endpoint: failedAccounting.endpoint },
+    { request: createAdmissionPolicyHeadRequest(n.context), advance: null }, new AbortController().signal)).rejects.toThrow();
+});
+
 it('waits for an admitted update during shutdown even after its client loses the reply', async () => {
   const n = await fixture(); let hold = false, reached!: () => void, release!: () => void;
   const admitted = new Promise<void>(resolve => { reached = resolve; }), gate = new Promise<void>(resolve => { release = resolve; });

@@ -7,12 +7,15 @@ import { openConfiguredHistoryVolunteer, parseHistoryVolunteerConfiguration } fr
 import { HistoryRelayRouter } from '../../history-relay-router.js';
 import { createRelayServer } from '../../server.js';
 import { loadOrCreateRelayIdentity } from '../../relay-identity-store.js';
+import { openConfiguredHistoryVolunteerCollection, parseHistoryVolunteerCollection } from '../../history-volunteer-collection.js';
+import type { HistoryRoleMethod } from '../../history-relay-link.js';
 
 export async function waitForPolicyLinks(test: () => boolean) {
   const deadline = Date.now() + 15000;
   while (!test()) { if (Date.now() >= deadline) throw new Error('Policy history links did not settle'); await new Promise(r => setTimeout(r, 10)); }
 }
-export async function policyObserverOutboundFixture(register: (close: () => void | Promise<void>) => void) {
+export async function policyObserverOutboundFixture(register: (close: () => void | Promise<void>) => void,
+  options: { beforeExchange?: (replica: number, method: HistoryRoleMethod, frame: unknown) => Promise<void> } = {}) {
   const n = await policyObserverSetupFixture(register); await n.prepare();
   for (let i = 0; i < 5; i++) await n.enroll(i);
   const enrollment = readPolicyObserverEnrollment(n.enrollmentPath);
@@ -28,9 +31,18 @@ export async function policyObserverOutboundFixture(register: (close: () => void
     relayDiscovery: { ...discovery, endpoints: ['ws://127.0.0.1:0/'], reachability: 'direct' } });
   await bridge.start(); register(() => bridge.stop({ graceful: false }));
   const endpoint = bridge.getRelayDescriptor()!.endpoints[0];
-  const roles = n.keys.map((_, i) => openConfiguredHistoryVolunteer(parseHistoryVolunteerConfiguration({ version: 1,
+  const roles = n.keys.map((_, i) => {
+    const value = { version: 1,
     context: enrollment.historyContext, genesisId: enrollment.genesisId, directory: n.replicaArgs(i)[3], signingKeyFile: n.keyFiles[i], storageKeyFile: n.storageFiles[i],
-    controllers: [{ relayId: bridgeId, endpoint }], limits: { bytesPerGeneration: 64 * 1024 * 1024, blocksPerGeneration: 10001, generations: 65 } }, n.directory)));
+    controllers: [{ relayId: bridgeId, endpoint }], limits: { bytesPerGeneration: 64 * 1024 * 1024, blocksPerGeneration: 10001, generations: 65 } };
+    if (!options.beforeExchange) return openConfiguredHistoryVolunteer(parseHistoryVolunteerConfiguration(value, n.directory));
+    const { version: _version, controllers, ...history } = value;
+    const collection = openConfiguredHistoryVolunteerCollection(parseHistoryVolunteerCollection({ version: 1, kind: 'history-volunteer-collection', histories: [history], controllers }, n.directory));
+    const router = new HistoryRelayRouter({ acceptedRelayIds: [bridgeId], handler: async (method, frame) => {
+      await options.beforeExchange!(i, method, frame); return collection.handle(method, frame);
+    } });
+    return { router, close() { router.close(); collection.close(); } };
+  });
   register(() => roles.forEach(role => role.close()));
   const volunteers = [];
   for (let i = 0; i < 5; i++) {

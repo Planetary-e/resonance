@@ -58,7 +58,7 @@ export function openConfiguredHistoryVolunteer(config: ReturnType<typeof readHis
   let requestBytes = 0;
   const enrolled = openConfiguredHistoryVolunteerStore(config, acceptNew ? () => acceptNew(requestBytes) : undefined);
   try {
-    const router = new HistoryRelayRouter({ members: ownerMembers, bridgeRoutes, acceptForward: acceptNew, waitForConnection: !!ownerMembers || !!bridgeRoutes,
+    const router = new HistoryRelayRouter({ members: ownerMembers, bridgeRoutes, acceptForward: acceptNew, waitForConnection: !!ownerMembers || !!bridgeRoutes, serializeRequests: true,
       acceptedRelayIds: config.contacts.map(c => c.expectedRelayId!),
       handler(method, value) {
         // All enrolled role methods are synchronous. Charge logical request bytes

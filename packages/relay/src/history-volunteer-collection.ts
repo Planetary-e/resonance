@@ -90,7 +90,7 @@ export function openConfiguredHistoryVolunteerCollection(config: ReturnType<type
       finally { requestBytes = 0; }
     };
     router = new HistoryRelayRouter({ members: ownerMembers, bridgeRoutes, acceptForward: acceptNew,
-      waitForConnection: !!ownerMembers || !!bridgeRoutes, acceptedRelayIds: config.contacts.map(c => c.expectedRelayId!), handler: handle });
+      waitForConnection: !!ownerMembers || !!bridgeRoutes, serializeRequests: true, acceptedRelayIds: config.contacts.map(c => c.expectedRelayId!), handler: handle });
     return { router, handle, close,
       health(): HistoryVolunteerHealth & { histories: number } {
         if (closed) throw new Error('Volunteer history collection is closed');

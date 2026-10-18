@@ -33,6 +33,9 @@ export function createAdmissionPolicyObserverExchange(observer: { advance(value:
  * this listener has awaited all work that was already admitted to its handler. */
 export async function listenAdmissionPolicyObserver(exchange: (value: unknown) => Promise<unknown>, options: {
   port?: number; maxConnections?: number; connectionTimeoutMs?: number;
+  onSocket?: (socket: Socket) => void;
+  /** A fresh observation can cause replica traffic even without an update. */
+  acceptNewWork?: (bytes: number) => boolean;
 } = {}) {
   const limit = options.maxConnections ?? 4, timeout = options.connectionTimeoutMs ?? 10_000;
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 8 || !Number.isSafeInteger(timeout)
@@ -43,6 +46,7 @@ export async function listenAdmissionPolicyObserver(exchange: (value: unknown) =
   let stopped = false, stopping: Promise<void> | undefined;
   server.maxConnections = limit;
   server.on('connection', socket => {
+    try { options.onSocket?.(socket); } catch { socket.destroy(); return; }
     sockets.add(socket); deadlines.set(socket, performance.now() + timeout);
     const timer = setTimeout(() => socket.destroy(), timeout);
     socket.once('close', () => { sockets.delete(socket); clearTimeout(timer); });
@@ -58,6 +62,7 @@ export async function listenAdmissionPolicyObserver(exchange: (value: unknown) =
         const work = (async () => {
           try {
             const bytes = Buffer.isBuffer(data) ? data : Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data);
+            if (options.acceptNewWork?.(bytes.byteLength) === false) throw new Error('Policy observation paused by owner');
             const value = JSON.parse(new TextDecoder('utf8', { fatal: true }).decode(bytes));
             const reply = await exchange(value), encoded = JSON.stringify(reply);
             if (typeof encoded !== 'string' || Buffer.byteLength(encoded) > ADMISSION_POLICY_HEAD_MAX_BYTES) throw new Error('Policy observation reply exceeds its bound');

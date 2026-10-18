@@ -3,12 +3,14 @@ import { existsSync } from 'node:fs';
 import { canonicalHistorySetupPath, measureStorageDirectories, parseStorageDirectories, parseStorageFiles } from '@resonance/relay';
 import { readHistoryVolunteerConfigurationFile } from '../../../relay/src/history-volunteer-config.js';
 import { readHistoryVolunteerCollectionFile } from '../../../relay/src/history-volunteer-collection.js';
+import { readPolicyObserverConfigurationFile } from '../../../relay/src/policy-observer-config.js';
 import type { RelayConfig } from './session.js';
 import { readRelayStorageRegistry, readRelayStorageLocations, relayStorageRegistryPath, retainRelayStorageRegistry } from './history-storage-registry.js';
 
 export function relayStorageDirectories(config: RelayConfig, runtimeDirectory: string): string[] {
   const directories = [runtimeDirectory, ...(config.historyStorageDirectories ?? []), ...readRelayStorageRegistry(runtimeDirectory)];
   if (config.runtime?.admissionHistoryDirectory) directories.push(config.runtime.admissionHistoryDirectory);
+  if (config.runtime?.policyObserverFile) directories.push(readPolicyObserverConfigurationFile(config.runtime.policyObserverFile).directory);
   if (config.runtime?.historyVolunteerCollectionFile) directories.push(...readHistoryVolunteerCollectionFile(config.runtime.historyVolunteerCollectionFile).histories.map(history => history.directory));
   if (config.historyActivationInput) directories.push(config.historyActivationInput.historyDirectory);
   if (config.historyVolunteerActivationInput) directories.push(config.historyVolunteerActivationInput.directory);

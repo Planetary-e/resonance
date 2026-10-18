@@ -24,6 +24,9 @@ import { createLocalBlindAdmissionVerifierV2 } from './blind-admission-verifier.
 import { readRelayIdentityPassphrase } from './relay-identity-config.js';
 import { acquireRelayRuntime } from './relay-maintenance.js';
 import { readRelayHistoryHealth, type HistoryOwnerHealth } from './history-health.js';
+import { readPolicyObserverConfigurationFile, serveConfiguredPolicyObserver } from './policy-observer-config.js';
+import { exchangeHistoryCheckpoint } from './history-checkpoint-exchange.js';
+import { shareHistoryOwnerRoutes } from './history-owner-routing.js';
 
 const relayPort = parseNonNegativeInteger(process.env.RELAY_PORT, 9090, 'RELAY_PORT');
 const tlsCertFile = process.env.RELAY_TLS_CERT_FILE;
@@ -68,6 +71,7 @@ const discoveryEnabled = process.env.RELAY_DISCOVERY === 'true'
   || Boolean(process.env.RELAY_ADMISSION_HISTORY_LINKS_FILE) || !!historyBridgeConfig
   || publicEndpoints.length > 0
   || configuredHints.length > 0
+  || !!process.env.RELAY_POLICY_OBSERVER_LINKS_FILE
   || bootstrapHints.length > 0;
 const storageCapacityBytes = parseNonNegativeInteger(
   process.env.RELAY_STORAGE_CAPACITY_BYTES,
@@ -144,6 +148,10 @@ if (historyDirectory && (!historyFile || historyDirectory.length > 4096 || /[\x0
   throw new Error('A separate admission history directory requires protected history and a valid path');
 }
 const historyLinksFile = process.env.RELAY_ADMISSION_HISTORY_LINKS_FILE;
+const policyObserverFile = process.env.RELAY_POLICY_OBSERVER_FILE;
+const policyObserverLinksFile = process.env.RELAY_POLICY_OBSERVER_LINKS_FILE;
+if (policyObserverLinksFile && !policyObserverFile) throw new Error('Policy observer relay links require RELAY_POLICY_OBSERVER_FILE');
+const policyObserverConfig = policyObserverFile ? readPolicyObserverConfigurationFile(policyObserverFile) : undefined;
 if (historyLinksFile && !historyFile) throw new Error('History relay links require RELAY_ADMISSION_HISTORY_FILE');
 if (historyFile && !policyFiles.every(Boolean)) throw new Error('Protected history requires all three signed admission policy files');
 function policyFile(path: string, maximum = 64 * 1024) { if (statSync(path).size > maximum) throw new Error('Admission policy input is too large'); return readFileSync(path, 'utf8'); }
@@ -207,20 +215,22 @@ async function openAdmission() {
 try {
   historyProtection = historyFile ? loadAdmissionHistoryProtectionFile(historyFile, socket => resourceMeter.observe(socket)) : undefined;
   const ownerRouting = historyLinksFile ? readAdmissionHistoryLinksFile(historyLinksFile, historyProtection!.context) : undefined;
-  for (const hint of ownerRouting?.contacts ?? []) {
+  const observerRouting = policyObserverLinksFile ? readAdmissionHistoryLinksFile(policyObserverLinksFile, policyObserverConfig!.historyContext) : undefined;
+  for (const hint of [...ownerRouting?.contacts ?? [], ...observerRouting?.contacts ?? []]) {
     const existing = hintMap.get(hint.endpoint);
     if (existing?.expectedRelayId && existing.expectedRelayId !== hint.expectedRelayId) throw new Error('Conflicting history controller and bridge pins');
     hintMap.set(hint.endpoint, hint);
   }
   configuredHints.splice(0, configuredHints.length, ...hintMap.values());
-  const ownerMembers = ownerRouting?.members;
+  const ownerMembers = shareHistoryOwnerRoutes(ownerRouting?.members, observerRouting?.members);
   historyVolunteer = historyVolunteerCollectionConfig ? openConfiguredHistoryVolunteerCollection(historyVolunteerCollectionConfig,
     ownerPolicy ? bytes => ownerPolicy.allowNewWork(bytes) : undefined, ownerMembers, historyBridgeConfig?.routes)
     : historyVolunteerConfig ? openConfiguredHistoryVolunteer(historyVolunteerConfig,
     ownerPolicy ? bytes => ownerPolicy.allowNewWork(bytes) : undefined, ownerMembers, historyBridgeConfig?.routes) : undefined;
   historyRouter = historyVolunteer?.router ?? (ownerMembers || historyBridgeConfig ? new HistoryRelayRouter({ members: ownerMembers,
-    bridgeRoutes: historyBridgeConfig?.routes, acceptForward: ownerPolicy ? bytes => ownerPolicy.allowNewWork(bytes) : undefined, waitForConnection: true }) : undefined);
-  if (ownerMembers) historyProtection!.transport = historyRouter!.checkpoint;
+    bridgeRoutes: historyBridgeConfig?.routes, acceptForward: ownerPolicy ? bytes => ownerPolicy.allowNewWork(bytes) : undefined,
+    waitForConnection: true, serializeRequests: true }) : undefined);
+  if (ownerRouting) historyProtection!.transport = historyRouter!.checkpoint;
   // Direct history keeps its eager startup contract. Reverse links need the
   // listener first; their deferred verifier rejects every user credential meanwhile.
   if (!deferred) { admissionVerifier = await openAdmission(); admissionHistoryHealth = admissionVerifier?.historyHealth; }
@@ -276,8 +286,17 @@ try {
 let lan: Awaited<ReturnType<typeof startLanDiscovery>> | null = null;
 let shuttingDown = false;
 let opening: Promise<void> | undefined;
+const observerLifetime = new AbortController();
+let observerService: Awaited<ReturnType<typeof serveConfiguredPolicyObserver>> | undefined;
+let observerOpening: Promise<void> | undefined;
 async function shutdown(code: number) {
   if (shuttingDown) return; shuttingDown = true;
+  // Stop admitting observer work and drain accepted updates while their history
+  // connections still exist. During startup, cancellation closes the pending owner.
+  observerLifetime.abort();
+  if (policyObserverConfig) log('info', 'policy_observer_draining');
+  try { await observerOpening?.catch(() => {}); await observerService?.close(); }
+  catch (error) { code = 1; log('error', 'policy_observer_shutdown_failed', { error: String(error) }); }
   // Closing the router cancels connection waits before waiting on admission open.
   deferred?.close(); historyRouter?.close();
   try { await lan?.stop(); await server.stop(); await opening?.catch(() => {}); }
@@ -286,6 +305,21 @@ async function shutdown(code: number) {
 }
 // Register before readiness/contact discovery; neither can delay signal handling.
 for (const signal of ['SIGTERM', 'SIGINT'] as const) process.on(signal, () => { void shutdown(0); });
+if (policyObserverConfig) {
+  observerOpening = serveConfiguredPolicyObserver(policyObserverConfig, {
+    transport: policyObserverLinksFile ? historyRouter!.checkpoint
+      : (member, frame, signal) => exchangeHistoryCheckpoint(member, frame, signal, socket => resourceMeter.observe(socket)),
+    signal: observerLifetime.signal, onSocket: socket => resourceMeter.observe(socket),
+    acceptNewWork: ownerPolicy ? bytes => ownerPolicy.allowNewWork(bytes) : undefined,
+  }).then(async service => {
+    observerService = service;
+    if (shuttingDown) { await service.close(); return; }
+    log('info', 'policy_observer_ready', { endpoint: service.endpoint });
+  });
+  void observerOpening.catch(error => {
+    if (!shuttingDown) { log('error', 'policy_observer_startup_failed', { error: String(error) }); void shutdown(1); }
+  });
+}
 if (deferred) {
   opening = openAdmission().then(ready => {
     if (!ready) throw new Error('Protected admission verifier is missing');
