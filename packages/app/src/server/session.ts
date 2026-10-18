@@ -74,6 +74,7 @@ import { readDesktopRelayStorage, currentDesktopRelayStorage, withDesktopRelaySt
 import { withRelayHistoryActivation, parseRelayHistoryActivationInput, historyActivationServiceFiles, type RelayHistoryActivationInput } from './history-activation.js';
 import { runDesktopHistoryRecovery, parseRelayHistoryRecoveryInput, type RelayHistoryRecoveryInput, type RelayHistoryRecoveryAction } from './history-recovery.js';
 import { runDesktopHistorySetup, parseRelayHistorySetupInput, type RelayHistorySetupInput } from './history-setup.js';
+import { runDesktopPolicyObserverSetup, parseRelayPolicyObserverSetupInput } from './policy-observer-setup.js';
 import { revokeSessionToken } from './local-session-auth.js';
 import { withRelayVolunteerActivation, volunteerActivationServiceFiles, parseRelayVolunteerActivationInput, parseRelayVolunteerBinding,
   type RelayVolunteerActivationInput, type RelayVolunteerBinding } from './history-volunteer-activation.js';
@@ -161,6 +162,7 @@ export function getRelayActivity(): RelayActivity {
 // --- Relay config persistence ---
 
 export interface RelayConfig {
+  policyObserverSetupInput?: import('./policy-observer-setup.js').RelayPolicyObserverSetupInput;
   policyObserverInput?: import('./policy-observer-activation.js').RelayPolicyObserverInput;
   policyObserverBinding?: import('./policy-observer-activation.js').RelayPolicyObserverBinding;
   historyCollectionInput?: import('./history-collection-activation.js').RelayHistoryCollectionInput;
@@ -213,6 +215,7 @@ export function loadRelayConfig(): RelayConfig {
     if (value.historyActivationInput !== undefined) parseRelayHistoryActivationInput(value.historyActivationInput);
     if (value.historyRecoveryInput !== undefined) parseRelayHistoryRecoveryInput(value.historyRecoveryInput);
     if (value.historySetupInput !== undefined) parseRelayHistorySetupInput(value.historySetupInput);
+    if (value.policyObserverSetupInput !== undefined) parseRelayPolicyObserverSetupInput(value.policyObserverSetupInput);
     if ((value.historyVolunteerActivationInput === undefined) !== (value.historyVolunteerBinding === undefined)) throw new Error('Missing volunteer selection or binding');
     if (value.historyVolunteerActivationInput !== undefined) parseRelayVolunteerActivationInput(value.historyVolunteerActivationInput);
     if (value.historyVolunteerBinding !== undefined) parseRelayVolunteerBinding(value.historyVolunteerBinding);
@@ -357,6 +360,7 @@ async function startRelayModeUnlocked(
     ...(previous.historyActivationInput ? { historyActivationInput: previous.historyActivationInput } : {}),
     ...(previous.historyRecoveryInput ? { historyRecoveryInput: previous.historyRecoveryInput } : {}),
     ...(previous.historySetupInput ? { historySetupInput: previous.historySetupInput } : {}),
+    ...(previous.policyObserverSetupInput ? { policyObserverSetupInput: previous.policyObserverSetupInput } : {}),
     ...(previous.historyVolunteerActivationInput ? { historyVolunteerActivationInput: previous.historyVolunteerActivationInput,
       historyVolunteerBinding: previous.historyVolunteerBinding } : {}),
     storageCommitmentFloorBytes: minimumStorageBytes };
@@ -600,6 +604,16 @@ export function getRelayHistorySetupInput() { return loadRelayConfig().historySe
 export function getRelayVolunteerActivationInput() { return loadRelayConfig().historyVolunteerActivationInput ?? null; }
 export function getRelayHistoryCollectionInput() { return loadRelayConfig().historyCollectionInput ?? null; }
 export function getRelayPolicyObserverInput() { return loadRelayConfig().policyObserverInput ?? null; }
+export function getRelayPolicyObserverSetupInput() { return loadRelayConfig().policyObserverSetupInput ?? null; }
+export async function performRelayPolicyObserverSetup(action: 'review' | 'apply', input: unknown, approval?: unknown, signal?: AbortSignal) {
+  return runRelayHistoryOperation(async operationSignal => {
+    const previous = loadRelayConfig(), runtimeDirectory = join(getDataDir(), 'relay-data');
+    const outcome = await runDesktopPolicyObserverSetup(action, input, approval, operationSignal, runtimeDirectory,
+      locations => retainRelayHistoryOperationLocations(previous, runtimeDirectory, undefined, locations));
+    if (action === 'apply') saveRelayConfig({ ...previous, policyObserverSetupInput: outcome.input });
+    return outcome;
+  }, signal);
+}
 export async function planRelayPolicyObserverActivation(input: unknown, signal?: AbortSignal) {
   return runRelayHistoryOperation(operationSignal => {
     const previous = loadRelayConfig();

@@ -410,6 +410,14 @@ export function cancelRelayHistoryOperation() { return api<{ active: boolean }>(
 
 export interface RelayHistoryCollectionInput { configurationFile: string }
 export interface RelayPolicyObserverInput { configurationFile: string; linksFile: string }
+export type { RelayPolicyObserverSetupInput, RelayPolicyObserverSetupResult } from './policy-observer-setup.types';
+export function getRelayPolicyObserverSetupInput() {
+  return api<{ input: import('./policy-observer-setup.types').RelayPolicyObserverSetupInput | null }>('GET', '/api/relay/history/policy-observer/setup');
+}
+export function runRelayPolicyObserverSetup(action: 'review' | 'apply', input: import('./policy-observer-setup.types').RelayPolicyObserverSetupInput, approvalDigest?: string) {
+  return api<{ input: import('./policy-observer-setup.types').RelayPolicyObserverSetupInput; result: import('./policy-observer-setup.types').RelayPolicyObserverSetupResult }>(
+    'POST', '/api/relay/history/policy-observer/setup', { action, input, ...(action === 'apply' ? { approvalDigest } : {}) });
+}
 export interface RelayPolicyObserverReview {
   kind: 'policy-observer-activation'; configurationFile: string; contextId: string; genesisId: string; rootId: string; directory: string;
   owner: string; authority: string; generation: number; head: { revision: number; digest: string; transition: string };

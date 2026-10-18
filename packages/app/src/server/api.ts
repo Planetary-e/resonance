@@ -38,6 +38,7 @@ import {
   getRelayVolunteerActivationInput, planRelayVolunteerActivation, applyRelayVolunteerActivation,
   getRelayHistoryCollectionInput, planRelayHistoryCollectionActivation, applyRelayHistoryCollectionActivation,
   getRelayPolicyObserverInput, planRelayPolicyObserverActivation, applyRelayPolicyObserverActivation,
+  getRelayPolicyObserverSetupInput, performRelayPolicyObserverSetup,
   publishItem,
   listSessionItems,
   releaseHeldPublication,
@@ -632,6 +633,27 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
       const result = await measureRelayHistoryStorage(controller.signal);
       if (!res.destroyed) json(res, result);
     } catch (err) { if (!res.destroyed) error(res, err instanceof Error ? err.message : 'Storage inventory unavailable', 409); }
+    finally { res.removeListener('close', disconnected); }
+    return true;
+  }
+
+  if (url === '/api/relay/history/policy-observer/setup' && method === 'GET') {
+    if (!requireAuth(req, res)) return true;
+    try { json(res, { input: getRelayPolicyObserverSetupInput() }); }
+    catch (err) { error(res, err instanceof Error ? err.message : 'Saved observer setup selection unavailable', 409); }
+    return true;
+  }
+  if (url === '/api/relay/history/policy-observer/setup' && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    const controller = requestAbortController(req), disconnected = () => { if (!res.writableEnded) controller.abort(); };
+    res.once('close', disconnected);
+    try {
+      const body = await readBody(req);
+      if (!body || !['review', 'apply'].includes(body.action as string)
+        || !exactWitnessFields(body, ['action', 'input', ...(body.action === 'apply' ? ['approvalDigest'] : [])])) throw new Error('Supply a fixed observer setup action and its exact fields');
+      const result = await performRelayPolicyObserverSetup(body.action as 'review' | 'apply', body.input, body.approvalDigest, controller.signal);
+      if (!res.destroyed) json(res, result);
+    } catch (err) { if (!res.destroyed) error(res, err instanceof Error ? err.message : 'Observer setup failed; retain all created files', 409); }
     finally { res.removeListener('close', disconnected); }
     return true;
   }

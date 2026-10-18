@@ -85,7 +85,8 @@ jobs:
           packages/app/src/server/__tests__/local-api-lifetime.test.ts
           packages/app/src/server/__tests__/local-http-boundary.integration.test.ts
           packages/app/src/server/__tests__/native-import-boundary.integration.test.ts
-          packages/app/src/server/__tests__/policy-observer-activation.integration.test.ts
+            packages/app/src/server/__tests__/policy-observer-activation.integration.test.ts
+            packages/app/src/server/__tests__/policy-observer-setup.integration.test.ts
           packages/app/src/server/__tests__/relay-loader-path.test.ts
 
   test:

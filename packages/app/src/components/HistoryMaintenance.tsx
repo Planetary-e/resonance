@@ -8,6 +8,7 @@ import RelayStorage from './RelayStorage';
 import HistoryVolunteerActivation from './HistoryVolunteerActivation';
 import HistoryCollectionActivation from './HistoryCollectionActivation';
 import PolicyObserverActivation from './PolicyObserverActivation';
+import PolicyObserverSetup from './PolicyObserverSetup';
 
 export default function HistoryMaintenance({ refreshRelay }: { refreshRelay?: () => Promise<unknown> }) {
   const [state, setState] = useState<RelayMaintenanceStatus | null>(null);
@@ -39,6 +40,7 @@ export default function HistoryMaintenance({ refreshRelay }: { refreshRelay?: ()
       <HistoryVolunteerActivation onBusyChange={setOperationBusy} blocked={busy || operationBusy} />
       <HistoryCollectionActivation onBusyChange={setOperationBusy} blocked={busy || operationBusy} />
       <PolicyObserverActivation onBusyChange={setOperationBusy} blocked={busy || operationBusy} />
+      <PolicyObserverSetup onBusyChange={setOperationBusy} blocked={busy || operationBusy} />
       <HistoryRecovery onBusyChange={setOperationBusy} blocked={busy || operationBusy} />
       <HistoryActivation onBusyChange={setOperationBusy} blocked={busy || operationBusy} />
     </>}

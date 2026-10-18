@@ -42,7 +42,7 @@ export async function openPolicyObserverSetup(input: { setupFile: string; output
     || value.version !== 1 || value.kind !== 'policy-observer-setup') throw new Error('Invalid policy observer setup configuration');
   const context = parseAdmissionPolicyObservers(value.context), limits = parseAdmissionHistoryArchiveLimits(value.limits);
   const path = (raw: unknown) => canonicalHistorySetupPath(parsePolicyObserverPath(raw, base));
-  const selectedDirectory = value.directory;
+  const selectedDirectory = value.directory, selectedSigningKey = value.signingKeyFile, selectedStorageKey = value.storageKeyFile, selectedPolicy = value.policyFile;
   const directory = path(selectedDirectory), signingKeyFile = path(value.signingKeyFile), storageKeyFile = path(value.storageKeyFile), policyFile = path(value.policyFile);
   const anchor = signingKeyFile + POLICY_OBSERVER_ROOT_SUFFIX, output = canonicalHistorySetupPath(input.output);
   const sources: Array<[string, number]> = [[resolve(input.setupFile), SETUP_MAX_BYTES], [signingKeyFile, 4096], [storageKeyFile, 128], [policyFile, MAX_ADMISSION_POLICY_BYTES]];
@@ -86,7 +86,10 @@ export async function openPolicyObserverSetup(input: { setupFile: string; output
     function check() {
       live(); absent(output);
       if (canonicalHistorySetupPath(input.output) !== output || canonicalHistorySetupPath(parsePolicyObserverPath(selectedDirectory, base)) !== directory
-        || JSON.stringify(capture()) !== JSON.stringify(captured)) throw new Error('Policy setup selection changed; review again');
+        || JSON.stringify(capture()) !== JSON.stringify(captured) || JSON.stringify(json(input.setupFile, SETUP_MAX_BYTES)) !== JSON.stringify(value)
+        || path(selectedSigningKey) !== signingKeyFile || path(selectedStorageKey) !== storageKeyFile || path(selectedPolicy) !== policyFile) {
+        throw new Error('Policy setup selection changed; review again');
+      }
       if (input.mode === 'new') { absent(anchor); empty(directory); assertAdmissionPolicyCurrent(initial.policy, Date.now()); }
       else {
         const bytes = readOperatorFile(anchor, POLICY_OBSERVER_CONFIGURATION_MAX_BYTES);
@@ -94,7 +97,9 @@ export async function openPolicyObserverSetup(input: { setupFile: string; output
       }
     }
     check();
-    return { review() { live(); return structuredClone(review); }, async apply(approved: string) { return run(async () => {
+    return { review() { live(); return structuredClone(review); },
+      locations() { live(); return { directories: [directory], files: [anchor, output], inputs: sources.map(([p]) => canonicalHistorySetupPath(p)) }; },
+      async apply(approved: string) { return run(async () => {
       live(); if (busy || applied || approved !== review.approvalDigest) throw new Error('Policy setup requires matching reviewed approval');
       check(); busy = true;
       try {

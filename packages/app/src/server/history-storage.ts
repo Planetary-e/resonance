@@ -46,8 +46,9 @@ export async function inventoryRelayHistoryStorage(config: RelayConfig, runtimeD
   }
 }
 
-export function retainRelayHistoryOperationLocations(config: RelayConfig, runtimeDirectory: string, previous?: RelayConfig) {
-  const directories = [...relayStorageDirectories(config, runtimeDirectory), ...(previous ? relayStorageDirectories(previous, runtimeDirectory) : [])];
-  const files = [...relayStorageOutputFiles(config, runtimeDirectory), ...(previous ? relayStorageOutputFiles(previous, runtimeDirectory) : [])];
+export function retainRelayHistoryOperationLocations(config: RelayConfig, runtimeDirectory: string, previous?: RelayConfig,
+  additional?: { directories: string[]; files: string[] }) {
+  const directories = [...relayStorageDirectories(config, runtimeDirectory), ...(previous ? relayStorageDirectories(previous, runtimeDirectory) : []), ...(additional?.directories ?? [])];
+  const files = [...relayStorageOutputFiles(config, runtimeDirectory), ...(previous ? relayStorageOutputFiles(previous, runtimeDirectory) : []), ...(additional?.files ?? [])];
   retainRelayStorageRegistry(runtimeDirectory, [...new Set(directories)], [...new Set(files)]);
 }
