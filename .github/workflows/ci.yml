@@ -52,6 +52,7 @@ jobs:
           packages/relay/src/__tests__/policy-observer-recovery-command.integration.test.ts
           packages/relay/src/__tests__/policy-observer-setup.integration.test.ts
           packages/relay/src/__tests__/policy-observer-setup-crash.integration.test.ts
+          packages/relay/src/__tests__/policy-observer-outbound.integration.test.ts
 
   test:
     runs-on: ubuntu-latest

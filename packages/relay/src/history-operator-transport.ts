@@ -3,6 +3,8 @@
 import { dirname, resolve } from 'node:path';
 import { createRelayDescriptorV1, type Identity } from '@resonance/core';
 import { exactWitnessFields } from '@resonance/core/admission-witness';
+import type { HistoryCheckpointContext } from '@resonance/core/history-checkpoint';
+import type { HistoryCheckpointTransport } from './history-checkpoint-exchange.js';
 import type { AdmissionHistoryProtection } from './protected-admission-history.js';
 import { exchangeHistoryAgreement, exchangeHistoryAgreementData, exchangeHistoryProvision, exchangeHistoryCompaction, exchangeHistoryCompactionControl, exchangeHistoryFrontier } from './history-agreement-exchange.js';
 import { exchangeHistoryCheckpoint } from './history-checkpoint-exchange.js';
@@ -16,7 +18,7 @@ import { RelayLinkManager } from './relay-link-client.js';
 import { loadExistingRelayIdentity } from './relay-identity-store.js';
 import { readRelayIdentityPassphrase } from './relay-identity-config.js';
 
-export function readHistoryOperatorTransportFile(path: string, context: AdmissionHistoryProtection['context']) {
+export function readHistoryOperatorTransportFile(path: string, context: HistoryCheckpointContext) {
   const value = readOperatorJson(path, 64 * 1024);
   if (!exactWitnessFields(value, ['version', 'identityDirectory', 'identityPassphraseFile', 'expectedRelayId', 'linksFile', 'contacts', 'deadlineMs'])
     || value.version !== 1 || !isHistoryRelayId(value.expectedRelayId)
@@ -43,6 +45,9 @@ export function readHistoryOperatorTransportFile(path: string, context: Admissio
 }
 
 export function createHistoryOperatorTransport(protection: AdmissionHistoryProtection, path: string | undefined, signal?: AbortSignal) {
+  return createPinnedHistoryOperatorTransport(protection, path, signal);
+}
+export function createPinnedHistoryOperatorTransport<P extends { context: HistoryCheckpointContext; transport?: HistoryCheckpointTransport }>(protection: P, path: string | undefined, signal?: AbortSignal) {
   // Parsing is offline. A supplied but invalid file must never select direct fallback.
   const config = path === undefined ? undefined : readHistoryOperatorTransportFile(path, protection.context);
   let router: HistoryRelayRouter | undefined, manager: RelayLinkManager | undefined, identity: Identity | undefined;
@@ -89,9 +94,9 @@ export function createHistoryOperatorTransport(protection: AdmissionHistoryProte
   const compactionControlTransport: HistoryCompactionControlTransport = (member, frame, signal) => config ? session(signal).compactionControl(member, frame, combined(signal)) : exchangeHistoryCompactionControl(member, frame, combined(signal));
   const frontierTransport: HistoryFrontierTransport = (member, request, signal) => config ? session(signal).frontier(member, request, combined(signal)) : exchangeHistoryFrontier(member, request, combined(signal));
   return {
-    protection: { ...protection, transport: (member, frame, signal) => config
+    protection: { ...protection, transport: ((member, frame, signal) => config
       ? session(signal).checkpoint(member, frame, combined(signal))
-      : (protection.transport ?? exchangeHistoryCheckpoint)(member, frame, combined(signal)) } as AdmissionHistoryProtection,
+      : (protection.transport ?? exchangeHistoryCheckpoint)(member, frame, combined(signal))) as HistoryCheckpointTransport } as Omit<P, 'transport'> & { transport: HistoryCheckpointTransport },
     agreementTransport, dataTransport, provisionTransport, compactionTransport, compactionControlTransport, frontierTransport, close,
   };
 }

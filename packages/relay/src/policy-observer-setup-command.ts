@@ -9,8 +9,9 @@ import { openPolicyObserverInitialSetup } from './policy-observer-restore-resump
 import { openHistoryVolunteerService } from './history-volunteer-service.js';
 import { openHistoryVolunteerEnrollmentResume } from './history-volunteer-enrollment.js';
 import { listenHistoryAgreementReplica } from './history-agreement-exchange.js';
+import { createPinnedHistoryOperatorTransport } from './history-operator-transport.js';
 
-export async function runPolicyObserverSetupCommand(command: string, raw: readonly string[], signal?: AbortSignal): Promise<{ result: object; close?: () => Promise<void> }> {
+export async function runPolicyObserverSetupCommand(command: string, raw: readonly string[], signal?: AbortSignal, commandOptions: { transportFile?: string } = {}): Promise<{ result: object; close?: () => Promise<void> }> {
   const applying = ['setup-create', 'initialize', 'replica-enroll', 'replica-resume'].includes(command);
   const approved = applying && raw[0] === '--approve' ? raw[1] : undefined, args = approved ? raw.slice(2) : raw;
   if (applying && !approved || args.some(arg => !arg || arg.startsWith('--'))) throw new Error('Invalid policy setup command or missing approval');
@@ -32,16 +33,19 @@ export async function runPolicyObserverSetupCommand(command: string, raw: readon
     if (args.length !== 1) throw new Error('Policy initialization needs its exact prepared configuration');
     const config = readPolicyObserverConfigurationFile(args[0]), signingKey = readOperatorSigningKey(config.signingKeyFile);
     let encryptionKey: Buffer | undefined, setup: Awaited<ReturnType<typeof openPolicyObserverInitialSetup>> | undefined;
+    let transport: ReturnType<typeof createPinnedHistoryOperatorTransport> | undefined;
     try {
+      transport = createPinnedHistoryOperatorTransport({ context: config.historyContext }, commandOptions.transportFile, signal);
       encryptionKey = readOperatorStorageKey(config.storageKeyFile);
       setup = await openPolicyObserverInitialSetup({ directory: config.directory, context: config.context, historyContext: config.historyContext,
         root: config.root, genesis: config.genesis, signingKey, encryptionKey, members: config.members,
-        maxArchiveBytes: config.limits.archiveBytes, maxArchiveBlocks: config.limits.archiveBlocks, signal });
+        maxArchiveBytes: config.limits.archiveBytes, maxArchiveBlocks: config.limits.archiveBlocks, signal, transport: transport.protection.transport });
       return { result: command === 'initialize-plan' ? setup.review() : await setup.apply(approved!) };
-    } finally { setup?.close(); encryptionKey?.fill(0); signingKey.secretKey.fill(0); }
+    } finally { setup?.close(); transport?.close(); encryptionKey?.fill(0); signingKey.secretKey.fill(0); }
   }
   if (!['replica-plan', 'replica-enroll', 'replica-resume-plan', 'replica-resume', 'replica-serve'].includes(command)
     || args.length !== (command === 'replica-serve' ? 5 : 4)) throw new Error('Invalid policy volunteer command');
+  if (command === 'replica-serve' && commandOptions.transportFile !== undefined) throw new Error('Policy volunteer background routing needs its enrolled relay configuration, not an owner operator transport');
   const [enrollment, signingPath, storagePath, target, portText] = args;
   const directory = canonicalHistorySetupPath(target), pinned = readPolicyObserverEnrollment(enrollment), signer = readOperatorSigningKey(signingPath);
   let key: Buffer | undefined, service: ReturnType<typeof openHistoryVolunteerService> | undefined;

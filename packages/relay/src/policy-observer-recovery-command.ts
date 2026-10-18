@@ -4,8 +4,9 @@ import { readOperatorSigningKey, readOperatorStorageKey, writeOperatorJsonNew } 
 import { POLICY_OBSERVER_CONFIGURATION_MAX_BYTES, openConfiguredPolicyObserver, readPolicyObserverConfigurationFile } from './policy-observer-config.js';
 import { openPolicyObserverRecovery, preparePolicyObserverRecovery } from './policy-observer-recovery.js';
 import { openProtectedPolicyObserver } from './protected-policy-observer.js';
+import { createPinnedHistoryOperatorTransport } from './history-operator-transport.js';
 
-export async function runPolicyObserverRecoveryCommand(command: string, raw: readonly string[], signal?: AbortSignal) {
+export async function runPolicyObserverRecoveryCommand(command: string, raw: readonly string[], signal?: AbortSignal, commandOptions: { transportFile?: string } = {}) {
   const commands = ['recovery-plan', 'recovery-start', 'recovery-status', 'recovery-step', 'recovery-review', 'recovery-restore', 'recovery-export', 'recovery-resume-plan', 'recovery-resume'];
   const applying = command === 'recovery-start' || command === 'recovery-restore' || command === 'recovery-resume';
   const approved = applying && raw[0] === '--approve' ? raw[1] : undefined, args = approved ? raw.slice(2) : raw;
@@ -22,15 +23,18 @@ export async function runPolicyObserverRecoveryCommand(command: string, raw: rea
   let recovery: Awaited<ReturnType<typeof openPolicyObserverRecovery>> | undefined;
   let restored: Awaited<ReturnType<typeof openProtectedPolicyObserver>> | undefined;
   let resumption: { close(): void } | undefined;
-  const cancel = () => { source?.close(); recovery?.close(); restored?.close(); resumption?.close(); };
+  let transport: ReturnType<typeof createPinnedHistoryOperatorTransport> | undefined;
+  const cancel = () => { source?.close(); recovery?.close(); restored?.close(); resumption?.close(); transport?.close(); };
   signal?.addEventListener('abort', cancel, { once: true });
   try {
     encryptionKey = readOperatorStorageKey(config.storageKeyFile); cancelled();
+    transport = createPinnedHistoryOperatorTransport({ context: config.historyContext }, commandOptions.transportFile, signal);
     const options = { directory: resolve(args[1]), context: config.context, historyContext: config.historyContext,
-      genesis: config.genesis, members: config.members, signingKey, encryptionKey };
+      genesis: config.genesis, members: config.members, signingKey, encryptionKey, transport: transport.protection.transport,
+      agreementTransport: transport.agreementTransport, dataTransport: transport.dataTransport, provisionTransport: transport.provisionTransport };
     if (planning) {
       if (!['available', 'unavailable'].includes(args[2]) || !/^[1-9][0-9]*$/.test(args[3])) throw new Error('Choose an explicit policy source availability and positive view');
-      if (args[2] === 'available') source = await openConfiguredPolicyObserver(config);
+      if (args[2] === 'available') source = await openConfiguredPolicyObserver(config, { transport: transport.protection.transport });
       cancelled();
       const review = await preparePolicyObserverRecovery({ ...options, source: source ? source.reviewRecoverySource() : 'unavailable', view: Number(args[3]), signal });
       cancelled(); if (command === 'recovery-plan') return { result: review };
