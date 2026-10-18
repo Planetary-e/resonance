@@ -1,6 +1,7 @@
 /** In-process review capability for a complete selected issuer history. */
 import { existsSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { canonicalHistorySetupPath } from '../../relay/src/admission-history-setup.js';
 import { admissionAuthorityFingerprint } from '@resonance/core/admission-policy';
 import { historyCheckpointContextId, historyCheckpointEnvelopeId, historyDigest, parseHistoryCheckpointContext,
   type HistoryCheckpointContext, type HistoryEncryptedEnvelope } from '@resonance/core/history-checkpoint';
@@ -18,7 +19,7 @@ export interface PreparedProtectedIssuerRestore {
     observedRevision: number; conflict: boolean; permanentlyRetired: boolean; allocatedPermits: number; boundPermits: number;
     preparedPermits: number; completedPermits: number; blocks: number; bytes: number; generations: number; approvalDigest: string }>;
 }
-interface Prepared { path: string; writerDirectory: string; contextId: string; profile: AdmissionWalletProfileV1; authority: string;
+interface Prepared { path: string; writerDirectory: string; requestedPath: string; requestedWriterDirectory: string; contextId: string; profile: AdmissionWalletProfileV1; authority: string;
   restoration: ProtectedIssuerRestoration; approvalDigest: string }
 const prepared = new WeakMap<PreparedProtectedIssuerRestore, Prepared>();
 function emptyDestination(path: string, writerDirectory: string) {
@@ -27,12 +28,14 @@ function emptyDestination(path: string, writerDirectory: string) {
 export async function prepareProtectedIssuerRestore(options: Omit<ProtectedIssuerReplayOptions, 'proposal'> & {
   destination: { path: string; writerDirectory: string }; continuation: HistoryContinuationRoot;
 }): Promise<PreparedProtectedIssuerRestore> {
-  const path = resolve(options.destination.path), writerDirectory = resolve(options.destination.writerDirectory);
+  const requestedPath = resolve(options.destination.path), requestedWriterDirectory = resolve(options.destination.writerDirectory);
+  const path = canonicalHistorySetupPath(requestedPath), writerDirectory = canonicalHistorySetupPath(requestedWriterDirectory);
   const context = parseHistoryCheckpointContext(structuredClone(options.context)), authority = options.authority, profile = structuredClone(options.profile);
   const root = parseHistoryContinuationRoot(structuredClone(options.continuation), context), rootId = historyCheckpointEnvelopeId(root);
   emptyDestination(path, writerDirectory);
   // replay snapshots caller-owned blocks, evidence and key synchronously before its first await.
   const replay = await replayProtectedIssuerHistory({ ...options, context, profile, authority, proposal: root.proposal });
+  if (canonicalHistorySetupPath(requestedPath) !== path || canonicalHistorySetupPath(requestedWriterDirectory) !== writerDirectory) throw new Error('Issuer restore destinations changed during review');
   const canonicalProfile = structuredClone(replay.state.profile);
   const approvalDigest = historyDigest(`resonance:protected-issuer-restore:v1\n${JSON.stringify([
     path, writerDirectory, replay.contextId, replay.genesisId, rootId, canonicalProfile, authority, replay.replayDigest,
@@ -44,7 +47,7 @@ export async function prepareProtectedIssuerRestore(options: Omit<ProtectedIssue
     conflict: !!replay.state.freshness!.conflict, permanentlyRetired: replay.state.version === 9, ...totals(replay.state),
     preparedPermits: replay.state.entries.filter(entry => entry.preparedResponse).length, blocks: replay.blocks, bytes: replay.bytes,
     generations: replay.generations, approvalDigest }) });
-  prepared.set(result, { path, writerDirectory, contextId: replay.contextId, profile: canonicalProfile, authority,
+  prepared.set(result, { path, writerDirectory, requestedPath, requestedWriterDirectory, contextId: replay.contextId, profile: canonicalProfile, authority,
     restoration: { genesis: replay.genesis, root, baseline: replay.state, replayDigest: replay.replayDigest }, approvalDigest });
   return result;
 }
@@ -53,7 +56,8 @@ export function readPreparedProtectedIssuerRestore(value: PreparedProtectedIssue
   path: string; writerDirectory: string; context: HistoryCheckpointContext; profile: AdmissionWalletProfileV1; authority: string;
 }): ProtectedIssuerRestoration {
   const record = prepared.get(value);
-  if (!record || approvedDigest !== record.approvalDigest || record.path !== resolve(pins.path) || record.writerDirectory !== resolve(pins.writerDirectory)
+  if (!record || approvedDigest !== record.approvalDigest || record.path !== canonicalHistorySetupPath(pins.path) || record.writerDirectory !== canonicalHistorySetupPath(pins.writerDirectory)
+    || record.path !== canonicalHistorySetupPath(record.requestedPath) || record.writerDirectory !== canonicalHistorySetupPath(record.requestedWriterDirectory)
     || record.contextId !== historyCheckpointContextId(pins.context) || record.authority !== pins.authority || JSON.stringify(record.profile) !== JSON.stringify(pins.profile)
     || record.restoration.replayDigest !== protectedIssuerReplayDigest(record.contextId, historyCheckpointEnvelopeId(record.restoration.genesis),
       historySuccessorProposalId(record.restoration.root.proposal), record.restoration.baseline)) throw new Error('Issuer restore requires matching reviewed history, profile, authority and destinations');

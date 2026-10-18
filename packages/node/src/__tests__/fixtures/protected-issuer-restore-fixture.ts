@@ -22,7 +22,7 @@ import { deriveAdmissionIssuerEncryptionKey } from '../../admission-issuer-state
 import { prepareProtectedIssuerRestore } from '../../admission-issuer-history-restore.js';
 
 /** Real volunteer services and socket protocols; policy-observer votes are controlled signed fixtures. */
-export async function protectedIssuerRestoreFixture(register: (close: () => void | Promise<void>) => void) {
+export async function protectedIssuerRestoreFixture(register: (close: () => void | Promise<void>) => void, settings: { writerSibling?: boolean } = {}) {
   const f = await policyObserverFixture({ policyLifetimeMs: 600000, keyLifetimeMs: 300000 }); register(f.close);
   const h = historyCheckpointFixture(), profile = f.first.keys[0].profile;
   register(() => { h.owner.secretKey.fill(0); h.memberKeys.forEach(key => key.secretKey.fill(0)); h.key.fill(0); h.localKey.fill(0); });
@@ -44,7 +44,8 @@ export async function protectedIssuerRestoreFixture(register: (close: () => void
   }
   const options: ProtectedAdmissionIssuerLedgerOptions = { path: join(f.directory, 'owner', 'issuer.json'), expectedProfile: profile, privateKey,
     expectedAllocationAuthority: f.authority, now: () => now,
-    protection: { context, signingKey: h.owner, members, writerDirectory: join(f.directory, 'owner', 'writer'), timeoutMs: 10000 } };
+    protection: { context, signingKey: h.owner, members,
+      writerDirectory: settings.writerSibling ? join(f.directory, 'owner', 'issuer.json.history') : join(f.directory, 'owner', 'writer'), timeoutMs: 10000 } };
   let ledger = await openProtectedAdmissionIssuerLedger({ ...options, initialize: { allocation, communityPolicy: f.first, observers: f.context },
     protection: { ...options.protection, initializeWriter: true, initializeArchive: true } }); register(() => ledger.close());
   const genesis = ledger.enrollment().root, genesisId = historyCheckpointEnvelopeId(genesis);
@@ -53,11 +54,12 @@ export async function protectedIssuerRestoreFixture(register: (close: () => void
       localKey: randomBytes(32), signingKey: h.memberKeys[i], initialize: genesis }); services.push(volunteer); register(volunteer.close);
   }
   let currentRoot: HistoryCheckpointEnvelope = genesis, currentOptions = options;
-  const proof = (head: AdmissionPolicyHead = f.context.genesis) => {
-    const { query } = ledger.preparePolicyObservation();
+  const proofFor = (issuer: typeof ledger, head: AdmissionPolicyHead = f.context.genesis) => {
+    const { query } = issuer.preparePolicyObservation();
     return { version: 1 as const, type: ADMISSION_POLICY_QUERY_REPLY_TYPE, certificate: { version: 1 as const, kind: 'admission-policy-head-certificate' as const,
       votes: f.keys.slice(0, 4).map(key => createAdmissionPolicyHeadVote(query.request, head, f.context, key, now)) } };
   };
+  const proof = (head: AdmissionPolicyHead = f.context.genesis) => proofFor(ledger, head);
   const assign = () => signAdmissionClaimAssignment({ version: 1, kind: 'admission-claim-assignment', authority: f.authority,
     allocationDigest: admissionIssuanceAllocationDigest(allocation), community: 'public', epoch: 'one', claimHandle: randomBytes(32).toString('base64url'),
     issuerKeyFingerprint: admissionKeyFingerprint(profile.issuerPublicKey) }, allocation, f.authority, f.key.secretKey);
@@ -92,7 +94,7 @@ export async function protectedIssuerRestoreFixture(register: (close: () => void
       return preparation;
     } };
   }
-  return { ...f, authorityKey: f.key, observerContext: f.context, profile, privateKey, key, context, genesis, options, allocation, members, services, proof, assign, recover,
+  return { ...f, authorityKey: f.key, observerContext: f.context, profile, privateKey, key, context, genesis, options, allocation, members, services, proof, proofFor, assign, recover,
     get ledger() { return ledger; }, get currentOptions() { return currentOptions; },
     online(count: number) { online = count; }, clock(value: number) { now = value; },
     loseOwner() { ledger.close(); rmSync(currentOptions.path, { force: true }); rmSync(currentOptions.protection.writerDirectory, { recursive: true, force: true }); },

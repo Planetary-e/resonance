@@ -1,6 +1,8 @@
 /** Append-only full issuer images: exact durable intent, four retained copies, then local apply. */
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { existsSync, lstatSync, readdirSync } from 'node:fs';
+import { captureStorageReservationOperation } from '@resonance/core/storage-reservations';
+import { canonicalHistorySetupPath } from './admission-history-setup.js';
 import type { SigningKeyPair } from '@resonance/core';
 import { copyAdmissionSigningKey, exactWitnessFields } from '@resonance/core/admission-witness';
 import { openEncryptedLocalState } from '@resonance/core/local-state';
@@ -41,15 +43,40 @@ export interface ProtectedIssuerHistoryOptions<T> {
   validateGenesis?(image: T): void | Promise<void>;
   /** Internal trusted restoration input. Business APIs must require their reviewed capability first. */
   restore?: ProtectedIssuerHistoryRestoration<T>;
+  /** Internal exact interrupted restoration completion, approved by the dedicated resumption workflow. */
+  resumeRestoration?: ProtectedIssuerHistoryRestoration<T>;
+  resumePristineArchive?: boolean;
+  expectedRestorationDigest?: string;
   initialize?: boolean; initializeWriter?: boolean; initializeArchive?: boolean;
   timeoutMs?: number; transport?: WriterOptions['transport']; maxArchiveBlocks?: number; maxArchiveBytes?: number;
 }
+export const PROTECTED_ISSUER_RECOVERY_FENCE = 'issuer-recovery-fence.json';
+export interface ProtectedIssuerHistoryRecoverySource<T> {
+  readonly path: string; readonly writerDirectory: string; readonly contextId: string; readonly genesisId: string;
+  readonly rootId: string; readonly generation: number; readonly stateDigest: string;
+}
+export interface ProtectedIssuerHistoryRecoveryEvidence<T> extends ProtectedIssuerHistoryRecoverySource<T> {
+  context: HistoryCheckpointContext; genesis: HistoryCheckpointEnvelope; root: HistoryCheckpointEnvelope;
+  minimumEvidence: T[]; applied: { sequence: number; id: string } | null; pending: { sequence: number; id: string } | null;
+}
+const recoverySources = new WeakMap<object, { evidence: unknown; fence(): Promise<void> }>();
+export function readProtectedIssuerHistoryRecoverySource<T>(source: ProtectedIssuerHistoryRecoverySource<T>): ProtectedIssuerHistoryRecoveryEvidence<T> {
+  const record = recoverySources.get(source);
+  if (!record) throw new Error('Issuer recovery requires a live authenticated source capability');
+  return structuredClone(record.evidence) as ProtectedIssuerHistoryRecoveryEvidence<T>;
+}
+export async function fenceProtectedIssuerHistoryRecoverySource<T>(source: ProtectedIssuerHistoryRecoverySource<T>): Promise<void> {
+  const record = recoverySources.get(source);
+  if (!record) throw new Error('Issuer recovery requires a live authenticated source capability');
+  await record.fence();
+}
 export interface ProtectedIssuerHistoryStatus {
-  ready: boolean; busy: boolean; pending: boolean;
+  ready: boolean; busy: boolean; pending: boolean; fenced: boolean;
   applied: { sequence: number; id: string } | null; rootId: string;
   retainedBlocks: number; retainedCiphertextBytes: number; maximumBlocks: number; maximumCiphertextBytes: number;
 }
 export interface ProtectedIssuerHistory<T> {
+  reviewRecoverySource(): Promise<ProtectedIssuerHistoryRecoverySource<T>>;
   read(): T; commit(value: T): Promise<void>; ready(): Promise<void>; assertServing(): void;
   assertCapacity(values: readonly T[]): Promise<void>;
   status(): ProtectedIssuerHistoryStatus;
@@ -73,17 +100,23 @@ function assertOuterCapacity(value: unknown): void {
   }
 }
 export async function openProtectedIssuerHistory<T>(options: ProtectedIssuerHistoryOptions<T>): Promise<ProtectedIssuerHistory<T>> {
+  const run = captureStorageReservationOperation();
   // Capture caller-owned mutable data and both keys before the first asynchronous validator.
   const context = parseHistoryCheckpointContext(structuredClone(options.context));
   const key = Buffer.from(options.encryptionKey), signer = copyAdmissionSigningKey(options.signingKey);
   const restoreInput = options.restore === undefined ? undefined : structuredClone(options.restore);
+  const resumeInput = options.resumeRestoration === undefined ? undefined : structuredClone(options.resumeRestoration);
+  const expectedRestorationDigest = options.expectedRestorationDigest, resumePristineArchive = options.resumePristineArchive === true;
   const initialInput = structuredClone(options.initial), members = structuredClone(options.members);
-  const path = resolve(options.path), writerDirectory = resolve(options.writerDirectory), domain = options.domain, validate = options.validate, assertTransition = options.assertTransition, validateGenesis = options.validateGenesis;
+  const requestedPath = resolve(options.path), requestedWriterDirectory = resolve(options.writerDirectory);
+  const path = canonicalHistorySetupPath(requestedPath), writerDirectory = canonicalHistorySetupPath(requestedWriterDirectory), domain = options.domain, validate = options.validate, assertTransition = options.assertTransition, validateGenesis = options.validateGenesis;
   const initialize = options.initialize === true, initializeWriter = options.initializeWriter === true, initializeArchive = options.initializeArchive === true;
   const timeoutMs = options.timeoutMs, transport = options.transport;
   const maximumBlocks = options.maxArchiveBlocks ?? HISTORY_RECOVERY_MAX_BLOCKS, maximumBytes = options.maxArchiveBytes ?? HISTORY_RECOVERY_MAX_BYTES;
   let storage: ReturnType<typeof openEncryptedLocalState<ProtectedIssuerHistoryState<T>>> | undefined, writer: Writer | undefined;
-  let closed = false, active = false, readyConfirmed = false;
+  let closed = false, active = false, readyConfirmed = false, fenced = false;
+  let originalGenesis: HistoryCheckpointEnvelope;
+  const fencePath = join(writerDirectory, PROTECTED_ISSUER_RECOVERY_FENCE);
   function readState(): ProtectedIssuerHistoryState<T> {
     if (closed) throw new Error('Protected issuer history is closed');
     return storage!.read();
@@ -114,7 +147,8 @@ export async function openProtectedIssuerHistory<T>(options: ProtectedIssuerHist
     return state;
   }
   function assertServing() {
-    readState(); if (!readyConfirmed) throw new Error('Protected issuer history needs fresh readiness confirmation');
+    readState(); if (fenced) throw new Error('Protected issuer is permanently fenced for recovery');
+    if (!readyConfirmed) throw new Error('Protected issuer history needs fresh readiness confirmation');
     available();
   }
   function writerMatches() {
@@ -149,12 +183,19 @@ export async function openProtectedIssuerHistory<T>(options: ProtectedIssuerHist
     if (context.role !== 'admission-issuer' || key.length !== 32 || Buffer.from(signer.publicKey).toString('base64url') !== context.owner) {
       throw new Error('Wrong protected issuer history role, owner, or encryption key');
     }
+    if (resumeInput && (initialize || restoreInput)) throw new Error('Issuer restore resumption is only for retained initial restoration');
+    if (resumePristineArchive && !resumeInput) throw new Error('Pristine issuer archive resumption requires authenticated restoration');
+    if (expectedRestorationDigest !== undefined && (initialize || !isHistoryDigest(expectedRestorationDigest))) throw new Error('Invalid expected issuer restoration digest');
     if (restoreInput && !initialize) throw new Error('Protected issuer restoration is only for explicit fresh creation');
-    if (!initialize && (initializeWriter || initializeArchive)) throw new Error('Issuer writer and archive initialization require fresh owner creation');
+    if (!initialize && !resumeInput && (initializeWriter || initializeArchive)) throw new Error('Issuer writer and archive initialization require fresh owner creation');
     if (!Number.isSafeInteger(maximumBlocks) || maximumBlocks < 1 || maximumBlocks > HISTORY_RECOVERY_MAX_BLOCKS
       || !Number.isSafeInteger(maximumBytes) || maximumBytes < 1 || maximumBytes > HISTORY_RECOVERY_MAX_BYTES) throw new Error('Invalid protected issuer archive bounds');
     const contextId = historyCheckpointContextId(context);
+    function assertSelectedDestinations() {
+      if (canonicalHistorySetupPath(requestedPath) !== path || canonicalHistorySetupPath(requestedWriterDirectory) !== writerDirectory) throw new Error('Protected issuer storage destinations changed after selection');
+    }
     function assertNewRestoreDestination() {
+      assertSelectedDestinations();
       if (existsSync(path)) throw new Error('Protected issuer restore requires a new owner path');
       if (existsSync(writerDirectory) && (!lstatSync(writerDirectory).isDirectory() || readdirSync(writerDirectory).length)) {
         throw new Error('Protected issuer restore requires an empty new writer directory');
@@ -188,6 +229,7 @@ export async function openProtectedIssuerHistory<T>(options: ProtectedIssuerHist
       }
     }
     if (restoreInput) assertNewRestoreDestination(); // Recheck after all asynchronous validation and before the first owner intent.
+    assertSelectedDestinations();
     storage = openEncryptedLocalState<ProtectedIssuerHistoryState<T>>({ path, key, domain, maxBytes: MAX_PROTECTED_ISSUER_HISTORY_BYTES,
       initial: initial!, mode: initialize ? 'create-new' : 'open-existing',
       validate(value): value is ProtectedIssuerHistoryState<T> {
@@ -201,6 +243,7 @@ export async function openProtectedIssuerHistory<T>(options: ProtectedIssuerHist
     if (root.sequence !== 0 || (state.version === 1 ? root.kind !== 'checkpoint' || root.generation !== 0 : root.kind !== 'continuation')) throw new Error('Invalid protected issuer history root');
     const genesis = state.version === 2 ? parseHistoryCheckpointEnvelope(state.restoration?.genesis, context) : root;
     if (genesis.kind !== 'checkpoint' || genesis.generation !== 0 || genesis.sequence !== 0) throw new Error('Protected issuer requires its original enrolled genesis');
+    originalGenesis = genesis;
     const genesisImage = await decode(genesis); await validateGenesis?.(genesisImage);
     let rootImage = genesisImage;
     if (state.version === 2) {
@@ -210,6 +253,12 @@ export async function openProtectedIssuerHistory<T>(options: ProtectedIssuerHist
         || state.restoration.replayDigest !== protectedIssuerReplayDigest(contextId, id(genesis), historySuccessorProposalId(root.proposal), rootImage)) {
         throw new Error('Protected issuer restored baseline differs from selected history');
       }
+    }
+    if (expectedRestorationDigest !== undefined && (state.version !== 2 || state.restoration.replayDigest !== expectedRestorationDigest)) throw new Error('Issuer restoration differs from its independent replay digest');
+    if (resumeInput) {
+      if (state.version !== 2 || JSON.stringify([resumeInput.genesis, resumeInput.root, resumeInput.baseline, resumeInput.replayDigest]) !== JSON.stringify([state.restoration.genesis, state.root, state.restoration.baseline, state.restoration.replayDigest])) throw new Error('Issuer restoration resumption differs from retained selection or baseline');
+      if (state.applied !== null || !state.pending || id(state.pending) !== id(root)) throw new Error('Only an unapplied initial issuer restoration may resume missing components');
+      if (existsSync(fencePath)) throw new Error('Fenced issuer history requires recovery, not restoration resumption');
     }
     const image = await normalize(state.image);
     if (JSON.stringify(image) !== JSON.stringify(state.image)) throw new Error('Noncanonical protected issuer image');
@@ -231,7 +280,7 @@ export async function openProtectedIssuerHistory<T>(options: ProtectedIssuerHist
     if ((initializeWriter || initializeArchive) && state.applied !== null) throw new Error('Cannot initialize writer or archive for applied issuer history');
     writer = createRetainedHistoryCheckpointWriter({ directory: writerDirectory, localKey: key, context, signingKey: signer,
       rootId: id(root), generation: root.generation, genesisId: id(genesis), ...(root.kind === 'continuation' ? { continuation: root } : {}),
-      members, requireCurrentHead: true, initialize: initializeWriter, initializeArchive,
+      members, requireCurrentHead: true, initialize: initializeWriter, initializeArchive, resumePristineArchive,
       timeoutMs, transport, maxArchiveBlocks: maximumBlocks, maxArchiveBytes: maximumBytes });
     writerMatches();
     // Authenticate every retained transition from this generation's immutable baseline.
@@ -254,15 +303,63 @@ export async function openProtectedIssuerHistory<T>(options: ProtectedIssuerHist
         throw new Error('Protected issuer applied image does not match retained signed checkpoint');
       }
     }
+    if (existsSync(fencePath)) { const marker = openFence('open-existing'); marker.close(); fenced = true; }
   } catch (error) { close(); throw error; }
+  function retainedDigest() {
+    const state = readState(); writerMatches();
+    // Writer certificates/pending publication may progress while the owner retains the exact same intent.
+    return historyDigest(JSON.stringify(state));
+  }
+  function openFence(mode: 'create-new' | 'open-existing') {
+    const state = readState(), expected = { version: 1, path, writerDirectory, contextId: historyCheckpointContextId(context),
+      genesisId: id(originalGenesis), rootId: id(state.root), generation: state.root.generation, retainedDigest: retainedDigest() };
+    return openEncryptedLocalState<typeof expected>({ path: fencePath, key, domain: 'resonance:admission-issuer-recovery-fence:v1', maxBytes: 8192,
+      mode, initial: expected, validate(value): value is typeof expected {
+        return exactWitnessFields(value, Object.keys(expected)) && Object.keys(expected).every(field => value[field] === expected[field as keyof typeof expected]);
+      } });
+  }
   return {
+    reviewRecoverySource() { return exclusive(async () => {
+      const captured = readState(), capturedDigest = retainedDigest();
+      const minimumEvidence = [await normalize(captured.image)];
+      if (captured.pending) {
+        const pendingImage = captured.pending.kind === 'continuation' ? await normalize(baseline(captured)) : await decode(captured.pending);
+        if (JSON.stringify(pendingImage) !== JSON.stringify(minimumEvidence[0])) minimumEvidence.push(pendingImage);
+      }
+      if (retainedDigest() !== capturedDigest) throw new Error('Issuer history changed during source review');
+      const evidence: ProtectedIssuerHistoryRecoveryEvidence<T> = { path, writerDirectory, contextId: historyCheckpointContextId(context), genesisId: id(originalGenesis),
+        rootId: id(captured.root), generation: captured.root.generation, stateDigest: historyDigest(JSON.stringify(minimumEvidence)), context: structuredClone(context),
+        genesis: structuredClone(originalGenesis), root: structuredClone(captured.root), minimumEvidence,
+        applied: structuredClone(captured.applied), pending: captured.pending ? { sequence: captured.pending.sequence, id: id(captured.pending) } : null };
+      const source = Object.freeze({ path, writerDirectory, contextId: evidence.contextId, genesisId: evidence.genesisId, rootId: evidence.rootId,
+        generation: evidence.generation, stateDigest: evidence.stateDigest });
+      let completedDigest: string | undefined;
+      recoverySources.set(source, { evidence, fence() { return run(() => exclusive(async () => {
+        if (fenced) {
+          if (completedDigest && retainedDigest() === completedDigest) return;
+          if (retainedDigest() === capturedDigest) return;
+          throw new Error('Issuer history changed since source review');
+        }
+        if (retainedDigest() !== capturedDigest && retainedDigest() !== completedDigest) throw new Error('Issuer history changed since source review');
+        readyConfirmed = false;
+        await finishPending();
+        const state = readState(), expectedHead = evidence.pending ?? evidence.applied;
+        if (!expectedHead || state.pending || state.applied?.id !== expectedHead.id || state.applied.sequence !== expectedHead.sequence
+          || JSON.stringify(state.image) !== JSON.stringify(minimumEvidence.at(-1))) throw new Error('Issuer pending completion differs from reviewed source');
+        completedDigest = retainedDigest();
+        try { const marker = openFence('create-new'); marker.close(); fenced = true; }
+        catch (error) { close(); throw error; }
+      })); } });
+      return source;
+    }); },
     read() { return structuredClone(readState().image); },
     assertServing,
-    status() { const state = readState(); return { ready: readyConfirmed, busy: active, pending: state.pending !== null,
+    status() { const state = readState(); return { ready: readyConfirmed, busy: active, fenced, pending: state.pending !== null,
       applied: structuredClone(state.applied), rootId: id(state.root), ...writer!.historyUsage() }; },
     enrollment() { const state = readState(); return { context: structuredClone(context), root: structuredClone(state.root) }; },
     ready() { return exclusive(async () => {
       readyConfirmed = false;
+      if (fenced) throw new Error('Protected issuer is permanently fenced for recovery');
       const fresh = await finishPending();
       if (!fresh) await writer!.replicate(writer!.read().committed!.envelope);
       readState(); available(); readyConfirmed = true;

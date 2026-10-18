@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openEncryptedLocalState } from '@resonance/core/local-state';
@@ -29,7 +29,7 @@ function validate(value: unknown): Image {
   return structuredClone(image);
 }
 async function fixture(limits: { maxArchiveBlocks?: number; maxArchiveBytes?: number } = {}) {
-  const h = historyCheckpointFixture(), directory = mkdtempSync(join(tmpdir(), 'protected-issuer-'));
+  const h = historyCheckpointFixture(), directory = realpathSync(mkdtempSync(join(tmpdir(), 'protected-issuer-')));
   cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
   const context = { ...h.context, role: 'admission-issuer' as const }, path = join(directory, 'issuer.json'), writerDirectory = join(directory, 'writer');
   const members = context.members.map((publicKey, i) => ({ publicKey, endpoint: `ws://127.0.0.1:${29000 + i}/history-checkpoint` }));
@@ -256,4 +256,12 @@ it.each(['baseline', 'image', 'genesis', 'version'])('rejects tampered persisted
   if (damage === 'version') { state.version = 1; delete state.restoration; }
   raw.write(state); raw.close();
   await expect(openProtectedIssuerHistory(n.options)).rejects.toThrow();
+});
+
+it.skipIf(process.platform === 'win32')('rejects a restore destination retargeted during asynchronous image authentication before any owner intent', async () => {
+  const n = await restoredFixture(), first = join(n.directory, 'selected-one'), second = join(n.directory, 'selected-two'), link = join(n.directory, 'selection');
+  mkdirSync(first); mkdirSync(second); symlinkSync(first, link, 'dir'); let changed = false;
+  await expect(openProtectedIssuerHistory({ ...n.options, path: join(link, 'issuer.json'), writerDirectory: join(link, 'writer'), initialize: true, initializeWriter: true, restore: n.restore,
+    validate(value) { if (!changed) { changed = true; rmSync(link); symlinkSync(second, link, 'dir'); } return validate(value); } })).rejects.toThrow('destinations changed');
+  expect(existsSync(join(first, 'issuer.json'))).toBe(false); expect(existsSync(join(second, 'issuer.json'))).toBe(false);
 });

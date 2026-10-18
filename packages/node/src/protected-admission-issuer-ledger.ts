@@ -6,8 +6,8 @@ import { verifyAdmissionIssuanceAllocation, admissionIssuanceAllocationDigest, a
 import { verifyAdmissionClaimAssignment, type SignedAdmissionClaimAssignment } from '@resonance/core/admission-claim-assignment';
 import { createHash, randomBytes } from 'node:crypto';
 import { resolve } from 'node:path';
-import { openProtectedIssuerHistory, type ProtectedIssuerHistoryOptions } from '@resonance/relay/protected-issuer-history';
-import { admissionKeyFingerprint } from './admission-wallet-profile.js';
+import { openProtectedIssuerHistory, readProtectedIssuerHistoryRecoverySource, fenceProtectedIssuerHistoryRecoverySource, type ProtectedIssuerHistoryRecoveryEvidence, type ProtectedIssuerHistoryOptions } from '@resonance/relay/protected-issuer-history';
+import { admissionKeyFingerprint, type AdmissionWalletProfileV1 } from './admission-wallet-profile.js';
 import { prepareAdmissionBatchIssuer, validateAdmissionIssuanceTarget, type AdmissionIssuanceResponse } from './blind-admission-issuance.js';
 import { admissionPolicyObserversId, parseAdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
 import { matchesAdmissionPolicyHead, parseAdmissionPolicyAdvance, sameAdmissionPolicyHead } from '@resonance/core/admission-policy-advance';
@@ -19,12 +19,30 @@ import { readPreparedProtectedIssuerRestore, type PreparedProtectedIssuerRestore
 import { DOMAIN, permitHash, totals, canonicalClaim, claimDigest, claimScopeBinding,
   assertAdmissionIssuerPolicy, validateAdmissionIssuerPermit, deriveAdmissionIssuerEncryptionKey, IssuerPolicyObservationExpiredError, type State, type AdmissionIssuancePermit } from './admission-issuer-state.js';
 
+export interface ProtectedIssuerRecoverySource {
+  readonly path: string; readonly writerDirectory: string; readonly contextId: string; readonly genesisId: string;
+  readonly rootId: string; readonly generation: number; readonly stateDigest: string;
+}
+export interface ProtectedIssuerRecoveryEvidence extends ProtectedIssuerHistoryRecoveryEvidence<State> {
+  profile: AdmissionWalletProfileV1; authority: string;
+}
+const recoverySources = new WeakMap<ProtectedIssuerRecoverySource, { read(): ProtectedIssuerRecoveryEvidence; fence(): Promise<void> }>();
+export function readProtectedIssuerRecoverySource(source: ProtectedIssuerRecoverySource): ProtectedIssuerRecoveryEvidence {
+  const record = recoverySources.get(source);
+  if (!record) throw new Error('Issuer recovery requires a live authenticated source capability');
+  return record.read();
+}
+export async function fenceProtectedIssuerRecoverySource(source: ProtectedIssuerRecoverySource): Promise<void> {
+  const record = recoverySources.get(source);
+  if (!record) throw new Error('Issuer recovery requires a live authenticated source capability');
+  await record.fence();
+}
 export interface ProtectedAdmissionIssuerLedgerOptions {
   path: string;
   expectedProfile: unknown;
   privateKey: CryptoKey;
   expectedAllocationAuthority: string;
-  protection: Omit<ProtectedIssuerHistoryOptions<State>, 'path' | 'domain' | 'encryptionKey' | 'initial' | 'validate' | 'initialize' | 'restore' | 'assertTransition' | 'validateGenesis'>;
+  protection: Omit<ProtectedIssuerHistoryOptions<State>, 'path' | 'domain' | 'encryptionKey' | 'initial' | 'validate' | 'initialize' | 'restore' | 'assertTransition' | 'validateGenesis' | 'resumeRestoration' | 'resumePristineArchive'>;
   /** Fresh creation only. Existing local ledgers cannot be promoted through this API. */
   initialize?: { allocation: unknown; communityPolicy: unknown; observers: unknown };
   /** Reviewed restoration is an in-process capability, never a serialized snapshot or generic adapter option. */
@@ -32,7 +50,7 @@ export interface ProtectedAdmissionIssuerLedgerOptions {
   now?: () => number;
 }
 export async function openProtectedAdmissionIssuerLedger(options: ProtectedAdmissionIssuerLedgerOptions) {
-  if (Object.hasOwn(options.protection, 'restore') || Object.hasOwn(options.protection, 'assertTransition') || Object.hasOwn(options.protection, 'validateGenesis')) {
+  if (Object.hasOwn(options.protection, 'restore') || Object.hasOwn(options.protection, 'assertTransition') || Object.hasOwn(options.protection, 'validateGenesis') || Object.hasOwn(options.protection, 'resumeRestoration') || Object.hasOwn(options.protection, 'resumePristineArchive')) {
     throw new Error('Protected issuer restoration and transition validation require the business API capability');
   }
   if (options.initialize && options.restore) throw new Error('Protected issuer initialization and restoration are mutually exclusive');
@@ -77,7 +95,7 @@ export async function openProtectedAdmissionIssuerLedger(options: ProtectedAdmis
       const restored = options.restore === undefined ? undefined : readPreparedProtectedIssuerRestore(options.restore.preparation, options.restore.approvedDigest,
         { path: options.path, writerDirectory: options.protection.writerDirectory, context: options.protection.context, profile, authority });
       storage = await openProtectedIssuerHistory<State>({ ...options.protection, path: options.path, domain: DOMAIN, encryptionKey: key,
-        initialize: !!options.initialize || !!restored, initial: initial!, validate, assertTransition: assertProtectedIssuerImageSuccessor, validateGenesis: image => assertProtectedIssuerGenesis(image, options.protection.context), restore: restored });
+        initialize: !!options.initialize || !!restored, initial: initial!, validate, assertTransition: assertProtectedIssuerImageSuccessor, validateGenesis: image => assertProtectedIssuerGenesis(image, options.protection.context), restore: restored, resumeRestoration: undefined, resumePristineArchive: false });
     }
     finally { key.fill(0); }
     let busy = false, observation: { query: AdmissionPolicyQuery; deadline: number } | undefined;
@@ -147,6 +165,22 @@ export async function openProtectedAdmissionIssuerLedger(options: ProtectedAdmis
           keyFingerprint: admissionKeyFingerprint(profile.issuerPublicKey), count: state.policy.batchSize, secret };
     }
     const api = {
+      async reviewRecoverySource(): Promise<ProtectedIssuerRecoverySource> {
+        if (busy) throw new Error('Issuer operation is already in progress');
+        busy = true;
+        try {
+          const captured = await storage.reviewRecoverySource();
+          const source = Object.freeze({ path: captured.path, writerDirectory: captured.writerDirectory, contextId: captured.contextId, genesisId: captured.genesisId,
+            rootId: captured.rootId, generation: captured.generation, stateDigest: captured.stateDigest });
+          recoverySources.set(source, { read() { return { ...readProtectedIssuerHistoryRecoverySource(captured), profile: structuredClone(profile), authority }; },
+            async fence() {
+              if (busy) throw new Error('Issuer operation is already in progress');
+              busy = true; observation = undefined;
+              try { await fenceProtectedIssuerHistoryRecoverySource(captured); } finally { busy = false; }
+            } });
+          return source;
+        } finally { busy = false; }
+      },
       async ready() {
         if (busy) throw new Error('Issuer operation is already in progress');
         busy = true; observation = undefined;

@@ -10,6 +10,7 @@ import { ADMISSION_POLICY_ADVANCE_MAX_BYTES } from '@resonance/core/admission-po
 import { ADMISSION_POLICY_QUERY_REPLY_TYPE } from '@resonance/core/admission-policy-query';
 import { exactWitnessFields } from '@resonance/core/admission-witness';
 import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointContextId, parseHistoryCheckpointContext } from '@resonance/core/history-checkpoint';
+import { runProtectedIssuerRecoveryCommand } from '../packages/node/src/admission-issuer-recovery-command.js';
 import { openProtectedAdmissionIssuerLedger } from '../packages/node/src/protected-admission-issuer-ledger.js';
 import { IssuerPolicyObservationExpiredError } from '../packages/node/src/admission-issuer-ledger.js';
 import { readOperatorFile, readOperatorJson, readOperatorSigningKey, writeOperatorJsonNew } from '../packages/relay/src/admission-operator-files.js';
@@ -44,6 +45,10 @@ function configuration(value: unknown) {
 async function main() {
   if (process.env.RESONANCE_RELAY_STORAGE_SELECTION_FILE) throw new Error('Issuer tools require explicitly selected issuer files');
   const [command, ...raw] = process.argv.slice(2);
+  if (command?.startsWith('recovery-')) {
+    const { result } = await runProtectedIssuerRecoveryCommand(command, raw, controller.signal, { transportFile: process.env.RESONANCE_HISTORY_OPERATOR_TRANSPORT_FILE });
+    console.log(JSON.stringify(result)); return;
+  }
   const mutating = ['config', 'init', 'grant', 'issue', 'policy', 'retire'].includes(command ?? '');
   let args = raw, approval: string | undefined;
   if (mutating) {
@@ -148,6 +153,11 @@ catch (error) {
   console.error('  policy --approve <common> next-policy.json signed-advance.json');
   console.error('  plan-retirement <common>');
   console.error('  retire --approve <review-digest> <common>');
+  console.error('  recovery-plan <common> original-enrollment.json recovery-dir available|unavailable view');
+  console.error('  recovery-start --approve <digest> <common> original-enrollment.json recovery-dir available|unavailable view');
+  console.error('  recovery-status|recovery-step <common> original-enrollment.json recovery-dir');
+  console.error('  recovery-review|recovery-resume-plan <common> original-enrollment.json recovery-dir destination-ledger.json');
+  console.error('  recovery-restore|recovery-resume --approve <digest> <common> original-enrollment.json recovery-dir destination-ledger.json');
   console.error('  History writer: <ledger.json>.history. Optional pinned transport: RESONANCE_HISTORY_OPERATOR_TRANSPORT_FILE.');
   process.exitCode = 1;
 } finally { process.removeListener('SIGINT', cancel); process.removeListener('SIGTERM', cancel); }
