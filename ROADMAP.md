@@ -379,12 +379,17 @@ The five-target placement goal remains conditional on enough eligible volunteers
     - [x] Publications: encrypted 64-entry / 16 MiB outbox, explicit desktop Send/Cancel, pinned private routes, crash recovery without replay, and exact retry after an uncertain delivery; exclude held publications from mailbox sync
     - [x] Searches and per-mailbox checks: encrypted 24-hour intents, fresh signed requests only on explicit Run, persistent pause across all automatic mailbox paths, bounded releases, and uncertain-outcome recovery without automatic retry; a selected mailbox run includes its required acknowledgements, connection responses, and pending messages
   - [x] Replace heap-delta HNSW memory evidence with isolated native-process absolute/peak RSS; retain reproducible 10K/100K measurements and explicit full-application exclusions (`docs/evals/hnsw-process-memory-2026-10-17.md`)
+  - [x] Exercise two isolated desktop backend processes with real local embeddings, blinded issuance, private publication/search/mailbox delivery and restart-safe notice deduplication; record ten distinct credentials, actual payload traffic and high native memory peaks (`docs/evals/v04-real-app-2026-10-18.md`)
+    - [x] Release native embedding sessions after setup, failed unlock and lock; drain in-flight inference before release and prevent a new model allocation until cleanup settles
+    - [ ] Reduce and bound real application model-loading memory peaks on supported devices; explicit disposal alone does not demonstrate a peak reduction
   - [ ] Measure stronger observers, total traffic, and CPU/energy costs before selecting production timing defaults; quiet-period observer protection remains unresolved
   - [ ] Run colluding-operator, multi-domain Sybil, and timing-correlation adversaries with quantitative privacy targets
 - [ ] Define group-specific, rotating fingerprint epochs to limit correlation across communities and time
   - [x] Derive deterministic group/month-specific public projection matrices and verify cross-scope hashes do not directly match; live v2 still uses the static pilot matrix
 - [ ] Measure the matching-quality and privacy effects of fingerprint rotation
   - [x] Add a reproducible synthetic probe for within-scope quality and cross-scope correlation; real-text recall and epoch-boundary migration remain open
+  - [x] Measure the actual cached embedding model on 100 labeled English pairs: scope rotation preserves relative recall, but public-matrix reconstruction links 86–97% of 100 offers across scopes and an exact known-text dictionary links 100%; retain the failed privacy gate and model/data hashes (`docs/evals/scoped-fingerprint-real-2026-10-18.md`)
+  - [ ] Resolve the failed cross-scope linking target before live rotation; calibrate absolute candidate quality on an independent corpus (the static threshold admits 48/50 labeled negatives in the screening fixture), then validate epoch-boundary migration
 
 **Completion test:** The entry hop cannot read an operation, the destination cannot see its originating address, and two valid operations cannot be linked by an account identifier or rate-limit credential.
 

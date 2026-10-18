@@ -7,6 +7,7 @@
     "eval": "tsx src/run.ts",
     "eval:quick": "tsx src/run.ts --quick",
     "eval:scoped-fingerprint": "tsx src/scoped-fingerprint.ts",
+    "eval:scoped-fingerprint:real": "node --import tsx src/scoped-fingerprint-real.ts",
     "eval:private-timing": "tsx src/private-timing.ts",
     "eval:private-mix": "tsx src/private-mix-timing.ts",
     "eval:private-replies": "tsx src/private-mix-timing.ts --reply-comparison",
@@ -19,6 +20,7 @@
     "eval:protected-roles": "node --import tsx src/protected-role-costs.ts"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.3.0",
     "@resonance/core": "*",
     "@resonance/node": "*",
     "@resonance/relay": "*",
