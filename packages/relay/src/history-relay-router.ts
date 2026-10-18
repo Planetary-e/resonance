@@ -2,6 +2,7 @@
  * fallback identity, automatic membership change or transparent mutation retry. */
 import WebSocket from 'ws';
 import { HistoryRelayTurns } from './history-relay-turns.js';
+import { HistoryLocalExchange } from './history-local-exchange.js';
 import type { HistoryTransportHealth } from './history-health.js';
 import { HistoryLinkBudget, HistoryRelayLink, type HistoryRoleHandler, type HistoryRoleMethod,
   type HistoryLinkMethod, type HistoryLinkContext } from './history-relay-link.js';
@@ -22,6 +23,8 @@ export class HistoryRelayRouter {
   private readonly timeoutMs: number;
   private readonly turns = new HistoryRelayTurns();
   private closed = false;
+  private localIdentity?: string;
+  private local?: HistoryLocalExchange;
   constructor(private readonly options: {
     members?: readonly HistoryRelayMemberRoute[];
     bridgeRoutes?: readonly HistoryRelayBridgeRoute[];
@@ -60,6 +63,16 @@ export class HistoryRelayRouter {
     // Copy authorizations; changing the caller's arrays later cannot widen them.
     this.options = { handler: options.handler, acceptedRelayIds: [...accepted], acceptForward: options.acceptForward,
       waitForConnection: options.waitForConnection, serializeRequests: options.serializeRequests };
+  }
+
+  /** Bind once from the actual server identity, never from a peer advertisement.
+   * Local delivery is available only when this process owns an enrolled handler. */
+  bindLocalIdentity(relayId: string): void {
+    if (this.closed || !isHistoryRelayId(relayId) || this.localIdentity && this.localIdentity !== relayId) throw new Error('Invalid local history identity binding');
+    if (this.localIdentity) return;
+    if ([...this.pins.values()].some(pin => pin.relayId === relayId) && !this.options.handler) throw new Error('A pinned local history member requires an enrolled volunteer role');
+    this.localIdentity = relayId;
+    if (this.options.handler) this.local = new HistoryLocalExchange(this.budget, this.options.handler, this.timeoutMs);
   }
 
   /** Called only after both directions of the signed relay handshake are checked. */
@@ -120,6 +133,10 @@ export class HistoryRelayRouter {
     const pin = this.pins.get(member);
     if (!pin) return Promise.reject(new Error('Pinned history relay link unavailable'));
     const maximum = historyRoleResponseLimit(method, frame);
+    if (pin.relayId === this.localIdentity) {
+      if (!this.local) return Promise.reject(new Error('Enrolled local history handler unavailable'));
+      return this.local.request(method, frame, signal, maximum);
+    }
     return pin.viaRelayId ? this.requestRelay(pin.viaRelayId, 'bridge', { version: 1, targetRelayId: pin.relayId, method, frame }, signal, maximum, true)
       : this.requestRelay(pin.relayId, method, frame, signal, maximum, !!this.options.serializeRequests);
   }
@@ -128,6 +145,10 @@ export class HistoryRelayRouter {
     const frame = parseHistoryBridgeFrame(raw);
     if (!this.bridgeRoutes.some(r => r.controllerRelayId === source && r.targetRelayId === frame.targetRelayId)
       || this.options.acceptForward?.(Buffer.byteLength(JSON.stringify(raw))) === false) throw new Error('History bridge route refused');
+    if (frame.targetRelayId === this.localIdentity) {
+      if (!this.local) throw new Error('Enrolled local history handler unavailable');
+      return this.local.request(frame.method, frame.frame, context.signal, historyRoleResponseLimit(frame.method, frame.frame), context.deadline);
+    }
     return this.requestRelay(frame.targetRelayId, frame.method, frame.frame, context.signal,
       historyRoleResponseLimit(frame.method, frame.frame), true, context.deadline);
   }
@@ -140,14 +161,15 @@ export class HistoryRelayRouter {
     const targets = new Set(this.bridgeRoutes.map(route => route.targetRelayId));
     const controllers = new Set([...this.options.acceptedRelayIds!, ...this.bridgeRoutes.map(route => route.controllerRelayId)]);
     const usage = this.budget.usage();
-    return { configuredMembers: this.pins.size, connectedDirectMembers: direct.filter(pin => connected(pin.relayId)).length,
+    const local = !!this.local && [...this.pins.values()].some(pin => pin.relayId === this.localIdentity);
+    return { ...(local ? { configuredLocalMembers: 1 } : {}), configuredMembers: this.pins.size, connectedDirectMembers: direct.filter(pin => connected(pin.relayId)).length,
       configuredOwnerBridges: this.multiplexed.size, connectedOwnerBridges: [...this.multiplexed].filter(connected).length,
       configuredBridgeRoutes: this.bridgeRoutes.length, connectedBridgeTargets: [...targets].filter(connected).length,
       configuredControllers: controllers.size, connectedControllers: [...controllers].filter(connected).length,
       operations: usage.operations, maximumOperations: this.budget.maxOperations, bufferBytes: usage.bytes, maximumBufferBytes: this.budget.maxBytes };
   }
   close(): void {
-    if (this.closed) return; this.closed = true; this.turns.close();
+    if (this.closed) return; this.closed = true; this.turns.close(); this.local?.close();
     for (const waiter of this.waiting) waiter.finish(new Error('History routing closed'));
     for (const { peer } of this.links.values()) peer.close();
     this.links.clear();

@@ -28,6 +28,7 @@ export default function HistoryHealth({ health }: { health: RelayHistoryHealth |
     </>}
     {transport && transport.state !== 'available' && <p role="status">History connection status is unavailable.</p>}
     {transport?.state === 'available' && <>
+      {transport.usage.configuredLocalMembers === 1 && <p className="text-sm">One pinned history member is hosted on this device and uses a local route.</p>}
       {transport.usage.configuredMembers > 0 && <p className="text-sm">Your member set: {transport.usage.configuredMembers} members;
         {' '}{transport.usage.connectedDirectMembers} direct member connections and {transport.usage.connectedOwnerBridges} / {transport.usage.configuredOwnerBridges} bridge connections.</p>}
       {transport.usage.configuredBridgeRoutes > 0 && <p className="text-sm">Bridge: {transport.usage.configuredBridgeRoutes} permitted routes,

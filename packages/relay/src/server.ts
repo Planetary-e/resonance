@@ -592,6 +592,8 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     cfg.persistDir, maxJournalFileBytes, journalReserveAfter,
   );
   const relayIdentity = loadOrCreateRelayIdentity(cfg.persistDir, cfg.identityPassphrase);
+  try { cfg.historyLinks?.bindLocalIdentity(relayIdentity.did); }
+  catch (error) { relayIdentity.secretKey.fill(0); throw error; }
   const replicaStorageLedger = new ReplicaStorageLedger();
   const trafficMeter = cfg.resourceMeter ?? new RelayTrafficMeter(cfg.persistDir);
 

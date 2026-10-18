@@ -17,6 +17,10 @@ it('explains local retention, unfinished work and unknown observations without r
   expect(html).toContain('Volunteer history status is unavailable'); expect(html).toContain('Checking status does not clear saved history');
   expect(html).toContain('0 direct member connections'); expect(html).toContain('1 / 1 bridge connections');
   expect(html).toContain('do not confirm current remote copies');
+  if (health.transport?.state === 'available') health.transport.usage.configuredLocalMembers = 1;
+  const coLocated = renderToStaticMarkup(<HistoryHealth health={health} />);
+  expect(coLocated).toContain('hosted on this device and uses a local route');
+  expect(coLocated).toContain('needs confirmation from four members');
   expect(renderToStaticMarkup(<HistoryHealth health={{ owner: null, volunteer: null, transport: null }} />)).toBe('');
 });
 

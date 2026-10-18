@@ -25,6 +25,7 @@ function start(n: Fixture, environment: Record<string, string> = {}) {
   const child = spawn(process.execPath, ['--import', import.meta.resolve('tsx'), fileURLToPath(new URL('../main.ts', import.meta.url))], {
     cwd: n.directory, stdio: ['ignore', 'pipe', 'pipe'], env: { ...env, RELAY_HOST: '127.0.0.1', RELAY_PORT: '0',
       RELAY_DATA_DIR: n.identityDirectory, RELAY_IDENTITY_PASSPHRASE_FILE: n.secret, RELAY_ADMIN_API_KEY: 'observer-runtime-test',
+      ...(n.coLocatedFile ? { RELAY_HISTORY_VOLUNTEER_FILE: n.coLocatedFile } : {}),
       RELAY_POLICY_OBSERVER_FILE: n.configPath, RELAY_POLICY_OBSERVER_LINKS_FILE: n.links, ...environment } });
   const exited = once(child, 'exit'); let output = '', port = 0, endpoint = '', closed = false;
   const read = (bytes: Buffer) => {
@@ -101,6 +102,22 @@ it('refuses explicitly broken routing without silently trying direct endpoints',
   await broken.exited; expect(broken.child.exitCode).toBe(1); expect(broken.endpoint()).toBe('');
   const partial = start(n, { RELAY_POLICY_OBSERVER_FILE: '' }); await partial.exited;
   expect(partial.child.exitCode).toBe(1); expect(partial.output()).toContain('require RELAY_POLICY_OBSERVER_FILE');
+}, 60000);
+
+it('uses its own enrolled replica plus three remote volunteers without a self-link and refuses progress with only three total copies', async () => {
+  const n = await fixture({ coLocated: true });
+  // Initialization used four remote volunteers. The runtime now reopens the
+  // fifth enrolled replica in its own process; one remote goes offline.
+  await n.volunteers[3].stop({ graceful: false });
+  const runtime = start(n); await runtime.ready();
+  expect((await observe(n, runtime.endpoint(), n.advance)).head.revision).toBe(2);
+  const stats = await runtime.stats(); expect(stats.history.volunteer).toMatchObject({ state: 'available', usage: { retainedBlocks: 2 } });
+  expect(stats.history.transport).toMatchObject({ state: 'available', usage: { configuredLocalMembers: 1, configuredMembers: 5 } });
+  await n.volunteers[2].stop({ graceful: false });
+  await expect(observe(n, runtime.endpoint())).rejects.toThrow(); await runtime.close();
+  const unavailable = start(n); await unavailable.exited; expect(unavailable.child.exitCode).toBe(1); expect(unavailable.endpoint()).toBe('');
+  const retained = await openConfiguredPolicyObserver(readPolicyObserverConfigurationFile(n.configPath)); cleanup.push(retained.close);
+  expect(retained.policy()).toEqual(n.second); expect(retained.status().pending).toBe(false);
 }, 60000);
 
 // Windows task termination does not deliver Unix SIGTERM to drain handlers.

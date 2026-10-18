@@ -14,6 +14,8 @@ export interface HistoryVolunteerHealth {
   maximumGenerationBytes: number; maximumGenerationBlocks: number; maximumAncestryBytes: number;
 }
 export interface HistoryTransportHealth {
+  /** A configured in-process route; it does not establish current durability. */
+  configuredLocalMembers?: number;
   configuredMembers: number; connectedDirectMembers: number;
   configuredOwnerBridges: number; connectedOwnerBridges: number;
   configuredBridgeRoutes: number; connectedBridgeTargets: number;
@@ -68,10 +70,16 @@ export function parseRelayHistoryHealth(value: unknown): RelayHistoryHealth | nu
     if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 1 || count > 8) volunteer = { state: 'unavailable' };
     else volunteer.usage.histories = count;
   }
+  let transport = role<HistoryTransportHealth>(value.transport, ['configuredMembers', 'connectedDirectMembers', 'configuredOwnerBridges', 'connectedOwnerBridges',
+    'configuredBridgeRoutes', 'connectedBridgeTargets', 'configuredControllers', 'connectedControllers', 'operations', 'maximumOperations', 'bufferBytes', 'maximumBufferBytes']);
+  if (transport?.state === 'available' && object(value.transport) && object(value.transport.usage) && Object.hasOwn(value.transport.usage, 'configuredLocalMembers')) {
+    const count = value.transport.usage.configuredLocalMembers;
+    if (count !== 1 || transport.usage.configuredMembers < count) transport = { state: 'unavailable' };
+    else transport.usage.configuredLocalMembers = count;
+  }
   return {
     owner: role(value.owner, ['retainedBlocks', 'retainedCiphertextBytes', 'maximumBlocks', 'maximumCiphertextBytes'], ['initialized', 'busy', 'pending']),
     volunteer,
-    transport: role(value.transport, ['configuredMembers', 'connectedDirectMembers', 'configuredOwnerBridges', 'connectedOwnerBridges',
-      'configuredBridgeRoutes', 'connectedBridgeTargets', 'configuredControllers', 'connectedControllers', 'operations', 'maximumOperations', 'bufferBytes', 'maximumBufferBytes']),
+    transport,
   };
 }
