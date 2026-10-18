@@ -3471,7 +3471,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       }
       let raw: string;
       try {
-        raw = data.toString('utf-8');
+        raw = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(data);
       } catch {
         ws.close(4000, 'invalid_encoding');
         return;
@@ -3553,7 +3553,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
             const payload = Buffer.from(opened.data);
             if (payload.length > MAX_PRIVATE_FRAME_BYTES) throw new Error('Private payload too large');
             let operation: unknown;
-            try { operation = JSON.parse(payload.toString('utf8')); } catch { /* rejected below */ }
+            try { operation = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(payload)); } catch { /* rejected below */ }
             if (!isObject(operation) || !new Set<string>([
               PUBLICATION_OPERATION_FRAME_TYPE,
               SEARCH_REQUEST_FRAME_TYPE,

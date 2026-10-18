@@ -248,6 +248,29 @@ describe('private request forwarding over live volunteer relays', () => {
     expect(mailboxResponse.payload.envelopes).toEqual([]);
   }, 10_000); // Three sequential operations each cross two collection windows.
 
+  it.each([[0xff], [0xc0, 0xaf], [0xe2, 0x82]])('rejects malformed UTF-8 inside authenticated private data: %j', async (...bytes) => {
+    const malformed = Buffer.from(bytes), replacement = malformed.toString('utf8');
+    const entryContact = await discoverRelayContactV1(createRelayContactHintV1('configured', ENTRY_ENDPOINT));
+    const destinationContact = await discoverRelayContactV1(createRelayContactHintV1('configured', DESTINATION_ENDPOINT));
+    entry.observeRelayDescriptor(destinationContact.responder);
+    const now = Date.now(), record = createPublicationRecord({ groupId: 'public', fingerprintEpoch: `encoding-${replacement}`,
+      fingerprint: new Uint8Array(64).fill(0x95), itemType: 'offer', createdAt: now, expiresAt: now + 60000 }, generatePublicationKeyMaterial());
+    const valid = Buffer.from(serializePublicationOperationFrame(createPublicationOperationFrame(record))), position = valid.indexOf(Buffer.from(replacement));
+    expect(position).toBeGreaterThan(0);
+    const invalid = Buffer.concat([valid.subarray(0, position), malformed, valid.subarray(position + Buffer.byteLength(replacement))]);
+    // Permissive decoding silently reconstructs a correctly signed operation.
+    expect(invalid.toString('utf8')).toBe(valid.toString('utf8'));
+    const before = destination.getStats().stored_publications;
+    const outer = await createPrivateRequestV1(invalid, entryContact.transportKey!, destinationContact.transportKey!);
+    expect(await send(serializePrivateRequestLayerV1(outer.request)).then(() => 'accepted', () => 'rejected')).toBe('rejected');
+    expect(destination.getStats().stored_publications).toBe(before);
+    // A literal, correctly encoded replacement character is still valid data.
+    const control = await createPrivateRequestV1(valid, entryContact.transportKey!, destinationContact.transportKey!);
+    const encrypted = parsePrivateResponseV1(await send(serializePrivateRequestLayerV1(control.request)));
+    const ack = parseMessage(encodeUTF8(await openPrivateResponseV1(encrypted, control.responsePrivateKey, control.request.requestId, destinationContact.responder.relayId)));
+    expect(ack.payload).toMatchObject({ status: 'ok' }); expect(destination.getStats().stored_publications).toBe(before + 1);
+  }, 15000);
+
   it('fails closed when the entry has no authenticated route to the destination', async () => {
     const entryContact = await discoverRelayContactV1(
       createRelayContactHintV1('configured', ENTRY_ENDPOINT),
