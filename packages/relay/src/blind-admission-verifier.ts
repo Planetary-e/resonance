@@ -123,10 +123,14 @@ function openLegacySpendLog(directory: string, maxSpends: number): AdmissionSpen
   }
   const newFile = !existsSync(path);
   const fd = openSync(path, 'a', 0o600);
-  if (newFile) {
-    const directoryFd = openSync(directory, 'r');
-    try { fsyncSync(directoryFd); } finally { closeSync(directoryFd); }
-  }
+  try {
+    // Windows rejects directory fsync with EPERM. Every accepted spend still
+    // requires the file fsync below, as with the ordinary operation journal.
+    if (newFile && process.platform !== 'win32') {
+      const directoryFd = openSync(directory, 'r');
+      try { fsyncSync(directoryFd); } finally { closeSync(directoryFd); }
+    }
+  } catch (error) { closeSync(fd); throw error; }
   let closed = false, poisoned = false;
   function ensureOpen() { if (closed || poisoned) throw new Error('Admission spend log is unavailable'); reservation?.assertWritable(); }
   return {

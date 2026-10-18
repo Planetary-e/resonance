@@ -56,7 +56,9 @@ it('runs five volunteer processes with five independent policy histories each th
   };
   let volunteers = await launch();
   const options = n.roots.map((h, i) => ({ directory: join(n.directory, `owner-${i}`), encryptionKey: h.encryptionKey, signingKey: h.signingKey,
-    context: n.context, historyContext: h.context, root: h.root, members, transport: router.checkpoint }));
+    // Five cold child processes open 25 durable histories. Maintenance has its
+    // own bound; observe() below still uses the caller's three-second challenge.
+    context: n.context, historyContext: h.context, root: h.root, members, transport: router.checkpoint, timeoutMs: 15000 }));
   const observers = [];
   for (const option of options) {
     const observer = await openProtectedPolicyObserver({ ...option, mode: 'create-new' }); cleanup.push(observer.close);
