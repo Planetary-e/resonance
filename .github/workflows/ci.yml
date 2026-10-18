@@ -55,6 +55,8 @@ jobs:
           packages/node/src/__tests__/private-wallet-policy.integration.test.ts
           packages/relay/src/__tests__/blind-admission-verifier.test.ts
           packages/relay/src/__tests__/admission-decision-queue.test.ts
+          packages/relay/src/__tests__/admission-decision-preparation.test.ts
+          packages/relay/src/__tests__/admission-policy-preparation.integration.test.ts
           packages/relay/src/__tests__/protected-admission-roles.test.ts
           packages/relay/src/__tests__/history-current-head.integration.test.ts
           packages/relay/src/__tests__/protected-policy-observer.integration.test.ts

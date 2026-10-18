@@ -36,7 +36,7 @@ export function createLocalBlindAdmissionVerifierV2(options: {
   withCurrentPolicy?: <T>(operation: (assertCurrent: () => void) => Promise<T>, signal?: AbortSignal) => Promise<T>;
   /** Serializes the whole protected decision after cryptographic verification,
    * before reading a history another accepted transaction may be updating. */
-  withDecision?: <T>(operation: (assertLive: () => void, signal: AbortSignal) => Promise<T>) => Promise<T>;
+  withDecision?: <T>(operation: (assertLive: () => void, signal: AbortSignal, preparedPolicy?: () => void) => Promise<T>) => Promise<T>;
   maxSpends?: number;
   /** Configured relays use an encrypted, key-attributed ledger. Omit only for legacy manual configuration. */
   history?: AdmissionSpendLedger;
@@ -63,8 +63,8 @@ export function createLocalBlindAdmissionVerifierV2(options: {
         if (entry.mode === 'none') continue;
         const spend = await verifyBlindAdmissionTokenV2(capability, entry.scope, context.action, context.requestBinding, entry.issuerPublicKey);
         if (!spend) continue;
-        const decide = async (assertLive: () => void, signal?: AbortSignal): Promise<AdmissionDecisionV2> => {
-          assertLive(); if (closed) throw new Error('Admission spend log is unavailable');
+        const decide = async (assertLive: () => void, signal?: AbortSignal, preparedPolicy?: () => void): Promise<AdmissionDecisionV2> => {
+          assertLive(); preparedPolicy?.(); if (closed) throw new Error('Admission spend log is unavailable');
           history.size();
           // Re-evaluate dates after asynchronous crypto; crossing a cutoff must not accept new work.
           const current = policy().find(key => key.issuerPublicKey === entry.issuerPublicKey);
@@ -101,6 +101,7 @@ export function createLocalBlindAdmissionVerifierV2(options: {
             if (options.beforeSpend) await options.beforeSpend(spend, context, entry.issuerPublicKey);
             return finish();
           };
+          if (preparedPolicy) return commit(() => { assertLive(); preparedPolicy(); });
           return options.withCurrentPolicy ? options.withCurrentPolicy(assertCurrent => commit(() => { assertLive(); assertCurrent(); }), signal)
             : commit(assertLive);
         };

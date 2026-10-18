@@ -171,7 +171,7 @@ it.each(['new', 'historical'] as const)('persists one configured protected delta
   const before = n.history.read().applied!.sequence; n.history.close();
   const observers = parseAdmissionPolicyObservers({ version: 1, kind: 'admission-policy-observers', authority: f.authority,
     genesis: admissionPolicyHead(f.policy), quorum: 4, members: f.body.keys[0].witnesses!.members });
-  const challenges = new Set<string>();
+  const challenges = new Set<string>(); let witnessRequests = 0;
   const verifier = await createConfiguredAdmissionVerifier({ ...n.options, historyProtection: n.options.protection,
     initialize: true, initializeSpendHistory: false, policyObservers: observers, coordinatorKey: f.coordinators[0],
     policyObservationTransport: async (member, frame) => {
@@ -179,17 +179,23 @@ it.each(['new', 'historical'] as const)('persists one configured protected delta
       return createAdmissionPolicyHeadVote(frame.request, observers.genesis, observers,
         f.witnesses.find(key => Buffer.from(key.publicKey).toString('base64url') === member.publicKey)!, f.time);
     }, witnessTransport: async (member, value) => {
+      witnessRequests++;
       const i = f.witnesses.findIndex(key => Buffer.from(key.publicKey).toString('base64url') === member.publicKey);
       if (!i) throw new Error('self offline'); return n.witnesses[i].vote(value);
     } });
   cleanup.push(async () => { verifier.close(); await verifier.drainPolicyObservations(); });
+  expect(await verifier.verifyAndSpend({ ...input.capability, token: 'invalid' }, input.context)).toEqual({ status: 'rejected', reason: 'invalid_token' });
+  expect(challenges.size).toBe(0); expect(witnessRequests).toBe(0);
   expect(await verifier.verifyAndSpend(input.capability, input.context)).toEqual({ status: mode === 'new' ? 'accepted' : 'replay' });
   expect(Math.max(...n.stores.map(store => store.describe().sequence))).toBe(before + 1);
   expect(await verifier.verifyAndSpend(input.capability, input.context)).toEqual({ status: 'replay' });
   expect(Math.max(...n.stores.map(store => store.describe().sequence))).toBe(before + 1);
+  const beforeConflict = witnessRequests;
   const conflicting = await request(input.token, 'configured conflicting spend');
   expect(await verifier.verifyAndSpend(conflicting.capability, conflicting.context)).toEqual({ status: 'rejected', reason: 'double_spend' });
-  expect(challenges.size).toBe(2);
+  expect(challenges.size).toBe(3); // Each valid token gets a fresh preflight before the serialized conflict lookup.
+  expect(witnessRequests).toBe(beforeConflict);
+  expect(Math.max(...n.stores.map(store => store.describe().sequence))).toBe(before + 1);
   verifier.close(); await verifier.drainPolicyObservations(); await n.reopen(); await n.history.ready();
   expect(n.history.read().applied!.sequence).toBe(before + 1);
   expect(n.history.read().image.state.spends).toHaveLength(1);

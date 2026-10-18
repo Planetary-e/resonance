@@ -93,7 +93,11 @@ export async function createConfiguredAdmissionVerifier(options: {
       },
     };
     const verifier = createLocalBlindAdmissionVerifierV2({ directory: options.directory, maxSpends: options.maxSpends, history,
-      withCurrentPolicy: freshness?.run, withDecision: decisions?.run, ...spendHooks,
+      withCurrentPolicy: freshness?.run,
+      withDecision: decisions && freshness ? operation => decisions!.runPrepared(
+        (_assertLive, signal) => freshness!.prepare(signal),
+        (prepared, assertLive, signal) => operation(assertLive, signal, prepared)) : decisions?.run,
+      ...spendHooks,
       keyPolicies() {
         const time = now(); assertAdmissionPolicyCurrent(policy, time);
         return entries.map(entry => ({ scope: entry.profile.scope, issuerPublicKey: entry.issuerPublicKey,

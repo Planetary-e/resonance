@@ -175,7 +175,7 @@ it.each(['independent', 'conflicting'] as const)('serializes simultaneous %s spe
   const results = await pending, accepted = mode === 'independent' ? 2 : 1;
   expect(results.filter(result => result.status === 'accepted')).toHaveLength(accepted);
   if (mode === 'conflicting') expect(results.find(result => result.status !== 'accepted')).toEqual({ status: 'rejected', reason: 'double_spend' });
-  expect(challenges.size).toBe(accepted * 2); // Separate decision and local-witness observations; no query for the conflicting retry.
+  expect(challenges.size).toBe(2 + accepted); // Both valid callers preflight; only accepted decisions ask the local witness to observe.
   expect(verifier.admissionDecisionHealth!().operations).toBe(0);
   verifier.close(); await verifier.drainPolicyObservations(); await n.reopen(); await n.history.ready();
   const retained = n.history.read().image.state.spends;
