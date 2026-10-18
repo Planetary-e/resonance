@@ -74,14 +74,26 @@ export async function createConfiguredAdmissionVerifier(options: {
     for (const entry of policy.keys) entries.push({ ...entry, issuerPublicKey: (await parseAdmissionWalletProfile(entry.profile)).publicKey });
     if (options.historyProtection) decisions = createAdmissionDecisionQueue({
       timeoutMs: options.policyObservationTimeoutMs ?? options.witnessTimeoutMs ?? 3000 });
-    const verifier = createLocalBlindAdmissionVerifierV2({ directory: options.directory, maxSpends: options.maxSpends, history,
-      withCurrentPolicy: freshness?.run, withDecision: decisions?.run,
+    const protectedHistory = 'roleState' in history ? history : undefined;
+    const spendHooks: Pick<Parameters<typeof createLocalBlindAdmissionVerifierV2>[0], 'beforeSpend' | 'withSpendCommit'> = protectedHistory ? {
+      async withSpendCommit(spend, context, publicKey, finish) {
+        const entry = entries.find(entry => entry.issuerPublicKey === publicKey)!;
+        if (!entry.witnesses) return finish();
+        const coordinator = protectedRoles?.quorum;
+        if (!coordinator) throw new Error('Signed policy requires four witness votes; no coordinator is configured');
+        return coordinator.withCertificate(admissionKeyFingerprint(entry.profile.issuerPublicKey), spend, context,
+          certificate => finish(row => protectedHistory.writeAuthorizedSpend(row, certificate)));
+      },
+    } : {
       async beforeSpend(spend, context, publicKey) {
         const entry = entries.find(entry => entry.issuerPublicKey === publicKey)!;
         if (!entry.witnesses) return;
         if (!quorum) throw new Error('Signed policy requires four witness votes; no coordinator is configured');
         await quorum.authorize(admissionKeyFingerprint(entry.profile.issuerPublicKey), spend, context);
       },
+    };
+    const verifier = createLocalBlindAdmissionVerifierV2({ directory: options.directory, maxSpends: options.maxSpends, history,
+      withCurrentPolicy: freshness?.run, withDecision: decisions?.run, ...spendHooks,
       keyPolicies() {
         const time = now(); assertAdmissionPolicyCurrent(policy, time);
         return entries.map(entry => ({ scope: entry.profile.scope, issuerPublicKey: entry.issuerPublicKey,

@@ -2,7 +2,7 @@
 import { join, resolve } from 'node:path';
 import { realpathSync, statSync } from 'node:fs';
 import type { SigningKeyPair } from '@resonance/core';
-import { copyAdmissionSigningKey, exactWitnessFields } from '@resonance/core/admission-witness';
+import { copyAdmissionSigningKey, exactWitnessFields, type AdmissionSpendCertificate } from '@resonance/core/admission-witness';
 import { admissionPolicyDigest, assertAdmissionPolicyCurrent, assertAdmissionPolicySuccessor,
   isArchivedAdmissionKey, verifyAdmissionPolicy, type SignedAdmissionPolicy } from '@resonance/core/admission-policy';
 import { HISTORY_DELTA_MAX_PAYLOAD, historyCheckpointContextId, historyCheckpointEnvelopeId, historyCheckpointEnvelopeByteLength, historyCheckpointReserveBucket, historyDigest, isHistoryDigest, openHistoryCheckpoint,
@@ -373,6 +373,7 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
       if (!readyConfirmed) throw new Error('Protected admission history needs fresh readiness confirmation');
       const pending = read().pending; if (!pending) return null;
       const record = decode(pending) as AdmissionHistoryRecord;
+      if (record.kind === 'authorized-spend') return { version: 1, kind: 'coordinator-certificate', at: record.at, certificate: structuredClone(record.certificate) };
       return record.kind === 'witness-vote' || record.kind === 'coordinator-certificate' ? structuredClone(record) : null;
     },
     planRoleCapture(value: AdmissionRoleHistories) { return exclusive(async () => (await roleCapturePlan(value)).review); },
@@ -469,6 +470,28 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
           external?.removeEventListener('abort', cancel); controller.abort();
           if (certificationController === controller) certificationController = undefined;
         }
+      });
+    },
+    /** A single durable intent/replication/apply boundary for matching proof and spend. */
+    writeAuthorizedSpend(value: AdmissionSpendRecord & { issuerKey: string }, suppliedCertificate: AdmissionSpendCertificate): Promise<void> {
+      const row = structuredClone(value), certificate = structuredClone(suppliedCertificate);
+      return exclusive(async () => {
+        if (!readyConfirmed) throw new Error('Protected admission history needs fresh readiness confirmation');
+        const state = read();
+        if (state.pending) {
+          const pending = decode(state.pending);
+          if (!exactWitnessFields(pending, ['version', 'kind', 'at', 'certificate', 'row']) || pending.kind !== 'authorized-spend'
+            || JSON.stringify(pending.row) !== JSON.stringify(row) || JSON.stringify(pending.certificate) !== JSON.stringify(certificate)) {
+            throw new Error('Complete the pending protected history operation first');
+          }
+          await finishPending(); return;
+        }
+        const before = available().image, record = { version: 1 as const, kind: 'authorized-spend' as const, at: now(), certificate, row };
+        const reduced = await reduceAdmissionHistory(before, record, limit); read();
+        if (before.version === 2 && reduced.image.version === 2
+          && admissionRoleHistoriesIdentity(before.roles) === admissionRoleHistoriesIdentity(reduced.image.roles)
+          && JSON.stringify(before.state) === JSON.stringify(reduced.image.state)) return;
+        await commit(record);
       });
     },
     write(value: AdmissionSpendRecord & { issuerKey: string }) {

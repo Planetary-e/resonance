@@ -4,7 +4,7 @@ import type { Socket } from 'node:net';
 import type { SigningKeyPair } from '@resonance/core';
 import { admissionKeyFingerprint, admissionPolicyKeys, assertAdmissionPolicyCurrent, isArchivedAdmissionKey } from '@resonance/core/admission-policy';
 import { admissionSpendClaimId, admissionWitnessSetId, copyAdmissionSigningKey, createAdmissionWitnessRequest, createAdmissionWitnessVote,
-  verifyAdmissionSpendCertificate, verifyAdmissionWitnessRequest, type AdmissionSpendClaim, type AdmissionWitnessRequest } from '@resonance/core/admission-witness';
+  verifyAdmissionSpendCertificate, verifyAdmissionWitnessRequest, type AdmissionSpendClaim, type AdmissionSpendCertificate, type AdmissionWitnessRequest } from '@resonance/core/admission-witness';
 import { collectAdmissionWitnessVotes, type AdmissionWitness, type AdmissionWitnessTransport } from './admission-witness.js';
 import { requestAdmissionWitnessVote } from './admission-witness-transport.js';
 import type { openProtectedAdmissionSpendHistory } from './protected-admission-history.js';
@@ -72,11 +72,16 @@ export function createProtectedAdmissionRoles(options: {
       } finally { voting = false; if (voteFinished === completed) voteFinished = undefined; finish(); }
     }, close,
   } : undefined;
-  const quorum = coordinatorKey ? {
-    async authorize(issuerKey: string, spend: string, context: { action: AdmissionSpendClaim['action']; requestBinding: string }) {
+  async function withCertificate<T>(issuerKey: string, spend: string, context: { action: AdmissionSpendClaim['action']; requestBinding: string },
+    commit: (certificate: AdmissionSpendCertificate) => Promise<T>): Promise<T> {
       available(); if (coordinating) throw new Error('Protected admission quorum is in progress'); coordinating = true;
       const controller = new AbortController(); pending = controller;
+      const deadline = performance.now() + timeoutMs;
       const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const current = () => {
+        available(); policyAndEntry(issuerKey);
+        if (controller.signal.aborted || performance.now() >= deadline) throw new Error('Admission quorum cancelled');
+      };
       try {
         const { entry } = policyAndEntry(issuerKey), state = history.roleState().coordinator!;
         if (!entry.witnesses!.coordinators.includes(state.coordinator) || state.retiredIssuerKeys.includes(issuerKey)) {
@@ -100,10 +105,15 @@ export function createProtectedAdmissionRoles(options: {
           if (controller.signal.aborted) { cancel(); return; }
           voteFinished!.then(() => { controller.signal.removeEventListener('abort', cancel); resolve(); });
         });
-        available(); policyAndEntry(issuerKey); if (controller.signal.aborted) throw new Error('Admission quorum cancelled');
-        await history.writeRoleDecision({ kind: 'coordinator-certificate', certificate });
-        available(); policyAndEntry(issuerKey); if (controller.signal.aborted) throw new Error('Admission quorum cancelled');
+        current(); const result = await commit(certificate); current(); return result;
       } finally { clearTimeout(timer); controller.abort(); if (pending === controller) pending = undefined; coordinating = false; }
+  }
+  const quorum = coordinatorKey ? {
+    // The callback is a trusted transaction boundary. It must make the proof
+    // durable before returning an admission or exposing the certificate.
+    withCertificate,
+    authorize(issuerKey: string, spend: string, context: { action: AdmissionSpendClaim['action']; requestBinding: string }) {
+      return withCertificate(issuerKey, spend, context, certificate => history.writeRoleDecision({ kind: 'coordinator-certificate', certificate }));
     }, close,
   } : undefined;
   return { witness, quorum, close };

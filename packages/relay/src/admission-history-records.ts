@@ -1,5 +1,5 @@
 /** Semantic admission records inside owner-authenticated encrypted history envelopes. */
-import { exactWitnessFields } from '@resonance/core/admission-witness';
+import { exactWitnessFields, type AdmissionSpendCertificate } from '@resonance/core/admission-witness';
 import { admissionKeyFingerprint, admissionPolicyDigest, admissionPolicyKeys, assertAdmissionPolicyCurrent, assertAdmissionPolicySuccessor,
   isArchivedAdmissionKey, verifyAdmissionPolicy, type SignedAdmissionPolicy } from '@resonance/core/admission-policy';
 import { HISTORY_CHECKPOINT_MAX_PAYLOAD, HISTORY_DELTA_MAX_PAYLOAD } from '@resonance/core/history-checkpoint';
@@ -24,8 +24,14 @@ export interface AdmissionHistoryRoleCheckpoint {
   version: 1; kind: 'admission-roles-checkpoint'; at: number; image: AdmissionHistoryImage & { version: 2 };
 }
 export type AdmissionHistoryRecord = AdmissionHistoryMutation | AdmissionHistoryPolicyCheckpoint | AdmissionHistoryStateCheckpoint | AdmissionHistoryRoleCheckpoint;
+/** One authenticated decision and its matching spend, applied as one history mutation. */
+export interface AdmissionAuthorizedSpendRecord {
+  version: 1; kind: 'authorized-spend'; at: number;
+  certificate: AdmissionSpendCertificate; row: AdmissionSpendRecord & { issuerKey: string };
+}
 export type AdmissionHistoryMutation =
   | { version: 1; kind: 'spend'; at: number; row: AdmissionSpendRecord & { issuerKey: string } }
+  | AdmissionAuthorizedSpendRecord
   | { version: 1; kind: 'retire'; at: number; issuerKey: string }
   | { version: 1; kind: 'policy'; at: number; policy: SignedAdmissionPolicy }
   | { version: 1; kind: 'legacy-recovery'; at: number; attributions: Array<{ spend: string; issuerKey: string }> }
@@ -88,7 +94,7 @@ export async function reduceAdmissionHistory(image: AdmissionHistoryImage, value
   const input = bounded(value, envelopeKind === 'checkpoint' ? HISTORY_CHECKPOINT_MAX_PAYLOAD : HISTORY_DELTA_MAX_PAYLOAD), current = structuredClone(image);
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Invalid admission history mutation');
   const raw = input as Record<string, unknown>;
-  const fields = raw.kind === 'spend' ? ['row'] : raw.kind === 'retire' ? ['issuerKey']
+  const fields = raw.kind === 'authorized-spend' ? ['certificate', 'row'] : raw.kind === 'spend' ? ['row'] : raw.kind === 'retire' ? ['issuerKey']
     : raw.kind === 'policy' ? ['policy'] : raw.kind === 'legacy-recovery' ? ['attributions']
       : ['admission-policy-checkpoint', 'admission-state-checkpoint', 'admission-roles-checkpoint'].includes(raw.kind as string) ? ['image']
         : raw.kind === 'witness-vote' ? ['vote'] : raw.kind === 'coordinator-certificate' ? ['certificate']
@@ -97,6 +103,17 @@ export async function reduceAdmissionHistory(image: AdmissionHistoryImage, value
     || !Number.isSafeInteger(raw.at) || (raw.at as number) < 0
     || (envelopeKind === 'checkpoint') !== ['admission-policy-checkpoint', 'admission-state-checkpoint', 'admission-roles-checkpoint'].includes(raw.kind as string)) throw new Error('Invalid admission history mutation');
   const at = raw.at as number, state = current.state, policy = current.policy;
+  if (raw.kind === 'authorized-spend') {
+    const certificate = raw.certificate as AdmissionSpendCertificate, row = raw.row as AdmissionAuthorizedSpendRecord['row'];
+    const claim = certificate?.votes?.[0];
+    if (!claim || !row || claim.issuerKey !== row.issuerKey || claim.spend !== row.spend
+      || claim.action !== row.action || claim.requestBinding !== row.binding) throw new Error('Authorized spend certificate does not match the spend');
+    // Reuse both complete mutation rules on copies. Neither half can escape if
+    // authentication, capacity, retirement or the other half's cutoff fails.
+    const authorized = await reduceAdmissionHistory(current, { version: 1, kind: 'coordinator-certificate', at, certificate }, limit);
+    const spent = await reduceAdmissionHistory(authorized.image, { version: 1, kind: 'spend', at, row }, limit);
+    return { record: { version: 1, kind: 'authorized-spend', at, certificate: structuredClone(certificate), row: { ...row } }, image: spent.image };
+  }
   let next = state, record: AdmissionHistoryRecord;
   if (raw.kind === 'admission-state-checkpoint') {
     const replacement = (await parseAdmissionStateCheckpoint(raw, policy.authority, limit)).image;

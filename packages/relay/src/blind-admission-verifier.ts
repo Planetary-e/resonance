@@ -27,6 +27,10 @@ export function createLocalBlindAdmissionVerifierV2(options: {
   keyPolicies?: () => Array<{ scope: BlindAdmissionScopeV2; issuerPublicKey: CryptoKey; mode: 'all' | 'replay-only' | 'none' }>;
   /** Persist a quorum certificate before the local spend can be accepted. */
   beforeSpend?: (spend: string, context: AdmissionVerificationContextV2, issuerPublicKey: CryptoKey) => Promise<void>;
+  /** Trusted per-decision transaction boundary. The override must durably retain
+   * any authorization proof together with the supplied spend before resolving. */
+  withSpendCommit?: <T>(spend: string, context: AdmissionVerificationContextV2, issuerPublicKey: CryptoKey,
+    finish: (writeOverride?: AdmissionSpendLedger['write']) => Promise<T>) => Promise<T>;
   /** Only valid tokens reach this live-policy boundary. Invalid tokens never
    * cause observer fan-out; exact retries still require a fresh observation. */
   withCurrentPolicy?: <T>(operation: (assertCurrent: () => void) => Promise<T>, signal?: AbortSignal) => Promise<T>;
@@ -38,6 +42,7 @@ export function createLocalBlindAdmissionVerifierV2(options: {
   history?: AdmissionSpendLedger;
 }): AdmissionCapabilityVerifierV2 & { close(): void } {
   if (!options.keyPolicies && (!options.scope || !options.issuerPublicKey)) throw new Error('Admission verification requires a key policy');
+  if (options.beforeSpend && options.withSpendCommit) throw new Error('Admission spend hooks are mutually exclusive');
   const maxSpends = options.maxSpends ?? 10_000;
   if (!Number.isSafeInteger(maxSpends) || maxSpends < 1) throw new Error('Invalid admission spend capacity');
   const history = options.history ?? openLegacySpendLog(options.directory, maxSpends);
@@ -77,20 +82,24 @@ export function createLocalBlindAdmissionVerifierV2(options: {
             const retained = history.get(spend);
             if (retained && (retained.action !== context.action || retained.binding !== context.requestBinding
               || retained.issuerKey !== null && retained.issuerKey !== issuerKey)) return { status: 'rejected', reason: 'double_spend' };
+            const finish = async (writeOverride?: AdmissionSpendLedger['write']): Promise<AdmissionDecisionV2> => {
+              if (closed) throw new Error('Admission spend log is unavailable');
+              assertCurrent();
+              history.size();
+              const final = policy().find(key => key.issuerPublicKey === entry.issuerPublicKey);
+              if (!final || final.mode === 'none') return { status: 'rejected', reason: 'key_retired' };
+              const result = await recordSpend(spend, context, final.mode, issuerKey, writeOverride);
+              if (closed) throw new Error('Admission spend log is unavailable');
+              assertCurrent();
+              history.size();
+              const completed = policy().find(key => key.issuerPublicKey === entry.issuerPublicKey);
+              if (!completed || completed.mode === 'none' || history.isRetired(issuerKey)
+                || (result.status === 'accepted' && completed.mode !== 'all')) return { status: 'rejected', reason: 'key_retired' };
+              return result;
+            };
+            if (options.withSpendCommit) return options.withSpendCommit(spend, context, entry.issuerPublicKey, finish);
             if (options.beforeSpend) await options.beforeSpend(spend, context, entry.issuerPublicKey);
-            if (closed) throw new Error('Admission spend log is unavailable');
-            assertCurrent();
-            history.size();
-            const final = policy().find(key => key.issuerPublicKey === entry.issuerPublicKey);
-            if (!final || final.mode === 'none') return { status: 'rejected', reason: 'key_retired' };
-            const result = await recordSpend(spend, context, final.mode, issuerKey);
-            if (closed) throw new Error('Admission spend log is unavailable');
-            assertCurrent();
-            history.size();
-            const completed = policy().find(key => key.issuerPublicKey === entry.issuerPublicKey);
-            if (!completed || completed.mode === 'none' || history.isRetired(issuerKey)
-              || (result.status === 'accepted' && completed.mode !== 'all')) return { status: 'rejected', reason: 'key_retired' };
-            return result;
+            return finish();
           };
           return options.withCurrentPolicy ? options.withCurrentPolicy(assertCurrent => commit(() => { assertLive(); assertCurrent(); }), signal)
             : commit(assertLive);
@@ -104,7 +113,8 @@ export function createLocalBlindAdmissionVerifierV2(options: {
     },
   };
 
-  async function recordSpend(spend: string, context: AdmissionVerificationContextV2, mode: 'all' | 'replay-only', issuerKey: string): Promise<AdmissionDecisionV2> {
+  async function recordSpend(spend: string, context: AdmissionVerificationContextV2, mode: 'all' | 'replay-only', issuerKey: string,
+    writeOverride?: AdmissionSpendLedger['write']): Promise<AdmissionDecisionV2> {
     // Recheck after the asynchronous quorum hook, including exact retries and legacy attribution.
     if (history.isRetired(issuerKey)) return { status: 'rejected', reason: 'key_retired' };
     const previous = history.get(spend);
@@ -112,12 +122,14 @@ export function createLocalBlindAdmissionVerifierV2(options: {
     if (previous !== undefined) {
       if (previous.action !== row.action || previous.binding !== row.binding
         || (previous.issuerKey !== null && previous.issuerKey !== issuerKey)) return { status: 'rejected', reason: 'double_spend' };
-      if (previous.issuerKey === null) await history.write(row);
+      // A protected replay may still need to capture a historical certificate.
+      if (writeOverride) await writeOverride(row);
+      else if (previous.issuerKey === null) await history.write(row);
       return { status: 'replay' };
     }
     if (mode === 'replay-only') return { status: 'rejected', reason: 'key_retired' };
     if (history.size() >= maxSpends) return { status: 'rejected', reason: 'capacity_exhausted' };
-    await history.write(row);
+    if (writeOverride) await writeOverride(row); else await history.write(row);
     return { status: 'accepted' };
   }
 }
