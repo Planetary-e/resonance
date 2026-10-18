@@ -16,7 +16,7 @@ interface Observation { phase: 'request' | 'reply'; requestId: string; atMs: num
 interface Action { id: string; actionAt: number; requestId?: string; clientReplyAt?: number; completedAt?: number }
 interface Trace { id: string; actionAt: number; entryAt: number; destinationAt: number;
   destinationReplyAt: number; clientReplyAt: number; completedAt: number; bytes: number; replyBytes: number }
-type Mode = 'unmixed' | 'entry-mix-750ms' | 'request-mix-only' | 'request-and-reply-mix';
+type Mode = 'unmixed' | 'entry-mix-750ms' | 'request-mix-only' | 'request-and-reply-mix' | `request-and-reply-mix-${number}ms`;
 type Profile = 'loopback' | 'frame-delay-20-60ms';
 type Workload = 'burst-20ms' | 'sparse-1000ms';
 
@@ -68,12 +68,15 @@ class ProcessRelay {
 
 const { values } = parseArgs({ options: { clients: { type: 'string', default: '8' },
   trials: { type: 'string', default: '3' }, out: { type: 'string' },
-  'reply-comparison': { type: 'boolean', default: false } } });
+  'reply-comparison': { type: 'boolean', default: false }, 'window-comparison': { type: 'boolean', default: false },
+  'candidate-window': { type: 'string', default: '500' } } });
 const count = integer(values.clients, 2, 16);
 const trials = integer(values.trials, 1, 10);
 const replyComparison = values['reply-comparison'];
-const baseline: Mode = replyComparison ? 'request-mix-only' : 'unmixed';
-const treatment: Mode = replyComparison ? 'request-and-reply-mix' : 'entry-mix-750ms';
+const windowComparison = values['window-comparison'], candidateWindow = integer(values['candidate-window'], 10, 749);
+if (replyComparison && windowComparison) throw new Error('Choose one timing comparison');
+const baseline: Mode = windowComparison ? 'request-and-reply-mix-750ms' : replyComparison ? 'request-mix-only' : 'unmixed';
+const treatment: Mode = windowComparison ? `request-and-reply-mix-${candidateWindow}ms` : replyComparison ? 'request-and-reply-mix' : 'entry-mix-750ms';
 const context = new AsyncLocalStorage<Action>();
 const delay = simulateFrameDelay((socket, data) => {
   const action = context.getStore();
@@ -100,8 +103,10 @@ try {
   const endpoints = [`ws://127.0.0.1:${ports[0]}/`, `ws://127.0.0.1:${ports[1]}/`, `ws://[::1]:${ports[2]}/`];
   for (let index = 0; index < 3; index++) processes.push(new ProcessRelay({
     port: ports[index], host: index === 2 ? '::1' : '127.0.0.1', persistDir: join(directory, String(index)),
-    privateEntryMix: index === 1 || (replyComparison && index === 0) ? {} : false,
-    privateReplyMix: replyComparison && index === 1 ? {} : false,
+    privateEntryMix: windowComparison && index < 2 ? { windowMs: index ? candidateWindow : 750 }
+      : index === 1 || (replyComparison && index === 0) ? { windowMs: 750 } : false,
+    privateReplyMix: windowComparison && index < 2 ? { windowMs: index ? candidateWindow : 750 }
+      : replyComparison && index === 1 ? { windowMs: 750 } : false,
     maxPeerRequestsPerMin: 10_000, maxSearchesPerMin: 10_000,
     relayDiscovery: { endpoints: [endpoints[index]], reachability: 'direct', supportedGroups: ['public'],
       storage: { capacityBytes: 1_000_000, availableBytes: 900_000 }, maxKnownRelays: 8 },
@@ -196,18 +201,20 @@ const summaries = [...new Set(results.map(result => `${result.profile}|${result.
 });
 const timestamp = new Date().toISOString();
 const output = values.out ? resolve(values.out) : join(resolve(dirname(fileURLToPath(import.meta.url)), '../../../docs/evals'),
-  `private-${replyComparison ? 'reply' : 'mix'}-${timestamp.replace(/[:.]/g, '-')}`);
+  `private-${windowComparison ? 'windows' : replyComparison ? 'reply' : 'mix'}-${timestamp.replace(/[:.]/g, '-')}`);
 mkdirSync(dirname(output), { recursive: true });
 const report = { timestamp, sourceBase: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
   node: process.version, platform: `${process.platform}/${process.arch}`, processIds, parentPid: process.pid,
-  comparison: replyComparison ? 'reply-mixing' : 'request-mixing',
+  comparison: windowComparison ? 'collection-windows' : replyComparison ? 'reply-mixing' : 'request-mixing',
+  ...(windowComparison ? { baselineWindowMs: 750, candidateWindowMs: candidateWindow } : {}),
   clientsPerTrial: count, trials, summaries, results };
 writeFileSync(`${output}.json`, `${JSON.stringify(report, null, 2)}\n`);
 writeFileSync(`${output}.md`, [
-  `# Separate-process ${replyComparison ? 'reply' : 'entry'}-mixing experiment`, '',
+  `# Separate-process ${windowComparison ? 'collection-window' : replyComparison ? 'reply' : 'entry'}-mixing experiment`, '',
   `Run: ${timestamp}; Node ${process.version}; ${report.platform}. Source base: ${report.sourceBase}. Experiment and queue changes are in the same commit as this report.`, '',
   '## Method and limits', '',
-  `${count} logical clients each send one equal-size search per trial. The clients share the parent process; baseline entry, treatment entry, and destination each run in their own child process. Both conditions use the default client scheduler. ${replyComparison
+  `${count} logical clients each send one equal-size search per trial. The clients share the parent process; baseline entry, treatment entry, and destination each run in their own child process. Both conditions use the default client scheduler. ${windowComparison
+    ? `Both entries independently mix requests and replies. Baseline collection windows are 750 ms; candidate windows are ${candidateWindow} ms.` : replyComparison
     ? 'Both entries mix requests using a 750 ms collection window. The baseline immediately returns each encrypted reply; the treatment collects replies in an independent 750 ms queue and shuffles their release.'
     : 'The treatment holds requests for a 750 ms collection window, then shuffles them; the baseline forwards immediately. Both entries explicitly disable reply mixing to isolate request mixing.'} Mode order alternates across ${trials} trials per workload/network profile. Burst actions are scheduled 20 ms apart; sparse actions 1,000 ms apart.`, '',
   'The simulated network profile delays each outgoing application frame by 20–60 ms, using seeded per-process pseudo-random streams. The zero-delay profile is ordinary loopback. This models frame latency and reordering between independent short connections, not TCP packet loss, bandwidth, geographic paths, or TLS record sizes. Relays share a physical machine and host clock; traces use epoch timestamps with a 2 ms cross-process clock tolerance. Per-IP discovery/search limits are raised to 10,000/minute because virtual clients share an address.', '',
@@ -218,10 +225,11 @@ writeFileSync(`${output}.md`, [
   '|---|---|---|---:|---:|---:|---:|---:|',
   ...summaries.map(row => `| ${row.profile} | ${row.workload} | ${row.mode} | ${metric(row.forwardCorrect, row.requests)} | ${metric(row.replyCorrect, row.requests)} | ${row.transitP50Ms} / ${row.transitP95Ms} | ${row.returnP50Ms} / ${row.returnP95Ms} | ${row.completionP95Ms} |`),
   '', '## Interpretation', '',
-  `Compare baseline and treatment under the same workload and network profile. Mixing may reorder a busy batch; it does not create other users in a quiet window. ${replyComparison
+  `Compare baseline and treatment under the same workload and network profile. Mixing may reorder a busy batch; it does not create other users in a quiet window. ${windowComparison
+    ? 'This changes both collection windows; it does not isolate request versus reply effects. Admission policy/witness fan-out and the real application are evaluated separately.' : replyComparison
     ? 'Reply scores isolate the added return queue; changes in forward scores between these two modes do not establish a benefit from reply mixing. Replies remain bound to their original request deadline, and admission failure never bypasses the queue.'
     : 'The return path is explicitly unmixed in this request-only comparison.'} This experiment provides no cover traffic and no defense against colluding relay operators. Do not treat a low score for one attack as proof of anonymity.`, '',
-  '## Reproduce', '', '```sh', `npm run eval:private-${replyComparison ? 'replies' : 'mix'} -- --clients ${count} --trials ${trials}`, '```', '',
+  '## Reproduce', '', '```sh', `npm run eval:private-${replyComparison ? 'replies' : 'mix'} -- --clients ${count} --trials ${trials}${windowComparison ? ` --window-comparison --candidate-window ${candidateWindow}` : ''}`, '```', '',
   `[Machine-readable traces](${basename(output)}.json). No production records, encrypted payloads, or private keys are retained.`, '',
 ].join('\n'));
 console.log(JSON.stringify({ report: `${output}.md`, summaries }, null, 2));

@@ -376,6 +376,7 @@ The five-target placement goal remains conditional on enough eligible volunteers
   - [x] Compare shared entry mixing in separate relay processes over 192 completed searches: burst request-order matches fell from 20/24 to 2/24 on loopback and from 15/24 to 7/24 with simulated frame delays; sparse traffic and reply timing remain exposed, with latency and traces retained in `docs/evals/private-mix-2026-09-29T14-09-59-545Z.md`
   - [x] Isolate reply batching in a second 192-search comparison: loopback burst reply-order matches fell from 24/24 to 2/24, but delayed bursts changed from 5/24 to 6/24 and sparse traffic remained exposed; retain the added latency and negative results in `docs/evals/private-reply-2026-09-29T14-30-17-612Z.md`
   - [x] Decide the quiet-period resource policy: no automatic cover traffic, crowd polling, or longer quiet queues; specify bounded interactive delivery and an explicit local hold with no automatic release, with costs and limits in `docs/developers/v0.4-quiet-period-decision.md`
+    - [x] Compare 750/500 ms collection windows over 192 local searches, retain attack scores and latency, and select the 500 ms experimental default only after the full protected application passes with mailbox release at most 7,137 ms; keep sparse-traffic and collusion limitations explicit
   - [x] Enforce one ten-second operation deadline across client scheduling, discovery, DNS, and all private route attempts; cancel pending sockets, preserve timely partial mailbox replies and unknown outcomes, and verify exact-operation/wallet retry after a lost reply
   - [x] Add bounded encrypted local hold/release controls; never send held work or reserve capabilities on restart, expiry, cancellation, or outbox overflow
     - [x] Publications: encrypted 64-entry / 16 MiB outbox, explicit desktop Send/Cancel, pinned private routes, crash recovery without replay, and exact retry after an uncertain delivery; exclude held publications from mailbox sync
@@ -388,6 +389,7 @@ The five-target placement goal remains conditional on enough eligible volunteers
     - [ ] Reduce and bound real application model-loading memory peaks on supported devices; explicit disposal alone does not demonstrate a peak reduction
   - [ ] Measure stronger observers, total traffic, and CPU/energy costs before selecting production timing defaults; quiet-period observer protection remains unresolved
   - [ ] Run colluding-operator, multi-domain Sybil, and timing-correlation adversaries with quantitative privacy targets
+    - [x] Demonstrate 32/32 source-operation joins with both hop keys, acceptance of distinct Sybil keys/domains and exact conditional capture under the client's cyclic fallback model; retain explicit local/model limitations in `docs/evals/private-adversaries-2026-10-18.md`
 - [ ] Define group-specific, rotating fingerprint epochs to limit correlation across communities and time
   - [x] Derive deterministic group/month-specific public projection matrices and verify cross-scope hashes do not directly match; live v2 still uses the static pilot matrix
 - [ ] Measure the matching-quality and privacy effects of fingerprint rotation

@@ -22,7 +22,7 @@ interface Entry {
 }
 
 export function createPrivateEntryMix(options: PrivateEntryMixOptions = {}) {
-  const windowMs = bounded(options.windowMs ?? 750, 10, 2_000);
+  const windowMs = bounded(options.windowMs ?? 500, 10, 2_000);
   const maxBatchSize = bounded(options.maxBatchSize ?? 16, 1, 64);
   const maxConcurrent = bounded(options.maxConcurrent ?? 16, 1, 64);
   const capacity = bounded(options.capacity ?? 64, 1, 256);
