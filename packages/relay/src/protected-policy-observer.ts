@@ -100,6 +100,7 @@ export async function openProtectedPolicyObserver(options: {
     maxArchiveBlocks: options.maxArchiveBlocks, maxArchiveBytes: options.maxArchiveBytes };
   let writer: ReturnType<typeof createRetainedHistoryCheckpointWriter> | undefined, closed = false, busy = false, fenced = false;
   let observing = 0;
+  const archiveOperations = new Set<ReturnType<typeof createPolicyObserverRemoteOperation>>();
   let restoration: Awaited<ReturnType<typeof openPolicyObserverRestoration>> | undefined;
   // Only the committed and pending states are needed after opening. All retained
   // ciphertext is authenticated and replayed before these cached states are used.
@@ -116,7 +117,63 @@ export async function openProtectedPolicyObserver(options: {
     if (!capability) throw new Error('V3 observer requires resolved retained original ancestry');
     await lookupResolvedAdmissionPolicyKey({ policy: capability, issuerKey: state.policy.activeKey, reader, limits: archiveBounds, signal });
   }
-  function close() { if (!closed) { closed = true; writer?.close(); restoration?.close(); signer.secretKey.fill(0); key.fill(0); states.clear(); resolved.clear(); } }
+  /** Historical capability is local ancestry evidence, never a freshness vote. */
+  async function archivePageAtHead(value: unknown, digest: string, signal?: AbortSignal) {
+    live(); signal?.throwIfAborted(); const selected = parseAdmissionPolicyHead(value), current = retained();
+    if (busy || observing >= maximumConcurrentObservations || current.saved.pending || current.state.conflict || !current.saved.committed) throw new Error('Observer archive is unavailable during pending/conflicting work');
+    const operation = createPolicyObserverRemoteOperation({ deadline: performance.now() + 3000, signal, check: live,
+      archive: { exchange: async () => { throw new Error('Historical serving uses retained local ancestry only'); } } });
+    archiveOperations.add(operation);
+    let scanned = 0, bytes = 0;
+    const account = (size: number) => {
+      operation.live();
+      if (++scanned > (options.maxArchiveBlocks ?? HISTORY_RECOVERY_MAX_BLOCKS) || (bytes += size) > (options.maxArchiveBytes ?? HISTORY_RECOVERY_MAX_BYTES)) throw new Error('Historical archive cumulative read budget exceeded');
+    };
+    const reader = pageReader(operation.signal, account);
+    observing++;
+    try {
+      let capability = resolved.get(rootId), state = states.get(rootId)!;
+      let selectedResolved = sameAdmissionPolicyHead(policyObserverStateHead(state, context), selected) ? capability : undefined;
+      const historical = !sameAdmissionPolicyHead(policyObserverStateHead(current.state, context), selected);
+      if (!historical) selectedResolved = resolved.get(historyCheckpointEnvelopeId(current.block));
+      if (historical && root.kind === 'continuation') {
+        if (!options.ancestrySource) throw new Error('Historical archive requires retained original ancestry');
+        const replay = await operation.wait(() => replayPolicyObserverHistory({ context, historyContext, genesisId, proposal: root.proposal, encryptionKey: key,
+          blocks: options.ancestrySource!(), blockSource: options.ancestrySource, selectedPolicyHead: selected,
+          signal: operation.signal, timeoutMs: 3000, maxBlocks: options.maxArchiveBlocks, maxBytes: options.maxArchiveBytes, accountRead: account }));
+        if (replay.state.conflict || JSON.stringify(replay.state) !== JSON.stringify(state)) throw new Error('Historical baseline differs from retained original ancestry');
+        capability = replay.resolved; selectedResolved = replay.selectedResolved;
+      }
+      let last: HistoryCheckpointEnvelope | undefined;
+      if (historical) for (const block of writer!.history()) {
+        operation.live(); account(Buffer.byteLength(JSON.stringify(block)));
+        if (!last) { if (historyCheckpointEnvelopeId(block) !== rootId) throw new Error('Historical archive lost original root'); }
+        else {
+          if (block.previous !== historyCheckpointEnvelopeId(last) || block.sequence !== last.sequence + 1) throw new Error('Historical archive ancestry has a gap or fork');
+          const next = await operation.wait(() => decode(block));
+          assertPolicyObserverStateSuccessor(state, next, context);
+          if (next.conflict || !capability) throw new Error('Historical archive lacks resolved nonconflicting ancestry');
+          capability = await operation.wait(() => resolveObserverSnapshot(next, context, { previous: capability!, reader, limits: archiveBounds, signal: operation.signal }));
+          state = next;
+        }
+        if (sameAdmissionPolicyHead(policyObserverStateHead(state, context), selected)) selectedResolved = capability;
+        last = block;
+        if (scanned % 16 === 0) await operation.wait(() => yieldToEventLoop());
+      }
+      if (historical && (!last || historyCheckpointEnvelopeId(last) !== historyCheckpointEnvelopeId(current.block)) || !selectedResolved) throw new Error('Requested historical head is absent from retained original ancestry');
+      let captured: Uint8Array | undefined;
+      const selectedReader = async (pageDigest: string, pageSignal: AbortSignal) => {
+        const page = await reader(pageDigest, pageSignal);
+        if (pageDigest === digest) captured = page;
+        return page;
+      };
+      await operation.wait(() => lookupResolvedAdmissionPolicyKey({ policy: selectedResolved!, issuerKey: state.policy.activeKey, reader: selectedReader, limits: archiveBounds, signal: operation.signal }));
+      operation.live();
+      if (!captured) throw new Error('Requested page is not reachable from the selected historical archive root');
+      return captured;
+    } finally { operation.close(); archiveOperations.delete(operation); observing--; }
+  }
+  function close() { if (!closed) { closed = true; for (const operation of archiveOperations) operation.close(); archiveOperations.clear(); writer?.close(); restoration?.close(); signer.secretKey.fill(0); key.fill(0); states.clear(); resolved.clear(); } }
   function live() { if (closed) throw new Error('Protected policy observer is closed'); }
   async function decode(block: HistoryCheckpointEnvelope) {
     if (block.generation !== root.generation) throw new Error('Policy observer snapshot belongs to another generation');
@@ -314,14 +371,8 @@ export async function openProtectedPolicyObserver(options: {
       if (latest.state.conflict || latest.saved.pending) throw new Error('Observer policy history changed during transfer');
       return structuredClone({ commitment: state.advance, policy: state.policy });
     },
-    async archivePage(digest: string, signal?: AbortSignal) {
-      live(); signal?.throwIfAborted(); const current = retained();
-      if (busy || observing >= maximumConcurrentObservations || current.saved.pending || current.state.conflict) throw new Error('Observer archive is unavailable during pending/conflicting work');
-      const reader = pageReader(signal);
-      observing++;
-      try { await validateCurrent(current.state, reader, signal); const bytes = await reader(digest, signal ?? new AbortController().signal); live(); signal?.throwIfAborted(); return bytes; }
-      finally { observing--; }
-    },
+    archivePageAtHead,
+    archivePage(digest: string, signal?: AbortSignal) { return archivePageAtHead(policyObserverStateHead(retained().state, context), digest, signal); },
     /** Local knowledge for explicit recovery review, including an unacknowledged
      * pending head/conflict. This is neither a global view nor signing readiness. */
     recoveryState() { return structuredClone(retained().state); },

@@ -1,7 +1,9 @@
+import { archivedAdmissionPolicyDigest, verifyAdmissionPolicyV3, parseArchivedAdmissionPolicyAdvance, type ArchivedAdmissionPolicy } from '@resonance/core/admission-policy-archive';
+import { assertPolicyObserverCurrent } from './admission-policy-observer-state.js';
 /** Infrastructure-side four-observer collection. Personal applications must use
  * private routing when this is integrated; direct fan-out would expose activity. */
-import { assertAdmissionPolicyCurrent, verifyAdmissionPolicy } from '@resonance/core/admission-policy';
-import { admissionPolicyHead, matchesAdmissionPolicyHead, parseAdmissionPolicyAdvance, sameAdmissionPolicyHead } from '@resonance/core/admission-policy-advance';
+import { verifyAdmissionPolicy } from '@resonance/core/admission-policy';
+import { sameAdmissionPolicyHead } from '@resonance/core/admission-policy-advance';
 import { createAdmissionPolicyHeadRequest, parseAdmissionPolicyHeadRequest, parseAdmissionPolicyObservers, parseAdmissionPolicyHeadVote,
   parseAdmissionPolicyHeadCertificate, type AdmissionPolicyHeadCertificate, type AdmissionPolicyHeadVote,
   type AdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
@@ -25,13 +27,22 @@ export async function collectAdmissionPolicyObservation(options: {
   const suppliedRequest = options.request === undefined ? undefined : parseAdmissionPolicyHeadRequest(options.request, context, requestNow);
   if (suppliedRequest) deadline = Math.min(deadline, performance.now() + suppliedRequest.expiresAt - requestNow);
   const check = () => { signal?.throwIfAborted(); if (performance.now() >= deadline) throw new Error('Policy observation timed out'); };
+  async function read<T>(work: () => Promise<T>): Promise<T> {
+    check();
+    let refuse!: () => void;
+    const cancelled = new Promise<never>((_, reject) => { refuse = () => reject(new Error('Policy observation cancelled or timed out')); });
+    const timer = setTimeout(refuse, Math.max(1, deadline - performance.now()));
+    signal?.addEventListener('abort', refuse, { once: true });
+    try { const result = await Promise.race([work(), cancelled]); check(); return result; }
+    finally { clearTimeout(timer); signal?.removeEventListener('abort', refuse); }
+  }
   if (policyInput === undefined && advanceInput !== undefined) throw new Error('Policy activation requires its authenticated policy');
-  check(); const policy = policyInput === undefined ? undefined : await verifyAdmissionPolicy(policyInput, context.authority);
-  check(); if (policy) assertAdmissionPolicyCurrent(policy, now());
-  const expected = policy && admissionPolicyHead(policy), advance = advanceInput === undefined ? null : await parseAdmissionPolicyAdvance(advanceInput, context);
+  check(); const policy = policyInput === undefined ? undefined : await read<ArchivedAdmissionPolicy>(() => (policyInput as {version?: unknown})?.version === 3 ? verifyAdmissionPolicyV3(policyInput, context.authority) : verifyAdmissionPolicy(policyInput, context.authority));
+  check(); if (policy) assertPolicyObserverCurrent(policy, now());
+  const expected = policy && { revision: policy.revision, digest: archivedAdmissionPolicyDigest(policy), transition: archivedAdmissionPolicyDigest(policy) }, advance = advanceInput === undefined ? null : await read(() => parseArchivedAdmissionPolicyAdvance(advanceInput, context, { signal, timeoutMs: Math.max(1, Math.floor(deadline - performance.now())) }));
   check();
   if (expected && (expected.revision < context.genesis.revision || (expected.revision === context.genesis.revision && !sameAdmissionPolicyHead(expected, context.genesis)))) throw new Error('Requested policy conflicts with the pinned genesis');
-  if (advance && !matchesAdmissionPolicyHead(policy!, advance.commitment.next)) throw new Error('Policy activation differs from the requested head');
+  if (advance && !(policy!.revision === advance.commitment.next.revision && archivedAdmissionPolicyDigest(policy!) === advance.commitment.next.digest)) throw new Error('Policy activation differs from the requested head');
   const request = suppliedRequest ? parseAdmissionPolicyHeadRequest(suppliedRequest, context, now()) : createAdmissionPolicyHeadRequest(context, now(), timeout);
   const frame: AdmissionPolicyObservationFrame = { request, advance };
   return new Promise((resolve, reject) => {
@@ -50,13 +61,13 @@ export async function collectAdmissionPolicyObservation(options: {
       try {
         check();
         const vote = parseAdmissionPolicyHeadVote(value, request, context, now());
-        if (vote.observer !== member.publicKey || policy && !matchesAdmissionPolicyHead(policy, vote.head)
+        if (vote.observer !== member.publicKey || policy && !(policy.revision === vote.head.revision && archivedAdmissionPolicyDigest(policy) === vote.head.digest)
           || vote.head.revision < context.genesis.revision || vote.head.revision === context.genesis.revision && !sameAdmissionPolicyHead(vote.head, context.genesis)
           || (advance && !sameAdmissionPolicyHead(vote.head, advance.commitment.next))) throw new Error('Wrong observer or policy head');
         const branchId = JSON.stringify(vote.head), branch = votes.get(branchId) ?? []; branch.push(vote); votes.set(branchId, branch);
         if (branch.length >= 4) {
           const certificate = parseAdmissionPolicyHeadCertificate({ version: 1, kind: 'admission-policy-head-certificate', votes: branch }, request, context, vote.head, now());
-          try { check(); if (policy) assertAdmissionPolicyCurrent(policy, now()); }
+          try { check(); if (policy) assertPolicyObserverCurrent(policy, now()); }
           catch (error) { finish(error); return; }
           finish(undefined, certificate);
         }

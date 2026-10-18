@@ -13,13 +13,20 @@ export function parsePolicyArchivePageRequest(value: unknown, context: Admission
     || (value.index as number) < 0 || (value.index as number) >= 8) throw new Error('Invalid policy archive page request');
   return { version: 1 as const, type: POLICY_ARCHIVE_PAGE_TYPE, contextId: value.contextId as string, head: parseAdmissionPolicyHead(value.head), digest: value.digest, index: value.index as number };
 }
-export async function policyArchivePageReply(value: unknown, context: AdmissionPolicyObservers, head: unknown, reader: AdmissionPolicyArchiveReader) {
+export async function policyArchivePageReply(value: unknown, context: AdmissionPolicyObservers, head: unknown, reader: AdmissionPolicyArchiveReader,
+  historical?: (head: ReturnType<typeof parseAdmissionPolicyHead>, digest: string, signal?: AbortSignal) => Promise<Uint8Array>, signal?: AbortSignal) {
   const request = parsePolicyArchivePageRequest(value, context);
-  if (!sameAdmissionPolicyHead(request.head, parseAdmissionPolicyHead(head))) throw new Error('Archive transfer requires the exact retained selected head');
-  const bytes = await reader(request.digest, new AbortController().signal);
+  signal?.throwIfAborted();
+  const current = sameAdmissionPolicyHead(request.head, parseAdmissionPolicyHead(head));
+  if (!current && !historical) throw new Error('Archive transfer requires the exact retained selected head');
+  const bytes = historical ? await historical(request.head, request.digest, signal) : await reader(request.digest, signal ?? new AbortController().signal);
+  signal?.throwIfAborted();
   if (admissionPolicyArchivePageDigest(bytes) !== request.digest) throw new Error('Archive page source digest differs');
-  const page = await decodeAdmissionPolicyArchivePage(bytes);
-  if (page.contextId !== request.contextId || request.index >= Math.ceil(bytes.length / ADMISSION_POLICY_CHUNK_BYTES)) throw new Error('Archive page source context/index differs');
+  // The explicit protected capability already validated the selected root and
+  // page context under its shared deadline; do not start another async decode.
+  if (!historical && (await decodeAdmissionPolicyArchivePage(bytes)).contextId !== request.contextId) throw new Error('Archive page source context differs');
+  signal?.throwIfAborted();
+  if (request.index >= Math.ceil(bytes.length / ADMISSION_POLICY_CHUNK_BYTES)) throw new Error('Archive page source index differs');
   return { ...request, type: 'admission_policy_archive_page_reply', bytes: bytes.length, count: Math.ceil(bytes.length / ADMISSION_POLICY_CHUNK_BYTES),
     data: Buffer.from(bytes.subarray(request.index * ADMISSION_POLICY_CHUNK_BYTES, (request.index + 1) * ADMISSION_POLICY_CHUNK_BYTES)).toString('base64url') };
 }

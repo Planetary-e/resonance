@@ -1,3 +1,4 @@
+import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
 /** Pages remain in funded immutable history checkpoints; this reader retains no page cache. */
 import { admissionPolicyArchivePageDigest, type AdmissionPolicyArchiveLimits, type AdmissionPolicyArchiveReader } from '@resonance/core/admission-policy-archive';
 import { openHistoryCheckpoint, type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
@@ -23,6 +24,7 @@ export function createPolicyObserverPageReader(options: {
       live(signal);
       const size = Buffer.byteLength(JSON.stringify(block)); options.account?.(size);
       if (++blocks > options.maxBlocks || (total += size) > options.maxBytes) throw new Error('Observer archive scan exhausted cumulative history budget');
+      if (blocks % 16 === 0) { await yieldToEventLoop(); live(signal); }
       if (block.kind !== 'checkpoint') continue;
       const bytes = openHistoryCheckpoint(block, options.historyContext, options.key);
       try {

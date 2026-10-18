@@ -2,7 +2,7 @@
  * for catch-up but never substitutes for a fresh four-observer head. */
 import { parseAdmissionPolicyObservers, type AdmissionPolicyObservers, type AdmissionPolicyHead } from '@resonance/core/admission-policy-freshness';
 import { sameAdmissionPolicyHead } from '@resonance/core/admission-policy-advance';
-import { createAdmissionPolicyTransfer, parseAdmissionPolicyChunkRequest } from '@resonance/core/admission-policy-transfer';
+import { createArchivedAdmissionPolicyTransfer, parseAdmissionPolicyChunkRequest } from '@resonance/core/admission-policy-transfer';
 
 export function createAdmissionPolicyTransferResponder(options: {
   context: AdmissionPolicyObservers; successor: (previous: AdmissionPolicyHead, signal: AbortSignal) => Promise<unknown>;
@@ -10,7 +10,7 @@ export function createAdmissionPolicyTransferResponder(options: {
 }) {
   const context = parseAdmissionPolicyObservers(options.context), timeout = options.timeoutMs ?? 3000;
   if (!Number.isSafeInteger(timeout) || timeout < 100 || timeout > 30000) throw new Error('Invalid policy transfer timeout');
-  const cache: Array<{ artifact: Awaited<ReturnType<typeof createAdmissionPolicyTransfer>>; expires: number }> = [];
+  const cache: Array<{ artifact: Awaited<ReturnType<typeof createArchivedAdmissionPolicyTransfer>>; expires: number }> = [];
   let active: { controller: AbortController; drained: Promise<void> } | undefined, closing = false;
   return {
     health() { return { operations: active ? 1 : 0, cachedArtifacts: cache.length, cachedBytes: cache.reduce((sum, entry) => sum + entry.artifact.bytes, 0) }; },
@@ -34,7 +34,7 @@ export function createAdmissionPolicyTransferResponder(options: {
       controller.signal.addEventListener('abort', aborted, { once: true });
       const work = Promise.resolve().then(async () => {
         check(); const value = await options.successor(request.previous, controller.signal); check();
-        const artifact = await createAdmissionPolicyTransfer(value, context); check();
+        const artifact = await createArchivedAdmissionPolicyTransfer(value, context); check();
         const result = artifact.chunk(request); check();
         if (cache.length === 2) cache.shift(); cache.push({ artifact, expires: performance.now() + 30000 });
         return result;

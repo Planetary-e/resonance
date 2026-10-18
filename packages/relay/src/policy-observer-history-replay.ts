@@ -50,6 +50,8 @@ export async function replayPolicyObserverHistory(options: {
   /** Optional historical lookup; returned only after the entire selected chain
    * and all conflict evidence have passed semantic verification. */
   successorOf?: AdmissionPolicyHead;
+  selectedPolicyHead?: AdmissionPolicyHead;
+  accountRead?: (bytes: number) => void;
   maxBlocks?: number; maxBytes?: number; timeoutMs?: number; signal?: AbortSignal;
 }) {
   const context = parseAdmissionPolicyObservers(options.context), historyContext = parseHistoryCheckpointContext(options.historyContext);
@@ -63,12 +65,14 @@ export async function replayPolicyObserverHistory(options: {
   const key = Uint8Array.from(options.encryptionKey), started = performance.now();
   const suppliedMinimum = options.minimumState; // The parser snapshots before its first await.
   const target = options.successorOf === undefined ? undefined : parseAdmissionPolicyHead(options.successorOf);
+  const selectedHead = options.selectedPolicyHead === undefined ? undefined : parseAdmissionPolicyHead(options.selectedPolicyHead);
+  let selectedResolved: ResolvedAdmissionPolicy | undefined;
   let successor: ArchivedAdmissionPolicyAdvance | undefined;
   let resolved: ResolvedAdmissionPolicy | undefined;
   let state: AdmissionPolicyObserverState | undefined, genesis: HistoryEncryptedEnvelope | undefined;
   let head: HistoryCheckpointEnvelope | undefined, rootId = '', ids: string[] = [], bytes = 0, blocks = 0, generations = 0, generationBytes = 0;
   let readBlocks = 0, readBytes = 0;
-  function account(size: number) { if (++readBlocks > maxBlocks || (readBytes += size) > maxBytes) throw new Error('Policy observer replay cumulative read budget exceeded'); }
+  function account(size: number) { options.accountRead?.(size); if (++readBlocks > maxBlocks || (readBytes += size) > maxBytes) throw new Error('Policy observer replay cumulative read budget exceeded'); }
   const source = options.blockSource ?? (() => options.blocks as Iterable<HistoryCheckpointEnvelope>);
   const archiveReader = createPolicyObserverPageReader({ source, historyContext, key, maxBlocks, maxBytes, timeoutMs, signal: options.signal, account });
   function live() { if (options.signal?.aborted || performance.now() - started >= timeoutMs) throw new Error('Policy observer replay cancelled or timed out'); }
@@ -105,6 +109,7 @@ export async function replayPolicyObserverHistory(options: {
         state = next; ids.push(id); generationBytes += size;
       }
       live();
+      if (selectedHead && sameAdmissionPolicyHead(policyObserverStateHead(state!, context), selectedHead)) selectedResolved = resolved;
       if (target && block.kind === 'checkpoint' && !state!.conflict && state!.advance
         && sameAdmissionPolicyHead(state!.advance.previous, target)) {
         successor = structuredClone({ commitment: state!.advance, policy: state!.policy });
@@ -120,7 +125,7 @@ export async function replayPolicyObserverHistory(options: {
     if (!state || !genesis || !head || head.generation !== proposal.generation || rootId !== proposal.rootId) throw new Error('Policy observer history does not reach its selected generation');
     assertHistorySuccessorChain(proposal, ids);
     if (!foundMinimum) throw new Error('Selected policy history omits known local state or conflict evidence; preserve and reconcile the local history');
-    return { state, resolved: resolved!, genesis, contextId, genesisId, proposalId, replayDigest: policyObserverReplayDigest(contextId, genesisId, proposalId, state),
+    return { state, resolved: resolved!, selectedResolved, genesis, contextId, genesisId, proposalId, replayDigest: policyObserverReplayDigest(contextId, genesisId, proposalId, state),
       head: { rootId, generation: head.generation, sequence: head.sequence, envelopeId: historyCheckpointEnvelopeId(head) }, blocks, bytes, generations,
       ...(target ? { successor } : {}) };
   } finally { key.fill(0); }

@@ -1,5 +1,6 @@
 /** Bounded transport of one signed immediate policy successor. Each chunk fits
  * the existing private payload cap; authentication precedes installation. */
+import { parseArchivedAdmissionPolicyAdvance, type ArchivedAdmissionPolicyAdvance } from './admission-policy-archive.js';
 import { createHash } from 'node:crypto';
 import { exactWitnessFields } from './admission-witness.js';
 import { admissionPolicyObserversId, parseAdmissionPolicyHead, parseAdmissionPolicyObservers, type AdmissionPolicyHead, type AdmissionPolicyObservers } from './admission-policy-freshness.js';
@@ -62,7 +63,15 @@ export function parseAdmissionPolicyChunkReply(value: unknown, request: Admissio
     bytes: raw.bytes as number, count: raw.count as number, index: original.index, data: raw.data };
 }
 export async function createAdmissionPolicyTransfer(value: unknown, contextValue: AdmissionPolicyObservers) {
-  const context = parseAdmissionPolicyObservers(contextValue), advance = await parseAdmissionPolicyAdvance(value, context);
+  return createTransfer(value, contextValue, parseAdmissionPolicyAdvance);
+}
+/** Transfers authenticated signed metadata only; this never grants a resolved install capability. */
+export async function createArchivedAdmissionPolicyTransfer(value: unknown, contextValue: AdmissionPolicyObservers) {
+  return createTransfer(value, contextValue, parseArchivedAdmissionPolicyAdvance);
+}
+async function createTransfer(value: unknown, contextValue: AdmissionPolicyObservers,
+  parse: (value: unknown, context: AdmissionPolicyObservers) => Promise<ArchivedAdmissionPolicyAdvance>) {
+  const context = parseAdmissionPolicyObservers(contextValue), advance = await parse(value, context);
   const encoded = Buffer.from(JSON.stringify(advance)), artifact = digest(encoded), bytes = encoded.length;
   if (bytes > ADMISSION_POLICY_ADVANCE_MAX_BYTES) throw new Error('Policy artifact exceeds its bound');
   return { artifact, bytes, previous: advance.commitment.previous,
@@ -75,6 +84,14 @@ export async function createAdmissionPolicyTransfer(value: unknown, contextValue
     } };
 }
 export async function assembleAdmissionPolicyTransfer(values: readonly unknown[], contextValue: AdmissionPolicyObservers, previousValue: AdmissionPolicyHead): Promise<AdmissionPolicyAdvance> {
+  return assembleTransfer(values, contextValue, previousValue, parseAdmissionPolicyAdvance);
+}
+/** Returned metadata must still pass resolved semantic ancestry installation. */
+export async function assembleArchivedAdmissionPolicyTransfer(values: readonly unknown[], contextValue: AdmissionPolicyObservers, previousValue: AdmissionPolicyHead): Promise<ArchivedAdmissionPolicyAdvance> {
+  return assembleTransfer(values, contextValue, previousValue, parseArchivedAdmissionPolicyAdvance);
+}
+async function assembleTransfer<T extends ArchivedAdmissionPolicyAdvance>(values: readonly unknown[], contextValue: AdmissionPolicyObservers, previousValue: AdmissionPolicyHead,
+  parse: (value: unknown, context: AdmissionPolicyObservers) => Promise<T>): Promise<T> {
   const context = parseAdmissionPolicyObservers(contextValue), previous = parseAdmissionPolicyHead(previousValue);
   if (!Array.isArray(values) || values.length < 1 || values.length > ADMISSION_POLICY_MAX_CHUNKS) throw new Error('Invalid policy transfer chunk count');
   const first = parseAdmissionPolicyChunkReply(values[0], createAdmissionPolicyChunkRequest(context, previous), context);
@@ -88,7 +105,7 @@ export async function assembleAdmissionPolicyTransfer(values: readonly unknown[]
   if (digest(bytes) !== first.artifact) throw new Error('Policy transfer digest mismatch');
   let raw: unknown;
   try { raw = JSON.parse(new TextDecoder('utf8', { fatal: true }).decode(bytes)); } catch { throw new Error('Policy artifact must be valid UTF-8 JSON'); }
-  const advance = await parseAdmissionPolicyAdvance(raw, context);
+  const advance = await parse(raw, context);
   if (!sameAdmissionPolicyHead(advance.commitment.previous, previous) || !sameAdmissionPolicyHead(advance.commitment.next, first.next)) throw new Error('Signed policy artifact differs from its manifest');
   return advance;
 }

@@ -1,10 +1,13 @@
+import { createAdmissionPolicyTransfer, createArchivedAdmissionPolicyTransfer, assembleAdmissionPolicyTransfer, assembleArchivedAdmissionPolicyTransfer, createAdmissionPolicyChunkRequest } from '@resonance/core/admission-policy-transfer';
+import { createAdmissionPolicyTransferResponder } from '../admission-policy-transfer.js';
+import { collectAdmissionPolicyObservation } from '../admission-policy-observation.js';
 import { afterEach, beforeAll, expect, it, vi } from 'vitest';
 import { generateKeyPairSync, randomBytes, createPublicKey } from 'node:crypto';
 import { join } from 'node:path';
 import { writeFileSync, rmSync, readFileSync, readdirSync } from 'node:fs';
 import { admissionKeyFingerprint, signAdmissionPolicy, type AdmissionPolicyKey } from '@resonance/core/admission-policy';
 import { admissionPolicyHead, createAdmissionPolicyAdvance, createAdmissionPolicyAdvanceCommitment } from '@resonance/core/admission-policy-advance';
-import { createAdmissionPolicyHeadRequest, parseAdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
+import { createAdmissionPolicyHeadRequest, createAdmissionPolicyHeadVote, parseAdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
 import { parseAdmissionWitnessSet } from '@resonance/core/admission-witness';
 import { createResolvedAdmissionPolicyAdvance, prepareAdmissionPolicyV3Successor, resolveAdmissionPolicy, signAdmissionPolicyV3 } from '@resonance/core/admission-policy-archive';
 import { historyCheckpointEnvelopeId, historyCheckpointEnvelopeByteLength, historyCheckpointReserveBucket, openHistoryCheckpoint, sealHistoryCheckpoint } from '@resonance/core/history-checkpoint';
@@ -19,7 +22,7 @@ import { createHistoryAgreementCoordinator } from '../history-agreement-coordina
 import { preparePolicyObserverRestore } from '../policy-observer-history-restore.js';
 import { replayPolicyObserverHistory } from '../policy-observer-history-replay.js';
 import { parsePolicyObserverSnapshot, parseAdmissionPolicyObserverState } from '../admission-policy-observer-state.js';
-import { policyObserverArchiveLimits } from '../policy-observer-page-reader.js';
+import { createPolicyObserverPageReader, policyObserverArchiveLimits } from '../policy-observer-page-reader.js';
 import { createAdmissionPolicyObserverExchange, listenAdmissionPolicyObserver, exchangeAdmissionPolicyObserverFrame, exchangeAdmissionPolicyObservation } from '../admission-policy-observation-transport.js';
 import { downloadPolicyObserverArchivePage, createPolicyObserverRemoteOperation, POLICY_ARCHIVE_PAGE_REPLY_MAX_BYTES } from '../policy-observer-page-transfer.js';
 import { createHistoryAncestryDownload } from '../history-ancestry-download.js';
@@ -101,7 +104,7 @@ async function fixture(bounds: { maxArchiveBlocks?: number; maxArchiveBytes?: nu
     return { restored, restoredOptions, replay, blocks,config,archive,childTransport };
   }
   return { ...f, authorityKey: f.key, options, enrolled, key, owner, stores, roles, members, v2, advance, plan, v3, policy, limits, entries, reader, recover, reopen,
-    get observer() { return observer; }, lose(value: boolean) { lose = value; }, online(value: number) { online = value; } };
+    get time() { return time; }, setTime(value: number) { time = value; }, get observer() { return observer; }, lose(value: boolean) { lose = value; }, online(value: number) { online = value; } };
 }
 it('commits v3 pages and policy together with four durable copies and reopens original provenance', async () => {
   const n = await fixture(); await n.observer.advance(n.v3.advance, n.plan.pages);
@@ -182,10 +185,10 @@ it('refuses one byte/one record below migration plus conflict headroom and accep
   await exact.advance(n.v3.advance,n.plan.pages); expect(exact.status()).toMatchObject({pending:false,retainedBlocks:3});
 });
 
-it('shares validation and retrieval scan budgets for one archive-page operation', async () => {
+it('captures a page during its selected-root validation without a second lookup', async () => {
   const n = await fixture({maxArchiveBlocks:4}); await n.observer.advance(n.v3.advance,n.plan.pages);
-  // One page lives in the third checkpoint: two scans need six reads, beyond four.
-  await expect(n.observer.archivePage(n.plan.pages[0].digest)).rejects.toThrow('cumulative history budget');
+  // One validation scan reads three checkpoints and captures the proven member.
+  expect(Uint8Array.from(await n.observer.archivePage(n.plan.pages[0].digest))).toEqual(n.plan.pages[0].bytes);
   expect(n.observer.status()).toMatchObject({pending:false,retainedBlocks:3});
 });
 it('cancels archive-page retrieval during its initial validation without waiting for crypto', async () => {
@@ -231,7 +234,7 @@ async function remotePeer(n: Awaited<ReturnType<typeof fixture>>, settings: {max
     signal.throwIfAborted(); return roles[enrolled.context.members.indexOf(member.publicKey)].exchange(frame);
   };
   const options = {directory:join(n.directory,'target-owner'),encryptionKey:localKey,signingKey:signer,context:n.context,historyContext:enrolled.context,root:enrolled.root,
-    members:n.members,transport,timeoutMs:2500,now:()=>n.now+30001,
+    members:n.members,transport,timeoutMs:2500,now:()=>n.time,
     remoteArchive:{...settings,exchange:async(member:typeof sourceMember,request:unknown,signal:AbortSignal)=>{
       requests++; if(delay) await delay;
       signal.throwIfAborted(); if(mode==='missing') throw new Error('source unavailable');
@@ -359,4 +362,91 @@ it('cancels post-prefetch policy verification promptly and releases exclusivity 
     expect(peer.target.status()).toMatchObject({pending:false,head:n.advance.commitment.next});
     await peer.target.ready(); // Must finish while the cancelled read-only verifier remains gated.
   } finally {release();await pending.catch(()=>{});spy.mockRestore();}
+});
+
+it('serves an exact historical v3 root after a later v3 rotation and catches up a lagging observer', async () => {
+  const n = await fixture(); await n.observer.advance(n.v3.advance, n.plan.pages);
+  const plan = await prepareAdmissionPolicyV3Successor({ previous: n.v3.resolved, next: { revision: 4, issuedAt: n.now+31001, expiresAt: n.now+60000,
+    activeKey: admissionKeyFingerprint(n.entries[1].profile.issuerPublicKey), keys: [n.entries[1]] }, reader: n.reader, limits: n.limits });
+  const policy = await signAdmissionPolicyV3(plan.body, n.authority, n.authorityKey.secretKey);
+  const reader = async (digest: string) => plan.pages.find(p => p.digest === digest)?.bytes ?? n.reader(digest);
+  const next = await createResolvedAdmissionPolicyAdvance({ previous: n.v3.resolved, policy, key: n.authorityKey, reader, limits: n.limits });
+  n.setTime(n.now+31001); await n.observer.advance(next.advance, plan.pages);
+  const peer = await remotePeer(n);
+  await peer.target.advanceRemote(n.v3.advance, { deadline: performance.now()+3000 });
+  expect(peer.target.status().head).toEqual(n.v3.advance.commitment.next);
+  await peer.target.advanceRemote(next.advance, { deadline: performance.now()+3000 });
+  expect(peer.target.status().head).toEqual(next.advance.commitment.next);
+  const selected = n.v3.advance.commitment.next, digest = n.plan.pages[0].digest;
+  await expect(n.observer.archivePageAtHead({...selected, transition:'a'.repeat(64)}, digest)).rejects.toThrow('absent');
+  await expect(n.observer.archivePageAtHead({...selected, digest:'b'.repeat(64)}, digest)).rejects.toThrow('absent');
+  await expect(n.observer.archivePageAtHead(selected, plan.pages[0].digest)).rejects.toThrow('not reachable');
+  const cancelled = new AbortController(); cancelled.abort();
+  await expect(n.observer.archivePageAtHead(selected, digest, cancelled.signal)).rejects.toThrow();
+  const restored = await n.recover(); await restored.restored.ready();
+  const mutableHead = structuredClone(selected);
+  const replaying = replayPolicyObserverHistory({...restored.replay,blocks:restored.archive.blocks(),selectedPolicyHead:mutableHead});
+  mutableHead.digest='b'.repeat(64);
+  expect((await replaying).selectedResolved).toBeDefined();
+  expect(Uint8Array.from(await restored.restored.archivePageAtHead(selected,digest))).toEqual(n.plan.pages[0].bytes);
+  const file = join(restored.config.archiveDirectory!,readdirSync(restored.config.archiveDirectory!).find(name=>name.endsWith('.block'))!);
+  const original = readFileSync(file); rmSync(file);
+  try { await expect(restored.restored.archivePageAtHead(selected,digest)).rejects.toThrow(); }
+  finally { writeFileSync(file,original); }
+},30000);
+
+it('authenticates v3 signed artifacts and collects v3 heads while legacy assembly refuses v3', async () => {
+  const n = await fixture(); await n.observer.advance(n.v3.advance, n.plan.pages);
+  const responder = createAdmissionPolicyTransferResponder({context:n.context, successor:(previous,signal)=>n.observer.successor(previous,signal)}); cleanup.push(responder.close);
+  const request = createAdmissionPolicyChunkRequest(n.context,n.advance.commitment.next);
+  const first = await responder.exchange(request), chunks = [first];
+  for (let index=1; index<first.count; index++) chunks.push(await responder.exchange({...request,artifact:first.artifact,index}));
+  expect(await assembleArchivedAdmissionPolicyTransfer(chunks,n.context,request.previous)).toEqual(n.v3.advance);
+  await expect(createAdmissionPolicyTransfer(n.v3.advance,n.context)).rejects.toThrow();
+  await expect(assembleAdmissionPolicyTransfer(chunks,n.context,request.previous)).rejects.toThrow();
+  const forged = structuredClone(n.v3.advance); forged.policy.signature='A'.repeat(86);
+  await expect(createArchivedAdmissionPolicyTransfer(forged,n.context)).rejects.toThrow();
+  const certificate = await collectAdmissionPolicyObservation({context:n.context,policy:n.policy,advance:n.v3.advance,now:()=>n.time,
+    transport:async(member,frame)=>{
+      expect(frame.advance).toEqual(n.v3.advance);
+      return createAdmissionPolicyHeadVote(frame.request,n.v3.advance.commitment.next,n.context,n.keys.find(k=>Buffer.from(k.publicKey).toString('base64url')===member.publicKey)!,n.time);
+    }});
+  expect(certificate.votes).toHaveLength(4);
+});
+
+it.each(['cancel','close'] as const)('releases historical read occupancy promptly on %s during validation', async mode => {
+  const n = await fixture(); await n.observer.advance(n.v3.advance,n.plan.pages);
+  let entered!:()=>void,release!:()=>void;
+  const started=new Promise<void>(resolve=>{entered=resolve;}),gate=new Promise<void>(resolve=>{release=resolve;});
+  const original=crypto.subtle.importKey.bind(crypto.subtle),controller=new AbortController();
+  const spy=vi.spyOn(crypto.subtle,'importKey').mockImplementationOnce(async(...args)=>{entered();await gate;return Reflect.apply(original,crypto.subtle,args);});
+  const pending=n.observer.archivePageAtHead(n.v3.advance.commitment.next,n.plan.pages[0].digest,controller.signal);
+  try {
+    await started; if(mode==='cancel') controller.abort(); else n.observer.close();
+    await expect(Promise.race([pending,new Promise((_,reject)=>setTimeout(()=>reject(new Error('archive read ignored cancellation')),150))])).rejects.toThrow(/cancelled|aborted|closed/i);
+    if(mode==='cancel') await n.observer.ready();
+  } finally {release();await pending.catch(()=>{});spy.mockRestore();}
+});
+
+it.each([{stage:'policy',gateAt:1,mode:'cancel'},{stage:'policy',gateAt:1,mode:'deadline'},
+  {stage:'advance',gateAt:2,mode:'cancel'},{stage:'advance',gateAt:2,mode:'deadline'}])('bounds collector $stage verification on $mode before observer fan-out', async ({gateAt,mode}) => {
+  const n=await fixture(); let entered!:()=>void,release!:()=>void,imports=0,fanout=0;
+  const started=new Promise<void>(resolve=>{entered=resolve;}),gate=new Promise<void>(resolve=>{release=resolve;}),controller=new AbortController();
+  const original=crypto.subtle.importKey.bind(crypto.subtle);
+  const spy=vi.spyOn(crypto.subtle,'importKey').mockImplementation(async(...args)=>{if(++imports===gateAt){entered();await gate;}return Reflect.apply(original,crypto.subtle,args);});
+  const pending=collectAdmissionPolicyObservation({context:n.context,policy:n.policy,advance:n.v3.advance,now:()=>n.time,signal:controller.signal,timeoutMs:mode==='deadline'?100:3000,
+    transport:async()=>{fanout++;throw new Error('must not fan out');}});
+  try {
+    await started; if(mode==='cancel') controller.abort();
+    await expect(Promise.race([pending,new Promise((_,reject)=>setTimeout(()=>reject(new Error('collector ignored verification cancellation/deadline')),250))])).rejects.toThrow(/cancelled|aborted|timed out/i);
+    expect(fanout).toBe(0);
+  } finally {release();await pending.catch(()=>{});spy.mockRestore();}
+});
+it('delivers cancellation during retained page rescans before exhausting the funded scan', async () => {
+  const n=await fixture(),controller=new AbortController(); let scanned=0;
+  const reader=createPolicyObserverPageReader({source:function*(){for(let i=0;i<64;i++)yield n.enrolled.root;},historyContext:n.enrolled.context,key:n.key,
+    maxBlocks:64,maxBytes:256*1024*1024,timeoutMs:3000,signal:controller.signal,account:()=>{scanned++;}});
+  queueMicrotask(()=>controller.abort());
+  await expect(reader(n.plan.pages[0].digest,controller.signal)).rejects.toThrow('cancelled');
+  expect(scanned).toBe(16);
 });

@@ -299,3 +299,59 @@ This passes the fixed observer prerequisite. Wallet/issuer/relay integration,
 historical-head catch-up and K2's 100-cycle/1,000-fault requirements remain open.
 Windows follow-up CI for `eece162` now passes all three Windows jobs; the general
 CI run is still in progress as of this receipt.
+
+## Historical catch-up implementation contract
+
+Next prerequisite under the same blocker/KPIs: a lagging observer must acquire
+an intermediate v3 policy and its immutable pages after the source has already
+advanced further. A historical request must prove the exact requested transition
+on original retained ancestry and page membership in that historical root. A
+page merely present elsewhere in the source's history is insufficient. Preserve
+pending/conflict/close fences, exclusive operations, funded ancestry after
+restoration, bounded scans and one shared operation deadline. No global freshness
+is inferred from historical validity.
+
+Sol Medium owns this established-contract implementation and the bounded signed
+artifact/collector integration it requires. Existing legacy core array/parsing
+APIs continue to refuse v3; new metadata/transport APIs cannot authorize semantic
+installation. Unsupported wallet/application entrypoints remain explicit refusals
+until their migration. Personal clients retain the private route. Distinguishing
+cases include intermediate-head recovery, wrong transition/fork, later-only page,
+missing ancestry and cancellation. No production budget increases or pruning.
+
+### Routing observation
+
+The first bounded receipts support retaining Medium for established fixture/test
+implementation: both the Windows fixture correction and the fixed 65-rotation
+scenario passed their first permitted final runs and parent review. Protocol
+integration still needed independent review: High implementations required one
+correction round for two observer findings and one for three remote findings.
+These different tasks do not prove model/effort equivalence or attributable quota
+savings. Keep scoped review for protocol work and avoid extra review/test chains
+when no material concern remains.
+
+### Historical catch-up acceptance
+
+Sol Medium implemented the historical exact-root serving and archived signed
+transfer/collector path. The observed work/test interval was
+19:44:13–19:49:06 UTC plus earlier unclocked implementation; do not treat it as
+exact active labor. A restored-generation test initially omitted its required
+`ready()` confirmation; correcting that fixture retained the production refusal.
+
+Astra High review at 19:46:18–19:47:00 UTC (**42s**) found one collector
+cancellation/deadline issue before fan-out. The correction bounds both read-only
+verification stages by the caller's absolute deadline/signal. Public replay head
+inputs are copied before awaiting, and page rescans yield every 16 cumulative
+blocks without resetting accounting. A mutation fixture's consumed iterator was
+corrected; no production limit or assertion was relaxed. Eight distinguishing
+cases passed; Astra approved the corrections at 19:49:22–19:49:29 UTC (**7s**).
+
+Final affected regression: **62/62 tests / four files / 32.57s** with permitted
+loopback. Command: `npx vitest run --maxWorkers=1` on core and relay
+`admission-policy-transfer.test.ts`, relay
+`admission-policy-observation.integration.test.ts` and
+`policy-observer-v3.integration.test.ts`. Full `npm run build` and whitespace
+checks pass. The private client still uses the legacy assembler at
+`packages/node/src/private-relay-client.ts:388`; the next necessary change is
+resolved wallet installation and durable proof retention through that private
+route. Transport metadata alone cannot install a v3 policy.

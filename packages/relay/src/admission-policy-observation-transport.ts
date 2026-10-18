@@ -24,6 +24,7 @@ export function createAdmissionPolicyObserverExchange(observer: {
   advance(value: unknown): Promise<unknown>;
   advanceRemote?(value: unknown, request: {deadline: number; signal?: AbortSignal; check?: () => void}): Promise<unknown>; observe(request: unknown): unknown | Promise<unknown>;
   /** Explicit local implementation capability; never accepted from a peer. */
+  archivePageAtHead?(head: unknown, digest: string, signal?: AbortSignal): Promise<Uint8Array>;
   archivePage?(digest: string, signal?: AbortSignal): Promise<Uint8Array>;
   status?(): { head: unknown };
   maximumConcurrentObservations?: 1 | 2;
@@ -103,7 +104,7 @@ export function createAdmissionPolicyObserverExchange(observer: {
       if (!observer.archivePage || !observer.status) throw new Error('Observer does not support archive page transfer');
       if (pending || writing || readers) throw new Error('Observer archive transfer is busy');
       pending++;
-      try { return await policyArchivePageReply(value, context, observer.status().head, (digest, signal) => observer.archivePage!(digest, signal)); }
+      try { return await policyArchivePageReply(value, context, observer.status().head, (digest, signal) => observer.archivePage!(digest, signal), observer.archivePageAtHead?.bind(observer), signal); }
       finally { pending--; }
     }
     if (!exactWitnessFields(value, ['request', 'advance']) || Buffer.byteLength(JSON.stringify(value)) > ADMISSION_POLICY_OBSERVATION_MAX_BYTES) throw new Error('Invalid policy observation frame');

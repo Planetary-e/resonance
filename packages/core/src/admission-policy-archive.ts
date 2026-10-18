@@ -409,6 +409,11 @@ async function parseArchivedAdvance(value: unknown, context: AdmissionPolicyObse
   if (policy.revision !== commitment.next.revision || archivedAdmissionPolicyDigest(policy) !== commitment.next.digest) throw new Error('Policy differs from signed advance digest');
   return { commitment, policy };
 }
+/** Signature/schema authentication only; installation requires resolveAdmissionPolicySuccessor. */
+export async function parseArchivedAdmissionPolicyAdvance(value: unknown, contextValue: AdmissionPolicyObservers, options: { signal?: AbortSignal; timeoutMs?: number } = {}): Promise<ArchivedAdmissionPolicyAdvance> {
+  const context = parseAdmissionPolicyObservers(contextValue);
+  return parseArchivedAdvance(value, context, new Budget({ signal: options.signal, limits: { maxPages: 1, maxEntries: 1, maxArchiveBytes: 1, maxHistoryBytes: 1, maxTransitions: 1, maxPageReads: 1, timeoutMs: options.timeoutMs ?? 3000 } }));
+}
 async function resolveStep(previous: ResolvedState, advance: ArchivedAdmissionPolicyAdvance, reader: AdmissionPolicyArchiveReader, budget: Budget): Promise<ResolvedState> {
   if (!sameAdmissionPolicyHead(previous.head, advance.commitment.previous)) throw new Error('Resolved policy ancestry has a gap or fork');
   if (advance.policy.version === 3) {
