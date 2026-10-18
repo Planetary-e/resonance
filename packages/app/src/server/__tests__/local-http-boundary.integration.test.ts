@@ -21,7 +21,7 @@ async function fixture() {
   mkdirSync(ui); mkdirSync(join(ui, 'assets')); mkdirSync(join(directory, 'ui-private'));
   writeFileSync(join(ui, 'index.html'), '<h1>Test interface</h1>'); writeFileSync(join(ui, 'assets', 'app.js'), 'safe asset');
   writeFileSync(join(directory, 'ui-private', 'secret.txt'), 'private fixture content');
-  symlinkSync(join(directory, 'ui-private', 'secret.txt'), join(ui, 'external.txt'));
+  symlinkSync(join(directory, 'ui-private'), join(ui, 'outside'), process.platform === 'win32' ? 'junction' : 'dir');
   vi.stubEnv('RESONANCE_DATA_DIR', join(directory, 'account'));
   vi.spyOn(EmbeddingEngine.prototype, 'initialize').mockResolvedValue();
   const app = createAppServer({ port: 0, relayUrl: 'ws://127.0.0.1:1/', uiDirectory: ui });
@@ -105,7 +105,7 @@ it('serves regular UI assets and SPA routes without exposing sibling files, link
   expect((await f.request('/assets/app.js?v=1')).text).toBe('safe asset');
   expect((await f.request('/unknown/route')).text).toBe('<h1>Test interface</h1>');
   expect((await f.request('/assets/app.js', undefined, {}, 'HEAD')).text).toBe('');
-  for (const path of ['/%2e%2e%2fui-private/secret.txt', '/external.txt', '/assets/', '/%00']) {
+  for (const path of ['/%2e%2e%2fui-private/secret.txt', '/outside/secret.txt', '/assets/', '/%00']) {
     const response = await f.request(path); expect(response.status).toBe(404); expect(response.text).not.toContain('private fixture content');
   }
   expect((await f.request('/api/status')).status).toBe(200);
