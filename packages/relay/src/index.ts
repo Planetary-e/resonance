@@ -154,7 +154,9 @@ export { UnparseableRelayStorageSelectionError, parseRelayStorageConfiguration, 
 
 export { createPolicyObserverHistoryRoot, openProtectedPolicyObserver } from './protected-policy-observer.js';
 export { preparePolicyObserverRecovery, openPolicyObserverRecovery } from './policy-observer-recovery.js';
-export { openPolicyObserverRestoreResumption } from './policy-observer-restore-resumption.js';
+export { openPolicyObserverRestoreResumption, openPolicyObserverInitialSetup } from './policy-observer-restore-resumption.js';
+export { openPolicyObserverSetup, policyObserverEnrollment, readPolicyObserverEnrollment } from './policy-observer-setup.js';
+export { runPolicyObserverSetupCommand } from './policy-observer-setup-command.js';
 export { parsePolicyObserverConfiguration, readPolicyObserverConfigurationFile, openConfiguredPolicyObserver, serveConfiguredPolicyObserver } from './policy-observer-config.js';
 export type { PolicyObserverConfiguration } from './policy-observer-config.js';
 export { runPolicyObserverCommand } from './policy-observer-command.js';

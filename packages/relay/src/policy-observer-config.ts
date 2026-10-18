@@ -13,10 +13,36 @@ import { createAdmissionPolicyObserverExchange, listenAdmissionPolicyObserver } 
 import type { HistoryCheckpointTransport } from './history-checkpoint-exchange.js';
 
 export const POLICY_OBSERVER_CONFIGURATION_MAX_BYTES = 2 * HISTORY_ENVELOPE_MAX_BYTES + 64 * 1024;
+export function parsePolicyObserverMemberPins(value: unknown, keys: readonly string[]) {
+  if (!Array.isArray(value) || value.length !== 5) throw new Error('Policy history needs five pinned members');
+  const members = value.map(raw => {
+    if (!exactWitnessFields(raw, ['publicKey', 'endpoint']) || typeof raw.publicKey !== 'string'
+      || !keys.includes(raw.publicKey) || typeof raw.endpoint !== 'string') throw new Error('Invalid policy history member');
+    assertSecureRelayTransportEndpoint(raw.endpoint);
+    const endpoint = new URL(raw.endpoint);
+    if (endpoint.pathname !== '/history-checkpoint' || endpoint.search || endpoint.hash) throw new Error('Policy history endpoints must use the pinned history route');
+    return { publicKey: raw.publicKey, endpoint: endpoint.href };
+  });
+  if (new Set(members.map(m => m.publicKey)).size !== 5 || new Set(members.map(m => m.endpoint)).size !== 5) throw new Error('Policy history needs five distinct members and endpoints');
+  return members;
+}
+export function parsePolicyObserverPath(raw: unknown, base: string) {
+  if (typeof raw !== 'string' || !raw.length || raw.length > 4096 || /[\x00-\x1f\x7f]/.test(raw)) throw new Error('Invalid policy observer path');
+  return resolve(base, raw);
+}
+export function parsePolicyObserverListener(value: unknown) {
+  if (!exactWitnessFields(value, ['port', 'maxConnections', 'connectionTimeoutMs'])) throw new Error('Invalid policy observer listener');
+  const { port, maxConnections, connectionTimeoutMs } = value;
+  if (!Number.isSafeInteger(port) || (port as number) < 0 || (port as number) > 65535
+    || !Number.isSafeInteger(maxConnections) || (maxConnections as number) < 1 || (maxConnections as number) > 8
+    || !Number.isSafeInteger(connectionTimeoutMs) || (connectionTimeoutMs as number) < 50 || (connectionTimeoutMs as number) > 30000) {
+    throw new Error('Invalid policy observer listener bounds');
+  }
+  return { port: port as number, maxConnections: maxConnections as number, connectionTimeoutMs: connectionTimeoutMs as number };
+}
 export function parsePolicyObserverConfiguration(value: unknown, base: string) {
   if (!exactWitnessFields(value, ['version', 'kind', 'context', 'historyContext', 'genesis', 'root', 'members',
-    'directory', 'signingKeyFile', 'storageKeyFile', 'limits', 'listen']) || value.version !== 1 || value.kind !== 'policy-observer-configuration'
-    || !Array.isArray(value.members) || value.members.length !== 5 || !exactWitnessFields(value.listen, ['port', 'maxConnections', 'connectionTimeoutMs'])) {
+    'directory', 'signingKeyFile', 'storageKeyFile', 'limits', 'listen']) || value.version !== 1 || value.kind !== 'policy-observer-configuration') {
     throw new Error('Invalid policy observer configuration');
   }
   const context = parseAdmissionPolicyObservers(value.context), historyContext = parseHistoryCheckpointContext(value.historyContext);
@@ -26,29 +52,12 @@ export function parsePolicyObserverConfiguration(value: unknown, base: string) {
     || root.kind !== 'continuation' && historyCheckpointEnvelopeId(root) !== historyCheckpointEnvelopeId(genesis)) {
     throw new Error('Policy observer configuration needs independently retained genesis and an explicit original or certified root');
   }
-  const members = value.members.map(raw => {
-    if (!exactWitnessFields(raw, ['publicKey', 'endpoint']) || typeof raw.publicKey !== 'string'
-      || !historyContext.members.includes(raw.publicKey) || typeof raw.endpoint !== 'string') throw new Error('Invalid policy history member');
-    assertSecureRelayTransportEndpoint(raw.endpoint);
-    const endpoint = new URL(raw.endpoint);
-    if (endpoint.pathname !== '/history-checkpoint' || endpoint.search || endpoint.hash) throw new Error('Policy history endpoints must use the pinned history route');
-    return { publicKey: raw.publicKey, endpoint: endpoint.href };
-  });
-  if (new Set(members.map(m => m.publicKey)).size !== 5 || new Set(members.map(m => m.endpoint)).size !== 5) throw new Error('Policy history needs five distinct members and endpoints');
-  function path(raw: unknown) {
-    if (typeof raw !== 'string' || !raw.length || raw.length > 4096 || /[\x00-\x1f\x7f]/.test(raw)) throw new Error('Invalid policy observer path');
-    return resolve(base, raw);
-  }
-  const { port, maxConnections, connectionTimeoutMs } = value.listen;
-  if (!Number.isSafeInteger(port) || (port as number) < 0 || (port as number) > 65535
-    || !Number.isSafeInteger(maxConnections) || (maxConnections as number) < 1 || (maxConnections as number) > 8
-    || !Number.isSafeInteger(connectionTimeoutMs) || (connectionTimeoutMs as number) < 50 || (connectionTimeoutMs as number) > 30000) {
-    throw new Error('Invalid policy observer listener bounds');
-  }
+  const members = parsePolicyObserverMemberPins(value.members, historyContext.members);
+  const path = (raw: unknown) => parsePolicyObserverPath(raw, base);
   return { version: 1 as const, kind: 'policy-observer-configuration' as const, context, historyContext, genesis, root, members,
     directory: path(value.directory), signingKeyFile: path(value.signingKeyFile), storageKeyFile: path(value.storageKeyFile),
     limits: parseAdmissionHistoryArchiveLimits(value.limits),
-    listen: { port: port as number, maxConnections: maxConnections as number, connectionTimeoutMs: connectionTimeoutMs as number } };
+    listen: parsePolicyObserverListener(value.listen) };
 }
 export type PolicyObserverConfiguration = ReturnType<typeof parsePolicyObserverConfiguration>;
 export function readPolicyObserverConfigurationFile(path: string) {

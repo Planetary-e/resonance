@@ -1,12 +1,11 @@
 /** Review only the local completion of an independently verified restoration.
  * Fresh signing readiness is a separate operation after this handle closes. */
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, readdirSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { captureStorageReservationOperation } from '@resonance/core/storage-reservations';
 import { copyAdmissionSigningKey } from '@resonance/core/admission-witness';
 import { parseAdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
 import { historyCheckpointContextId, historyCheckpointEnvelopeId, historyDigest, parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
-import { parseHistoryContinuationRoot } from '@resonance/core/history-continuation';
 import { assertPolicyObserverHistoryContext, decodePolicyObserverSnapshot } from './policy-observer-history-replay.js';
 import { openPolicyObserverRestoration } from './policy-observer-history-restore.js';
 import { openProtectedPolicyObserver, POLICY_OBSERVER_RECOVERY_FENCE } from './protected-policy-observer.js';
@@ -18,17 +17,27 @@ import { HISTORY_RECOVERY_MAX_BLOCKS, HISTORY_RECOVERY_MAX_BYTES } from '@resona
 import { assertSecureRelayTransportEndpoint } from '@resonance/core';
 import { collectCurrentHistoryHead } from './history-current-head.js';
 import { exchangeHistoryCheckpoint } from './history-checkpoint-exchange.js';
+import { canonicalHistorySetupPath } from './admission-history-setup.js';
 
 type Options = Omit<Parameters<typeof openProtectedPolicyObserver>[0], 'mode' | 'restore' | 'initializeWriter' | 'initializeArchive' | 'resumePristineArchive'> & {
   expectedRestorationDigest: string; signal?: AbortSignal;
 };
 export async function openPolicyObserverRestoreResumption(options: Options) {
+  if (options.root.kind !== 'continuation') throw new Error('Restoration resumption requires a certified continuation');
+  return openLocalSetup(options, false);
+}
+export async function openPolicyObserverInitialSetup(options: Omit<Options, 'expectedRestorationDigest'>) {
+  if (options.root.kind !== 'checkpoint' || options.root.generation !== 0 || options.root.sequence !== 0) throw new Error('Initial setup requires the independently prepared genesis');
+  return openLocalSetup(options, true);
+}
+async function openLocalSetup(options: Omit<Options, 'expectedRestorationDigest'> & { expectedRestorationDigest?: string }, initial: boolean) {
   const run = captureStorageReservationOperation(), signal = options.signal;
-  const directory = realpathSync(options.directory), context = parseAdmissionPolicyObservers(options.context);
+  const directory = initial ? canonicalHistorySetupPath(options.directory) : realpathSync(options.directory), context = parseAdmissionPolicyObservers(options.context);
   const historyContext = parseHistoryCheckpointContext(options.historyContext); assertPolicyObserverHistoryContext(context, historyContext);
-  const root = parseHistoryContinuationRoot(options.root, historyContext), genesis = parseHistoryCheckpointEnvelope(options.genesis, historyContext);
+  const root = parseHistoryCheckpointEnvelope(options.root, historyContext), genesis = parseHistoryCheckpointEnvelope(options.genesis, historyContext);
   if (genesis.kind !== 'checkpoint' || genesis.generation !== 0 || genesis.sequence !== 0) throw new Error('Restoration resumption needs independent genesis');
   const rootId = historyCheckpointEnvelopeId(root), genesisId = historyCheckpointEnvelopeId(genesis);
+  if (initial && rootId !== genesisId) throw new Error('Initial setup root differs from independent genesis');
   if (!(options.encryptionKey instanceof Uint8Array) || options.encryptionKey.length !== 32) throw new Error('Policy resumption requires a 32-byte key');
   const limits = parseAdmissionHistoryArchiveLimits({ archiveBytes: options.maxArchiveBytes ?? HISTORY_RECOVERY_MAX_BYTES, archiveBlocks: options.maxArchiveBlocks ?? HISTORY_RECOVERY_MAX_BLOCKS });
   if (limits.archiveBytes < Buffer.byteLength(JSON.stringify(root))) throw new Error('Policy archive budget cannot retain its certified root');
@@ -60,21 +69,27 @@ export async function openPolicyObserverRestoreResumption(options: Options) {
     fenced: existsSync(join(directory, POLICY_OBSERVER_RECOVERY_FENCE)), archiveDirectory: existsSync(archiveDirectory) }; }
   try {
     live(); if (Buffer.from(signer.publicKey).toString('base64url') !== historyContext.owner) throw new Error('Wrong policy restoration owner');
-    await decodePolicyObserverSnapshot(genesis, historyContext, context, key); live();
-    baseline = await openPolicyObserverRestoration({ directory, context, historyContext, root, genesisId, encryptionKey: key,
-      mode: 'open-existing', expectedReplayDigest: p.expectedRestorationDigest }); live();
+    const initialState = await decodePolicyObserverSnapshot(genesis, historyContext, context, key); live();
+    if (root.kind === 'continuation') {
+      baseline = await openPolicyObserverRestoration({ directory, context, historyContext, root, genesisId, encryptionKey: key,
+        mode: 'open-existing', expectedReplayDigest: p.expectedRestorationDigest }); live();
+    }
     const initializeWriter = !existsSync(writerPath), initializeArchive = !existsSync(archivePath);
+    const checkInitialDirectory = () => {
+      if (initial && initializeWriter && existsSync(directory) && readdirSync(directory).length) throw new Error('Initial writer is missing alongside retained files; preserve them for recovery');
+    };
+    checkInitialDirectory();
     if (initializeWriter && existsSync(archiveDirectory)) throw new Error('Cannot recreate a missing policy writer alongside retained archive evidence');
     if ((initializeWriter || initializeArchive) && existsSync(join(directory, POLICY_OBSERVER_RECOVERY_FENCE))) throw new Error('Fenced policy history needs complete recovery, not pristine resumption');
     if (!initializeWriter) writer = createHistoryCheckpointWriter({ directory, localKey: key, signingKey: signer, context: historyContext,
-      rootId, generation: root.generation, continuation: root, members: p.members, timeoutMs: p.timeoutMs, transport: p.transport, requireCurrentHead: true });
+      rootId, generation: root.generation, ...(root.kind === 'continuation' ? { continuation: root } : {}), members: p.members, timeoutMs: p.timeoutMs, transport: p.transport, requireCurrentHead: true });
     if (initializeArchive && writer?.read().committed) throw new Error('Committed policy archive is missing; preserve it for recovery');
     if (initializeArchive) assertHistoryWriterArchiveInitialization(archiveDirectory, writer?.read() ?? { committed: null, pending: null }, true);
     if (!initializeWriter && !initializeArchive) {
       release(); observer = await openProtectedPolicyObserver({ ...p, mode: 'open-existing' }); live();
     }
-    const files = retainedFiles(), state = observer?.recoveryState() ?? baseline!.state;
-    const details = { kind: 'policy-restoration-resumption' as const, directory, contextId: historyCheckpointContextId(historyContext), genesisId, rootId,
+    const files = retainedFiles(), state = observer?.recoveryState() ?? baseline?.state ?? initialState;
+    const details = { kind: initial ? 'policy-observer-initialization' as const : 'policy-restoration-resumption' as const, directory, contextId: historyCheckpointContextId(historyContext), genesisId, rootId,
       generation: root.generation, replayDigest: p.expectedRestorationDigest, stateDigest: historyDigest(JSON.stringify(state)),
       policyRevision: state.policy.revision, blocked: state.conflict !== null, initializeWriter, initializeArchive,
       requiresUnchangedRootQuorum: initializeWriter || initializeArchive,
@@ -84,7 +99,7 @@ export async function openPolicyObserverRestoreResumption(options: Options) {
       review() { live(); return structuredClone(review); },
       async apply(approvedDigest: string) { return run(async () => {
         live(); if (busy || applied || approvedDigest !== review.approvalDigest) throw new Error('Policy resumption requires matching reviewed approval');
-        if (JSON.stringify(retainedFiles()) !== JSON.stringify(files)) throw new Error('Policy restoration files changed since review');
+        if (canonicalHistorySetupPath(options.directory) !== directory || JSON.stringify(retainedFiles()) !== JSON.stringify(files)) throw new Error('Policy restoration files changed since review');
         busy = true;
         const cancel = () => active?.abort(); signal?.addEventListener('abort', cancel, { once: true });
         try {
@@ -95,13 +110,14 @@ export async function openPolicyObserverRestoreResumption(options: Options) {
             active = new AbortController();
             await collectCurrentHistoryHead({ context: historyContext, key: signer, rootId, block: root, members, timeoutMs,
               transport: p.transport ?? exchangeHistoryCheckpoint, controller: active, isClosed: () => closed || !!signal?.aborted }); live();
-            if (JSON.stringify(retainedFiles()) !== JSON.stringify(files)) throw new Error('Policy restoration files changed during quorum confirmation');
+            if (canonicalHistorySetupPath(options.directory) !== directory || JSON.stringify(retainedFiles()) !== JSON.stringify(files)) throw new Error('Policy restoration files changed during quorum confirmation');
           }
+          checkInitialDirectory();
           release(); observer = await openProtectedPolicyObserver({ ...p, mode: 'open-existing', initializeWriter, initializeArchive,
             resumePristineArchive: initializeArchive });
           if (closed || signal?.aborted) { observer.close(); live(); }
           applied = true;
-          return { result: 'policy-restoration-resumed' as const, status: observer.status(), readiness: 'unverified' as const, startsService: false as const };
+          return { result: initial ? 'policy-observer-initialized' as const : 'policy-restoration-resumed' as const, status: observer.status(), readiness: 'unverified' as const, startsService: false as const };
         } finally { signal?.removeEventListener('abort', cancel); active?.abort(); active = undefined; busy = false; }
       }); }, close,
     };
