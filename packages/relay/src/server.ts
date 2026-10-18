@@ -3507,7 +3507,8 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           ws.close(4008, 'admission_witness_unavailable'); return;
         }
         try {
-          const vote = await cfg.admissionWitness.vote(frameCandidate, () => cfg.acceptNewWork?.(data.byteLength) !== false);
+          const vote = await cfg.admissionWitness.vote(frameCandidate,
+            () => !stopping && ws.readyState === WebSocket.OPEN && cfg.acceptNewWork?.(data.byteLength) !== false);
           if (!stopping && ws.readyState === WebSocket.OPEN) sendClientResponse(JSON.stringify(vote), 'admission_witness_complete');
         }
         catch { ws.close(4003, 'admission_witness_refused'); }

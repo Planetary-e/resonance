@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, expect, it } from 'vitest';
+import { afterEach, beforeAll, expect, it, vi } from 'vitest';
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
@@ -127,16 +127,63 @@ it('routes configured blind-token admission through protected coordinator eviden
   const context = { action: 'search' as const, requestBinding: binding, now: f.time };
   expect(await verifier.verifyAndSpend(capability, context)).toEqual({ status: 'accepted' });
   const sequences = n.stores.map(store => store.describe().sequence);
+  const acceptedSequence = Math.max(...sequences);
+  const unchangedAcceptedHead = () => {
+    const current = n.stores.map(store => store.describe().sequence);
+    expect(current.filter(sequence => sequence === acceptedSequence).length).toBeGreaterThanOrEqual(4);
+    current.forEach((sequence, index) => { expect(sequence).toBeGreaterThanOrEqual(sequences[index]); expect(sequence).toBeLessThanOrEqual(acceptedSequence); });
+  }; // The fifth replica may finish its existing write after four replies return.
   expect(await verifier.verifyAndSpend(capability, context)).toEqual({ status: 'replay' });
   expect(challenges.size).toBe(2);
-  expect(n.stores.map(store => store.describe().sequence)).toEqual(sequences);
+  unchangedAcceptedHead();
   const second = await signAdmissionPolicy({ ...f.body, revision: 2 }, f.authority, f.authorityKey.secretKey);
   observed = (await createAdmissionPolicyAdvance(f.policy, second, observers, f.authorityKey)).commitment.next;
   await expect(verifier.verifyAndSpend(capability, context)).rejects.toThrow('newer');
-  expect(n.stores.map(store => store.describe().sequence)).toEqual(sequences);
+  unchangedAcceptedHead();
   verifier.close(); await n.reopen(); await n.history.ready();
   expect(n.history.read().image.state.spends).toHaveLength(1); expect(n.history.roleState().coordinator!.certificates).toHaveLength(2);
 });
+
+it.each(['independent', 'conflicting'] as const)('serializes simultaneous %s spends while its own witness is needed for quorum', async mode => {
+  const { n } = await fixture(); n.history.close();
+  const observers = parseAdmissionPolicyObservers({ version: 1, kind: 'admission-policy-observers', authority: f.authority,
+    genesis: admissionPolicyHead(f.policy), quorum: 4, members: f.body.keys[0].witnesses!.members });
+  const challenges = new Set<string>();
+  const verifier = await createConfiguredAdmissionVerifier({ ...n.options, historyProtection: n.options.protection,
+    initialize: true, initializeSpendHistory: false, policyObservers: observers,
+    policyObservationTransport: async (member, frame) => {
+      challenges.add(frame.request.challenge);
+      return createAdmissionPolicyHeadVote(frame.request, observers.genesis, observers,
+        f.witnesses.find(key => Buffer.from(key.publicKey).toString('base64url') === member.publicKey)!, f.time);
+    }, witnessKey: f.witnesses[0], coordinatorKey: f.coordinators[0], witnessTransport: async (member, request) => {
+      const i = f.witnesses.findIndex(key => Buffer.from(key.publicKey).toString('base64url') === member.publicKey);
+      if (i === 4) throw new Error('one remote witness offline');
+      return i ? n.witnesses[i].vote(request) : verifier.witness!.vote(request);
+    } });
+  cleanup.push(async () => { verifier.close(); await verifier.drainPolicyObservations(); });
+  const sharedToken = mode === 'conflicting' ? await f.token() : undefined;
+  const requests = await Promise.all([1, 2].map(async index => {
+    const binding = createAdmissionRequestBindingV2('search', { query: `parallel protected search ${index}` });
+    return { capability: presentBlindAdmissionTokenV2(sharedToken ?? await f.token(), f.scope, 'search', binding),
+      context: { action: 'search' as const, requestBinding: binding, now: f.time } };
+  }));
+  expect(await verifier.verifyAndSpend({ ...requests[0].capability, token: 'invalid' }, requests[0].context)).toEqual({ status: 'rejected', reason: 'invalid_token' });
+  expect(challenges.size).toBe(0); expect(verifier.admissionDecisionHealth!().operations).toBe(0);
+  const originalBindings = requests.map(request => request.context.requestBinding);
+  const pending = Promise.all(requests.map(request => verifier.verifyAndSpend(request.capability, request.context)));
+  requests[1].context.requestBinding = createAdmissionRequestBindingV2('search', { query: 'mutated after submission' });
+  const results = await pending, accepted = mode === 'independent' ? 2 : 1;
+  expect(results.filter(result => result.status === 'accepted')).toHaveLength(accepted);
+  if (mode === 'conflicting') expect(results.find(result => result.status !== 'accepted')).toEqual({ status: 'rejected', reason: 'double_spend' });
+  expect(challenges.size).toBe(accepted * 2); // Separate decision and local-witness observations; no query for the conflicting retry.
+  expect(verifier.admissionDecisionHealth!().operations).toBe(0);
+  verifier.close(); await verifier.drainPolicyObservations(); await n.reopen(); await n.history.ready();
+  const retained = n.history.read().image.state.spends;
+  expect(retained).toHaveLength(accepted);
+  retained.forEach(spend => expect(originalBindings).toContain(spend.binding));
+  expect(n.history.roleState().coordinator!.certificates).toHaveLength(accepted + 1);
+  expect(n.history.roleState().witness!.votes).toHaveLength(accepted + 1);
+}, 20000);
 
 it('restores the same witness and coordinator keys after two actual generation agreements and loss of both owner directories', async () => {
   const { n, roles } = await fixture(); let role = roles();
@@ -206,6 +253,28 @@ it('resumes a role capture after local fences and remote acceptance but before a
   const retry = await n.capture(), current = await retry.review(); expect(current).toMatchObject({ fencedRoles: 2, alreadyCaptured: true });
   const head = n.history.read().applied; await retry.apply(current.approvalDigest); expect(n.history.read().applied).toEqual(head);
 });
+
+it('does not begin a new witness decision after its coordinator has disconnected', async () => {
+  const { n, roles } = await fixture(), role = roles();
+  let enter!: () => void, release!: () => void, finish!: () => void, mayAccept!: () => boolean;
+  const entered = new Promise<void>(resolve => { enter = resolve; }), gate = new Promise<void>(resolve => { release = resolve; });
+  const finished = new Promise<void>(resolve => { finish = resolve; });
+  const server = createRelayServer({ host: '127.0.0.1', port: 0, persistDir: join(n.directory, 'disconnected-server'),
+    admissionWitness: { close() {}, async vote(value, acceptNew) {
+      mayAccept = acceptNew!; enter(); await gate;
+      try { return await role.witness!.vote(value, acceptNew); } finally { finish(); }
+    } } });
+  await server.start(); cleanup.push(() => server.stop()); cleanup.push(release);
+  const before = n.history.read().applied, votes = n.history.roleState().witness!.votes.length, controller = new AbortController();
+  const response = requestAdmissionWitnessVote({ publicKey: Buffer.from(f.witnesses[0].publicKey).toString('base64url'),
+    endpoint: `ws://127.0.0.1:${server.getListeningPort()}/` }, createAdmissionWitnessRequest(n.claim(), f.coordinators[0]), controller.signal);
+  const refused = expect(response).rejects.toThrow('cancelled');
+  await entered; expect(mayAccept()).toBe(true); controller.abort(); await refused;
+  await vi.waitFor(() => expect(mayAccept()).toBe(false), { timeout: 2000 });
+  release(); await finished;
+  expect(n.history.read().applied).toEqual(before); expect(n.history.read().pending).toBeNull();
+  expect(n.history.roleState().witness!.votes).toHaveLength(votes);
+}, 15000);
 
 it('awaits four durable copies before a real relay socket sends the witness signature', async () => {
   const { n, roles } = await fixture(), role = roles();

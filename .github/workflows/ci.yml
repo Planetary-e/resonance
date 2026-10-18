@@ -54,10 +54,13 @@ jobs:
           packages/node/src/__tests__/issuer-policy-freshness.test.ts
           packages/node/src/__tests__/private-wallet-policy.integration.test.ts
           packages/relay/src/__tests__/blind-admission-verifier.test.ts
+          packages/relay/src/__tests__/admission-decision-queue.test.ts
+          packages/relay/src/__tests__/protected-admission-roles.test.ts
           packages/relay/src/__tests__/history-current-head.integration.test.ts
           packages/relay/src/__tests__/protected-policy-observer.integration.test.ts
           packages/relay/src/__tests__/protected-policy-quorum.integration.test.ts
           packages/relay/src/__tests__/policy-observer-history-restore.integration.test.ts
+          packages/relay/src/__tests__/policy-observer-compaction-boundary.integration.test.ts
           packages/relay/src/__tests__/policy-observer-restore-crash.integration.test.ts
           packages/relay/src/__tests__/policy-observer-recovery.integration.test.ts
           packages/relay/src/__tests__/policy-observer-recovery-crash.integration.test.ts

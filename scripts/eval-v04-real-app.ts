@@ -12,19 +12,25 @@ import { setTimeout as delay } from 'node:timers/promises';
 import WebSocket from 'ws';
 import { env } from '@huggingface/transformers';
 
-const { values } = parseArgs({ options: { child: { type: 'boolean' }, 'protected-policy': { type: 'boolean' }, 'protected-admission': { type: 'boolean' }, out: { type: 'string' } } });
+const { values } = parseArgs({ options: { child: { type: 'boolean' }, 'protected-policy': { type: 'boolean' },
+  'protected-admission': { type: 'boolean' }, 'concurrent-searches': { type: 'boolean' }, out: { type: 'string' } } });
+assert(!values['concurrent-searches'] || values['protected-admission'], '--concurrent-searches requires --protected-admission');
 env.allowRemoteModels = false;
-const wire: string[] = []; let frameBytes = 0;
+const captureFrameLimit = values['concurrent-searches'] ? 20000 : 10000, captureByteLimit = 32 * 1024 * 1024;
+const wire: string[] = []; let frameBytes = 0, frameCount = 0, captureComplete = true;
 const originalSend = WebSocket.prototype.send;
 WebSocket.prototype.send = function (this: WebSocket, data, ...args: any[]) {
   const text = typeof data === 'string' ? data : Buffer.isBuffer(data) ? data.toString('utf8') : '';
-  frameBytes += Buffer.byteLength(text);
-  if (frameBytes > 32 * 1024 * 1024 || wire.length >= 10000) throw new Error('Evaluation wire budget exceeded');
-  wire.push(text);
+  frameBytes += Buffer.byteLength(text); frameCount++;
+  if (frameBytes > captureByteLimit || wire.length >= captureFrameLimit || typeof data !== 'string' && !Buffer.isBuffer(data)) captureComplete = false;
+  else wire.push(text);
+  // Measurement must never turn a full trace into a network failure. Incomplete
+  // capture fails the evaluator's privacy gate explicitly after the scenario.
   return Reflect.apply(originalSend, this, [data, ...args]);
 } as typeof originalSend;
 
-type Snapshot = { did: string; publications: Array<{ publicationId: string; publicationKey: string }>; wire: string[]; frameBytes: number; peakRssBytes: number; cpuSeconds: number };
+type Snapshot = { did: string; publications: Array<{ publicationId: string; publicationKey: string }>; wire: string[];
+  frameBytes: number; frameCount: number; captureComplete: boolean; peakRssBytes: number; cpuSeconds: number };
 if (values.child) {
   assert(process.send && process.env.RESONANCE_DATA_DIR && process.env.RESONANCE_EVAL_DESTINATION);
   const { createAppServer } = await import('../packages/app/src/server/server.js');
@@ -40,7 +46,8 @@ if (values.child) {
       const session = getSession(); assert(session); const cpu = process.cpuUsage();
       process.send!({ kind: 'snapshot', did: session.identity.did,
         publications: session.store.listPublications().map(p => ({ publicationId: p.record.publicationId, publicationKey: p.record.publicationKey })),
-        wire, frameBytes, peakRssBytes: process.resourceUsage().maxRSS * 1024, cpuSeconds: (cpu.user + cpu.system) / 1e6 } satisfies Snapshot & { kind: string });
+        wire, frameBytes, frameCount, captureComplete, peakRssBytes: process.resourceUsage().maxRSS * 1024,
+        cpuSeconds: (cpu.user + cpu.system) / 1e6 } satisfies Snapshot & { kind: string });
     } else if (message === 'stop') await stop();
   });
   process.on('disconnect', () => { void stop(); });
@@ -57,10 +64,11 @@ if (values.child) {
   const root = fileURLToPath(new URL('../', import.meta.url)), directory = mkdtempSync(join(tmpdir(), 'resonance-real-app-'));
   const processes: ChildProcess[] = [], cleanup: Array<() => void | Promise<void>> = [];
   const started = performance.now(), cpuStart = process.cpuUsage();
-  let report: Record<string, unknown> | undefined;
+  let report: Record<string, unknown> | undefined, failure: unknown;
   const checkpoints: string[] = [];
   const apiTimings: Array<{ operation: string; status: number; durationMs: number }> = [];
   let faultCooldownMs = 0;
+  let concurrentSearches: Record<string, unknown> | null = null, concurrencyPassed = true;
   const passed = (message: string) => { checkpoints.push(message); console.error(`PASS ${message}`); };
   const waitMessage = (child: ChildProcess, kind: string, timeoutMs = 60000): Promise<any> => new Promise((resolve, reject) => {
     const timer = setTimeout(() => finish(new Error(`Child ${kind} deadline exceeded`)), timeoutMs);
@@ -126,13 +134,18 @@ if (values.child) {
       child.stderr?.on('data', bytes => { diagnostic = (diagnostic + bytes.toString()).slice(-4096); });
       let ready: { port: number }; try { ready = await waitMessage(child, 'ready'); } catch (error) { throw new Error(`${name}: ${error}; ${diagnostic}`); }
       let auth = ''; const base = `http://127.0.0.1:${ready.port}`, password = `evaluation-only-${name}-${randomBytes(16).toString('hex')}`;
-      async function request(path: string, body?: unknown, expectedStatus = 200) {
+      async function exchange(path: string, body?: unknown) {
         const began = performance.now();
         const response = await fetch(base + path, { method: body === undefined ? 'GET' : 'POST', signal: AbortSignal.timeout(90000),
           headers: { authorization: `Bearer ${auth}`, 'content-type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
         const data = await response.json();
-        apiTimings.push({ operation: path.replace(/\/reqhold_[^/]+\//, '/:id/'), status: response.status, durationMs: Math.round(performance.now() - began) });
-        assert.equal(response.status, expectedStatus, `${name} ${path}: ${JSON.stringify(data)}`); return data;
+        const durationMs = Math.round(performance.now() - began);
+        apiTimings.push({ operation: path.replace(/\/reqhold_[^/]+\//, '/:id/'), status: response.status, durationMs });
+        return { status: response.status, data, durationMs };
+      }
+      async function request(path: string, body?: unknown, expectedStatus = 200) {
+        const response = await exchange(path, body);
+        assert.equal(response.status, expectedStatus, `${name} ${path}: ${JSON.stringify(response.data)}`); return response.data;
       }
       await request('/api/init', { password }); auth = (await request('/api/unlock', { password })).token;
       await request('/api/admission-wallet/configure', profile);
@@ -142,13 +155,14 @@ if (values.child) {
       assert.equal((await request('/api/admission-wallet/complete', response)).imported, 16);
       async function snapshot(): Promise<Snapshot> { const pending = waitMessage(child, 'snapshot'); child.send('snapshot'); return pending; }
       async function relock() { await request('/api/lock', {}); auth = (await request('/api/unlock', { password })).token; }
-      return { request, snapshot, relock };
+      return { request, exchange, snapshot, relock };
     }
     const alice = await startApp('alice'), bob = await startApp('bob');
     passed('Two actual app processes initialized and unlocked with the cached FP32 model; blinded issuance completed through authenticated APIs');
     const texts = ['Experienced Python developer specializing in Django and REST APIs, available for freelance work',
       'I offer patient gardening lessons for beginners', 'I need a freelance Python developer for a Django project'];
     const firstPrivateOperationAt = performance.now();
+    let rateWindowStarted = firstPrivateOperationAt;
     for (const text of texts.slice(0, 2)) assert.equal((await alice.request('/api/items', { text, type: 'offer' })).status, 'published');
     assert.equal((await bob.request('/api/items', { text: texts[2], type: 'need' })).status, 'published');
     const a = await alice.snapshot(), b = await bob.snapshot(); assert.notEqual(a.did, b.did);
@@ -170,6 +184,49 @@ if (values.child) {
       assert.equal((await app.request('/api/matches')).length, count, 'Mailbox reread duplicated a match');
     }
     passed('Both applications decrypt and retain match notices; lock/unlock plus another mailbox check does not duplicate them');
+    if (values['concurrent-searches']) {
+      // Separate the experiment from earlier traffic under the unchanged shared
+      // loopback-IP allowance. One outstanding request per actual application.
+      const cooldownMs = Math.max(0, Math.ceil(65000 - (performance.now() - rateWindowStarted)));
+      if (cooldownMs) await delay(cooldownMs);
+      rateWindowStarted = performance.now();
+      const apps = [alice, bob], before = await Promise.all(apps.map(app => app.snapshot()));
+      const initialBytes = frameBytes + before.reduce((n, s) => n + s.frameBytes, 0), initialCpu = process.cpuUsage();
+      const outcomes: Array<{ round: number; client: number; status: number; durationMs: number;
+        consumedTokens: number; failureCategory: string | null }> = [];
+      const initialSpends = spends.filter(s => s.status === 'accepted').length;
+      for (let round = 1; round <= 3; round++) {
+        const wallets = await Promise.all(apps.map(app => app.request('/api/admission-wallet')));
+        const replies = await Promise.all(apps.map(app => app.exchange('/api/search', { text: texts[2], type: 'need' })));
+        const after = await Promise.all(apps.map(app => app.request('/api/admission-wallet')));
+        for (const [client, reply] of replies.entries()) {
+          assert([200, 409, 429, 503].includes(reply.status), `Unexpected concurrent search status ${reply.status}`);
+          const consumedTokens = wallets[client].available - after[client].available;
+          assert(consumedTokens === 0 || consumedTokens === 1, 'Concurrent search refunded or over-reserved a credential');
+          if (reply.status === 200) {
+            assert.equal(consumedTokens, 1);
+            assert(reply.data.results.some((result: any) => result.publicationId === a.publications[0].publicationId));
+          }
+          const error = String(reply.data.error ?? '').toLowerCase();
+          const failureCategory = reply.status === 200 ? null : /busy|progress/.test(error) ? 'busy'
+            : /polic|observ/.test(error) ? 'policy' : /witness|quorum/.test(error) ? 'quorum'
+              : /timeout|timed out|deadline/.test(error) ? 'deadline' : /limit|capacity/.test(error) ? 'capacity' : 'other';
+          outcomes.push({ round, client, status: reply.status, durationMs: reply.durationMs, consumedTokens, failureCategory });
+        }
+      }
+      const after = await Promise.all(apps.map(app => app.snapshot())), cpu = process.cpuUsage(initialCpu);
+      concurrencyPassed = outcomes.every(outcome => outcome.status === 200);
+      concurrentSearches = { trials: 3, concurrency: 2, submitted: 6,
+        succeeded: outcomes.filter(outcome => outcome.status === 200).length,
+        acceptedSpends: spends.filter(s => s.status === 'accepted').length - initialSpends,
+        consumedTokens: outcomes.reduce((n, outcome) => n + outcome.consumedTokens, 0),
+        cooldownMs, outcomes, allSucceeded: concurrencyPassed,
+        websocketPayloadBytes: frameBytes + after.reduce((n, s) => n + s.frameBytes, 0) - initialBytes,
+        cpuSeconds: (cpu.user + cpu.system) / 1e6 + after.reduce((n, s, i) => n + s.cpuSeconds - before[i].cpuSeconds, 0) };
+      console.error(`CONCURRENT_SEARCHES ${JSON.stringify(concurrentSearches)}`);
+      if (concurrencyPassed) passed('Three paired real-application searches complete with all protected histories and no credential reuse');
+      else console.error(`FAIL concurrent protected search: ${outcomes.filter(outcome => outcome.status === 200).length}/6 succeeded`);
+    }
     if (protectedAdmission) {
       assert(lastAccepted); await protectedAdmission.restart();
       assert.equal((await activeVerifier().verifyAndSpend(lastAccepted.capability, { ...lastAccepted.context, now: Date.now() })).status, 'replay');
@@ -182,7 +239,7 @@ if (values.child) {
       // All loopback clients share one transport-IP allowance. Exercise faults
       // in the next ordinary minute instead of raising production rate limits
       // or mistaking a discovery refusal for a witness durability refusal.
-      faultCooldownMs = Math.max(0, Math.ceil(65000 - (performance.now() - firstPrivateOperationAt)));
+      faultCooldownMs = Math.max(0, Math.ceil(65000 - (performance.now() - rateWindowStarted)));
       if (faultCooldownMs) await delay(faultCooldownMs);
       const before = await alice.request('/api/admission-wallet'), beforeSpends = spends.length;
       await protectedAdmission.loseWitnessQuorum();
@@ -201,6 +258,7 @@ if (values.child) {
       passed('Protected observer history quorum loss refuses an actual app search before reserving or redeeming another token');
     }
     const snapshots = [await alice.snapshot(), await bob.snapshot()], allWire = [...wire, ...snapshots.flatMap(s => s.wire)];
+    assert(captureComplete && snapshots.every(snapshot => snapshot.captureComplete), 'Evaluation capture incomplete; privacy assertions cannot be certified');
     for (const snapshot of snapshots) {
       assert(allWire.every(frame => !frame.includes(snapshot.did)), 'Account identity leaked to a network frame');
       assert(spends.every(spend => !spend.serialized.includes(snapshot.did)), 'Account identity leaked in an admission presentation');
@@ -222,7 +280,9 @@ if (values.child) {
       protectedPolicy: protectedPolicy ? { observers: 5, durableHistories: 25, privateQueries: protectedPolicy.queries(), issuerAndRelayFreshness: true, quorumLossRefusedBeforeSpend: true } : null,
       protectedAdmission: protectedAdmission ? { witnesses: 5, coordinators: 1, durableHistories: 30, restartedOwners: 6,
         retainedDoubleSpendRefusal: true, quorumLossRefused: true } : null,
-      apiTimings, faultCooldownMs,
+      apiTimings, faultCooldownMs, concurrentSearches,
+      capture: { complete: captureComplete, parentFrameCount: frameCount, applicationFrameCounts: snapshots.map(s => s.frameCount),
+        parentFrameLimit: captureFrameLimit, applicationFrameLimit: 10000, byteLimitPerProcess: captureByteLimit },
       actions: Object.fromEntries([...new Set(spends.map(s => s.action))].map(action => [action, spends.filter(s => s.action === action).length])),
       resources: { durationMs: Math.round(performance.now() - started), websocketPayloadBytes: frameBytes + snapshots.reduce((n, s) => n + s.frameBytes, 0),
         parentPeakRssBytes: process.resourceUsage().maxRSS * 1024, applicationPeakRssBytes: snapshots.map(s => s.peakRssBytes),
@@ -235,6 +295,11 @@ if (values.child) {
         'Account/credential-field separation is not timing or content unlinkability; static fingerprints and match relationships remain observable to the destination.',
         'Wire payload counts exclude TCP/TLS/WebSocket headers; per-process peak RSS values are not simultaneous total memory and CPU time is not energy.',
         'Two concurrent model processes on this host; representative hardware and cold first-download experience remain unmeasured.'] };
+  } catch (error) {
+    failure = error;
+    report = { measuredAt: new Date().toISOString(), completed: false, checkpoints, concurrentSearches, apiTimings, faultCooldownMs,
+      capture: { parentComplete: captureComplete, parentFrameCount: frameCount, parentFrameLimit: captureFrameLimit },
+      failure: { name: error instanceof Error ? error.name : 'UnknownError' } };
   } finally {
     for (const child of processes.reverse()) {
       if (child.exitCode !== null || child.signalCode !== null) continue;
@@ -256,4 +321,6 @@ if (values.child) {
     writeFileSync(output, JSON.stringify(report, null, 2) + '\n', { flag: 'wx' });
     console.log(JSON.stringify({ output, checkpoints: checkpoints.length, resources: report.resources }, null, 2));
   } else console.log(JSON.stringify(report, null, 2));
+  if (failure) throw failure;
+  if (!concurrencyPassed) process.exitCode = 1;
 }

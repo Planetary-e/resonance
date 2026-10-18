@@ -29,8 +29,14 @@ export async function prepareRealAppAdmission(directory: string, cleanup: Array<
   const verifiers: Verifier[] = [], options: VerifierOptions[] = [], listeners: Listener[][] = [], endpoints: string[] = [];
   for (let i = 0; i < 5; i++) {
     const server = createRelayServer({ port: 0, host: '127.0.0.1', persistDir: join(directory, `witness-server-${i}`),
-      admissionWitness: { vote: (request, acceptNew) => {
-        const role = verifiers[i]?.witness; if (!role) throw new Error('Witness is not ready'); return role.vote(request, acceptNew);
+      admissionWitness: { vote: async (request, acceptNew) => {
+        const role = verifiers[i]?.witness; if (!role) throw new Error('Witness is not ready');
+        try { return await role.vote(request, acceptNew); }
+        catch (error) {
+          // Fixture-only diagnostics contain no request, token or identity.
+          console.error(`WITNESS_FAILURE ${i} ${error instanceof Error ? error.message.slice(0, 160) : 'Unknown error'}`);
+          throw error;
+        }
       }, close() {} } });
     await server.start(); cleanup.push(() => server.stop()); endpoints.push(`ws://127.0.0.1:${server.getListeningPort()!}/`);
   }
@@ -56,7 +62,13 @@ export async function prepareRealAppAdmission(directory: string, cleanup: Array<
           const localKey = randomBytes(32); cleanup.push(() => { localKey.fill(0); });
           const service = openHistoryVolunteerService({ directory: join(directory, `owner-${index}-replica-${j}`), context,
             genesisId: historyCheckpointEnvelopeId(root), localKey, signingKey: historyKeys[j], initialize: root }); cleanup.push(service.close);
-          const listener = await listenHistoryAgreementReplica(service); cleanup.push(listener.close); retained.push(listener);
+          const listener = await listenHistoryAgreementReplica({ ...service, checkpoint(value) {
+            try { return service.checkpoint(value); }
+            catch (error) {
+              console.error(`ADMISSION_HISTORY_FAILURE ${index}/${j} ${error instanceof Error ? error.message.slice(0, 160) : 'Unknown error'}`);
+              throw error;
+            }
+          } }); cleanup.push(listener.close); retained.push(listener);
           members[j].endpoint = listener.checkpointEndpoint;
         }
         listeners.push(retained);

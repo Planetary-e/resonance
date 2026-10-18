@@ -32,13 +32,26 @@ export async function realAppPolicyObservers(directory: string, policy: SignedAd
       const localKey = randomBytes(32); cleanup.push(() => { localKey.fill(0); });
       const service = openHistoryVolunteerService({ directory: join(directory, `observer-${i}-replica-${j}`), context: root.context,
         genesisId: historyCheckpointEnvelopeId(root.root), localKey, signingKey: keys[j], initialize: root.root }); cleanup.push(service.close);
-      const listener = await listenHistoryAgreementReplica(service); cleanup.push(listener.close); retained.push(listener);
+      const listener = await listenHistoryAgreementReplica({ ...service, checkpoint(value) {
+        try { return service.checkpoint(value); }
+        catch (error) {
+          console.error(`POLICY_HISTORY_FAILURE ${i}/${j} ${error instanceof Error ? error.message.slice(0, 160) : 'Unknown error'}`);
+          throw error;
+        }
+      } }); cleanup.push(listener.close); retained.push(listener);
       members.push({ publicKey: Buffer.from(keys[j].publicKey).toString('base64url'), endpoint: listener.checkpointEndpoint });
     }
     historyListeners.push(retained);
     const observer = await openProtectedPolicyObserver({ directory: join(directory, `observer-${i}`), context, historyContext: root.context,
       encryptionKey, signingKey, root: root.root, members, mode: 'create-new' }); cleanup.push(observer.close);
-    await observer.ready(); handlers.push(createAdmissionPolicyObserverExchange(observer, context));
+    await observer.ready(); const exchange = createAdmissionPolicyObserverExchange(observer, context);
+    handlers.push(async value => {
+      try { return await exchange(value); }
+      catch (error) {
+        console.error(`POLICY_OBSERVER_FAILURE ${i} ${error instanceof Error ? error.message.slice(0, 160) : 'Unknown error'}`);
+        throw error;
+      }
+    });
   }
   let queries = 0;
   const responder = createAdmissionPolicyQueryResponder({ context, policy: () => policy }); cleanup.push(responder.close);

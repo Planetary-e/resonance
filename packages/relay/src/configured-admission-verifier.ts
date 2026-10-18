@@ -13,6 +13,7 @@ import { verifyAdmissionWitnessRequest } from '@resonance/core/admission-witness
 import type { AdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
 import { createAdmissionPolicyFreshnessGate } from './admission-policy-freshness-gate.js';
 import { exchangeAdmissionPolicyObservation, type AdmissionPolicyObservationTransport } from './admission-policy-observation-transport.js';
+import { createAdmissionDecisionQueue } from './admission-decision-queue.js';
 
 export async function createConfiguredAdmissionVerifier(options: {
   directory: string; authority: string; policy: unknown; encryptionKey: Uint8Array; initialize?: boolean;
@@ -39,6 +40,7 @@ export async function createConfiguredAdmissionVerifier(options: {
   let quorum: ReturnType<typeof createAdmissionQuorumGate> | ReturnType<typeof createProtectedAdmissionRoles>['quorum'];
   let protectedRoles: ReturnType<typeof createProtectedAdmissionRoles> | undefined;
   let freshness: ReturnType<typeof createAdmissionPolicyFreshnessGate> | undefined;
+  let decisions: ReturnType<typeof createAdmissionDecisionQueue> | undefined;
   let history: ReturnType<typeof openAdmissionSpendHistory> | Awaited<ReturnType<typeof openProtectedAdmissionSpendHistory>> | undefined;
   try {
     const pinnedContext = store.protectedHistoryContext();
@@ -70,8 +72,10 @@ export async function createConfiguredAdmissionVerifier(options: {
     }
     const entries: Array<AdmissionPolicyKey & { issuerPublicKey: CryptoKey }> = [];
     for (const entry of policy.keys) entries.push({ ...entry, issuerPublicKey: (await parseAdmissionWalletProfile(entry.profile)).publicKey });
+    if (options.historyProtection) decisions = createAdmissionDecisionQueue({
+      timeoutMs: options.policyObservationTimeoutMs ?? options.witnessTimeoutMs ?? 3000 });
     const verifier = createLocalBlindAdmissionVerifierV2({ directory: options.directory, maxSpends: options.maxSpends, history,
-      withCurrentPolicy: freshness?.run,
+      withCurrentPolicy: freshness?.run, withDecision: decisions?.run,
       async beforeSpend(spend, context, publicKey) {
         const entry = entries.find(entry => entry.issuerPublicKey === publicKey)!;
         if (!entry.witnesses) return;
@@ -97,8 +101,9 @@ export async function createConfiguredAdmissionVerifier(options: {
     } } : witness;
     return { verifyAndSpend: verifier.verifyAndSpend, witness: guardedWitness,
       policyFreshnessHealth: freshness?.health,
+      admissionDecisionHealth: decisions?.health,
       historyHealth: history && 'health' in history ? history.health : undefined,
-      drainPolicyObservations: () => freshness?.close() ?? Promise.resolve(),
-      close() { void freshness?.close(); protectedRoles?.close(); quorum?.close(); witness?.close(); verifier.close(); store.close(); } };
-  } catch (error) { void freshness?.close(); history?.close(); protectedRoles?.close(); quorum?.close(); witness?.close(); store.close(); throw error; }
+      drainPolicyObservations: () => Promise.all([decisions?.close(), freshness?.close()]).then(() => {}),
+      close() { void decisions?.close(); void freshness?.close(); protectedRoles?.close(); quorum?.close(); witness?.close(); verifier.close(); store.close(); } };
+  } catch (error) { void decisions?.close(); void freshness?.close(); history?.close(); protectedRoles?.close(); quorum?.close(); witness?.close(); store.close(); throw error; }
 }
