@@ -259,6 +259,36 @@ try {
 } catch (error) { clearAdmissionKeys(); historyRouter?.close(); historyVolunteer?.close(); throw error; }
 
 let server: ReturnType<typeof createRelayServer>;
+let starting: Promise<void> | undefined;
+let lan: Awaited<ReturnType<typeof startLanDiscovery>> | null = null;
+let shuttingDown = false;
+let shutdownTask: Promise<void> | undefined;
+let opening: Promise<void> | undefined;
+const observerLifetime = new AbortController();
+let observerOpening: Promise<void> | undefined;
+function shutdown(code: number): Promise<void> {
+  if (shutdownTask) return shutdownTask;
+  shuttingDown = true;
+  shutdownTask = (async () => {
+    // The listener can announce readiness before start() finishes installing
+    // its timers. Drain only after that initialization has settled.
+    await starting?.catch(() => {});
+    await policyQueryResponder?.close();
+    await policyTransferResponder?.close();
+    await admissionVerifier?.drainPolicyObservations?.();
+    // Drain accepted observer updates while their history links still exist.
+    observerLifetime.abort();
+    if (policyObserverConfig) log('info', 'policy_observer_draining');
+    try { await observerOpening?.catch(() => {}); await observerService?.close(); }
+    catch (error) { code = 1; log('error', 'policy_observer_shutdown_failed', { error: String(error) }); }
+    // Closing the router cancels connection waits before admission open drains.
+    deferred?.close(); historyRouter?.close();
+    try { await lan?.stop(); await server.stop(); await opening?.catch(() => {}); }
+    finally { historyVolunteer?.close(); admissionVerifier?.close(); clearAdmissionKeys(); }
+    process.exit(code);
+  })();
+  return shutdownTask;
+}
 try {
   server = createRelayServer({
     tls,
@@ -305,33 +335,13 @@ try {
     inboundReplicaTargetIds: parseList(process.env.RELAY_INBOUND_REPLICA_TARGET_IDS),
   });
 
-  await server.start();
+  // Install before start() can publish its externally visible started marker.
+  for (const signal of ['SIGTERM', 'SIGINT'] as const) process.on(signal, () => { void shutdown(0); });
+  starting = server.start();
+  await starting;
+  if (shutdownTask) await shutdownTask;
 } catch (error) { clearAdmissionKeys(); historyRouter?.close(); historyVolunteer?.close(); deferred?.close(); admissionVerifier?.close(); throw error; }
 
-let lan: Awaited<ReturnType<typeof startLanDiscovery>> | null = null;
-let shuttingDown = false;
-let opening: Promise<void> | undefined;
-const observerLifetime = new AbortController();
-let observerOpening: Promise<void> | undefined;
-async function shutdown(code: number) {
-  if (shuttingDown) return; shuttingDown = true;
-  await policyQueryResponder?.close();
-  await policyTransferResponder?.close();
-  await admissionVerifier?.drainPolicyObservations?.();
-  // Stop admitting observer work and drain accepted updates while their history
-  // connections still exist. During startup, cancellation closes the pending owner.
-  observerLifetime.abort();
-  if (policyObserverConfig) log('info', 'policy_observer_draining');
-  try { await observerOpening?.catch(() => {}); await observerService?.close(); }
-  catch (error) { code = 1; log('error', 'policy_observer_shutdown_failed', { error: String(error) }); }
-  // Closing the router cancels connection waits before waiting on admission open.
-  deferred?.close(); historyRouter?.close();
-  try { await lan?.stop(); await server.stop(); await opening?.catch(() => {}); }
-  finally { historyVolunteer?.close(); admissionVerifier?.close(); clearAdmissionKeys(); }
-  process.exit(code);
-}
-// Register before readiness/contact discovery; neither can delay signal handling.
-for (const signal of ['SIGTERM', 'SIGINT'] as const) process.on(signal, () => { void shutdown(0); });
 if (policyObserverConfig) {
   observerOpening = serveConfiguredPolicyObserver(policyObserverConfig, {
     transport: policyObserverLinksFile ? historyRouter!.checkpoint
