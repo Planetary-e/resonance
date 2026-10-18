@@ -27,6 +27,8 @@ import { readRelayHistoryHealth, type HistoryOwnerHealth } from './history-healt
 import { readPolicyObserverConfigurationFile, serveConfiguredPolicyObserver } from './policy-observer-config.js';
 import { exchangeHistoryCheckpoint } from './history-checkpoint-exchange.js';
 import { shareHistoryOwnerRoutes } from './history-owner-routing.js';
+import { createAdmissionPolicyQueryResponder } from './admission-policy-query.js';
+import { exchangeAdmissionPolicyObservation } from './admission-policy-observation-transport.js';
 
 const relayPort = parseNonNegativeInteger(process.env.RELAY_PORT, 9090, 'RELAY_PORT');
 const tlsCertFile = process.env.RELAY_TLS_CERT_FILE;
@@ -173,6 +175,11 @@ function signingKeyFile(path: string) {
 const witnessKey = witnessKeyFile ? signingKeyFile(witnessKeyFile) : undefined;
 const coordinatorKey = coordinatorKeyFile ? signingKeyFile(coordinatorKeyFile) : undefined;
 const resourceMeter = new RelayTrafficMeter(relayDataDir);
+const policyQueryResponder = policyObserverConfig ? createAdmissionPolicyQueryResponder({
+  context: policyObserverConfig.context,
+  policy() { if (!observerService) throw new Error('Policy observer is not ready'); return observerService.policy(); },
+  transport: (member, frame, signal) => exchangeAdmissionPolicyObservation(member, frame, signal, socket => resourceMeter.observe(socket)),
+}) : undefined;
 const ownerPolicy = ownerBandwidth !== undefined || ownerTotalBandwidth !== undefined || ownerCpu !== undefined
   || ownerSchedule !== undefined || ownerExternalPower
   ? new OwnerResourcePolicy({
@@ -247,6 +254,7 @@ try {
     persistDir: relayDataDir,
     admissionVerifier: deferred?.verifier ?? admissionVerifier,
     admissionWitness: deferred && witnessKey ? deferred.witness : admissionVerifier?.witness,
+    policyQuery: policyQueryResponder?.exchange,
     resourceMeter,
     historyLinks: historyRouter,
     historyHealth: () => readRelayHistoryHealth({ ownerConfigured: !!historyFile, owner: admissionHistoryHealth,
@@ -292,6 +300,7 @@ const observerLifetime = new AbortController();
 let observerOpening: Promise<void> | undefined;
 async function shutdown(code: number) {
   if (shuttingDown) return; shuttingDown = true;
+  await policyQueryResponder?.close();
   // Stop admitting observer work and drain accepted updates while their history
   // connections still exist. During startup, cancellation closes the pending owner.
   observerLifetime.abort();

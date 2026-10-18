@@ -12,6 +12,8 @@ import { isIP, type Socket } from 'node:net';
 import { WebSocket, WebSocketServer } from 'ws';
 import { RelayTrafficMeter, relayDataFileBytes } from './relay-resource-meter.js';
 import { PrivateReplayLog } from './private-replay-log.js';
+import { ADMISSION_POLICY_QUERY_TYPE, ADMISSION_POLICY_QUERY_REPLY_TYPE, ADMISSION_POLICY_QUERY_MAX_BYTES,
+  ADMISSION_POLICY_QUERY_REPLY_MAX_BYTES, type AdmissionPolicyQueryReply } from '@resonance/core/admission-policy-query';
 import { DirectReachabilityObservations } from './direct-reachability.js';
 import {
   assertSecureRelayTransportEndpoint, relayTlsClientOptions,
@@ -306,6 +308,8 @@ export interface RelayConfig {
   admissionVerifier?: AdmissionCapabilityVerifierV2;
   /** Optional fixed-membership witness role; votes contain only request/token digests. */
   admissionWitness?: AdmissionWitness;
+  /** Public policy metadata, accepted only inside a one-use private request. */
+  policyQuery?: (value: unknown, signal: AbortSignal) => Promise<AdmissionPolicyQueryReply>;
   /** Shared queue for experimental private forwards; false is an explicit unmixed mode. */
   privateEntryMix?: PrivateEntryMixOptions | false;
   /** Independent shared queue for encrypted private replies; enabled by default. */
@@ -3473,6 +3477,23 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       // a short connection and never send the user's root identity.
       let frameCandidate: unknown;
       try { frameCandidate = JSON.parse(raw); } catch { /* handled by v1 parser below */ }
+      if (isObject(frameCandidate) && frameCandidate.type === ADMISSION_POLICY_QUERY_TYPE) {
+        clearTimeout(authTimeout);
+        if (!internal || !privateReply || linkedRelayId || stopping || !cfg.policyQuery || data.byteLength > ADMISSION_POLICY_QUERY_MAX_BYTES
+          || !rateLimiter.check(`transport:${ip}`, 'discovery') || cfg.acceptNewWork?.(data.byteLength) === false) {
+          ws.close(4008, 'policy_query_unavailable'); return;
+        }
+        const controller = new AbortController(), disconnected = () => controller.abort();
+        ws.once('close', disconnected);
+        try {
+          const reply = await cfg.policyQuery(frameCandidate, controller.signal);
+          if (controller.signal.aborted || stopping || ws.readyState !== WebSocket.OPEN) return;
+          if (Buffer.byteLength(JSON.stringify(reply)) > ADMISSION_POLICY_QUERY_REPLY_MAX_BYTES) throw new Error('Policy query reply too large');
+          sendClientResponse(serializeMessage(createMessage(ADMISSION_POLICY_QUERY_REPLY_TYPE, reply, relayIdentity)), 'policy_query_complete');
+        } catch { if (ws.readyState === WebSocket.OPEN) ws.close(4003, 'policy_query_refused'); }
+        finally { ws.removeListener('close', disconnected); controller.abort(); }
+        return;
+      }
       if (!linkedRelayId && isObject(frameCandidate) && frameCandidate.kind === 'admission-witness-request') {
         clearTimeout(authTimeout);
         if (stopping || isBinary || data.byteLength > 4096 || !cfg.admissionWitness
@@ -3519,9 +3540,10 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           const material = transportKeys.get(frame.destination.keyId);
           if (!material) throw new Error('Unknown destination key');
           receivedPrivateForward = true;
-          void openPrivateDestinationRequestV1(
+          await openPrivateDestinationRequestV1(
             frame.destination, material, privateReplay, Date.now(),
-          ).then(opened => {
+          ).then(async opened => {
+            if (stopping || ws.readyState !== WebSocket.OPEN) throw new Error('Private destination stopped');
             const payload = Buffer.from(opened.data);
             if (payload.length > MAX_PRIVATE_FRAME_BYTES) throw new Error('Private payload too large');
             let operation: unknown;
@@ -3533,12 +3555,13 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
               MAILBOX_DEPOSIT_FRAME_TYPE,
               RELATIONSHIP_MAILBOX_REQUEST_FRAME_TYPE,
               RELATIONSHIP_MAILBOX_DEPOSIT_FRAME_TYPE,
+              ADMISSION_POLICY_QUERY_TYPE,
             ]).has(operation.type as string)) throw new Error('Unsupported private operation');
             privateReply = {
               responseKey: opened.responseKey,
               requestId: frame.destination.requestId,
             };
-            void handleRawMessage(payload, false, true).catch(() => ws.close(4000, 'private_operation_failed'));
+            await handleRawMessage(payload, false, true).catch(() => ws.close(4000, 'private_operation_failed'));
           }).catch(() => ws.close(4000, 'invalid_private_destination'));
         } catch { ws.close(4000, 'invalid_private_forward'); }
         return;

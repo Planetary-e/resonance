@@ -90,6 +90,7 @@ jobs:
             packages/app/src/server/__tests__/policy-observer-activation.integration.test.ts
             packages/app/src/server/__tests__/policy-observer-setup.integration.test.ts
             packages/app/src/server/__tests__/policy-observer-recovery.integration.test.ts
+          packages/app/src/server/__tests__/private-policy-query.integration.test.ts
           packages/app/src/server/__tests__/relay-loader-path.test.ts
 
   test:

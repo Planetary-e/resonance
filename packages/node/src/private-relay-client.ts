@@ -1,6 +1,9 @@
 /** Short-lived personal-client transport through two authenticated relay hops. */
 
 import { randomInt } from 'node:crypto';
+import { parseAdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
+import { createAdmissionPolicyQuery, parseAdmissionPolicyQueryReply, ADMISSION_POLICY_QUERY_REPLY_TYPE,
+  type AdmissionPolicyQuery } from '@resonance/core/admission-policy-query';
 import WebSocket from 'ws';
 import { parseRelayAcknowledgement, parseRelayMailbox } from './relay-response.js';
 import {
@@ -301,6 +304,20 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
   }
 
   return {
+    async queryAdmissionPolicy(contextValue) {
+      const context = parseAdmissionPolicyObservers(contextValue);
+      return runOperation(async operation => {
+        let query: AdmissionPolicyQuery | undefined;
+        const reply = await firstReply(operation, () => {
+          // Discovery and queued waiting do not consume the short challenge window.
+          query = createAdmissionPolicyQuery(context); return JSON.stringify(query);
+        });
+        operation.check();
+        if (!query || reply.type !== ADMISSION_POLICY_QUERY_REPLY_TYPE) throw new Error('Private relay did not return a policy observation');
+        const certificate = parseAdmissionPolicyQueryReply(reply.payload, query, context, Date.now());
+        operation.check(); return certificate;
+      });
+    },
     async connect() {
       return runOperation(operation => scheduler.schedule(async signal => {
         let lastError: unknown;

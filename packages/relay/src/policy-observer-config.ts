@@ -115,7 +115,7 @@ export async function serveConfiguredPolicyObserver(value: PolicyObserverConfigu
     listener = await listenAdmissionPolicyObserver(createAdmissionPolicyObserverExchange(observer, config.context, options.now),
       { ...config.listen, onSocket: options.onSocket, acceptNewWork: options.acceptNewWork });
     if (signal?.aborted || closing) { await listener.close(); observer.close(); cancelled(); }
-    return { endpoint: listener.endpoint, status: () => observer!.status(), close,
+    return { endpoint: listener.endpoint, status: () => observer!.status(), policy: () => observer!.policy(), close,
       health(): PolicyObserverHealth {
         return { ...observer!.health(), listening: !closing };
       } };

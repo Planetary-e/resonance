@@ -93,7 +93,8 @@ export async function listenAdmissionPolicyObserver(exchange: (value: unknown) =
 }
 
 /** Transport only; quorum collection authenticates every reply against its pin. */
-export const exchangeAdmissionPolicyObservation: AdmissionPolicyObservationTransport = (member, frame, signal) => {
+export function exchangeAdmissionPolicyObservation(member: Parameters<AdmissionPolicyObservationTransport>[0],
+  frame: Parameters<AdmissionPolicyObservationTransport>[1], signal: AbortSignal, onSocket?: (socket: Socket) => void): Promise<unknown> {
   try { assertSecureRelayTransportEndpoint(member.endpoint); } catch (error) { return Promise.reject(error); }
   let encoded: string;
   try { encoded = JSON.stringify(frame); if (typeof encoded !== 'string' || Buffer.byteLength(encoded) > ADMISSION_POLICY_OBSERVATION_MAX_BYTES) throw new Error(); }
@@ -112,6 +113,10 @@ export const exchangeAdmissionPolicyObservation: AdmissionPolicyObservationTrans
     catch { finish(new Error('Policy observation connection failed')); return; }
     socket.on('error', () => finish(new Error('Policy observation connection failed')));
     socket.on('close', () => finish(new Error('Policy observation connection closed')));
+    socket.on('upgrade', response => {
+      if (done) return;
+      try { onSocket?.(response.socket); } catch { finish(new Error('Policy observation accounting failed')); }
+    });
     socket.on('open', () => {
       if (done) return;
       if (performance.now() >= deadline) { finish(new Error('Policy observation timed out')); return; }
@@ -123,4 +128,4 @@ export const exchangeAdmissionPolicyObservation: AdmissionPolicyObservationTrans
       try { finish(undefined, JSON.parse(data.toString())); } catch { finish(new Error('Invalid policy observation response')); }
     });
   });
-};
+}

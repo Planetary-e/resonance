@@ -76,6 +76,15 @@ it('rejects invalid or expired caller challenges before dialing and honors a sho
   expect(performance.now() - started).toBeLessThan(800); expect(aborted).toBe(5);
 });
 
+it('accounts an observation socket before sending and contains accounting callback failures', async () => {
+  const n = await network(), member = n.context.members[0], request = createAdmissionPolicyHeadRequest(n.context, n.now); let sockets = 0;
+  await expect(exchangeAdmissionPolicyObservation(member, { request, advance: null }, new AbortController().signal,
+    () => { sockets++; throw new Error('Meter unavailable'); })).rejects.toThrow('accounting');
+  expect(sockets).toBe(1); expect(n.received.reduce((sum, value) => sum + value, 0)).toBe(0);
+  await exchangeAdmissionPolicyObservation(member, { request, advance: null }, new AbortController().signal, socket => { expect(socket.bytesRead).toBeGreaterThan(0); });
+  expect(n.received.reduce((sum, value) => sum + value, 0)).toBe(1);
+});
+
 it('keeps accepted partial updates through a partition and an unknown outcome, then completes with a returning fourth', async () => {
   const n = await network(); n.online[3] = n.online[4] = false;
   await expect(collectAdmissionPolicyObservation({ ...n.options, policy: n.second, advance: n.advance })).rejects.toThrow('four matching');
