@@ -1,6 +1,7 @@
 /** Controller requests carried over a volunteer's already-authenticated outbound link. */
 
 import WebSocket from 'ws';
+import { isRelayResponseLive, relayResponseDeadline } from './relay-response-deadline.js';
 import {
   MAX_RELAY_REPLICA_INVENTORY_BATCH_RECEIPTS,
   RELAY_MAILBOX_SYNC_RESPONSE_FRAME_TYPE,
@@ -79,8 +80,11 @@ export class ReverseReplicaRequests {
 
   private send<T>(
     relayId: string, requestId: string, frame: string, type: string,
-    parseAndVerify: (raw: string) => T, expiresAt: number,
+    parseAndVerify: (raw: string) => T, request: { createdAt: number; expiresAt: number },
   ): Promise<T> {
+    const began = performance.now(), now = Date.now();
+    const timeoutMs = Math.max(1, Math.min(REQUEST_TIMEOUT_MS, request.expiresAt - now));
+    const deadline = relayResponseDeadline(request, timeoutMs, began);
     const link = this.linkFor(relayId);
     if (!link || link.socket.readyState !== WebSocket.OPEN
       || link.descriptor.relayId !== relayId
@@ -94,12 +98,16 @@ export class ReverseReplicaRequests {
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
         reject(new Error('Reverse replica request timed out'));
-      }, Math.max(1, Math.min(REQUEST_TIMEOUT_MS, expiresAt - Date.now())));
+      }, timeoutMs);
       timer.unref?.();
       this.pending.set(requestId, {
         socket: link.socket, relayId, type, timer, reject,
         accept: raw => {
-          try { resolve(parseAndVerify(raw)); }
+          try {
+            const response = parseAndVerify(raw);
+            if (!isRelayResponseLive(deadline)) { reject(new Error('Reverse replica response expired or timed out')); return; }
+            resolve(response);
+          }
           catch (error) {
             link.socket.close(4000, 'invalid_reverse_replica_response');
             reject(error instanceof Error ? error : new Error(String(error)));
@@ -154,7 +162,7 @@ export class ReverseReplicaRequests {
         if (!verifyRelayReplicaReceiptV1(receipt, request)
           || receipt.responderRelayId !== relayId) throw new Error('Invalid reverse replica receipt');
         return receipt;
-      }, request.expiresAt);
+      }, request);
   }
 
   checkReplicaBatch(
@@ -174,7 +182,7 @@ export class ReverseReplicaRequests {
         if (!verifyRelayReplicaInventoryBatchResponseV1(response, request)
           || response.responderRelayId !== relayId) throw new Error('Invalid reverse inventory response');
         return response;
-      }, request.expiresAt);
+      }, request);
   }
 
   reconcileReplica(
@@ -193,7 +201,7 @@ export class ReverseReplicaRequests {
         if (!verifyRelayReplicaReconciliationResponseV1(response, request)
           || response.responderRelayId !== relayId) throw new Error('Invalid reverse reconciliation response');
         return response;
-      }, request.expiresAt);
+      }, request);
   }
 
   syncMailbox(
@@ -212,7 +220,7 @@ export class ReverseReplicaRequests {
         if (!verifyRelayMailboxSyncResponseV1(response, request)
           || response.senderRelayId !== relayId) throw new Error('Invalid reverse mailbox response');
         return response;
-      }, request.expiresAt);
+      }, request);
   }
 
   syncRelationshipMailbox(
@@ -229,6 +237,6 @@ export class ReverseReplicaRequests {
         if (!verifyRelayRelationshipMailboxSyncResponseV1(response, request)
           || response.senderRelayId !== relayId) throw new Error('Invalid reverse relationship mailbox response');
         return response;
-      }, request.expiresAt);
+      }, request);
   }
 }

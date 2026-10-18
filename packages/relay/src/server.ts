@@ -3,6 +3,7 @@
  * Accepts self-authenticating protocol v2 operations over short connections.
  */
 
+import { isRelayResponseLive, relayResponseDeadline, type RelayResponseDeadline } from './relay-response-deadline.js';
 import { Buffer } from 'node:buffer';
 import type { AdmissionWitness } from './admission-witness.js';
 import { createHash, X509Certificate } from 'node:crypto';
@@ -624,6 +625,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     targetRelayId: string;
     socket: WebSocket;
     timer: ReturnType<typeof setTimeout>;
+    deadline: RelayResponseDeadline;
     resolve: (response: RelayQueryResponseV1) => void;
     reject: (error: Error) => void;
   }>();
@@ -676,6 +678,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     request: RelayReplicaHandoffRequestV1;
     controllerRelayId: string;
     timer: ReturnType<typeof setTimeout>;
+    deadline: RelayResponseDeadline;
     resolve: (response: RelayReplicaHandoffResponseV1) => void;
     reject: (error: Error) => void;
   }>();
@@ -911,7 +914,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     if (pendingInboundQueries.size >= MAX_PENDING_INBOUND_QUERIES) {
       return Promise.reject(new Error('Inbound relay query limit reached'));
     }
-    const createdAt = Date.now();
+    const createdAt = Date.now(), began = performance.now();
     const request = createRelayQueryRequestV1(
       search, targetRelayId, relayIdentity, remainingHops,
       admission, createdAt, Math.min(search.expiresAt, createdAt + timeoutMs),
@@ -924,7 +927,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       }, timeoutMs);
       timer.unref?.();
       pendingInboundQueries.set(request.requestId, {
-        request, targetRelayId, socket: link.socket, timer, resolve, reject,
+        request, targetRelayId, socket: link.socket, deadline: relayResponseDeadline(request, timeoutMs, began), timer, resolve, reject,
       });
       link.socket.send(serialized, error => {
         if (!error) return;
@@ -3031,7 +3034,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     if (!link || link.socket.readyState !== WebSocket.OPEN) {
       return Promise.reject(new Error('Replica controller link is unavailable'));
     }
-    const createdAt = Date.now();
+    const createdAt = Date.now(), began = performance.now();
     const request = createRelayReplicaHandoffRequestV1(
       operations,
       controllerRelayId,
@@ -3050,6 +3053,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       timer.unref?.();
       pendingReplicaHandoffs.set(request.requestId, {
         request,
+        deadline: relayResponseDeadline(request, timeoutMs, began),
         controllerRelayId,
         timer,
         resolve,
@@ -3074,12 +3078,16 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     try {
       const { response } = parseRelayReplicaHandoffResponseFrameV1(raw);
       const pending = pendingReplicaHandoffs.get(response.requestId);
-      if (!pending
-        || pending.controllerRelayId !== linkedRelayId
+      if (!pending) return; // A signed reply may outlive its local timer.
+      if (pending.controllerRelayId !== linkedRelayId
         || response.controllerRelayId !== linkedRelayId
         || response.retiringRelayId !== relayIdentity.did
         || !verifyRelayReplicaHandoffResponseV1(response, pending.request)) {
         throw new Error('Replica handoff response is not bound to this request');
+      }
+      if (!isRelayResponseLive(pending.deadline)) {
+        clearTimeout(pending.timer); pendingReplicaHandoffs.delete(response.requestId);
+        pending.reject(new Error('Replica handoff response expired or timed out')); return;
       }
       clearTimeout(pending.timer);
       pendingReplicaHandoffs.delete(response.requestId);
@@ -3143,7 +3151,10 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         || !verifyRelayQueryResponseV1(response, pending.request)) {
         throw new Error('Relay query response is not bound to this link and request');
       }
-      if (Date.now() > pending.request.expiresAt) return;
+      if (!isRelayResponseLive(pending.deadline)) {
+        clearTimeout(pending.timer); pendingInboundQueries.delete(response.requestId);
+        pending.reject(new Error('Inbound relay query expired or timed out')); return;
+      }
       clearTimeout(pending.timer);
       pendingInboundQueries.delete(response.requestId);
       pending.resolve(response);
