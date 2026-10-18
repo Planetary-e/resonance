@@ -125,7 +125,15 @@ function directoryClaim(path: string, owner: string) {
     if (!removeEmpty(join(path, owner))) throw new Error('Local ownership marker changed; preserve it for inspection');
     // A different valid owner may have replaced our now-empty container. Its
     // claim must remain; unexpected contents instead signal damaged ownership.
-    if (!removeEmpty(path)) inspectDirectory(path);
+    if (!removeEmpty(path)) {
+      try { inspectDirectory(path); }
+      catch (error) {
+        // Our marker is already gone. A subsequent owner may publish and then
+        // release its claim before this validation reaches the directory or
+        // marker. Its disappearance cannot revoke the lock we just acquired.
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
+    }
   };
 }
 

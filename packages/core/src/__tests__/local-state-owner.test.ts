@@ -1,4 +1,6 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,7 +10,10 @@ import { acquireLocalDirectoryOwnership, inspectLocalStateOwnership } from '../l
 import { acquireLegacyLocalStateLock } from './fixtures/legacy-local-state-lock.js';
 
 const cleanup: Array<() => void | Promise<void>> = [];
-afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
+afterEach(async () => {
+  vi.restoreAllMocks(); syncBuiltinESMExports();
+  for (const close of cleanup.splice(0).reverse()) await close();
+});
 function fixture() {
   const directory = mkdtempSync(join(tmpdir(), 'local-owner-')); cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
   const path = join(directory, 'state.json'), payload = join(directory, 'accepted.json');
@@ -67,7 +72,94 @@ it('keeps one writer through three contending processes after an owner dies', as
   const contenders = await Promise.all([child(), child(), child()]);
   for (const c of contenders) c.process.send({ ...n, mode: 'race' });
   await Promise.all(contenders.map(c => c.exited));
-  for (const c of contenders) { expect(c.process.exitCode).toBe(0); expect(c.messages).toEqual(['ready', 'done']); }
+  for (const c of contenders) {
+    expect(c.process.exitCode, JSON.stringify({ signal: c.process.signalCode, messages: c.messages })).toBe(0);
+    expect(c.messages).toEqual(['ready', 'done']);
+  }
   expect(JSON.parse(readFileSync(n.payload, 'utf8'))).toEqual({ count: 36, active: null });
   expect(existsSync(`${n.path}.lock`)).toBe(false); expect(readdirSync(n.directory)).toEqual(['accepted.json']);
 }, 20000);
+
+it('returns the acquired lock when the next recovery owner releases between nonempty removal and inspection', () => {
+  const n = fixture(), recovery = `${n.path}.recovery`, rmdir = fs.rmdirSync;
+  let interleaved = false;
+  vi.spyOn(fs, 'rmdirSync').mockImplementation(((...args: Parameters<typeof fs.rmdirSync>) => {
+    if (String(args[0]) !== recovery || interleaved) return Reflect.apply(rmdir, fs, args);
+    interleaved = true;
+    expect(readdirSync(recovery)).toEqual([]); // Our marker has already gone.
+    const other = join(recovery, `owner-${process.pid}-${'b'.repeat(32)}`);
+    mkdirSync(other);
+    let nonempty: unknown;
+    try { Reflect.apply(rmdir, fs, args); } catch (error) { nonempty = error; }
+    expect((nonempty as NodeJS.ErrnoException)?.code).toMatch(/^(ENOTEMPTY|EEXIST)$/);
+    // The next recovery owner sees our live lock and releases its own claim
+    // before our post-ENOTEMPTY inspection can look at the recovery container.
+    rmdir(other); rmdir(recovery); throw nonempty;
+  }) as typeof fs.rmdirSync);
+  syncBuiltinESMExports();
+  const release = acquireLocalDirectoryOwnership(n.path); cleanup.push(release);
+  expect(interleaved).toBe(true);
+  expect(() => acquireLocalDirectoryOwnership(n.path)).toThrow('already open');
+  release(); expect(readdirSync(n.directory)).toEqual(['accepted.json']);
+});
+
+it('reports bounded child failure metadata without paths, payload contents or stacks', async () => {
+  const n = fixture(), c = await child();
+  c.process.send({ ...n, mode: 'race', payload: join(n.directory, 'missing-payload') }); await c.exited;
+  expect(c.process.exitCode).toBe(1);
+  expect(c.messages).toEqual(['ready', {
+    type: 'owner-child-failure', mode: 'race', stage: 'payload-read', turn: 0, attempts: 1, completedTurns: 0,
+    failure: { reason: 'system', code: 'ENOENT', syscall: 'open' }, acquisitionFailures: [], otherAcquisitionFailures: 0,
+  }]);
+  const report = JSON.stringify(c.messages[1]);
+  expect(report.length).toBeLessThan(2048); expect(report).not.toContain(n.directory); expect(report).not.toContain('stack');
+  expect(JSON.parse(readFileSync(n.payload, 'utf8'))).toEqual({ count: 0, active: null });
+  expect(readdirSync(n.directory)).toEqual(['accepted.json']);
+});
+
+it.each(['missing-marker', 'live-successor', 'unexpected-content', 'inspection-denied'] as const)(
+  'handles the recovery release inspection boundary with %s', boundary => {
+    const n = fixture(), recovery = `${n.path}.recovery`, name = `owner-${process.pid}-${'c'.repeat(32)}`;
+    const other = join(recovery, name), rmdir = fs.rmdirSync, lstat = fs.lstatSync, before = readFileSync(n.payload);
+    let interleaved = false, inspecting = false, removedMarker = false;
+    vi.spyOn(fs, 'rmdirSync').mockImplementation(((...args: Parameters<typeof fs.rmdirSync>) => {
+      if (String(args[0]) !== recovery || interleaved) return Reflect.apply(rmdir, fs, args);
+      interleaved = true; expect(readdirSync(recovery)).toEqual([]);
+      if (boundary === 'unexpected-content') writeFileSync(join(recovery, 'keep'), 'accepted elsewhere');
+      else mkdirSync(other);
+      try { return Reflect.apply(rmdir, fs, args); }
+      catch (error) { expect((error as NodeJS.ErrnoException).code).toMatch(/^(ENOTEMPTY|EEXIST)$/); inspecting = true; throw error; }
+    }) as typeof fs.rmdirSync);
+    vi.spyOn(fs, 'lstatSync').mockImplementation(((...args: Parameters<typeof fs.lstatSync>) => {
+      if (inspecting && String(args[0]) === recovery && boundary === 'inspection-denied') {
+        throw Object.assign(new Error('Inspection denied'), { code: 'EPERM', syscall: 'lstat' });
+      }
+      if (inspecting && String(args[0]) === other && boundary === 'missing-marker' && !removedMarker) {
+        removedMarker = true; rmdir(other);
+      }
+      return Reflect.apply(lstat, fs, args);
+    }) as typeof fs.lstatSync);
+    syncBuiltinESMExports();
+    if (boundary === 'unexpected-content' || boundary === 'inspection-denied') {
+      let failure: unknown;
+      try { acquireLocalDirectoryOwnership(n.path); } catch (error) { failure = error; }
+      if (boundary === 'unexpected-content') {
+        expect(failure).toBeInstanceOf(Error); expect((failure as Error).message).toBe('Invalid local ownership marker');
+        expect(readFileSync(join(recovery, 'keep'), 'utf8')).toBe('accepted elsewhere');
+      } else {
+        expect(failure).toMatchObject({ code: 'EPERM', syscall: 'lstat' });
+        expect(readdirSync(recovery)).toEqual([name]); expect(readdirSync(other)).toEqual([]);
+      }
+      // Unsafe inspection errors preserve the already-published lock and all
+      // successor metadata; this test fixture alone removes them in cleanup.
+      expect(lstatSync(`${n.path}.lock`).isDirectory()).toBe(true);
+    } else {
+      const release = acquireLocalDirectoryOwnership(n.path); cleanup.push(release);
+      if (boundary === 'missing-marker') { expect(removedMarker).toBe(true); expect(readdirSync(recovery)).toEqual([]); }
+      else { expect(inspectLocalStateOwnership(recovery).directories).toEqual([recovery, other]); }
+      release();
+      if (boundary === 'live-successor') { expect(readdirSync(recovery)).toEqual([name]); rmdir(other); }
+      rmdir(recovery); expect(readdirSync(n.directory)).toEqual(['accepted.json']);
+    }
+    expect(interleaved).toBe(true); expect(readFileSync(n.payload)).toEqual(before);
+  });
