@@ -1,10 +1,10 @@
 import { afterEach, beforeAll, expect, it, vi } from 'vitest';
-import { generateKeyPairSync, randomBytes } from 'node:crypto';
+import { generateKeyPairSync, randomBytes, createPublicKey } from 'node:crypto';
 import { join } from 'node:path';
 import { writeFileSync, rmSync, readFileSync, readdirSync } from 'node:fs';
 import { admissionKeyFingerprint, signAdmissionPolicy, type AdmissionPolicyKey } from '@resonance/core/admission-policy';
-import { admissionPolicyHead, createAdmissionPolicyAdvance } from '@resonance/core/admission-policy-advance';
-import { createAdmissionPolicyHeadRequest } from '@resonance/core/admission-policy-freshness';
+import { admissionPolicyHead, createAdmissionPolicyAdvance, createAdmissionPolicyAdvanceCommitment } from '@resonance/core/admission-policy-advance';
+import { createAdmissionPolicyHeadRequest, parseAdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
 import { parseAdmissionWitnessSet } from '@resonance/core/admission-witness';
 import { createResolvedAdmissionPolicyAdvance, prepareAdmissionPolicyV3Successor, resolveAdmissionPolicy, signAdmissionPolicyV3 } from '@resonance/core/admission-policy-archive';
 import { historyCheckpointEnvelopeId, historyCheckpointEnvelopeByteLength, historyCheckpointReserveBucket, openHistoryCheckpoint, sealHistoryCheckpoint } from '@resonance/core/history-checkpoint';
@@ -20,8 +20,8 @@ import { preparePolicyObserverRestore } from '../policy-observer-history-restore
 import { replayPolicyObserverHistory } from '../policy-observer-history-replay.js';
 import { parsePolicyObserverSnapshot, parseAdmissionPolicyObserverState } from '../admission-policy-observer-state.js';
 import { policyObserverArchiveLimits } from '../policy-observer-page-reader.js';
-import { createAdmissionPolicyObserverExchange, listenAdmissionPolicyObserver, exchangeAdmissionPolicyObserverFrame } from '../admission-policy-observation-transport.js';
-import { downloadPolicyObserverArchivePage, POLICY_ARCHIVE_PAGE_REPLY_MAX_BYTES } from '../policy-observer-page-transfer.js';
+import { createAdmissionPolicyObserverExchange, listenAdmissionPolicyObserver, exchangeAdmissionPolicyObserverFrame, exchangeAdmissionPolicyObservation } from '../admission-policy-observation-transport.js';
+import { downloadPolicyObserverArchivePage, createPolicyObserverRemoteOperation, POLICY_ARCHIVE_PAGE_REPLY_MAX_BYTES } from '../policy-observer-page-transfer.js';
 import { createHistoryAncestryDownload } from '../history-ancestry-download.js';
 import { openRetainedPolicyObserverArchive } from '../policy-observer-archive.js';
 import { openConfiguredPolicyObserver, parsePolicyObserverConfiguration } from '../policy-observer-config.js';
@@ -32,6 +32,8 @@ let rsa: string[];
 beforeAll(() => { rsa = Array.from({ length: 2 }, () => generateKeyPairSync('rsa', { modulusLength: 2048 }).publicKey.export({ type: 'spki', format: 'pem' }).toString()); });
 async function fixture(bounds: { maxArchiveBlocks?: number; maxArchiveBytes?: number } = {}) {
   const f = await policyObserverFixture(); cleanup.push(f.close);
+  // Pin actual observer routes before any role is enrolled or transition signed.
+  f.context = parseAdmissionPolicyObservers({...f.context,members:f.context.members.map(member=>({...member,endpoint:new URL('/policy-head',member.endpoint).href}))});
   const owner = f.keys[0], key = f.options.encryptionKey;
   const enrolled = await createPolicyObserverHistoryRoot({ context: f.context, signingKey: owner, encryptionKey: key, policy: f.first, now: () => f.now });
   const rootId = historyCheckpointEnvelopeId(enrolled.root), signingKeys = enrolled.context.members.map(p => f.keys.find(k => Buffer.from(k.publicKey).toString('base64url') === p)!);
@@ -210,4 +212,151 @@ it.each(['cancellation','deadline'] as const)('refuses %s during the final async
     await started; if(mode==='cancellation') controller.abort();
     await expect(Promise.race([pending,new Promise((_,reject)=>setTimeout(()=>reject(new Error('decode ignored cancellation')),150))])).rejects.toThrow(/cancelled|timed out/i);
   } finally {release(); await pending.catch(()=>{}); spy.mockRestore();}
+});
+
+async function remotePeer(n: Awaited<ReturnType<typeof fixture>>, settings: {maxRequests?:number;maxBytes?:number} = {}) {
+  const signer = n.keys[1], localKey = randomBytes(32), ownerKey = Buffer.from(signer.publicKey).toString('base64url');
+  const sourceMember = n.context.members.find(m=>m.publicKey===Buffer.from(n.owner.publicKey).toString('base64url'))!;
+  const targetMember = n.context.members.find(m=>m.publicKey===ownerKey)!;
+  const sourceExchange = createAdmissionPolicyObserverExchange(n.observer,n.context,()=>n.now+30001);
+  const sourceListener = await listenAdmissionPolicyObserver(sourceExchange,{port:Number(new URL(sourceMember.endpoint).port)}); cleanup.push(sourceListener.close);
+  const enrolled = await createPolicyObserverHistoryRoot({context:n.context,signingKey:signer,encryptionKey:localKey,policy:n.first,now:()=>n.now});
+  const stores = enrolled.context.members.map((replica,i)=>openHistoryCheckpointStore({directory:join(n.directory,`target-replica-${i}`),context:enrolled.context,replica,
+    localKey:randomBytes(32),rootId:historyCheckpointEnvelopeId(enrolled.root),generation:0,initialize:enrolled.root})); stores.forEach(s=>cleanup.push(s.close));
+  const roles = stores.map((store,i)=>createHistoryCheckpointReplica({context:enrolled.context,store,signingKey:n.keys.find(k=>Buffer.from(k.publicKey).toString('base64url')===enrolled.context.members[i])!})); roles.forEach(r=>cleanup.push(r.close));
+  let mode:'real'|'wrong-head'|'corrupt'|'missing'|'gate'='real', requests=0, delay:Promise<void>|undefined;
+  let appendHook: (()=>void)|undefined, pageHook: (()=>void)|undefined;
+  const transport:HistoryCheckpointTransport = async(member,frame,signal)=>{
+    if(frame.request.action==='append' && frame.envelope?.sequence===2) appendHook?.();
+    signal.throwIfAborted(); return roles[enrolled.context.members.indexOf(member.publicKey)].exchange(frame);
+  };
+  const options = {directory:join(n.directory,'target-owner'),encryptionKey:localKey,signingKey:signer,context:n.context,historyContext:enrolled.context,root:enrolled.root,
+    members:n.members,transport,timeoutMs:2500,now:()=>n.now+30001,
+    remoteArchive:{...settings,exchange:async(member:typeof sourceMember,request:unknown,signal:AbortSignal)=>{
+      requests++; if(delay) await delay;
+      signal.throwIfAborted(); if(mode==='missing') throw new Error('source unavailable');
+      const reply = await exchangeAdmissionPolicyObserverFrame(member,request,signal,POLICY_ARCHIVE_PAGE_REPLY_MAX_BYTES) as Record<string,unknown>;
+      pageHook?.();
+      if(mode==='wrong-head') return {...reply,head:n.context.genesis};
+      if(mode==='corrupt') return {...reply,data:'AA'};
+      return reply;
+    }}};
+  let target = await openProtectedPolicyObserver({...options,mode:'create-new'}); cleanup.push(()=>target.close()); await target.ready(); await target.advance(n.advance);
+  const targetListener = await listenAdmissionPolicyObserver(createAdmissionPolicyObserverExchange(target,n.context,()=>n.now+30001),{port:Number(new URL(targetMember.endpoint).port)}); cleanup.push(targetListener.close);
+  return {get target(){return target;},sourceMember,targetMember,sourceListener,targetListener,stores,
+    requests:()=>requests,mode(value:typeof mode){mode=value;},gate(value?:Promise<void>){delay=value;},onAppend(value?:()=>void){appendHook=value;},onPage(value?:()=>void){pageHook=value;},
+    async reopen(){await targetListener.close();target.close();target=await openProtectedPolicyObserver({...options,mode:'open-existing'});return target;},
+    frame:()=>({request:createAdmissionPolicyHeadRequest(n.context,n.now+30001),advance:n.v3.advance})};
+}
+it('propagates a signed v3 advance between two pinned loopback observers and reopens the target',async()=>{
+  const n=await fixture();await n.observer.advance(n.v3.advance,n.plan.pages);const peer=await remotePeer(n);
+  const vote=await exchangeAdmissionPolicyObservation(peer.targetMember,peer.frame(),new AbortController().signal) as {head:unknown};
+  expect(vote.head).toEqual(n.v3.advance.commitment.next);expect(peer.target.status().pending).toBe(false);
+  const requests=peer.requests();await peer.target.advanceRemote(n.v3.advance,{deadline:performance.now()+3000});expect(peer.requests()).toBe(requests);
+  expect((await peer.reopen()).policy()).toEqual(n.policy);
+});
+it.each(['missing','wrong-head','corrupt'] as const)('refuses remote %s pages before publishing any target intent',async mode=>{
+  const n=await fixture();await n.observer.advance(n.v3.advance,n.plan.pages);const peer=await remotePeer(n);peer.mode(mode);
+  await expect(peer.target.advanceRemote(n.v3.advance,{deadline:performance.now()+3000})).rejects.toThrow();
+  expect(peer.target.status()).toMatchObject({pending:false,head:n.advance.commitment.next});
+});
+it('rejects invalid signatures and stale predecessors before network work, and unsupported remote implementations',async()=>{
+  const n=await fixture();const peer=await remotePeer(n);const bad=structuredClone(n.v3.advance);bad.policy.signature='A'.repeat(86);
+  await expect(peer.target.advanceRemote(bad,{deadline:performance.now()+3000})).rejects.toThrow();expect(peer.requests()).toBe(0);
+  const stale={...n.v3.advance,commitment:createAdmissionPolicyAdvanceCommitment({...n.advance.commitment.next,transition:'b'.repeat(64)},n.v3.advance.commitment.next,n.context,n.authorityKey)};
+  await expect(peer.target.advanceRemote(stale,{deadline:performance.now()+3000})).rejects.toThrow('exact committed predecessor');expect(peer.requests()).toBe(0);
+  await expect(n.observer.advanceRemote(n.v3.advance,{deadline:performance.now()+3000})).rejects.toThrow('does not support');
+  const unsupported=createAdmissionPolicyObserverExchange({advance:async()=>{},observe:()=>{}},n.context,()=>n.now+30001);
+  await expect(unsupported(peer.frame())).rejects.toThrow('refuses remote v3');
+});
+it('cancels remote prefetch and excludes a simultaneous advancement without durable target changes',async()=>{
+  const n=await fixture();await n.observer.advance(n.v3.advance,n.plan.pages);const peer=await remotePeer(n);let release!:()=>void;
+  peer.gate(new Promise(resolve=>{release=resolve;}));const controller=new AbortController();
+  const pending=peer.target.advanceRemote(n.v3.advance,{deadline:performance.now()+3000,signal:controller.signal});
+  await vi.waitFor(()=>expect(peer.requests()).toBeGreaterThan(0));
+  await expect(peer.target.advance(n.v3.advance,n.plan.pages)).rejects.toThrow('already in progress');controller.abort();
+  await expect(pending).rejects.toThrow(/cancelled|aborted/i);release();
+  expect(peer.target.status()).toMatchObject({pending:false,head:n.advance.commitment.next});
+});
+it.each([{maxRequests:0},{maxBytes:0}])('charges cumulative remote fallback budgets %j',async limits=>{
+  const n=await fixture();await n.observer.advance(n.v3.advance,n.plan.pages);const peer=await remotePeer(n,limits);
+  await expect(peer.target.advanceRemote(n.v3.advance,{deadline:performance.now()+3000})).rejects.toThrow('budget exhausted');
+  expect(peer.target.status().pending).toBe(false);
+});
+it('cancellation during remote replication preserves exact pending state',async()=>{
+  const n=await fixture();await n.observer.advance(n.v3.advance,n.plan.pages);const peer=await remotePeer(n),controller=new AbortController();
+  peer.onAppend(()=>controller.abort());
+  await expect(peer.target.advanceRemote(n.v3.advance,{deadline:performance.now()+3000,signal:controller.signal})).rejects.toThrow(/cancelled|acknowledgements/i);
+  expect(peer.target.status()).toMatchObject({pending:true,head:n.v3.advance.commitment.next});
+  await expect(peer.target.observe(createAdmissionPolicyHeadRequest(n.context,n.now+30001))).rejects.toThrow('pending');
+  peer.onAppend();await peer.target.advance(n.v3.advance);expect(peer.target.status().pending).toBe(false);
+});
+
+it('shares the absolute remote deadline with replication after page prefetch',async()=>{
+  const n=await fixture();await n.observer.advance(n.v3.advance,n.plan.pages);const peer=await remotePeer(n);
+  const started=performance.now();let clock=started;
+  const spy=vi.spyOn(performance,'now').mockImplementation(()=>clock);
+  let fetched=false;peer.onPage(()=>{fetched=true;});peer.onAppend(()=>{clock=started+1001;});
+  const expected=createPublicKey(n.entries[0].profile.issuerPublicKey).export({type:'spki',format:'der'}),original=crypto.subtle.importKey.bind(crypto.subtle);
+  const keySpy=vi.spyOn(crypto.subtle,'importKey').mockImplementation(async(...args)=>{
+    // Consume the remaining budget after page decoding, inside the second policy verification.
+    if(fetched&&args[0]==='spki'&&Buffer.from(args[1] as ArrayBuffer).equals(expected))clock=started+995;
+    return Reflect.apply(original,crypto.subtle,args);
+  });
+  try {
+    await expect(peer.target.advanceRemote(n.v3.advance,{deadline:started+1000})).rejects.toThrow();
+    expect(peer.target.status()).toMatchObject({pending:true,head:n.v3.advance.commitment.next});
+  } finally {keySpy.mockRestore();spy.mockRestore();}
+});
+it('does not reset the request budget when falling back between pinned peers',async()=>{
+  const n=await fixture();await n.observer.advance(n.v3.advance,n.plan.pages);const peer=await remotePeer(n,{maxRequests:1});peer.mode('missing');
+  await expect(peer.target.advanceRemote(n.v3.advance,{deadline:performance.now()+3000})).rejects.toThrow('budget exhausted');
+  expect(peer.requests()).toBe(1);expect(peer.target.status().pending).toBe(false);
+});
+
+it('requires an already committed pinned source before remote ingestion can publish',async()=>{
+  const n=await fixture(),peer=await remotePeer(n);
+  await expect(peer.target.advanceRemote(n.v3.advance,{deadline:performance.now()+3000})).rejects.toThrow('No committed pinned observer');
+  expect(peer.target.status()).toMatchObject({pending:false,head:n.advance.commitment.next});
+});
+
+it('times out a silent first pinned source fairly and obtains the page from a healthy second source',async()=>{
+  const n=await fixture();await n.observer.advance(n.v3.advance,n.plan.pages);const peer=await remotePeer(n);
+  const ownKey=peer.targetMember.publicKey,silent=n.context.members.find(m=>m.publicKey!==ownKey&&m.publicKey!==peer.sourceMember.publicKey)!;
+  const listener=await listenAdmissionPolicyObserver(async(_request,signal)=>new Promise((_,reject)=>{signal?.addEventListener('abort',()=>reject(new Error('silent source cancelled')),{once:true});}),
+    {port:Number(new URL(silent.endpoint).port)});cleanup.push(listener.close);
+  // Scheduling order changes; normalized independent pins/context ID remain identical.
+  const context={...n.context,members:[silent,peer.sourceMember,...n.context.members.filter(m=>m.publicKey!==silent.publicKey&&m.publicKey!==peer.sourceMember.publicKey)]};
+  const calls:string[]=[];const deadline=performance.now()+1200;
+  const operation=createPolicyObserverRemoteOperation({deadline,archive:{exchange:(member,request,signal)=>{calls.push(member.publicKey);return exchangeAdmissionPolicyObserverFrame(member,request,signal,POLICY_ARCHIVE_PAGE_REPLY_MAX_BYTES);}}});
+  try {
+    expect(Uint8Array.from(await operation.page(context,n.v3.advance.commitment.next,n.plan.pages[0].digest,ownKey))).toEqual(n.plan.pages[0].bytes);
+    expect(calls).toEqual([silent.publicKey,peer.sourceMember.publicKey]);expect(operation.deadline).toBe(deadline);
+  } finally {operation.close();}
+});
+it('retains the full reply-capacity charge when a dispatched transport rejects',async()=>{
+  const n=await fixture();let calls=0;
+  const operation=createPolicyObserverRemoteOperation({deadline:performance.now()+1000,archive:{maxBytes:POLICY_ARCHIVE_PAGE_REPLY_MAX_BYTES,
+    exchange:async()=>{calls++;throw new Error('reply lost after receiving bytes');}}});
+  try {
+    await expect(operation.page(n.context,n.v3.advance.commitment.next,n.plan.pages[0].digest,Buffer.from(n.owner.publicKey).toString('base64url'))).rejects.toThrow('budget exhausted');
+    expect(calls).toBe(1);
+  } finally {operation.close();}
+});
+it('cancels post-prefetch policy verification promptly and releases exclusivity without an intent',async()=>{
+  const n=await fixture();await n.observer.advance(n.v3.advance,n.plan.pages);const peer=await remotePeer(n),controller=new AbortController();
+  let fetched=false,entered!:()=>void,release!:()=>void;peer.onPage(()=>{fetched=true;});
+  const started=new Promise<void>(resolve=>{entered=resolve;}),gate=new Promise<void>(resolve=>{release=resolve;});
+  const expected=createPublicKey(n.entries[0].profile.issuerPublicKey).export({type:'spki',format:'der'}),original=crypto.subtle.importKey.bind(crypto.subtle);
+  const spy=vi.spyOn(crypto.subtle,'importKey').mockImplementation(async(...args)=>{
+    if(fetched&&args[0]==='spki'&&Buffer.from(args[1] as ArrayBuffer).equals(expected)){entered();await gate;}
+    return Reflect.apply(original,crypto.subtle,args);
+  });
+  const pending=peer.target.advanceRemote(n.v3.advance,{deadline:performance.now()+3000,signal:controller.signal});
+  try {
+    await started;controller.abort();
+    await expect(Promise.race([pending,new Promise((_,reject)=>setTimeout(()=>reject(new Error('post-prefetch verification ignored cancellation')),150))])).rejects.toThrow(/cancelled|aborted/i);
+    expect(peer.target.status()).toMatchObject({pending:false,head:n.advance.commitment.next});
+    await peer.target.ready(); // Must finish while the cancelled read-only verifier remains gated.
+  } finally {release();await pending.catch(()=>{});spy.mockRestore();}
 });

@@ -8,7 +8,7 @@ import { copyAdmissionSigningKey, exactWitnessFields } from '@resonance/core/adm
 import { openEncryptedLocalState } from '@resonance/core/local-state';
 import { captureStorageReservationOperation } from '@resonance/core/storage-reservations';
 import { HISTORY_RECOVERY_MAX_BYTES, HISTORY_RECOVERY_MAX_BLOCKS } from '@resonance/core/history-exchange';
-import { resolveAdmissionPolicy, lookupResolvedAdmissionPolicyKey, verifyAdmissionPolicyV3, archivedAdmissionPolicyDigest, type ResolvedAdmissionPolicy } from '@resonance/core/admission-policy-archive';
+import { resolveAdmissionPolicy, lookupResolvedAdmissionPolicyKey, verifyAdmissionPolicyV3, archivedAdmissionPolicyDigest, decodeAdmissionPolicyArchivePage, emptyAdmissionPolicyArchive, type ResolvedAdmissionPolicy } from '@resonance/core/admission-policy-archive';
 import { admissionPolicyObserversId, createAdmissionPolicyHeadVote, parseAdmissionPolicyHeadRequest,
   parseAdmissionPolicyObservers, parseAdmissionPolicyHead, type AdmissionPolicyObservers, type AdmissionPolicyHeadVote } from '@resonance/core/admission-policy-freshness';
 import { parseAdmissionPolicyAdvance, parseAdmissionPolicyAdvanceCommitment, sameAdmissionPolicyHead } from '@resonance/core/admission-policy-advance';
@@ -19,6 +19,7 @@ import { createRetainedHistoryCheckpointWriter } from './history-retained-writer
 import { advanceAdmissionPolicyObserverState, assertPolicyObserverStateSuccessor,
   parseAdmissionPolicyObserverState, policyObserverStateHead, assertPolicyObserverCurrent, parsePolicyObserverSnapshot, resolveObserverSnapshot, ADMISSION_POLICY_OBSERVER_MAX_BYTES, type AdmissionPolicyObserverState } from './admission-policy-observer-state.js';
 
+import { createPolicyObserverRemoteOperation, type PolicyObserverRemoteArchive } from './policy-observer-page-transfer.js';
 import { createPolicyObserverPageReader, policyObserverArchiveLimits } from './policy-observer-page-reader.js';
 import { decodePolicyObserverSnapshot, policyObserverHistoryContext, replayPolicyObserverHistory } from './policy-observer-history-replay.js';
 import { openPolicyObserverRestoration, type PreparedPolicyObserverRestore } from './policy-observer-history-restore.js';
@@ -72,6 +73,7 @@ export async function openProtectedPolicyObserver(options: {
   expectedRestorationDigest?: string;
   /** Funded retained original generations, reopened by the operational archive owner. */
   ancestrySource?: () => Iterable<HistoryCheckpointEnvelope>;
+  remoteArchive?: PolicyObserverRemoteArchive;
   timeoutMs?: number; transport?: WriterOptions['transport']; maxArchiveBlocks?: number; maxArchiveBytes?: number;
   /** Defaults to two independent fresh reads, each with at most four live
    * member RPCs. Callers may explicitly serialize reads through one reader. */
@@ -141,8 +143,66 @@ export async function openProtectedPolicyObserver(options: {
     if (busy || observing) throw new Error('Protected policy observer operation is already in progress'); busy = true;
     try { return await operation(); } finally { busy = false; }
   }
-  async function confirm() {
-    const { block } = retained(); await writer!.replicate(block); live(); trim(); return retained();
+  async function confirm(operation?: {signal?: AbortSignal; deadline?: number}) {
+    const { block } = retained(); await writer!.replicate(block, operation); live(); trim(); return retained();
+  }
+  async function applyAdvance(value: unknown, archivePages: readonly { digest: string; bytes: Uint8Array }[], operation?: ReturnType<typeof createPolicyObserverRemoteOperation>) {
+      if (!Array.isArray(archivePages) || archivePages.length > 2) throw new Error('Observer append payload exceeds its page bound');
+      const input = structuredClone(value), supplied = archivePages.map(page => ({ digest: page.digest, data: Buffer.from(page.bytes).toString('base64url') }));
+      if (supplied.length > 2) throw new Error('Observer append payload exceeds its page bound');
+      operation?.live();
+      const read = <T>(work: () => Promise<T>) => operation ? operation.wait(work) : work();
+      const { state, block, saved } = retained();
+      const validationReader = pageReader(operation?.signal);
+      let next: AdmissionPolicyObserverState, capability = resolved.get(historyCheckpointEnvelopeId(block));
+      if ((input as { policy?: { version?: unknown } })?.policy?.version === 3) {
+        if (!exactWitnessFields(input, ['commitment','policy'])) throw new Error('Invalid v3 observer advance');
+        const policy = await read(() => verifyAdmissionPolicyV3(input.policy, context.authority)), commitment = parseAdmissionPolicyAdvanceCommitment(input.commitment, context);
+        if (policy.revision !== commitment.next.revision || archivedAdmissionPolicyDigest(policy) !== commitment.next.digest) throw new Error('V3 observer body differs from signed digest');
+        if (state.conflict) throw new Error('Community policy authority equivocated; retain evidence and stop observations');
+        if (commitment.next.revision === policyObserverStateHead(state, context).revision && state.advance) {
+          if (sameAdmissionPolicyHead(commitment.next, state.advance.next) && sameAdmissionPolicyHead(commitment.previous, state.advance.previous)) next = state;
+          else next = { ...state, conflict: commitment };
+        } else {
+          if (!capability) throw new Error('V3 migration requires retained original resolved ancestry');
+          next = await read(() => parsePolicyObserverSnapshot({ version: 2, contextId: admissionPolicyObserversId(context), policy, previous: state.policy, advance: commitment,
+            conflict: null, archiveAppend: supplied }, context));
+          capability = await read(() => resolveObserverSnapshot(next, context, { previous: capability!, reader: validationReader, limits: archiveBounds, signal: operation?.signal }));
+        }
+      } else {
+        if (supplied.length) throw new Error('Legacy observer advance refuses archive pages');
+        const advance = await read(() => parseAdmissionPolicyAdvance(input, context)); live();
+        next = advanceAdmissionPolicyObserverState(state, advance, context);
+        if (next !== state && !next.conflict && capability) capability = await read(() => resolveObserverSnapshot(next, context, { previous: capability!, reader: validationReader, limits: archiveBounds, signal: operation?.signal }));
+      }
+      if (next === state) { await confirm(operation); usable(state); await read(() => validateCurrent(state, validationReader, operation?.signal)); return structuredClone(policyObserverStateHead(state, context)); }
+      if (saved.pending) throw new Error('Complete the pending policy observer history first');
+      if (!saved.committed) throw new Error('Confirm the policy observer genesis before advancing');
+      if (!next.conflict) assertPolicyObserverCurrent(next.policy, now());
+      operation?.live();
+      const plaintext = Buffer.from(JSON.stringify(next));
+      if (plaintext.length > ADMISSION_POLICY_OBSERVER_MAX_BYTES) throw new Error('Policy observer snapshot exceeds its existing byte bound');
+      let pending: HistoryCheckpointEnvelope;
+      try {
+        if (block.sequence >= Number.MAX_SAFE_INTEGER - 2) throw new Error('Policy observer history sequence exhausted');
+        const header = { kind: 'checkpoint' as const, generation: root.generation, sequence: block.sequence + 1, previous: historyCheckpointEnvelopeId(block) };
+        // Keep room for the one terminal conflict record even at archive capacity.
+        const reservedBytes = next.conflict ? 0 : historyCheckpointEnvelopeByteLength({ context: historyContext,
+          header: { ...header, sequence: header.sequence + 1 }, plaintextBytes: plaintext.length + 4096 });
+        const reservedHeader = reservedBytes ? { ...header, checkpointReserveBytes: historyCheckpointReserveBucket(reservedBytes) } : header;
+        const bytes = historyCheckpointEnvelopeByteLength({ context: historyContext, header: reservedHeader, plaintextBytes: plaintext.length });
+        const usage = writer!.historyUsage();
+        if (!next.conflict && (usage.retainedBlocks + 2 > usage.maximumBlocks
+          || usage.retainedCiphertextBytes + bytes + reservedBytes > usage.maximumCiphertextBytes)) throw new Error('Policy observer archive needs conflict headroom');
+        // A conflict must still reach the durable writer intent if an operator
+        // has lowered archive limits since the preceding reservation. Replication
+        // may then refuse, but reopen must retain the terminal pending fence.
+        pending = sealHistoryCheckpoint({ context: historyContext, header: reservedHeader, plaintext, encryptionKey: key, signingKey: signer });
+      } finally { plaintext.fill(0); }
+      states.set(historyCheckpointEnvelopeId(pending), next); if (capability) resolved.set(historyCheckpointEnvelopeId(pending), capability);
+      try { operation?.live(); await writer!.replicate(pending, operation); live(); }
+      finally { trim(); }
+      usable(next); await read(() => validateCurrent(next, validationReader, operation?.signal)); operation?.live(); return structuredClone(policyObserverStateHead(next, context));
   }
   const fencePath = join(writerOptions.directory, POLICY_OBSERVER_RECOVERY_FENCE);
   const stateDigest = () => historyDigest(JSON.stringify(retained().state));
@@ -345,60 +405,42 @@ export async function openProtectedPolicyObserver(options: {
         usable(state); return createAdmissionPolicyHeadVote(request, policyObserverStateHead(state, context), context, signer, now());
       } finally { observing--; }
     },
-    advance(value: unknown, archivePages: readonly { digest: string; bytes: Uint8Array }[] = []) { return exclusive(async () => {
-      if (!Array.isArray(archivePages) || archivePages.length > 2) throw new Error('Observer append payload exceeds its page bound');
-      const input = structuredClone(value), supplied = archivePages.map(page => ({ digest: page.digest, data: Buffer.from(page.bytes).toString('base64url') }));
-      if (supplied.length > 2) throw new Error('Observer append payload exceeds its page bound');
-      const { state, block, saved } = retained();
-      let next: AdmissionPolicyObserverState, capability = resolved.get(historyCheckpointEnvelopeId(block));
-      if ((input as { policy?: { version?: unknown } })?.policy?.version === 3) {
-        if (!exactWitnessFields(input, ['commitment','policy'])) throw new Error('Invalid v3 observer advance');
-        const policy = await verifyAdmissionPolicyV3(input.policy, context.authority), commitment = parseAdmissionPolicyAdvanceCommitment(input.commitment, context);
-        if (policy.revision !== commitment.next.revision || archivedAdmissionPolicyDigest(policy) !== commitment.next.digest) throw new Error('V3 observer body differs from signed digest');
-        if (state.conflict) throw new Error('Community policy authority equivocated; retain evidence and stop observations');
-        if (commitment.next.revision === policyObserverStateHead(state, context).revision && state.advance) {
-          if (sameAdmissionPolicyHead(commitment.next, state.advance.next) && sameAdmissionPolicyHead(commitment.previous, state.advance.previous)) next = state;
-          else next = { ...state, conflict: commitment };
-        } else {
-          if (!capability) throw new Error('V3 migration requires retained original resolved ancestry');
-          next = await parsePolicyObserverSnapshot({ version: 2, contextId: admissionPolicyObserversId(context), policy, previous: state.policy, advance: commitment,
-            conflict: null, archiveAppend: supplied }, context);
-          capability = await resolveObserverSnapshot(next, context, { previous: capability, reader: pageReader(), limits: archiveBounds });
-        }
-      } else {
-        if (supplied.length) throw new Error('Legacy observer advance refuses archive pages');
-        const advance = await parseAdmissionPolicyAdvance(input, context); live();
-        next = advanceAdmissionPolicyObserverState(state, advance, context);
-        if (next !== state && !next.conflict && capability) capability = await resolveObserverSnapshot(next, context, { previous: capability, reader: pageReader(), limits: archiveBounds });
-      }
-      if (next === state) { await confirm(); usable(state); await validateCurrent(state); return structuredClone(policyObserverStateHead(state, context)); }
-      if (saved.pending) throw new Error('Complete the pending policy observer history first');
-      if (!saved.committed) throw new Error('Confirm the policy observer genesis before advancing');
-      if (!next.conflict) assertPolicyObserverCurrent(next.policy, now());
-      const plaintext = Buffer.from(JSON.stringify(next));
-      if (plaintext.length > ADMISSION_POLICY_OBSERVER_MAX_BYTES) throw new Error('Policy observer snapshot exceeds its existing byte bound');
-      let pending: HistoryCheckpointEnvelope;
+    advance(value: unknown, archivePages: readonly { digest: string; bytes: Uint8Array }[] = []) { return exclusive(() => applyAdvance(value, archivePages)); },
+    advanceRemote(value: unknown, request: { deadline: number; signal?: AbortSignal; check?: () => void }) { return exclusive(async () => {
+      if (!options.remoteArchive) throw new Error('Observer does not support remote v3 archive ingestion');
+      const input = structuredClone(value), operation = createPolicyObserverRemoteOperation({ ...request, archive: options.remoteArchive });
       try {
-        if (block.sequence >= Number.MAX_SAFE_INTEGER - 2) throw new Error('Policy observer history sequence exhausted');
-        const header = { kind: 'checkpoint' as const, generation: root.generation, sequence: block.sequence + 1, previous: historyCheckpointEnvelopeId(block) };
-        // Keep room for the one terminal conflict record even at archive capacity.
-        const reservedBytes = next.conflict ? 0 : historyCheckpointEnvelopeByteLength({ context: historyContext,
-          header: { ...header, sequence: header.sequence + 1 }, plaintextBytes: plaintext.length + 4096 });
-        const reservedHeader = reservedBytes ? { ...header, checkpointReserveBytes: historyCheckpointReserveBucket(reservedBytes) } : header;
-        const bytes = historyCheckpointEnvelopeByteLength({ context: historyContext, header: reservedHeader, plaintextBytes: plaintext.length });
-        const usage = writer!.historyUsage();
-        if (!next.conflict && (usage.retainedBlocks + 2 > usage.maximumBlocks
-          || usage.retainedCiphertextBytes + bytes + reservedBytes > usage.maximumCiphertextBytes)) throw new Error('Policy observer archive needs conflict headroom');
-        // A conflict must still reach the durable writer intent if an operator
-        // has lowered archive limits since the preceding reservation. Replication
-        // may then refuse, but reopen must retain the terminal pending fence.
-        pending = sealHistoryCheckpoint({ context: historyContext, header: reservedHeader, plaintext, encryptionKey: key, signingKey: signer });
-      } finally { plaintext.fill(0); }
-      states.set(historyCheckpointEnvelopeId(pending), next); if (capability) resolved.set(historyCheckpointEnvelopeId(pending), capability);
-      try { await writer!.replicate(pending); live(); }
-      finally { trim(); }
-      usable(next); await validateCurrent(next); return structuredClone(policyObserverStateHead(next, context));
+        if (!exactWitnessFields(input, ['commitment','policy'])) throw new Error('Invalid remote v3 advance');
+        const commitment = parseAdmissionPolicyAdvanceCommitment(input.commitment, context);
+        const policy = await operation.wait(() => verifyAdmissionPolicyV3(input.policy, context.authority));
+        if (policy.revision !== commitment.next.revision || archivedAdmissionPolicyDigest(policy) !== commitment.next.digest
+          || policy.archive.contextId !== admissionPolicyObserversId(context)) throw new Error('Remote v3 advance differs from pinned signed head/context');
+        const before = retained();
+        if (before.state.conflict) throw new Error('Community policy authority equivocated; retain evidence and stop observations');
+        // Duplicates/conflicts use the already retained pages and existing terminal-fence path.
+        if (commitment.next.revision === policyObserverStateHead(before.state, context).revision) return await applyAdvance(input, [], operation);
+        if (before.saved.pending || !before.saved.committed || !sameAdmissionPolicyHead(commitment.previous, policyObserverStateHead(before.state, context))) throw new Error('Remote v3 advance requires the exact committed predecessor');
+        if (before.state.policy.version === 1) throw new Error('Remote v3 migration requires a v2 predecessor');
+        const prefix = before.state.policy.version === 3 ? before.state.policy.archive : emptyAdmissionPolicyArchive(admissionPolicyObserversId(context));
+        const count = policy.archive.pageCount - prefix.pageCount;
+        if (count < 0 || count > 2 || policy.archive.entryCount < prefix.entryCount || policy.archive.archiveBytes < prefix.archiveBytes) throw new Error('Remote v3 append exceeds its immutable prefix envelope');
+        const pages: Array<{digest: string; bytes: Uint8Array}> = [];
+        let digest = policy.archive.root, remaining = policy.archive.entryCount, total = 0;
+        for (let index = policy.archive.pageCount - 1; index >= prefix.pageCount; index--) {
+          if (!digest) throw new Error('Remote v3 append omitted its page root');
+          const bytes = await operation.page(context, commitment.next, digest, Buffer.from(signer.publicKey).toString('base64url'));
+          const page = await operation.wait(() => decodeAdmissionPolicyArchivePage(bytes));
+          remaining -= page.entries.length; total += bytes.length;
+          if (page.contextId !== policy.archive.contextId || page.index !== index || page.firstEntry !== remaining) throw new Error('Remote v3 archive page order/context differs');
+          pages.unshift({digest,bytes}); digest = page.previous;
+        }
+        if (digest !== prefix.root || remaining !== prefix.entryCount || total !== policy.archive.archiveBytes - prefix.archiveBytes) throw new Error('Remote v3 append rewrote its exact old root prefix');
+        operation.live();
+        if (historyCheckpointEnvelopeId(retained().block) !== historyCheckpointEnvelopeId(before.block)) throw new Error('Remote predecessor changed during page acquisition');
+        return await applyAdvance(input, pages, operation);
+      } finally { operation.close(); }
     }); },
+
     close,
   };
 }

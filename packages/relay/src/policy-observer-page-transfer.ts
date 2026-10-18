@@ -72,3 +72,57 @@ export async function downloadPolicyObserverArchivePage(options: {
     live(); return bytes;
   } finally { clearTimeout(timer); signal?.removeEventListener('abort', abort); controller.abort(); }
 }
+
+export interface PolicyObserverRemoteArchive {
+  /** Trusted local transport receives only independently pinned context members. */
+  exchange: (member: AdmissionPolicyObservers['members'][number], request: unknown, signal: AbortSignal) => Promise<unknown>;
+  maxRequests?: number; maxBytes?: number;
+}
+export function createPolicyObserverRemoteOperation(options: {
+  deadline: number; signal?: AbortSignal; check?: () => void; archive: PolicyObserverRemoteArchive;
+}) {
+  const deadline = Math.min(options.deadline, performance.now() + 3000), signal = options.signal, check = options.check,
+    transport = options.archive.exchange, maxRequests = options.archive.maxRequests ?? 16,
+    maximumBytes = 16 * POLICY_ARCHIVE_PAGE_REPLY_MAX_BYTES,
+    maxBytes = options.archive.maxBytes ?? maximumBytes;
+  if (!Number.isFinite(deadline) || !Number.isSafeInteger(maxRequests) || maxRequests < 0 || maxRequests > 16
+    || !Number.isSafeInteger(maxBytes) || maxBytes < 0 || maxBytes > maximumBytes) throw new Error('Invalid remote archive operation envelope');
+  const controller = new AbortController(), cancel = () => controller.abort();
+  let requests = 0, bytes = 0, exhausted = false;
+  const timer = setTimeout(cancel, Math.max(1, deadline - performance.now())); signal?.addEventListener('abort', cancel, { once: true });
+  function live() {
+    check?.();
+    if (exhausted) throw new Error('Remote archive cumulative budget exhausted');
+    if (signal?.aborted || controller.signal.aborted || performance.now() >= deadline) { cancel(); throw new Error('Remote archive operation cancelled or timed out'); }
+  }
+  async function wait<T>(work: () => Promise<T>): Promise<T> {
+    live(); let refuse!: (error: Error) => void;
+    const cancelled = new Promise<never>((_, reject) => { refuse = reject; });
+    const aborted = () => refuse(new Error('Remote archive operation cancelled or timed out'));
+    controller.signal.addEventListener('abort', aborted, { once: true });
+    try { const result = await Promise.race([work(), cancelled]); live(); return result; }
+    finally { controller.signal.removeEventListener('abort', aborted); }
+  }
+  return { deadline, signal: controller.signal, live, wait,
+    async page(contextValue: AdmissionPolicyObservers, head: unknown, digest: string, ownKey: string) {
+      const context = structuredClone(contextValue), members = context.members.filter(member => member.publicKey !== ownKey);
+      for (let peer = 0; peer < members.length; peer++) {
+        const member = members[peer];
+        live();
+        try {
+          return await downloadPolicyObserverArchivePage({ context, head, digest, timeoutMs: Math.max(1, Math.floor((deadline - performance.now()) / (members.length - peer))), signal: controller.signal,
+            exchange: async (request, pageSignal) => {
+              live();
+              if (++requests > maxRequests || bytes + POLICY_ARCHIVE_PAGE_REPLY_MAX_BYTES > maxBytes) { exhausted = true; live(); }
+              // A rejected transport may already have received bytes. Reserve its
+              // entire bounded reply before dispatch and never infer a refund.
+              bytes += POLICY_ARCHIVE_PAGE_REPLY_MAX_BYTES;
+              return wait(() => transport(member, request, pageSignal));
+            } });
+        } catch { live(); }
+      }
+      throw new Error('No committed pinned observer supplies the required archive page');
+    },
+    close() { clearTimeout(timer); signal?.removeEventListener('abort', cancel); cancel(); },
+  };
+}

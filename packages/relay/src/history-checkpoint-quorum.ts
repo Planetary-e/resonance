@@ -107,18 +107,24 @@ export function createHistoryCheckpointWriter(options: {
           timeoutMs, controller, isClosed: () => closed, retained: options.retained });
       } finally { controller.abort(); observations.delete(controller); }
     },
-    async replicate(value: unknown): Promise<HistoryWriteCertificate> {
+    async replicate(value: unknown, operation?: { signal?: AbortSignal; deadline?: number }): Promise<HistoryWriteCertificate> {
       storage.read();
       if (closed) throw new Error('History writer is closed');
       if (active || observations.size) throw new Error('History writer already has an active attempt');
-      const started = performance.now(), expiresAt = Date.now() + timeoutMs;
-      const controller = new AbortController(); active = controller;
+      const signal = operation?.signal, requestedDeadline = operation?.deadline;
+      if (signal !== undefined && !(signal instanceof AbortSignal)) throw new Error('Invalid history operation signal');
+      if (requestedDeadline !== undefined && (!Number.isFinite(requestedDeadline) || requestedDeadline < 0)) throw new Error('Invalid history operation deadline');
+      const started = performance.now(), deadline = Math.min(started + timeoutMs, requestedDeadline ?? Infinity);
+      const attemptMs = Math.max(0, deadline - started), issuedAt = Date.now(), expiresAt = issuedAt + Math.ceil(attemptMs);
+      const controller = new AbortController(), cancel = () => controller.abort(); active = controller;
+      signal?.addEventListener('abort', cancel, { once: true }); if (signal?.aborted) cancel();
       const live = () => {
-        if (closed || controller.signal.aborted || performance.now() - started >= timeoutMs || Date.now() >= expiresAt) {
+        if (closed || controller.signal.aborted || performance.now() >= deadline || Date.now() >= expiresAt) {
           throw new Error('History quorum attempt cancelled or timed out');
         }
       };
       try {
+        live();
         const block = envelope(value), id = historyCheckpointEnvelopeId(block), state = storage.read();
         if (state.pending && historyCheckpointEnvelopeId(state.pending) !== id) throw new Error('Retry the pending exact history block first');
         const retryCommitted = state.committed && historyCheckpointEnvelopeId(state.committed.envelope) === id;
@@ -127,7 +133,7 @@ export function createHistoryCheckpointWriter(options: {
           storage.write({ ...state, pending: block }); // Survives a lost reply or process death.
         }
         live();
-        const challenge = randomBytes(32).toString('base64url'), issuedAt = expiresAt - timeoutMs;
+        const challenge = randomBytes(32).toString('base64url');
         const repair = options.retained ? createHistoryWriterRepair({ context, key, rootId, block,
           retained: options.retained, transport, challenge, issuedAt, expiresAt, live }) : undefined;
         const requests = members.map(member => createHistoryExchangeRequest({ action: 'append', rootId, generation,
@@ -145,7 +151,7 @@ export function createHistoryCheckpointWriter(options: {
           };
           const abort = () => finish(undefined, new Error('History quorum attempt cancelled'));
           const timer = setTimeout(() => finish(undefined, new Error('Four durable history acknowledgements unavailable')),
-            Math.max(1, timeoutMs - (performance.now() - started)));
+            Math.max(1, deadline - performance.now()));
           controller.signal.addEventListener('abort', abort, { once: true });
           members.forEach((member, index) => {
             void Promise.resolve().then(async () => {
@@ -181,12 +187,12 @@ export function createHistoryCheckpointWriter(options: {
         });
         // Successful collection cancels the fifth socket; closed/deadline checks
         // below remain mandatory and do not interpret that internal abort as failure.
-        if (closed || performance.now() - started >= timeoutMs || Date.now() >= expiresAt) throw new Error('History quorum completed too late');
+        if (closed || signal?.aborted || performance.now() >= deadline || Date.now() >= expiresAt) throw new Error('History quorum completed too late');
         const current = storage.read();
         storage.write({ ...current, pending: null, committed: { envelope: block, certificate } });
-        if (closed || performance.now() - started >= timeoutMs || Date.now() >= expiresAt) throw new Error('History certificate persistence completed too late');
+        if (closed || signal?.aborted || performance.now() >= deadline || Date.now() >= expiresAt) throw new Error('History certificate persistence completed too late');
         return structuredClone(certificate);
-      } finally { controller.abort(); if (active === controller) active = undefined; }
+      } finally { signal?.removeEventListener('abort', cancel); controller.abort(); if (active === controller) active = undefined; }
     },
     close() { if (!closed) { closed = true; active?.abort(); observations.forEach(controller => controller.abort()); storage.close(); key.secretKey.fill(0); } },
   };

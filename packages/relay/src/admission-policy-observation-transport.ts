@@ -12,7 +12,8 @@ import { ADMISSION_POLICY_ADVANCE_MAX_BYTES, type AdmissionPolicyAdvance } from 
 
 import { POLICY_ARCHIVE_PAGE_TYPE, POLICY_ARCHIVE_PAGE_REPLY_MAX_BYTES, policyArchivePageReply } from './policy-observer-page-transfer.js';
 
-export interface AdmissionPolicyObservationFrame { request: AdmissionPolicyHeadRequest; advance: AdmissionPolicyAdvance | null }
+import type { ArchivedAdmissionPolicyAdvance } from '@resonance/core/admission-policy-archive';
+export interface AdmissionPolicyObservationFrame { request: AdmissionPolicyHeadRequest; advance: ArchivedAdmissionPolicyAdvance | null }
 export const ADMISSION_POLICY_OBSERVATION_MAX_BYTES = ADMISSION_POLICY_ADVANCE_MAX_BYTES + 1024;
 export type AdmissionPolicyObservationTransport = (member: AdmissionPolicyObservers['members'][number],
   frame: AdmissionPolicyObservationFrame, signal: AbortSignal) => Promise<unknown>;
@@ -20,7 +21,8 @@ export type AdmissionPolicyObservationTransport = (member: AdmissionPolicyObserv
 export const MAX_POLICY_OBSERVER_EXCHANGES = 8;
 
 export function createAdmissionPolicyObserverExchange(observer: {
-  advance(value: unknown): Promise<unknown>; observe(request: unknown): unknown | Promise<unknown>;
+  advance(value: unknown): Promise<unknown>;
+  advanceRemote?(value: unknown, request: {deadline: number; signal?: AbortSignal; check?: () => void}): Promise<unknown>; observe(request: unknown): unknown | Promise<unknown>;
   /** Explicit local implementation capability; never accepted from a peer. */
   archivePage?(digest: string, signal?: AbortSignal): Promise<Uint8Array>;
   status?(): { head: unknown };
@@ -93,7 +95,10 @@ export function createAdmissionPolicyObserverExchange(observer: {
       void next.run().then(value => { release(); next.resolve(value); }, error => { release(); next.reject(error); });
     }
   }
-  return async (value: unknown) => {
+  return async (value: unknown, signalOrIndex?: AbortSignal | number) => {
+    // Preserve use as an Array.map callback in existing local batching callers.
+    const signal = typeof signalOrIndex === 'number' ? undefined : signalOrIndex;
+    signal?.throwIfAborted();
     if ((value as { type?: unknown })?.type === POLICY_ARCHIVE_PAGE_TYPE) {
       if (!observer.archivePage || !observer.status) throw new Error('Observer does not support archive page transfer');
       if (pending || writing || readers) throw new Error('Observer archive transfer is busy');
@@ -106,6 +111,7 @@ export function createAdmissionPolicyObserverExchange(observer: {
     const input = structuredClone(value), request = parseAdmissionPolicyHeadRequest(input.request, context, now());
     const deadline = performance.now() + request.expiresAt - now();
     const current = () => {
+      signal?.throwIfAborted();
       if (performance.now() >= deadline) throw new Error('Policy observation expired in observer queue');
       parseAdmissionPolicyHeadRequest(request, context, now());
     };
@@ -116,7 +122,12 @@ export function createAdmissionPolicyObserverExchange(observer: {
     return new Promise<unknown>((resolve, reject) => {
       queue.push({ write: input.advance !== null, request, current, resolve, reject, async run() {
         current();
-        if (input.advance !== null) await observer.advance(input.advance);
+        if (input.advance !== null) {
+          if ((input.advance as {policy?: {version?: unknown}})?.policy?.version === 3) {
+            if (!observer.advanceRemote) throw new Error('Observer implementation refuses remote v3 archive ingestion');
+            await observer.advanceRemote(input.advance, {deadline,signal,check:current});
+          } else await observer.advance(input.advance);
+        }
         current(); // Applied updates may outlive a request, but cannot return a late vote.
         const reply = await observer.observe(request); current(); return reply;
       } });
@@ -143,7 +154,7 @@ export interface PolicyObservationHandlerDiagnostic {
 
 /** No lifecycle authority: the caller owns the observer and closes it only after
  * this listener has awaited all work that was already admitted to its handler. */
-export async function listenAdmissionPolicyObserver(exchange: (value: unknown) => Promise<unknown>, options: {
+export async function listenAdmissionPolicyObserver(exchange: (value: unknown, signal?: AbortSignal) => Promise<unknown>, options: {
   port?: number; maxConnections?: number; connectionTimeoutMs?: number;
   /** Trusted local opt-in. One request at a time; the original connection expiry remains absolute. */
   allowSequentialRequests?: boolean;
@@ -190,12 +201,14 @@ export async function listenAdmissionPolicyObserver(exchange: (value: unknown) =
         if (used || stopped || binary || performance.now() >= deadline) { ws.terminate(); return; }
         if (connection) idle.delete(connection.socket);
         used = true;
+        const controller = new AbortController(), abort = () => controller.abort();
+        ws.once('close', abort);
         const work = (async () => {
           try {
             const bytes = Buffer.isBuffer(data) ? data : Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data);
             if (options.acceptNewWork?.(bytes.byteLength) === false) throw new Error('Policy observation paused by owner');
             const value = JSON.parse(new TextDecoder('utf8', { fatal: true }).decode(bytes));
-            const reply = await exchange(value), encoded = JSON.stringify(reply);
+            const reply = await exchange(value,controller.signal), encoded = JSON.stringify(reply);
             if (typeof encoded !== 'string' || Buffer.byteLength(encoded) > ((value as { type?: unknown })?.type === POLICY_ARCHIVE_PAGE_TYPE ? POLICY_ARCHIVE_PAGE_REPLY_MAX_BYTES : ADMISSION_POLICY_HEAD_MAX_BYTES)) throw new Error('Policy observation reply exceeds its bound');
             if (stopped || performance.now() >= deadline || ws.readyState !== WebSocket.OPEN) { ws.terminate(); return; }
             ws.send(encoded, error => {
@@ -211,7 +224,7 @@ export async function listenAdmissionPolicyObserver(exchange: (value: unknown) =
               void Promise.resolve(options.onHandlerFailure?.({ phase: 'observation-handler', category: policyObservationFailureCategory(error) })).catch(() => {});
             } catch { /* Local diagnostics cannot affect refusal or cleanup. */ }
             if (ws.readyState === WebSocket.OPEN) ws.close(4003, 'policy_observation_refused');
-          }
+          } finally { ws.removeListener('close',abort); controller.abort(); }
         })();
         active.add(work); void work.finally(() => active.delete(work));
       });

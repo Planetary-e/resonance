@@ -240,3 +240,30 @@ could outlive cancellation while holding exclusivity. Corrections and specific
 regressions are pending. Astra High review interval 19:27:33–19:28:56 UTC (**83s**).
 Historical intermediate-head catch-up remains explicitly outside the completed
 immediate-head propagation scope.
+
+### Remote propagation acceptance
+
+Sol High corrected the three review findings at 19:31:00–19:34:26 UTC
+(**3m26s**). Fair per-source deadline shares preserve the original total; reply
+capacity is reserved before dispatch and retained on failure; read-only validation
+uses cancellable waits without racing mutation. The focused v3 file passes
+**26/26** and TypeScript/whitespace pass. Astra High approved the corrections
+at 19:34:44–19:34:55 UTC (**11s**).
+
+One final affected serial regression passed **101/101 tests, six files, 42.65s**:
+observer v3, history checkpoint quorum, admission policy observation, observer
+configuration, observation batches and listener reuse. Loopback networking was
+permitted. This accepts immediate-current-head remote propagation. Historical
+intermediate-head catch-up, private artifact/consumer integration and the
+65-rotation composed application target remain open.
+
+## Next fixed observer-scale check
+
+Before further consumer wiring, exercise the core 65-rotation boundary through
+real protected observers and replication: original genesis, 64 signed v2
+rotations, the 65th v3 transition with 65 archived keys, remote propagation to a
+second observer, close/reopen and missing-page refusal. Use existing storage and
+three-second operation ceilings; fixture setup may have its own test-wrapper
+allowance. Record exact failure/evidence without increasing production limits
+or silently tuning the scenario. This checks a necessary prerequisite of the
+full wallet/issuer/relay target and cannot qualify all of K2.

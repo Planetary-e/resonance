@@ -11,7 +11,8 @@ import { parseAdmissionHistoryArchiveLimits } from './admission-history-config.j
 import { readOperatorFile, readOperatorSigningKey, readOperatorStorageKey } from './admission-operator-files.js';
 import { openProtectedPolicyObserver, PolicySuccessorUnavailableError } from './protected-policy-observer.js';
 import { readArchivedPolicySuccessor, openRetainedPolicyObserverArchive } from './policy-observer-archive.js';
-import { createAdmissionPolicyObserverExchange, listenAdmissionPolicyObserver, type PolicyObservationHandlerDiagnostic } from './admission-policy-observation-transport.js';
+import { createAdmissionPolicyObserverExchange, listenAdmissionPolicyObserver, exchangeAdmissionPolicyObserverFrame, type PolicyObservationHandlerDiagnostic } from './admission-policy-observation-transport.js';
+import { POLICY_ARCHIVE_PAGE_REPLY_MAX_BYTES, type PolicyObserverRemoteArchive } from './policy-observer-page-transfer.js';
 import type { HistoryCheckpointTransport } from './history-checkpoint-exchange.js';
 import type { PolicyObserverHealth } from './history-health.js';
 
@@ -78,7 +79,7 @@ export function readPolicyObserverConfigurationFile(path: string) {
 /** Every caller must close its returned owner. Secrets are copied into the owner
  * and cleared here; neither status inspection nor this open performs network I/O. */
 export async function openConfiguredPolicyObserver(value: PolicyObserverConfiguration, options: {
-  transport?: HistoryCheckpointTransport; timeoutMs?: number; now?: () => number;
+  transport?: HistoryCheckpointTransport; timeoutMs?: number; now?: () => number; remoteArchive?: PolicyObserverRemoteArchive;
 } = {}) {
   const config = parsePolicyObserverConfiguration(value, '/');
   const signingKey = readOperatorSigningKey(config.signingKeyFile);
@@ -87,7 +88,7 @@ export async function openConfiguredPolicyObserver(value: PolicyObserverConfigur
   try {
     encryptionKey = readOperatorStorageKey(config.storageKeyFile);
     if (config.archiveDirectory) archive = openRetainedPolicyObserverArchive(config);
-    const observer = await openProtectedPolicyObserver({ ancestrySource: archive?.blocks, directory: config.directory, encryptionKey, signingKey, context: config.context,
+    const observer = await openProtectedPolicyObserver({ remoteArchive: options.remoteArchive ?? { exchange: (member, request, signal) => exchangeAdmissionPolicyObserverFrame(member,request,signal,POLICY_ARCHIVE_PAGE_REPLY_MAX_BYTES) }, ancestrySource: archive?.blocks, directory: config.directory, encryptionKey, signingKey, context: config.context,
       historyContext: config.historyContext, root: config.root, genesis: config.genesis, members: config.members, mode: 'open-existing',
       maxArchiveBytes: config.limits.archiveBytes, maxArchiveBlocks: config.limits.archiveBlocks,
       // Each fresh read has at most four live member RPCs, so two readers
@@ -101,7 +102,7 @@ export async function openConfiguredPolicyObserver(value: PolicyObserverConfigur
 /** Explicit startup checks four current copies before exposing the bounded
  * loopback listener. Public TLS/reverse routing remains separately configured. */
 export async function serveConfiguredPolicyObserver(value: PolicyObserverConfiguration, options: {
-  transport?: HistoryCheckpointTransport; timeoutMs?: number; now?: () => number; signal?: AbortSignal;
+  transport?: HistoryCheckpointTransport; timeoutMs?: number; now?: () => number; remoteArchive?: PolicyObserverRemoteArchive; signal?: AbortSignal;
   onSocket?: (socket: Socket) => void; onHandlerFailure?: (diagnostic: PolicyObservationHandlerDiagnostic) => void; acceptNewWork?: (bytes: number) => boolean;
 } = {}) {
   const config = parsePolicyObserverConfiguration(value, '/'), signal = options.signal;

@@ -172,3 +172,19 @@ it('refuses missing writer state and incompatible pinned endpoint lists', () => 
   expect(() => n.writer(true, { members: [n.members[0], ...n.members.slice(0, 4)] })).toThrow('distinct');
   expect(() => n.writer(true, { members: n.members.map((m, i) => i ? m : { ...m, endpoint: 'ws://public.example.org/' }) })).toThrow('wss');
 });
+
+it('rejects expired or invalid per-call deadlines/signals before publishing an intent', async () => {
+  const n=network();let calls=0;const writer=n.writer(true,{transport:async(...args)=>{calls++;return n.transport(...args);}});
+  await expect(writer.replicate(n.root,{deadline:performance.now()-1})).rejects.toThrow('timed out');
+  await expect(writer.replicate(n.root,{deadline:NaN})).rejects.toThrow('Invalid history operation deadline');
+  await expect(writer.replicate(n.root,{signal:{} as AbortSignal})).rejects.toThrow('Invalid history operation signal');
+  expect(calls).toBe(0);expect(writer.read().pending).toBeNull();
+  await writer.replicate(n.root);expect(writer.read().committed).not.toBeNull();
+});
+it('snapshots the per-call cancellation signal and preserves exact intent when it aborts',async()=>{
+  const n=network(),controller=new AbortController();let entered!:()=>void;const started=new Promise<void>(resolve=>{entered=resolve;});
+  const writer=n.writer(true,{transport:async(_member,_frame,signal)=>{entered();return new Promise((_,reject)=>{if(signal.aborted)reject(new Error('cancelled'));else signal.addEventListener('abort',()=>reject(new Error('cancelled')),{once:true});});}});
+  const operation={deadline:performance.now()+1000,signal:controller.signal};const pending=writer.replicate(n.root,operation);
+  await started;operation.deadline=Infinity;operation.signal=new AbortController().signal;controller.abort();
+  await expect(pending).rejects.toThrow('cancelled');expect(historyCheckpointEnvelopeId(writer.read().pending!)).toBe(historyCheckpointEnvelopeId(n.root));expect(writer.read().committed).toBeNull();
+});
