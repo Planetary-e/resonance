@@ -8,10 +8,11 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import { setTimeout as delay } from 'node:timers/promises';
 import WebSocket from 'ws';
 import { env } from '@huggingface/transformers';
 
-const { values } = parseArgs({ options: { child: { type: 'boolean' }, 'protected-policy': { type: 'boolean' }, out: { type: 'string' } } });
+const { values } = parseArgs({ options: { child: { type: 'boolean' }, 'protected-policy': { type: 'boolean' }, 'protected-admission': { type: 'boolean' }, out: { type: 'string' } } });
 env.allowRemoteModels = false;
 const wire: string[] = []; let frameBytes = 0;
 const originalSend = WebSocket.prototype.send;
@@ -58,6 +59,8 @@ if (values.child) {
   const started = performance.now(), cpuStart = process.cpuUsage();
   let report: Record<string, unknown> | undefined;
   const checkpoints: string[] = [];
+  const apiTimings: Array<{ operation: string; status: number; durationMs: number }> = [];
+  let faultCooldownMs = 0;
   const passed = (message: string) => { checkpoints.push(message); console.error(`PASS ${message}`); };
   const waitMessage = (child: ChildProcess, kind: string, timeoutMs = 60000): Promise<any> => new Promise((resolve, reject) => {
     const timer = setTimeout(() => finish(new Error(`Child ${kind} deadline exceeded`)), timeoutMs);
@@ -78,13 +81,19 @@ if (values.child) {
     const der = Buffer.from(await crypto.subtle.exportKey('spki', keys.publicKey)).toString('base64');
     const profile = { version: 1 as const, scope, issuerPublicKey: `-----BEGIN PUBLIC KEY-----\n${der}\n-----END PUBLIC KEY-----`, relayUrls: [destinationUrl] };
     const authorityKeys = generateSigningKeyPair(), authority = Buffer.from(authorityKeys.publicKey).toString('base64url'), now = Date.now();
+    const admission = values['protected-admission']
+      ? await (await import('./fixtures/real-app-admission.js')).prepareRealAppAdmission(join(directory, 'admission'), cleanup) : undefined;
     const policy = await signAdmissionPolicy({ version: 1, kind: 'admission-policy', revision: 1, issuedAt: now - 1000, expiresAt: now + 3600000,
-      activeKey: admissionKeyFingerprint(profile.issuerPublicKey), keys: [{ profile, notBefore: now - 1000, issueUntil: now + 1800000, spendUntil: now + 2400000, retryUntil: now + 3000000 }] }, authority, authorityKeys.secretKey);
-    const protectedPolicy = values['protected-policy']
+      activeKey: admissionKeyFingerprint(profile.issuerPublicKey), keys: [{ profile, notBefore: now - 1000, issueUntil: now + 1800000, spendUntil: now + 2400000, retryUntil: now + 3000000,
+        ...(admission ? { witnesses: admission.witnessSet } : {}) }] }, authority, authorityKeys.secretKey);
+    const protectedPolicy = values['protected-policy'] || admission
       ? await (await import('./fixtures/real-app-policy-observers.js')).realAppPolicyObservers(join(directory, 'policy'), policy, cleanup) : undefined;
-    const verifier = await createConfiguredAdmissionVerifier({ directory: join(directory, 'destination'), authority, policy, encryptionKey: randomBytes(32), initialize: true,
+    const protectedAdmission = admission && await admission.activate(policy, protectedPolicy!.context);
+    const verifier = protectedAdmission ? undefined : await createConfiguredAdmissionVerifier({ directory: join(directory, 'destination'), authority, policy, encryptionKey: randomBytes(32), initialize: true,
       policyObservers: protectedPolicy?.context });
-    cleanup.push(async () => { verifier.close(); await verifier.drainPolicyObservations(); });
+    if (verifier) cleanup.push(async () => { verifier.close(); await verifier.drainPolicyObservations(); });
+    const activeVerifier = () => protectedAdmission?.verifier ?? verifier!;
+    let lastAccepted: { capability: Parameters<NonNullable<typeof verifier>['verifyAndSpend']>[0]; context: Parameters<NonNullable<typeof verifier>['verifyAndSpend']>[1] } | undefined;
     const spends: Array<{ action: string; binding: string; token: string; serialized: string; status: string }> = [];
     const discovery = (endpoint: string) => ({ endpoints: [endpoint], reachability: 'direct' as const, supportedGroups: ['public'], storage: { capacityBytes: 4000000, availableBytes: 3000000 }, maxKnownRelays: 8 });
     const entry = createRelayServer({ port: 0, host: '127.0.0.1', persistDir: join(directory, 'entry'), relayDiscovery: discovery(entryUrl) });
@@ -92,7 +101,8 @@ if (values.child) {
     const destination = createRelayServer({ port: 0, host: '::1', persistDir: join(directory, 'destination'), relayDiscovery: discovery(destinationUrl),
       policyQuery: protectedPolicy?.query,
       admissionVerifier: { async verifyAndSpend(capability, context) {
-        const decision = await verifier.verifyAndSpend(capability, context);
+        const decision = await activeVerifier().verifyAndSpend(capability, context);
+        if (decision.status === 'accepted') lastAccepted = structuredClone({ capability, context });
         spends.push({ action: context.action, binding: context.requestBinding, token: capability.token, serialized: JSON.stringify(capability), status: decision.status });
         return decision;
       } } });
@@ -117,9 +127,12 @@ if (values.child) {
       let ready: { port: number }; try { ready = await waitMessage(child, 'ready'); } catch (error) { throw new Error(`${name}: ${error}; ${diagnostic}`); }
       let auth = ''; const base = `http://127.0.0.1:${ready.port}`, password = `evaluation-only-${name}-${randomBytes(16).toString('hex')}`;
       async function request(path: string, body?: unknown, expectedStatus = 200) {
+        const began = performance.now();
         const response = await fetch(base + path, { method: body === undefined ? 'GET' : 'POST', signal: AbortSignal.timeout(90000),
           headers: { authorization: `Bearer ${auth}`, 'content-type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
-        const data = await response.json(); assert.equal(response.status, expectedStatus, `${name} ${path}: ${JSON.stringify(data)}`); return data;
+        const data = await response.json();
+        apiTimings.push({ operation: path.replace(/\/reqhold_[^/]+\//, '/:id/'), status: response.status, durationMs: Math.round(performance.now() - began) });
+        assert.equal(response.status, expectedStatus, `${name} ${path}: ${JSON.stringify(data)}`); return data;
       }
       await request('/api/init', { password }); auth = (await request('/api/unlock', { password })).token;
       await request('/api/admission-wallet/configure', profile);
@@ -135,6 +148,7 @@ if (values.child) {
     passed('Two actual app processes initialized and unlocked with the cached FP32 model; blinded issuance completed through authenticated APIs');
     const texts = ['Experienced Python developer specializing in Django and REST APIs, available for freelance work',
       'I offer patient gardening lessons for beginners', 'I need a freelance Python developer for a Django project'];
+    const firstPrivateOperationAt = performance.now();
     for (const text of texts.slice(0, 2)) assert.equal((await alice.request('/api/items', { text, type: 'offer' })).status, 'published');
     assert.equal((await bob.request('/api/items', { text: texts[2], type: 'need' })).status, 'published');
     const a = await alice.snapshot(), b = await bob.snapshot(); assert.notEqual(a.did, b.did);
@@ -156,6 +170,27 @@ if (values.child) {
       assert.equal((await app.request('/api/matches')).length, count, 'Mailbox reread duplicated a match');
     }
     passed('Both applications decrypt and retain match notices; lock/unlock plus another mailbox check does not duplicate them');
+    if (protectedAdmission) {
+      assert(lastAccepted); await protectedAdmission.restart();
+      assert.equal((await activeVerifier().verifyAndSpend(lastAccepted.capability, { ...lastAccepted.context, now: Date.now() })).status, 'replay');
+      const { presentBlindAdmissionTokenV2, createAdmissionRequestBindingV2 } = await import('@resonance/core');
+      const conflictingBinding = createAdmissionRequestBindingV2('search', { query: 'attempt to reuse a spent credential' });
+      const conflicting = presentBlindAdmissionTokenV2(lastAccepted.capability.token, scope, 'search', conflictingBinding);
+      assert.deepEqual(await activeVerifier().verifyAndSpend(conflicting, { action: 'search', requestBinding: conflictingBinding, now: Date.now() }),
+        { status: 'rejected', reason: 'double_spend' });
+      passed('All six protected admission owners reopen; exact retry succeeds and a conflicting spend remains rejected');
+      // All loopback clients share one transport-IP allowance. Exercise faults
+      // in the next ordinary minute instead of raising production rate limits
+      // or mistaking a discovery refusal for a witness durability refusal.
+      faultCooldownMs = Math.max(0, Math.ceil(65000 - (performance.now() - firstPrivateOperationAt)));
+      if (faultCooldownMs) await delay(faultCooldownMs);
+      const before = await alice.request('/api/admission-wallet'), beforeSpends = spends.length;
+      await protectedAdmission.loseWitnessQuorum();
+      const refused = await alice.request('/api/search', { text: texts[2], type: 'need' }, 503);
+      assert.equal(spends.length, beforeSpends);
+      assert.equal((await alice.request('/api/admission-wallet')).available, before.available - 1, `Witness-quorum fault must reach token reservation: ${JSON.stringify(refused)}`);
+      passed('Witness history quorum loss refuses actual application search and retains the uncertain token without refund');
+    }
     if (protectedPolicy) {
       const before = await alice.request('/api/admission-wallet'), beforeSpends = spends.length;
       await protectedPolicy.loseHistoryQuorums();
@@ -185,13 +220,17 @@ if (values.child) {
     report = { measuredAt: new Date().toISOString(), checkpoints, model: 'nomic-ai/nomic-embed-text-v1', dtype: 'fp32', remoteModelDownloads: false,
       applicationProcesses: 2, published: 3, mailboxMatchCounts: mailboxCounts, distinctRequestBindings: bindings.size, distinctSpentTokens: tokenBindings.size,
       protectedPolicy: protectedPolicy ? { observers: 5, durableHistories: 25, privateQueries: protectedPolicy.queries(), issuerAndRelayFreshness: true, quorumLossRefusedBeforeSpend: true } : null,
+      protectedAdmission: protectedAdmission ? { witnesses: 5, coordinators: 1, durableHistories: 30, restartedOwners: 6,
+        retainedDoubleSpendRefusal: true, quorumLossRefused: true } : null,
+      apiTimings, faultCooldownMs,
       actions: Object.fromEntries([...new Set(spends.map(s => s.action))].map(action => [action, spends.filter(s => s.action === action).length])),
       resources: { durationMs: Math.round(performance.now() - started), websocketPayloadBytes: frameBytes + snapshots.reduce((n, s) => n + s.frameBytes, 0),
         parentPeakRssBytes: process.resourceUsage().maxRSS * 1024, applicationPeakRssBytes: snapshots.map(s => s.peakRssBytes),
         cpuSeconds: (cpu.user + cpu.system) / 1e6 + snapshots.reduce((n, s) => n + s.cpuSeconds, 0), node: process.version, platform: process.platform, architecture: process.arch },
       limitations: ['Local IPv4/IPv6 loopback domains on one computer; not independent operators, Internet or TLS deployment.',
         'Actual desktop backend APIs and embeddings; no graphical user interaction or native installer is certified.',
-        protectedPolicy ? 'Five protected observers with 25 local durable histories, issuer/relay freshness and private wallet checks are composed here; spend-witness quorum durability and eligibility distribution remain separate.'
+        protectedAdmission ? 'Five protected observers, five witnesses and one coordinator use 55 local durable history services; eligibility distribution and independent operators remain separate.'
+          : protectedPolicy ? 'Five protected observers with 25 local durable histories, issuer/relay freshness and private wallet checks are composed here; spend-witness quorum durability and eligibility distribution remain separate.'
           : 'Signed manual policy and real blinded tokens with a durable local issuer; observer freshness, quorum spends and eligibility distribution are tested separately, not composed here.',
         'Account/credential-field separation is not timing or content unlinkability; static fingerprints and match relationships remain observable to the destination.',
         'Wire payload counts exclude TCP/TLS/WebSocket headers; per-process peak RSS values are not simultaneous total memory and CPU time is not energy.',

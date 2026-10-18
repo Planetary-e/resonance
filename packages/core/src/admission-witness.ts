@@ -62,7 +62,7 @@ export function copyAdmissionSigningKey(key: SigningKeyPair): SigningKeyPair {
     if (owned.publicKey.length !== 32 || owned.secretKey.length !== 64
       || !verify(Buffer.from(DOMAIN), sign(Buffer.from(DOMAIN), owned.secretKey), owned.publicKey)) throw new Error('Invalid admission infrastructure signing key');
     return owned;
-  } catch (error) { owned.secretKey.fill(0); throw error; }
+  } catch { owned.secretKey.fill(0); throw new Error('Invalid admission infrastructure signing key'); }
 }
 export function createAdmissionWitnessRequest(claim: AdmissionSpendClaim, key: SigningKeyPair): AdmissionWitnessRequest {
   if (!validAdmissionSpendClaim(claim)) throw new Error('Invalid admission spend claim');

@@ -9,7 +9,7 @@
 
 import nacl from 'tweetnacl';
 import naclUtil from 'tweetnacl-util';
-import { createPublicKey, verify as verifyEd25519, type KeyObject } from 'node:crypto';
+import { createPrivateKey, createPublicKey, sign as signEd25519, verify as verifyEd25519, timingSafeEqual, type KeyObject } from 'node:crypto';
 const { encodeBase64, decodeBase64, encodeUTF8, decodeUTF8 } = naclUtil;
 
 // --- Base58 encoding (for did:key) ---
@@ -134,9 +134,20 @@ export function didToPublicKey(did: string): Uint8Array {
 
 /** Sign a message with an ed25519 secret key. Returns the 64-byte signature. */
 export function sign(message: Uint8Array, secretKey: Uint8Array): Uint8Array {
-  return nacl.sign.detached(message, secretKey);
+  if (!(message instanceof Uint8Array) || !(secretKey instanceof Uint8Array) || secretKey.byteLength !== 64) throw new Error('Invalid Ed25519 signing input');
+  // RFC 8410 wraps the 32-byte seed, while our existing NaCl key includes its
+  // public half. Validate that half too: importing just the seed must not
+  // silently accept a corrupted/mismatched retained key. No private-key cache.
+  const encoded = Buffer.concat([ED25519_PKCS8_PREFIX, secretKey.subarray(0, 32)]);
+  try {
+    const key = createPrivateKey({ key: encoded, format: 'der', type: 'pkcs8' });
+    const publicDer = createPublicKey(key).export({ format: 'der', type: 'spki' });
+    if (!timingSafeEqual(publicDer.subarray(ED25519_SPKI_PREFIX.length), secretKey.subarray(32))) throw new Error('Invalid Ed25519 secret key');
+    return Uint8Array.from(signEd25519(null, message, key));
+  } finally { encoded.fill(0); }
 }
 
+const ED25519_PKCS8_PREFIX = Buffer.from('302e020100300506032b657004220420', 'hex');
 const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
 const MAX_VERIFICATION_KEYS = 512;
 // Public keys only. Key by copied bytes, never a caller-owned mutable array.
