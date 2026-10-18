@@ -52,6 +52,30 @@ it('observes, activates on four actual sockets, refuses an old head and repairs 
   expect(parseAdmissionPolicyHeadCertificate(certificate, certificate.votes[0].request, n.context, n.advance.commitment.next, n.now).votes).toHaveLength(4);
 });
 
+it('preserves an independently supplied caller challenge across asynchronous validation and real observer collection', async () => {
+  const n = await network(), request = createAdmissionPolicyHeadRequest(n.context, n.now, 1000), expected = structuredClone(request);
+  const pending = collectAdmissionPolicyObservation({ ...n.options, request });
+  request.challenge = createAdmissionPolicyHeadRequest(n.context, n.now).challenge;
+  const certificate = await pending;
+  expect(certificate.votes).toHaveLength(4); expect(certificate.votes.every(vote => JSON.stringify(vote.request) === JSON.stringify(expected))).toBe(true);
+  expect(() => parseAdmissionPolicyHeadCertificate(certificate, request, n.context, admissionPolicyHead(n.first), n.now)).toThrow();
+  expect(parseAdmissionPolicyHeadCertificate(certificate, expected, n.context, admissionPolicyHead(n.first), n.now).votes).toHaveLength(4);
+});
+
+it('rejects invalid or expired caller challenges before dialing and honors a shorter caller lifetime', async () => {
+  const n = await network(), request = createAdmissionPolicyHeadRequest(n.context, n.now, 100);
+  for (const changed of [{ ...request, expiresAt: n.now }, { ...request, contextId: 'sha256:' + '0'.repeat(64) },
+    { ...request, challenge: 'invalid' }, { ...request, extra: true }]) {
+    await expect(collectAdmissionPolicyObservation({ ...n.options, request: changed })).rejects.toThrow();
+  }
+  expect(n.received).toEqual([0, 0, 0, 0, 0]);
+  let aborted = 0; const started = performance.now();
+  await expect(collectAdmissionPolicyObservation({ ...n.options, request, timeoutMs: 1000, transport: (_member, _frame, signal) => {
+    signal.addEventListener('abort', () => { aborted++; }, { once: true }); return new Promise(() => {});
+  } })).rejects.toThrow('timed out');
+  expect(performance.now() - started).toBeLessThan(800); expect(aborted).toBe(5);
+});
+
 it('keeps accepted partial updates through a partition and an unknown outcome, then completes with a returning fourth', async () => {
   const n = await network(); n.online[3] = n.online[4] = false;
   await expect(collectAdmissionPolicyObservation({ ...n.options, policy: n.second, advance: n.advance })).rejects.toThrow('four matching');

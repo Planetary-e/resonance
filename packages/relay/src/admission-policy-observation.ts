@@ -2,27 +2,34 @@
  * private routing when this is integrated; direct fan-out would expose activity. */
 import { assertAdmissionPolicyCurrent, verifyAdmissionPolicy } from '@resonance/core/admission-policy';
 import { admissionPolicyHead, matchesAdmissionPolicyHead, parseAdmissionPolicyAdvance, sameAdmissionPolicyHead } from '@resonance/core/admission-policy-advance';
-import { createAdmissionPolicyHeadRequest, parseAdmissionPolicyObservers, parseAdmissionPolicyHeadVote,
+import { createAdmissionPolicyHeadRequest, parseAdmissionPolicyHeadRequest, parseAdmissionPolicyObservers, parseAdmissionPolicyHeadVote,
   parseAdmissionPolicyHeadCertificate, type AdmissionPolicyHeadCertificate, type AdmissionPolicyHeadVote,
   type AdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
 import { exchangeAdmissionPolicyObservation, type AdmissionPolicyObservationFrame, type AdmissionPolicyObservationTransport } from './admission-policy-observation-transport.js';
 
 export async function collectAdmissionPolicyObservation(options: {
   context: AdmissionPolicyObservers; policy: unknown; advance?: unknown;
+  /** Preserve a personal caller's fresh challenge when collecting behind its private route. */
+  request?: unknown;
   transport?: AdmissionPolicyObservationTransport; signal?: AbortSignal; timeoutMs?: number; now?: () => number;
 }): Promise<AdmissionPolicyHeadCertificate> {
   const timeout = options.timeoutMs ?? 3000;
   if (!Number.isSafeInteger(timeout) || timeout < 100 || timeout > 30_000) throw new Error('Policy observation timeout must be between 100 and 30000 ms');
-  const deadline = performance.now() + timeout, now = options.now ?? Date.now, signal = options.signal;
+  let deadline = performance.now() + timeout;
+  const now = options.now ?? Date.now, signal = options.signal;
   const transport = options.transport ?? exchangeAdmissionPolicyObservation, context = parseAdmissionPolicyObservers(options.context);
   const policyInput = structuredClone(options.policy), advanceInput = options.advance === undefined ? undefined : structuredClone(options.advance);
+  const requestNow = now();
+  const suppliedRequest = options.request === undefined ? undefined : parseAdmissionPolicyHeadRequest(options.request, context, requestNow);
+  if (suppliedRequest) deadline = Math.min(deadline, performance.now() + suppliedRequest.expiresAt - requestNow);
   const check = () => { signal?.throwIfAborted(); if (performance.now() >= deadline) throw new Error('Policy observation timed out'); };
   check(); const policy = await verifyAdmissionPolicy(policyInput, context.authority); check(); assertAdmissionPolicyCurrent(policy, now());
   const expected = admissionPolicyHead(policy), advance = advanceInput === undefined ? null : await parseAdmissionPolicyAdvance(advanceInput, context);
   check();
   if (expected.revision < context.genesis.revision || (expected.revision === context.genesis.revision && !sameAdmissionPolicyHead(expected, context.genesis))) throw new Error('Requested policy conflicts with the pinned genesis');
   if (advance && !matchesAdmissionPolicyHead(policy, advance.commitment.next)) throw new Error('Policy activation differs from the requested head');
-  const request = createAdmissionPolicyHeadRequest(context, now(), timeout), frame: AdmissionPolicyObservationFrame = { request, advance };
+  const request = suppliedRequest ? parseAdmissionPolicyHeadRequest(suppliedRequest, context, now()) : createAdmissionPolicyHeadRequest(context, now(), timeout);
+  const frame: AdmissionPolicyObservationFrame = { request, advance };
   return new Promise((resolve, reject) => {
     const controller = new AbortController(), votes = new Map<string, AdmissionPolicyHeadVote[]>();
     let done = false, remaining = context.members.length;

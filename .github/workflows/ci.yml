@@ -43,6 +43,8 @@ jobs:
           packages/relay/src/__tests__/admission-policy-observer.test.ts
           packages/relay/src/__tests__/admission-policy-observer-crash.integration.test.ts
           packages/relay/src/__tests__/admission-policy-observation.integration.test.ts
+          packages/relay/src/__tests__/admission-policy-query.test.ts
+          packages/core/src/__tests__/admission-policy-query.test.ts
           packages/relay/src/__tests__/history-current-head.integration.test.ts
           packages/relay/src/__tests__/protected-policy-observer.integration.test.ts
           packages/relay/src/__tests__/protected-policy-quorum.integration.test.ts
