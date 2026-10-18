@@ -181,6 +181,12 @@ failures or structural counterexamples. The
 are authoritative for closing v0.4. Existing failed screens remain failed;
 passing a unit-test suite does not substitute for those gates.
 
+The [bounded architecture study](docs/developers/v0.4-architecture-study-2026-10-18.md)
+has assessed three candidate configurations. None qualifies under the unchanged
+joint privacy/resource/trust premises; all objectives below remain open until
+their own evidence passes. Further architectural work needs the specific
+decisions recorded in that study, not an unbounded series of tuning PRs.
+
 - [ ] Send publish, search, and mailbox requests through two independently selected volunteer hops
   - [x] Select an ordered pair from fresh, signed, directly reachable relay descriptors and authenticated transport observations; fail closed when identities or observed network domains overlap
   - [x] Carry encrypted publish, search, and mailbox operations over two local relay sockets, with a signed entry-to-destination forward and an encrypted return reply
