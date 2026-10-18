@@ -18,7 +18,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -85,6 +85,8 @@ jobs:
           packages/app/src/server/__tests__/local-api-lifetime.test.ts
           packages/app/src/server/__tests__/local-http-boundary.integration.test.ts
           packages/app/src/server/__tests__/native-import-boundary.integration.test.ts
+          packages/app/src/server/__tests__/policy-observer-activation.integration.test.ts
+          packages/app/src/server/__tests__/relay-loader-path.test.ts
 
   test:
     runs-on: ubuntu-latest

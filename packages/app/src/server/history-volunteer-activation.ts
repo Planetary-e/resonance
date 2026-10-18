@@ -11,6 +11,7 @@ import { relayServiceRuntime, validateRelayServicePaths } from './relay-supervis
 import type { RelayConfig } from './session.js';
 import { historyActivationServiceFiles } from './history-activation.js';
 import { historyCollectionActivationServiceFiles } from './history-collection-activation.js';
+import { policyObserverActivationServiceFiles } from './policy-observer-activation.js';
 
 export interface RelayVolunteerActivationInput {
   enrollmentFile: string; signingKeyFile: string; storageKeyFile: string; directory: string; controllersFile: string; output: string;
@@ -84,7 +85,8 @@ export async function withRelayVolunteerActivation<T>(raw: unknown, previous: Re
     localKey = readOperatorStorageKey(input.storageKeyFile);
     const binding: RelayVolunteerBinding = { contextId: enrollment.contextId, genesisId: enrollment.genesisId,
       member: Buffer.from(signingKey.publicKey).toString('base64url'), directory };
-    const ownerFiles = previous.historyActivationInput ? historyActivationServiceFiles(previous.historyActivationInput) : {};
+    const ownerFiles = { ...(previous.historyActivationInput ? historyActivationServiceFiles(previous.historyActivationInput) : {}),
+      ...policyObserverActivationServiceFiles(previous) };
     const existingRuntime = relayServiceRuntime(previous.runtime, { ...ownerFiles, ...volunteerActivationServiceFiles(previous) });
     const priorBinding = previous.historyVolunteerBinding ?? (existingRuntime.historyVolunteerFile ? configurationBinding(existingRuntime.historyVolunteerFile) : undefined);
     if (priorBinding) sameBinding(priorBinding, binding);

@@ -10,6 +10,7 @@ import { readHistoryVolunteerConfigurationFile } from '../../../relay/src/histor
 import { readHistoryVolunteerCollectionFile, openConfiguredHistoryVolunteerCollection, HISTORY_VOLUNTEER_COLLECTION_MAX_BYTES } from '../../../relay/src/history-volunteer-collection.js';
 import { relayServiceRuntime, validateRelayServicePaths } from './relay-supervisor.js';
 import { historyActivationServiceFiles } from './history-activation.js';
+import { policyObserverActivationServiceFiles } from './policy-observer-activation.js';
 import type { RelayConfig } from './session.js';
 import type { RelayVolunteerBinding } from './history-volunteer-activation.js';
 
@@ -94,6 +95,7 @@ export async function withRelayHistoryCollectionActivation<T>(raw: unknown, prev
   try {
     const retainedDigest = collection.reviewDigest(), runtime = relayServiceRuntime(previous.runtime,
       { ...(previous.historyActivationInput ? historyActivationServiceFiles(previous.historyActivationInput) : {}),
+        ...policyObserverActivationServiceFiles(previous),
         historyVolunteerFile: '', historyVolunteerCollectionFile: input.configurationFile });
     const service = { ...runtime, dataDir: getDataDir(), port: previous.port, adminKey: previous.adminKey ?? '', contacts: previous.contacts ?? [], controls: previous.controls };
     validateRelayServicePaths(service);
@@ -105,6 +107,7 @@ export async function withRelayHistoryCollectionActivation<T>(raw: unknown, prev
       signal.throwIfAborted(); const current = snapshot(input);
       validateRelayServicePaths(service);
       if (JSON.stringify(current.binding) !== JSON.stringify(original.binding) || JSON.stringify(current.layout) !== JSON.stringify(original.layout)
+        || JSON.stringify(current.config) !== JSON.stringify(original.config)
         || collection.reviewDigest() !== retainedDigest || canonicalHistorySetupPath(runtimeDirectory) !== directory) throw new Error('Collection inputs or retained history changed; review again');
     };
     check(); let applied = false;

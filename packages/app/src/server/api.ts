@@ -37,6 +37,7 @@ import {
   planRelayStorageScope, applyRelayStorageScope, cancelRelayStorageScope,
   getRelayVolunteerActivationInput, planRelayVolunteerActivation, applyRelayVolunteerActivation,
   getRelayHistoryCollectionInput, planRelayHistoryCollectionActivation, applyRelayHistoryCollectionActivation,
+  getRelayPolicyObserverInput, planRelayPolicyObserverActivation, applyRelayPolicyObserverActivation,
   publishItem,
   listSessionItems,
   releaseHeldPublication,
@@ -510,6 +511,28 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
   }
 
   // --- Relay mode ---
+
+  if (url === '/api/relay/history/policy-observer' && method === 'GET') {
+    if (!requireAuth(req, res)) return true;
+    try { json(res, { input: getRelayPolicyObserverInput() }); }
+    catch (err) { error(res, err instanceof Error ? err.message : 'Saved observer selection unavailable', 409); }
+    return true;
+  }
+  if (['/api/relay/history/policy-observer/review', '/api/relay/history/policy-observer/apply'].includes(url) && method === 'POST') {
+    if (!requireAuth(req, res)) return true;
+    const controller = requestAbortController(req), disconnected = () => { if (!res.writableEnded) controller.abort(); };
+    res.once('close', disconnected);
+    try {
+      const body = await readBody(req), applying = url.endsWith('/apply');
+      if (!exactWitnessFields(body, applying ? ['input', 'approvalDigest'] : ['input'])
+        || applying && (typeof body.approvalDigest !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(body.approvalDigest))) throw new Error('Supply the observer selection and its reviewed approval when applying');
+      const result = applying ? await applyRelayPolicyObserverActivation(body.input, body.approvalDigest as string, controller.signal)
+        : await planRelayPolicyObserverActivation(body.input, controller.signal);
+      json(res, result);
+    } catch (err) { error(res, err instanceof Error ? err.message : 'Observer selection failed; retain history and maintenance', 409); }
+    finally { res.removeListener('close', disconnected); }
+    return true;
+  }
 
   if (url === '/api/relay/storage' && method === 'GET') {
     if (!requireAuth(req, res)) return true;

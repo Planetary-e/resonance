@@ -5,10 +5,15 @@ import { closeSync, constants, existsSync, fstatSync, lstatSync, openSync, readS
 import { request } from 'node:http';
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { assertSecureRelayTransportEndpoint } from '@resonance/core';
 import { assertNoStorageReservationContext } from '@resonance/core/storage-reservations';
 import { reserveOperatorAtomicOutput, writeOperatorTextAtomic, readRelayStorageSnapshot, assertStoppedRelayStorageOwner } from '@resonance/relay';
+import { readPolicyObserverConfigurationFile } from '../../../relay/src/policy-observer-config.js';
+import { parseAdmissionHistoryConfiguration, readAdmissionHistoryLinksFile } from '../../../relay/src/admission-history-config.js';
+import { readOperatorJson } from '../../../relay/src/admission-operator-files.js';
+import { shareHistoryOwnerRoutes } from '../../../relay/src/history-owner-routing.js';
 export const RELAY_SERVICE_FILE_MAX_BYTES = 1024 * 1024;
 
 export const RELAY_SERVICE_LABEL = 'earth.planetary.resonance.relay';
@@ -108,14 +113,16 @@ export function relayServiceRuntime(retained: RelayServiceRoleFiles & { publicEn
     entryPath,
     workingDirectory: process.env.RESONANCE_RELAY_CWD ?? process.cwd(),
     nodePathEnv: process.env.NODE_PATH,
-    tsxImportPath: entryPath.endsWith('.ts') ? createRequire(import.meta.url).resolve('tsx') : undefined,
+    tsxImportPath: entryPath.endsWith('.ts') ? pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href : undefined,
     ...files, publicEndpoints: [...publicEndpoints],
   };
 }
 
 function command(options: RelayServiceOptions): string[] {
+  const selected = options.tsxImportPath ?? 'tsx';
+  const loader = isAbsolute(selected) ? pathToFileURL(selected).href : selected;
   return [options.nodePath,
-    ...(options.entryPath.endsWith('.ts') ? ['--import', options.tsxImportPath ?? 'tsx'] : []),
+    ...(options.entryPath.endsWith('.ts') ? ['--import', loader] : []),
     options.entryPath];
 }
 
@@ -251,6 +258,12 @@ export function validateRelayServicePaths(options: RelayServiceOptions): void {
     if (key === 'admissionHistoryDirectory') {
       if (!existsSync(path) || !statSync(path).isDirectory()) throw new Error('The prepared protected history directory is missing or is not a directory');
     } else if (!existsSync(path) || !statSync(path).isFile()) throw new Error('A relay role configuration file is missing or not regular');
+  }
+  if (options.policyObserverFile && options.policyObserverLinksFile && options.admissionHistoryFile && options.admissionHistoryLinksFile) {
+    const observer = readPolicyObserverConfigurationFile(options.policyObserverFile);
+    const owner = parseAdmissionHistoryConfiguration(readOperatorJson(options.admissionHistoryFile, 65536));
+    shareHistoryOwnerRoutes(readAdmissionHistoryLinksFile(options.admissionHistoryLinksFile, owner.context).members,
+      readAdmissionHistoryLinksFile(options.policyObserverLinksFile, observer.historyContext).members);
   }
   relayServiceOutputFiles(options); // Rendering/encoded limits are part of read-only preparation too.
 }

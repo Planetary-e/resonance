@@ -101,7 +101,9 @@ it('resumes frozen stores after lost freeze replies and keeps source fencing acr
   await expect(recovery.reviewRestore(join(n.directory, 'premature'))).rejects.toThrow('not completed');
   const aborted = new AbortController(); aborted.abort(); await expect(recovery.advance({ signal: aborted.signal })).rejects.toThrow('cancelled');
   loseReplies = false; n.online(4); await finish(recovery); expect(existsSync(join(n.options.directory, POLICY_OBSERVER_RECOVERY_FENCE))).toBe(true);
-});
+  // This case includes setup, five durable freezes, cancellation and every
+  // recovery phase. Windows CI exceeded Vitest's default five-second case limit.
+}, 30000);
 
 it('refuses semantic evidence deletion before confirming or provisioning a new generation', async () => {
   const n = await fixture(); await n.observer.advance(n.advance); await expect(n.observer.advance(n.conflict)).rejects.toThrow('equivocated');

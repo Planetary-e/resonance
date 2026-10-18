@@ -9,6 +9,7 @@ import { EmbeddingEngine } from '@resonance/core';
 import { historyCheckpointEnvelopeId, sealHistoryCheckpoint } from '@resonance/core/history-checkpoint';
 import { historyVolunteerCollectionFixture } from '../../../../relay/src/__tests__/fixtures/history-volunteer-collection-fixture.js';
 import { readHistoryVolunteerCollectionFile, openConfiguredHistoryVolunteerCollection } from '../../../../relay/src/history-volunteer-collection.js';
+import * as collectionConfiguration from '../../../../relay/src/history-volunteer-collection.js';
 import { openHistoryCheckpointStore } from '../../../../relay/src/history-checkpoint-store.js';
 import { createAppServer } from '../server.js';
 import { lockSession, loadRelayConfig } from '../session.js';
@@ -55,6 +56,17 @@ async function fixture() {
   };
   return { ...n, desktop, runtimeDirectory, settings, request, init, unlock, input, review, apply, append };
 }
+
+it('refuses a controller edit between parsing collection fields and hashing the configuration bytes', async () => {
+  const n = await fixture(); await n.init(); await n.request('/api/relay/maintenance', {});
+  const readConfig = collectionConfiguration.readHistoryVolunteerCollectionFile;
+  vi.spyOn(collectionConfiguration, 'readHistoryVolunteerCollectionFile').mockImplementationOnce(path => {
+    const parsed = readConfig(path), changed = JSON.parse(readFileSync(path, 'utf8'));
+    changed.controllers[0].endpoint = 'ws://127.0.0.1:10/'; writeFileSync(path, JSON.stringify(changed)); return parsed;
+  });
+  const review = await n.review(); expect(review.status).toBe(409); expect(review.body.error).toContain('changed');
+  expect((await n.review()).status).toBe(200);
+});
 
 it('requires authentication and maintenance, reviews all histories, retains selection across lock and prevents environment override', async () => {
   const n = await fixture(); expect((await n.review()).status).toBe(401); expect((await n.request('/api/relay/history/collection')).status).toBe(401);

@@ -409,6 +409,20 @@ export function applyRelayHistoryActivation(input: RelayHistoryActivationInput, 
 export function cancelRelayHistoryOperation() { return api<{ active: boolean }>('POST', '/api/relay/history/cancel'); }
 
 export interface RelayHistoryCollectionInput { configurationFile: string }
+export interface RelayPolicyObserverInput { configurationFile: string; linksFile: string }
+export interface RelayPolicyObserverReview {
+  kind: 'policy-observer-activation'; configurationFile: string; contextId: string; genesisId: string; rootId: string; directory: string;
+  owner: string; authority: string; generation: number; head: { revision: number; digest: string; transition: string };
+  pending: boolean; blocked: boolean; fenced: boolean; members: Array<{ publicKey: string; endpoint: string }>;
+  policyCurrent: boolean; policyExpiresAt: number;
+  routing: Array<{ publicKey: string; relayId: string; viaRelayId?: string }> | null;
+  readiness: 'unverified'; startsService: false; approvalDigest: string;
+}
+export function getRelayPolicyObserverInput() { return api<{ input: RelayPolicyObserverInput | null }>('GET', '/api/relay/history/policy-observer'); }
+export function reviewRelayPolicyObserver(input: RelayPolicyObserverInput) { return api<RelayPolicyObserverReview>('POST', '/api/relay/history/policy-observer/review', { input }); }
+export function applyRelayPolicyObserver(input: RelayPolicyObserverInput, approvalDigest: string) {
+  return api<{ result: string; readiness: 'unverified'; startsService: false }>('POST', '/api/relay/history/policy-observer/apply', { input, approvalDigest });
+}
 export interface RelayHistoryCollectionReview {
   kind: 'history-collection-activation'; configurationFile: string;
   histories: Array<{ contextId: string; genesisId: string; member: string; directory: string }>;

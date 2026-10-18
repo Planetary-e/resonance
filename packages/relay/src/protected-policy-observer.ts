@@ -1,5 +1,5 @@
 /** Experimental policy observer backed by the existing four-copy history writer.
- * No production admission/CLI wiring and no automatic lost-state reconstruction. */
+ * Explicit configuration is required; reopening never reconstructs lost state. */
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
