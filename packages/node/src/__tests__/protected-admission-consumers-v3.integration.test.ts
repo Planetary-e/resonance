@@ -130,7 +130,12 @@ async function fixture(settings: { sockets?: boolean; maxArchiveBlocks?: number;
     async function recover() {
       const freeze = run(() => createHistoryCheckpointRecovery({ directory: join(roleDirectory, 'freeze'), localKey: key, context: historyContext, signingKey: h.owner,
         rootId: genesisId, generation: 0, nextGeneration: 1, members: endpoints, initialize: true, timeoutMs: 2000, transport })); cleanup.push(freeze.close);
-      const frozen = await freeze.prepare(), proposal = createHistorySuccessorProposal(frozen, historyContext, h.owner);
+      const freezeStarted = performance.now();
+      const frozen = await freeze.prepare().catch(error => {
+        const diagnostic = error instanceof Error && /^(Four complete frozen histories unavailable|History recovery cancelled): \{/.test(error.message)
+          ? error.message : 'recovery failed';
+        throw new Error(`Protected consumer freeze ${kind} after ${Math.round(performance.now() - freezeStarted)}ms: ${diagnostic}`);
+      }), proposal = createHistorySuccessorProposal(frozen, historyContext, h.owner);
       const agreement = run(() => createHistoryAgreementCoordinator({ directory: join(roleDirectory, 'agreement'), localKey: key, context: historyContext, signingKey: h.owner,
         rootId: genesisId, generation: 0, nextGeneration: 1, members: agreementEndpoints, initialize: { proposal }, timeoutMs: 2000,
         transport: agreementTransport, historyTransfer: { transport: dataTransport, retained: () => frozen.envelopes } })); cleanup.push(agreement.close);

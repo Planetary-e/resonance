@@ -68,6 +68,56 @@ it('requires four complete payloads, not four freeze receipts and only three rea
   repaired = true; expect((await recovery.prepare()).envelopes).toEqual([n.root]);
 });
 
+it.each(['deadline', 'malformed', 'transport'] as const)('reports bounded redacted member diagnostics for %s refusal', async fault => {
+  const n = network(), sensitive = `private-payload ${n.members[0].publicKey} ${n.members[0].endpoint}`;
+  let clock = performance.now();
+  const clockSpy = fault === 'deadline' ? vi.spyOn(performance, 'now').mockImplementation(() => clock) : undefined;
+  const transport: HistoryCheckpointTransport = async (member, frame, signal) => {
+    if (fault === 'deadline') clock += 1001;
+    if (fault === 'transport') throw new Error(sensitive);
+    if (fault === 'malformed') return { secret: sensitive };
+    return n.transport(member, frame, signal);
+  };
+  const recovery = n.recovery(true, { transport, timeoutMs: 1000 });
+  let error: Error;
+  try { error = await recovery.prepare().then(() => { throw new Error('Unexpected recovery success'); }, error => error); }
+  finally { clockSpy?.mockRestore(); }
+  const prefix = 'Four complete frozen histories unavailable: ';
+  expect(error.message.startsWith(prefix)).toBe(true);
+  const diagnostic = JSON.parse(error.message.slice(prefix.length));
+  expect(diagnostic.completed).toBe(0);
+  expect(diagnostic.failed + diagnostic.pending).toBe(5);
+  expect(diagnostic.members).toHaveLength(5);
+  expect(error.message.length).toBeLessThan(1200);
+  expect(error.message).not.toContain(sensitive);
+  expect(error.message).not.toContain(n.options.rootId);
+  const reason = fault === 'malformed' ? 'invalid-response' : fault;
+  for (const [index, member] of diagnostic.members.entries()) {
+    expect(Object.keys(member).sort()).toEqual(['deadline', 'elapsedMs', 'index', 'phase', 'reads', 'reason']);
+    expect(member.index).toBe(index); expect(member.reads).toBe(0);
+    expect(member.reason).toBe(reason); expect(member.deadline).toBe(fault === 'deadline');
+    expect(member.elapsedMs).toBeGreaterThanOrEqual(0);
+    expect(error.message).not.toContain(n.members[index].publicKey);
+    expect(error.message).not.toContain(n.members[index].endpoint);
+  }
+  expect(recovery.read().prepared).toBeNull(); expect(recovery.read().attempt).not.toBeNull();
+});
+
+it('retains bounded diagnostics on external close cancellation without accepting a preparation', async () => {
+  const n = network(), transport = vi.fn<HistoryCheckpointTransport>(() => new Promise(() => {}));
+  const recovery = n.recovery(true, { transport });
+  const pending = recovery.prepare(); await Promise.resolve(); recovery.close();
+  const error = await pending.then(() => { throw new Error('Unexpected recovery success'); }, error => error);
+  const prefix = 'History recovery cancelled: ';
+  expect(error.message.startsWith(prefix)).toBe(true);
+  const diagnostic = JSON.parse(error.message.slice(prefix.length));
+  expect(diagnostic).toMatchObject({ completed: 0, failed: 0, pending: 5 });
+  expect(diagnostic.members).toHaveLength(5);
+  expect(diagnostic.members.every((member: { reason: string }) => member.reason === 'cancelled')).toBe(true);
+  expect(error.message.length).toBeLessThan(1200);
+  const reopened = n.recovery(false); expect(reopened.read().prepared).toBeNull();
+});
+
 it('survives lost freeze replies and restart but never accepts replies from an earlier attempt', async () => {
   const n = network(), old = new Map<string, unknown>();
   let recovery = n.recovery(true, { transport: async (m, f, s) => { old.set(m.publicKey, await n.transport(m, f, s)); throw new Error('lost'); } });
@@ -162,8 +212,14 @@ it('bounds attempts, rejects late replies after cancellation, and lets a higher 
   let recovery = n.recovery(true, { transport: (m, f) => new Promise(resolve => {
     deliveries.push(() => resolve(n.roles[n.context.members.indexOf(m.publicKey)].exchange(f)));
   }), timeoutMs: 1000 });
-  const attempt = recovery.prepare(), failed = expect(attempt).rejects.toThrow('Four');
+  let timerDiagnostic: { pending: number; members: Array<{ phase: string }> } | undefined;
+  const attempt = recovery.prepare().catch(error => {
+    timerDiagnostic = JSON.parse(error.message.slice('Four complete frozen histories unavailable: '.length));
+    throw error;
+  }), failed = expect(attempt).rejects.toThrow('Four');
   await expect(recovery.prepare()).rejects.toThrow('active'); await failed; expect(deliveries).toHaveLength(5);
+  expect(timerDiagnostic?.pending).toBe(5); expect(timerDiagnostic?.members).toHaveLength(5);
+  expect(timerDiagnostic?.members.every(member => member.phase === 'transport')).toBe(true);
   deliveries.splice(0).forEach(deliver => expect(deliver).toThrow('expired')); recovery.close();
   recovery = n.recovery(false, { transport: () => new Promise(() => {}) });
   const cancelled = expect(recovery.prepare()).rejects.toThrow('cancelled'); recovery.close(); await cancelled;

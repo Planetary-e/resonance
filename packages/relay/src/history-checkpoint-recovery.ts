@@ -111,6 +111,22 @@ export function createHistoryCheckpointRecovery(options: {
         const baseline = state.prepared?.envelopes.map(historyCheckpointEnvelopeId) ?? [];
         const result = await new Promise<HistoryRecoveryPreparation>((resolve, reject) => {
           let settled = false, remaining = 5;
+          type Phase = 'queued' | 'request' | 'transport' | 'response-validation' | 'request-expiry' | 'history-validation' | 'complete';
+          type Reason = 'pending' | 'complete' | 'deadline' | 'cancelled' | 'transport' | 'invalid-response' | 'invalid-request' | 'invalid-history' | 'capacity';
+          const diagnostics: Array<{ index: number; phase: Phase; reads: number; reason: Reason; ended?: number }> =
+            members.map((_, index) => ({ index, phase: 'queued', reads: 0, reason: 'pending' }));
+          const expired = () => performance.now() - started >= timeoutMs || Date.now() >= expiresAt;
+          const diagnosticError = (message: string) => {
+            const elapsed = performance.now() - started, deadline = expired();
+            return new Error(`${message}: ${JSON.stringify({
+              completed: diagnostics.filter(d => d.reason === 'complete').length,
+              failed: diagnostics.filter(d => d.reason !== 'pending' && d.reason !== 'complete').length,
+              pending: diagnostics.filter(d => d.reason === 'pending').length,
+              members: diagnostics.map(d => ({ index: d.index, phase: d.phase, reads: d.reads,
+                elapsedMs: Math.round(d.ended ?? elapsed), deadline,
+                reason: d.reason === 'pending' ? (deadline ? 'deadline' : controller.signal.aborted ? 'cancelled' : 'pending') : d.reason })),
+            })}`);
+          };
           const receipts: HistoryExchangeResponse[] = [];
           let selected: HistoryCheckpointEnvelope[] = [], selectedIds: string[] = [];
           const finish = (prepared?: HistoryRecoveryPreparation, error?: Error) => {
@@ -118,25 +134,30 @@ export function createHistoryCheckpointRecovery(options: {
             clearTimeout(timer); controller.signal.removeEventListener('abort', abort); controller.abort();
             if (error) reject(error); else resolve(prepared!);
           };
-          const abort = () => finish(undefined, new Error('History recovery cancelled'));
-          const timer = setTimeout(() => finish(undefined, new Error('Four complete frozen histories unavailable')),
+          const abort = () => finish(undefined, diagnosticError('History recovery cancelled'));
+          const timer = setTimeout(() => finish(undefined, diagnosticError('Four complete frozen histories unavailable')),
             Math.max(1, timeoutMs - (performance.now() - started)));
           controller.signal.addEventListener('abort', abort, { once: true });
-          async function collect(member: HistoryReplicaEndpoint) {
+          async function collect(member: HistoryReplicaEndpoint, diagnostic: typeof diagnostics[number]) {
             async function request(action: 'freeze' | 'read', sequence: number) {
+              diagnostic.phase = 'request';
               live();
               const original = createHistoryExchangeRequest({ action, rootId, generation, replica: member.publicKey,
                 sequence, envelopeId: null, challenge: freeze.challenge, issuedAt, expiresAt }, context, key);
               live();
+              diagnostic.phase = 'transport';
               const raw = await transport(member, { request: structuredClone(original), envelope: null,
                 ...(action === 'freeze' ? { freeze: structuredClone(freeze) } : {}) }, controller.signal);
               live();
+              diagnostic.phase = 'response-validation';
               const response = parseHistoryExchangeResponse(raw, original, context);
+              diagnostic.phase = 'request-expiry';
               parseHistoryExchangeRequest(original, context, Date.now()); live();
+              diagnostic.phase = 'history-validation';
               return response;
             }
             const receipt = await request('freeze', nextGeneration), head = receipt.head;
-            if (head.sequence - start >= HISTORY_RECOVERY_MAX_BLOCKS) throw new Error('History recovery block capacity exceeded');
+            if (head.sequence - start >= HISTORY_RECOVERY_MAX_BLOCKS) { diagnostic.reason = 'capacity'; throw new Error('History recovery block capacity exceeded'); }
             const envelopes: HistoryCheckpointEnvelope[] = [], ids: string[] = [];
             let bytes = 0;
             for (let sequence = start; sequence <= head.sequence; sequence++) {
@@ -145,25 +166,27 @@ export function createHistoryCheckpointRecovery(options: {
               if (response.head.sequence !== head.sequence || response.head.envelopeId !== head.envelopeId
                 || response.head.freeze?.nextGeneration !== nextGeneration || !block) throw new Error('Frozen history changed or is incomplete');
               bytes += Buffer.byteLength(JSON.stringify(block));
-              if (bytes > HISTORY_RECOVERY_MAX_BYTES) throw new Error('History recovery byte capacity exceeded');
+              if (bytes > HISTORY_RECOVERY_MAX_BYTES) { diagnostic.reason = 'capacity'; throw new Error('History recovery byte capacity exceeded'); }
               const id = historyCheckpointEnvelopeId(block);
               if (sequence === start && compaction) parseHistoryCompactionCertificate(compaction.certificate, context, compaction.genesisId, block);
               else if (block.previous !== (ids.at(-1) ?? null) || (!sequence && id !== rootId)) {
                 throw new Error('Incomplete or conflicting frozen history');
               }
-              envelopes.push(block); ids.push(id); live();
+              envelopes.push(block); ids.push(id); diagnostic.reads++; live();
             }
             if (head.sequence >= start && ids.at(-1) !== head.envelopeId) throw new Error('Frozen history head does not match payload');
             return { receipt, envelopes, ids };
           }
-          members.forEach(member => {
-            void Promise.resolve().then(() => collect(member)).then(candidate => {
+          members.forEach((member, index) => {
+            const diagnostic = diagnostics[index];
+            void Promise.resolve().then(() => collect(member, diagnostic)).then(candidate => {
               if (settled) return;
               live();
               const compatible = (ids: string[]) => ids.slice(0, candidate.ids.length).every((id, i) => id === candidate.ids[i]);
               if (!compatible(selectedIds) || !compatible(baseline)) {
                 finish(undefined, new Error('Authenticated recovery histories conflict')); return;
               }
+              diagnostic.phase = 'complete'; diagnostic.reason = 'complete'; diagnostic.ended = performance.now() - started;
               receipts.push(candidate.receipt);
               if (candidate.ids.length > selectedIds.length) { selected = candidate.envelopes; selectedIds = candidate.ids; }
               if (receipts.length === 4) {
@@ -173,8 +196,14 @@ export function createHistoryCheckpointRecovery(options: {
                     nextGeneration, receipts, envelopes: selected, ...(compaction ? { compaction: compaction.certificate } : {}) }, context, compaction?.genesisId));
                 } catch (error) { finish(undefined, error instanceof Error ? error : new Error('Invalid frozen history preparation')); }
               }
-            }).catch(() => {}).finally(() => {
-              if (!settled && receipts.length + --remaining < 4) finish(undefined, new Error('Four complete frozen histories unavailable'));
+            }).catch(() => {
+              if (settled) return;
+              diagnostic.ended = performance.now() - started;
+              if (diagnostic.reason === 'pending') diagnostic.reason = expired() ? 'deadline' : controller.signal.aborted ? 'cancelled'
+                : diagnostic.phase === 'transport' ? 'transport' : diagnostic.phase === 'response-validation' ? 'invalid-response'
+                  : diagnostic.phase === 'history-validation' ? 'invalid-history' : 'invalid-request';
+            }).finally(() => {
+              if (!settled && receipts.length + --remaining < 4) finish(undefined, diagnosticError('Four complete frozen histories unavailable'));
             });
           });
         });

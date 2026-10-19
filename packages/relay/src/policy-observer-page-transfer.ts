@@ -30,6 +30,8 @@ export async function policyArchivePageReply(value: unknown, context: AdmissionP
   return { ...request, type: 'admission_policy_archive_page_reply', bytes: bytes.length, count: Math.ceil(bytes.length / ADMISSION_POLICY_CHUNK_BYTES),
     data: Buffer.from(bytes.subarray(request.index * ADMISSION_POLICY_CHUNK_BYTES, (request.index + 1) * ADMISSION_POLICY_CHUNK_BYTES)).toString('base64url') };
 }
+/** Only this attempt's own timer can classify a page as eligible for a retry. */
+class PolicyArchivePageSliceExpired extends Error {}
 /** Per page: <=8 bounded requests, <=512KiB retained bytes and one absolute deadline. */
 export async function downloadPolicyObserverArchivePage(options: {
   context: AdmissionPolicyObservers; head: unknown; digest: string; timeoutMs: number; signal?: AbortSignal;
@@ -38,18 +40,23 @@ export async function downloadPolicyObserverArchivePage(options: {
   const context = structuredClone(options.context), head = parseAdmissionPolicyHead(structuredClone(options.head)), digest = options.digest, exchange = options.exchange;
   if (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > 30000) throw new Error('Invalid archive transfer timeout');
   const signal = options.signal, deadline = performance.now() + options.timeoutMs;
-  const controller = new AbortController(), abort = () => controller.abort(), timer = setTimeout(abort, options.timeoutMs);
+  const controller = new AbortController(), abort = () => controller.abort();
+  let sliceExpired = false;
+  const failure = () => sliceExpired && !signal?.aborted
+    ? new PolicyArchivePageSliceExpired('Archive page transfer timed out')
+    : new Error('Archive page transfer cancelled or timed out');
+  const timer = setTimeout(() => { sliceExpired = true; abort(); }, options.timeoutMs);
   signal?.addEventListener('abort', abort, { once: true });
   const live = () => {
     if (controller.signal.aborted || signal?.aborted || performance.now() >= deadline) {
-      controller.abort(); throw new Error('Archive page transfer cancelled or timed out');
+      controller.abort(); throw failure();
     }
   };
   async function wait<T>(work: () => Promise<T>): Promise<T> {
     live();
     let reject!: (error: Error) => void;
     const cancelled = new Promise<never>((_, refuse) => { reject = refuse; });
-    const refused = () => reject(new Error('Archive page transfer cancelled or timed out'));
+    const refused = () => reject(failure());
     controller.signal.addEventListener('abort', refused, { once: true });
     try { const result = await Promise.race([work(), cancelled]); live(); return result; }
     finally { controller.signal.removeEventListener('abort', refused); }
@@ -113,20 +120,28 @@ export function createPolicyObserverRemoteOperation(options: {
   return { deadline, signal: controller.signal, live, wait,
     async page(contextValue: AdmissionPolicyObservers, head: unknown, digest: string, ownKey: string) {
       const context = structuredClone(contextValue), members = context.members.filter(member => member.publicKey !== ownKey);
-      for (let peer = 0; peer < members.length; peer++) {
-        const member = members[peer];
-        live();
-        try {
-          return await downloadPolicyObserverArchivePage({ context, head, digest, timeoutMs: Math.max(1, Math.floor((deadline - performance.now()) / (members.length - peer))), signal: controller.signal,
-            exchange: async (request, pageSignal) => {
-              live();
-              if (++requests > maxRequests || bytes + POLICY_ARCHIVE_PAGE_REPLY_MAX_BYTES > maxBytes) { exhausted = true; live(); }
-              // A rejected transport may already have received bytes. Reserve its
-              // entire bounded reply before dispatch and never infer a refund.
-              bytes += POLICY_ARCHIVE_PAGE_REPLY_MAX_BYTES;
-              return wait(() => transport(member, request, pageSignal));
-            } });
-        } catch { live(); }
+      const retry: typeof members = [];
+      // Complete every pinned peer's first opportunity before spending unused
+      // operation time on exactly one pass of locally expired page attempts.
+      for (const [pass, candidates] of [members, retry].entries()) {
+        for (let peer = 0; peer < candidates.length; peer++) {
+          const member = candidates[peer];
+          live();
+          try {
+            return await downloadPolicyObserverArchivePage({ context, head, digest, timeoutMs: Math.max(1, Math.floor((deadline - performance.now()) / (candidates.length - peer))), signal: controller.signal,
+              exchange: async (request, pageSignal) => {
+                live();
+                if (++requests > maxRequests || bytes + POLICY_ARCHIVE_PAGE_REPLY_MAX_BYTES > maxBytes) { exhausted = true; live(); }
+                // A rejected transport may already have received bytes. Reserve its
+                // entire bounded reply before dispatch and never infer a refund.
+                bytes += POLICY_ARCHIVE_PAGE_REPLY_MAX_BYTES;
+                return wait(() => transport(member, request, pageSignal));
+              } });
+          } catch (error) {
+            live();
+            if (pass === 0 && error instanceof PolicyArchivePageSliceExpired) retry.push(member);
+          }
+        }
       }
       throw new Error('No committed pinned observer supplies the required archive page');
     },

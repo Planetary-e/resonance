@@ -1027,3 +1027,48 @@ edacab84fbb40d74b7f6cd6805e098109af9a456c2600f9d85255a008d194c01.
 Composed36/36 in2files,7.95s, `/tmp/resonance-925441e-ci-fixtures-composed.log`.
 One initial sandbox socket EPERM resolved by permitted run. No fullsuite rerun.
 Shared quota52%→53%, not agent-attributed. Transport failures remain separate.
+
+Remote transfer diagnosis: retained CI evidence shows the healthy source returns
+page chunks before a local per-peer slice cancels it, then remaining pinned peers
+fail quickly; operation ends at1.07/1.49s although its absolute envelope is3s.
+Astra proposes a bounded scheduling correction: complete the fair initial pass,
+then exactly one retry pass only for peers terminated by local slice expiry,
+using unused original deadline and unchanged16requests/16*reply-byte reservations.
+Restart pages from index0, no retained partial page or weaker validation. Invalid,
+unavailable or authenticated denial results do not become retry candidates.
+Acceptance requires delayed healthy-source success within original deadline,
+silent-first fallback, cap exhaustion and cancellation refusal. One frozen local
+observer65 check after focused discriminants; failure invokes the existing stop
+assessment, not automatic timeout tuning. Frozen-history collection remains
+unproven; a separate read-only diagnostic plan will identify the swallowed cause.
+
+Frozen collection diagnostic prerequisite: keep five bounded internal summaries
+(member ordinal, stage, completed reads, elapsed/deadline flag, fixed reason code)
+in the existing two unavailable-quorum errors. No raw peer identities, messages,
+paths or payloads; no revalidation, async work, altered storage or limits. The
+cold fixture adds only role+elapsed on freeze failure. Unit discriminants separate
+deadline from malformed responses while preserving refusal and cancellation.
+SolMedium owns recovery module/fixture and existing focused recovery tests; this
+is independent from the page scheduler's nonoverlapping files. No concurrent
+performance qualification; cold65 runs once after both candidates freeze/review.
+These diagnostics identify the failed stage, not CPU-versus-disk causality.
+
+Frozen follow-up candidates: recovery diagnostic owned diff
+195c2767057d13e02023a8ce9f8e33fde69119c1e166a585dd9cc1b69cf55980,
+19/19 checks8.78s and workspace tsc pass. Parent review confirms bounded fixed
+metadata only, original acceptance/refusal paths unchanged. Page scheduling
+manifest `/tmp/resonance-page-retry-candidate.sha256` hashes
+60c6a35b00434eb6d1b9ea42ad30940f8030995ec5f723abf8dbc578b5aea5fd;
+SolMedium focused+v3 integration50/50 pass28.12s, final byte-cap assertion15/15,
+relay tsc passes. Astra review pending. Logs `/tmp/resonance-page-retry-focused.log`,
+`/tmp/resonance-page-retry-unit.log`, `/tmp/resonance-freeze-diagnostic-focused.log`.
+One sandbox bind failure resolved in permitted run. Shared usage54%; concurrent
+interval observations are not additive/per-agent costs. No cold65 yet.
+
+Astra accepted the page scheduler on first review, no material findings/rework.
+Parent four-file regression passes63/63 in192.36s, including observer65 and
+consumers65 under unchanged deadlines. `/tmp/resonance-925441e-transport-composed.log`.
+Workspace and explicit desktop-server TypeScript builds pass. Page manifest
+verified unchanged. Freeze failure did not reproduce locally; diagnosis is
+prepared for the next hosted run, not a claim the failure is fixed. No KPI is
+complete. Push the stable combined candidate once and retain its CI outcome.
