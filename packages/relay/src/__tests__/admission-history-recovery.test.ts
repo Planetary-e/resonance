@@ -208,6 +208,7 @@ it('refuses a changed retained image before writer creation and never lets inspe
   await expect(inspectProtectedAdmissionSpendHistory({ ...options, protection: { ...options.protection, initializeWriter: true } })).rejects.toThrow('cannot initialize');
   await expect(openProtectedAdmissionSpendHistory({ ...options, expectedStateDigest: 'sha256:' + '0'.repeat(64),
     protection: { ...options.protection, initializeWriter: true } })).rejects.toThrow('changed after review');
+  expect(existsSync(n.writer)).toBe(false); expect(readFileSync(path)).toEqual(bytes); expect(n.calls()).toBe(before);
   const missing = join(n.directory, 'not-created');
   await expect(openProtectedAdmissionSpendHistory({ ...options, directory: missing, initialize: true,
     expectedStateDigest: 'sha256:' + '0'.repeat(64) })).rejects.toThrow('only opens existing');

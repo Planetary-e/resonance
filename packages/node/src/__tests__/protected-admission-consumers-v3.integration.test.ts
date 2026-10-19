@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, expect, it, vi } from 'vitest';
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, readdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -510,4 +510,32 @@ it('reuses exact RSA imports within one bounded issuer proof operation while che
     await parseProtectedIssuerImage({ ...base, communityPolicy: genesis }, pins, fresh.keyImports);
     expect(imports - count).toBe(3); // Allocation plus both profile keys must be re-imported in a fresh operation.
   } finally { spy.mockRestore(); writeFileSync(join(tmpdir(), 'protected-consumer-reopen-phases.json'), JSON.stringify(phases)); }
+}, 20000);
+
+it('validates the original restored v3 relay proof before creating its writer and reopens the complete retained ancestry', async () => {
+  const n = await fixture(); n.relay.owner.close(); n.select(advances[0]);
+  let relay = await n.run(() => openProtectedAdmissionSpendHistory({ ...n.relay.relayOptions, policy: advances[0].policy })); cleanup.push(relay.close); await relay.ready();
+  const trust = { context, installed: advances[0].commitment.next, observed: advances[0].commitment.next };
+  await relay.backfillPolicyProof({ version: 1, kind: 'genesis', policy: genesis }, trust, limits);
+  await relay.backfillPolicyProof({ version: 1, kind: 'advance', advance: advances[0], pages: [] }, trust); relay.close();
+  const migration = await shortMigration(); n.select(migration.advance);
+  relay = await n.run(() => openProtectedAdmissionSpendHistory({ ...n.relay.relayOptions, policy: migration.advance.policy, policyAdvance: migration.advance, policyPages: migration.pages })); cleanup.push(relay.close); await relay.ready(); relay.close();
+  const recovered = await n.relay.recover();
+  for (const missing of [true, false]) {
+    const directory = join(n.directory, missing ? 'restored-v3-missing-proof' : 'restored-v3-complete-proof');
+    const prepared = await prepareAdmissionHistoryRestore({ directory, context: n.relay.context, genesisId: n.relay.genesisId, encryptionKey: n.key,
+      continuation: recovered.continuation, blocks: recovered.blocks(), blockSource: recovered.blocks, policy: migration.advance.policy, now: n.now });
+    const options = { ...n.relay.relayOptions, directory, policy: migration.advance.policy, protection: { ...n.relay.protection,
+      ancestrySource: missing ? undefined : recovered.blocks, initializeWriter: true, initializeArchive: true, restore: { preparation: prepared, approvedDigest: prepared.review.approvalDigest } }, initialize: true };
+    if (missing) {
+      await expect(n.run(() => openProtectedAdmissionSpendHistory(options))).rejects.toThrow('genesis');
+      expect(existsSync(join(directory, 'admission-history-writer'))).toBe(false);
+    } else {
+      const restored = await n.run(() => openProtectedAdmissionSpendHistory(options)); cleanup.push(restored.close); await restored.ready();
+      expect(restored.read().image.policyProof?.head).toEqual(migration.advance.commitment.next); restored.close();
+      const reopened = await n.run(() => openProtectedAdmissionSpendHistory({ ...n.relay.relayOptions, directory, policy: migration.advance.policy,
+        protection: { ...n.relay.protection, ancestrySource: recovered.blocks } })); cleanup.push(reopened.close); await reopened.ready();
+      expect(reopened.read().image.policyProof?.head).toEqual(migration.advance.commitment.next);
+    }
+  }
 }, 20000);

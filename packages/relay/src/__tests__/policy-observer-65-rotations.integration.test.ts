@@ -22,14 +22,43 @@ import { createPolicyObserverPageReader, policyObserverArchiveLimits } from '../
 const cleanup: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 
+function retainDiagnostic(trace: unknown[], value: unknown) { if (trace.length === 16) trace.shift(); trace.push(value); }
+function observerDiagnosticFailure(error: unknown, evidence: { operation: string; elapsedMs: number; completed: unknown[]; handlerFailures: unknown[]; pageExchanges: unknown[] }) {
+  const details = { operation: evidence.operation, elapsedMs: evidence.elapsedMs, error: String(error).slice(0, 512),
+    completed: evidence.completed.slice(-6), handlerFailures: evidence.handlerFailures.slice(-4), pageExchanges: evidence.pageExchanges.slice(-8) };
+  // Error text survives CI reporters that suppress successful console output.
+  return new Error(`Observer65 diagnostic: ${JSON.stringify(details)}`, { cause: error });
+}
+
+it('retains the local handler cause and stage in diagnostic errors after a real transport 4003 refusal', async () => {
+  const handlerFailures: unknown[] = [];
+  const listener = await listenAdmissionPolicyObserver(async () => {
+    const error = new Error('fixture page refused before reply'); retainDiagnostic(handlerFailures, { observer: 0, type: 'page', error: String(error) }); throw error;
+  }, { port: 0 }); cleanup.push(listener.close);
+  let refusal: unknown;
+  try { await exchangeAdmissionPolicyObserverFrame({ endpoint: listener.endpoint, publicKey: Buffer.from(generateSigningKeyPair().publicKey).toString('base64url') },
+    { type: 'diagnostic' }, new AbortController().signal, POLICY_ARCHIVE_PAGE_REPLY_MAX_BYTES); }
+  catch (error) { refusal = error; }
+  expect(String(refusal)).toContain('closed (4003)');
+  const error = observerDiagnosticFailure(refusal, { operation: 'target-remote-page', elapsedMs: 1, completed: [], handlerFailures, pageExchanges: [] });
+  expect(error.message).toContain('target-remote-page'); expect(error.message).toContain('fixture page refused before reply'); expect(error.message).toContain('closed (4003)');
+  expect(error.cause).toBe(refusal);
+});
+
 // Fixed B-HISTORY-LIFECYCLE prerequisite: no operation deadline, storage cap or
 // performance clock is changed. The wrapper includes real RSA fixture generation.
 it('retains 65 real rotations through two protected observers, remote pages and reopening', async () => {
   const started = new Date().toISOString(), durations: Array<{ operation: string; ms: number }> = [];
+  const diagnosticPath = join(tmpdir(), 'observer-65-diagnostic.json');
+  const handlerFailures: unknown[] = [], pageExchanges: unknown[] = [];
   async function measured<T>(operation: string, run: () => Promise<T>): Promise<T> {
     const start = performance.now();
     try { return await run(); }
-    catch (error) { console.info('observer-65-failure', JSON.stringify({ started, ended: new Date().toISOString(), operation, elapsedMs: performance.now() - start, error: String(error), completed: durations })); throw error; }
+    catch (error) {
+      const evidence = { operation, elapsedMs: performance.now() - start, completed: durations, handlerFailures, pageExchanges };
+      writeFileSync(diagnosticPath, JSON.stringify({ started, ended: new Date().toISOString(), error: String(error), ...evidence }));
+      throw observerDiagnosticFailure(error, evidence);
+    }
     finally { durations.push({ operation, ms: performance.now() - start }); }
   }
   const directory = mkdtempSync(join(tmpdir(), 'observer-65-'));
@@ -43,7 +72,8 @@ it('retains 65 real rotations through two protected observers, remote pages and 
   for (let i = 0; i < 2; i++) {
     const listener = await listenAdmissionPolicyObserver(async (frame, signal) => {
       if (!exchanges[i]) throw new Error('Fixture observer not enrolled');
-      return exchanges[i]!(frame, signal);
+      try { return await exchanges[i]!(frame, signal); }
+      catch (error) { const type = (frame as { type?: unknown }).type; retainDiagnostic(handlerFailures, { observer: i, type: typeof type === 'string' ? type.slice(0, 64) : 'head', error: String(error).slice(0, 512) }); throw error; }
     }, { port: 0 });
     listeners.push(listener); cleanup.push(listener.close);
   }
@@ -84,7 +114,9 @@ it('retains 65 real rotations through two protected observers, remote pages and 
       historyContext: enrolled.context, root: enrolled.root, now: () => wallTime, transport,
       members: enrolled.context.members.map((publicKey, i) => ({ publicKey, endpoint: `ws://127.0.0.1:${42000 + i}/history-checkpoint` })),
       remoteArchive: { exchange: async (member: typeof members[number], request: unknown, signal: AbortSignal) => {
-        pageRequests++; return exchangeAdmissionPolicyObserverFrame(member, request, signal, POLICY_ARCHIVE_PAGE_REPLY_MAX_BYTES);
+        pageRequests++; const start = performance.now();
+        try { const reply = await exchangeAdmissionPolicyObserverFrame(member, request, signal, POLICY_ARCHIVE_PAGE_REPLY_MAX_BYTES); retainDiagnostic(pageExchanges, { observer: index, peer: members.findIndex(value => value.publicKey === member.publicKey), index: (request as { index?: unknown }).index, ms: performance.now() - start, result: 'reply' }); return reply; }
+        catch (error) { retainDiagnostic(pageExchanges, { observer: index, peer: members.findIndex(value => value.publicKey === member.publicKey), index: (request as { index?: unknown }).index, ms: performance.now() - start, result: String(error).slice(0, 512) }); throw error; }
       } },
     };
     let observer = await openProtectedPolicyObserver({ ...options, mode: 'create-new' });
@@ -157,4 +189,5 @@ it('retains 65 real rotations through two protected observers, remote pages and 
   await expect(target.reopen()).rejects.toThrow();
   console.info('observer-65-evidence', JSON.stringify({ started, ended: new Date().toISOString(), pageRequests,
     archive: policy.archive, usage, durations }));
+  writeFileSync(diagnosticPath, JSON.stringify({ started, ended: new Date().toISOString(), pageRequests, archive: policy.archive, usage, durations, handlerFailures, pageExchanges }));
 }, 180000);

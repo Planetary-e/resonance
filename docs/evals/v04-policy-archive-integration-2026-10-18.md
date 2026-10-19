@@ -703,3 +703,116 @@ restored v3, profile history beyond72 and full lifecycle/fault qualification
 remain. The blocked historical retirement investigation is not reopened.
 Cross-platform CI will qualify the pushed candidate separately; no merge or
 installer is authorized by this acceptance.
+
+### Published candidate and next operational prerequisite
+
+Consumer implementation committed/pushed as `95fdda4`, together with local
+CI-fix commits `c53e0d1` and `a39fd69`. Draft PR34 updated; CI run
+[39167741462](https://github.com/Planetary-e/resonance/actions/runs/39167741462)
+is active. No installer, merge or activation.
+
+Next bounded prerequisite remains B-HISTORY-LIFECYCLE / K2/K3: connect restored
+v3 original ancestry to ordinary recovery/configuration/CLI operation. Current
+APIs succeed with explicit funded downloader ancestry; missing sources refuse.
+Astra High is defining the minimal retained source reference, independent pins,
+funding and lifetime/close contract before implementation. Observable acceptance:
+actual recovery command and subsequent ordinary startup preserve v3 proof and
+accepted responses/denials, while missing/wrong sources refuse. No implicit
+funding, genesis replacement, disk proof cache, fresh v3 enrollment or semantic
+retirement is included. The suspended historical investigation remains separate.
+Shared usage at the preceding review boundary36%; same blocker/stop conditions.
+
+### Remote consumer failures and next contract held
+
+CI95fdda4 desktop checks pass on all three OS. Linux durability passes302
+cases but the65-archive scenario exceeds the unchanged3s proof budget during
+issuer reopening. Linux/macOS ownership each pass367 related cases and fail
+the policy-current invalidation test. Its mock targets the legacy accessor;
+the consumer migrated to the archived accessor. Confirm whether this is stale
+fault injection or a real invalidation gap before modifying the test. Sol High
+will diagnose these two concrete failures under the same candidate; no timeout
+increase, frozen qualification clock or new architecture alternative. Do not
+start operational-source implementation until the current failures are resolved
+or a stop condition is identified. Logs: `/tmp/resonance-95fdda4-117794146311.log`,
+`/tmp/resonance-95fdda4-117794146326.log`,
+`/tmp/resonance-95fdda4-117794146377.log`.
+
+The next source-selection contract is ready but held: preserve v1 configs and
+add an optional strict versioned recovery-download selection with directory,
+independent enrollment/continuation files and existing funding identity. Capture
+paths and pins before awaits. Match role/context, original genesis, complete
+download proposal and immutable restored generation root; a later recovery
+requires explicit new continuation selection. Bind selection to reviewed apply.
+Reuse the existing downloader with initialization disabled and no exposed run();
+preflight BOTH ciphertext and manifest reservations with zero additional bytes.
+Normal ownership lock/temp cleanup is acceptable, accepted evidence unchanged.
+No new decoder or proof cache. Issuer opens explicitly selected existing funding;
+relay must match its already-selected authority.
+
+Transfer downloader ownership to returned recovery children so parent close
+cannot invalidate them; failure/child close releases source. Ordinary startup
+owns its own reopened source. Shared adapter plus issuer CLI/startup comes first,
+relay wiring second; each is part of the same unfinished operational requirement.
+Use minimal valid v3 fixtures (no repeat65) for actual command+fresh startup,
+interrupted restore/child lifetime, missing/wrong/incomplete source, zero funding
+delta, wrong generation and3-versus4fresh confirmations. No semantic retirement
+or fresh v3 enrollment in this bounded integration.
+
+### October19: bounded CI follow-up and platform policy
+
+User requests routine development on macOS only, with Windows/Linux deferred to
+a final test. CI matrices and its general job now default to macOS; installer
+matrix defaults to Apple Silicon. Both workflows expose manual boolean
+`all_platforms` (defaultfalse) to opt into all three platforms at final validation.
+Installer triggers remain tags/manual, never ordinary branch pushes. YAML parses
+with Ruby's standard parser; both expression branches decode to the intended
+one-versus-three matrices. This intentionally defers Windows/Linux confirmation,
+not a claim that their failures passed.
+
+The8-file SPKI memo correction over95fdda4 has content hash
+`baa8abe7f7c492e90ee2449e9fc0be8c7b705b2fbba4948ecfef0ffefbb04c4e`.
+Exact-DER key import reuse is private per operation, capped72, preserving every
+profile/body/signature check. Measured repeated imports8971→326; local cold
+issuer open+ready2144ms, unchanged3000ms proof limit. Seven discriminants pass;
+the fixed65 scenario passes86.18s. Astra's scoped review05:07:28–05:07:42UTC
+accepts the memo and currentResolved fault injection. Parent22compatibility
+tests/3files pass12.03s; workspace and desktop-server builds pass. Receipt:
+`/tmp/protected-consumer-ci-followup.json`. Shared quota last36→39%; observed
+implementation interval21:32:57–21:41:28UTC includes commands/waits, prior reading
+unclocked. No exact per-agent cost inferred.
+
+Completed95fdda4 CI also exposes admission-history-recovery changed-image refusal
+creating a writer prematurely, and a macOS65-observer socket4003 failure. These
+are being narrowly diagnosed before the next implementation or push. Prior
+component acceptance remains local; no complete KPI.
+
+### Remaining CI correction review
+
+Policy/workflow preference is committed as703f9e8; reviewed exact-RSA memo and
+invalidation fixture as ea4a10e. The macOS observer65 case passes once locally
+in28.71s with the memo. Its old4003 cause is not demonstrated: current handlers
+report no failure, so no observer algorithm or fairness/timeout was changed.
+The test now includes bounded stage/handler/exchange diagnostics in its thrown
+error, and a real4003 rejection checks that those diagnostics survive.
+
+The retained-state review regression was reproduced. Digest validation moved
+before writer opening; new writer/archive creation now follows full image and
+original-proof validation. Existing writers still open to provide their proof.
+Two distinguishing cases pass10.04s, including restoredv3 missing-proof refusal
+without writer creation and successful complete-proof reopen. Astra accepts
+this scoped correction05:16:42–05:16:46UTC. Parent is running the two directly
+affected recovery/history suites once after review. No limit increases.
+
+Shared weekly counter42% at05:17:06UTC, compared with39% at the prior receipt;
+ordinary use remains allowed. This account delta is not per-agent attribution.
+The automatic permission reviewer briefly failed from model capacity on a CI
+query; the same approval path subsequently succeeded. No check was bypassed.
+
+Final recovery-order regression passes **62/62 in2files**,103.70s,
+`/tmp/resonance-recovery-order-final.log`. Sol's frozen4-file follow-up identity
+is `bdc609e6a14434cd03c67f10577c5cd2fb96b2ff73abda9ddd310aa53f88c707`,
+receipt `/tmp/protected-consumer-ci-final-followup.json`; TypeScript and whitespace
+checks pass. Observed work05:11:53–05:17:21UTC includes commands/waits, earlier
+reading unclocked. Current42% shared account usage is not per-agent cost.
+The new candidate is ready for macOS CI; Windows/Linux are explicitly deferred
+by the owner, and the prior observer4003 remains unconfirmed remotely.

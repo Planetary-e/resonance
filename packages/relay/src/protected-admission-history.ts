@@ -308,6 +308,9 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
       storage.write(baseline(previous)); // Keep the same lock across validation, capture and format fencing.
     }
     const state = read();
+    if (options.expectedStateDigest !== undefined && historyDigest(JSON.stringify(state)) !== options.expectedStateDigest) {
+      throw new Error('Retained admission state changed after review');
+    }
     if (historyCheckpointContextId(state.context) !== contextId) throw new Error('Protected admission history pins changed');
     const root = parseHistoryCheckpointEnvelope(state.root, context);
     if (root.sequence !== 0 || (state.version === 3 ? root.generation !== 0 || root.kind !== 'checkpoint' : root.kind !== 'continuation')) {
@@ -318,7 +321,8 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
     }
     const genesis = state.version === 4 ? parseHistoryCheckpointEnvelope(state.restoration.genesis, context) : root;
     if (genesis.generation !== 0 || genesis.sequence !== 0 || genesis.kind !== 'checkpoint') throw new Error('Invalid protected admission genesis');
-    if (!inspectionOnly) {
+    const creatingWriter = p.initializeWriter || p.initializeArchive || p.resumePristineArchive;
+    function openWriter() {
       if (p.initializeWriter && state.applied !== null) throw new Error('Cannot initialize a writer for already applied admission history');
       writer = createRetainedHistoryCheckpointWriter({ directory: join(participant, 'admission-history-writer'), localKey: key,
         context, signingKey: signer, rootId: id(root), generation: root.generation, members: p.members,
@@ -329,6 +333,9 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
         maxArchiveBlocks: p.maxArchiveBlocks, maxArchiveBytes: p.maxArchiveBytes });
       writerMatches();
     }
+    // Existing v3 proofs read the retained writer. New writer/archive creation
+    // waits until the complete image and its explicit original ancestry validate.
+    if (!inspectionOnly && !creatingWriter) openWriter();
     const originalGenesis = await parseAdmissionHistoryImage(decode(genesis), context.authority, limit, proofHistory);
     if (`sha256:${archivedAdmissionPolicyDigest(originalGenesis.policy)}` !== context.policyDigest) throw new Error('Protected baseline policy mismatch');
     const original = state.version === 4 ? await parseAdmissionHistoryImage(state.restoration.baseline, context.authority, limit, proofHistory) : originalGenesis;
@@ -354,9 +361,7 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
         await nextImage(state);
       }
     }
-    if (options.expectedStateDigest !== undefined && historyDigest(JSON.stringify(state)) !== options.expectedStateDigest) {
-      throw new Error('Retained admission state changed after review');
-    }
+    if (!inspectionOnly && creatingWriter) openWriter();
 
   } catch (error) { close(); throw error; }
 
