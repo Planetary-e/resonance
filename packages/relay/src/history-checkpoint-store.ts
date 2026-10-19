@@ -6,6 +6,7 @@ import {
 import { dirname, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { openEncryptedLocalState, inspectLocalStateOwnership, isLocalStateOwnershipName } from '@resonance/core/local-state';
+import type { SharedHistoryPool } from './history-shared-pool.js';
 import { reserveHistoryStorage } from './history-storage-reservation.js';
 import { readHistorySequenceIndex, type StoredHistorySequenceIndex } from './history-sequence-index.js';
 import { exactWitnessFields } from '@resonance/core/admission-witness';
@@ -47,12 +48,15 @@ interface Manifest {
   compaction?: HistoryCompactionCertificate | null;
 }
 export interface HistoryCheckpointAncestor {
+  readonly sharedPool?: SharedHistoryPool;
   /** Propagated from the original independently pinned genesis, never from a received certificate. */
   readonly genesisId?: string;
   /** Checks the durable activation and retained parent chain, returning the child ancestry depth. */
   requireContinuation(root: HistoryContinuationRoot, replica: string): { depth: number; bytes: number };
 }
 export interface HistoryCheckpointStoreOptions {
+  /** Explicit new-format selection. Legacy directories are never migrated or credited. */
+  sharedPool?: SharedHistoryPool;
   directory: string;
   /** Local manifest key. The volunteer never needs the payload decryption key. */
   localKey: Uint8Array;
@@ -168,7 +172,11 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
   const context = parseHistoryCheckpointContext(options.context);
   const contextId = historyCheckpointContextId(context);
   const { directory, replica, rootId, generation } = options;
-  const parent = options.parent;
+  const parent = options.parent, sharedPool = options.sharedPool;
+  if (sharedPool) {
+    sharedPool.assertPins(context, replica);
+    if (directory !== sharedPool.directory || options.retainedFrontier || parent && parent.sharedPool !== sharedPool) throw new Error('Shared history representation or predecessor mismatch');
+  }
   const frontierPins = options.retainedFrontier;
   if (options.retainedAncestorBytes !== undefined && (!frontierPins || !Number.isSafeInteger(options.retainedAncestorBytes)
     || options.retainedAncestorBytes < 0 || options.retainedAncestorBytes > MAX_ANCESTRY_BYTES)) throw new Error('Invalid retained ancestry accounting');
@@ -212,7 +220,7 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
   }
   function validManifest(value: unknown): value is Manifest {
     // This intermediate manifest can only exist inside the provisioner's unpublished directory.
-    if (preparing && JSON.stringify(value) === JSON.stringify(initial)) return true;
+    if ((preparing || sharedPool && options.initialize) && JSON.stringify(value) === JSON.stringify(initial)) return true;
     const optional = ['successor', 'agreement', 'transfer', 'activation', 'compaction'].filter(key => value !== null && typeof value === 'object' && Object.hasOwn(value, key));
     if (!exactWitnessFields(value, ['version', 'contextId', 'replica', 'rootId', 'generation', 'blocks', 'freeze', ...optional])
       || value.version !== 1 || value.contextId !== contextId || value.replica !== replica || value.rootId !== rootId
@@ -298,14 +306,14 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
       if (root.kind !== 'continuation' || !parent) throw new Error('Continuation requires its retained activated predecessor');
       const ancestry = parent.requireContinuation(root, replica);
       ancestryDepth = ancestry.depth; ancestorBytes = ancestry.bytes;
-      if (!Number.isSafeInteger(ancestryDepth) || ancestryDepth < 1 || ancestryDepth > 64
+      if (!Number.isSafeInteger(ancestryDepth) || ancestryDepth < 1 || (!sharedPool && ancestryDepth > 64)
         || !Number.isSafeInteger(ancestorBytes) || ancestorBytes < 0
-        || ancestorBytes + 2 * MAX_MANIFEST_BYTES + Buffer.byteLength(JSON.stringify(root)) > MAX_ANCESTRY_BYTES) {
+        || !sharedPool && ancestorBytes + 2 * MAX_MANIFEST_BYTES + Buffer.byteLength(JSON.stringify(root)) > MAX_ANCESTRY_BYTES) {
         throw new Error('History ancestry capacity exceeded');
       }
     }
   }
-  const reservation = reserveHistoryStorage({ directory, component: 'history-replica-ciphertext', ciphertextBytes: maxBytes - 2 * MAX_MANIFEST_BYTES,
+  const reservation = sharedPool ? { assertWritable() { sharedPool.assertCapacity(); } } : reserveHistoryStorage({ directory, component: 'history-replica-ciphertext', ciphertextBytes: maxBytes - 2 * MAX_MANIFEST_BYTES,
     manifestFilename: HISTORY_MANIFEST_FILENAME, manifestBytes: MAX_MANIFEST_BYTES });
   let root: HistoryCheckpointEnvelope | undefined;
   if (options.initialize) {
@@ -316,7 +324,7 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
     validateParent(root);
     if (preparing && root.kind !== 'continuation') throw new Error('Only certified continuations can be provisioned');
     // Never reinterpret an incomplete or damaged directory as a new history.
-    if (existsSync(directory) && readdirSync(directory).length) {
+    if (!sharedPool && existsSync(directory) && readdirSync(directory).length) {
       if (!preparing) throw new Error('History enrolment directory is not empty');
       const allowed = new RegExp(`^(?:${HISTORY_MANIFEST_FILENAME.replace('.', '\\.')}(?:\\.lock|\\.recovery)?|\\.${HISTORY_MANIFEST_FILENAME.replace('.', '\\.')}\\.[a-f0-9]{16}\\.tmp|${rootId.slice(7)}\\.block|\\.block-[a-f0-9]{32}\\.tmp)$`);
       for (const name of readdirSync(directory)) {
@@ -324,10 +332,10 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
         if (!allowed.test(name) || !lstatSync(join(directory, name)).isFile()) throw new Error('Unexpected provision staging contents');
       }
     }
-    if (!existsSync(directory)) mkdirSync(directory, { mode: 0o700 });
-    flushDirectory(dirname(directory));
+    if (!sharedPool) { if (!existsSync(directory)) mkdirSync(directory, { mode: 0o700 }); flushDirectory(dirname(directory)); }
   }
-  const storage = openEncryptedLocalState<Manifest>({
+  const storage = sharedPool ? sharedPool.openRecord<Manifest>({ rootId, generation, kind: 'manifest', initial, validate: validManifest, maxBytes: MAX_MANIFEST_BYTES,
+    initialize: !!root && !(preparing && sharedPool.hasRecord(rootId, 'manifest')) }) : openEncryptedLocalState<Manifest>({
     path: join(directory, HISTORY_MANIFEST_FILENAME), key: options.localKey, domain: DOMAIN,
     maxBytes: MAX_MANIFEST_BYTES, mode: root && !(preparing && existsSync(join(directory, HISTORY_MANIFEST_FILENAME)))
       ? 'create-new' : 'open-existing', initial, validate: validManifest,
@@ -343,10 +351,11 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
   }
   function fits(bytes: number, count: number) {
     if (count > maxBlocks || blockBytes + bytes + 2 * MAX_MANIFEST_BYTES > maxBytes
-      || ancestorBytes + blockBytes + bytes + 2 * MAX_MANIFEST_BYTES > MAX_ANCESTRY_BYTES) throw new Error('History storage capacity exceeded');
+      || !sharedPool && ancestorBytes + blockBytes + bytes + 2 * MAX_MANIFEST_BYTES > MAX_ANCESTRY_BYTES) throw new Error('History storage capacity exceeded');
   }
   function writeImmutable(envelope: HistoryCheckpointEnvelope): number {
     reservation.assertWritable();
+    if (sharedPool) return sharedPool.writeBlock(envelope);
     const bytes = Buffer.from(JSON.stringify(envelope)), id = historyCheckpointEnvelopeId(envelope);
     const temporary = join(directory, `.block-${randomBytes(16).toString('hex')}.tmp`);
     let fd: number | undefined;
@@ -368,12 +377,15 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
     const state = storage.read(), ids = index(state), next = { ...state, blocks: ids.extend(envelope.sequence, historyCheckpointEnvelopeId(envelope)) };
     fits(Buffer.byteLength(JSON.stringify(envelope)) + checkpointReserveBytes, ids.count + 1 + (checkpointReserveBytes ? 1 : 0));
     if (!validManifest(next)) throw new Error('Invalid outgoing history manifest');
+    sharedPool?.prepareAppend(rootId, envelope, next);
     try {
       const size = writeImmutable(envelope);
       storage.write(next); blockBytes += size; envelopes.set(envelope.sequence, envelope);
     } catch (error) { failed = true; throw error; }
   }
   function loadBlock(id: string): HistoryCheckpointEnvelope {
+    if (sharedPool) { const { block, bytes } = sharedPool.readBlock(id); fits(bytes, envelopes.size + staged.length + 1);
+      if (block.generation !== generation) throw new Error('Shared history generation binding mismatch'); blockBytes += bytes; return block; }
     const path = blockPath(id), stat = lstatSync(path);
     if (!stat.isFile() || stat.size <= 0 || stat.size > HISTORY_ENVELOPE_MAX_BYTES) throw new Error('Invalid history block size or type');
     fits(stat.size, envelopes.size + staged.length + 1);
@@ -384,7 +396,7 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
     blockBytes += bytes.length; return envelope;
   }
   function prefixRetirement() {
-    ensureOpen(); const state = storage.read(), proof = state.compaction, ids = index(state);
+    ensureOpen(); if (sharedPool) throw new Error('Original-evidence shared history never retires evidence'); const state = storage.read(), proof = state.compaction, ids = index(state);
     if (!proof || !genesisId) throw new Error('Prefix retirement requires a durably retained checkpoint certificate');
     parseHistoryCompactionCertificate(proof, context, genesisId, envelopes.get(proof.proposal.sequence));
     const boundary = proof.proposal.sequence;
@@ -410,7 +422,7 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
           throw new Error('Provision staging contains operational history');
         }
         envelopes.set(0, loadBlock(rootId));
-      } else if (existsSync(blockPath(rootId))) {
+      } else if (sharedPool ? sharedPool.hasBlock(rootId) : existsSync(blockPath(rootId))) {
         // A crash may leave the flushed root just before the manifest's atomic replacement.
         const retained = loadBlock(rootId);
         if (retained.sequence !== 0 || retained.previous !== null) throw new Error('Invalid provisioned root');
@@ -457,7 +469,7 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
     // Only unreferenced ciphertext is discarded. Validate the entire retained chain first.
     const retained = new Set([...ids.records.map(([, id]) => id), ...(state.transfer?.blocks ?? [])].map(id => `${id.slice(7)}.block`));
     let cleaned = false;
-    for (const name of readdirSync(directory)) {
+    for (const name of sharedPool ? [] : readdirSync(directory)) {
       if ((/^[a-f0-9]{64}\.block$/.test(name) && !retained.has(name)) || /^\.block-[a-f0-9]{32}\.tmp$/.test(name)) {
         rmSync(join(directory, name)); cleaned = true;
       }
@@ -466,6 +478,7 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
   } catch (error) { storage.close(); throw error; }
 
   return {
+    get sharedPool(): SharedHistoryPool | undefined { ensureOpen(); return sharedPool; },
     get genesisId(): string | undefined { ensureOpen(); return genesisId; },
     /** Explicit local maintenance. Commits proof with the authoritative manifest;
      * keeps every ciphertext block, reservation, suffix and generation barrier. */
@@ -536,6 +549,7 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
         ids.count + (block.sequence === head ? 0 : 1) + (reserve ? 1 : 0));
       if (!validManifest(next)) throw new Error('Invalid outgoing checkpoint installation');
       try {
+        if (block.sequence !== head) sharedPool?.prepareAppend(rootId, block, next, true);
         const bytes = block.sequence === head ? 0 : writeImmutable(block);
         storage.write(next);
         if (block.sequence !== head) { blockBytes += bytes; envelopes.set(block.sequence, block); }
@@ -553,7 +567,7 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
         if (historyContinuationRootId(state.activation) !== historyContinuationRootId(root)) throw new Error('Another continuation is already activated');
         return structuredClone(state.activation);
       }
-      if (ancestryDepth >= 64) throw new Error('History ancestry capacity exceeded');
+      if (!sharedPool && ancestryDepth >= 64) throw new Error('History ancestry capacity exceeded');
       const next = { ...state, activation: root };
       if (!validManifest(next)) throw new Error('Invalid outgoing activation manifest');
       storage.write(next); // No child can be opened through this API before durable parent authority.
@@ -567,7 +581,7 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
         throw new Error('Retained predecessor has not activated this continuation for this replica');
       }
       assertStoreChain(root.proposal, state);
-      return { depth: ancestryDepth + 1, bytes: ancestorBytes + blockBytes + 2 * MAX_MANIFEST_BYTES };
+      return { depth: ancestryDepth + 1, bytes: sharedPool ? sharedPool.usage().bytes + sharedPool.usage().controlPeakBytes : ancestorBytes + blockBytes + 2 * MAX_MANIFEST_BYTES };
     },
     matches(candidate: HistoryCheckpointContext, member: string): boolean {
       ensureOpen();
@@ -622,8 +636,8 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
       storage.write({ ...state, agreement: next.state, ...(dropTransfer ? { transfer: null } : {}) });
       if (dropTransfer) {
         try {
-          for (const envelope of staged) { rmSync(blockPath(historyCheckpointEnvelopeId(envelope))); blockBytes -= Buffer.byteLength(JSON.stringify(envelope)); }
-          staged = []; flushDirectory(directory);
+          for (const envelope of staged) { if (!sharedPool) rmSync(blockPath(historyCheckpointEnvelopeId(envelope))); blockBytes -= Buffer.byteLength(JSON.stringify(envelope)); }
+          staged = []; if (!sharedPool) flushDirectory(directory);
         } catch (error) { failed = true; throw error; }
       }
       // Expiration during fsync suppresses the response, but never rolls back a durable vote.
@@ -670,9 +684,11 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
             if (retained.count + descending.length > maxBlocks) throw new Error('History storage capacity exceeded');
             const accepted = complete ? readHistorySequenceIndex({ version: 1, entries: [...retained.records,
               ...[...descending].reverse().map(block => [block.sequence, historyCheckpointEnvelopeId(block)])] }, maxBlocks) : retained;
+            // A live equivalent retry reuses the original authorization in immutable staging metadata.
+            const retainedAuthorization = sharedPool ? sharedPool.retainedTransferAuthorization(rootId, incoming, auth, now()) : auth;
             const next: Manifest = complete ? { ...state, blocks: accepted.encode(), transfer: null,
               ...(frame.compaction ? { compaction: frame.compaction } : {}) }
-              : { ...state, transfer: { authorization: auth, blocks: ids } };
+              : { ...state, transfer: { authorization: retainedAuthorization, blocks: ids } };
             if (complete) {
               if (!jump && incoming.previous !== retained.headId) throw new Error('Transfer forks from retained history');
               assertStoreChain(proposal, next);
@@ -681,6 +697,7 @@ function openStore(options: HistoryCheckpointStoreOptions, preparing: boolean) {
             fits(Buffer.byteLength(JSON.stringify(incoming)), retained.count + descending.length);
             // Every block is durable before either a staging index or the accepted index names it.
             try {
+              sharedPool?.prepareAppend(rootId, incoming, next, true, retainedAuthorization);
               const size = writeImmutable(incoming); storage.write(next); blockBytes += size;
               if (complete) { for (const block of [...descending].reverse()) envelopes.set(block.sequence, block); staged = []; } else staged = descending;
             } catch (error) { failed = true; throw error; }

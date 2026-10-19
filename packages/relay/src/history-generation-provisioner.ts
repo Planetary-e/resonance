@@ -5,6 +5,7 @@ import { type SigningKeyPair } from '@resonance/core';
 import { copyAdmissionSigningKey, exactWitnessFields } from '@resonance/core/admission-witness';
 import { openEncryptedLocalState, inspectLocalStateOwnership, isLocalStateOwnershipName } from '@resonance/core/local-state';
 import { captureStorageReservationOperation, reserveManagedStorage } from '@resonance/core/storage-reservations';
+import type { SharedHistoryPool } from './history-shared-pool.js';
 import { reserveHistoryStorage } from './history-storage-reservation.js';
 import { historyCheckpointContextId, parseHistoryCheckpointContext, type HistoryCheckpointContext } from '@resonance/core/history-checkpoint';
 import { historyContinuationRootId, parseHistoryContinuationRoot, type HistoryContinuationRoot } from '@resonance/core/history-continuation';
@@ -20,8 +21,8 @@ interface StateBase {
   contextId: string; replica: string; parentRootId: string; parentGeneration: number;
   phase: 'empty' | 'creating' | 'ready'; root: HistoryContinuationRoot | null;
 }
-type Location = 'generation' | 'legacy-staging' | 'pool';
-interface State extends StateBase { version: 2 | 3; location: Location | null; childDirectory?: string }
+type Location = 'generation' | 'legacy-staging' | 'pool' | 'shared-v2';
+interface State extends StateBase { version: 2 | 3 | 4; location: Location | null; childDirectory?: string }
 interface LegacyState extends StateBase { version: 1 }
 type StoredState = State | LegacyState;
 /** Preflight the slot before creating its directory, including a future empty successor slot. */
@@ -30,6 +31,7 @@ export function reserveHistoryProvisionJournal(directory: string) {
     maximumBytes: 2 * HISTORY_PROVISION_JOURNAL_BYTES + 8192 });
 }
 export function openHistoryGenerationProvisioner(options: {
+  sharedPool?: SharedHistoryPool;
   directory: string; localKey: Uint8Array; context: HistoryCheckpointContext; signingKey: SigningKeyPair;
   parent: ReturnType<typeof openHistoryCheckpointStore>; initialize?: boolean;
   /** Resume only an unpublished empty slot whose durable parent has never activated a child. */
@@ -40,6 +42,7 @@ export function openHistoryGenerationProvisioner(options: {
   childDirectory?: string;
   maxBytes?: number; maxBlocks?: number; acceptNew?: () => boolean; now?: () => number;
 }) {
+  if (options.sharedPool) return openSharedProvisioner(options as typeof options & { sharedPool: SharedHistoryPool });
   const run = captureStorageReservationOperation();
   const context = parseHistoryCheckpointContext(options.context), contextId = historyCheckpointContextId(context);
   const maxBytes = options.maxBytes ?? 64 * 1024 * 1024, maxBlocks = options.maxBlocks ?? 10001;
@@ -196,7 +199,7 @@ export function createHistoryGenerationReplica(options: Parameters<typeof openHi
 }) {
   const retained = [...(options.ancestors ?? []), options.parent];
   const replica = Buffer.from(options.signingKey.publicKey).toString('base64url');
-  if (retained.length > 65 || retained[0].describe().generation !== 0) throw new Error('History routing requires complete bounded ancestry from genesis');
+  if (retained.length > (options.sharedPool ? 10001 : 65) || retained[0].describe().generation !== 0) throw new Error('History routing requires complete bounded ancestry from genesis');
   const seen = new Set<string>();
   for (let i = 0; i < retained.length; i++) {
     const store = retained[i], head = store.describe(), root = store.envelopeAt(0)!;
@@ -237,4 +240,60 @@ export function createHistoryGenerationReplica(options: Parameters<typeof openHi
 function flush(path: string) {
   if (process.platform === 'win32') return;
   const fd = openSync(path, 'r'); try { fsyncSync(fd); } finally { closeSync(fd); }
+}
+
+/** Shared ownership and immutable record versions replace per-generation journal allocations. */
+function openSharedProvisioner(options: Parameters<typeof openHistoryGenerationProvisioner>[0] & { sharedPool: SharedHistoryPool }) {
+  const run = captureStorageReservationOperation(), pool = options.sharedPool, parent = options.parent;
+  const context = parseHistoryCheckpointContext(options.context), replica = Buffer.from(options.signingKey.publicKey).toString('base64url');
+  pool.assertPins(context, replica, parent.genesisId); if (parent.sharedPool !== pool || !parent.matches(context, replica) || options.childDirectory) throw new Error('Shared provisioner requires its same-owner predecessor');
+  const head = parent.describe(), maxBytes = options.maxBytes ?? 64 * 1024 * 1024, maxBlocks = options.maxBlocks ?? 10001;
+  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 4 * 1024 * 1024 || maxBytes > 256 * 1024 * 1024
+    || !Number.isSafeInteger(maxBlocks) || maxBlocks < 1 || maxBlocks > 10001) throw new Error('Invalid history provision capacity');
+  const initial: State = { version: 4, contextId: historyCheckpointContextId(context), replica, parentRootId: head.rootId, parentGeneration: head.generation,
+    phase: 'empty', root: null, location: null };
+  const validate = (v: unknown): v is StoredState => {
+    if (!exactWitnessFields(v, Object.keys(initial)) || v.version !== 4 || v.contextId !== initial.contextId || v.replica !== replica || v.parentRootId !== head.rootId || v.parentGeneration !== head.generation) return false;
+    if (v.phase === 'empty') return v.root === null && v.location === null;
+    try { const root = parseHistoryContinuationRoot(v.root, context); return ['creating', 'ready'].includes(v.phase as string) && v.location === 'shared-v2' && root.proposal.rootId === head.rootId && root.proposal.generation === head.generation; } catch { return false; }
+  };
+  const key = copyAdmissionSigningKey(options.signingKey);
+  let journal: { read(): StoredState; write(value: StoredState): void; close(): void };
+  let child: ReturnType<typeof openHistoryCheckpointStore> | undefined, closed = false, failed = false;
+  const childOptions = (root: HistoryContinuationRoot) => ({ directory: pool.directory, localKey: options.localKey, context, replica, rootId: historyContinuationRootId(root), generation: root.generation,
+    parent, sharedPool: pool, maxBytes, maxBlocks });
+  try {
+    if (options.initialize && parent.activatedContinuation()) throw new Error('Activated history is missing its successor journal');
+    journal = pool.openRecord<StoredState>({ rootId: head.rootId, generation: head.generation, kind: 'provision', initial, validate, maxBytes: HISTORY_PROVISION_JOURNAL_BYTES, initialize: options.initialize });
+    const state = journal.read() as State; if (state.phase === 'ready') child = openHistoryCheckpointStore(childOptions(state.root!));
+  } catch (error) { journal!?.close(); key.secretKey.fill(0); throw error; }
+  function ensureOpen() { if (closed || failed) throw new Error('History provisioner closed or write failed; reopen before reuse'); journal.read(); }
+  return {
+    provision(raw: unknown) { return run(() => {
+      ensureOpen(); const request = parseHistoryProvisionRequest(raw, context, (options.now ?? Date.now)()), root = request.root;
+      if (request.replica !== replica || root.proposal.rootId !== head.rootId || root.proposal.generation !== head.generation) throw new Error('History provision request does not match enrolled predecessor');
+      let state = journal.read() as State;
+      if (state.root && historyContinuationRootId(state.root) !== historyContinuationRootId(root)) throw new Error('Another child already occupies this provision slot');
+      if (state.phase === 'empty' && options.acceptNew?.() === false) throw new Error('History owner paused new storage');
+      if (state.phase !== 'ready') pool.preparePublication(root);
+      try {
+        const authorized = parent.activateContinuation(pool.heldMutation()?.root ?? root);
+        if (state.phase === 'empty') { state = { ...state, phase: 'creating', root: authorized, location: 'shared-v2' }; journal.write(state); }
+        if (state.phase === 'creating') {
+          prepareHistoryContinuationStore({ ...childOptions(state.root!), initialize: state.root! });
+          child = openHistoryCheckpointStore(childOptions(state.root!));
+          // This journal is part of the complete child, before durable ready publication.
+          if (!pool.hasRecord(historyContinuationRootId(state.root!), 'provision')) {
+            const successor = openSharedProvisioner({ ...options, parent: child, initialize: true }); successor.close();
+          }
+          journal.write({ ...state, phase: 'ready' });
+        }
+        parent.requireContinuation(root, replica); if (!child?.matches(context, replica)) throw new Error('Provisioned child unavailable');
+      } catch (error) { failed = true; throw error; }
+      parseHistoryProvisionRequest(request, context, (options.now ?? Date.now)()); return createHistoryProvisionReceipt(request, key);
+    }); },
+    child() { ensureOpen(); return child ?? null; },
+    read(): State { ensureOpen(); return structuredClone(journal.read()) as State; },
+    close() { if (!closed) { closed = true; child?.close(); journal.close(); key.secretKey.fill(0); } },
+  };
 }

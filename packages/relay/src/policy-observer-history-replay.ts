@@ -1,3 +1,4 @@
+import { historyAncestryPages } from '@resonance/core/history-ancestry-pages';
 /** Offline semantic replay. Historical certificates never authorize live signing. */
 import { createHash } from 'node:crypto';
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
@@ -80,12 +81,17 @@ export async function replayPolicyObserverHistory(options: {
     live();
     const minimum = suppliedMinimum === undefined ? undefined : await parsePolicyObserverSnapshot(suppliedMinimum, context);
     let foundMinimum = !minimum;
-    for (const raw of options.blocks) {
-      live(); if (++blocks > maxBlocks) throw new Error('Policy observer replay block capacity exceeded');
-      const size = Buffer.byteLength(JSON.stringify(raw) ?? '');
-      if (!size || size > HISTORY_ENVELOPE_MAX_BYTES || (bytes += size) > maxBytes) throw new Error('Policy observer replay byte capacity exceeded');
-      account(size);
-      const block = parseHistoryCheckpointEnvelope(raw, historyContext), id = historyCheckpointEnvelopeId(block);
+    function* parsedBlocks() {
+      for (const raw of options.blocks) {
+        live(); if (++blocks > maxBlocks) throw new Error('Policy observer replay block capacity exceeded');
+        const size = Buffer.byteLength(JSON.stringify(raw) ?? '');
+        if (!size || size > HISTORY_ENVELOPE_MAX_BYTES || (bytes += size) > maxBytes) throw new Error('Policy observer replay byte capacity exceeded');
+        account(size); yield parseHistoryCheckpointEnvelope(raw, historyContext);
+      }
+    }
+    for (const page of historyAncestryPages(parsedBlocks())) {
+    for (const block of page.blocks) {
+      live(); const id = historyCheckpointEnvelopeId(block), size = Buffer.byteLength(JSON.stringify(block));
       if (!head) {
         if (block.kind !== 'checkpoint' || block.generation !== 0 || block.sequence !== 0 || id !== genesisId) throw new Error('Policy observer replay requires its independently pinned genesis');
         state = await decodePolicyObserverSnapshot(block, historyContext, context, key);
@@ -94,7 +100,7 @@ export async function replayPolicyObserverHistory(options: {
         resolved = await resolveAdmissionPolicy({ context, genesis: state.policy, advances: [], selectedHead: context.genesis,
           reader: async () => { throw new Error('Genesis has no archive pages'); }, limits: policyObserverArchiveLimits(maxBlocks, maxBytes, timeoutMs), signal: options.signal });
       } else if (block.kind === 'continuation') {
-        if (generations >= 65 || block.proposal.generation !== head.generation || block.generation <= head.generation) throw new Error('Invalid policy observer generation ancestry');
+        if (block.proposal.generation !== head.generation || block.generation <= head.generation) throw new Error('Invalid policy observer generation ancestry');
         assertHistorySuccessorChain(block.proposal, ids);
         rootId = id; ids = [id]; generations++; generationBytes = size;
       } else {
@@ -120,6 +126,8 @@ export async function replayPolicyObserverHistory(options: {
       if (block.generation > proposal.generation || block.generation === proposal.generation && block.sequence > proposal.sequence) throw new Error('Policy observer replay exceeds its selected head');
       head = block;
       if (blocks % 16 === 0) { await yieldToEventLoop(); live(); }
+    }
+    await yieldToEventLoop(); live();
     }
     live();
     if (!state || !genesis || !head || head.generation !== proposal.generation || rootId !== proposal.rootId) throw new Error('Policy observer history does not reach its selected generation');

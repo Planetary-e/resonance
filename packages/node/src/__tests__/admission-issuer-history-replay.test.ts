@@ -1,3 +1,4 @@
+import { historyOriginalPoolFixture } from '../../../relay/src/__tests__/fixtures/history-original-pool-fixture.js';
 import { afterEach, beforeAll, expect, it } from 'vitest';
 import { randomBytes } from 'node:crypto';
 import { mkdtempSync, rmSync, existsSync, writeFileSync } from 'node:fs';
@@ -167,3 +168,35 @@ it('requires confirmed agreement for a continuation and retains caller key on ca
   await expect(replayProtectedIssuerHistory({ ...input, blocks: blocks(), signal: controller.signal })).rejects.toThrow('cancelled');
   expect(closed).toBe(true); expect(input.encryptionKey).toEqual(keyBefore);
 });
+
+it('retains exact issuer obligations through100 real pooled recovery transitions and reopens101 generations', async () => {
+  const input = selected([base]), started = performance.now();
+  const n = historyOriginalPoolFixture({ context: input.context, root: input.blocks[0], encryptionKey: input.encryptionKey, owner: input.owner, memberKeys: input.memberKeys }); cleanups.push(n.close);
+  const updates = new Map([[1, granted], [63, bound], [64, prepared], [65, completed], [99, advanced], [100, retired]]);
+  let finalProposal = input.proposal;
+  for (let generation = 0; generation <= 100; generation++) {
+    if (updates.has(generation)) n.append(updates.get(generation));
+    const proposal = n.select(); finalProposal = proposal;
+    if (generation === 64 || generation === 100) {
+      n.reopen(); writeFileSync(`/tmp/resonance-original-pool-issuer-${generation+1}.json`, JSON.stringify(n.measurement(), null, 2)); const blocks = n.blocks();
+      const result = await replayProtectedIssuerHistory({ ...input, proposal, blocks, minimumEvidence: generation === 64 ? [granted, bound, prepared] : [granted, prepared, completed, advanced, retired] });
+      expect(result.generations).toBe(generation + 1); expect(result.state).toEqual(generation === 64 ? prepared : retired);
+      expect(totals(result.state)).toEqual(generation === 64 ? totals(prepared) : totals(completed));
+      expect(n.services().every(s => s.describe().generations === generation + 1)).toBe(true);
+    }
+    if (generation < 100) n.rotate(proposal);
+  }
+  const blocks = n.blocks();
+  for (const damage of ['gap', 'reorder', 'mismatch', 'blocks', 'bytes', 'minimum']) {
+    const altered = [...blocks], boundary = altered.findIndex(b => b.generation === 64);
+    if (damage === 'gap') altered.splice(boundary, 1);
+    if (damage === 'reorder') [altered[boundary - 1], altered[boundary]] = [altered[boundary], altered[boundary - 1]];
+    if (damage === 'mismatch') altered[boundary] = altered[boundary + 1];
+    await expect(replayProtectedIssuerHistory({ ...input, proposal: finalProposal, blocks: altered,
+      ...(damage === 'blocks' ? { maxBlocks: boundary + 1 } : {}), ...(damage === 'bytes' ? { maxBytes: blocks.slice(0, boundary + 1).reduce((n, b) => n + Buffer.byteLength(JSON.stringify(b)), 0) } : {}),
+      ...(damage === 'minimum' ? { minimumEvidence: [{ ...retired, retirement: { retiredAt: 401, ...totals(completed) } }] } : {}) })).rejects.toThrow();
+  }
+  const measured = { role: 'admission-issuer', durationMs: performance.now() - started, ...n.measurement() };
+  writeFileSync('/tmp/resonance-original-pool-issuer.json', JSON.stringify(measured, null, 2));
+  expect(measured.pools.every(p => p!.pages === 2 && p!.peakBytes <= 256 * 1024 * 1024)).toBe(true);
+}, 300000);

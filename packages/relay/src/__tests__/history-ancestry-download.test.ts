@@ -98,3 +98,14 @@ it('bounds a cancellation-ignoring transport, aborts close and refuses overlappi
   const pending = download.run(), rejected = expect(pending).rejects.toThrow('cancelled');
   await expect(download.run()).rejects.toThrow('overlapping'); download.close(); await rejected;
 });
+
+it('reopens legacy v1 download manifests without silently changing their paging contract', async () => {
+  const n = fixture(), download = n.open(); await download.run({ maxBlocks: 2 }); download.close();
+  const { openEncryptedLocalState } = await import('@resonance/core/local-state');
+  const state = openEncryptedLocalState<any>({ path: join(n.downloadOptions.directory, HISTORY_DOWNLOAD_FILENAME), key: n.localKey,
+    domain: 'resonance:history-ancestry-download:v1', maxBytes: 2 * 1024 * 1024, initial: null,
+    validate: (v): v is any => !!v, mode: 'open-existing' });
+  state.write({ ...state.read(), version: 1 }); state.close();
+  const legacy = n.open(false); expect(legacy.read().pagingVersion).toBe(1); expect((await legacy.run()).complete).toBe(true);
+  expect([...legacy.blocks()]).toEqual(n.blocks); legacy.close(); expect(n.open(false).read().pagingVersion).toBe(1);
+});

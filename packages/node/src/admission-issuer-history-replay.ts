@@ -1,3 +1,4 @@
+import { historyAncestryPages } from '@resonance/core/history-ancestry-pages';
 import { AdmissionPolicyArchiveBudget, parseAdmissionPolicyProofReference } from '@resonance/core/admission-policy-archive';
 import type { PolicyProofOperation, PolicyProofCache } from '../../relay/src/admission-policy-history-proof.js';
 import type { ProtectedIssuerState as State } from './protected-admission-issuer-state.js';
@@ -67,7 +68,8 @@ export async function replayProtectedIssuerHistory(options: ProtectedIssuerRepla
     }
     let state: State | undefined, genesis: HistoryEncryptedEnvelope | undefined, head: HistoryCheckpointEnvelope | undefined;
     let rootId = '', ids: string[] = [], generations = 0, generationBytes = 0;
-    for (const block of supplied) {
+    for (const page of historyAncestryPages(supplied)) {
+    for (const block of page.blocks) {
       live(); const id = historyCheckpointEnvelopeId(block), size = Buffer.byteLength(JSON.stringify(block));
       if (!head) {
         if (block.kind !== 'checkpoint' || block.generation !== 0 || block.sequence !== 0 || id !== genesisId) throw new Error('Issuer replay requires its independently pinned original genesis');
@@ -75,7 +77,7 @@ export async function replayProtectedIssuerHistory(options: ProtectedIssuerRepla
         assertProtectedIssuerGenesis(state, context);
         genesis = block; rootId = id; ids = [id]; generations = 1; generationBytes = size;
       } else if (block.kind === 'continuation') {
-        if (generations >= 65 || block.proposal.generation !== head.generation || block.generation <= head.generation) throw new Error('Invalid issuer generation ancestry');
+        if (block.proposal.generation !== head.generation || block.generation <= head.generation) throw new Error('Invalid issuer generation ancestry');
         assertHistorySuccessorChain(block.proposal, ids);
         rootId = id; ids = [id]; generations++; generationBytes = size;
       } else {
@@ -89,6 +91,8 @@ export async function replayProtectedIssuerHistory(options: ProtectedIssuerRepla
       if (block.generation > proposal.generation || block.generation === proposal.generation && block.sequence > proposal.sequence) throw new Error('Issuer replay exceeds its selected head');
       head = block;
       if (head.sequence % 16 === 0) { await yieldToEventLoop(); live(); }
+    }
+    await yieldToEventLoop(); live();
     }
     live();
     if (!state || !genesis || !head || head.generation !== proposal.generation || rootId !== proposal.rootId) throw new Error('Issuer history does not reach its selected generation');

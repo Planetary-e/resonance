@@ -1576,3 +1576,304 @@ No1000-fault campaign, installers, resource increases, semantic pruning or
 suspended historical investigation. Any inability to fit existing resources is
 a recorded decision gate, not permission to enlarge them. Historical effort and
 alternative counts remain attached to the same blocker.
+
+Pre-edit operational inspection found a necessary prerequisite omitted by the
+download/replay contract. history-checkpoint-store.ts charges two2MiB manifest
+reserves for every retained generation (requireContinuation), plus actual
+ciphertext, against MAX_ANCESTRY_BYTES256MiB (validateParent/fits). Thus64 retained
+generations already consume256MiB before positive ciphertext; at most63 fit,
+and only if their ciphertext fits the remaining4MiB. Additional lifetime64
+depth guards exist in the store. All three semantic roles still reject the
+existing compaction-frontier route. This is reservation arithmetic, not measured
+proof size, data loss or an investigation of historical retirement.
+
+SolHigh paused before any code/test changes at0ca9ebb. Downloader/replay-only
+qualification would not establish operational feasibility and is not proceeding.
+One bounded AstraHigh review evaluates whether a versioned shared metadata
+representation can retain all original encrypted proof, ownership/activation/
+freeze/pending evidence and truthful reserves under unchanged aggregate limits.
+This is the same blocker/prerequisite, not a reset of alternatives or effort.
+No larger limits, smaller unbacked reserves, guard removal or suspended
+investigation is authorized. If no concrete compatible representation exists,
+report the exact resource/trust decision rather than implement an unused helper.
+
+### Frozen prerequisite: shared original-evidence storage v2
+
+AstraHigh constructive review identifies a representational route with no new
+trust/resource assumption: explicitly selected shared storage for one pinned
+genesis/context/replica; unchanged original signed ciphertext blocks; immutable
+encrypted full generation manifests and provisioning records, including all
+superseded versions; authenticated descriptor pages of at most64 generations;
+one bounded atomic encrypted catalog under shared ownership. This supersedes
+the downloader-only implementation scope above; Sol made no edits to that scope.
+
+Preserve durable parent activation → creating intent → complete child → ready
+publication. Handles share one owner; a second representation cannot independently
+write the same generation. Before creation reserve all objects, old versions,
+staged/interrupted files, catalog replacement/ownership peaks and controls.
+Existing monotone reservation authority remains authoritative. All aggregate
+byte/block/funding/deadline limits remain unchanged across pages. No evidence
+reclamation. Legacy stores remain readable; migration, if supported, charges
+overlap and never credits old reservations. Exhausted migration may refuse.
+
+One bounded SolHigh implementation/correction block, followed by one scoped
+AstraHigh protocol review and affected composed regression. No parallel
+implementation or broad1000-fault run. Shared weekly counter77% at expansion
+(entry76%; account-wide, not agent attribution). Review/design and implementation
+effort remain on B-HISTORY-LIFECYCLE; prior unknown hours remain unknown.
+
+Falsifying qualification is a real-store100-transition/recovery workload for the
+three semantic roles, independently expected obligations, checkpoints at65 and
+101 generations, original-genesis reopen/replay, and durable reservation plus
+peak-file measurement including interrupted publication. No fabricated chain
+bypassing the store can establish this acceptance. Missing/altered/reordered
+objects, competing ownership, interrupted creating/ready publication and
+aggregate exhaustion must refuse without accepting partial state. Legacy
+compatibility/overlap need explicit tests if migration is included. Any evidence
+mismatch, unreserved output or exceeded unchanged resource/deadline bound
+rejects this candidate and triggers the existing stop-policy assessment.
+The implementation must expose an actual operational path through the volunteer
+service/provisioner, not merely a standalone unused pool. This prerequisite does
+not itself satisfy K2's1000 diverse faults or authorize semantic compaction.
+
+Prior candidate de3840b hosted CI finished: general3350/3352 in362files;
+wallet101 repeats the same ECONNRESET, and protected-admission-consumers-v3's
+65-archive integration reports Archive operation cancelled or timed out while
+admission-policy-history-proof.images charges its budget. The trace alone does
+not locate the owning operation. Both owner-loss collection receipts pass
+(issuer3269ms,relay85ms, allowance30000ms). Thus this is not the former collection
+timeout. Durability328/329, ownership and desktop pass. Full logs retained at
+/tmp/resonance-de3840b-general.log and /tmp/resonance-de3840b-durability.log.
+No repeat CI or increased deadline; isolate the additional hosted proof deadline
+after the active shared-storage candidate, preserving its existing allowance.
+
+### Shared-storage candidate review: rejected, stop condition1
+
+Frozen source/test manifest /tmp/resonance-original-pool-v2-candidate-manifest.json
+SHA256fb3da37fe49a065b4f2a9c095da886ecc3f77c87684345738459080bb05a0db5
+contains17 files on0ca9ebb. First focused run69/71 in514.67s: all three real
+five-replica100-generation-transition workloads pass original-genesis semantic
+replay at65/101, but two error-message assertions fail. Those assertions and
+new bounds/expiry checks form one correction bundle;3/3 narrow reruns pass.
+The observer's amended cross-page download budget cases run separately; do not
+count this as full K2 owner/readiness/compaction qualification. Voting replica
+accounted peaks at101 are27.71–27.81MB within268,435,456bytes; process RSS snapshots
+include all five replicas/test overhead and are not single-relay K7 qualification.
+
+Scoped AstraHigh review matched the frozen hashes and REJECTED this candidate:
+
+1. Zero-additional capacity checks do not hold all activation/creating/child/ready/
+   successor-journal output. Capacity exhaustion after durable ready can leave
+   every reopen unable to create the child's routing journal.
+2. Retained immutable ciphertext published before its generation manifest cannot
+   be reused by exact append retry; repeated reopen does not fix the orphan.
+3. Per-generation checkpoint promises are not charged against aggregate pool
+   bytes/blocks plus immutable publication metadata, allowing promises that the
+   pool cannot fulfill.
+
+These are structural counterexamples to the frozen recovery/publication contract,
+so stop condition1 applies even though nominal101-generation tests pass. Source
+implementation/integration/composed testing stopped. Sol may finish the running
+observer test and add only minimal distinguishing contract regressions; no source
+repair is authorized by this receipt. Preserve the failed candidate and evidence.
+Owner decision will be a bounded repair of whole-publication reservations and
+idempotent retained-block reuse, or suspension of this shared-storage candidate.
+No budget increase, guard removal, release, merge or KPI completion is implied.
+
+Stop evidence is now executable: history-shared-pool-stop.test.ts fails all three
+intended safe-contract assertions in2.23s (command2.67s). Publication calibration
+reaches durable ready with60,392 arena bytes plus4,202,496 control bytes, but the
+same-bound successor journal fails before/after reopen. Exact interrupted append
+retries fail on two reopens with old manifest head still sequence0. A pool with
+four block slots accepts its fourth delta despite a4096-byte future checkpoint
+promise, then refuses that checkpoint. Encrypted directories and receipts remain
+at the paths recorded in /tmp/resonance-pool-stop-{publication,orphan,checkpoint}.json;
+full log /tmp/resonance-original-pool-v2-stop-repros.log. No production correction.
+
+The running observer correction completed1/1 in189.63s with cross-page download
+block/byte/time refusal checks. Final retained18-file manifest
+/tmp/resonance-original-pool-v2-stop-manifest.json has SHA256
+0a29a9f7864ae0b1d34a0c61384c09d2e18220285ac3dca5879f7e18d34a05a7;
+the17 reviewed candidate files remain byte-identical, only the stop test was
+added. Core/relay/node compilation passes. No composed regression or candidate
+commit/push/merge/release followed. The rejected candidate remains local and
+uncommitted for review, with intentionally failing regressions.
+
+Recommended concrete repair decision: one bounded SolHigh correction of durable
+whole-publication capacity holds, idempotent authenticated orphan adoption and
+aggregate future-checkpoint promises; same limits and retained evidence. First
+turn the three counterexamples green, then scoped AstraHigh re-review of changed
+invariants and one affected regression. Do not repeat100-transition workloads
+without a relevant changed path. Alternative: suspend this storage representation.
+Exit shared weekly counter82% vs entry76%, expansion77%, pre-review80%; these
+are account-wide counters, not a cost attribution. Historical active effort and
+alternatives are not reset; exact past totals remain unavailable.
+
+### Owner-authorized bounded repair
+
+Owner explicitly approved the proposed repair after the three reproduced stop1
+counterexamples. Entry shared weekly counter82%, ordinary usage permitted.
+One SolHigh repair of full-publication durable capacity holds, authenticated
+retained-block adoption and aggregate future-checkpoint promises; unchanged
+resource/trust limits, original evidence retained, same B-HISTORY-LIFECYCLE.
+First run the three existing stop regressions with their safe expectations
+preserved, adding only distinguishing crash/reopen/capacity cases required by
+the repair. Then scoped AstraHigh re-review and one affected composed regression.
+Do not remove guards, reset historical effort, relax thresholds, run installers
+or merge. The additional hosted policy-proof deadline remains a separate pending
+validation issue. No new architecture alternative or complete KPI is implied.
+
+Repair first check: the three original stop regressions now pass3/3 in2.41s
+(command2.78s), /tmp/resonance-pool-repair-three.log. Low-capacity publication
+refuses before activation; a separately funded publication includes its child
+routing journal. Exact orphan retry persists its new head, subsequent retry is
+idempotent, and the fourth-slot delta refuses before acknowledgment. The orphan
+test correctly expects the new head after its first successful retry, rather
+than the original failing candidate's unchanged head on every reopen.
+Core/relay/node compilation passes. Extra distinguishing hold/reopen/interference
+and promised-checkpoint byte/metadata cases are pending before frozen re-review.
+No composed regression, repeated101-generation workload or acceptance yet.
+
+Repair expanded boundary check first returned4/9: five failures were one
+allowlist implementation mismatch (array versus canonical encoded sequence
+index). Corrected using readHistorySequenceIndex with exact root/sequence/count;
+same nine cases now9/9 in5.79s, command6.26s, log
+/tmp/resonance-pool-repair-canonical-nine.log. Includes early publication-hold
+SIGKILL, provably unstarted append cancellation, same-root interference, retained
+checkpoint capacity/metadata, partial and complete orphan metadata retries.
+Frozen18-file manifest /tmp/resonance-pool-repair-review-manifest.json SHA256
+64557aad635867b58f47492f04ab6d308ac9e47ad26b053a682165aea56f67f0.
+Only pool/store/provisioner and two related tests differ from rejected baseline.
+Core/relay/node and whitespace checks pass; no heavy/composed tests or push.
+
+Scoped AstraHigh re-review is active. Sol explicitly flagged fresh authorization
+after expiry during selected transfer: the exact target digest currently binds
+request fields; review must resolve whether an interrupted logical operation can
+retry with a fresh valid frame. Do not hide this concern behind the9 passing
+cases. Shared weekly counter84% vs repair entry82%, account-wide.
+
+### Bounded repair re-review: acceptance withheld
+
+AstraHigh matched the frozen18-file manifest and found two remaining P1
+selected-transfer defects. First, the final predecessor of a descending
+sequence3→2→1 recovery is present in the accepted index but is neither its
+head nor in the now-null transfer; append-hold admission and release reject
+it. Second, ciphertext retained before manifest publication pins the expired
+authorization in the target digest, rejecting a fresh valid equivalent request
+and preventing cancellation because physical output exists. The review
+structurally accepts the original three repair areas, not the overall candidate.
+
+Stop1 assessment: these are reachable recovery correctness counterexamples
+in the new hold mechanism. Production edits and composed regression are frozen.
+SolHigh has one tests-only task to retain minimum distinguishing reproductions;
+no heavy workloads, new protocol design, commit, push or release. No additional
+repair loop is implicitly approved. Shared weekly counter85% used versus82%
+at repair entry, account-wide and not attributable to individual agents.
+Historical budgets and alternatives remain unchanged.
+
+Both review counterexamples are now reproduced with real five-replica signed
+view/proposal/authorization frames. Filtered run:2 failed expected-contract
+assertions,9 skipped,1.63s Vitest /1.93s command. Log:
+/tmp/resonance-pool-stop-selected-transfer-final.log. Receipts:
+/tmp/resonance-pool-stop-selected-predecessor.json and
+/tmp/resonance-pool-stop-selected-expiry.json. Errors match the review exactly:
+`Append hold omits its target reference` and `Wrong held append target`.
+Reopening preserves the original sequence0 accepted head and no prepare vote;
+the expiry case preserves ciphertext and held resources, but cannot resume.
+No data-loss claim follows from these availability/recovery failures.
+
+Final18-file manifest /tmp/resonance-pool-selected-stop-manifest.json SHA256
+531a24c2c5803a9e1323f6e1110c0d9243d995ffa62785d070dffea216d95da9.
+Parent inspected tests/receipts and verified only the stop-test file differs
+from the frozen reviewed manifest. No production edits or broad reruns.
+
+Stop1 is confirmed. Recommended next owner decision: one correction restricted
+to selected-transfer hold identity and completion, with these two regressions,
+negative different-target authorization checks, scoped review and then the
+already-declared affected regression if accepted. Preserve exact immutable
+output adoption and all funding/retention/authentication bounds; renewed valid
+authorization must not authorize a different operation. Alternative: suspend
+this storage candidate. Do not integrate the rejected repair or claim K2/K3.
+
+### Owner-authorized selected-transfer correction
+
+Owner explicitly authorized the proposed two-case correction. Entry shared
+weekly counter86%, ordinary usage allowed. Same B-HISTORY-LIFECYCLE / K2,K3;
+no reset of historical effort or alternatives. SolHigh owns only selected
+transfer hold identity/completion and distinguishing tests. Acceptance: both
+retained regressions pass; renewed authorization is validated live, changes
+only authorization freshness for the same immutable operation, and cannot
+redirect a held target or bypass immutable staged-output identity. Include
+negative different-target cases and interrupted metadata adoption as required.
+Preserve all retention, capacity, legacy and semantic compaction guards.
+Then scoped AstraHigh review and one affected composed regression if accepted;
+no installer, release or merge.
+
+Post-review composed regression is preselected from changed paths (one serial
+worker to avoid competing workload): shared-pool and stop regressions;
+checkpoint-store; agreement-data and agreement-data-crash integration;
+provision, provision integration and provision reservations; volunteer-service;
+ancestry-download unit/integration; issuer and allocation-authority replay;
+original-pool observer101. This covers storage/transfer/provision shared paths,
+legacy service/download behavior and all three real101-generation workloads.
+It runs once after acceptance of the corrected frozen candidate. Compilation
+uses core/relay/node plus desktop server if integration reaches that stage.
+A failure is classified before another run; no automatic full-suite repetition.
+
+Selected-transfer correction first focused run14/14 passes8.74s (9.30s command),
+/tmp/resonance-pool-selected-repair-focused.log; core/relay/node compilation
+and diff-check pass. First handoff manifest3a227ee8ca0ce092b438c2ee7f904f31724a51b78ebe762b8a420d3018a0d269
+was withdrawn before integration: implementer identified the same exact-operation
+binding must cover complete selected commits (transfer:null), not just staging.
+Reviewer was notified to pause pending corrected frozen candidate. This is an
+in-scope completeness correction, not accepted evidence or a new architecture.
+Only pool/store/stop-test differ from the rejected baseline. No composed run.
+
+Final selected-transfer candidate15/15 passes9.04s (9.55s command),
+/tmp/resonance-pool-selected-repair-final-focused.log; core/relay/node compile
+and whitespace checks pass. Frozen manifest
+/tmp/resonance-pool-selected-repair-final-manifest.json SHA256
+7fa1ed0497769b919b3dfba794b6bfd3f451cdbf846529c09ba84636e436dbeb.
+AstraHigh verified hashes and gives limited acceptance with no actionable
+findings: exact sequence→block identity, live equivalent authorization including
+complete/one-block transfers, unchanged immutable metadata digest/nonces, and
+expanded hold capacity preflight. No tests repeated by reviewer. Parent verified
+source hashes before starting the preselected14-file serial composed regression.
+This is repair acceptance, not K2/K3 qualification.
+
+Affected composed regression completed219/221,13/14files pass in886.99s,
+/tmp/resonance-pool-reviewed-composed.log. All three real101-generation role
+workloads finish: issuer197.9s, authority193.3s, observer234.4s; maximum recorded
+replica peak27,820,978B under268,435,456B. Original full-lifecycle/KPI limits
+remain unqualified. Only failures are the two pre-repair shared-pool primitive
+object-interruption tests: first-write injection now hits catalog preflight
+rather than immutable object output, and asserts old random temporary names
+rather than deterministic pending paths. Assigned tests-only correction to
+SolHigh preserving0/17-byte retention accounting and original authenticated
+state. No production modification or repeated101 workloads authorized by this
+fixture correction. Full passing composed claim withheld until it is checked.
+
+Fixture correction reviewed by parent: only actual version2 object ciphertext
+is interrupted, exactly one deterministic pending file has0/17bytes, and prior
+authenticated state, exact extra-byte accounting and later successful publication
+assertions remain. Two cases pass1.41s /1.99s command,
+/tmp/resonance-pool-object-fixture-correction.log. Manifest
+/tmp/resonance-pool-post-composed-fixture-manifest.json SHA256
+02ceb963f1008fe6e65349579cef6416bc47c4adb57ab240a8552dfc2840801f.
+Parent hash check confirms only that test differs from reviewed production.
+Combined evidence covers221 distinct checks:219 in the composed run plus the
+two corrected fixtures; this is not a claimed fresh221/221 single execution.
+No heavy rerun is justified by this tests-only change.
+
+Selected-transfer block used SolHigh implementation and AstraHigh scoped review.
+One initial handoff was withdrawn for complete-transfer auth binding before
+review acceptance; final focused15/15 and scoped review pass. The composed run
+required one tests-only correction, no further production changes. Entry shared
+weekly86%, exit88%; this is account-wide, not per-agent attribution. Earlier
+repair costs, alternatives and unknown historical active effort remain retained.
+No complete KPI:101 generation transitions and original-genesis replay do not
+replace100 full lifecycle/compaction cycles or1000 diverse fault scenarios.
+Next independent validation issue remains hosted protected-consumer restoration
+archive deadline; previous CI error lacks a precise restoration substage.
+
+Workspace TypeScript build including desktop server passes: `node node_modules/typescript/bin/tsc -b`, log /tmp/resonance-pool-reviewed-workspace-compile.log. No installer was built.

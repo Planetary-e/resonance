@@ -1,3 +1,4 @@
+import { historyOriginalPoolFixture } from '../../../relay/src/__tests__/fixtures/history-original-pool-fixture.js';
 import { afterEach, beforeAll, expect, it } from 'vitest';
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
@@ -56,7 +57,7 @@ function selected(images: State[]) {
     return createHistoryContinuationRoot(p, { version: 2, kind: 'history-agreement-certificate', phase: phase === 'confirm' ? 'confirmed' : 'prepared', votes }, context);
   }
   const p = proposal(blocks);
-  return { context, genesisId: historyCheckpointEnvelopeId(blocks[0]), authority, encryptionKey: h.key, proposal: p, blocks, proposalFor: proposal, continuation,
+  return { context, genesisId: historyCheckpointEnvelopeId(blocks[0]), authority, encryptionKey: h.key, proposal: p, blocks, proposalFor: proposal, continuation, owner: h.owner, memberKeys: h.memberKeys,
     checkpoint(image: State, previous: HistoryCheckpointEnvelope) { return sealHistoryCheckpoint({ context, header: { kind: 'checkpoint', generation: previous.generation,
       sequence: previous.sequence + 1, previous: historyCheckpointEnvelopeId(previous) }, plaintext: Buffer.from(JSON.stringify(image)), encryptionKey: h.key, signingKey: h.owner }); } };
 }
@@ -72,7 +73,7 @@ it('replays expired signed allocations and assignments through complete confirme
   expect(result.replayDigest).toBe(historyDigest(`resonance:admission-allocation-authority-replay:v1\n${JSON.stringify([result.contextId, result.genesisId, result.proposalId, assigned])}`));
   expect(result.head).toMatchObject({ rootId: historyCheckpointEnvelopeId(root), generation: 1, sequence: 1 });
   await expect(replayProtectedAllocationAuthorityHistory({ ...input, proposal: p, blocks: [root, next] })).rejects.toThrow('genesis');
-  await expect(replayProtectedAllocationAuthorityHistory({ ...input, proposal: p, blocks: [input.blocks[0], root, next] })).rejects.toThrow('complete selected chain');
+  await expect(replayProtectedAllocationAuthorityHistory({ ...input, proposal: p, blocks: [input.blocks[0], root, next] })).rejects.toThrow('page boundary');
   const forged = structuredClone(root); forged.certificate.votes[0].signature = Buffer.alloc(64).toString('base64url');
   await expect(replayProtectedAllocationAuthorityHistory({ ...input, proposal: p, blocks: [...input.blocks, forged, next] })).rejects.toThrow();
   expect(() => input.continuation(input.proposal, 'prepare')).toThrow();
@@ -154,3 +155,32 @@ it.skipIf(process.platform === 'win32')('rejects destination-parent retargeting 
   unlinkSync(link); symlinkSync(b, link, 'dir');
   expect(() => readPreparedProtectedAllocationAuthorityRestore(capability, capability.review.approvalDigest, { ...paths, context: input.context, authority })).toThrow('reviewed');
 });
+
+it('retains signed allocations and assignment denials through100 real pooled recoveries and101-generation reopen', async () => {
+  const input = selected([base]), started = performance.now();
+  const n = historyOriginalPoolFixture({ context: input.context, root: input.blocks[0], encryptionKey: input.encryptionKey, owner: input.owner, memberKeys: input.memberKeys }); cleanup.push(n.close);
+  let finalProposal = input.proposal;
+  for (let generation = 0; generation <= 100; generation++) {
+    if (generation === 1) n.append(installed);
+    if (generation === 64) n.append(assigned);
+    const proposal = n.select(); finalProposal = proposal;
+    if (generation === 64 || generation === 100) {
+      n.reopen(); writeFileSync(`/tmp/resonance-original-pool-authority-${generation+1}.json`, JSON.stringify(n.measurement(), null, 2)); const result = await replayProtectedAllocationAuthorityHistory({ ...input, proposal, blocks: n.blocks(), minimumEvidence: [installed, assigned] });
+      expect(result.generations).toBe(generation + 1); expect(result.state).toEqual(assigned);
+      expect(result.state.manifests).toEqual([installed.manifests[0]]);
+      if (result.state.version !== 2) throw new Error('expected assignment state');
+      expect(result.state.assignments).toEqual(assigned.version === 2 ? assigned.assignments : []);
+    }
+    if (generation < 100) n.rotate(proposal);
+  }
+  const blocks = n.blocks(), boundary = blocks.findIndex(b => b.generation === 64);
+  for (const damage of ['gap', 'reorder', 'blocks', 'bytes']) {
+    const altered = [...blocks]; if (damage === 'gap') altered.splice(boundary, 1);
+    if (damage === 'reorder') [altered[boundary - 1], altered[boundary]] = [altered[boundary], altered[boundary - 1]];
+    await expect(replayProtectedAllocationAuthorityHistory({ ...input, proposal: finalProposal, blocks: altered,
+      ...(damage === 'blocks' ? { maxBlocks: boundary + 1 } : {}), ...(damage === 'bytes' ? { maxBytes: blocks.slice(0, boundary + 1).reduce((n, b) => n + Buffer.byteLength(JSON.stringify(b)), 0) } : {}) })).rejects.toThrow();
+  }
+  const measured = { role: 'admission-allocation-authority', durationMs: performance.now() - started, ...n.measurement() };
+  writeFileSync('/tmp/resonance-original-pool-authority.json', JSON.stringify(measured, null, 2));
+  expect(measured.pools.every(p => p!.pages === 2 && p!.peakBytes <= 256 * 1024 * 1024)).toBe(true);
+}, 300000);

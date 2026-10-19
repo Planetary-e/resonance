@@ -1,3 +1,5 @@
+import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
+import { firstHistoryAncestryPage, nextHistoryAncestryGeneration, type HistoryAncestryPagePosition } from '@resonance/core/history-ancestry-pages';
 /** Resumable historical ciphertext download. Completion never authorizes restore or proves freshness. */
 import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, writeSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -16,9 +18,9 @@ import { exchangeHistoryCheckpoint, type HistoryCheckpointTransport, type Histor
 
 export const HISTORY_DOWNLOAD_FILENAME = 'history-download.json';
 const MANIFEST_BYTES = 2 * 1024 * 1024, MAX_BYTES = 256 * 1024 * 1024, MAX_BLOCKS = 10_001;
-interface State { version: 1; contextId: string; proposal: HistorySuccessorProposal; blocks: string[];
+interface State { version: 1 | 2; contextId: string; proposal: HistorySuccessorProposal; blocks: string[];
   compaction?: { genesisId: string; certificate: HistoryCompactionCertificate } }
-interface Cursor { proposal: HistorySuccessorProposal; sequence: number; envelopeId: string; generationBytes: number; depth: number; genesis?: true }
+interface Cursor { proposal: HistorySuccessorProposal; sequence: number; envelopeId: string; generationBytes: number; depth: number; page: HistoryAncestryPagePosition; genesis?: true }
 
 export function createHistoryAncestryDownload(options: {
   directory: string; localKey: Uint8Array; context: HistoryCheckpointContext; signingKey: SigningKeyPair;
@@ -49,9 +51,9 @@ export function createHistoryAncestryDownload(options: {
   });
   if (new Set(members.map(m => m.publicKey)).size !== 5 || new Set(members.map(m => m.endpoint)).size !== 5) throw new Error('History download needs five distinct pinned sources');
   const directory = options.directory, transport = options.transport ?? exchangeHistoryCheckpoint, key = copyAdmissionSigningKey(options.signingKey);
-  const initial: State = { version: 1, contextId, proposal, blocks: [], ...(compaction ? { compaction } : {}) };
+  const initial: State = { version: 2, contextId, proposal, blocks: [], ...(compaction ? { compaction } : {}) };
   const validate = (raw: unknown): raw is State => {
-    if (!exactWitnessFields(raw, Object.keys(initial)) || raw.version !== 1 || raw.contextId !== contextId
+    if (!exactWitnessFields(raw, Object.keys(initial)) || ![1, 2].includes(raw.version as number) || raw.contextId !== contextId
       || !Array.isArray(raw.blocks) || raw.blocks.length > maxBlocks || !raw.blocks.every(isHistoryDigest)
       || new Set(raw.blocks).size !== raw.blocks.length) return false;
     try {
@@ -63,7 +65,8 @@ export function createHistoryAncestryDownload(options: {
       return historySuccessorProposalId(parseHistorySuccessorProposal(raw.proposal, context)) === proposalId;
     } catch { return false; }
   };
-  const start = (p: HistorySuccessorProposal, depth: number): Cursor => ({ proposal: p, sequence: p.sequence, envelopeId: p.envelopeId, generationBytes: 0, depth });
+  const start = (p: HistorySuccessorProposal, depth: number, page = firstHistoryAncestryPage()): Cursor => ({ proposal: p, sequence: p.sequence, envelopeId: p.envelopeId, generationBytes: 0, depth, page });
+  let pagingVersion: 1 | 2 = 2;
   let cursor: Cursor | null = start(proposal, 0), blockBytes = 0, failed = false, closed = false, active: AbortController | undefined;
   const path = (id: string) => join(directory, `${id.slice(7)}.block`);
   function advance(current: Cursor, block: HistoryCheckpointEnvelope, size: number): Cursor | null {
@@ -99,8 +102,8 @@ export function createHistoryAncestryDownload(options: {
       if (block.generation !== 0) throw new Error('History ancestry does not terminate at genesis');
       return null;
     }
-    if (current.depth >= 64) throw new Error('History ancestry depth exceeded');
-    return start(block.proposal, current.depth + 1);
+    if (pagingVersion === 1 && current.depth >= 64) throw new Error('History ancestry depth exceeded');
+    return start(block.proposal, current.depth + 1, nextHistoryAncestryGeneration(current.page));
   }
   function readBlock(id: string): { block: HistoryCheckpointEnvelope; size: number } {
     const file = path(id), stat = lstatSync(file);
@@ -125,6 +128,7 @@ export function createHistoryAncestryDownload(options: {
     storage = openEncryptedLocalState<State>({ path: join(directory, HISTORY_DOWNLOAD_FILENAME), key: options.localKey,
       domain: 'resonance:history-ancestry-download:v1', maxBytes: MANIFEST_BYTES, initial, validate,
       mode: options.initialize ? 'create-new' : 'open-existing' });
+    pagingVersion = storage.read().version;
     for (const id of storage.read().blocks) {
       if (!cursor) throw new Error('History download continues past genesis');
       const { block, size } = readBlock(id); blockBytes += size;
@@ -148,7 +152,7 @@ export function createHistoryAncestryDownload(options: {
   }
   function status() {
     ensureOpen();
-    return { complete: cursor === null, blocks: storage.read().blocks.length, bytes: blockBytes,
+    return { pagingVersion, page: cursor?.page.index ?? null, complete: cursor === null, blocks: storage.read().blocks.length, bytes: blockBytes,
       next: cursor && { rootId: cursor.genesis ? compaction!.genesisId : cursor.proposal.rootId,
         generation: cursor.genesis ? 0 : cursor.proposal.generation, sequence: cursor.sequence, envelopeId: cursor.envelopeId } };
   }
@@ -193,7 +197,10 @@ export function createHistoryAncestryDownload(options: {
         ensureOpen(); if (controller.signal.aborted || Date.now() >= expiresAt || performance.now() - started >= timeoutMs) throw new Error('History download cancelled or timed out');
       };
       try {
-        for (let count = 0; cursor && count < limit; count++) {
+        let count = 0;
+        while (cursor && count < limit) {
+        const pageIndex = cursor.page.index;
+        for (; cursor && count < limit && cursor.page.index === pageIndex; count++) {
           live(); const position = cursor;
           if (existsSync(path(position.envelopeId))) { retain(readBlock(position.envelopeId).block); live(); continue; }
           if (position.genesis) { retain(genesis!); live(); continue; }
@@ -219,6 +226,8 @@ export function createHistoryAncestryDownload(options: {
             }).catch(() => {}).finally(() => { if (--remaining === 0) finish(); });
           });
           live(); retain(block); live();
+        }
+        live(); await yieldToEventLoop(); live();
         }
         return status();
       } finally { clearTimeout(timer); options.signal?.removeEventListener('abort', cancel); controller.abort(); if (active === controller) active = undefined; }
