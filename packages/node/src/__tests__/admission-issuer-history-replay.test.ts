@@ -147,7 +147,7 @@ it('binds opaque reviewed restoration to both destinations, profile, context, au
   const pins = { ...destination, context: input.context, profile: base.profile, authority };
   expect(JSON.stringify(capability.review)).not.toContain(granted.entries[0].claim!.secret);
   expect(existsSync(destination.path)).toBe(false);
-  for (const invalid of [structuredClone(capability), { review: capability.review }]) {
+  for (const invalid of [{ ...capability }, { review: structuredClone(capability.review) }]) {
     expect(() => readPreparedProtectedIssuerRestore(invalid, capability.review.approvalDigest, pins)).toThrow('reviewed');
   }
   expect(() => readPreparedProtectedIssuerRestore(capability, 'wrong', pins)).toThrow('reviewed');

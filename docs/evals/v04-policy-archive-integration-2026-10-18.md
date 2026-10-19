@@ -995,3 +995,35 @@ server compilation pass after regression. No memory/trust/storage ceiling change
 Implementation interval roughly07:07–07:14UTC, review completed before07:16UTC;
 parent cold measurement began07:16:24UTC. Prior unclocked effort stays unknown.
 Pending separate CI history-fixture failure and heap exhaustion remain unresolved.
+
+### CI925441e follow-up — October19 09:37UTC
+
+Owner requests autonomous continuation until a full KPI or actual stop condition.
+Shared account entry52%; previous interval closed at51%, not per-agent costs.
+Mac CI39215366293: ownership/desktop pass; durability314pass/3fail; general3284pass/
+3fail plus worker heap exhaustion. Original startup timeout did not recur; failures
+are copied opaque restore capability (fixture DataCloneError), complete frozen
+history quorum collection, and remote observer archive transfer. V8 OOM persists.
+No KPI completion. Log `/tmp/resonance-925441e-ci-fail.log`.
+
+Bounded next deliverable under B-HISTORY-LIFECYCLE/K2,K3: remove the fixture
+regression without weakening opaque-capability rejection and identify exact OOM
+source with a minimal discriminant. SolMedium owns replay fixture plus the exact
+OOM file only after identification. No broad suite reruns, memory-limit increases,
+test deletion or suspended retirement investigation. Parent separately classifies
+remaining transport failures against unchanged deadlines/request/byte budgets;
+no resource expansion is authorized by the startup30s decision. Acceptance is
+focused regression and evidence of the actual cause, followed by reviewed fixes.
+
+Fixture correction accepted: SolMedium, parent two-line review, no rework. Opaque
+capability now has a close function: a spread copy plus a cloned review preserve
+WeakMap forgery rejection without attempting to structuredClone functions. The
+sole test file absent from CI completion was history-checkpoint-exchange; its
+8MiB Buffer deep matcher enumerates numeric keys. Installed matcher reproduction
+aborts under256MiB; Buffer.equals passes under the same cap and rejects a last-byte
+mutation. Full checkpoint size and every byte are still checked; product limits
+unchanged. Exact owned diff SHA256
+edacab84fbb40d74b7f6cd6805e098109af9a456c2600f9d85255a008d194c01.
+Composed36/36 in2files,7.95s, `/tmp/resonance-925441e-ci-fixtures-composed.log`.
+One initial sandbox socket EPERM resolved by permitted run. No fullsuite rerun.
+Shared quota52%→53%, not agent-attributed. Transport failures remain separate.

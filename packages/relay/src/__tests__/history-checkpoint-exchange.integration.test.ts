@@ -80,7 +80,7 @@ it('transfers and reads the maximum full encrypted checkpoint without relaxing t
   expect(certificate.receipts).toHaveLength(4);
   const responder = n.context.members.indexOf(certificate.receipts[0].request.replica);
   const data = await readHistoryCheckpoint(n.members[responder], n.request(responder, 'read', 1), n.context, AbortSignal.timeout(30000));
-  expect(openHistoryCheckpoint(data.envelope, n.context, n.key)).toEqual(plaintext);
+  expect(openHistoryCheckpoint(data.envelope, n.context, n.key).equals(plaintext)).toBe(true);
 }, 90000);
 
 it('rejects unauthenticated, binary and oversized frames without changing the enrolled head', async () => {
