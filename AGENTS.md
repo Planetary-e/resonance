@@ -93,6 +93,9 @@ Return compact tool output; inspect complete logs only around a failure. Prefer
 status notifications or a bounded completion check over repeated CI polling.
 Commit coherent reviewed changes and push a stable candidate once, allowing its
 CI to finish. Do not trigger installers or merge without existing authorization.
+Routine CI and installer builds use macOS only. Windows/Linux compatibility is
+reserved for the final explicit `all_platforms` manual run; do not re-enable
+three-platform development matrices without the owner requesting it.
 
 ## Cost and stopping
 

@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
     # Check development PRs as well as PRs targeting main.
+  workflow_dispatch:
+    inputs:
+      all_platforms:
+        description: 'Run final compatibility checks on macOS, Windows and Linux'
+        type: boolean
+        default: false
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
@@ -16,7 +22,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Routine development uses macOS; final compatibility is opt-in.
+        os: ${{ fromJSON(inputs.all_platforms && '["macos-latest","ubuntu-latest","windows-latest"]' || '["macos-latest"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
@@ -84,7 +91,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Routine development uses macOS; final compatibility is opt-in.
+        os: ${{ fromJSON(inputs.all_platforms && '["macos-latest","ubuntu-latest","windows-latest"]' || '["macos-latest"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
@@ -134,7 +142,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Routine development uses macOS; final compatibility is opt-in.
+        os: ${{ fromJSON(inputs.all_platforms && '["macos-latest","ubuntu-latest","windows-latest"]' || '["macos-latest"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 5
     steps:
@@ -171,7 +180,7 @@ jobs:
           packages/app/src/server/__tests__/relay-loader-path.test.ts
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
 
     steps:
       - uses: actions/checkout@v4

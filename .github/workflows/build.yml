@@ -5,6 +5,11 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      all_platforms:
+        description: 'Build final compatibility installers for all three platforms'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -14,16 +19,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: macos-latest
-            rust-target: aarch64-apple-darwin
-            artifact: Resonance-macos-arm64
-          - os: ubuntu-22.04
-            rust-target: x86_64-unknown-linux-gnu
-            artifact: Resonance-linux-x64
-          - os: windows-2022
-            rust-target: x86_64-pc-windows-msvc
-            artifact: Resonance-win-x64
+        # Beta development defaults to Apple Silicon; opt in to final cross-platform builds.
+        include: ${{ fromJSON(inputs.all_platforms && '[{"os":"macos-latest","rust-target":"aarch64-apple-darwin","artifact":"Resonance-macos-arm64"},{"os":"ubuntu-22.04","rust-target":"x86_64-unknown-linux-gnu","artifact":"Resonance-linux-x64"},{"os":"windows-2022","rust-target":"x86_64-pc-windows-msvc","artifact":"Resonance-win-x64"}]' || '[{"os":"macos-latest","rust-target":"aarch64-apple-darwin","artifact":"Resonance-macos-arm64"}]') }}
 
     runs-on: ${{ matrix.os }}
 
