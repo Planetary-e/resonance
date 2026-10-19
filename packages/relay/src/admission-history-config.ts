@@ -8,6 +8,7 @@ import { HISTORY_RECOVERY_MAX_BLOCKS, HISTORY_RECOVERY_MAX_BYTES } from '@resona
 import { parseHistoryCheckpointContext } from '@resonance/core/history-checkpoint';
 import { exchangeHistoryCheckpoint } from './history-checkpoint-exchange.js';
 import type { AdmissionHistoryProtection } from './protected-admission-history.js';
+import { captureHistoryAncestrySource, parseHistoryAncestrySelection } from './history-ancestry-source.js';
 import { readOperatorJson, readOperatorSigningKey } from './admission-operator-files.js';
 
 export function parseAdmissionHistoryArchiveLimits(value: unknown) {
@@ -19,7 +20,8 @@ export function parseAdmissionHistoryArchiveLimits(value: unknown) {
 }
 export function parseAdmissionHistoryConfiguration(value: unknown) {
   const hasLimits = value !== null && typeof value === 'object' && Object.hasOwn(value, 'limits');
-  if (!exactWitnessFields(value, ['version', 'context', 'members', 'ownerKeyFile', ...(hasLimits ? ['limits'] : [])]) || value.version !== 1
+  const hasAncestry = value !== null && typeof value === 'object' && Object.hasOwn(value, 'ancestry');
+  if (!exactWitnessFields(value, ['version', 'context', 'members', 'ownerKeyFile', ...(hasLimits ? ['limits'] : []), ...(hasAncestry ? ['ancestry'] : [])]) || value.version !== 1
     || typeof value.ownerKeyFile !== 'string' || !value.ownerKeyFile.length || value.ownerKeyFile.length > 4096
     || !Array.isArray(value.members) || value.members.length !== 5) throw new Error('Invalid admission history configuration');
   const context = parseHistoryCheckpointContext(value.context);
@@ -33,16 +35,17 @@ export function parseAdmissionHistoryConfiguration(value: unknown) {
   if (new Set(members.map(m => m.publicKey)).size !== 5 || new Set(members.map(m => m.endpoint)).size !== 5) {
     throw new Error('Admission history requires five distinct pinned members and endpoints');
   }
-  return { version: 1 as const, context, members, ownerKeyFile: value.ownerKeyFile, ...(hasLimits ? { limits: parseAdmissionHistoryArchiveLimits(value.limits) } : {}) };
+  return { version: 1 as const, context, members, ownerKeyFile: value.ownerKeyFile, ...(hasLimits ? { limits: parseAdmissionHistoryArchiveLimits(value.limits) } : {}), ...(hasAncestry ? { ancestry: parseHistoryAncestrySelection(value.ancestry) } : {}) };
 }
 
 /** Caller clears the returned signingKey.secretKey after the protected ledger has copied it. */
 export function loadAdmissionHistoryProtectionFile(path: string, onTransportSocket?: (socket: Socket) => void): AdmissionHistoryProtection {
-  const { context, members, ownerKeyFile, limits } = parseAdmissionHistoryConfiguration(readOperatorJson(path, 64 * 1024));
+  const { context, members, ownerKeyFile, limits, ancestry } = parseAdmissionHistoryConfiguration(readOperatorJson(path, 64 * 1024));
   const signingKey = readOperatorSigningKey(resolve(dirname(resolve(path)), ownerKeyFile));
   try {
     if (Buffer.from(signingKey.publicKey).toString('base64url') !== context.owner) throw new Error('Admission history owner key differs from its pinned context');
-    return { context, members, signingKey, ...(limits ? { maxArchiveBytes: limits.archiveBytes, maxArchiveBlocks: limits.archiveBlocks } : {}),
+    const ancestrySelection = ancestry && captureHistoryAncestrySource(ancestry, path, context);
+    return { context, members, signingKey, ...(ancestrySelection ? { ancestrySelection } : {}), ...(limits ? { maxArchiveBytes: limits.archiveBytes, maxArchiveBlocks: limits.archiveBlocks } : {}),
       transport: (member, frame, signal) => exchangeHistoryCheckpoint(member, frame, signal, onTransportSocket) };
   } catch (error) { signingKey.secretKey.fill(0); throw error; }
 }

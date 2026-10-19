@@ -213,6 +213,7 @@ export async function runAdmissionHistoryCommand(command: string, raw: readonly 
           cleanup.push(() => recovery.close()); emit({ result: 'recovery-created', ...recovery.status() });
         }
       } else {
+        if (reviewing) protection.ancestrySelection?.assertRecoveryDownload({ directory: join(resolve(directory), 'download'), genesisId: pinned.genesisId });
         const recovery = await openAdmissionHistoryRecovery(options); cleanup.push(() => recovery.close());
         if (command === 'owner-recovery-status') emit(recovery.status());
         else if (command === 'owner-recovery-step') emit(await recovery.advance({ signal: commandOptions.signal }));
@@ -223,6 +224,7 @@ export async function runAdmissionHistoryCommand(command: string, raw: readonly 
             emit(command === 'owner-recovery-readiness-plan' ? retained.review() : await retained.apply(approved!));
           } else {
             const preparation = await recovery.reviewRestore(destination, policy);
+            cleanup.push(() => preparation.close?.());
             if (command === 'owner-recovery-review') emit(preparation.review);
             else {
               checkCancelled();

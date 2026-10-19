@@ -1,9 +1,10 @@
-import { assertArchivedAdmissionPolicyCurrent, type ArchivedAdmissionPolicy, type AdmissionPolicyArchiveLimits } from '@resonance/core/admission-policy-archive';
+import { AdmissionPolicyArchiveExecutionContext, assertArchivedAdmissionPolicyCurrent, type ArchivedAdmissionPolicy, type AdmissionPolicyArchiveLimits } from '@resonance/core/admission-policy-archive';
 /** Offline-installed shared policy; persisted revision prevents ordinary rollback on restart. */
 import { join } from 'node:path';
 import type { Socket } from 'node:net';
 import type { SigningKeyPair } from '@resonance/core';
 import { openAdmissionPolicyStore, parseAdmissionWalletProfile, admissionKeyFingerprint, type AdmissionPolicyKey } from '@resonance/core/admission-policy';
+import { openPreparedAdmissionPolicyStore } from './admission-history-restore.js';
 import { createLocalBlindAdmissionVerifierV2 } from './blind-admission-verifier.js';
 import { openAdmissionSpendHistory } from './admission-spend-history.js';
 import { openProtectedAdmissionSpendHistory, type AdmissionHistoryProtection } from './protected-admission-history.js';
@@ -29,6 +30,8 @@ export async function createConfiguredAdmissionVerifier(options: {
   policyObservationTransportFactory?: (context: AdmissionPolicyObservers) => OwnedPolicyObservationTransport;
   onPolicySocket?: (socket: Socket) => void;
   historyProtection?: AdmissionHistoryProtection;
+  /** Internal runtime reconstruction clock; live readiness uses its own original envelope. */
+  historyStartup?: AdmissionPolicyArchiveExecutionContext;
   /** One bounded original proof backfill step, retained by the protected history before local activation. */
   policyProofAppend?: unknown; policyProofLimits?: AdmissionPolicyArchiveLimits;
   policyPages?: Array<{ digest: string; bytes: Uint8Array }>;
@@ -41,8 +44,19 @@ export async function createConfiguredAdmissionVerifier(options: {
     throw new Error('A separate admission history directory requires protected history');
   }
   const now = options.now ?? Date.now;
-  const store = await openAdmissionPolicyStore({ path: join(options.directory, 'admission-community-policy.json'),
+  const openStore = () => options.initialize && options.historyProtection?.restore
+    ? openPreparedAdmissionPolicyStore(options.historyProtection.restore.preparation, { directory: options.directory, encryptionKey: options.encryptionKey, now })
+    : openAdmissionPolicyStore({ path: join(options.directory, 'admission-community-policy.json'),
     encryptionKey: options.encryptionKey, mode: options.initialize ? 'create-new' : 'open-existing', now });
+  const startup = options.historyStartup;
+  let openingStore: Awaited<ReturnType<typeof openAdmissionPolicyStore>> | undefined;
+  let store: Awaited<ReturnType<typeof openAdmissionPolicyStore>>;
+  try {
+    store = await (startup ? startup.wait(async () => {
+      const opened = await openStore(); openingStore = opened;
+      try { startup.check(); return opened; } catch (error) { opened.close(); throw error; }
+    }) : openStore());
+  } catch (error) { openingStore?.close(); throw error; }
   let witness: ReturnType<typeof createAdmissionWitness> | ReturnType<typeof createProtectedAdmissionRoles>['witness'];
   let quorum: ReturnType<typeof createAdmissionQuorumGate> | ReturnType<typeof createProtectedAdmissionRoles>['quorum'];
   let protectedRoles: ReturnType<typeof createProtectedAdmissionRoles> | undefined;
@@ -60,7 +74,7 @@ export async function createConfiguredAdmissionVerifier(options: {
     if (options.historyProtection) {
       const protectedHistory = await openProtectedAdmissionSpendHistory({ ...historyOptions, policy: options.policy,
         directory: options.historyDirectory ?? options.directory, authority: options.authority, protection: options.historyProtection,
-        policyAdvance: options.policyAdvance, policyPages: options.policyPages, policyTrust: store.freshness() });
+        policyAdvance: options.policyAdvance, policyPages: options.policyPages, policyTrust: store.freshness() }, options.historyStartup);
       history = protectedHistory;
       await protectedHistory.ready();
       if (options.policyProofAppend !== undefined) {

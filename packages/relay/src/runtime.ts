@@ -4,6 +4,8 @@
 
 import { readFileSync, statSync } from 'node:fs';
 import { createRelayContactHintV1 } from '@resonance/core';
+import { AdmissionPolicyArchiveExecutionContext } from '@resonance/core/admission-policy-archive';
+import type { OwnedHistoryAncestrySource } from './history-ancestry-source.js';
 import { MAX_ADMISSION_POLICY_BYTES } from '@resonance/core/admission-policy';
 import { ADMISSION_POLICY_ADVANCE_MAX_BYTES } from '@resonance/core/admission-policy-advance';
 import { parseAdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
@@ -219,12 +221,22 @@ function clearAdmissionKeys() {
   witnessKey?.secretKey.fill(0); coordinatorKey?.secretKey.fill(0); historyProtection?.signingKey.secretKey.fill(0);
 }
 async function openAdmission() {
+  const startup = new AdmissionPolicyArchiveExecutionContext({ execution: { version: 2, purpose: 'offline-startup-reconstruction', timeoutMs: 30000 }, timeoutMs: 30000,
+    signal: historyProtection?.signal, deadline: historyProtection?.deadline });
+  let source: OwnedHistoryAncestrySource | undefined;
   try {
-    return policyFiles.every(Boolean)
+    startup.check();
+    source = historyProtection?.ancestrySelection?.open({ localKey: Buffer.from(policyKeyHex!, 'hex'),
+      signingKey: historyProtection.signingKey, members: historyProtection.members });
+    startup.check();
+    const retained = source;
+    const selectedProtection = retained ? { ...historyProtection!, ancestrySelection: undefined,
+      ancestrySource: () => retained.blocks(), expectedAncestry: historyProtection!.ancestrySelection!.expectedAncestry } : historyProtection;
+    const verifier = policyFiles.every(Boolean)
       ? await createConfiguredAdmissionVerifier({ directory: relayDataDir, authority: policyFile(policyFiles[0]!).trim(),
         policy: JSON.parse(policyFile(policyFiles[1]!, MAX_ADMISSION_POLICY_BYTES)), encryptionKey: Buffer.from(policyKeyHex!, 'hex'),
         initialize: process.env.RELAY_ADMISSION_POLICY_INITIALIZE === 'true', witnessKey, coordinatorKey,
-        historyProtection, historyDirectory, initializeSpendHistory: historyProtection ? false : undefined,
+        historyProtection: selectedProtection, historyStartup: startup, historyDirectory, initializeSpendHistory: historyProtection ? false : undefined,
         onWitnessSocket: socket => resourceMeter.observe(socket),
         policyObservers: admissionObservers, policyAdvance: admissionAdvance, onPolicySocket: socket => resourceMeter.observe(socket),
         initializeWitnessState: process.env.RELAY_ADMISSION_WITNESS_INITIALIZE === 'true' ? true : undefined })
@@ -234,7 +246,11 @@ async function openAdmission() {
         scope: { issuer: process.env.RELAY_ADMISSION_ISSUER!, community: process.env.RELAY_ADMISSION_COMMUNITY!, epoch: process.env.RELAY_ADMISSION_EPOCH! },
         issuerPublicKey: await importAdmissionPublicKey(process.env.RELAY_ADMISSION_PUBLIC_KEY_FILE!),
       }) : undefined;
-  } finally { clearAdmissionKeys(); }
+    if (!source || !verifier) { source?.close(); return verifier; }
+    const retainedSource = source;
+    return { ...verifier, close() { try { verifier.close(); } finally { retainedSource.close(); } } };
+  } catch (error) { startup.controller.abort(); source?.close(); throw error; }
+  finally { clearAdmissionKeys(); }
 }
 try {
   historyProtection = historyFile ? loadAdmissionHistoryProtectionFile(historyFile, socket => resourceMeter.observe(socket)) : undefined;

@@ -1072,3 +1072,115 @@ Workspace and explicit desktop-server TypeScript builds pass. Page manifest
 verified unchanged. Freeze failure did not reproduce locally; diagnosis is
 prepared for the next hosted run, not a claim the failure is fixed. No KPI is
 complete. Push the stable combined candidate once and retain its CI outcome.
+
+### Relay operational ancestry — bounded implementation contract
+
+B-HISTORY-LIFECYCLE/K2,K3 next necessary operational prerequisite. Baseline64587dd;
+shared account entry55%, CI39232901708 running independently. AstraMedium read-only
+pass identifies strict relay config, direct/deferred runtime and recovery/readiness
+missing the already implemented shared ancestry source. No new protocol decision.
+
+Observable result: an explicitly selected funded restored-v3 relay starts through
+ordinary config/runtime and actual recovery/readiness, preserving original source
+until child closure. Reuse history-ancestry-source; preserve legacy configs and
+strict extra-field rejection. Capture original/canonical paths and independent
+pins before awaits. Compare selected immutable root/genesis against persisted owner
+before writer mutation. Check both original-download reservations before opening;
+reuse explicit selected funding and never adopt/conflict/change authority scope.
+Missing/changed/unfunded/corrupt/incomplete/wrong-generation sources refuse without
+new allocations. Bind the actual recovery download and original destination spelling
+into reviewed apply. One-time source ownership transfer, close child then source,
+cleanup failures/abandonment, recovery close must not invalidate transferred child.
+Existing fresh quorum/readiness and deferred reverse links remain required.
+
+SolHigh owns relay admission-history-config/protected-history/runtime/command/
+recovery/restore/readiness and focused related tests; no helper framework, source
+migration, new budgets, >72 profiles, fresh-v3 enrollment or retirement investigation.
+Acceptance: strict legacy/new config, actual minimalv3 restore/reopen/readiness,
+path/pin/manifest/generation/funding refusals, both reservation peaks, transfer/lock
+lifetime, direct/reverse-link runtime and failure/shutdown cleanup. Then one reviewed
+affected regression/build. No new heavy65 campaign or repeated qualification.
+
+### Hosted freeze evidence and stop decision — October19
+
+Mac durability job117994916417 on64587dd passes316/317 (29/30files): page migration
+now passes; copied-capability fixture passes. Sole failure: issuer freeze after
+2003ms, all five collectors hit deadline with71–72 verified reads, no reported
+invalid-history reason. `/tmp/resonance-64587dd-durability.log`. This proves2s
+exhaustion, not eventual completion, CPU causality or K2 compliance. General CI
+is still running; matcher OOM remote confirmation remains pending.
+
+Astra confirms stop condition4 applies to changing the frozen fixture allowance.
+Production recovery already defaults30000ms, but the fixture explicitly pins2000ms
+and prior startup30s approval excludes owner-loss collection. Proposed decision:
+use existing production30000ms in this fixture, keep exact quorum/validation/
+resource caps and short-deadline failure tests, retain the2s failure, then one fixed
+cold hosted measurement. Owner question sent; no limit change while pending.
+Independent already-active relay operational source work may finish. No additional
+performance tuning, new alternatives or implied KPI completion.
+
+Relay candidate frozen: eight files, manifest
+`/tmp/resonance-relay-ancestry-candidate.sha256` SHA256
+ a3efc6b69202a71562a2f1c946551800e75d004db4591bcdb3c96b5efa63ca94.
+SolHigh final focused4/4 in3files12.64s (55 filtered); source typecheck passes.
+Evidence includes minimal realv3 recovery/readiness, parent-close/source lifetime,
+selected direct/reverse runtime and shutdown/failure paths. Earlier composed
+63/65 found two integration issues: expected policy-store/lock creation before
+owner apply, and fixture storage adoption lacking original-download scope; both
+corrected before freeze. Review must check narrow file allowances and funding
+semantics. AstraHigh review pending, so no acceptance claim. Sol active work ended
+10:04:55UTC; start roughly parent dispatch09:51UTC, no fabricated finer timing.
+Shared entry55%→57%, not agent-attributed; parent regression after review only.
+
+Relay first review withheld acceptance: three P2 implementation violations,
+not a protocol/resource redesign. (1) Destination was reviewed before awaited
+genesis parsing but not rechecked immediately before publication; carry a bound
+assertion and publish canonical destination, regress retarget during await.
+(2) Selected downloader preflight occurred before startup clock; establish clock
+at public entry and propagate unchanged through preflight/runtime/owner, check
+cancellation and cleanup. (3) Policy-store name exception accepted foreign files;
+bind it to the actual owned configured-verifier store/lock identities, otherwise
+retain pristine destination. Regress legitimate creation vs foreign same names.
+Astra requires one scoped correction round and follow-up review before acceptance;
+prior passing component tests do not close these findings. Existing source/funding/
+parent-child invariants otherwise consistent. SolHigh owns correction, no budgets
+or stop-policy conditions reset. No heavy65 rerun required for these corrections.
+
+Relay follow-up: destination/canonical publication and owned-store identity fixes
+accepted. Clock regression test initially inherited an absolute deadline, which
+would not distinguish the old default-clock bug; corrected public case omits it
+and advances preflight past30000ms (inherited50→51 case retained),2/2 pass.
+Reviewer found one residual cleanup edge in new configured-store wait: outer
+wait's final deadline check may reject after inner callback returns but before
+store assignment, leaking handle/lock. Retain handle outside wait and catch-close,
+including late result cleanup; add discriminant at that boundary. This is a second
+scoped correction to the same startup/cleanup finding, not an added deliverable.
+No acceptance until this correction and composed regression complete.
+
+Parent relay composed regression77/78 in7files145.43s; one compatibility failure
+in existing managed-readiness quota test. New apply marked `applied` before owner
+open; a prepublication capacity refusal then prevented the existing explicit
+quota-review/raise/retry flow. Preserve test and restore retry semantics before
+successful apply, retain busy protection and source lifetime. This is necessary
+integration correction, not permission to expand storage automatically. Sol fixes
+minimum path; follow-up review and affected readiness regression required. Other
+six composed files passed. Log `/tmp/resonance-relay-ancestry-composed.log`.
+
+Final relay acceptance: Astra accepted all three P2 corrections and the narrow
+readiness retry delta. Exact final ten-file manifest hash
+d196c40ac7ca54bfeac4b0499291cb97414239165140f14684dc537b16a280a3
+verified. Six unaffected composed suites passed; final full affected recovery/
+readiness suite28/28 passes81.82s, `/tmp/resonance-relay-ancestry-readiness-final.log`.
+Combined coverage is78 distinct checks across7files (not a fresh single all-green
+run after the one-file correction); targeted retry/source tests3/3 also pass.
+Workspace and desktop-server compilation pass. This closes operational relay
+ancestry wiring locally, not K2/K3 or independent qualification. First review
+rejected3P2; scoped cleanup/discriminant follow-up and parent regression exposed
+further same-boundary compatibility work, all retained above.
+
+Shared account exit62%, relay entry55%; whole resumed block52%→62%. Counts include
+other account activity and are not per-agent costs. No new quota cap inferred.
+Model routing: AstraMedium design, SolHigh implementation/rework, AstraHigh review;
+Luna was unnecessary for deterministic commands. Original freeze2s condition4
+remains pending owner decision. No threshold has changed. General64587dd CI still
+running at latest check; no remote completion claim for the new relay candidate.

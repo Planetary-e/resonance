@@ -2,7 +2,9 @@
 import { captureStorageReservationOperation } from '@resonance/core/storage-reservations';
 import { lstatSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
-import { admissionPolicyDigest, assertAdmissionPolicyCurrent, verifyAdmissionPolicy } from '@resonance/core/admission-policy';
+import { archivedAdmissionPolicyDigest as admissionPolicyDigest, assertArchivedAdmissionPolicyCurrent as assertAdmissionPolicyCurrent, verifyArchivedAdmissionPolicy as verifyAdmissionPolicy } from '@resonance/core/admission-policy-archive';
+import type { OwnedHistoryAncestrySource } from './history-ancestry-source.js';
+import { canonicalHistorySetupPath } from './admission-history-setup.js';
 import { copyAdmissionSigningKey } from '@resonance/core/admission-witness';
 import { historyCheckpointContextId, historyCheckpointEnvelopeId, historyDigest, isHistoryDigest } from '@resonance/core/history-checkpoint';
 import { inspectProtectedAdmissionSpendHistory, openProtectedAdmissionSpendHistory, type AdmissionHistoryProtection } from './protected-admission-history.js';
@@ -17,7 +19,7 @@ interface AdmissionHistoryReadinessReview {
 export interface AdmissionRestorationReadinessReview extends AdmissionHistoryReadinessReview { kind: 'admission-restoration-readiness'; replayDigest: string }
 export interface AdmissionInitialReadinessReview extends AdmissionHistoryReadinessReview { kind: 'admission-initial-readiness'; replayDigest: null }
 interface ReadinessOptions {
-  directory: string; policy: unknown; encryptionKey: Uint8Array; protection: AdmissionHistoryProtection; signal?: AbortSignal;
+  directory: string; policy: unknown; encryptionKey: Uint8Array; protection: AdmissionHistoryProtection; signal?: AbortSignal; ancestry?: OwnedHistoryAncestrySource;
 }
 function present(path: string) {
   try { lstatSync(path); return true; }
@@ -37,12 +39,13 @@ export async function openAdmissionInitialReadiness(options: ReadinessOptions & 
 }
 async function openReadiness(options: ReadinessOptions & { expected: { rootId: string; genesisId: string; replayDigest: string | null } }, initial: boolean) {
   const run = captureStorageReservationOperation();
+  options = { ...options, expected: { ...options.expected }, protection: { ...options.protection, context: structuredClone(options.protection.context), members: structuredClone(options.protection.members) } };
   const check = () => { if (options.signal?.aborted) throw new Error('Readiness completion cancelled; retain restored history'); };
   check();
   if (!isHistoryDigest(options.expected.rootId) || !isHistoryDigest(options.expected.genesisId)
     || (!initial && !isHistoryDigest(options.expected.replayDigest))) throw new Error('Invalid recovery readiness pins');
-  const directory = realpathSync(options.directory);
-  const policy = await verifyAdmissionPolicy(options.policy, options.protection.context.authority); assertAdmissionPolicyCurrent(policy, Date.now()); check();
+  const requestedDirectory = options.directory, directory = realpathSync(requestedDirectory);
+  const policyInput = structuredClone(options.policy);
   const encryptionKey = Buffer.from(options.encryptionKey);
   let signingKey: ReturnType<typeof copyAdmissionSigningKey>;
   try { signingKey = copyAdmissionSigningKey(options.protection.signingKey); }
@@ -53,9 +56,11 @@ async function openReadiness(options: ReadinessOptions & { expected: { rootId: s
   let closed = false, busy = false, applied = false;
   function close() {
     if (closed) return; closed = true;
-    try { inspection?.close(); } finally { try { history?.close(); } finally { encryptionKey.fill(0); signingKey.secretKey.fill(0); } }
+    try { inspection?.close(); } finally { try { history?.close(); } finally { try { options.ancestry?.close(); } finally { encryptionKey.fill(0); signingKey.secretKey.fill(0); } } }
   }
   try {
+    const policy = await verifyAdmissionPolicy(policyInput, p.context.authority); assertAdmissionPolicyCurrent(policy, Date.now()); check();
+    if (canonicalHistorySetupPath(requestedDirectory) !== directory) throw new Error('Readiness destination changed during review');
     inspection = await inspectProtectedAdmissionSpendHistory({ directory, policy, authority: p.context.authority, encryptionKey, protection: p });
     const state = inspection.read();
     if (initial ? state.version !== 3 || historyCheckpointEnvelopeId(state.root) !== options.expected.genesisId
@@ -76,15 +81,18 @@ async function openReadiness(options: ReadinessOptions & { expected: { rootId: s
       appliedSpends: state.image.state.spends.length, permanentDenials: state.image.state.retiredIssuerKeys.length,
       initializeWriter, initializeArchive, readiness: 'unverified', startsService: false,
     };
+    const ancestryBinding = options.ancestry?.binding ?? p.ancestrySelection?.binding;
     const review: AdmissionHistoryReadinessReview = { ...details, approvalDigest: historyDigest(
-      `resonance:${details.kind}:v1\n${JSON.stringify([details, admissionPolicyDigest(policy), historyDigest(encryptionKey)])}`) };
+      `resonance:${details.kind}:v1\n${JSON.stringify([details, admissionPolicyDigest(policy), historyDigest(encryptionKey), ...(ancestryBinding ? [ancestryBinding] : [])])}`) };
     check();
     return {
       review() { if (closed) throw new Error('Readiness review is closed'); return structuredClone(review); },
       async apply(approved: string) { return run(async () => {
         if (closed || busy || applied) throw new Error('Readiness review is closed, busy or already applied');
         if (approved !== review.approvalDigest) throw new Error('Readiness approval changed; review retained restoration again');
-        check(); busy = true;
+        check();
+        if (canonicalHistorySetupPath(requestedDirectory) !== directory) throw new Error('Readiness destination changed after review');
+        busy = true;
         try {
           inspection!.close();
           history = await openProtectedAdmissionSpendHistory({ directory, policy, authority: p.context.authority, encryptionKey,
@@ -92,6 +100,8 @@ async function openReadiness(options: ReadinessOptions & { expected: { rootId: s
           if (closed) { history.close(); throw new Error('Readiness review is closed'); }
           check(); await history.ready(); check(); applied = true;
           return { result: 'history-ready' as const, generation: history.read().root.generation, readiness: 'confirmed' as const, startsService: false as const };
+        } catch (error) {
+          history?.close(); history = undefined; throw error;
         } finally { busy = false; }
       }); }, close,
     };

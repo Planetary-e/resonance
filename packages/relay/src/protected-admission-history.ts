@@ -15,11 +15,12 @@ import { createHistoryCompactionProposal } from '@resonance/core/history-compact
 import { collectHistoryCompactionCertificate } from './history-compaction-coordinator.js';
 import { createRetainedHistoryCheckpointWriter } from './history-retained-writer.js';
 import { admissionHistoryReplayDigest } from './admission-history-replay.js';
-import { readPreparedAdmissionRestore, type AdmissionHistoryRestoration, type PreparedAdmissionHistoryRestore } from './admission-history-restore.js';
+import { readPreparedAdmissionRestore, takePreparedAdmissionAncestry, type AdmissionHistoryRestoration, type PreparedAdmissionHistoryRestore } from './admission-history-restore.js';
 import { decodeLegacyAdmissionSpendState, parseAdmissionSpendState, type AdmissionSpendRecord } from './admission-spend-history.js';
 import { checkAdmissionLegacyRecovery, type AdmissionSpendState } from './admission-legacy-recovery.js';
 import { planAdmissionHistoryRetirement } from './admission-history-retirement.js';
 import { encodeAdmissionHistoryRecord, parseAdmissionHistoryImage, reduceAdmissionHistory, type AdmissionHistoryImage, type AdmissionHistoryMutation, type AdmissionHistoryRecord, type AdmissionHistoryStateCheckpoint, type AdmissionHistoryRoleCheckpoint, type AdmissionHistoryProofCheckpoint } from './admission-history-records.js';
+import { type OwnedHistoryAncestrySource, captureHistoryAncestrySource } from './history-ancestry-source.js';
 import { admissionRoleHistoriesIdentity, assertAdmissionRoleRetention, parseAdmissionRoleHistories, type AdmissionRoleHistories, type AdmissionRoleMutation } from './admission-role-history.js';
 
 export type ProtectedAdmissionState = {
@@ -38,6 +39,8 @@ export interface AdmissionHistoryProtection {
   promoteLocalHistory?: boolean;
   /** Creation only, into the independently reviewed new directory. Reopen omits this capability. */
   restore?: { preparation: PreparedAdmissionHistoryRestore; approvedDigest: string };
+  ancestrySelection?: ReturnType<typeof captureHistoryAncestrySource>;
+  expectedAncestry?: { rootId: string; genesisId: string };
   ancestrySource?: () => Iterable<HistoryCheckpointEnvelope>;
   signal?: AbortSignal; deadline?: number;
   timeoutMs?: number; transport?: WriterOptions['transport']; maxArchiveBlocks?: number; maxArchiveBytes?: number;
@@ -51,8 +54,8 @@ interface ProtectedHistoryOptions {
   policyAdvance?: unknown; policyPages?: Array<{ digest: string; bytes: Uint8Array }>;
   policyTrust?: AdmissionPolicyTrust;
 }
-export async function openProtectedAdmissionSpendHistory(options: ProtectedHistoryOptions) {
-  return openProtectedHistory(options, false);
+export async function openProtectedAdmissionSpendHistory(options: ProtectedHistoryOptions, startup?: AdmissionPolicyArchiveExecutionContext) {
+  return openWithAncestry(options, false, startup);
 }
 /** Validates and locks existing encrypted owner state without opening or creating
  * a writer/archive. This is local inspection, never network readiness evidence. */
@@ -61,11 +64,30 @@ export async function inspectProtectedAdmissionSpendHistory(options: Omit<Protec
   if (p.initializeWriter || p.initializeArchive || p.resumePristineArchive || p.promoteLocalHistory || p.restore) throw new Error('History inspection cannot initialize, promote or restore state');
   const directory = realpathSync(options.directory);
   if (!statSync(directory).isDirectory()) throw new Error('History inspection requires an existing directory');
-  const history = await openProtectedHistory({ ...options, directory, initialize: false }, true);
+  const history = await openWithAncestry({ ...options, directory, initialize: false }, true);
   return { read: history.read, close: history.close };
 }
-async function openProtectedHistory(options: ProtectedHistoryOptions, inspectionOnly: boolean) {
-  let startup: AdmissionPolicyArchiveExecutionContext | undefined = new AdmissionPolicyArchiveExecutionContext({ execution: { version: 2, purpose: 'offline-startup-reconstruction', timeoutMs: 30000 }, timeoutMs: 30000, signal: options.protection.signal, deadline: options.protection.deadline });
+/** The selected source belongs to this owner, including deferred runtime opens. */
+async function openWithAncestry(options: ProtectedHistoryOptions, inspectionOnly: boolean, inherited?: AdmissionPolicyArchiveExecutionContext) {
+  const startup = inherited ?? new AdmissionPolicyArchiveExecutionContext({ execution: { version: 2, purpose: 'offline-startup-reconstruction', timeoutMs: 30000 }, timeoutMs: 30000, signal: options.protection.signal, deadline: options.protection.deadline });
+  startup.addSignal(options.protection.signal); startup.restrictDeadline(options.protection.deadline);
+  const selected = options.protection.ancestrySelection;
+  let source: OwnedHistoryAncestrySource | undefined;
+  try {
+    startup.check();
+    if (selected && !options.protection.restore) {
+      if (options.protection.ancestrySource) throw new Error('Conflicting admission ancestry sources');
+      source = selected.open({ localKey: options.encryptionKey, signingKey: options.protection.signingKey, members: options.protection.members });
+      startup.check();
+    }
+    const retained = source;
+    const history = await openProtectedHistory(retained ? { ...options, protection: { ...options.protection,
+      ancestrySource: () => retained.blocks(), expectedAncestry: selected!.expectedAncestry } } : options, inspectionOnly, startup);
+    return retained ? { ...history, close() { try { history.close(); } finally { retained.close(); } } } : history;
+  } catch (error) { startup.controller.abort(); source?.close(); throw error; }
+}
+async function openProtectedHistory(options: ProtectedHistoryOptions, inspectionOnly: boolean, execution: AdmissionPolicyArchiveExecutionContext) {
+  let startup: AdmissionPolicyArchiveExecutionContext | undefined = execution;
   if (options.expectedStateDigest !== undefined && !isHistoryDigest(options.expectedStateDigest)) throw new Error('Invalid reviewed history state digest');
   const limit = options.maxSpends ?? 10000, now = options.now ?? Date.now;
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 10000) throw new Error('Invalid admission spend history capacity');
@@ -82,12 +104,14 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
   if (key.length !== 32 || Buffer.from(signer.publicKey).toString('base64url') !== context.owner) {
     key.fill(0); signer.secretKey.fill(0); throw new Error('Wrong admission history owner or encryption key');
   }
-  const participant = resolve(options.directory);
+  let participant = resolve(options.directory);
+  let restoreDestination: { assertDestination(): void; assertPath(): void } | undefined;
   let proofSignal: AbortSignal | undefined;
   let proofOperation: PolicyProofOperation = { startup };
   const proofCache: PolicyProofCache = new Map();
   const membershipCache = new Map<string, AdmissionPolicyHistoryMembership>();
-  function* source(): Iterable<HistoryCheckpointEnvelope> { read(); if (p.ancestrySource) yield* p.ancestrySource(); if (writer) yield* writer.history(); }
+  let restoredAncestry: OwnedHistoryAncestrySource | undefined;
+  function* source(): Iterable<HistoryCheckpointEnvelope> { if (closed) throw new Error('Protected admission history is closed'); if (restoredAncestry) yield* restoredAncestry.blocks(); else if (p.ancestrySource) yield* p.ancestrySource(); if (writer) yield* writer.history(); }
   const proofHistory: PolicyProofHistory = { source, context, encryptionKey: key, cache: proofCache, membershipCache, get operation() { return proofOperation; }, get signal() { return proofSignal; } };
   let storage: ReturnType<typeof openEncryptedLocalState<AdmissionSpendState | ProtectedAdmissionState>> | undefined;
   let writer: ReturnType<typeof createRetainedHistoryCheckpointWriter> | undefined;
@@ -280,20 +304,30 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
       approvalDigest: historyDigest(`resonance:admission-history-prefix-retirement:v1\n${JSON.stringify([participant, archive.approvalDigest, state.image])}`) } };
   }
   function close() {
-    if (!closed) { closed = true; certificationController?.abort(); proofCache.clear(); membershipCache.clear(); writer?.close(); storage?.close(); key.fill(0); signer.secretKey.fill(0); }
+    if (!closed) {
+      closed = true; certificationController?.abort(); proofCache.clear(); membershipCache.clear();
+      try { writer?.close(); } finally { try { storage?.close(); } finally {
+        try { restoredAncestry?.close(); } finally { key.fill(0); signer.secretKey.fill(0); }
+      } }
+    }
   }
   try {
     let initial: ProtectedAdmissionState | undefined;
     if (options.initialize) {
       if (p.restore) {
-        const restored = readPreparedAdmissionRestore(p.restore.preparation, p.restore.approvedDigest, participant, context, policy);
+        const restored = readPreparedAdmissionRestore(p.restore.preparation, p.restore.approvedDigest, options.directory, context, policy);
+        participant = restored.directory; restoreDestination = restored;
+        restoredAncestry = takePreparedAdmissionAncestry(p.restore.preparation);
         // Check this handle's encryption key before any initialization can publish state.
         await startup.wait(() => parseAdmissionHistoryImage(decode(restored.restoration.genesis), context.authority, limit, proofHistory));
-        initial = { version: 4, context, ...restored, image: structuredClone(restored.restoration.baseline), applied: null, pending: restored.root };
+        initial = { version: 4, context, root: restored.root, restoration: restored.restoration, image: structuredClone(restored.restoration.baseline), applied: null, pending: restored.root };
       } else initial = baseline({ version: 2, authority: policy.authority, spends: [], retiredIssuerKeys: [] });
     }
     // v3/v4 share the original path and encryption domain. Older local-only readers reject both.
     startup.check();
+    if (restoredAncestry) for (const _ of restoredAncestry.blocks()) { /* Source must still match immediately before publication. */ }
+    startup.check();
+    restoreDestination?.assertDestination();
     storage = openEncryptedLocalState<AdmissionSpendState | ProtectedAdmissionState>({
       path: join(participant, 'admission-spends-v2.jsonl'), key, domain: 'resonance:admission-local-spends:v2', maxBytes: 32 * 1024 * 1024,
       mode: options.initialize ? 'create-new' : 'open-existing',
@@ -324,10 +358,11 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
     }
     const genesis = state.version === 4 ? parseHistoryCheckpointEnvelope(state.restoration.genesis, context) : root;
     if (genesis.generation !== 0 || genesis.sequence !== 0 || genesis.kind !== 'checkpoint') throw new Error('Invalid protected admission genesis');
+    if (p.expectedAncestry && (id(root) !== p.expectedAncestry.rootId || id(genesis) !== p.expectedAncestry.genesisId)) throw new Error('Selected ancestry differs from persisted admission root or original genesis');
     const creatingWriter = p.initializeWriter || p.initializeArchive || p.resumePristineArchive;
     function openWriter() {
       if (p.initializeWriter && state.applied !== null) throw new Error('Cannot initialize a writer for already applied admission history');
-      startup!.check();
+      startup!.check(); restoreDestination?.assertPath();
       writer = createRetainedHistoryCheckpointWriter({ directory: join(participant, 'admission-history-writer'), localKey: key,
         context, signingKey: signer, rootId: id(root), generation: root.generation, members: p.members,
         genesisId: state.version === 4 ? id(state.restoration.genesis) : id(root),

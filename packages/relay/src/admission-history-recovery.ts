@@ -12,6 +12,7 @@ import { HISTORY_AGREEMENT_MAX_VIEW } from '@resonance/core/history-agreement';
 import { parseHistoryCompactionAttestation, type HistoryCompactionCertificate } from '@resonance/core/history-compaction';
 import { discoverHistoryContinuations } from './history-continuation-discovery.js';
 import { parseAdmissionHistoryImage } from './admission-history-records.js';
+import type { OwnedHistoryAncestrySource } from './history-ancestry-source.js';
 import { prepareAdmissionHistoryRestore } from './admission-history-restore.js';
 import { replayAdmissionHistory } from './admission-history-replay.js';
 import { openAdmissionRestorationReadiness } from './admission-history-readiness.js';
@@ -125,6 +126,7 @@ export async function openAdmissionHistoryRecovery(options: Options & {
   initialize?: { review: AdmissionRecoveryReview; approvedDigest: string };
 }) {
   const run = captureStorageReservationOperation();
+  options = { ...options, directory: resolve(options.directory), genesis: structuredClone(options.genesis), protection: { ...options.protection, context: structuredClone(options.protection.context), members: structuredClone(options.protection.members) } };
   const pinned = await pins(options), directory = resolve(options.directory), p = options.protection;
   const key = Buffer.from(options.encryptionKey), signer = copyAdmissionSigningKey(p.signingKey);
   const contextId = pinned.contextId, genesisId = pinned.genesisId;
@@ -228,13 +230,24 @@ export async function openAdmissionHistoryRecovery(options: Options & {
     catch (error) { result.close(); throw error; }
     (handles as Record<Name, Components[Name]>)[name] = result; return result as Components[N];
   }
+  const reviews = new Set<{ close?(): void }>();
+  function reviewSource(): OwnedHistoryAncestrySource {
+    const selected = p.ancestrySelection, continuation = storage.read().continuation!;
+    if (selected) {
+      selected.assertRecoveryDownload({ directory: join(directory, 'download'), genesisId, continuation });
+      release();
+      return selected.open({ localKey: key, signingKey: signer, members: p.members });
+    }
+    const download = component('download'); delete handles.download;
+    return { blocks: () => download.blocks(), close: () => download.close() };
+  }
   function release() { for (const name of [...names].reverse()) { handles[name]?.close(); delete handles[name]; } }
-  function close() { if (!closed) { closed = true; release(); storage.close(); signer.secretKey.fill(0); key.fill(0); } }
+  function close() { if (!closed) { closed = true; for (const review of reviews) review.close?.(); reviews.clear(); release(); storage.close(); signer.secretKey.fill(0); key.fill(0); } }
   function status() {
     live(); const state = storage.read();
     return { rootId: sourceRoot(state, genesisId, p, pinned.compaction).rootId, generation: sourceRoot(state, genesisId, p, pinned.compaction).generation,
       nextGeneration: state.nextGeneration, view: state.view, phase: state.complete ? 'review' : state.continuation ? 'provision'
-        : state.selected ? 'download-and-confirm' : state.preferred ? 'select' : 'freeze', complete: state.complete };
+        : state.selected ? 'download-and-confirm' : state.preferred ? 'select' : 'freeze', complete: state.complete, continuation: state.complete ? structuredClone(state.continuation) : null };
   }
   function reopenRegistered() { for (const name of names) if (storage.read().registered.includes(name)) component(name); }
   return {
@@ -270,28 +283,35 @@ export async function openAdmissionHistoryRecovery(options: Options & {
     /** Pure local semantic review; does not start admission or use cached receipts as readiness. */
     async reviewRestore(destination: string, policy: unknown) { return run(async () => {
       live(); if (active || !storage.read().complete) throw new Error('Recovery has not completed provisioning or is active'); active = true;
+      let source: OwnedHistoryAncestrySource | undefined;
       try {
-        reopenRegistered();
+        p.ancestrySelection?.assertRecoveryDownload({ directory: join(directory, 'download'), genesisId, continuation: storage.read().continuation! });
+        reopenRegistered(); source = reviewSource();
         const preparation = await prepareAdmissionHistoryRestore({ directory: destination, policy, context: p.context, genesisId,
-          continuation: storage.read().continuation!, encryptionKey: key, blocks: component('download').blocks(), compaction: pinned.compaction });
-        live(); return preparation;
-      } finally { release(); active = false; }
+          continuation: storage.read().continuation!, encryptionKey: key, blocks: source.blocks(), blockSource: () => source!.blocks(), compaction: pinned.compaction, ancestry: source, ancestryDirectory: join(directory, 'download'), requireSelectedAncestry: true });
+        live(); reviews.add(preparation); source = undefined; return preparation;
+      } finally { source?.close(); release(); active = false; }
     }); },
     /** Reconstruct the selected baseline before inspecting an occupied restore
      * target. Inspection cannot create a missing writer or transmit readiness. */
     async reviewReadiness(destination: string, policy: unknown, signal?: AbortSignal) { return run(async () => {
       live(); if (active || !storage.read().complete) throw new Error('Recovery has not completed provisioning or is active'); active = true;
       let readiness: Awaited<ReturnType<typeof openAdmissionRestorationReadiness>> | undefined;
+      let source: OwnedHistoryAncestrySource | undefined;
       try {
-        reopenRegistered(); const continuation = storage.read().continuation!;
+        const continuation = storage.read().continuation!;
+        p.ancestrySelection?.assertRecoveryDownload({ directory: join(directory, 'download'), genesisId, continuation });
+        reopenRegistered(); source = reviewSource();
         const replay = await replayAdmissionHistory({ context: p.context, genesisId, proposal: continuation.proposal,
-          encryptionKey: key, blocks: component('download').blocks(), compaction: pinned.compaction, signal });
+          encryptionKey: key, blocks: source.blocks(), blockSource: () => source!.blocks(), compaction: pinned.compaction, signal });
         live();
-        readiness = await openAdmissionRestorationReadiness({ directory: destination, policy, encryptionKey: key, protection: p,
-          expected: { rootId: historyContinuationRootId(continuation), genesisId, replayDigest: replay.replayDigest }, signal });
-        live(); return readiness;
+        if (replay.image.policy.version === 3 && !source.binding) throw new Error('Restored v3 admission history requires explicitly selected original ancestry');
+        const retainedSource = source;
+        readiness = await openAdmissionRestorationReadiness({ directory: destination, policy, encryptionKey: key, protection: { ...p, ancestrySelection: undefined, ancestrySource: () => retainedSource.blocks(), expectedAncestry: { rootId: historyContinuationRootId(continuation), genesisId } },
+          ancestry: source, expected: { rootId: historyContinuationRootId(continuation), genesisId, replayDigest: replay.replayDigest }, signal });
+        live(); source = undefined; return readiness;
       } catch (error) { readiness?.close(); throw error; }
-      finally { release(); active = false; }
+      finally { source?.close(); release(); active = false; }
     }); },
     close,
   };
