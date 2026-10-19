@@ -1,5 +1,5 @@
-import { admissionPolicyProofReference, parseAdmissionPolicyProofAppend, parseArchivedAdmissionPolicyAdvance, verifyArchivedAdmissionPolicy, archivedAdmissionPolicyDigest, assertArchivedAdmissionPolicyCurrent, inspectResolvedAdmissionPolicy, inspectResolvedAdmissionPolicyKey, retainedResolvedAdmissionPolicyKey, AdmissionPolicyArchiveBudget, parseAdmissionPolicyProofReference, type AdmissionPolicyArchiveLimits } from '@resonance/core/admission-policy-archive';
-import { type PolicyProofOperation, type PolicyProofCache } from '../../relay/src/admission-policy-history-proof.js';
+import { admissionPolicyProofReference, parseAdmissionPolicyProofAppend, parseArchivedAdmissionPolicyAdvance, verifyArchivedAdmissionPolicy, archivedAdmissionPolicyDigest, assertArchivedAdmissionPolicyCurrent, inspectResolvedAdmissionPolicy, inspectResolvedAdmissionPolicyKey, retainedResolvedAdmissionPolicyKey, AdmissionPolicyArchiveBudget, AdmissionPolicyArchiveExecutionContext, parseAdmissionPolicyProofReference, type AdmissionPolicyArchiveLimits } from '@resonance/core/admission-policy-archive';
+import { policyProofBudget, type PolicyProofOperation, type PolicyProofCache } from '../../relay/src/admission-policy-history-proof.js';
 import type { ProtectedIssuerState as State } from './protected-admission-issuer-state.js';
 /** Volunteer-protected issuer. This API directly owns its encrypted image and decisions. */
 import { verifyAdmissionPolicy, assertAdmissionPolicyCurrent, assertAdmissionPolicySuccessor, admissionAuthorityFingerprint, admissionPolicyKeys, isArchivedAdmissionKey } from '@resonance/core/admission-policy';
@@ -50,6 +50,7 @@ export interface ProtectedAdmissionIssuerLedgerOptions {
   now?: () => number;
 }
 export async function openProtectedAdmissionIssuerLedger(options: ProtectedAdmissionIssuerLedgerOptions) {
+  const startup = new AdmissionPolicyArchiveExecutionContext({ execution: { version: 2, purpose: 'offline-startup-reconstruction', timeoutMs: 30000 }, timeoutMs: 30000, signal: options.protection.signal, deadline: options.protection.deadline });
   if (Object.hasOwn(options.protection, 'restore') || Object.hasOwn(options.protection, 'assertTransition') || Object.hasOwn(options.protection, 'validateGenesis') || Object.hasOwn(options.protection, 'resumeRestoration') || Object.hasOwn(options.protection, 'resumePristineArchive') || Object.hasOwn(options.protection, 'validateProof')) {
     throw new Error('Protected issuer restoration and transition validation require the business API capability');
   }
@@ -64,13 +65,13 @@ export async function openProtectedAdmissionIssuerLedger(options: ProtectedAdmis
   try {
     const authority = options.expectedAllocationAuthority;
     if (options.protection.context.authority !== authority) throw new Error('Protected issuer history authority differs from its independent allocation pin');
-    const issuer = await prepareAdmissionBatchIssuer({ expectedProfile: options.expectedProfile, privateKey: options.privateKey });
+    const issuer = await startup.wait(() => prepareAdmissionBatchIssuer({ expectedProfile: options.expectedProfile, privateKey: options.privateKey }));
     const profile = structuredClone(issuer.profile);
     const proofOperations = new WeakMap<object, PolicyProofOperation>(), proofCache: PolicyProofCache = new Map();
     let operationSignal: AbortSignal | undefined, installProofOperation: PolicyProofOperation | undefined;
     const proofOperation = (token: object) => {
       if (installProofOperation) return installProofOperation;
-      let operation = proofOperations.get(token); if (!operation) { operation = {}; proofOperations.set(token, operation); } return operation;
+      let operation = proofOperations.get(token); if (!operation) { operation = token === startup ? { startup } : {}; proofOperations.set(token, operation); } return operation;
     };
     const validate = (value: unknown, token?: object) => {
       const installing = installProofOperation?.budget;
@@ -78,32 +79,32 @@ export async function openProtectedAdmissionIssuerLedger(options: ProtectedAdmis
       const referenceValue = (value as State | null)?.policyProof;
       const operation = token ? proofOperation(token) : undefined;
       if (!operation || !referenceValue && !operation.budget) return parseProtectedIssuerImage(value, { profile, authority });
-      const budget = operation.budget ??= new AdmissionPolicyArchiveBudget({ limits: parseAdmissionPolicyProofReference(referenceValue).limits, signal: operationSignal });
+      const budget = referenceValue ? policyProofBudget(operation, parseAdmissionPolicyProofReference(referenceValue), operationSignal) : operation.budget!;
       return budget.wait(() => parseProtectedIssuerImage(value, { profile, authority }, budget.keyImports));
     };
     let initial: State | undefined;
     if (options.initialize) {
-      const manifest = await verifyAdmissionIssuanceAllocation(structuredClone(options.initialize.allocation), authority);
+      const manifest = await startup.wait(() => verifyAdmissionIssuanceAllocation(structuredClone(options.initialize!.allocation), authority));
       if (manifest.version !== 2) throw new Error('Protected issuer requires a v2 authority-assigned allocation');
       assertAdmissionIssuanceAllocationCurrent(manifest, now());
       const selected = selectAdmissionIssuerAllocation(manifest, profile);
-      const policy = await verifyAdmissionPolicy(structuredClone(options.initialize.communityPolicy), authority);
+      const policy = await startup.wait(() => verifyAdmissionPolicy(structuredClone(options.initialize!.communityPolicy), authority));
       assertAdmissionPolicyCurrent(policy, now());
       if (options.protection.context.policyDigest !== `sha256:${archivedAdmissionPolicyDigest(policy)}`) throw new Error('Protected issuer history policy differs from its independently pinned genesis');
       const observers = parseAdmissionPolicyObservers(structuredClone(options.initialize.observers));
       if (!(policy.revision === observers.genesis.revision && archivedAdmissionPolicyDigest(policy) === observers.genesis.digest)) throw new Error('Issuer observer enrollment requires its independently pinned genesis');
-      initial = await validate({ version: 8, allocation: { manifest, authority, digest: admissionIssuanceAllocationDigest(manifest) },
+      initial = await startup.wait(() => validate({ version: 8, allocation: { manifest, authority, digest: admissionIssuanceAllocationDigest(manifest) },
         claimMode: 'authority-assigned-v1', profile, policy: { batchSize: selected.batchSize, maxPermits: selected.maxPermits }, entries: [], communityPolicy: policy,
-        freshness: parseAdmissionPolicyTrust({ context: observers, installed: observers.genesis, observed: observers.genesis }, policy) });
+        freshness: parseAdmissionPolicyTrust({ context: observers, installed: observers.genesis, observed: observers.genesis }, policy) }));
       // Creation cannot seal an already inactive issuer baseline.
       const id = admissionKeyFingerprint(profile.issuerPublicKey), entry = admissionPolicyKeys(policy).find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === id)!;
       if (policy.activeKey !== id || now() < entry.notBefore || now() >= entry.issueUntil || isArchivedAdmissionKey(policy, id)) throw new Error('Issuer is retired or inactive under the signed community policy');
     }
-    const key = await deriveAdmissionIssuerEncryptionKey(options.privateKey);
+    const key = await startup.wait(() => deriveAdmissionIssuerEncryptionKey(options.privateKey));
     const validateProof = (image: State, source: () => Iterable<import('@resonance/core/history-checkpoint').HistoryCheckpointEnvelope>, token?: object) =>
       validateProtectedIssuerPolicyProof(image, { source, context: options.protection.context, encryptionKey: key, signal: operationSignal, operation: token ? proofOperation(token) : undefined, cache: proofCache });
     let ancestry: import('../../relay/src/history-ancestry-source.js').OwnedHistoryAncestrySource | undefined;
-    let storage: Awaited<ReturnType<typeof openProtectedIssuerHistory<State>>>;
+    let storage!: Awaited<ReturnType<typeof openProtectedIssuerHistory<State>>>;
     try {
       if (initial) {
         assertAdmissionIssuanceAllocationCurrent(initial.allocation!.manifest, now());
@@ -113,9 +114,11 @@ export async function openProtectedAdmissionIssuerLedger(options: ProtectedAdmis
         { path: options.path, writerDirectory: options.protection.writerDirectory, context: options.protection.context, profile, authority });
       if (restored) ancestry = takePreparedProtectedIssuerAncestry(options.restore!.preparation);
       storage = await openProtectedIssuerHistory<State>({ ...options.protection, ...(ancestry ? { ancestrySource: () => ancestry!.blocks() } : {}), path: options.path, domain: DOMAIN, encryptionKey: key,
-        initialize: !!options.initialize || !!restored, initial: initial!, validate, validateProof, assertTransition: assertProtectedIssuerImageSuccessor, validateGenesis: image => assertProtectedIssuerGenesis(image, options.protection.context), restore: restored, resumeRestoration: undefined, resumePristineArchive: false });
+        initialize: !!options.initialize || !!restored, initial: initial!, validate, validateProof, assertTransition: assertProtectedIssuerImageSuccessor, validateGenesis: image => assertProtectedIssuerGenesis(image, options.protection.context), restore: restored, resumeRestoration: undefined, resumePristineArchive: false }, startup);
+      startup.check();
+      proofOperations.delete(startup);
     }
-    catch (error) { ancestry?.close(); key.fill(0); throw error; }
+    catch (error) { storage?.close(); ancestry?.close(); key.fill(0); throw error; }
     let busy = false, observation: { query: AdmissionPolicyQuery; deadline: number } | undefined;
     function live() { const state = storage.read(); if (state.version === 9) throw new Error('Issuer ledger is permanently retired'); return state; }
     function checkPolicy(recover = false) { assertAdmissionIssuerPolicy(live(), profile, (options.now ?? Date.now)(), recover); }
@@ -366,6 +369,7 @@ export async function openProtectedAdmissionIssuerLedger(options: ProtectedAdmis
       close() { observation = undefined; storage.close(); ancestry?.close(); proofCache.clear(); key.fill(0); },
     };
     return api;
-  } finally { options.protection.signingKey.secretKey.fill(0); }
+  } catch (error) { startup.controller.abort(); throw error; }
+  finally { options.protection.signingKey.secretKey.fill(0); }
 }
 export type ProtectedAdmissionIssuerLedger = Awaited<ReturnType<typeof openProtectedAdmissionIssuerLedger>>;

@@ -29,22 +29,30 @@ export interface AdmissionPolicyArchiveLimits {
   maxTransitions: number; maxPageReads: number; timeoutMs: number;
 }
 export type AdmissionPolicyArchiveReader = (digest: string, signal: AbortSignal) => Promise<Uint8Array>;
-interface Operation { limits: AdmissionPolicyArchiveLimits; signal?: AbortSignal; budget?: AdmissionPolicyArchiveBudget; deadline?: number }
-export class AdmissionPolicyArchiveBudget {
-  readonly limits: AdmissionPolicyArchiveLimits;
-  readonly keyImports = createAdmissionProfileKeyImports();
+export type AdmissionPolicyArchiveExecution = { version: 1; purpose: 'reference-bounded' }
+  | { version: 2; purpose: 'offline-startup-reconstruction'; timeoutMs: number };
+function parseExecution(value: AdmissionPolicyArchiveExecution | undefined): AdmissionPolicyArchiveExecution {
+  if (value === undefined) return Object.freeze({ version: 1, purpose: 'reference-bounded' });
+  if (exactWitnessFields(value, ['version','purpose']) && value.version === 1 && value.purpose === 'reference-bounded') return Object.freeze({ version: 1, purpose: 'reference-bounded' });
+  if (exactWitnessFields(value, ['version','purpose','timeoutMs']) && value.version === 2 && value.purpose === 'offline-startup-reconstruction'
+    && integer(value.timeoutMs) && value.timeoutMs >= 1 && value.timeoutMs <= 30000) return Object.freeze({ version: 2, purpose: 'offline-startup-reconstruction', timeoutMs: value.timeoutMs });
+  throw new Error('Invalid archive execution contract');
+}
+interface ExecutionOptions { execution?: AdmissionPolicyArchiveExecution; signal?: AbortSignal; deadline?: number }
+interface Operation extends ExecutionOptions { limits: AdmissionPolicyArchiveLimits; budget?: AdmissionPolicyArchiveBudget }
+/** One absolute execution deadline, independent of the immutable proof resource envelope. */
+export class AdmissionPolicyArchiveExecutionContext {
+  readonly execution: AdmissionPolicyArchiveExecution;
   readonly controller = new AbortController();
   private deadline: number;
   private readonly signals = new Set<AbortSignal>();
-  private counts = { maxPages: 0, maxEntries: 0, maxArchiveBytes: 0, maxHistoryBytes: 0, maxTransitions: 0, maxPageReads: 0 };
-  constructor(operation: Operation) {
-    this.addSignal(operation.signal);
-    const value = structuredClone(operation.limits);
-    if (!exactWitnessFields(value, ['maxPages','maxEntries','maxArchiveBytes','maxHistoryBytes','maxTransitions','maxPageReads','timeoutMs'])
-      || Object.values(value).some(n => !integer(n)) || value.timeoutMs < 1 || value.timeoutMs > 2_147_483_647) throw new Error('Invalid archive limits');
-    this.limits = Object.freeze(value); this.deadline = performance.now() + value.timeoutMs;
-    this.restrictDeadline(operation.deadline); this.check();
+  constructor(options: ExecutionOptions & { timeoutMs: number }) {
+    if (!integer(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > 2_147_483_647) throw new Error('Invalid archive execution timeout');
+    this.execution = parseExecution(options.execution);
+    this.deadline = performance.now() + (this.execution.version === 2 ? this.execution.timeoutMs : options.timeoutMs);
+    this.addSignal(options.signal); this.restrictDeadline(options.deadline); this.check();
   }
+  get executionDeadline() { return this.deadline; }
   addSignal(signal?: AbortSignal) { if (signal) this.signals.add(signal); }
   /** Inherit a caller's original monotonic deadline without resetting counters or extending time. */
   restrictDeadline(deadline?: number) {
@@ -54,9 +62,41 @@ export class AdmissionPolicyArchiveBudget {
     }
   }
   check() {
-    if ([...this.signals].some(signal => signal.aborted) || performance.now() >= this.deadline) {
+    if (this.controller.signal.aborted || [...this.signals].some(signal => signal.aborted) || performance.now() >= this.deadline) {
       this.controller.abort(); throw new Error('Archive operation cancelled or timed out');
     }
+  }
+  async wait<T>(work: () => Promise<T>): Promise<T> {
+    this.check();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let abort: (() => void) | undefined;
+    try {
+      const refusal = new Promise<never>((_, reject) => {
+        abort = () => { this.controller.abort(); reject(new Error('Archive operation cancelled or timed out')); };
+        for (const signal of this.signals) signal.addEventListener('abort', abort, { once: true });
+        this.controller.signal.addEventListener('abort', abort, { once: true });
+        timer = setTimeout(abort, Math.max(1, this.deadline - performance.now()));
+      });
+      const result = await Promise.race([work(), refusal]); this.check(); return result;
+    } finally {
+      if (timer) clearTimeout(timer);
+      if (abort) {
+        for (const signal of this.signals) signal.removeEventListener('abort', abort);
+        this.controller.signal.removeEventListener('abort', abort);
+      }
+    }
+  }
+}
+export class AdmissionPolicyArchiveBudget extends AdmissionPolicyArchiveExecutionContext {
+  readonly limits: AdmissionPolicyArchiveLimits;
+  readonly keyImports = createAdmissionProfileKeyImports();
+  private counts = { maxPages: 0, maxEntries: 0, maxArchiveBytes: 0, maxHistoryBytes: 0, maxTransitions: 0, maxPageReads: 0 };
+  constructor(operation: Operation) {
+    const value = structuredClone(operation.limits);
+    if (!exactWitnessFields(value, ['maxPages','maxEntries','maxArchiveBytes','maxHistoryBytes','maxTransitions','maxPageReads','timeoutMs'])
+      || Object.values(value).some(n => !integer(n)) || value.timeoutMs < 1 || value.timeoutMs > 2_147_483_647) throw new Error('Invalid archive limits');
+    super({ ...operation, timeoutMs: value.timeoutMs });
+    this.limits = Object.freeze(value);
   }
   charge(name: keyof AdmissionPolicyArchiveBudget['counts'], amount: number) {
     this.check(); const count = this.counts[name] + amount;
@@ -69,25 +109,10 @@ export class AdmissionPolicyArchiveBudget {
     this.charge('maxHistoryBytes', Buffer.byteLength(encoded));
     return JSON.parse(encoded) as unknown;
   }
-  async wait<T>(work: () => Promise<T>): Promise<T> {
-    this.check();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let abort: (() => void) | undefined;
-    try {
-      const refusal = new Promise<never>((_, reject) => {
-        abort = () => { this.controller.abort(); reject(new Error('Archive operation cancelled or timed out')); };
-        for (const signal of this.signals) signal.addEventListener('abort', abort, { once: true });
-        timer = setTimeout(abort, Math.max(1, this.deadline - performance.now()));
-      });
-      const result = await Promise.race([work(), refusal]); this.check(); return result;
-    } finally {
-      if (timer) clearTimeout(timer);
-      if (abort) for (const signal of this.signals) signal.removeEventListener('abort', abort);
-    }
-  }
 }
 function operationBudget(options: Operation): AdmissionPolicyArchiveBudget {
   if (!options.budget) return new AdmissionPolicyArchiveBudget(options);
+  if (JSON.stringify(options.budget.execution) !== JSON.stringify(parseExecution(options.execution))) throw new Error('Archive operation execution purpose differs');
   if (JSON.stringify(options.budget.limits) !== JSON.stringify(options.limits)) throw new Error('Archive operation resource envelope differs');
   options.budget.addSignal(options.signal); options.budget.restrictDeadline(options.deadline); options.budget.check(); return options.budget;
 }
@@ -469,10 +494,11 @@ async function parseArchivedAdvance(value: unknown, context: AdmissionPolicyObse
   return { commitment, policy };
 }
 /** Signature/schema authentication only; installation requires resolveAdmissionPolicySuccessor. */
-export async function parseArchivedAdmissionPolicyAdvance(value: unknown, contextValue: AdmissionPolicyObservers, options: { signal?: AbortSignal; timeoutMs?: number; budget?: AdmissionPolicyArchiveBudget } = {}): Promise<ArchivedAdmissionPolicyAdvance> {
+export async function parseArchivedAdmissionPolicyAdvance(value: unknown, contextValue: AdmissionPolicyObservers, options: ExecutionOptions & { timeoutMs?: number; budget?: AdmissionPolicyArchiveBudget } = {}): Promise<ArchivedAdmissionPolicyAdvance> {
   const context = parseAdmissionPolicyObservers(contextValue);
-  const budget = options.budget ?? new AdmissionPolicyArchiveBudget({ signal: options.signal, limits: { maxPages: 1, maxEntries: 1, maxArchiveBytes: 1, maxHistoryBytes: 1, maxTransitions: 1, maxPageReads: 1, timeoutMs: options.timeoutMs ?? 3000 } });
-  budget.addSignal(options.signal);
+  const budget = options.budget ?? new AdmissionPolicyArchiveBudget({ signal: options.signal, execution: options.execution, deadline: options.deadline, limits: { maxPages: 1, maxEntries: 1, maxArchiveBytes: 1, maxHistoryBytes: 1, maxTransitions: 1, maxPageReads: 1, timeoutMs: options.timeoutMs ?? 3000 } });
+  if (JSON.stringify(budget.execution) !== JSON.stringify(parseExecution(options.execution))) throw new Error('Archive operation execution purpose differs');
+  budget.addSignal(options.signal); budget.restrictDeadline(options.deadline);
   if (options.timeoutMs !== undefined) budget.restrictDeadline(performance.now() + options.timeoutMs);
   budget.check(); return parseArchivedAdvance(value, context, budget);
 }
@@ -677,6 +703,7 @@ export async function resolveAdmissionPolicyHistoryMembership(options: Operation
   policy: ResolvedAdmissionPolicy; reader: AdmissionPolicyArchiveReader; issuerKeys: readonly string[];
   participants?: readonly { role: 'witness' | 'coordinator'; publicKey: string }[];
 }): Promise<AdmissionPolicyHistoryMembership> {
+  const budget = operationBudget(options);
   if (options.issuerKeys.length > 10000 || options.issuerKeys.some(value => !hashId(value)) || (options.participants?.length ?? 0) > 2) throw new Error('Historical membership request exceeds bounded state');
   const requested = new Set(options.issuerKeys), participants = structuredClone(options.participants ?? []);
   const entries = new Map<string, AdmissionPolicyKey>(), present = new Set<string>(), state = resolvedState(options.policy);
@@ -689,12 +716,12 @@ export async function resolveAdmissionPolicyHistoryMembership(options: Operation
   };
   for (const entry of state.policy.keys) collect(entry);
   if (entries.size < requested.size || present.size < new Set(participants.map(participant => `${participant.role}:${participant.publicKey}`)).size) {
-    const budget = operationBudget(options);
     // Collect into private staged maps. Publish the opaque membership only after the complete walk succeeds.
     if (state.policy.version === 3) await walkPages(state.policy.archive, options.reader, budget, values => { for (const entry of values) collect(entry); });
     else for (const entry of state.legacyArchive ?? []) { budget.charge('maxEntries', 1); collect(entry); }
     budget.check();
   }
+  budget.check();
   const handle = Object.freeze({}) as AdmissionPolicyHistoryMembership;
   historyMemberships.set(handle, { digest: archivedAdmissionPolicyDigest(state.policy), entries, participants: present }); return handle;
 }

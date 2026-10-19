@@ -941,3 +941,57 @@ This closes the issuer operational-source slice, not K2/K3 or relay runtime wiri
 Remote general worker termination includes an explicit V8 heap-limit error at
 about2GiB; root cause and affected file remain unqualified. No memory ceiling
 is increased to mask it.
+
+### Frozen startup executor implementation contract
+
+Parent B-HISTORY-LIFECYCLE / K2,K3; prerequisite, not KPI qualification. Issuer
+operational source is committed as cbe2913. Astra's bounded read-only design
+preserves proof-reference v1 canonical bytes, digest and original timeout. A new
+explicit execution envelope selects v2 offline-startup-reconstruction, with an
+integer timeout <=30000ms; absent/v1 execution retains reference-bounded behavior.
+The budget retains exact original limits for comparisons and all six cumulative
+resource counters. A live helper must reject reuse of an offline budget.
+
+One context starts at public owner open before its first await, sharing a single
+absolute deadline, cancellation and lazy proof budget across initial key/profile
+validation, retained roots, baseline/current/pending images and original proof.
+Discovery of the first reference cannot restart time. Shorter caller deadlines
+win. End startup before returning the API; live exclusive operations and relay
+resolvedPolicy cannot inherit its budget. Existing bounded exact-head opaque
+caches may survive; readiness and current authenticated observations remain
+mandatory. Cancellation rejects late results/cache installation and closes owned
+resources; native crypto computation itself is not physically interruptible.
+
+Scope: core executor, protected issuer/relay startup and their existing proof
+adapter. Standalone owner-loss replay/preparation/resumption remain unchanged.
+No new memory/storage allowances, reference migration, trust changes, authority
+retirement, release or installer. SolHigh implements; AstraHigh reviews critical
+phase separation. Acceptance: v1 compatibility, malformed envelope rejection,
+shared original resource ceilings, shorter deadlines, startup >3s but <=30s,
+cancellation/lock cleanup/no late cache, live >3s refusal including cached paths,
+readiness remains unverified, and current/pending share counters. Focused checks
+first; one composed affected regression and existing65 cold scenario after review,
+then one cold Mac CI measurement. No open-ended tuning or p95 claim.
+
+Startup executor candidate: SolHigh implemented eight source/test files over
+cbe2913; manifest `/tmp/resonance-startup-candidate.sha256` hashes to
+77f7e78aa9c9b74cf6a7d5003baab574e71aba594f0bf1446672f5d8eb20d088.
+AstraHigh verified every file and accepted the bounded contract with no material
+findings in the first review. Core18 checks and13 focused discriminants pass;
+workspace build passes. Final one-line startup WeakMap deletion is included in
+reviewed hashes and will be covered by the composed regression. Five-file parent
+regression includes the existing65-archive scenario, both protected owners and
+operational issuer recovery. Its reopen metric includes issuer open plus fresh
+ready() replication, so it is not a standalone reconstruction-time measurement.
+Shared usage observed by Sol50%, versus48% at entry; no per-agent attribution.
+One cold macOS CI run is still required after the reviewed candidate is stable.
+
+Parent final startup regression:103/103 in5files,212.94s, local Node24.19.0/Mac.
+Log `/tmp/resonance-startup-composed.log`. The exact reviewed eight-file manifest
+still matches. Existing65 cold issuer reopen plus fresh ready() measured2118ms,
+475 SPKI imports, receipt mtime2026-10-19T07:17:23.066Z. This is one local sample,
+not p95 and not hosted-runner qualification. Workspace plus explicit desktop
+server compilation pass after regression. No memory/trust/storage ceiling changed.
+Implementation interval roughly07:07–07:14UTC, review completed before07:16UTC;
+parent cold measurement began07:16:24UTC. Prior unclocked effort stays unknown.
+Pending separate CI history-fixture failure and heap exhaustion remain unresolved.

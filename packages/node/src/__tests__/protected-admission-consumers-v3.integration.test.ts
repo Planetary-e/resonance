@@ -1,3 +1,4 @@
+import { createAdmissionPolicyHistoryProof, type PolicyProofOperation, type PolicyProofCache } from '../../../relay/src/admission-policy-history-proof.js';
 import { afterEach, beforeAll, expect, it, vi } from 'vitest';
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
@@ -13,7 +14,7 @@ import { createAdmissionPolicyHeadVote, parseAdmissionPolicyObservers, type Admi
 import { admissionIssuanceAllocationDigest, signAdmissionIssuanceAllocation } from '@resonance/core/admission-issuance-allocation';
 import { signAdmissionClaimAssignment } from '@resonance/core/admission-claim-assignment';
 import { admissionPolicyProofReference, createResolvedAdmissionPolicyAdvance, prepareAdmissionPolicyV3Successor, resolveAdmissionPolicy, signAdmissionPolicyV3,
-  AdmissionPolicyArchiveBudget, resolveAdmissionPolicyAdvance, resolveAdmissionPolicyHistoryMembership, admissionPolicyHistoryEntry, type ResolvedAdmissionPolicy, type AdmissionPolicyArchiveLimits, type ArchivedAdmissionPolicyAdvance } from '@resonance/core/admission-policy-archive';
+  AdmissionPolicyArchiveBudget, AdmissionPolicyArchiveExecutionContext, resolveAdmissionPolicyAdvance, resolveAdmissionPolicyHistoryMembership, admissionPolicyHistoryEntry, type ResolvedAdmissionPolicy, type AdmissionPolicyArchiveLimits, type ArchivedAdmissionPolicyAdvance } from '@resonance/core/admission-policy-archive';
 import { openStorageReservationAuthority, withStorageReservationAuthority } from '@resonance/core/storage-reservations';
 import { openAdmissionPolicyStore } from '@resonance/core/admission-policy';
 import { historyCheckpointEnvelopeId, openHistoryCheckpoint, historyCheckpointEnvelopeByteLength, sealHistoryCheckpoint, createHistoryFreeze } from '@resonance/core/history-checkpoint';
@@ -539,3 +540,102 @@ it('validates the original restored v3 relay proof before creating its writer an
     }
   }
 }, 20000);
+
+
+it.each([{ role: 'issuer', skip: 0, phase: 'entry' }, { role: 'issuer', skip: 4, phase: 'proof' }, { role: 'relay', skip: 0, phase: 'entry' }, { role: 'relay', skip: 4, phase: 'proof' }] as const)('opens $role with one startup deadline beyond three seconds at $phase and still needs fresh readiness', async ({ role, skip }) => {
+  const n = await fixture();
+  const issuer = n.issuer.owner as Awaited<ReturnType<typeof openProtectedAdmissionIssuerLedger>>;
+  const relay = n.relay.owner as Awaited<ReturnType<typeof openProtectedAdmissionSpendHistory>>;
+  if (role === 'issuer') await issuer.backfillPolicyProof({ version: 1, kind: 'genesis', policy: genesis }, limits);
+  else await relay.backfillPolicyProof({ version: 1, kind: 'genesis', policy: genesis }, { context, installed: context.genesis, observed: context.genesis }, limits);
+  (role === 'issuer' ? issuer : relay).close();
+  const crypto = holdPolicyCrypto(skip), started = performance.now();
+  const work = role === 'issuer' ? n.run(() => openProtectedAdmissionIssuerLedger(n.issuer.issuerOptions))
+    : n.run(() => openProtectedAdmissionSpendHistory(n.relay.relayOptions));
+  try {
+    await crypto.held; await new Promise(resolve => setTimeout(resolve, 3100)); crypto.release();
+    const opened = await work; cleanup.push(opened.close);
+    expect(performance.now() - started).toBeGreaterThan(3000);
+    if ('status' in opened) {
+      expect(opened.status().protection.ready).toBe(false);
+      expect(() => opened.preparePolicyObservation()).toThrow('readiness');
+    } else {
+      expect(opened.health().initialized).toBe(false);
+      await expect(opened.resolvedPolicy()).rejects.toThrow('readiness');
+    }
+    await opened.ready();
+    // Live resolution gets a fresh reference-bounded operation, including a cache hit.
+    if ('resolvedPolicy' in opened) { await opened.resolvedPolicy(); if (skip === 0) await new Promise(resolve => setTimeout(resolve, 3100)); await opened.resolvedPolicy(); }
+  } finally { crypto.release(); crypto.restore(); await work.catch(() => {}); }
+}, 20000);
+
+it.each(['issuer-cancel', 'relay-cancel', 'issuer-deadline', 'relay-deadline'] as const)('refuses %s during startup crypto and releases owner locks before native crypto completes', async mode => {
+  const n = await fixture(), isIssuer = mode.startsWith('issuer'), controller = new AbortController();
+  (isIssuer ? n.issuer.owner : n.relay.owner).close();
+  const path = isIssuer ? n.issuer.issuerOptions.path : join(n.relay.ownerDirectory, 'admission-spends-v2.jsonl');
+  const before = readFileSync(path), crypto = holdPolicyCrypto(isIssuer ? 1 : 2);
+  const restriction = { signal: controller.signal, ...(mode.endsWith('deadline') ? { deadline: performance.now() + 250 } : {}) };
+  const work = (isIssuer ? n.run(() => openProtectedAdmissionIssuerLedger({ ...n.issuer.issuerOptions, protection: { ...n.issuer.issuerOptions.protection, ...restriction } }))
+    : n.run(() => openProtectedAdmissionSpendHistory({ ...n.relay.relayOptions, protection: { ...n.relay.protection, ...restriction } })))
+    .then(value => { cleanup.push(value.close); return { error: undefined }; }, error => ({ error }));
+  try {
+    await crypto.held; if (mode.endsWith('cancel')) controller.abort();
+    const result = await Promise.race([work, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Startup did not refuse held crypto')), 800))]);
+    expect(String(result.error)).toMatch(/cancelled|timed out/); expect(readFileSync(path)).toEqual(before);
+    // Reopen while the cancelled native import is still held: its local lock is gone.
+    const opened = isIssuer ? await n.run(() => openProtectedAdmissionIssuerLedger(n.issuer.issuerOptions))
+      : await n.run(() => openProtectedAdmissionSpendHistory(n.relay.relayOptions));
+    cleanup.push(opened.close);
+  } finally { crypto.release(); crypto.restore(); await work; }
+  await new Promise(resolve => setTimeout(resolve, 20)); expect(readFileSync(path)).toEqual(before);
+}, 20000);
+
+it('shares startup proof counters across current and pending images and refuses offline budget reuse in live proof helpers', async () => {
+  const n = await fixture(), image = (n.relay.owner as Awaited<ReturnType<typeof openProtectedAdmissionSpendHistory>>).read().image;
+  const reference = admissionPolicyProofReference(context, context.genesis, { ...limits, maxPageReads: 3 });
+  const candidate = { ...image, proofVersion: 1, policyProof: reference, policyProofAppend: { version: 1 as const, kind: 'genesis' as const, policy: genesis } };
+  const retained = selectedProofRoot(candidate, 'relay-admission-spends', n.key);
+  const startup = new AdmissionPolicyArchiveExecutionContext({ execution: { version: 2, purpose: 'offline-startup-reconstruction', timeoutMs: 30000 }, timeoutMs: 3000 });
+  const operation: PolicyProofOperation = { startup };
+  const args = { reference, context: retained.context, encryptionKey: n.key, source: () => retained.blocks, operation };
+  await createAdmissionPolicyHistoryProof(args).resolve();
+  const first = operation.budget;
+  await expect(createAdmissionPolicyHistoryProof(args).resolve()).rejects.toThrow('maxPageReads');
+  expect(operation.budget).toBe(first); expect(first!.limits).toEqual(reference.limits);
+  expect(() => createAdmissionPolicyHistoryProof({ ...args, operation: { budget: first } })).toThrow('Offline startup');
+});
+
+it('rejects late proof completion without caching it and enforces a live deadline before a cached head', async () => {
+  const n = await fixture(), image = (n.relay.owner as Awaited<ReturnType<typeof openProtectedAdmissionSpendHistory>>).read().image;
+  const reference = admissionPolicyProofReference(context, context.genesis, limits);
+  const retained = selectedProofRoot({ ...image, proofVersion: 1, policyProof: reference, policyProofAppend: { version: 1, kind: 'genesis', policy: genesis } }, 'relay-admission-spends', n.key);
+  const cache: PolicyProofCache = new Map(), controller = new AbortController();
+  const args = { reference, context: retained.context, encryptionKey: n.key, source: () => retained.blocks, cache };
+  const crypto = holdPolicyCrypto(0);
+  const proof = createAdmissionPolicyHistoryProof({ ...args, signal: controller.signal });
+  const work = proof.resolve().then(() => ({ error: undefined }), error => ({ error }));
+  try {
+    await crypto.held; controller.abort(); const result = await work;
+    expect(String(result.error)).toMatch(/cancelled|timed out/); expect(proof.budget.controller.signal.aborted).toBe(true); expect(cache.size).toBe(0);
+  } finally { crypto.release(); crypto.restore(); await work; }
+  await new Promise(resolve => setTimeout(resolve, 30)); expect(cache.size).toBe(0);
+  await createAdmissionPolicyHistoryProof(args).resolve(); expect(cache.size).toBe(1);
+  const live = createAdmissionPolicyHistoryProof(args);
+  await new Promise(resolve => setTimeout(resolve, 3100));
+  await expect(live.resolve()).rejects.toThrow('timed out');
+  expect(live.budget.execution).toEqual({ version: 1, purpose: 'reference-bounded' });
+}, 15000);
+
+
+it('keeps live policy installation within three seconds after startup and clears busy before held crypto completes', async () => {
+  const n = await fixture(), issuer = n.issuer.owner as Awaited<ReturnType<typeof openProtectedAdmissionIssuerLedger>>;
+  n.select(advances[0]);
+  const before = readFileSync(n.issuer.issuerOptions.path), crypto = holdPolicyCrypto(0);
+  const work = issuer.installPolicy(advances[0].policy, authority, { advance: advances[0] }).then(() => ({ error: undefined }), error => ({ error }));
+  try {
+    await crypto.held;
+    const result = await Promise.race([work, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Live installation exceeded its three-second envelope')), 4000))]);
+    expect(String(result.error)).toMatch(/timed out/); expect(readFileSync(n.issuer.issuerOptions.path)).toEqual(before);
+    expect(() => issuer.preparePolicyObservation()).not.toThrow();
+  } finally { crypto.release(); crypto.restore(); await work; }
+}, 15000);

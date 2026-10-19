@@ -1,4 +1,6 @@
-import { beforeAll, expect, it } from 'vitest';
+import { performance } from 'node:perf_hooks';
+import { createHash } from 'node:crypto';
+import { beforeAll, expect, it, vi } from 'vitest';
 import { generateKeyPairSync } from 'node:crypto';
 import { generateSigningKeyPair } from '../crypto.js';
 import { admissionKeyFingerprint, signAdmissionPolicy, type AdmissionPolicyKey } from '../admission-policy.js';
@@ -7,7 +9,7 @@ import { admissionPolicyObserversId, parseAdmissionPolicyObservers, type Admissi
 import { parseAdmissionWitnessSet } from '../admission-witness.js';
 import { ADMISSION_POLICY_ARCHIVE_PAGE_MAX_BYTES, admissionPolicyArchivePageDigest, appendAdmissionPolicyArchive,
   decodeAdmissionPolicyArchivePage, emptyAdmissionPolicyArchive, encodeAdmissionPolicyArchivePage, lookupAdmissionPolicyArchive,
-  verifyAdmissionPolicyArchive, type AdmissionPolicyArchiveDescriptor, type AdmissionPolicyArchiveLimits,
+  verifyAdmissionPolicyArchive, AdmissionPolicyArchiveBudget, AdmissionPolicyArchiveExecutionContext, admissionPolicyProofReference, resolveAdmissionPolicy, resolveAdmissionPolicyHistoryMembership, type AdmissionPolicyArchiveDescriptor, type AdmissionPolicyArchiveLimits,
   type AdmissionPolicyArchivePage, type VerifiedAdmissionPolicyArchive } from '../admission-policy-archive.js';
 
 const key = generateSigningKeyPair(), authority = Buffer.from(key.publicKey).toString('base64url');
@@ -200,4 +202,47 @@ it('supports a hashlinked chain beyond 64 entries only as unauthenticated page m
   // This cannot pass policy authentication: unchanged v2 refuses a 65th archived entry.
   const { authority: _, signature: __, ...body } = second;
   await expect(signAdmissionPolicy({ ...body, archivedKeys: Array(65).fill(entries[0]) }, authority, key.secretKey)).rejects.toThrow();
+});
+
+
+it('keeps v1 reference bytes and limits exact while selecting a separate bounded startup execution', async () => {
+  const reference = admissionPolicyProofReference(context, context.genesis, limits);
+  const body = { version: 1, context, genesis: context.genesis, head: context.genesis, limits };
+  expect(JSON.stringify(reference)).toBe(JSON.stringify({ ...body, reference: `sha256:${createHash('sha256').update('resonance:admission-policy-proof:v1\n').update(JSON.stringify(body)).digest('hex')}` }));
+  const clock = vi.spyOn(performance, 'now').mockReturnValue(100);
+  try {
+    const bounded = new AdmissionPolicyArchiveBudget({ limits: { ...limits, timeoutMs: 3000 } });
+    const execution = { version: 2 as const, purpose: 'offline-startup-reconstruction' as const, timeoutMs: 30000 };
+    const startup = new AdmissionPolicyArchiveExecutionContext({ execution, timeoutMs: 3000 });
+    clock.mockReturnValue(3200);
+    expect(() => bounded.check()).toThrow('timed out');
+    // Discovery of the first proof cannot restart the public-open clock.
+    const budget = new AdmissionPolicyArchiveBudget({ limits: { ...limits, timeoutMs: 3000 }, execution, deadline: startup.executionDeadline });
+    expect(budget.limits.timeoutMs).toBe(3000); expect(() => budget.check()).not.toThrow();
+    clock.mockReturnValue(30100); expect(() => budget.check()).toThrow('timed out');
+    clock.mockReturnValue(100);
+    const short = new AdmissionPolicyArchiveBudget({ limits, execution, deadline: 200 });
+    clock.mockReturnValue(200); expect(() => short.check()).toThrow('timed out');
+  } finally { clock.mockRestore(); }
+});
+
+it('rejects malformed execution contracts and prevents offline budgets entering default live helpers', async () => {
+  for (const execution of [null, {}, { version: 1, purpose: 'reference-bounded', timeoutMs: 3000 },
+    { version: 2, purpose: 'reference-bounded', timeoutMs: 30000 },
+    ...[0, -1, 1.5, 30001, Infinity, NaN, '30000'].map(timeoutMs => ({ version: 2, purpose: 'offline-startup-reconstruction', timeoutMs }))]) {
+    expect(() => new AdmissionPolicyArchiveBudget({ limits, execution: execution as never })).toThrow('execution contract');
+  }
+  for (const deadline of [Infinity, NaN, -Infinity]) expect(() => new AdmissionPolicyArchiveExecutionContext({ timeoutMs: 3000, deadline })).toThrow('deadline');
+  const execution = { version: 2 as const, purpose: 'offline-startup-reconstruction' as const, timeoutMs: 30000 };
+  const budget = new AdmissionPolicyArchiveBudget({ limits, execution });
+  const args = { context, genesis, advances: [], selectedHead: context.genesis, reader, limits, budget };
+  await expect(resolveAdmissionPolicy(args)).rejects.toThrow('execution purpose');
+  const policy = await resolveAdmissionPolicy({ ...args, execution });
+  // Even a membership result available without archive I/O must enforce the purpose.
+  await expect(resolveAdmissionPolicyHistoryMembership({ policy, issuerKeys: [], reader, limits, budget })).rejects.toThrow('execution purpose');
+  for (const name of ['maxPages', 'maxEntries', 'maxArchiveBytes', 'maxHistoryBytes', 'maxTransitions', 'maxPageReads'] as const) {
+    const shared = new AdmissionPolicyArchiveBudget({ limits, execution });
+    shared.charge(name, limits[name] - 1); shared.charge(name, 1);
+    expect(() => shared.charge(name, 1)).toThrow(name);
+  }
 });

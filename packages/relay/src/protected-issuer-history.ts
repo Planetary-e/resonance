@@ -1,3 +1,4 @@
+import type { AdmissionPolicyArchiveExecutionContext } from '@resonance/core/admission-policy-archive';
 /** Fixed admission-issuer role. Existing disk bytes, domains and public interfaces are preserved. */
 import type { SigningKeyPair } from '@resonance/core';
 import type { HistoryCheckpointContext, HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
@@ -40,6 +41,7 @@ export interface ProtectedIssuerHistoryOptions<T> {
   resumePristineArchive?: boolean;
   expectedRestorationDigest?: string;
   initialize?: boolean; initializeWriter?: boolean; initializeArchive?: boolean;
+  signal?: AbortSignal; deadline?: number;
   timeoutMs?: number; transport?: WriterOptions['transport']; maxArchiveBlocks?: number; maxArchiveBytes?: number;
 }
 export const PROTECTED_ISSUER_RECOVERY_FENCE = 'issuer-recovery-fence.json';
@@ -74,8 +76,8 @@ export interface ProtectedIssuerHistory<T> {
   enrollment(): { context: HistoryCheckpointContext; root: HistoryCheckpointEnvelope };
   close(): void;
 }
-export function openProtectedIssuerHistory<T>(options: ProtectedIssuerHistoryOptions<T>): Promise<ProtectedIssuerHistory<T>> {
+export function openProtectedIssuerHistory<T>(options: ProtectedIssuerHistoryOptions<T>, startup?: AdmissionPolicyArchiveExecutionContext): Promise<ProtectedIssuerHistory<T>> {
   return openProtectedCheckpointOwner(options, { role: 'admission-issuer', kind: 'protected-admission-issuer',
     fenceFilename: PROTECTED_ISSUER_RECOVERY_FENCE, fenceDomain: 'resonance:admission-issuer-recovery-fence:v1',
-    replayDomain: 'resonance:admission-issuer-replay:v1', allowRecovery: true });
+    replayDomain: 'resonance:admission-issuer-replay:v1', allowRecovery: true }, startup);
 }

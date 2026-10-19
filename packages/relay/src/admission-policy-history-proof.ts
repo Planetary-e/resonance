@@ -2,14 +2,25 @@ import { createHash } from 'node:crypto';
 /** Policy evidence lives only in the role's funded authenticated retained history.
  * Readers retain one checkpoint/page at a time and share core operation accounting. */
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
-import { AdmissionPolicyArchiveBudget } from '@resonance/core/admission-policy-archive';
+import { AdmissionPolicyArchiveBudget, AdmissionPolicyArchiveExecutionContext } from '@resonance/core/admission-policy-archive';
 import { parseAdmissionPolicyProofReference, parseAdmissionPolicyProofAppend, resolveAdmissionPolicy, resolveAdmissionPolicyAdvance, inspectResolvedAdmissionPolicy, archivedAdmissionPolicyDigest, type AdmissionPolicyProofReference, type AdmissionPolicyProofAppend, type AdmissionPolicyArchiveReader, type ResolvedAdmissionPolicy, type ArchivedAdmissionPolicy, type AdmissionPolicyHistoryMembership } from '@resonance/core/admission-policy-archive';
 import { admissionPolicyObserversId } from '@resonance/core/admission-policy-freshness';
 import { sameAdmissionPolicyHead } from '@resonance/core/admission-policy-advance';
 import { openHistoryCheckpoint, type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 
 export interface PolicyProofImage { policyProof?: AdmissionPolicyProofReference; policyProofAppend?: AdmissionPolicyProofAppend }
-export interface PolicyProofOperation { budget?: AdmissionPolicyArchiveBudget }
+export interface PolicyProofOperation { budget?: AdmissionPolicyArchiveBudget; startup?: AdmissionPolicyArchiveExecutionContext }
+export function policyProofBudget(operation: PolicyProofOperation | undefined, reference: AdmissionPolicyProofReference, signal?: AbortSignal, deadline?: number) {
+  const startup = operation?.startup;
+  startup?.check();
+  const budget = operation?.budget ?? new AdmissionPolicyArchiveBudget({ limits: reference.limits, signal,
+    deadline: startup ? Math.min(startup.executionDeadline, deadline ?? Infinity) : deadline, execution: startup?.execution });
+  if (budget.execution.version === 2 && (!startup || JSON.stringify(startup.execution) !== JSON.stringify(budget.execution))) throw new Error('Offline startup budget cannot authorize a live operation');
+  if (JSON.stringify(budget.limits) !== JSON.stringify(reference.limits)) throw new Error('Protected proof operation funding bounds changed');
+  if (operation) operation.budget = budget;
+  budget.addSignal(startup?.controller.signal); budget.addSignal(signal); budget.restrictDeadline(deadline); budget.check();
+  return budget;
+}
 export type PolicyProofCache = Map<string, { policy: ResolvedAdmissionPolicy; reference: AdmissionPolicyProofReference; catalogue: string }>;
 export interface PolicyProofHistory {
   source(): Iterable<HistoryCheckpointEnvelope>; context: HistoryCheckpointContext; encryptionKey: Uint8Array;
@@ -22,10 +33,8 @@ export interface PolicyProofHistory {
 }
 export function createAdmissionPolicyHistoryProof(options: PolicyProofHistory & { reference: AdmissionPolicyProofReference; signal?: AbortSignal }) {
   const reference = parseAdmissionPolicyProofReference(options.reference);
-  const budget = options.operation?.budget ?? new AdmissionPolicyArchiveBudget({ limits: reference.limits, signal: options.signal, deadline: options.deadline });
-  if (JSON.stringify(budget.limits) !== JSON.stringify(reference.limits)) throw new Error('Protected proof operation funding bounds changed');
-  if (options.operation) options.operation.budget = budget;
-  budget.addSignal(options.signal); budget.restrictDeadline(options.deadline); budget.check();
+  const budget = policyProofBudget(options.operation, reference, options.signal, options.deadline);
+  const execution = options.operation?.startup?.execution;
   let reads = 0;
   async function* images(): AsyncGenerator<PolicyProofImage> {
     for (const block of options.source()) {
@@ -71,6 +80,7 @@ export function createAdmissionPolicyHistoryProof(options: PolicyProofHistory & 
     const cached = options.cache?.get(cacheKey);
     if (cached) { budget.check(); return cached.policy; }
     const remember = (policy: ResolvedAdmissionPolicy) => {
+      budget.check();
       if (options.cache) {
         options.cache.set(cacheKey, { policy, reference, catalogue });
         while (options.cache.size > 2) options.cache.delete(options.cache.keys().next().value!);
@@ -84,7 +94,7 @@ export function createAdmissionPolicyHistoryProof(options: PolicyProofHistory & 
         && JSON.stringify(value.reference.limits) === JSON.stringify(reference.limits)
         && sameAdmissionPolicyHead(value.reference.head, append.advance.commitment.previous));
       if (previous) return remember(await resolveAdmissionPolicyAdvance({ previous: previous.policy, advance: append.advance,
-        selectedHead: reference.head, reader, limits: reference.limits, budget, signal: options.signal }));
+        selectedHead: reference.head, reader, limits: reference.limits, budget, execution, signal: options.signal }));
     }
     let genesis: unknown;
     async function* advances() {
@@ -114,13 +124,13 @@ export function createAdmissionPolicyHistoryProof(options: PolicyProofHistory & 
         if (append?.kind === 'genesis') { genesis = append.policy; return genesis; }
       }
       throw new Error('Original policy genesis is absent from retained role history');
-    }, retainIssuerKeys, retainOnlyRequestedIssuerKeys: true, advances: advances(), selectedHead: reference.head, reader, limits: reference.limits, budget, signal: options.signal }));
+    }, retainIssuerKeys, retainOnlyRequestedIssuerKeys: true, advances: advances(), selectedHead: reference.head, reader, limits: reference.limits, budget, execution, signal: options.signal }));
   }
   return { reference, budget, reader, resolve,
     async advance(previous: ResolvedAdmissionPolicy, appendValue: unknown, selected = reference.head) {
       const append = parseAdmissionPolicyProofAppend(appendValue);
       if (append.kind !== 'advance') throw new Error('Policy installation requires one immediate signed advance');
-      return resolveAdmissionPolicyAdvance({ previous, advance: append.advance, selectedHead: selected, reader, limits: reference.limits, budget, signal: options.signal });
+      return resolveAdmissionPolicyAdvance({ previous, advance: append.advance, selectedHead: selected, reader, limits: reference.limits, budget, execution, signal: options.signal });
     },
     async matches(policy: ArchivedAdmissionPolicy, retainIssuerKeys?: readonly string[]) {
       const resolved = await resolve(retainIssuerKeys), retained = inspectResolvedAdmissionPolicy(resolved);
@@ -145,7 +155,8 @@ export async function validateAdmissionPolicyHistoryImage(options: PolicyProofHi
   let membership = options.membershipCache?.get(key);
   if (!membership) {
     membership = await resolveAdmissionPolicyHistoryMembership({ policy: resolved, reader: proof.reader, limits: proof.reference.limits,
-      budget: proof.budget, issuerKeys: options.issuerKeys ?? [], participants: options.participants, signal: options.signal });
+      budget: proof.budget, execution: options.operation?.startup?.execution, issuerKeys: options.issuerKeys ?? [], participants: options.participants, signal: options.signal });
+    proof.budget.check();
     if (options.membershipCache) {
       options.membershipCache.set(key, membership);
       while (options.membershipCache.size > 2) options.membershipCache.delete(options.membershipCache.keys().next().value!);

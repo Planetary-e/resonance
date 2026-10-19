@@ -1,3 +1,4 @@
+import { AdmissionPolicyArchiveExecutionContext } from '@resonance/core/admission-policy-archive';
 /** Internal checkpoint-owner engine. Fixed role wrappers supply all storage and recovery bindings. */
 import { join, resolve } from 'node:path';
 import { existsSync, lstatSync, readdirSync } from 'node:fs';
@@ -50,6 +51,7 @@ export interface ProtectedCheckpointOwnerOptions<T> {
   resumePristineArchive?: boolean;
   expectedRestorationDigest?: string;
   initialize?: boolean; initializeWriter?: boolean; initializeArchive?: boolean;
+  signal?: AbortSignal; deadline?: number;
   timeoutMs?: number; transport?: WriterOptions['transport']; maxArchiveBlocks?: number; maxArchiveBytes?: number;
 }
 export interface ProtectedCheckpointOwnerBinding {
@@ -105,7 +107,8 @@ function assertOuterCapacity(value: unknown): void {
     throw new Error('Protected issuer outer state capacity exceeded before intent');
   }
 }
-export async function openProtectedCheckpointOwner<T>(options: ProtectedCheckpointOwnerOptions<T>, binding: Readonly<ProtectedCheckpointOwnerBinding>): Promise<ProtectedCheckpointOwner<T>> {
+export async function openProtectedCheckpointOwner<T>(options: ProtectedCheckpointOwnerOptions<T>, binding: Readonly<ProtectedCheckpointOwnerBinding>, startupContext?: AdmissionPolicyArchiveExecutionContext): Promise<ProtectedCheckpointOwner<T>> {
+  let startup: AdmissionPolicyArchiveExecutionContext | undefined = startupContext ?? new AdmissionPolicyArchiveExecutionContext({ execution: { version: 2, purpose: 'offline-startup-reconstruction', timeoutMs: 30000 }, timeoutMs: 30000, signal: options.signal, deadline: options.deadline });
   const run = captureStorageReservationOperation();
   // Capture caller-owned mutable data and both keys before the first asynchronous validator.
   const context = parseHistoryCheckpointContext(structuredClone(options.context));
@@ -123,7 +126,8 @@ export async function openProtectedCheckpointOwner<T>(options: ProtectedCheckpoi
   let storage: ReturnType<typeof openEncryptedLocalState<ProtectedCheckpointOwnerState<T>>> | undefined, writer: Writer | undefined;
   let closed = false, active = false, readyConfirmed = false, fenced = false;
   let originalGenesis: HistoryCheckpointEnvelope;
-  let proofOperation = {};
+  let proofOperation: object = startup;
+  const wait = <R>(work: () => Promise<R>): Promise<R> => startup ? startup.wait(work) : work();
   const fencePath = join(writerDirectory, binding.fenceFilename);
   function readState(): ProtectedCheckpointOwnerState<T> {
     if (closed) throw new Error('Protected issuer history is closed');
@@ -134,7 +138,7 @@ export async function openProtectedCheckpointOwner<T>(options: ProtectedCheckpoi
   }
   async function normalize(value: unknown): Promise<T> {
     const before = imageBytes(value); before.fill(0);
-    const normalized = structuredClone(await validate(structuredClone(value), proofOperation));
+    const normalized = structuredClone(await wait(async () => validate(structuredClone(value), proofOperation)));
     const after = imageBytes(normalized); after.fill(0); return normalized;
   }
   function* history(): Iterable<HistoryCheckpointEnvelope> {
@@ -142,9 +146,9 @@ export async function openProtectedCheckpointOwner<T>(options: ProtectedCheckpoi
     if (options.ancestrySource) yield* options.ancestrySource();
     if (writer) yield* writer.history();
   }
-  async function validateProof(image: T) { await options.validateProof?.(structuredClone(image), history, proofOperation); }
+  async function validateProof(image: T) { await wait(async () => options.validateProof?.(structuredClone(image), history, proofOperation)); }
   async function transition(previous: T, next: T) {
-    await assertTransition?.(structuredClone(previous), structuredClone(next));
+    await wait(async () => assertTransition?.(structuredClone(previous), structuredClone(next)));
   }
   function baseline(state: ProtectedCheckpointOwnerState<T>): T {
     if (state.version !== 2) throw new Error('Continuation requires retained restored baseline');
@@ -222,7 +226,7 @@ export async function openProtectedCheckpointOwner<T>(options: ProtectedCheckpoi
         assertNewRestoreDestination();
         const genesis = parseHistoryCheckpointEnvelope(restoreInput.genesis, context), root = parseHistoryCheckpointEnvelope(restoreInput.root, context);
         if (genesis.kind !== 'checkpoint' || genesis.generation !== 0 || genesis.sequence !== 0 || root.kind !== 'continuation') throw new Error('Protected issuer restore needs its original genesis and certified continuation');
-        await validateGenesis?.(await decode(genesis));
+        await wait(async () => validateGenesis?.(await decode(genesis)));
         const image = await normalize(restoreInput.baseline), replayDigest = checkpointOwnerReplayDigest(binding.replayDomain, contextId, id(genesis), historySuccessorProposalId(root.proposal), image);
         if (restoreInput.replayDigest !== replayDigest) throw new Error('Protected issuer restore baseline differs from reviewed selected history');
         if (Buffer.byteLength(JSON.stringify(root)) > maximumBytes) throw new Error('Protected issuer root needs archive capacity before intent');
@@ -230,7 +234,7 @@ export async function openProtectedCheckpointOwner<T>(options: ProtectedCheckpoi
           restoration: { genesis, baseline: structuredClone(image), replayDigest } };
         assertOuterCapacity(initial);
       } else {
-        const image = await normalize(initialInput); await validateGenesis?.(image);
+        const image = await normalize(initialInput); await wait(async () => validateGenesis?.(image));
         const plaintext = imageBytes(image);
         try {
           const header = { kind: 'checkpoint', generation: 0, sequence: 0, previous: null } as const;
@@ -245,6 +249,7 @@ export async function openProtectedCheckpointOwner<T>(options: ProtectedCheckpoi
     }
     if (restoreInput) assertNewRestoreDestination(); // Recheck after all asynchronous validation and before the first owner intent.
     assertSelectedDestinations();
+    startup.check();
     storage = openEncryptedLocalState<ProtectedCheckpointOwnerState<T>>({ path, key, domain, maxBytes: MAX_PROTECTED_CHECKPOINT_OWNER_BYTES,
       initial: initial!, mode: initialize ? 'create-new' : 'open-existing',
       validate(value): value is ProtectedCheckpointOwnerState<T> {
@@ -260,7 +265,7 @@ export async function openProtectedCheckpointOwner<T>(options: ProtectedCheckpoi
     if (genesis.kind !== 'checkpoint' || genesis.generation !== 0 || genesis.sequence !== 0) throw new Error('Protected issuer requires its original enrolled genesis');
     if (expectedAncestry && (state.version !== 2 || id(root) !== expectedAncestry.rootId || id(genesis) !== expectedAncestry.genesisId)) throw new Error('Retained ancestry differs from the immutable owner generation or original enrollment');
     originalGenesis = genesis;
-    const genesisImage = await decode(genesis); await validateGenesis?.(genesisImage);
+    const genesisImage = await decode(genesis); await wait(async () => validateGenesis?.(genesisImage));
     let rootImage = genesisImage;
     if (state.version === 2) {
       if (!exactWitnessFields(state.restoration, ['genesis', 'baseline', 'replayDigest']) || root.kind !== 'continuation') throw new Error('Invalid protected issuer restoration capture');
@@ -294,6 +299,7 @@ export async function openProtectedCheckpointOwner<T>(options: ProtectedCheckpoi
     assertOuterCapacity(state);
     // Creation capabilities never recreate a missing writer/archive for committed owner history.
     if ((initializeWriter || initializeArchive) && state.applied !== null) throw new Error('Cannot initialize writer or archive for applied issuer history');
+    startup.check();
     writer = createRetainedHistoryCheckpointWriter({ directory: writerDirectory, localKey: key, context, signingKey: signer,
       rootId: id(root), generation: root.generation, genesisId: id(genesis), ...(root.kind === 'continuation' ? { continuation: root } : {}),
       members, requireCurrentHead: true, initialize: initializeWriter, initializeArchive, resumePristineArchive,
@@ -322,7 +328,9 @@ export async function openProtectedCheckpointOwner<T>(options: ProtectedCheckpoi
     await validateProof(image);
     if (state.pending) await validateProof(state.pending.kind === 'continuation' ? rootImage : await decode(state.pending));
     if (existsSync(fencePath)) { const marker = openFence('open-existing'); marker.close(); fenced = true; }
-  } catch (error) { close(); throw error; }
+    startup.check();
+    startup = undefined; proofOperation = {};
+  } catch (error) { startup?.controller.abort(); close(); throw error; }
   function retainedDigest() {
     const state = readState(); writerMatches();
     // Writer certificates/pending publication may progress while the owner retains the exact same intent.
