@@ -1996,3 +1996,62 @@ cases and no additions. Logs /tmp/resonance-durability-collection-{all,focused}.
 Repository search finds only those two case names matching the pattern. General
 test job remains unfiltered `npx vitest run --maxWorkers=1`; mandatory coverage
 is preserved. Parent reviewed workflow diff and whitespace check passes.
+
+Recovered sanitized durability log /tmp/resonance-6300716-durability.log confirms
+the two long cases completed207.627s and176.991s before the15m cancellation.
+Protected consumers27/27 passed; main65 case99.780s, with restored stage95513ms.
+That hosted pass does not prove the cause of the prior sporadic archive timeout.
+The same log names two failed observer-v3 archive cases; with the reviewed
+compatibility fix both now pass2/2 (33 skipped),4.18s,
+/tmp/resonance-observer-archive-version-v3.log. This extends the affected evidence
+to24 distinct passing observer checks without changing code or rerunning others.
+
+The durability log also names wallet101 as failed (23.029s), but job cancellation
+prevented the final error stack. One exact unchanged local reproduction passes
+1/1 (23 skipped),52.76s, /tmp/resonance-6300716-wallet-recheck.log. No speculative
+wallet patch or deadline change. General job remains running; await its completed
+log for the wallet failure cause before another push.
+
+### Completed general CI: exact remaining failures
+
+CI39306434650 general job finished48m25s:3364/3381 pass across365files,
+17failed in7files. Sanitized full log /tmp/resonance-6300716-general.log.
+Fourteen failures use the already-corrected independent observer archive reader.
+Three remain: core authenticated-prefix negative matrix exceeds its5s test
+timeout (reported7016ms); protected65case exceeds120s whole-test timeout
+(last stage recovering-relay at110654ms, overall120877ms); wallet101 fails
+actual3s proof-operation deadline during openManagedAdmissionWallet line216,
+intermediate reopen at wallet-policy-proof.test.ts:115 (case17963ms). This wallet
+error is NOT the prior fetch reset and not fixed by Connection:close. Local
+wallet and65case passes do not negate these hosted failures.
+
+Shared quota now96%, ordinary usage allowed. No new cap or per-agent attribution.
+Next bounded read-only wallet diagnosis uses SolMedium: identify a specific
+low-risk redundant-work removal in the reopen path or report a measured-evidence
+gap; no timeout increase, persistence redesign or speculative implementation.
+CI idle waiting is not counted as active agent/person effort. Do not restart
+broad suites, reset historical alternatives, or certify K2/K3.
+
+Independent deterministic harness correction: split the core authenticated-prefix
+negative matrix into five named parameterized cases. Preserve all five malformed
+archives, signed commitments, full replay and rejection assertions; keep each
+case default5s and every production operation budget unchanged. The previous
+case combined five independent full replays under one5s harness limit. This
+change improves failure isolation without skipping coverage or extending any
+timeout. Run only those five cases, then parent review of unchanged assertions.
+
+Core matrix correction: focused five cases pass (18 skipped),9.65s total;
+/tmp/resonance-core-prefix-matrix.log. Parent diff review confirms all original
+inputs and rejection assertions retained, default per-case deadline unchanged.
+
+Wallet reopen bounded implementation (K2/K3 prerequisite): remove repeated
+materialization and JSON serialization during exact enrolled-profile membership
+checking; reuse the same entries for retirement validation. Observable acceptance:
+existing 101-profile lifecycle passes unchanged 3s operation deadline and <=2
+handles, with intermediate/final reopen durations recorded. Exact JSON equality,
+all per-file authentication/ownership/identity/retirement checks remain mandatory.
+This is a deterministic complexity reduction, not yet evidence of enough hosted
+headroom. No deadline increase, weakened proof, new persistence, broader stress
+campaign or KPI completion. Sol medium implements, parent reviews established
+contract, one affected wallet regression after review. Shared quota entry96%,
+ordinary usage allowed; prior alternatives/unknown historical effort retained.

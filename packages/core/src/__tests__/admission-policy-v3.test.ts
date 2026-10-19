@@ -264,26 +264,25 @@ it('rejects signed archived fingerprint and archived epoch reuse during full rep
   }
 });
 
-it('checks exact signed root, counts, bytes and suffix contents when skipping an authenticated prefix', async () => {
+it.each(['root', 'entryCount', 'pageCount', 'archiveBytes', 'contents'] as const)('checks exact signed archive %s when skipping an authenticated prefix', async variant => {
   const valid = fullHistory[65].policy as SignedAdmissionPolicyV3;
   const page = await decodeAdmissionPolicyArchivePage(pages.get(valid.archive.root!)!);
   const badRootPage = await encodeAdmissionPolicyArchivePage({ ...page, previous: 'sha256:' + 'd'.repeat(64) });
   const badContents = await encodeAdmissionPolicyArchivePage({ ...page, entries: [entries[64]] });
   const local = new Map(pages);
   for (const bytes of [badRootPage, badContents]) local.set(admissionPolicyArchivePageDigest(bytes), bytes);
-  for (const archive of [
-    { ...valid.archive, root: admissionPolicyArchivePageDigest(badRootPage), archiveBytes: signed.archive.archiveBytes + badRootPage.length },
-    { ...valid.archive, entryCount: valid.archive.entryCount + 1 },
-    { ...valid.archive, pageCount: valid.archive.pageCount + 1 },
-    { ...valid.archive, archiveBytes: valid.archive.archiveBytes + 1 },
-    { ...valid.archive, root: admissionPolicyArchivePageDigest(badContents), archiveBytes: signed.archive.archiveBytes + badContents.length },
-  ]) {
-    const { authority: _, signature: __, ...body } = valid;
-    const policy = await signAdmissionPolicyV3({ ...body, archive }, authority, key.secretKey);
-    const commitment = createAdmissionPolicyAdvanceCommitment(migrated.advance.commitment.next, { revision: policy.revision, digest: admissionPolicyV3Digest(policy) }, context, key);
-    await expect(resolveAdmissionPolicy({ ...reopen(), advances: [...advances, migrated.advance, { policy, commitment }], selectedHead: commitment.next,
-      reader: async digest => { const bytes = local.get(digest); if (!bytes) throw new Error('Missing archive page'); return bytes; } })).rejects.toThrow();
-  }
+  const archive = {
+    root: { ...valid.archive, root: admissionPolicyArchivePageDigest(badRootPage), archiveBytes: signed.archive.archiveBytes + badRootPage.length },
+    entryCount: { ...valid.archive, entryCount: valid.archive.entryCount + 1 },
+    pageCount: { ...valid.archive, pageCount: valid.archive.pageCount + 1 },
+    archiveBytes: { ...valid.archive, archiveBytes: valid.archive.archiveBytes + 1 },
+    contents: { ...valid.archive, root: admissionPolicyArchivePageDigest(badContents), archiveBytes: signed.archive.archiveBytes + badContents.length },
+  }[variant];
+  const { authority: _, signature: __, ...body } = valid;
+  const policy = await signAdmissionPolicyV3({ ...body, archive }, authority, key.secretKey);
+  const commitment = createAdmissionPolicyAdvanceCommitment(migrated.advance.commitment.next, { revision: policy.revision, digest: admissionPolicyV3Digest(policy) }, context, key);
+  await expect(resolveAdmissionPolicy({ ...reopen(), advances: [...advances, migrated.advance, { policy, commitment }], selectedHead: commitment.next,
+    reader: async digest => { const bytes = local.get(digest); if (!bytes) throw new Error('Missing archive page'); return bytes; } })).rejects.toThrow();
 });
 
 it.each(['missing', 'corrupt'] as const)('refuses an early %s page changed after all transitions and before final revalidation', async failure => {
