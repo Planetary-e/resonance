@@ -31,6 +31,7 @@ export interface ProtectedIssuerHistoryOptions<T> {
   assertTransition?(previous: T, next: T): void | Promise<void>;
   validateGenesis?(image: T): void | Promise<void>;
   ancestrySource?: () => Iterable<HistoryCheckpointEnvelope>;
+  expectedAncestry?: { rootId: string; genesisId: string };
   validateProof?(image: T, source: () => Iterable<HistoryCheckpointEnvelope>, operation?: object): void | Promise<void>;
   /** Internal trusted restoration input. Business APIs must require their reviewed capability first. */
   restore?: ProtectedIssuerHistoryRestoration<T>;

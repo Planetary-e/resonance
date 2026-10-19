@@ -1,4 +1,5 @@
 /** Internal phase journal and network protocol lifecycle. Only fixed role wrappers instantiate a strategy. */
+import { assertExistingHistoryAncestryFunding, type captureHistoryAncestrySource, type OwnedHistoryAncestrySource } from '../../relay/src/history-ancestry-source.js';
 import { existsSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { assertSecureRelayTransportEndpoint, type SigningKeyPair } from '@resonance/core';
@@ -20,6 +21,8 @@ import type { HistoryCheckpointTransport, HistoryReplicaEndpoint } from '../../r
 import type { HistoryAgreementTransport, HistoryAgreementDataTransport, HistoryProvisionTransport } from '../../relay/src/history-agreement-exchange.js';
 
 export interface ProtectedHistoryRecoveryOptions {
+  ancestryBinding?: string;
+  ancestrySelection?: Pick<ReturnType<typeof captureHistoryAncestrySource>, 'assertRecoveryDownload'>;
   directory: string; encryptionKey: Uint8Array; signingKey: SigningKeyPair; context: HistoryCheckpointContext; authority: string;
   genesis: HistoryEncryptedEnvelope; members: HistoryReplicaEndpoint[]; timeoutMs?: number;
   maxReplayBlocks?: number; maxReplayBytes?: number; replayTimeoutMs?: number;
@@ -46,6 +49,7 @@ export interface ProtectedHistoryRecoveryReview<C extends ProtectedHistoryRecove
 }
 export interface ProtectedHistoryRecoveryStrategy<O extends ProtectedHistoryRecoveryOptions, P extends object, S, C extends ProtectedHistoryRecoverySource, Preparation,
   InspectorStatus, ResumeOptions, Resumption extends { close(): void }, K extends string> {
+  retainAncestry?: boolean;
   role: HistoryCheckpointContext['role']; filename: string; domain: string; kind: K; label: string;
   capturePins(options: O): P;
   normalizePins(p: ProtectedHistoryRecoveryCaptured<O, P>): Promise<void>;
@@ -56,9 +60,9 @@ export interface ProtectedHistoryRecoveryStrategy<O extends ProtectedHistoryReco
   fenceSource(source: C): Promise<void>;
   assertAdditionalSourcePins?(captured: ProtectedHistoryRecoveryEvidence<S>, p: ProtectedHistoryRecoveryCaptured<O, P>): void;
   replay(p: ProtectedHistoryRecoveryCaptured<O, P>, blocks: Iterable<unknown>, minimum: S[] | null, proposal: HistorySuccessorProposal, signal?: AbortSignal): Promise<{ replayDigest: string }>;
-  prepareRestore(p: ProtectedHistoryRecoveryCaptured<O, P>, blocks: Iterable<unknown>, minimum: S[] | null, destination: { path: string; writerDirectory: string }, continuation: HistoryContinuationRoot, signal?: AbortSignal): Promise<Preparation>;
+  prepareRestore(p: ProtectedHistoryRecoveryCaptured<O, P>, blocks: Iterable<unknown>, minimum: S[] | null, destination: { path: string; writerDirectory: string }, continuation: HistoryContinuationRoot, signal?: AbortSignal, source?: OwnedHistoryAncestrySource): Promise<Preparation>;
   openInspector(p: ProtectedHistoryRecoveryCaptured<O, P>, destination: { path: string; writerDirectory: string }, replayDigest: string): Promise<{ status(): InspectorStatus; close(): void }>;
-  openResumption(p: ProtectedHistoryRecoveryCaptured<O, P>, blocks: Iterable<unknown>, minimum: S[] | null, destination: { path: string; writerDirectory: string }, continuation: HistoryContinuationRoot, options: ResumeOptions): Promise<Resumption>;
+  openResumption(p: ProtectedHistoryRecoveryCaptured<O, P>, blocks: Iterable<unknown>, minimum: S[] | null, destination: { path: string; writerDirectory: string }, continuation: HistoryContinuationRoot, options: ResumeOptions, source?: OwnedHistoryAncestrySource): Promise<Resumption>;
 }
 
 export function createProtectedHistoryRecovery<O extends ProtectedHistoryRecoveryOptions, P extends object, S, C extends ProtectedHistoryRecoverySource,
@@ -224,6 +228,9 @@ async function open(options: O & {
       if (record.localSource) await strategy.fenceSource(record.localSource);
     }
     if (canonicalHistorySetupPath(p.requestedDirectory) !== p.directory) throw error('Issuer recovery workspace changed since review');
+    const downloadDirectory = join(p.directory, 'download');
+    p.ancestrySelection?.assertRecoveryDownload({ directory: join(p.requestedDirectory, 'download'), genesisId: p.genesisId });
+    if (strategy.retainAncestry && existsSync(join(downloadDirectory, HISTORY_DOWNLOAD_FILENAME))) run(() => assertExistingHistoryAncestryFunding(downloadDirectory, undefined, { allowUnmanaged: true }));
     storage = run(() => openEncryptedLocalState<State>({ path: join(p.directory, strategy.filename), key: p.key,
       domain: strategy.domain, maxBytes: 48 * 1024 * 1024, initial: initial!, validate: valid,
       mode: initial ? 'create-new' : 'open-existing' }));
@@ -240,6 +247,10 @@ async function open(options: O & {
   function component<N extends Name>(name: N): Components[N] {
     live(); if (handles[name]) return handles[name]!;
     const state = journal.read(), slot = sourceRoot(state, p), registered = state.registered.includes(name);
+    if (name === 'download' && registered && strategy.retainAncestry) {
+      checkRecoverySelection();
+      assertExistingHistoryAncestryFunding(join(p.directory, 'download'), undefined, { allowUnmanaged: true });
+    }
     if (!registered) {
       if (state.creating && state.creating !== name) throw error('Finish the pending issuer recovery artifact first');
       if (!state.creating) journal.write({ ...state, creating: name });
@@ -276,9 +287,21 @@ async function open(options: O & {
   function status() {
     live(); const state = journal.read();
     return { ...sourceRoot(state, p), view: state.view, complete: state.complete, localStateDigest: state.localSource?.stateDigest ?? null,
-      phase: state.complete ? 'review' : state.continuation ? 'provision' : state.selected ? 'download-and-confirm' : state.preferred ? 'select' : 'freeze' };
+      ...(state.complete ? { continuation: structuredClone(state.continuation!) } : {}), phase: state.complete ? 'review' : state.continuation ? 'provision' : state.selected ? 'download-and-confirm' : state.preferred ? 'select' : 'freeze' };
   }
   function reopen() { for (const name of names) if (journal.read().registered.includes(name)) component(name); }
+  function checkRecoverySelection() {
+    if (canonicalHistorySetupPath(p.requestedDirectory) !== p.directory) throw error('Issuer recovery workspace changed since review');
+    p.ancestrySelection?.assertRecoveryDownload({ directory: join(p.requestedDirectory, 'download'), genesisId: p.genesisId,
+      ...(journal.read().continuation ? { continuation: journal.read().continuation! } : {}) });
+  }
+  function retainedSource(): OwnedHistoryAncestrySource | undefined {
+    if (!strategy.retainAncestry) return undefined;
+    const download = component('download'), continuation = structuredClone(journal.read().continuation!);
+    const selection = p.ancestrySelection, requestedDirectory = p.requestedDirectory, directory = p.directory, genesisId = p.genesisId;
+    const check = () => { if (canonicalHistorySetupPath(requestedDirectory) !== directory) throw error('Issuer recovery workspace changed since review'); selection?.assertRecoveryDownload({ directory: join(requestedDirectory, 'download'), genesisId, continuation }); };
+    return { binding: historyDigest(JSON.stringify([p.directory, p.genesisId, historyCheckpointEnvelopeId(journal.read().continuation!), p.ancestryBinding ?? null])), blocks: () => { check(); return download.blocks(); }, close: () => download.close() };
+  }
   function replayInput() { return { blocks: component('download').blocks(), minimum: journal.read().minimum }; }
 
   return {
@@ -312,11 +335,14 @@ async function open(options: O & {
     async reviewRestore(destination: { path: string; writerDirectory: string }, signal?: AbortSignal) { return run(async () => {
       destination = { path: resolve(destination.path), writerDirectory: resolve(destination.writerDirectory) };
       live(); if (active || !journal.read().complete) throw error('Issuer recovery has not completed provisioning or is active'); active = true;
+      let source: OwnedHistoryAncestrySource | undefined;
       try {
-        reopen(); const continuation = journal.read().continuation!;
-        const preparation = await strategy.prepareRestore(p, replayInput().blocks, replayInput().minimum, destination, continuation, signal);
-        live(); return { preparation, continuation: structuredClone(continuation) };
-      } finally { release(); active = false; }
+        checkRecoverySelection();
+        reopen(); const continuation = journal.read().continuation!, minimum = journal.read().minimum;
+        source = retainedSource();
+        const preparation = await strategy.prepareRestore(p, source ? source.blocks() : replayInput().blocks, minimum, destination, continuation, signal, source);
+        live(); if (source) delete handles.download; source = undefined; return { preparation, continuation: structuredClone(continuation) };
+      } catch (error) { source?.close(); throw error; } finally { release(); active = false; }
     }); },
     /** Compare an occupied destination with independently replayed selected
      * ancestry. This cannot create a missing writer or transmit readiness. */
@@ -335,12 +361,14 @@ async function open(options: O & {
     async reviewResumption(destination: { path: string; writerDirectory: string }, options: ResumeOptions) { return run(async () => {
       destination = { path: resolve(destination.path), writerDirectory: resolve(destination.writerDirectory) };
       live(); if (active || !journal.read().complete) throw error('Issuer recovery has not completed provisioning or is active'); active = true;
-      let resumption: Resumption | undefined;
+      let resumption: Resumption | undefined, source: OwnedHistoryAncestrySource | undefined;
       try {
+        checkRecoverySelection();
         reopen(); const root = journal.read().continuation!;
-        resumption = await strategy.openResumption(p, replayInput().blocks, replayInput().minimum, destination, root, options);
-        live(); return resumption;
-      } catch (error) { resumption?.close(); throw error; }
+        const minimum = journal.read().minimum; source = retainedSource();
+        resumption = await strategy.openResumption(p, source ? source.blocks() : replayInput().blocks, minimum, destination, root, options, source);
+        live(); if (source) delete handles.download; source = undefined; return resumption;
+      } catch (error) { resumption?.close(); source?.close(); throw error; }
       finally { release(); active = false; }
     }); },
     close,

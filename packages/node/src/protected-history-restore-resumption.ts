@@ -1,3 +1,4 @@
+import type { OwnedHistoryAncestrySource } from '../../relay/src/history-ancestry-source.js';
 /** Explicit completion of authenticated, pristine local restoration artifacts.
  * This workflow never establishes issuance readiness or recreates accepted history. */
 import { existsSync, readdirSync } from 'node:fs';
@@ -23,6 +24,7 @@ export interface ProtectedHistoryRestoreResumptionOptions {
   continuation: HistoryContinuationRoot; destination: { path: string; writerDirectory: string };
   signingKey: SigningKeyPair; members: HistoryReplicaEndpoint[];
   timeoutMs?: number; signal?: AbortSignal; transport?: HistoryCheckpointTransport;
+  ancestry?: OwnedHistoryAncestrySource;
   maxArchiveBlocks?: number; maxArchiveBytes?: number; replayTimeoutMs?: number;
 }
 export interface ProtectedHistoryRestoreResumptionReplay<T> {
@@ -36,6 +38,7 @@ export interface ProtectedHistoryRestoreResumptionStrategy<T, O extends Protecte
   snapshot(options: O): {
     prepare(context: HistoryCheckpointContext, key: Uint8Array, root: HistoryContinuationRoot, replayTimeoutMs: number): Promise<{
       replay: ProtectedHistoryRestoreResumptionReplay<T>; validate(value: unknown): Promise<T> | T;
+      ancestryFunding?: string; checkAncestry?(): void; validateProof?: ProtectedCheckpointOwnerOptions<T>['validateProof'];
     }>;
     deriveKey(): Promise<Uint8Array>;
     /** Wipe any owned business secret on failed construction and handle close. */
@@ -46,12 +49,12 @@ export interface ProtectedHistoryRestoreResumptionStrategy<T, O extends Protecte
   openHistory(options: ProtectedCheckpointOwnerOptions<T>): Promise<Pick<ProtectedCheckpointOwner<T>, 'close' | 'status'>>;
 }
 export async function openProtectedHistoryRestoreResumption<T, O extends ProtectedHistoryRestoreResumptionOptions, Kind extends string, Result extends string>(options: O, strategy: ProtectedHistoryRestoreResumptionStrategy<T, O, Kind, Result>) {
-  const run = captureStorageReservationOperation();
+  const run = captureStorageReservationOperation(), ancestry = options.ancestry;
   const path = canonicalHistorySetupPath(options.destination.path), writerDirectory = canonicalHistorySetupPath(options.destination.writerDirectory);
   const context = parseHistoryCheckpointContext(structuredClone(options.context)), root = parseHistoryContinuationRoot(structuredClone(options.continuation), context);
   const authority = options.authority, preparation = strategy.snapshot(options);
   let disposed = false, releaseSetupKeys: (() => void) | undefined;
-  function disposePreparation() { if (!disposed) { disposed = true; preparation.dispose?.(); } }
+  function disposePreparation() { if (!disposed) { disposed = true; preparation.dispose?.(); ancestry?.close(); } }
   try {
   const members = structuredClone(options.members), timeoutMs = options.timeoutMs ?? 10000, replayTimeoutMs = options.replayTimeoutMs ?? 30000;
   const maximumBlocks = options.maxArchiveBlocks ?? HISTORY_RECOVERY_MAX_BLOCKS, maximumBytes = options.maxArchiveBytes ?? HISTORY_RECOVERY_MAX_BYTES;
@@ -86,13 +89,13 @@ export async function openProtectedHistoryRestoreResumption<T, O extends Protect
     for (const member of members) { if (!context.members.includes(member.publicKey)) throw new Error(strategy.errors.unknownMember); assertSecureRelayTransportEndpoint(member.endpoint); member.endpoint = new URL(member.endpoint).href; }
     if (new Set(members.map(member => member.endpoint)).size !== 5) throw new Error(strategy.errors.endpoints);
     // Both parsers snapshot inputs before their first await. A replay digest alone cannot authorize resumption.
-    const { replay, validate } = await preparation.prepare(context, key, root, replayTimeoutMs);
+    const { replay, validate, validateProof, ancestryFunding, checkAncestry } = await preparation.prepare(context, key, root, replayTimeoutMs);
     live(); const rootId = historyCheckpointEnvelopeId(root);
     const derived = await preparation.deriveKey();
     try { if (!Buffer.from(key).equals(derived)) throw new Error(strategy.errors.keyMismatch); } finally { derived.fill(0); }
     const restoration = { genesis: replay.genesis, root, baseline: replay.state, replayDigest: replay.replayDigest };
     const common = { path, writerDirectory, domain: strategy.ownerDomain, encryptionKey: key, context, signingKey: signer, members, initial: undefined as unknown as T,
-      validate, assertTransition: strategy.assertTransition, validateGenesis: (image: T) => strategy.validateGenesis(image, context),
+      validate, validateProof, ...(ancestry ? { ancestrySource: () => ancestry.blocks() } : {}), expectedAncestry: { rootId, genesisId: replay.genesisId }, assertTransition: strategy.assertTransition, validateGenesis: (image: T) => strategy.validateGenesis(image, context),
       expectedRestorationDigest: replay.replayDigest, timeoutMs, transport, maxArchiveBlocks: maximumBlocks, maxArchiveBytes: maximumBytes };
     // An occupied AEAD-authenticated owner is the mandatory retained baseline.
     owner = openEncryptedLocalState<ProtectedCheckpointOwnerState<T>>({ path, key, domain: strategy.ownerDomain, maxBytes: strategy.maximumOwnerBytes, mode: 'open-existing',
@@ -129,12 +132,13 @@ export async function openProtectedHistoryRestoreResumption<T, O extends Protect
     const details = { kind: strategy.reviewKind, path, writerDirectory, contextId: replay.contextId, genesisId: replay.genesisId, rootId,
       generation: root.generation, replayDigest: replay.replayDigest, stateDigest: historyDigest(JSON.stringify(replay.state)), initializeWriter, initializeArchive,
       requiresUnchangedRootQuorum: initializeWriter || initializeArchive, files, limits: { archiveBytes: maximumBytes, archiveBlocks: maximumBlocks }, members, timeoutMs,
-      readiness: 'unverified' as const, startsService: false as const };
+      ...(ancestry?.binding ? { ancestryBinding: ancestry.binding } : {}), ...(ancestryFunding ? { ancestryFunding } : {}), readiness: 'unverified' as const, startsService: false as const };
     const review = { ...details, approvalDigest: historyDigest(`${strategy.reviewDomain}\n${JSON.stringify([details, historyDigest(key)])}`) };
     return {
       review() { live(); return structuredClone(review); },
       async apply(approvedDigest: string) { return run(async () => {
         live(); if (busy || applied || approvedDigest !== review.approvalDigest) throw new Error(strategy.errors.approval);
+        checkAncestry?.(); if (ancestry) for (const _ of ancestry.blocks()) { /* Recheck original ciphertext before completion. */ }
         checkPaths(); if (JSON.stringify(retainedFiles()) !== JSON.stringify(files)) throw new Error(strategy.errors.filesChanged);
         busy = true; const cancel = () => active?.abort(); signal?.addEventListener('abort', cancel, { once: true });
         try {
@@ -144,6 +148,7 @@ export async function openProtectedHistoryRestoreResumption<T, O extends Protect
               isClosed: () => closed || !!signal?.aborted }); live(); checkPaths();
             if (JSON.stringify(retainedFiles()) !== JSON.stringify(files)) throw new Error(strategy.errors.filesChangedDuringConfirmation);
           }
+          checkAncestry?.(); if (ancestry) for (const _ of ancestry.blocks()) { /* Fresh confirmation may await; recheck before writer creation. */ }
           release(); history = await strategy.openHistory({ ...common, ...(initializeWriter || initializeArchive ? {
             initializeWriter, initializeArchive, resumePristineArchive: initializeArchive, resumeRestoration: restoration } : {}) });
           live(); applied = true;

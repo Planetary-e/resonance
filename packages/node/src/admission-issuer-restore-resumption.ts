@@ -1,3 +1,5 @@
+import { assertExistingHistoryAncestryFunding } from '../../relay/src/history-ancestry-source.js';
+import { canonicalHistorySetupPath } from '../../relay/src/admission-history-setup.js';
 import type { ProtectedIssuerState as State } from './protected-admission-issuer-state.js';
 /** Fixed issuer entry for explicit, readiness-unverified restoration completion. */
 import { openProtectedIssuerHistory, MAX_PROTECTED_ISSUER_HISTORY_BYTES, PROTECTED_ISSUER_RECOVERY_FENCE, type ProtectedIssuerHistoryStatus } from '@resonance/relay/protected-issuer-history';
@@ -7,7 +9,7 @@ import type { HistoryCheckpointTransport, HistoryReplicaEndpoint } from '../../r
 import { prepareAdmissionBatchIssuer } from './blind-admission-issuance.js';
 import { DOMAIN, deriveAdmissionIssuerEncryptionKey } from './admission-issuer-state.js';
 import { replayProtectedIssuerHistory, type ProtectedIssuerReplayOptions } from './admission-issuer-history-replay.js';
-import { parseProtectedIssuerImage, assertProtectedIssuerImageSuccessor, assertProtectedIssuerGenesis } from './protected-admission-issuer-state.js';
+import { parseProtectedIssuerImage, assertProtectedIssuerImageSuccessor, assertProtectedIssuerGenesis, validateProtectedIssuerPolicyProof } from './protected-admission-issuer-state.js';
 import { openProtectedHistoryRestoreResumption, type ProtectedHistoryRestoreResumptionStrategy } from './protected-history-restore-resumption.js';
 
 export interface ProtectedIssuerRestoreResumptionOptions extends Omit<ProtectedIssuerReplayOptions, 'proposal'> {
@@ -17,6 +19,8 @@ export interface ProtectedIssuerRestoreResumptionOptions extends Omit<ProtectedI
   transport?: HistoryCheckpointTransport; maxArchiveBlocks?: number; maxArchiveBytes?: number;
   /** Replay has a separate bounded CPU budget; timeoutMs remains the unchanged protocol deadline. */
   replayTimeoutMs?: number;
+  ancestry?: import('../../relay/src/history-ancestry-source.js').OwnedHistoryAncestrySource;
+  ancestryDirectory?: string;
 }
 export interface ProtectedIssuerRestoreResumptionReview {
   kind: 'protected-issuer-restoration-resumption'; path: string; writerDirectory: string;
@@ -64,13 +68,22 @@ const issuerStrategy: ProtectedHistoryRestoreResumptionStrategy<State, Protected
     filesChangedDuringConfirmation: 'Issuer restoration files changed during fresh root confirmation',
   },
   snapshot(options) {
-    const authority = options.authority, profileInput = structuredClone(options.profile), privateKey = options.privateKey;
+    const authority = options.authority, profileInput = structuredClone(options.profile), privateKey = options.privateKey, signal = options.signal;
+    const ancestryDirectory = options.ancestryDirectory === undefined ? undefined : canonicalHistorySetupPath(options.ancestryDirectory);
     return {
       async prepare(context, key, root, replayTimeoutMs) {
         const [issuer, replay] = await Promise.all([prepareAdmissionBatchIssuer({ expectedProfile: profileInput, privateKey }),
           replayProtectedIssuerHistory({ ...options, context, profile: profileInput, authority, encryptionKey: key, proposal: root.proposal, timeoutMs: replayTimeoutMs })]);
         const profile = issuer.profile;
-        return { replay, validate: (value: unknown) => parseProtectedIssuerImage(value, { profile, authority }) };
+        const cache: import('../../relay/src/admission-policy-history-proof.js').PolicyProofCache = new Map();
+        const operations = new WeakMap<object, import('../../relay/src/admission-policy-history-proof.js').PolicyProofOperation>();
+        const ancestryFunding = replay.state.communityPolicy?.version === 3 && ancestryDirectory ? assertExistingHistoryAncestryFunding(ancestryDirectory) : undefined;
+        return { replay, ancestryFunding, checkAncestry() { if (ancestryFunding && ancestryDirectory) assertExistingHistoryAncestryFunding(ancestryDirectory, ancestryFunding); }, validate: (value: unknown) => parseProtectedIssuerImage(value, { profile, authority }),
+          validateProof(image, source, token) {
+            let operation = token && operations.get(token);
+            if (token && !operation) { operation = {}; operations.set(token, operation); }
+            return validateProtectedIssuerPolicyProof(image, { source, context, encryptionKey: key, signal, operation, cache });
+          } };
       },
       deriveKey: () => deriveAdmissionIssuerEncryptionKey(privateKey),
     };

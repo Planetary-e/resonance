@@ -1,10 +1,11 @@
 /** Explicit issuer recovery commands. Original enrollment and source loss are independent operator pins. */
-import { dirname, resolve } from 'node:path';
-import { assertSecureRelayTransportEndpoint } from '@resonance/core';
+import { openStorageReservationAuthority, withStorageReservationAuthority } from '@resonance/core/storage-reservations';
+import { assertExistingHistoryAncestryFunding, captureHistoryAncestrySource, type OwnedHistoryAncestrySource } from '../../relay/src/history-ancestry-source.js';
+import { parseProtectedIssuerConfiguration } from './protected-issuer-configuration.js';
+import { dirname, join, resolve } from 'node:path';
 import { exactWitnessFields } from '@resonance/core/admission-witness';
-import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointContextId, parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
+import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointContextId, historyCheckpointEnvelopeId, parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { readOperatorFile, readOperatorJson, readOperatorSigningKey } from '../../relay/src/admission-operator-files.js';
-import { parseAdmissionHistoryArchiveLimits } from '../../relay/src/admission-history-config.js';
 import { createPinnedHistoryOperatorTransport } from '../../relay/src/history-operator-transport.js';
 import { prepareAdmissionBatchIssuer } from './blind-admission-issuance.js';
 import { deriveAdmissionIssuerEncryptionKey } from './admission-issuer-state.js';
@@ -17,20 +18,8 @@ function text(path: string, limit = 32768) {
   finally { bytes.fill(0); }
 }
 function configuration(file: string) {
-  const value = readOperatorJson(file, 64 * 1024), hasLimits = !!value && typeof value === 'object' && Object.hasOwn(value, 'limits');
-  if (!exactWitnessFields(value, ['version', 'context', 'members', 'ownerKeyFile', ...(hasLimits ? ['limits'] : [])]) || value.version !== 1
-    || typeof value.ownerKeyFile !== 'string' || !value.ownerKeyFile.length || value.ownerKeyFile.length > 4096
-    || !Array.isArray(value.members) || value.members.length !== 5) throw new Error('Invalid protected issuer configuration');
-  const context = parseHistoryCheckpointContext(value.context);
-  if (context.role !== 'admission-issuer') throw new Error('Issuer recovery requires its own admission-issuer role');
-  const members = value.members.map(member => {
-    if (!exactWitnessFields(member, ['publicKey', 'endpoint']) || typeof member.publicKey !== 'string'
-      || !context.members.includes(member.publicKey) || typeof member.endpoint !== 'string') throw new Error('Invalid pinned issuer history member');
-    assertSecureRelayTransportEndpoint(member.endpoint); return { publicKey: member.publicKey, endpoint: new URL(member.endpoint).href };
-  });
-  if (new Set(members.map(member => member.publicKey)).size !== 5 || new Set(members.map(member => member.endpoint)).size !== 5) throw new Error('Issuer recovery requires five distinct pinned members and endpoints');
-  return { context, members, ownerKeyFile: resolve(dirname(resolve(file)), value.ownerKeyFile),
-    limits: parseAdmissionHistoryArchiveLimits(hasLimits ? value.limits : { archiveBytes: 64 * 1024 * 1024, archiveBlocks: 10001 }) };
+  const parsed = parseProtectedIssuerConfiguration(readOperatorJson(file, 64 * 1024));
+  return { ...parsed, ownerKeyFile: resolve(dirname(resolve(file)), parsed.ownerKeyFile) };
 }
 
 export async function runProtectedIssuerRecoveryCommand(command: string, raw: readonly string[], signal?: AbortSignal, commandOptions: { transportFile?: string } = {}) {
@@ -46,16 +35,23 @@ export async function runProtectedIssuerRecoveryCommand(command: string, raw: re
   cancelled();
   const [configFile, profileFile, privateFile, sourcePath, authorityFile, genesisFile, directory, first, second] = args;
   if (planning && (!['available', 'unavailable'].includes(first) || !/^[1-9][0-9]*$/.test(second))) throw new Error('Choose explicit issuer source availability and a positive view');
-  const config = configuration(configFile), signingKey = readOperatorSigningKey(config.ownerKeyFile);
+  const config = configuration(configFile), ancestry = config.ancestry && captureHistoryAncestrySource(config.ancestry, configFile, config.context);
+  const funding = ancestry && openStorageReservationAuthority({ directory: ancestry.funding.authorityDirectory, authorityId: ancestry.funding.authorityId, mode: 'open-existing' });
+  let signingKey: ReturnType<typeof readOperatorSigningKey>;
+  try { signingKey = readOperatorSigningKey(config.ownerKeyFile); } catch (error) { funding?.close(); throw error; }
+  let ancestryHandle: OwnedHistoryAncestrySource | undefined;
+  let preparation: import('./admission-issuer-history-restore.js').PreparedProtectedIssuerRestore | undefined;
   let encryptionKey: Buffer | undefined;
   let source: Awaited<ReturnType<typeof openProtectedAdmissionIssuerLedger>> | undefined;
   let recovery: Awaited<ReturnType<typeof openProtectedIssuerRecovery>> | undefined;
   let restored: Awaited<ReturnType<typeof openProtectedAdmissionIssuerLedger>> | undefined;
   let resumption: { close(): void } | undefined;
   let transport: ReturnType<typeof createPinnedHistoryOperatorTransport> | undefined;
-  const cancel = () => { source?.close(); recovery?.close(); restored?.close(); resumption?.close(); transport?.close(); };
+  const cancel = () => { source?.close(); recovery?.close(); restored?.close(); resumption?.close(); ancestryHandle?.close(); transport?.close(); };
   signal?.addEventListener('abort', cancel, { once: true });
-  try {
+  const operate = async () => { try {
+    ancestry?.check();
+    if (ancestry) assertExistingHistoryAncestryFunding(resolve(dirname(resolve(configFile)), config.ancestry!.directory), ancestry.funding.authorityId);
     const authority = text(authorityFile, 256).trim();
     if (authority !== config.context.authority || Buffer.from(signingKey.publicKey).toString('base64url') !== config.context.owner) throw new Error('Issuer recovery authority or owner differs from its independent pin');
     const enrollment = readOperatorJson(genesisFile, HISTORY_ENVELOPE_MAX_BYTES + 65536);
@@ -63,6 +59,7 @@ export async function runProtectedIssuerRecoveryCommand(command: string, raw: re
       || historyCheckpointContextId(parseHistoryCheckpointContext(enrollment.context)) !== historyCheckpointContextId(config.context)) throw new Error('Issuer recovery requires a separate matching original enrollment file');
     const genesis = parseHistoryCheckpointEnvelope(enrollment.root, config.context);
     if (genesis.kind !== 'checkpoint' || genesis.generation !== 0 || genesis.sequence !== 0) throw new Error('Issuer recovery requires the original generation-zero genesis enrollment');
+    if (!planning && !['recovery-status', 'recovery-step'].includes(command)) ancestry?.assertRecoveryDownload({ directory: join(resolve(directory), 'download'), genesisId: historyCheckpointEnvelopeId(genesis) });
     const pem = text(privateFile).trim().match(/^-----BEGIN PRIVATE KEY-----\s+([A-Za-z0-9+/=\s]+)-----END PRIVATE KEY-----$/);
     if (!pem) throw new Error('Expected one PKCS8 issuer private key');
     const bytes = Buffer.from(pem[1].replace(/\s/g, ''), 'base64'); let privateKey: CryptoKey;
@@ -72,10 +69,11 @@ export async function runProtectedIssuerRecoveryCommand(command: string, raw: re
     encryptionKey = await deriveAdmissionIssuerEncryptionKey(privateKey); cancelled();
     transport = createPinnedHistoryOperatorTransport({ context: config.context }, commandOptions.transportFile, signal);
     const timeoutMs = transport.maintenanceTimeoutMs ?? 30000;
-    const options = { directory: resolve(directory), context: config.context, profile, authority, genesis, members: config.members,
+    const options = { ancestrySelection: !planning && !['recovery-status', 'recovery-step'].includes(command) ? ancestry : undefined, ancestryBinding: ancestry?.binding, directory: resolve(directory), context: config.context, profile, authority, genesis, members: config.members,
       signingKey, encryptionKey, timeoutMs, transport: transport.protection.transport, agreementTransport: transport.agreementTransport,
       dataTransport: transport.dataTransport, provisionTransport: transport.provisionTransport };
-    const protection = { context: config.context, signingKey, members: config.members, transport: transport.protection.transport, timeoutMs,
+    if (ancestry && planning && first === 'available') ancestryHandle = ancestry.open({ localKey: encryptionKey, signingKey, members: config.members });
+    const protection = { ...(ancestryHandle ? { ancestrySource: () => ancestryHandle!.blocks(), expectedAncestry: ancestry!.expectedAncestry } : {}), context: config.context, signingKey, members: config.members, transport: transport.protection.transport, timeoutMs,
       maxArchiveBytes: config.limits.archiveBytes, maxArchiveBlocks: config.limits.archiveBlocks };
     if (planning) {
       if (first === 'available') source = await openProtectedAdmissionIssuerLedger({ path: resolve(sourcePath), expectedProfile: profile, privateKey,
@@ -94,12 +92,13 @@ export async function runProtectedIssuerRecoveryCommand(command: string, raw: re
       const handle = await recovery.reviewResumption(destination, { privateKey, maxArchiveBytes: config.limits.archiveBytes, maxArchiveBlocks: config.limits.archiveBlocks, signal });
       resumption = handle; cancelled(); return { result: command === 'recovery-resume-plan' ? handle.review() : await handle.apply(approved!) };
     }
-    const { preparation } = await recovery.reviewRestore(destination, signal); cancelled();
-    if (command === 'recovery-review') return { result: preparation.review };
+    const reviewed = await recovery.reviewRestore(destination, signal); preparation = reviewed.preparation; cancelled();
+    if (command === 'recovery-review') return { result: { ...preparation.review, continuation: reviewed.continuation } };
     restored = await openProtectedAdmissionIssuerLedger({ path: destination.path, expectedProfile: profile, privateKey, expectedAllocationAuthority: authority,
       protection: { ...protection, writerDirectory: destination.writerDirectory, initializeWriter: true, initializeArchive: true },
       restore: { preparation, approvedDigest: approved! } }); cancelled();
     return { result: { result: 'protected-issuer-history-restored', ...destination, status: restored.status(), readiness: 'unverified', startsService: false } };
   } catch (error) { throw transport ? transport.failure(error) : error; }
-  finally { signal?.removeEventListener('abort', cancel); cancel(); encryptionKey?.fill(0); signingKey.secretKey.fill(0); }
+  finally { signal?.removeEventListener('abort', cancel); cancel(); preparation?.close?.(); encryptionKey?.fill(0); signingKey.secretKey.fill(0); } };
+  try { return await (funding ? withStorageReservationAuthority(funding, operate) : operate()); } finally { funding?.close(); }
 }

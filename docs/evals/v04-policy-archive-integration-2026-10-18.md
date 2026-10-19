@@ -816,3 +816,128 @@ checks pass. Observed work05:11:53–05:17:21UTC includes commands/waits, earlie
 reading unclocked. Current42% shared account usage is not per-agent cost.
 The new candidate is ready for macOS CI; Windows/Linux are explicitly deferred
 by the owner, and the prior observer4003 remains unconfirmed remotely.
+
+### Operational issuer source integration starts
+
+Publishedf575e64; macOS CI39203967267 running. The next single SolHigh
+implementation begins with the shared retained-download adapter and issuer
+recovery/ordinary startup only. Relay runtime integration follows as the next
+part of the same operational prerequisite. Contract above is fixed: strict
+optional ancestry selection, independent original enrollment/certified
+continuation and existing funding; zero-additional-reservation preflight;
+independently owned repeatable source; reviewed selection bindings and
+validation before owner/writer creation. Proposed selection shape:
+`{version:1,kind:'recovery-download',directory,enrollmentFile,continuationFile,
+funding:{authorityDirectory,authorityId}}`. Legacy config remains valid.
+
+Use minimal realv3 command/process tests, not another65rotation scenario.
+No new decoder, proof cache, reserve, enrollment or semantic-retirement work.
+Known implementation prerequisites are eligible for development; they do not
+reset B-HISTORY-LIFECYCLE or its historical effort/alternatives. Shared usage at
+entry uses the latest42% observation, exact per-agent usage unavailable. Parent
+owns CI/docs and review coordination; implementer must report bounded plan
+before edits and freeze for review before one affected final regression.
+
+### macOS result: reopen performance line held
+
+Run39203967267: desktop and local-ownership pass; durability305pass/1fail.
+The same cold issuer reopen with65archived configurations exceeds its retained
+3000ms proof budget on the macOS runner after the bounded memo correction.
+Log `/tmp/resonance-f575e64-macos-durability.log`, stack owner319/issuer113/
+consumer-test215. The prior observer4003 did not recur. General suite still
+running at this observation. Local2144ms is not hosted-runner qualification.
+
+Hold further performance adjustments on this route. Astra will assess the
+existing K1 three-second authorization contract versus K2 five-minute recovery
+target and identify whether an explicit offline-recovery budget decision is
+required. Do not change retained limits or count this as two failed architectural
+alternatives without evidence. No threshold is weakened. The minimal operational
+v3 source/CLI integration is independent and may finish under unchanged limits.
+
+Astra's decision review05:27:28–05:27:52UTC confirms separating offline
+reconstruction from live authorization is compatible with K1/K2, but requires
+owner approval because the retained proof currently pins3000ms and its contract
+requires unchanged limits. The failure alone is not a security counterexample
+or proof of two failed alternatives; local memo improvement remains evidence.
+Stop condition4 applies to pursuing the proposed changed resource assumption.
+
+Owner question is pending: allow explicit versioned offline reconstruction up
+to30s, with no serving until complete and unchanged3s authorization, storage,
+bytes/blocks/transitions/memory. No change is applied while pending. A new
+contract must preserve original proof and all denials/conflicts, use one absolute
+deadline/cumulative counters and cancel reads/crypto; never reinterpret old
+references silently. If authorized, one bounded implementation/review and cold
+macOS measurement follows, not open-ended tuning. The timeout currently only
+proves>3s; it does not establish duration/p95/K2 compliance.
+
+### Issuer operational source candidate submitted
+
+SolHigh froze15files at05:33:00UTC overf575e64, content SHA256
+`2650d07c46ce794eaa70b3a779d7535521dcb603a2a03bccf60aa59d10d6c77a`
+(sorted relativepath,NUL,bytes,NUL), receipt
+`/tmp/issuer-operational-source-candidate.json`. Shared ancestry adapter, strict
+issuer selection/config, actual recovery CLI and ordinary script startup,
+immutable-generation checks, owned source transfer and resumption proof
+validation are implemented. V3 restoration without explicit existing funding
+refuses before new owner state; completed recovery status exposes its certified
+continuation for explicit selection.
+
+Final focused3checks/2files pass15.52s; node TypeScript and whitespace pass.
+Coverage includes actual minimalv3 CLI restore/interruptedresume/fresh startup,
+retained response/denial,3-versus4 fresh confirmations, wrong/missing/corrupt
+source/pins/funding, zero additional allocations, source lifetime after parent
+close and subsequent reopening. Minimalv3 descriptor is empty with real original
+proof records; archive-boundary evidence remains the earlier separate test.
+No new process-death fixture; parent affected regression will include existing
+crash paths after review. Relay runtime wiring remains the next separate slice.
+Candidate is under Astra contract review; no acceptance/commit yet.
+
+### Operational source review: two corrections required
+
+Astra withholds acceptance on two P2 findings. First, the recovery command
+preflighted selected ancestryA while opening workspaceB/download; no equality
+of path/genesis/continuation linked selection to the actual source, and B could
+reserve before the later check. Bind/recheck the captured selection and verify
+both actual-source reservations before opening it; distinguish old-owner source
+selection when starting another recovery. Reproduce fundedA/unfundedB and a
+valid but wrong continuation, requiring unchanged authority and absent owner.
+Second, closing a preparation removed its source but left its WeakMap capability
+valid. Explicitly invalidate closed/consumed preparations before any intent and
+retain one-time transfer. Closed-v3-preparation restore must leave destination
+absent. These are implementation corrections under the existing frozen contract,
+not an added resource/trust assumption. SolHigh owns one scoped correction round.
+Configured ordinary startup preflight and successful parent/child lifetime had
+no further material finding in this review. No candidate acceptance yet.
+
+### Owner decision and integration resume — October 19
+
+The owner approved the proposed separation: offline startup reconstruction may
+use up to30 seconds; live authorization retains3 seconds. This authorizes an
+explicit versioned contract, not silent reinterpretation of retained references
+or any change to memory, bytes, blocks, transitions, storage or trust. No serving
+until reconstruction and current authenticated policy checks finish. One bounded
+implementation/review/cold-Mac measurement follows. K2/K3 remain open.
+
+Astra accepted both P2 corrections in source candidate
+`90050adb1734487b5c5455b420ab86562c1dfd0ecb6df6deba17310fda2cd3e4`.
+Parent seven-file affected regression is running; workspace and desktop-server
+TypeScript compilation pass. Source implementation used SolHigh, review AstraHigh,
+one correction round, first-pass acceptance withheld for two P2 findings.
+Shared account usage at resumed block entry is48%; earlier42% is not attributable
+to this task alone. Historical unclocked effort remains unknown.
+
+CI39203967267 completed: macOS ownership and desktop boundaries pass; durability
+and general tests fail. General reports3270 passed,2 failed and1 worker error.
+Besides the known cold65 three-second timeout, history-volunteer-service has a
+gap/fork/stale-predecessor failure and a worker exited unexpectedly. Preserve
+these distinct unresolved results; do not claim the timeout change fixes them.
+Log: `/tmp/resonance-f575e64-general-fail.log`. No installers were launched.
+
+Parent acceptance: exact frozen source candidate verified unchanged. The selected
+seven-file regression passes76/76 in137.92s on local Node24.19.0/macOS, log
+`/tmp/resonance-issuer-source-composed.log`; `npm run build` and
+`npx tsc -b packages/app/tsconfig.server.json --pretty false` pass.
+This closes the issuer operational-source slice, not K2/K3 or relay runtime wiring.
+Remote general worker termination includes an explicit V8 heap-limit error at
+about2GiB; root cause and affected file remain unqualified. No memory ceiling
+is increased to mask it.

@@ -16,7 +16,7 @@ import { createAdmissionPolicyQuery, type AdmissionPolicyQuery } from '@resonanc
 import { inspectAdmissionPolicyObservation, parseAdmissionPolicyTrust } from '@resonance/core/admission-policy-trust';
 
 import { parseProtectedIssuerImage, assertProtectedIssuerImageSuccessor, assertProtectedIssuerGenesis, validateProtectedIssuerPolicyProof } from './protected-admission-issuer-state.js';
-import { readPreparedProtectedIssuerRestore, type PreparedProtectedIssuerRestore } from './admission-issuer-history-restore.js';
+import { takePreparedProtectedIssuerAncestry, readPreparedProtectedIssuerRestore, type PreparedProtectedIssuerRestore } from './admission-issuer-history-restore.js';
 import { DOMAIN, permitHash, totals, canonicalClaim, claimDigest, claimScopeBinding, assertAdmissionIssuerPolicy, validateAdmissionIssuerPermit, deriveAdmissionIssuerEncryptionKey, IssuerPolicyObservationExpiredError, type AdmissionIssuancePermit } from './admission-issuer-state.js';
 
 export interface ProtectedIssuerRecoverySource {
@@ -102,6 +102,7 @@ export async function openProtectedAdmissionIssuerLedger(options: ProtectedAdmis
     const key = await deriveAdmissionIssuerEncryptionKey(options.privateKey);
     const validateProof = (image: State, source: () => Iterable<import('@resonance/core/history-checkpoint').HistoryCheckpointEnvelope>, token?: object) =>
       validateProtectedIssuerPolicyProof(image, { source, context: options.protection.context, encryptionKey: key, signal: operationSignal, operation: token ? proofOperation(token) : undefined, cache: proofCache });
+    let ancestry: import('../../relay/src/history-ancestry-source.js').OwnedHistoryAncestrySource | undefined;
     let storage: Awaited<ReturnType<typeof openProtectedIssuerHistory<State>>>;
     try {
       if (initial) {
@@ -110,10 +111,11 @@ export async function openProtectedAdmissionIssuerLedger(options: ProtectedAdmis
       }
       const restored = options.restore === undefined ? undefined : readPreparedProtectedIssuerRestore(options.restore.preparation, options.restore.approvedDigest,
         { path: options.path, writerDirectory: options.protection.writerDirectory, context: options.protection.context, profile, authority });
-      storage = await openProtectedIssuerHistory<State>({ ...options.protection, path: options.path, domain: DOMAIN, encryptionKey: key,
+      if (restored) ancestry = takePreparedProtectedIssuerAncestry(options.restore!.preparation);
+      storage = await openProtectedIssuerHistory<State>({ ...options.protection, ...(ancestry ? { ancestrySource: () => ancestry!.blocks() } : {}), path: options.path, domain: DOMAIN, encryptionKey: key,
         initialize: !!options.initialize || !!restored, initial: initial!, validate, validateProof, assertTransition: assertProtectedIssuerImageSuccessor, validateGenesis: image => assertProtectedIssuerGenesis(image, options.protection.context), restore: restored, resumeRestoration: undefined, resumePristineArchive: false });
     }
-    catch (error) { key.fill(0); throw error; }
+    catch (error) { ancestry?.close(); key.fill(0); throw error; }
     let busy = false, observation: { query: AdmissionPolicyQuery; deadline: number } | undefined;
     function live() { const state = storage.read(); if (state.version === 9) throw new Error('Issuer ledger is permanently retired'); return state; }
     function checkPolicy(recover = false) { assertAdmissionIssuerPolicy(live(), profile, (options.now ?? Date.now)(), recover); }
@@ -361,7 +363,7 @@ export async function openProtectedAdmissionIssuerLedger(options: ProtectedAdmis
           return structuredClone(response); // Only a durably cached response may leave this boundary.
         } finally { busy = false; }
       },
-      close() { observation = undefined; storage.close(); proofCache.clear(); key.fill(0); },
+      close() { observation = undefined; storage.close(); ancestry?.close(); proofCache.clear(); key.fill(0); },
     };
     return api;
   } finally { options.protection.signingKey.secretKey.fill(0); }

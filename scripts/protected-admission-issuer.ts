@@ -1,15 +1,17 @@
 /** Explicit volunteer-protected issuer operations. All public pins come from operator files. */
+import { openStorageReservationAuthority, withStorageReservationAuthority } from '@resonance/core/storage-reservations';
+import { deriveAdmissionIssuerEncryptionKey } from '../packages/node/src/admission-issuer-state.js';
+import { parseProtectedIssuerConfiguration } from '../packages/node/src/protected-issuer-configuration.js';
+import { captureHistoryAncestrySource, type OwnedHistoryAncestrySource } from '../packages/relay/src/history-ancestry-source.js';
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
-import { assertSecureRelayTransportEndpoint } from '@resonance/core';
 import { MAX_ADMISSION_POLICY_BYTES, admissionPolicyDigest, assertAdmissionPolicyCurrent, verifyAdmissionPolicy } from '@resonance/core/admission-policy';
 import { MAX_ADMISSION_ISSUANCE_ALLOCATION_BYTES } from '@resonance/core/admission-issuance-allocation';
 import { MAX_ADMISSION_CLAIM_ASSIGNMENT_BYTES } from '@resonance/core/admission-claim-assignment';
 import { ADMISSION_POLICY_ADVANCE_MAX_BYTES } from '@resonance/core/admission-policy-advance';
 import { ADMISSION_POLICY_QUERY_REPLY_TYPE } from '@resonance/core/admission-policy-query';
-import { exactWitnessFields } from '@resonance/core/admission-witness';
-import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointContextId, parseHistoryCheckpointContext } from '@resonance/core/history-checkpoint';
+import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointContextId } from '@resonance/core/history-checkpoint';
 import { runProtectedIssuerRecoveryCommand } from '../packages/node/src/admission-issuer-recovery-command.js';
 import { openProtectedAdmissionIssuerLedger } from '../packages/node/src/protected-admission-issuer-ledger.js';
 import { IssuerPolicyObservationExpiredError } from '../packages/node/src/admission-issuer-ledger.js';
@@ -26,22 +28,7 @@ function text(path: string, limit = 32768) {
   try { return new TextDecoder('utf8', { fatal: true }).decode(bytes); }
   finally { bytes.fill(0); }
 }
-function configuration(value: unknown) {
-  const hasLimits = !!value && typeof value === 'object' && Object.hasOwn(value, 'limits');
-  if (!exactWitnessFields(value, ['version', 'context', 'members', 'ownerKeyFile', ...(hasLimits ? ['limits'] : [])]) || value.version !== 1
-    || typeof value.ownerKeyFile !== 'string' || !value.ownerKeyFile.length || value.ownerKeyFile.length > 4096
-    || !Array.isArray(value.members) || value.members.length !== 5) throw new Error('Invalid protected issuer configuration');
-  const context = parseHistoryCheckpointContext(value.context);
-  if (context.role !== 'admission-issuer') throw new Error('Protected issuer history requires its own admission-issuer role');
-  const members = value.members.map(member => {
-    if (!exactWitnessFields(member, ['publicKey', 'endpoint']) || typeof member.publicKey !== 'string'
-      || !context.members.includes(member.publicKey) || typeof member.endpoint !== 'string') throw new Error('Invalid pinned issuer history member');
-    assertSecureRelayTransportEndpoint(member.endpoint);
-    return { publicKey: member.publicKey, endpoint: new URL(member.endpoint).href };
-  });
-  if (new Set(members.map(member => member.publicKey)).size !== 5 || new Set(members.map(member => member.endpoint)).size !== 5) throw new Error('Protected issuer requires five distinct pinned history members and endpoints');
-  return { version: 1 as const, context, members, ownerKeyFile: value.ownerKeyFile, ...(hasLimits ? { limits: parseAdmissionHistoryArchiveLimits(value.limits) } : {}) };
-}
+const configuration = parseProtectedIssuerConfiguration;
 async function main() {
   if (process.env.RESONANCE_RELAY_STORAGE_SELECTION_FILE) throw new Error('Issuer tools require explicitly selected issuer files');
   const [command, ...raw] = process.argv.slice(2);
@@ -81,10 +68,15 @@ async function main() {
   const output = command === 'init' ? fourth : command === 'enrollment' ? first : command === 'grant' ? second : command === 'issue' ? third : undefined;
   if (output && existsSync(output)) throw new Error('Output already exists; select a new filename');
   const config = configuration(readOperatorJson(configFile, 64 * 1024));
-  const signingKey = readOperatorSigningKey(resolve(dirname(resolve(configFile)), config.ownerKeyFile));
+  const ancestry = config.ancestry && captureHistoryAncestrySource(config.ancestry, configFile, config.context);
+  const funding = ancestry && openStorageReservationAuthority({ authorityId: ancestry.funding.authorityId, directory: ancestry.funding.authorityDirectory, mode: 'open-existing' });
+  let signingKey: ReturnType<typeof readOperatorSigningKey>;
+  try { signingKey = readOperatorSigningKey(resolve(dirname(resolve(configFile)), config.ownerKeyFile)); } catch (error) { funding?.close(); throw error; }
+  let source: OwnedHistoryAncestrySource | undefined;
   let transport: ReturnType<typeof createPinnedHistoryOperatorTransport> | undefined;
   let ledger: Awaited<ReturnType<typeof openProtectedAdmissionIssuerLedger>> | undefined;
-  try {
+  const operate = async () => { try {
+    ancestry?.check();
     if (Buffer.from(signingKey.publicKey).toString('base64url') !== config.context.owner) throw new Error('Issuer history owner key differs from its independent pin');
     const pem = text(privateFile).trim().match(/^-----BEGIN PRIVATE KEY-----\s+([A-Za-z0-9+/=\s]+)-----END PRIVATE KEY-----$/);
     if (!pem) throw new Error('Expected one PKCS8 private key');
@@ -92,7 +84,8 @@ async function main() {
     let privateKey: CryptoKey;
     try { privateKey = await crypto.subtle.importKey('pkcs8', bytes, { name: 'RSA-PSS', hash: 'SHA-384' }, true, ['sign']); }
     finally { bytes.fill(0); }
-    const protection = { context: config.context, members: config.members, signingKey, writerDirectory: `${path}.history`,
+    if (ancestry) { const key = await deriveAdmissionIssuerEncryptionKey(privateKey); try { source = ancestry.open({ localKey: key, signingKey, members: config.members }); } finally { key.fill(0); } }
+    const protection = { ...(source ? { ancestrySource: () => source!.blocks(), expectedAncestry: ancestry!.expectedAncestry } : {}), context: config.context, members: config.members, signingKey, writerDirectory: `${path}.history`,
       ...(config.limits ? { maxArchiveBytes: config.limits.archiveBytes, maxArchiveBlocks: config.limits.archiveBlocks } : {}) };
     transport = createPinnedHistoryOperatorTransport(protection, process.env.RESONANCE_HISTORY_OPERATOR_TRANSPORT_FILE, controller.signal);
     ledger = await openProtectedAdmissionIssuerLedger({ path, expectedProfile: readOperatorJson(profileFile, 32768), privateKey,
@@ -137,7 +130,8 @@ async function main() {
       const plan = command === 'plan-retirement' ? current.planRetirement(config.context.authority) : await current.retire(config.context.authority, approval!);
       console.log(JSON.stringify({ ...plan, result: command === 'plan-retirement' ? 'review-required' : 'permanently-retired' }));
     } else console.log(JSON.stringify({ result: 'protected-issuer-ready', ...current.status() }));
-  } finally { ledger?.close(); transport?.close(); signingKey.secretKey.fill(0); }
+  } finally { ledger?.close(); source?.close(); transport?.close(); signingKey.secretKey.fill(0); } };
+  try { return await (funding ? withStorageReservationAuthority(funding, operate) : operate()); } finally { funding?.close(); }
 }
 try { await main(); }
 catch (error) {

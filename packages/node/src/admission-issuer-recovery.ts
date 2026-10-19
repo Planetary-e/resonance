@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import type { ProtectedIssuerState as State } from './protected-admission-issuer-state.js';
 /** Fixed issuer recovery strategy. Public pins, journal bytes and review preimages remain stable. */
 import type { SigningKeyPair } from '@resonance/core';
@@ -17,6 +18,8 @@ import { createProtectedHistoryRecovery, type ProtectedHistoryRecoveryCaptured }
 
 export const PROTECTED_ISSUER_RECOVERY_FILENAME = 'admission-issuer-recovery.json';
 export interface ProtectedIssuerRecoveryOptions {
+  ancestryBinding?: string;
+  ancestrySelection?: import('./protected-history-recovery.js').ProtectedHistoryRecoveryOptions['ancestrySelection'];
   directory: string; encryptionKey: Uint8Array; signingKey: SigningKeyPair; context: HistoryCheckpointContext; profile: AdmissionWalletProfileV1; authority: string;
   genesis: HistoryEncryptedEnvelope; members: HistoryReplicaEndpoint[]; timeoutMs?: number;
   maxReplayBlocks?: number; maxReplayBytes?: number; replayTimeoutMs?: number;
@@ -29,7 +32,7 @@ export interface ProtectedIssuerRecoveryReview {
   readonly localStateDigest: string | null; readonly localSource: ProtectedIssuerRecoverySource | null; readonly approvalDigest: string;
 }
 export interface ProtectedIssuerRecoveryStatus {
-  rootId: string; generation: number; nextGeneration: number; view: number; complete: boolean; localStateDigest: string | null; phase: string;
+  rootId: string; generation: number; nextGeneration: number; view: number; complete: boolean; localStateDigest: string | null; phase: string; continuation?: HistoryContinuationRoot;
 }
 export interface ProtectedIssuerRecoveryResumptionOptions {
   privateKey: CryptoKey; maxArchiveBytes?: number; maxArchiveBlocks?: number; signal?: AbortSignal;
@@ -51,7 +54,7 @@ function replayOptions(p: Captured, blocks: Iterable<unknown>, minimum: State[] 
 const recovery = createProtectedHistoryRecovery<ProtectedIssuerRecoveryOptions, { profile: AdmissionWalletProfileV1 }, State, ProtectedIssuerRecoverySource,
   PreparedProtectedIssuerRestore, ProtectedIssuerHistoryStatus, ProtectedIssuerRecoveryResumptionOptions,
   Awaited<ReturnType<typeof openProtectedIssuerRestoreResumption>>, 'protected-issuer-recovery-freeze'>({
-  role: 'admission-issuer', filename: PROTECTED_ISSUER_RECOVERY_FILENAME, domain: 'resonance:admission-issuer-recovery:v1',
+  retainAncestry: true, role: 'admission-issuer', filename: PROTECTED_ISSUER_RECOVERY_FILENAME, domain: 'resonance:admission-issuer-recovery:v1',
   kind: 'protected-issuer-recovery-freeze', label: 'Issuer',
   capturePins(options) { return { profile: structuredClone(options.profile) }; },
   async normalizePins(p) { p.profile = (await parseAdmissionWalletProfile(p.profile)).profile; },
@@ -68,17 +71,17 @@ const recovery = createProtectedHistoryRecovery<ProtectedIssuerRecoveryOptions, 
     if (JSON.stringify((captured as ProtectedIssuerRecoveryEvidence).profile) !== JSON.stringify(p.profile)) throw new Error('Issuer source profile differs from its independent pin');
   },
   replay(p, blocks, minimum, proposal, signal) { return replayProtectedIssuerHistory({ ...replayOptions(p, blocks, minimum), proposal, signal }); },
-  prepareRestore(p, blocks, minimum, destination, continuation, signal) { return prepareProtectedIssuerRestore({ ...replayOptions(p, blocks, minimum), destination, continuation, signal }); },
+  prepareRestore(p, blocks, minimum, destination, continuation, signal, source) { return prepareProtectedIssuerRestore({ ...replayOptions(p, blocks, minimum), destination, continuation, signal, ancestry: source, ancestryDirectory: join(p.directory, 'download') }); },
   openInspector(p, destination, replayDigest) {
     return openProtectedIssuerHistory<State>({ ...destination, context: p.context, domain: DOMAIN, encryptionKey: p.key,
       signingKey: p.signer, members: p.members, initial: undefined!, expectedRestorationDigest: replayDigest,
       validate: value => parseProtectedIssuerImage(value, { profile: p.profile, authority: p.authority }),
       assertTransition: assertProtectedIssuerImageSuccessor, validateGenesis: image => assertProtectedIssuerGenesis(image, p.context) });
   },
-  openResumption(p, blocks, minimum, destination, continuation, options) {
+  openResumption(p, blocks, minimum, destination, continuation, options, source) {
     const privateKey = options.privateKey, limits = { maxArchiveBytes: options.maxArchiveBytes, maxArchiveBlocks: options.maxArchiveBlocks }, signal = options.signal;
     return openProtectedIssuerRestoreResumption({ ...replayOptions(p, blocks, minimum), destination, continuation,
-      signingKey: p.signer, members: p.members, transport: p.transport, timeoutMs: p.timeoutMs, replayTimeoutMs: p.replayTimeoutMs, privateKey, ...limits, signal });
+      signingKey: p.signer, members: p.members, transport: p.transport, timeoutMs: p.timeoutMs, replayTimeoutMs: p.replayTimeoutMs, privateKey, ...limits, signal, ancestry: source, ancestryDirectory: join(p.directory, 'download') });
   },
 });
 export function prepareProtectedIssuerRecovery(options: ProtectedIssuerRecoveryOptions & {

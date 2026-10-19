@@ -41,6 +41,7 @@ export interface ProtectedCheckpointOwnerOptions<T> {
   validateGenesis?(image: T): void | Promise<void>;
   /** Original funded generations are required whenever a policy reference reaches behind this root. */
   ancestrySource?: () => Iterable<HistoryCheckpointEnvelope>;
+  expectedAncestry?: { rootId: string; genesisId: string };
   validateProof?(image: T, source: () => Iterable<HistoryCheckpointEnvelope>, operation?: object): void | Promise<void>;
   /** Internal trusted restoration input. Business APIs must require their reviewed capability first. */
   restore?: ProtectedCheckpointOwnerRestoration<T>;
@@ -109,6 +110,7 @@ export async function openProtectedCheckpointOwner<T>(options: ProtectedCheckpoi
   // Capture caller-owned mutable data and both keys before the first asynchronous validator.
   const context = parseHistoryCheckpointContext(structuredClone(options.context));
   const key = Buffer.from(options.encryptionKey), signer = copyAdmissionSigningKey(options.signingKey);
+  const expectedAncestry = options.expectedAncestry && { ...options.expectedAncestry };
   const restoreInput = options.restore === undefined ? undefined : structuredClone(options.restore);
   const resumeInput = options.resumeRestoration === undefined ? undefined : structuredClone(options.resumeRestoration);
   const expectedRestorationDigest = options.expectedRestorationDigest, resumePristineArchive = options.resumePristineArchive === true;
@@ -256,6 +258,7 @@ export async function openProtectedCheckpointOwner<T>(options: ProtectedCheckpoi
     if (root.sequence !== 0 || (state.version === 1 ? root.kind !== 'checkpoint' || root.generation !== 0 : root.kind !== 'continuation')) throw new Error('Invalid protected issuer history root');
     const genesis = state.version === 2 ? parseHistoryCheckpointEnvelope(state.restoration?.genesis, context) : root;
     if (genesis.kind !== 'checkpoint' || genesis.generation !== 0 || genesis.sequence !== 0) throw new Error('Protected issuer requires its original enrolled genesis');
+    if (expectedAncestry && (state.version !== 2 || id(root) !== expectedAncestry.rootId || id(genesis) !== expectedAncestry.genesisId)) throw new Error('Retained ancestry differs from the immutable owner generation or original enrollment');
     originalGenesis = genesis;
     const genesisImage = await decode(genesis); await validateGenesis?.(genesisImage);
     let rootImage = genesisImage;

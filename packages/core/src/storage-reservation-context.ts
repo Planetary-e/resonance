@@ -6,6 +6,8 @@ export interface StorageReservationOutput { path: string; maximumBytes: number; 
 export interface StorageReservationLease { assertWritable(output?: StorageReservationOutput): void }
 export interface StorageReservationAuthority {
   reserve(request: StorageReservationRequest): StorageReservationLease;
+  status?(): { authorityId: string };
+  reviewReservation?(request: StorageReservationRequest): { additionalBytes: number; fits: boolean };
 }
 const authorities = new AsyncLocalStorage<StorageReservationAuthority>();
 export function withStorageReservationAuthority<T>(authority: StorageReservationAuthority, operation: () => T): T {
@@ -28,4 +30,17 @@ export function reserveManagedStorage(request: StorageReservationRequest): Stora
 }
 export function assertNoStorageReservationContext(message = 'Open the shared storage authority before entering a managed operation'): void {
   if (authorities.getStore()) throw new Error(message);
+}
+
+/** Reopening retained proof may only consume already committed component peaks. */
+export function assertExistingStorageReservation(request: StorageReservationRequest, authorityId?: string, options: { allowUnmanaged?: boolean } = {}): string | undefined {
+  const authority = authorities.getStore();
+  if (!authority && options.allowUnmanaged && authorityId === undefined) return undefined;
+  if (!authority?.reviewReservation) throw new Error('Retained ancestry requires an explicitly selected existing storage authority');
+  if (authorityId !== undefined && authority.status?.().authorityId !== authorityId) throw new Error('Retained ancestry funding differs from its independently selected authority');
+  const review = authority.reviewReservation({ ...request });
+  if (review.additionalBytes !== 0 || !review.fits) throw new Error('Retained ancestry requires its complete existing storage reservation');
+  const selectedId = authority.status?.().authorityId;
+  if (!selectedId) throw new Error('Retained ancestry funding requires its selected authority identity');
+  return selectedId;
 }
