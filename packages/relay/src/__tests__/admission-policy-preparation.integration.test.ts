@@ -64,8 +64,9 @@ it.each(['monotonic', 'wall-before', 'wall-after', 'cancel', 'close', 'policy-cu
     if (failure === 'wall-after') n.setTime(n.time() + 1000);
     if (failure === 'cancel') controller.abort();
     if (failure === 'close') await n.gate.close();
-    if (failure === 'policy-current') vi.spyOn(n.store, 'current').mockReturnValue({ ...p.first, expiresAt: n.time() });
+    const current = failure === 'policy-current' ? vi.spyOn(n.store, 'currentResolved').mockReturnValue({ ...p.first, expiresAt: n.time() }) : undefined;
     expect(check).toThrow();
+    if (current) expect(current).toHaveBeenCalledOnce();
   });
 
 it('invalidates detached evidence when another caller durably observes a newer installed-policy floor', async () => {

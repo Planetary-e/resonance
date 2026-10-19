@@ -60,7 +60,7 @@ export async function replayProtectedIssuerHistory(options: ProtectedIssuerRepla
         const raw = JSON.parse(new TextDecoder('utf8', { fatal: true }).decode(plaintext));
         const reference = raw.policyProof && parseAdmissionPolicyProofReference(raw.policyProof);
         const budget = reference ? proofOperation.budget ??= new AdmissionPolicyArchiveBudget({ limits: reference.limits, signal, deadline: started + timeoutMs }) : undefined;
-        const image = budget ? await budget.wait(() => parseProtectedIssuerImage(raw, pins)) : await parseProtectedIssuerImage(raw, pins);
+        const image = budget ? await budget.wait(() => parseProtectedIssuerImage(raw, pins, budget.keyImports)) : await parseProtectedIssuerImage(raw, pins);
         await validateProtectedIssuerPolicyProof(image, { source: () => supplied, context, encryptionKey: key, signal, deadline: started + timeoutMs, operation: proofOperation, cache: proofCache });
         return image;
       } finally { plaintext.fill(0); }

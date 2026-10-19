@@ -7,7 +7,7 @@ import { MAX_ADMISSION_POLICY_BYTES } from './admission-policy-limits.js';
 import { admissionAuthorityFingerprint, admissionPolicyDigest, admissionKeyFingerprint, admissionPolicyKeys, assertAdmissionPolicySuccessor, parseAdmissionPolicyBody, verifyAdmissionPolicy, type AdmissionPolicyBody, type AdmissionPolicyKey, type SignedAdmissionPolicy } from './admission-policy.js';
 import { ADMISSION_POLICY_ADVANCE_MAX_BYTES, admissionPolicyHead, createAdmissionPolicyAdvanceCommitment, parseAdmissionPolicyAdvance, parseAdmissionPolicyAdvanceCommitment, sameAdmissionPolicyHead, type AdmissionPolicyAdvanceCommitment } from './admission-policy-advance.js';
 import { admissionPolicyObserversId, parseAdmissionPolicyHead, parseAdmissionPolicyObservers, type AdmissionPolicyHead, type AdmissionPolicyObservers } from './admission-policy-freshness.js';
-import { parseAdmissionWalletProfile } from './admission-profile.js';
+import { parseAdmissionWalletProfile, createAdmissionProfileKeyImports, type AdmissionProfileKeyImports } from './admission-profile.js';
 import { copyAdmissionSigningKey, exactWitnessFields, parseAdmissionWitnessSet, witnessBytes } from './admission-witness.js';
 
 export const ADMISSION_POLICY_ARCHIVE_PAGE_MAX_ENTRIES = 64;
@@ -32,6 +32,7 @@ export type AdmissionPolicyArchiveReader = (digest: string, signal: AbortSignal)
 interface Operation { limits: AdmissionPolicyArchiveLimits; signal?: AbortSignal; budget?: AdmissionPolicyArchiveBudget; deadline?: number }
 export class AdmissionPolicyArchiveBudget {
   readonly limits: AdmissionPolicyArchiveLimits;
+  readonly keyImports = createAdmissionProfileKeyImports();
   readonly controller = new AbortController();
   private deadline: number;
   private readonly signals = new Set<AbortSignal>();
@@ -128,8 +129,8 @@ export function parseAdmissionPolicyProofAppend(value: unknown): AdmissionPolicy
   if (new Set(pages.map(page => page.digest)).size !== pages.length) throw new Error('Duplicate policy proof pages');
   return { version: 1, kind: 'advance', advance: structuredClone(value.advance) as ArchivedAdmissionPolicyAdvance, pages };
 }
-export async function verifyArchivedAdmissionPolicy(value: unknown, authority: string): Promise<ArchivedAdmissionPolicy> {
-  return (value as { version?: unknown })?.version === 3 ? verifyAdmissionPolicyV3(value, authority) : verifyAdmissionPolicy(value, authority);
+export async function verifyArchivedAdmissionPolicy(value: unknown, authority: string, imports?: AdmissionProfileKeyImports): Promise<ArchivedAdmissionPolicy> {
+  return (value as { version?: unknown })?.version === 3 ? verifyAdmissionPolicyV3(value, authority, imports) : verifyAdmissionPolicy(value, authority, imports);
 }
 export function assertArchivedAdmissionPolicyCurrent(policy: ArchivedAdmissionPolicy, now: number): void {
   if (!integer(now) || now < policy.issuedAt || now >= policy.expiresAt) throw new Error('Community admission policy is not current; import a current signed revision');
@@ -256,7 +257,7 @@ export async function verifyAdmissionPolicyArchive(options: VerifyAdmissionPolic
   if (!Array.isArray(options.advances) || options.advances.length > budget.limits.maxTransitions) throw new Error('Archive transition limit exhausted');
   // Serialize and copy every caller-owned history value before the first await.
   const genesis = budget.snapshot(options.genesis), advances = options.advances.map(value => budget.snapshot(value));
-  let policy = await budget.wait(() => verifyAdmissionPolicy(genesis, context.authority)), head = admissionPolicyHead(policy);
+  let policy = await budget.wait(() => verifyAdmissionPolicy(genesis, context.authority, budget.keyImports)), head = admissionPolicyHead(policy);
   if (!sameAdmissionPolicyHead(head, context.genesis)) throw new Error('Archive requires the original pinned signed genesis');
   let expected = extendArchive([], policy);
   for (const value of advances) {
@@ -332,12 +333,12 @@ function v3Payload(body: AdmissionPolicyBodyV3) {
   return Buffer.from('resonance:admission-policy:v3\n' + JSON.stringify([body.version, body.kind, body.revision, body.issuedAt,
     body.expiresAt, body.activeKey, body.keys.map(e => [e.profile, e.notBefore, e.issueUntil, e.spendUntil, e.retryUntil, ...(e.witnesses ? [e.witnesses] : [])]), body.archive]));
 }
-export async function parseAdmissionPolicyBodyV3(value: unknown): Promise<AdmissionPolicyBodyV3> {
+export async function parseAdmissionPolicyBodyV3(value: unknown, imports?: AdmissionProfileKeyImports): Promise<AdmissionPolicyBodyV3> {
   if (!exactWitnessFields(value, ['version','kind','revision','issuedAt','expiresAt','activeKey','keys','archive'])
     || value.version !== 3 || Buffer.byteLength(JSON.stringify(value)) > MAX_ADMISSION_POLICY_BYTES) throw new Error('Invalid v3 admission policy');
   const input = structuredClone(value), archive = descriptor(input.archive);
   const { archive: _, ...fields } = input;
-  const normalized = await parseAdmissionPolicyBody({ ...fields, version: 2, archivedKeys: [] });
+  const normalized = await parseAdmissionPolicyBody({ ...fields, version: 2, archivedKeys: [] }, imports);
   const { archivedKeys: __, ...body } = normalized;
   return { ...body, version: 3, archive };
 }
@@ -352,13 +353,13 @@ export async function signAdmissionPolicyV3(value: unknown, authority: string, s
     return policy;
   } finally { secret.fill(0); }
 }
-export async function verifyAdmissionPolicyV3(value: unknown, authority: string): Promise<SignedAdmissionPolicyV3> {
+export async function verifyAdmissionPolicyV3(value: unknown, authority: string, imports?: AdmissionProfileKeyImports): Promise<SignedAdmissionPolicyV3> {
   admissionAuthorityFingerprint(authority);
   if (!exactWitnessFields(value, ['version','kind','revision','issuedAt','expiresAt','activeKey','keys','archive','authority','signature'])
     || value.authority !== authority || !witnessBytes(value.signature, 64)
     || Buffer.byteLength(JSON.stringify(value) + '\n') > MAX_ADMISSION_POLICY_BYTES) throw new Error('Invalid signed v3 admission policy');
   const input = structuredClone(value), { authority: _, signature, ...unsigned } = input;
-  const body = await parseAdmissionPolicyBodyV3(unsigned);
+  const body = await parseAdmissionPolicyBodyV3(unsigned, imports);
   if (!verify(v3Payload(body), Buffer.from(signature as string, 'base64url'), Buffer.from(authority, 'base64url'))) throw new Error('Invalid v3 community policy signature');
   return { ...body, authority, signature: signature as string };
 }
@@ -463,7 +464,7 @@ async function parseArchivedAdvance(value: unknown, context: AdmissionPolicyObse
   if (!exactWitnessFields(value, ['commitment','policy']) || Buffer.byteLength(JSON.stringify(value)) > ADMISSION_POLICY_ADVANCE_MAX_BYTES) throw new Error('Invalid archive policy advance');
   const commitment = parseAdmissionPolicyAdvanceCommitment(value.commitment, context);
   const policy = await budget.wait<ArchivedAdmissionPolicy>(() => (value.policy as { version?: unknown })?.version === 3
-    ? verifyAdmissionPolicyV3(value.policy, context.authority) : verifyAdmissionPolicy(value.policy, context.authority));
+    ? verifyAdmissionPolicyV3(value.policy, context.authority, budget.keyImports) : verifyAdmissionPolicy(value.policy, context.authority, budget.keyImports));
   if (policy.revision !== commitment.next.revision || archivedAdmissionPolicyDigest(policy) !== commitment.next.digest) throw new Error('Policy differs from signed advance digest');
   return { commitment, policy };
 }
@@ -516,7 +517,7 @@ export async function resolveAdmissionPolicy(options: ResolveAdmissionPolicyOpti
     if (retained.size > 72) throw new Error('Resolved wallet profile history is full');
   }
   const genesis = budget.snapshot(options.readGenesis ? await budget.wait(() => options.readGenesis!(budget.controller.signal)) : options.genesis);
-  const policy = await budget.wait(() => verifyAdmissionPolicy(genesis, context.authority)), head = admissionPolicyHead(policy);
+  const policy = await budget.wait(() => verifyAdmissionPolicy(genesis, context.authority, budget.keyImports)), head = admissionPolicyHead(policy);
   if (!sameAdmissionPolicyHead(head, context.genesis)) throw new Error('Resolved policy requires original signed genesis');
   let state: ResolvedState = { context, head, policy, legacyArchive: extendArchive([], policy) };
   collect(policy);

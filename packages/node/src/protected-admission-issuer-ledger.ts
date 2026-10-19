@@ -73,12 +73,13 @@ export async function openProtectedAdmissionIssuerLedger(options: ProtectedAdmis
       let operation = proofOperations.get(token); if (!operation) { operation = {}; proofOperations.set(token, operation); } return operation;
     };
     const validate = (value: unknown, token?: object) => {
-      if (installProofOperation?.budget) return installProofOperation.budget.wait(() => parseProtectedIssuerImage(value, { profile, authority }));
+      const installing = installProofOperation?.budget;
+      if (installing) return installing.wait(() => parseProtectedIssuerImage(value, { profile, authority }, installing.keyImports));
       const referenceValue = (value as State | null)?.policyProof;
-      if (!referenceValue || !token) return parseProtectedIssuerImage(value, { profile, authority });
-      const reference = parseAdmissionPolicyProofReference(referenceValue), operation = proofOperation(token);
-      const budget = operation.budget ??= new AdmissionPolicyArchiveBudget({ limits: reference.limits, signal: operationSignal });
-      return budget.wait(() => parseProtectedIssuerImage(value, { profile, authority }));
+      const operation = token ? proofOperation(token) : undefined;
+      if (!operation || !referenceValue && !operation.budget) return parseProtectedIssuerImage(value, { profile, authority });
+      const budget = operation.budget ??= new AdmissionPolicyArchiveBudget({ limits: parseAdmissionPolicyProofReference(referenceValue).limits, signal: operationSignal });
+      return budget.wait(() => parseProtectedIssuerImage(value, { profile, authority }, budget.keyImports));
     };
     let initial: State | undefined;
     if (options.initialize) {
@@ -261,7 +262,7 @@ export async function openProtectedAdmissionIssuerLedger(options: ProtectedAdmis
           const budget = new AdmissionPolicyArchiveBudget({ signal: operationSignal, limits: state.policyProof?.limits ?? {
             maxPages: 1, maxEntries: 1, maxArchiveBytes: 1, maxHistoryBytes: 1, maxTransitions: 1, maxPageReads: 1, timeoutMs: 3000 } });
           installProofOperation = { budget };
-          const policy = await budget.wait(() => verifyArchivedAdmissionPolicy(input, authority)); storage.read();
+          const policy = await budget.wait(() => verifyArchivedAdmissionPolicy(input, authority, budget.keyImports)); storage.read();
           if (policy.version === 3 && !state.policyProof) throw new Error('Backfill original protected policy proof before installing v3');
           let freshness = state.freshness;
           if (freshness?.conflict) throw new Error('Issuer policy observations conflict; issuance is fenced');

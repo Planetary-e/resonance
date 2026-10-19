@@ -32,15 +32,38 @@ function keyBytes(pem: string): Buffer {
   return Buffer.from(match[1].replace(/\s/g, ''), 'base64');
 }
 export function admissionKeyFingerprint(pem: string) { return `sha256:${createHash('sha256').update(keyBytes(pem)).digest('hex')}`; }
-export async function parseAdmissionWalletProfile(value: unknown) {
+declare const keyImportsBrand: unique symbol;
+/** Operation-local RSA import results only; never policy or profile authorization. */
+export type AdmissionProfileKeyImports = { readonly [keyImportsBrand]: true };
+type ImportedKey = Readonly<{ publicKey: CryptoKey; pem: string }>;
+const keyImports = new WeakMap<AdmissionProfileKeyImports, Map<string, Promise<ImportedKey>>>();
+export function createAdmissionProfileKeyImports(): AdmissionProfileKeyImports {
+  const handle = Object.freeze({}) as AdmissionProfileKeyImports; keyImports.set(handle, new Map()); return handle;
+}
+async function importProfileKey(bytes: Buffer, handle?: AdmissionProfileKeyImports): Promise<ImportedKey> {
+  const cache = handle && keyImports.get(handle);
+  if (handle && !cache) throw new Error('Profile key imports require their original operation capability');
+  const id = bytes.toString('base64'), retained = cache?.get(id);
+  if (retained) return retained;
+  const pending = (async () => {
+    const publicKey = await crypto.subtle.importKey('spki', Uint8Array.from(bytes), { name: 'RSA-PSS', hash: 'SHA-384' }, true, ['verify']);
+    if ((publicKey.algorithm as RsaHashedKeyAlgorithm).modulusLength !== 2048) throw new Error('Issuer public key must use 2048-bit RSA');
+    const der = Buffer.from(await crypto.subtle.exportKey('spki', publicKey)).toString('base64');
+    return Object.freeze({ publicKey, pem: `-----BEGIN PUBLIC KEY-----\n${der.match(/.{1,64}/g)!.join('\n')}\n-----END PUBLIC KEY-----\n` });
+  })();
+  if (cache) {
+    cache.set(id, pending);
+    // Eight live plus sixty-four legacy archive keys; longer histories remain bounded.
+    while (cache.size > 72) cache.delete(cache.keys().next().value!);
+  }
+  try { return await pending; }
+  catch (error) { if (cache?.get(id) === pending) cache.delete(id); throw error; }
+}
+export async function parseAdmissionWalletProfile(value: unknown, imports?: AdmissionProfileKeyImports) {
   validateProfile(value);
   // Copy all inputs before asynchronous crypto so the caller cannot change the pinned policy mid-validation.
   const input = structuredClone(value);
-  const publicKey = await crypto.subtle.importKey('spki', Uint8Array.from(keyBytes(input.issuerPublicKey)),
-    { name: 'RSA-PSS', hash: 'SHA-384' }, true, ['verify']);
-  if ((publicKey.algorithm as RsaHashedKeyAlgorithm).modulusLength !== 2048) throw new Error('Issuer public key must use 2048-bit RSA');
-  const der = Buffer.from(await crypto.subtle.exportKey('spki', publicKey)).toString('base64');
-  const pem = `-----BEGIN PUBLIC KEY-----\n${der.match(/.{1,64}/g)!.join('\n')}\n-----END PUBLIC KEY-----\n`;
+  const { publicKey, pem } = await importProfileKey(keyBytes(input.issuerPublicKey), imports);
   const profile: AdmissionWalletProfileV1 = { version: 1, scope: { issuer: input.scope.issuer, community: input.scope.community, epoch: input.scope.epoch }, issuerPublicKey: pem,
     relayUrls: [...new Set(input.relayUrls.map(normalizeAdmissionRelay))].sort() };
   return { profile, publicKey };

@@ -6,7 +6,7 @@ import type { HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoi
 import { archivedAdmissionPolicyDigest, verifyArchivedAdmissionPolicy, parseAdmissionPolicyProofReference, parseAdmissionPolicyProofAppend, assertArchivedAdmissionPolicyCurrent, type ArchivedAdmissionPolicy, type AdmissionPolicyProofReference, type AdmissionPolicyProofAppend } from '@resonance/core/admission-policy-archive';
 import { createHash } from 'node:crypto';
 import type { HistoryCheckpointContext } from '@resonance/core/history-checkpoint';
-import { admissionPolicyKeys, assertAdmissionPolicySuccessor } from '@resonance/core/admission-policy';
+import { admissionPolicyKeys, assertAdmissionPolicySuccessor, type AdmissionProfileKeyImports } from '@resonance/core/admission-policy';
 import { verifyAdmissionIssuanceAllocation, admissionIssuanceAllocationDigest, selectAdmissionIssuerAllocation } from '@resonance/core/admission-issuance-allocation';
 import { verifyAdmissionClaimAssignment } from '@resonance/core/admission-claim-assignment';
 import { admissionPolicyObserversId } from '@resonance/core/admission-policy-freshness';
@@ -16,7 +16,7 @@ import { validState, claimDigest, totals, MAX_BYTES, type State as LegacyState }
 export type ProtectedIssuerState = LegacyState<ArchivedAdmissionPolicy> & { proofVersion?: 1; policyProof?: AdmissionPolicyProofReference; policyProofAppend?: AdmissionPolicyProofAppend };
 type State = ProtectedIssuerState;
 
-export async function parseProtectedIssuerImage(value: unknown, pins: { profile: AdmissionWalletProfileV1; authority: string }): Promise<State> {
+export async function parseProtectedIssuerImage(value: unknown, pins: { profile: AdmissionWalletProfileV1; authority: string }, imports?: AdmissionProfileKeyImports): Promise<State> {
   const profile = structuredClone(pins.profile), authority = pins.authority;
   value = structuredClone(value);
   if (Buffer.byteLength(JSON.stringify(value) ?? '') > MAX_BYTES) throw new Error('Protected issuer snapshot exceeds its bound');
@@ -42,7 +42,7 @@ export async function parseProtectedIssuerImage(value: unknown, pins: { profile:
     if (assignment.issuerKeyFingerprint !== admissionKeyFingerprint(profile.issuerPublicKey)
       || claimDigest(entry.claim!.binding, assignment.claimHandle) !== entry.claim!.digest) throw new Error('Retained issuer assignment does not match its claim binding');
   }
-  const policy = await verifyArchivedAdmissionPolicy(state.communityPolicy, authority);
+  const policy = await verifyArchivedAdmissionPolicy(state.communityPolicy, authority, imports);
   parseAdmissionPolicyTrust(state.freshness, policy);
   if (policy.version !== 3 && !admissionPolicyKeys(policy).some(entry => JSON.stringify(entry.profile) === JSON.stringify(profile))) throw new Error('Issuer is absent from its signed community policy');
   if (state.version === 9) {

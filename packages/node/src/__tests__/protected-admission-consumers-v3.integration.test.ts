@@ -38,6 +38,7 @@ import { createAdmissionPolicyQuery } from '@resonance/core/admission-policy-que
 import { createAdmissionWitnessVote, admissionWitnessSetId } from '@resonance/core/admission-witness';
 import { replayAdmissionHistory } from '../../../relay/src/admission-history-replay.js';
 import { replayProtectedIssuerHistory } from '../admission-issuer-history-replay.js';
+import { parseProtectedIssuerImage } from '../protected-admission-issuer-state.js';
 
 const cleanup: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -208,7 +209,11 @@ it('crosses65 archived configurations with protected issuance/admission, exact b
   stage('v3-installed');
   expect(currentPolicy.version).toBe(3); if (currentPolicy.version !== 3) throw new Error('Expected archived policy');
   expect(currentPolicy.archive.entryCount).toBe(65); expect(currentPolicy.keys).toHaveLength(2);
-  issuer.close(); issuer = await n.run(() => openProtectedAdmissionIssuerLedger(n.issuer.issuerOptions)); cleanup.push(issuer.close); await issuer.ready();
+  issuer.close();
+  const reopenStarted = performance.now(), importKey = crypto.subtle.importKey.bind(crypto.subtle); let reopenImports = 0;
+  const countedImports = vi.spyOn(crypto.subtle, 'importKey').mockImplementation(async (...args) => { if (args[0] === 'spki') reopenImports++; return importKey(...args); });
+  try { issuer = await n.run(() => openProtectedAdmissionIssuerLedger(n.issuer.issuerOptions)); cleanup.push(issuer.close); await issuer.ready(); }
+  finally { countedImports.mockRestore(); writeFileSync(join(tmpdir(), 'protected-consumer-reopen-count.json'), JSON.stringify({ imports: reopenImports, ms: Math.round(performance.now() - reopenStarted) })); }
   expect(await issuer.approve(permit, batch.request, n.issuerProof(issuer))).toEqual(response);
   verifier = await configured(); cleanup.push(() => verifier.close());
   const request = { relayUrl, action: 'search' as const, requestBinding: createAdmissionRequestBindingV2('search', { real: 'protected-consumers' }), policyObservation: n.observation() };
@@ -482,4 +487,27 @@ it('cancels the first protected issuer install verification and releases busy wi
   } finally { crypto.release(); crypto.restore(); await work; }
   await issuer.installPolicy(advances[0].policy, authority, { advance: advances[0] });
   expect(issuer.status().policyFreshness?.installedRevision).toBe(2);
+}, 20000);
+
+it('reuses exact RSA imports within one bounded issuer proof operation while checking every signed policy', async () => {
+  const n = await fixture(), issuer = n.issuer.owner as Awaited<ReturnType<typeof openProtectedAdmissionIssuerLedger>>;
+  const base = readProtectedIssuerRecoverySource(await issuer.reviewRecoverySource()).minimumEvidence[0], pins = { profile: entries[0].profile, authority };
+  const budget = new AdmissionPolicyArchiveBudget({ limits });
+  const original = crypto.subtle.importKey.bind(crypto.subtle); let imports = 0;
+  const spy = vi.spyOn(crypto.subtle, 'importKey').mockImplementation(async (...args) => { if (args[0] === 'spki') imports++; return original(...args); });
+  const phases: Array<{ phase: string; imports: number; ms: number }> = [];
+  const phase = async (name: string, work: () => Promise<unknown>) => { const started = performance.now(), before = imports; await work(); phases.push({ phase: name, imports: imports - before, ms: Math.round(performance.now() - started) }); };
+  try {
+    await phase('retained legacy policy transitions', async () => { for (const advance of advances.slice(0, 64)) await budget.wait(() => parseProtectedIssuerImage({ ...base, communityPolicy: advance.policy, freshness: { ...base.freshness!, installed: advance.commitment.next, observed: advance.commitment.next } }, pins, budget.keyImports)); });
+    const latest = advances[63], retained = { ...base, communityPolicy: latest.policy, freshness: { ...base.freshness!, installed: latest.commitment.next, observed: latest.commitment.next } };
+    await phase('unchanged policy in original proof checkpoints', async () => { for (let i = 0; i < 65; i++) await budget.wait(() => parseProtectedIssuerImage(retained, pins, budget.keyImports)); });
+    const pages = new Map(migrationPages.map(page => [page.digest, page.bytes]));
+    await phase('original full proof resolution', () => resolveAdmissionPolicy({ context, genesis, advances, selectedHead: advances.at(-1)!.commitment.next, limits, budget, reader: async digest => pages.get(digest)! }));
+    expect(imports, JSON.stringify(phases)).toBeLessThan(400);
+    const corrupt = { ...retained, communityPolicy: { ...retained.communityPolicy, signature: Buffer.alloc(64).toString('base64url') } };
+    await expect(parseProtectedIssuerImage(corrupt, pins, budget.keyImports)).rejects.toThrow('signature');
+    const count = imports, fresh = new AdmissionPolicyArchiveBudget({ limits });
+    await parseProtectedIssuerImage({ ...base, communityPolicy: genesis }, pins, fresh.keyImports);
+    expect(imports - count).toBe(3); // Allocation plus both profile keys must be re-imported in a fresh operation.
+  } finally { spy.mockRestore(); writeFileSync(join(tmpdir(), 'protected-consumer-reopen-phases.json'), JSON.stringify(phases)); }
 }, 20000);
