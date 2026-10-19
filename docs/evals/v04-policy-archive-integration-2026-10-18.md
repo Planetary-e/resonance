@@ -1208,3 +1208,128 @@ Successful console metrics were suppressed, so final instrumentation writes two
 bounded temp receipts and existing Mac CI jobs report them after tests (also on
 failure). No extra scenario/rerun, product change or timeout changes elsewhere.
 Receipts distinguish complete collection from an absent/failed measurement.
+
+Hosted approved collection measurement at candidate `5fad341`: Mac durability
+job118064459656 passes317/317 in30files369.99s. Issuer collection2821ms; relay
+collection69ms; both under the existing30000ms production allowance. Log
+`/tmp/resonance-5fad341-durability.log`, run39253963213. Ownership and desktop
+jobs also pass; general suite still running. This resolves the separately
+approved collection fixture failure, not K2/K3. Shared quota at resumed
+checkpoint64% (previous62%); account-wide, not model/task attribution.
+
+Next prerequisite review (AstraMedium, read-only): a funded v7 local enrollment
+catalogue can preserve synchronous capability allocation, original token-file
+names and exact retries with sequential historical wallet opens. Status must
+page explicitly. However the existing100-transition fixture envelope permits
+256 cumulative page reads; current replay rescans prior archive prefixes and
+exceeds that before100 rotations. Do not dispatch catalogue implementation on
+a knowingly impossible acceptance setup, raise limits, or reset per-transition
+counters. Assess a bounded single-replay optimization preserving original
+ancestry, non-reactivation and charged actual work before freezing implementation.
+No production or fixture budget has changed.
+
+### Frozen prerequisite: cumulative full-replay work
+
+Parent blocker B-HISTORY-LIFECYCLE / K2,K3; same archive alternative and cumulative
+effort ledger. Observable result: original signed100-transition history replays
+within unchanged256 cumulative page-read/page allowances, leaving room for wallet
+membership visitation. Current construction requires702 reads; proposed replay
+requires74 (37 new pages plus37 final revalidation); these are predictions to
+measure, not passing evidence.
+
+AstraMedium contract: only `resolveAdmissionPolicy` may hold a call-local exact
+validated prefix plus archived fingerprint/epoch sets. Validate original genesis,
+every signed contiguous transition, unchanged pins/cutoffs/witness rules and
+exact new-page suffix linkage/content. Enforce non-reactivation against the
+validated sets. Charge every actual read and all existing byte/entry counters,
+including a mandatory complete final archive reread before returning any handle.
+Bound temporary sets by existing charged entries/bytes; discard on success/failure.
+No cross-call cache, persisted trust, new resource allowance or change to
+standalone advance/preparation behavior. Missing/corrupt final pages, cancelled
+final scan or exhausted counters must refuse without emitting a handle.
+
+Acceptance: real100-transition signed history at unchanged fixture limits;
+measured read counts; fingerprint/epoch reuse, root/count/content mismatch;
+early page corruption/removal before final pass; final-pass cancellation and
+exact resource exhaustion; fresh second replay and standalone advance still
+read original evidence. SolHigh implements only core resolver and discriminating
+tests; AstraHigh reviews; parent runs one affected composed regression. Walletv7
+and UI remain subsequent coupled implementation, not part of this code delta.
+Entry shared quota64%; no timer/budget increase. Retain the previous failed
+collection evidence and current hosted success separately.
+
+Replay prerequisite implementation: SolHigh active12:49:35–12:52:00UTC;19/19
+focusedv3 tests pass19.03s and core TypeScript passes. Actual100-transition
+replay uses74 reads/pages,200 scanned entries and twice final archive bytes,
+on two independent calls under unchanged256-read/3000ms envelope. No limits
+changed. Focused log `/tmp/resonance-replay-prefix-focused.log`. Two-file
+manifest `/tmp/resonance-replay-prefix-candidate.sha256`, SHA256
+9881cad9383582f45145ae7cf37cf533ee9a8ea3acc8875ebf0bd89e4ade42b7.
+AstraHigh review12:52:03–12:52:33UTC accepts without findings, no rework. Shared
+quota observed66%, entry64%; no exact task attribution. Parent affected-path
+regression is running; do not claim composed acceptance yet.
+
+### Next coupled contract: funded wallet enrollment catalogue
+
+Dispatch only after the replay prerequisite composed regression passes. Same
+B-HISTORY-LIFECYCLE/K2,K3 alternative; this is the remaining100-profile dependency,
+not a separate KPI or a reset of cumulative effort. Observable target:101 locally
+enrolled profiles after100 real signed transitions, reopen across72→73 and100→101,
+with original token history, bounded open handles and explicit paged status.
+
+Use a version7 encrypted `admission-profile.json` under its existing domain/2MiB
+ceiling as the sole activation commit. Retain exact current policy, freshness
+pins/floor/conflict and proof reference, active issuer, original first-wallet
+identity, plus authenticated enrollment catalogue root/count. Enroll only locally
+activated profiles, never all keys seen during legacy proof backfill. Immutable
+encrypted catalogue records share the already selected proof directory allowance
+and inventory; migration may group legacy entries into bounded pages. No new
+authority, manifest, implicit quota, orphan deletion or raised legacy constants.
+Root/hash authenticates retained local enrollment; original-chain resolution and
+current-policy membership authenticate profile authority and cutoffs.
+
+Keep original `admission-wallet.json` and issuer-fingerprint filenames and token
+formats. Reserve every new token file at its existing16MiB+8192 ceiling and all
+publication/replacement peaks before activation. Preserve reservations, permanent
+denials and local retirement evidence. Missing enrolled files refuse, never
+initialize empty. Before commit old snapshot remains authoritative; after commit
+missing/corrupt catalogue/proof/token evidence refuses. Uncertain writes poison
+the owner until reopening. v5 backfill remains non-authorizing until exact
+installed head, with unchanged floor/conflict; v6 migration authenticates original
+proof and each enrolled file before activating v7, without token rename/rewrite.
+
+Use one budget/deadline for replay plus bounded membership visitation. A minimal
+core visitor may create opaque memberships bound to the current resolved handle
+after complete archive validation; stage results until operation success. No
+per-profile replay, accumulating retainedIssuerKeys beyond72, or deadline resets.
+Keep provider synchronous: parsed profile/membership index is bounded by funded
+catalogue; hold active wallet plus at most one historical wallet, closing each
+historical handle in finally. Scan all historical reservations/denials before
+returning a recorded retry or allocating fresh; any incomplete/expired/corrupt
+scan refuses. Check monotonic deadline between synchronous reads, freshness again
+before allocation/return, and preserve exclusive operations/session-close fencing.
+
+Status returns active summary and explicit archivedTotal/nextCursor with at most
+72 archived entries per page. Cursor binds activated catalogue generation; stale
+cursor refuses. Wire minimal authenticated API/client/UI pagination, reset page
+after mutation, and distinguish archived policies from local retired wallets.
+No unrelated UI or asynchronous provider migration.
+
+Acceptance: unchanged existing2GiB authority,16MiB proof allowance,256 records and
+existing archive/time limits; measure actual inventory, open handles, snapshot
+size and timings. New wallet, pinnedv5 backfill and v6 migration preserve filenames
+and rights; exercise101 enrollment boundary/reopen, historical exact retry or
+cutoff refusal without fresh allocation, permanent denial, missing/corrupt and
+wrong-provenance evidence, byte/record/reservation refusal before activation,
+cancellation/close/concurrency, and actual process death around catalogue and
+activation publication. A private app update crosses the boundary under its
+existing25s envelope. Run focused tests, AstraHigh review, then one composed
+affected regression. No release, installer, relay/issuer refactor or historical
+semantic-retirement investigation. If remaining selected resources cannot fit,
+retain evidence and apply existing stop policy; do not enlarge them.
+
+Replay prerequisite composed acceptance:81/81 tests in4files192.63s pass
+(corearchive, walletproof, protected issuer/relay v3 consumers and observerv3).
+Log `/tmp/resonance-replay-prefix-composed.log`. Together with19 focusedv3 tests,
+100 distinct checks pass; this is component coverage, not100 lifecycle cycles or
+a complete KPI. First-pass AstraHigh review accepted; no rework rounds.

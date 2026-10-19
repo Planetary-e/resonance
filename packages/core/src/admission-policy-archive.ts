@@ -449,8 +449,14 @@ function retainedCurrent(previous: AdmissionPolicyKey, next: AdmissionPolicyKey)
 function removedCurrent(previous: ArchivedAdmissionPolicy, next: AdmissionPolicyBodyV3) {
   return previous.keys.filter(old => !next.keys.some(e => admissionKeyFingerprint(e.profile.issuerPublicKey) === admissionKeyFingerprint(old.profile.issuerPublicKey)));
 }
+/** Exists only during one full original-chain replay, never in a resolved handle.
+ * Identities come from exact validated page contents, bounded by charged entries/bytes. */
+interface ReplayArchivePrefix {
+  archive?: AdmissionPolicyArchiveDescriptor;
+  issuers: Set<string>; epochs: Set<string>;
+}
 async function validateV3Successor(previous: ResolvedState, next: SignedAdmissionPolicyV3 | AdmissionPolicyBodyV3,
-  reader: AdmissionPolicyArchiveReader, budget: AdmissionPolicyArchiveBudget) {
+  reader: AdmissionPolicyArchiveReader, budget: AdmissionPolicyArchiveBudget, replay?: ReplayArchivePrefix) {
   const old = previous.policy;
   if (old.version === 1 || next.revision !== old.revision + 1 || next.issuedAt < old.issuedAt
     || next.archive.contextId !== admissionPolicyObserversId(previous.context)) throw new Error('V3 requires v2/v3 immediate ancestry and original context');
@@ -472,7 +478,17 @@ async function validateV3Successor(previous: ResolvedState, next: SignedAdmissio
   };
   if (old.version === 3) {
     if (next.archive.entryCount !== old.archive.entryCount + additions.length) throw new Error('V3 appended archive count differs');
-    await walkPages(old.archive, reader, budget, comparePrior);
+    if (replay) {
+      if (JSON.stringify(replay.archive) !== JSON.stringify(old.archive)) throw new Error('Replay archive prefix differs from validated predecessor');
+      for (const entry of next.keys) {
+        budget.check();
+        if (replay.issuers.has(admissionKeyFingerprint(entry.profile.issuerPublicKey))) throw new Error('V3 cannot reuse an archived issuer or period');
+      }
+      for (const entry of fresh) {
+        budget.check();
+        if (replay.epochs.has(entry.profile.scope.epoch)) throw new Error('V3 cannot reuse an archived issuer or period');
+      }
+    } else await walkPages(old.archive, reader, budget, comparePrior);
     await walkPages(next.archive, reader, budget, (entries, offset) => {
       if (JSON.stringify(entries) !== JSON.stringify(additions.slice(offset - old.archive.entryCount, offset - old.archive.entryCount + entries.length))) throw new Error('V3 appended archive differs from eligible predecessor keys');
     }, old.archive);
@@ -502,10 +518,20 @@ export async function parseArchivedAdmissionPolicyAdvance(value: unknown, contex
   if (options.timeoutMs !== undefined) budget.restrictDeadline(performance.now() + options.timeoutMs);
   budget.check(); return parseArchivedAdvance(value, context, budget);
 }
-async function resolveStep(previous: ResolvedState, advance: ArchivedAdmissionPolicyAdvance, reader: AdmissionPolicyArchiveReader, budget: AdmissionPolicyArchiveBudget): Promise<ResolvedState> {
+async function resolveStep(previous: ResolvedState, advance: ArchivedAdmissionPolicyAdvance, reader: AdmissionPolicyArchiveReader, budget: AdmissionPolicyArchiveBudget, replay?: ReplayArchivePrefix): Promise<ResolvedState> {
   if (!sameAdmissionPolicyHead(previous.head, advance.commitment.previous)) throw new Error('Resolved policy ancestry has a gap or fork');
   if (advance.policy.version === 3) {
-    await validateV3Successor(previous, advance.policy, reader, budget);
+    await validateV3Successor(previous, advance.policy, reader, budget, replay);
+    if (replay) {
+      // Publish only after the complete successor (including its exact suffix) succeeds.
+      const additions = removedCurrent(previous.policy, advance.policy);
+      const authenticated = previous.policy.version === 3 ? additions : [...previous.legacyArchive!, ...additions];
+      for (const entry of authenticated) {
+        budget.check();
+        replay.issuers.add(admissionKeyFingerprint(entry.profile.issuerPublicKey)); replay.epochs.add(entry.profile.scope.epoch);
+      }
+      replay.archive = advance.policy.archive;
+    }
     return { context: previous.context, head: advance.commitment.next, policy: advance.policy };
   }
   if (previous.policy.version === 3) throw new Error('Cannot downgrade resolved v3 policy');
@@ -547,10 +573,11 @@ export async function resolveAdmissionPolicy(options: ResolveAdmissionPolicyOpti
   if (!sameAdmissionPolicyHead(head, context.genesis)) throw new Error('Resolved policy requires original signed genesis');
   let state: ResolvedState = { context, head, policy, legacyArchive: extendArchive([], policy) };
   collect(policy);
+  const replay: ReplayArchivePrefix = { issuers: new Set(), epochs: new Set() };
   if (inputs) {
     for (const input of inputs) {
       budget.charge('maxTransitions', 1);
-      state = await resolveStep(state, await parseArchivedAdvance(input, context, budget), reader, budget);
+      state = await resolveStep(state, await parseArchivedAdvance(input, context, budget), reader, budget, replay);
       collect(state.policy);
     }
   } else {
@@ -562,7 +589,7 @@ export async function resolveAdmissionPolicy(options: ResolveAdmissionPolicyOpti
         if (item.done) { finished = true; break; }
         budget.charge('maxTransitions', 1);
         const input = budget.snapshot(item.value);
-        state = await resolveStep(state, await parseArchivedAdvance(input, context, budget), reader, budget);
+        state = await resolveStep(state, await parseArchivedAdvance(input, context, budget), reader, budget, replay);
         collect(state.policy);
       }
     } finally {
@@ -576,6 +603,9 @@ export async function resolveAdmissionPolicy(options: ResolveAdmissionPolicyOpti
     }
   }
   if (!sameAdmissionPolicyHead(state.head, selected)) throw new Error('Resolved policy selected head is stale or conflicting');
+  // The call-local prefix authenticates ancestry, not continued reader availability.
+  // Charge a complete final reread before publishing any resolved capability.
+  if (state.policy.version === 3) await walkPages(state.policy.archive, reader, budget, () => {});
   if (retained) { state.retainedKeys = [...retained.values()]; if (options.retainOnlyRequestedIssuerKeys) state.retainedOnlyIssuerKeys = requested; }
   budget.check(); return resolvedHandle(state);
 }

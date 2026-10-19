@@ -9,7 +9,7 @@ import { parseAdmissionWitnessSet } from '../admission-witness.js';
 import { admissionPolicyArchivePageDigest, admissionPolicyV3Digest, archivedAdmissionPolicyDigest, createResolvedAdmissionPolicyAdvance,
   decodeAdmissionPolicyArchivePage, emptyAdmissionPolicyArchive, encodeAdmissionPolicyArchivePage, inspectResolvedAdmissionPolicy,
   lookupResolvedAdmissionPolicyKey, prepareAdmissionPolicyV3Successor, resolveAdmissionPolicy, resolveAdmissionPolicyAdvance,
-  signAdmissionPolicyV3, verifyAdmissionPolicyV3, visitResolvedAdmissionPolicyArchive,
+  signAdmissionPolicyV3, verifyAdmissionPolicyV3, visitResolvedAdmissionPolicyArchive, AdmissionPolicyArchiveBudget,
   type AdmissionPolicyArchiveLimits, type ArchivedAdmissionPolicyAdvance, type ResolvedAdmissionPolicy, type SignedAdmissionPolicyV3 } from '../admission-policy-archive.js';
 
 const key = generateSigningKeyPair(), authority = Buffer.from(key.publicKey).toString('base64url');
@@ -22,11 +22,15 @@ let entries: AdmissionPolicyKey[], genesis: Awaited<ReturnType<typeof signAdmiss
   legacy: typeof genesis, advances: ArchivedAdmissionPolicyAdvance[], previous: ResolvedAdmissionPolicy,
   prepared: Awaited<ReturnType<typeof prepareAdmissionPolicyV3Successor>>, signed: SignedAdmissionPolicyV3,
   migrated: Awaited<ReturnType<typeof createResolvedAdmissionPolicyAdvance>>;
+let fullHistory: ArchivedAdmissionPolicyAdvance[];
+// Unchanged envelope from the funded wallet proof fixture, including its deadline.
+const replayLimits: AdmissionPolicyArchiveLimits = { maxPages: 256, maxEntries: 16384, maxArchiveBytes: 20_000_000,
+  maxHistoryBytes: 20_000_000, maxTransitions: 100, maxPageReads: 256, timeoutMs: 3000 };
 beforeAll(async () => {
   const members = Array.from({ length: 5 }, (_, i) => ({ publicKey: Buffer.from(generateSigningKeyPair().publicKey).toString('base64url'), endpoint: `ws://127.0.0.1:${41000 + i}/` }));
   const witnesses = parseAdmissionWitnessSet({ version: 1, quorum: 4, members, coordinators: [authority] });
   // Generate/cache each real RSA public key once for the complete file, not for every test.
-  entries = Array.from({ length: 67 }, (_, i) => ({ profile: { version: 1, scope: { issuer: 'v3-core-proof', community: 'public', epoch: `period-${i}` },
+  entries = Array.from({ length: 101 }, (_, i) => ({ profile: { version: 1, scope: { issuer: 'v3-core-proof', community: 'public', epoch: `period-${i}` },
     issuerPublicKey: generateKeyPairSync('rsa', { modulusLength: 2048 }).publicKey.export({ type: 'spki', format: 'pem' }).toString(), relayUrls: ['ws://127.0.0.1:41100/'] },
     notBefore: 1000 + i * 10, issueUntil: 1001 + i * 10, spendUntil: 1002 + i * 10, retryUntil: 1003 + i * 10, witnesses }));
   genesis = await signAdmissionPolicy({ version: 1, kind: 'admission-policy', revision: 1, issuedAt: 1000, expiresAt: 5000,
@@ -43,6 +47,20 @@ beforeAll(async () => {
   for (const page of prepared.pages) pages.set(page.digest, page.bytes);
   signed = await signAdmissionPolicyV3(prepared.body, authority, key.secretKey);
   migrated = await createResolvedAdmissionPolicyAdvance({ previous, policy: signed, key, reader, limits });
+  fullHistory = [...advances, migrated.advance];
+  let archive = signed.archive, previousHead = migrated.advance.commitment.next;
+  // Continue the same signed original history with 35 one-entry immutable pages.
+  // Encode the fixture directly so setup does not require quadratic standalone reads.
+  for (let index = 66; index <= 100; index++) {
+    const bytes = await encodeAdmissionPolicyArchivePage({ version: 1, kind: 'admission-policy-archive-page',
+      contextId: archive.contextId, previous: archive.root, index: archive.pageCount,
+      firstEntry: archive.entryCount, entries: [entries[index - 1]] });
+    const root = admissionPolicyArchivePageDigest(bytes); pages.set(root, bytes);
+    archive = { ...archive, root, pageCount: archive.pageCount + 1, entryCount: archive.entryCount + 1, archiveBytes: archive.archiveBytes + bytes.length };
+    const policy = await signAdmissionPolicyV3({ version: 3, kind: 'admission-policy', ...nextFields(index), archive }, authority, key.secretKey);
+    const commitment = createAdmissionPolicyAdvanceCommitment(previousHead, { revision: policy.revision, digest: admissionPolicyV3Digest(policy) }, context, key);
+    fullHistory.push({ policy, commitment }); previousHead = commitment.next;
+  }
 }, 60000);
 function nextFields(index: number) { return { revision: index + 1, issuedAt: 1000 + index * 10, expiresAt: 5000,
   activeKey: admissionKeyFingerprint(entries[index].profile.issuerPublicKey), keys: [entries[index]] }; }
@@ -217,3 +235,116 @@ it('streams original ancestry with cumulative limits and bounds stalled iterator
   const cancelling: AsyncIterable<unknown> = { [Symbol.asyncIterator]: () => ({ next: async () => { controller.abort(); return { done: false, value: all[0] }; }, return: async () => ({ done: true, value: undefined }) }) };
   await expect(resolveAdmissionPolicy({ ...reopen(), advances: cancelling, signal: controller.signal })).rejects.toThrow('cancelled');
 }, 20000);
+
+
+function fullReplay() { return { context, genesis, advances: fullHistory,
+  selectedHead: fullHistory[99].commitment.next, reader, limits: replayLimits }; }
+
+it('replays 100 signed transitions within the unchanged 256-read envelope, with 37 suffix and 37 final reads on every call', async () => {
+  expect(fullHistory).toHaveLength(100);
+  expect(fullHistory[63].policy.version).toBe(2);
+  expect((fullHistory[64].policy as SignedAdmissionPolicyV3).archive).toMatchObject({ entryCount: 65, pageCount: 2 });
+  expect((fullHistory[99].policy as SignedAdmissionPolicyV3).archive).toMatchObject({ entryCount: 100, pageCount: 37 });
+  for (let run = 0; run < 2; run++) {
+    let reads = 0;
+    const restored = await resolveAdmissionPolicy({ ...fullReplay(), reader: async digest => { reads++; return reader(digest); } });
+    expect(inspectResolvedAdmissionPolicy(restored).head).toEqual(fullHistory[99].commitment.next);
+    expect(reads).toBe(74);
+  }
+}, 10000);
+
+it('rejects signed archived fingerprint and archived epoch reuse during full replay', async () => {
+  const valid = fullHistory[65].policy as SignedAdmissionPolicyV3;
+  for (const entry of [entries[0], { ...entries[66], profile: { ...entries[66].profile, scope: entries[0].profile.scope } }]) {
+    const { authority: _, signature: __, ...body } = valid;
+    const policy = await signAdmissionPolicyV3({ ...body, keys: [entry], activeKey: admissionKeyFingerprint(entry.profile.issuerPublicKey) }, authority, key.secretKey);
+    const commitment = createAdmissionPolicyAdvanceCommitment(migrated.advance.commitment.next, { revision: policy.revision, digest: admissionPolicyV3Digest(policy) }, context, key);
+    await expect(resolveAdmissionPolicy({ ...reopen(), advances: [...advances, migrated.advance, { policy, commitment }], selectedHead: commitment.next }))
+      .rejects.toThrow('cannot reuse an archived issuer or period');
+  }
+});
+
+it('checks exact signed root, counts, bytes and suffix contents when skipping an authenticated prefix', async () => {
+  const valid = fullHistory[65].policy as SignedAdmissionPolicyV3;
+  const page = await decodeAdmissionPolicyArchivePage(pages.get(valid.archive.root!)!);
+  const badRootPage = await encodeAdmissionPolicyArchivePage({ ...page, previous: 'sha256:' + 'd'.repeat(64) });
+  const badContents = await encodeAdmissionPolicyArchivePage({ ...page, entries: [entries[64]] });
+  const local = new Map(pages);
+  for (const bytes of [badRootPage, badContents]) local.set(admissionPolicyArchivePageDigest(bytes), bytes);
+  for (const archive of [
+    { ...valid.archive, root: admissionPolicyArchivePageDigest(badRootPage), archiveBytes: signed.archive.archiveBytes + badRootPage.length },
+    { ...valid.archive, entryCount: valid.archive.entryCount + 1 },
+    { ...valid.archive, pageCount: valid.archive.pageCount + 1 },
+    { ...valid.archive, archiveBytes: valid.archive.archiveBytes + 1 },
+    { ...valid.archive, root: admissionPolicyArchivePageDigest(badContents), archiveBytes: signed.archive.archiveBytes + badContents.length },
+  ]) {
+    const { authority: _, signature: __, ...body } = valid;
+    const policy = await signAdmissionPolicyV3({ ...body, archive }, authority, key.secretKey);
+    const commitment = createAdmissionPolicyAdvanceCommitment(migrated.advance.commitment.next, { revision: policy.revision, digest: admissionPolicyV3Digest(policy) }, context, key);
+    await expect(resolveAdmissionPolicy({ ...reopen(), advances: [...advances, migrated.advance, { policy, commitment }], selectedHead: commitment.next,
+      reader: async digest => { const bytes = local.get(digest); if (!bytes) throw new Error('Missing archive page'); return bytes; } })).rejects.toThrow();
+  }
+});
+
+it.each(['missing', 'corrupt'] as const)('refuses an early %s page changed after all transitions and before final revalidation', async failure => {
+  const early = prepared.pages[0].digest;
+  const local = new Map(pages); let reads = 0;
+  async function* streamed() {
+    yield* fullHistory;
+    expect(reads).toBe(37);
+    if (failure === 'missing') local.delete(early); else local.set(early, new Uint8Array([1]));
+  }
+  await expect(resolveAdmissionPolicy({ ...fullReplay(), advances: streamed(), reader: async digest => {
+    reads++; const bytes = local.get(digest); if (!bytes) throw new Error('Missing archive page'); return bytes;
+  } })).rejects.toThrow(failure === 'missing' ? 'Missing archive page' : 'digest differs');
+  expect(reads).toBe(74);
+}, 10000);
+
+it('charges every final-pass page, entry and byte and refuses exact cumulative exhaustion without a handle', async () => {
+  const counts: Record<string, number> = {};
+  class MeasuredBudget extends AdmissionPolicyArchiveBudget {
+    override charge(name: Parameters<AdmissionPolicyArchiveBudget['charge']>[0], amount: number) {
+      super.charge(name, amount); counts[name] = (counts[name] ?? 0) + amount;
+    }
+  }
+  const budget = new MeasuredBudget({ limits: replayLimits });
+  await resolveAdmissionPolicy({ ...fullReplay(), budget });
+  expect(counts.maxPages).toBe(74); expect(counts.maxPageReads).toBe(74); expect(counts.maxEntries).toBe(200);
+  expect(counts.maxArchiveBytes).toBe((fullHistory[99].policy as SignedAdmissionPolicyV3).archive.archiveBytes * 2);
+  for (const name of ['maxPages', 'maxPageReads', 'maxEntries', 'maxArchiveBytes'] as const) {
+    let finalPass = false;
+    async function* streamed() { yield* fullHistory; finalPass = true; }
+    await expect(resolveAdmissionPolicy({ ...fullReplay(), advances: streamed(), limits: { ...replayLimits, [name]: counts[name] - 1 } }))
+      .rejects.toThrow(name);
+    expect(finalPass).toBe(true);
+  }
+}, 15000);
+
+it('cancels and times out final revalidation without publishing a resolved handle', async () => {
+  for (const failure of ['cancel', 'deadline'] as const) {
+    const controller = new AbortController(); let finalPass = false, finalReads = 0, observedSignal: AbortSignal | undefined;
+    async function* streamed() { yield* fullHistory; finalPass = true; }
+    await expect(resolveAdmissionPolicy({ ...fullReplay(), advances: streamed(), signal: controller.signal,
+      reader: async (digest, signal) => {
+        if (!finalPass) return reader(digest);
+        finalReads++; observedSignal = signal;
+        if (failure === 'cancel') controller.abort();
+        return new Promise<Uint8Array>(() => {});
+      } })).rejects.toThrow('cancelled or timed out');
+    expect(finalReads).toBe(1); expect(observedSignal!.aborted).toBe(true);
+  }
+}, 10000);
+
+it('keeps standalone successor and preparation reads independent of any preceding full replay', async () => {
+  const restored = await resolveAdmissionPolicy(reopen());
+  const advance = fullHistory[65]; let reads = 0;
+  const counting = async (digest: string) => { reads++; return reader(digest); };
+  await resolveAdmissionPolicyAdvance({ previous: restored, advance, selectedHead: advance.commitment.next, reader: counting, limits });
+  expect(reads).toBe(3);
+  reads = 0;
+  await prepareAdmissionPolicyV3Successor({ previous: restored, next: nextFields(66), reader: counting, limits });
+  expect(reads).toBe(2); // The third new-page read is serviced by preparation's staged-page reader.
+  const missingEarly = async (digest: string) => { if (digest === prepared.pages[0].digest) throw new Error('Missing early page'); return reader(digest); };
+  await expect(resolveAdmissionPolicyAdvance({ previous: restored, advance, selectedHead: advance.commitment.next, reader: missingEarly, limits })).rejects.toThrow('Missing early page');
+  await expect(prepareAdmissionPolicyV3Successor({ previous: restored, next: nextFields(66), reader: missingEarly, limits })).rejects.toThrow('Missing early page');
+});
