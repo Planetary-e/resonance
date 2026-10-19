@@ -103,9 +103,12 @@ jobs:
           cache: npm
       - name: Install test dependencies without native install scripts
         run: npm ci --ignore-scripts
+      # The two 101-generation pooled workloads remain mandatory in the general
+      # test job. Do not duplicate them inside this 15-minute focused job.
       - name: Verify issuer, allocation and policy archive durability
         run: >-
           npx vitest run --maxWorkers=1
+          --testNamePattern='^(?!.*through100 real pooled)'
           packages/core/src/__tests__/admission-issuance-allocation.test.ts
           packages/node/src/__tests__/admission-allocation-authority.test.ts
           packages/node/src/__tests__/admission-allocation-authority-state.test.ts

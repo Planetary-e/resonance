@@ -1975,3 +1975,24 @@ and first-pass AstraHigh review accepted, no production rework. Entry shared90%,
 implementer exit91%, account-wide; no per-agent cost attribution.
 Candidate packages/relay/src/policy-observer-archive.ts: SHA256 3469d41c2cc2dfd04c1c2dffac8d2d52df16013486f7699933f0da9216313428.
 Candidate packages/relay/src/__tests__/policy-observer-recovery-command.integration.test.ts: SHA256 87c19eab58d7143cab9c39fdef0ddd614f60291b088c62da60b6148405912e6e.
+
+### Remove duplicate long-workload execution from focused CI
+
+Same-run public annotation confirms admission-durability exceeded its existing
+15m job maximum. Its explicit file list now includes the two newly added
+101-generation issuer/authority cases, also mandatory in the unfiltered general
+test job. Their last local combined measured workload was391.2s. This duplicate
+execution is unnecessary work; the timeout alone does not prove it is the only
+cause. Keep15m and every test assertion/resource limit. Add a focused-job-only
+name filter excluding exactly those two cases; general `vitest run` stays
+unfiltered and required. Verify collection difference equals those exact cases,
+no test body or production code changes, no repeated heavy workload. This is
+CI scheduling correction under the same blocker, not qualification or target
+relaxation. Parent owns this deterministic edit/check; no additional agents.
+
+Collection verification (without running test bodies):50 cases unfiltered,48
+with focused-job pattern; set difference is exactly issuer/authority101-generation
+cases and no additions. Logs /tmp/resonance-durability-collection-{all,focused}.log.
+Repository search finds only those two case names matching the pattern. General
+test job remains unfiltered `npx vitest run --maxWorkers=1`; mandatory coverage
+is preserved. Parent reviewed workflow diff and whitespace check passes.
