@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { sign, verify, type SigningKeyPair } from './crypto.js';
 import { MAX_ADMISSION_POLICY_BYTES } from './admission-policy-limits.js';
-import { admissionAuthorityFingerprint, admissionPolicyDigest, admissionKeyFingerprint, admissionPolicyKeys, assertAdmissionPolicySuccessor, parseAdmissionPolicyBody, verifyAdmissionPolicy, type AdmissionPolicyBody, type AdmissionPolicyKey, type SignedAdmissionPolicy } from './admission-policy.js';
+import { admissionAuthorityFingerprint, admissionPolicyDigest, admissionKeyFingerprint, admissionPolicyKeys, MAX_ADMISSION_KEYS, assertAdmissionPolicySuccessor, parseAdmissionPolicyBody, verifyAdmissionPolicy, type AdmissionPolicyBody, type AdmissionPolicyKey, type SignedAdmissionPolicy } from './admission-policy.js';
 import { ADMISSION_POLICY_ADVANCE_MAX_BYTES, admissionPolicyHead, createAdmissionPolicyAdvanceCommitment, parseAdmissionPolicyAdvance, parseAdmissionPolicyAdvanceCommitment, sameAdmissionPolicyHead, type AdmissionPolicyAdvanceCommitment } from './admission-policy-advance.js';
 import { admissionPolicyObserversId, parseAdmissionPolicyHead, parseAdmissionPolicyObservers, type AdmissionPolicyHead, type AdmissionPolicyObservers } from './admission-policy-freshness.js';
 import { parseAdmissionWalletProfile, createAdmissionProfileKeyImports, type AdmissionProfileKeyImports } from './admission-profile.js';
@@ -723,6 +723,29 @@ export async function resolveAdmissionPolicyKey(options: Operation & {
   if (!found) return undefined;
   const handle = Object.freeze({}) as ResolvedAdmissionPolicyKey;
   resolvedKeys.set(handle, { policy: options.policy, entry: found.entry }); return handle;
+}
+
+/** Resolve caller-funded local enrollment membership in one shared operation.
+ * No caller receives a membership until the complete archive has validated. */
+export async function resolveAdmissionPolicyCatalogueMembership(options: Operation & {
+  policy: ResolvedAdmissionPolicy; issuerKeys: readonly string[]; reader: AdmissionPolicyArchiveReader;
+}): Promise<Map<string, ResolvedAdmissionPolicyKey>> {
+  const policy = options.policy, budget = operationBudget(options), state = resolvedState(policy);
+  if (options.issuerKeys.length > budget.limits.maxEntries + MAX_ADMISSION_KEYS || options.issuerKeys.some(key => !hashId(key))) throw new Error('Invalid funded enrollment membership request');
+  const requested = new Set(options.issuerKeys), staged = new Map<string, AdmissionPolicyKey>();
+  function collect(entry: AdmissionPolicyKey) {
+    const fingerprint = admissionKeyFingerprint(entry.profile.issuerPublicKey);
+    if (requested.has(fingerprint)) staged.set(fingerprint, structuredClone(entry));
+  }
+  for (const entry of state.policy.keys) collect(entry);
+  await visitResolvedAdmissionPolicyArchive({ ...options, policy, budget, visit: collect });
+  budget.check();
+  const result = new Map<string, ResolvedAdmissionPolicyKey>();
+  for (const [fingerprint, entry] of staged) {
+    const membership = Object.freeze({}) as ResolvedAdmissionPolicyKey;
+    resolvedKeys.set(membership, { policy, entry }); result.set(fingerprint, membership);
+  }
+  return result;
 }
 
 /** Authenticated membership for only the keys/participants referenced by one bounded business image. */

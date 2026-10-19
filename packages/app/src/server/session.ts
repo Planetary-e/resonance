@@ -1275,7 +1275,7 @@ export function removeHeldRequest(id: string): void { session!.requestOutbox.rem
 export function planAdmissionWalletRetirement(issuerKey: string): AdmissionWalletRetirementPlan { return session!.admissionWallet.planRetirement(issuerKey); }
 export function retireAdmissionWallet(issuerKey: string, approvalDigest: string): AdmissionWalletRetirementPlan { return session!.admissionWallet.retire(issuerKey, approvalDigest); }
 
-export function getAdmissionWalletStatus() { return session!.admissionWallet.status(); }
+export function getAdmissionWalletStatus(cursor?: string) { return session!.admissionWallet.status(cursor); }
 
 export async function configureAdmissionWallet(profile: unknown): Promise<void> {
   const s = session!;

@@ -360,12 +360,13 @@ export interface AdmissionWalletStatus {
   configured: boolean; scope?: { issuer: string; community: string; epoch: string };
   keyFingerprint?: string; relayUrls?: string[];
   available: number; reserved: number; total: number; capacity: number; availableCapacity: number;
+  archivedTotal?: number; nextCursor?: string;
   archived: Array<{ scope: { issuer: string; community: string; epoch: string }; keyFingerprint: string; available: number; reserved: number; permanentlyRetired: boolean; canRetire: boolean; tokensRemoved?: number; reservationsRemoved?: number }>;
   pendingIssuance?: { batchId: string; requests: string[] };
   freshness?: { required: true; installedRevision: number; observedRevision: number; conflicted: boolean };
   policy?: { currentKeys: number; archivedKeys: number; revision: number; authorityFingerprint: string; expiresAt: number; issueUntil: number; spendUntil: number; retryUntil: number };
 }
-export function getAdmissionWallet() { return api<AdmissionWalletStatus>('GET', '/api/admission-wallet'); }
+export function getAdmissionWallet(cursor?: string) { return api<AdmissionWalletStatus>('GET', '/api/admission-wallet' + (cursor ? `?cursor=${encodeURIComponent(cursor)}` : '')); }
 export function configureAdmissionWallet(profile: { version: 1; scope: NonNullable<AdmissionWalletStatus['scope']>; issuerPublicKey: string; relayUrls: string[] }) {
   return api('POST', '/api/admission-wallet/configure', profile);
 }

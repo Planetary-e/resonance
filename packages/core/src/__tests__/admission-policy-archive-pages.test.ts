@@ -8,6 +8,7 @@ import { admissionPolicyHead, createAdmissionPolicyAdvance, type AdmissionPolicy
 import { admissionPolicyObserversId, parseAdmissionPolicyObservers, type AdmissionPolicyObservers } from '../admission-policy-freshness.js';
 import { parseAdmissionWitnessSet } from '../admission-witness.js';
 import { ADMISSION_POLICY_ARCHIVE_PAGE_MAX_BYTES, admissionPolicyArchivePageDigest, appendAdmissionPolicyArchive,
+  prepareAdmissionPolicyV3Successor, signAdmissionPolicyV3, createResolvedAdmissionPolicyAdvance, resolveAdmissionPolicyCatalogueMembership, inspectResolvedAdmissionPolicyKey,
   decodeAdmissionPolicyArchivePage, emptyAdmissionPolicyArchive, encodeAdmissionPolicyArchivePage, lookupAdmissionPolicyArchive,
   verifyAdmissionPolicyArchive, AdmissionPolicyArchiveBudget, AdmissionPolicyArchiveExecutionContext, admissionPolicyProofReference, resolveAdmissionPolicy, resolveAdmissionPolicyHistoryMembership, type AdmissionPolicyArchiveDescriptor, type AdmissionPolicyArchiveLimits,
   type AdmissionPolicyArchivePage, type VerifiedAdmissionPolicyArchive } from '../admission-policy-archive.js';
@@ -245,4 +246,29 @@ it('rejects malformed execution contracts and prevents offline budgets entering 
     shared.charge(name, limits[name] - 1); shared.charge(name, 1);
     expect(() => shared.charge(name, 1)).toThrow(name);
   }
+});
+
+
+it('publishes funded enrollment memberships only after complete validation and binds their original handle', async () => {
+  const previous = await resolveAdmissionPolicy({ context, genesis, advances: [firstAdvance, secondAdvance], selectedHead: secondAdvance.commitment.next, reader, limits });
+  const extra = structuredClone(entries[2]); extra.profile.scope.epoch = 'new-period'; extra.profile.issuerPublicKey = generateKeyPairSync('rsa', { modulusLength: 2048 }).publicKey.export({ type: 'spki', format: 'pem' }).toString();
+  extra.notBefore = 1030; extra.issueUntil = 1031; extra.spendUntil = 1032; extra.retryUntil = 1033;
+  const plan = await prepareAdmissionPolicyV3Successor({ previous, next: { revision: 4, issuedAt: 1030, expiresAt: 5000, activeKey: admissionKeyFingerprint(extra.profile.issuerPublicKey), keys: [extra] }, reader, limits });
+  for (const page of plan.pages) store.set(page.digest, page.bytes);
+  const policy = await signAdmissionPolicyV3(plan.body, authority, key.secretKey);
+  const next = await createResolvedAdmissionPolicyAdvance({ previous, policy, key, reader, limits });
+  const issuerKeys = [...entries, extra].map(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey));
+  const memberships = await resolveAdmissionPolicyCatalogueMembership({ policy: next.resolved, issuerKeys, reader, limits }); expect(memberships.size).toBe(4);
+  expect(inspectResolvedAdmissionPolicyKey(next.resolved, memberships.get(issuerKeys[0])!)).toEqual(entries[0]);
+  expect(() => inspectResolvedAdmissionPolicyKey(previous, memberships.get(issuerKeys[0])!)).toThrow('original resolved membership');
+  let reads = 0;
+  await expect(resolveAdmissionPolicyCatalogueMembership({ policy: next.resolved, issuerKeys, limits, reader: async digest => { const bytes = await reader(digest); return ++reads === 2 ? new Uint8Array(bytes.length) : bytes; } })).rejects.toThrow('digest differs');
+  const input = { policy: next.resolved, issuerKeys, limits, reader: async (digest: string) => { input.policy = previous; return reader(digest); } };
+  const captured = await resolveAdmissionPolicyCatalogueMembership(input);
+  expect(inspectResolvedAdmissionPolicyKey(next.resolved, captured.get(issuerKeys[0])!)).toEqual(entries[0]);
+  expect(() => inspectResolvedAdmissionPolicyKey(previous, captured.get(issuerKeys[0])!)).toThrow('original resolved membership');
+  const budget = new AdmissionPolicyArchiveBudget({ limits }); budget.charge('maxPageReads', limits.maxPageReads - 1);
+  await expect(resolveAdmissionPolicyCatalogueMembership({ policy: next.resolved, issuerKeys, reader, limits, budget })).rejects.toThrow('maxPageReads');
+  const controller = new AbortController(); reads = 0;
+  await expect(resolveAdmissionPolicyCatalogueMembership({ policy: next.resolved, issuerKeys, limits, signal: controller.signal, reader: async digest => { const bytes = await reader(digest); if (++reads === 2) controller.abort(); return bytes; } })).rejects.toThrow('cancelled');
 });

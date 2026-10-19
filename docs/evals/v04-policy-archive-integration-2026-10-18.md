@@ -1414,3 +1414,62 @@ resource/authority assumption. Original candidate manifest
 acb8c0ec68a7fb97f8055538773b221ba67a57d0eb5f652882f2eaff9f43c52e
 remains evidence, not accepted. Review verification13:19:10–13:20:11UTC; review
 began earlier without its own clock stamp. No fabricated active interval.
+
+Wallet correction candidate: allthree P2 fixes accepted by scoped AstraHigh
+follow-up13:27:31–13:27:41UTC. Final14-file manifest SHA256
+078d6a8918d72efbb28264acaf877445fa4b6f1311a153a28a537f756210b23e;
+only managedwallet and proof tests changed from the first review. Final focused
+24/24 passes67.42s, `/tmp/wallet-v7-review-correction-focused.log`, including
+all required discrimination cases. Private update4514.73ms; reopen2580.68ms
+(~86% of unchanged3s local allowance);148reads/2handles and storage metrics
+unchanged. No cold/p95 claim. Frozen13:29:07UTC, core/nodecompile passes.
+Parent composed regression covers remaining12 affected core/legacy/private/API/UI
+files without repeating the unchanged101-profile scenario.
+
+Shared quota before bounded next-cycle contract review72% (walletentry67%);
+account-wide and not task-attributed. One AstraMedium read-only decision evaluates
+actual100-cycle oracle feasibility and necessary prerequisites. No broad1000-fault
+run, new implementation, changed budget or suspended-investigation retry is
+authorized by this planning step.
+
+Walletv7 final acceptance:69/69 remaining affected checks in12files94.38s pass
+(`/tmp/resonance-wallet-v7-composed.log`), plus the unchanged reviewed24/24
+proof/lifecycle checks:93 distinct checks across13files. All14 candidate file
+hashes match the reviewed manifest. Workspace TypeScript passes; an attempted
+nonexistent npm `build:server` command was corrected to the repository's actual
+`npx tsc -p packages/app/tsconfig.server.json`, which passes. No application
+source change or repeated heavy tests followed. Logs retain both command outcomes.
+One correction round resolved three review P2s; the earlier efficiency correction
+and parent mutable-input/API findings remain recorded above. This completes the
+funded101-profile wallet prerequisite locally, not a complete K2/K3.
+
+### Explicit next-line stop: all-role lifecycle qualification
+
+Bounded read-only AstraMedium assessment, verified against current interfaces:
+`history-ancestry-download.ts` refuses a65th unanchored continuation crossing
+(depth>=64). An accepted compaction checkpoint may terminate traversal earlier.
+`parseHistoryCompactionProposal` refuses policy-observer, admission-issuer and
+admission-allocation-authority roles because existing ciphertext certificates
+lack semantic ancestry evidence. Relay compaction alone does not establish
+these roles' recovery guarantees. Existing composed consumer qualification
+recovers generation0→1;100 signed policy transitions or101 wallet profiles are
+not100 rotation/recovery/compaction cycles.
+
+Therefore the all-role100-cycle/1000-fault qualification cannot honestly close
+K2 with the accepted interfaces. This is stop condition4 for that line: a
+missing semantic protocol/evidence decision, with the historical authority
+retirement investigation still unavailable and suspended. No new safety loss
+has been reproduced, no guard removed, no history/deadline/quota cap raised and
+no suspended investigation retried. Historical effort/alternatives are retained;
+an unknown earlier total is not zero. The completed wallet and quorum-fixture
+work is retained independently; hosted qualification is still separate.
+
+Owner-facing decision: resolve how the required semantic evidence can be
+established before authorizing a new all-role recovery design/qualification
+block. Recommended direction is authenticated bounded recovery with preserved
+original obligations, not increasing64 or declaring100 rotations sufficient.
+If that evidence remains unavailable, suspend this qualification line rather
+than run1000 tests of an incomplete contract. A one-cycle relay-only integration
+oracle is possible but would explicitly leave issuer/observer/authority stages
+blocked; do not present that extra helper as closing this decision. K3 also
+still requires same-key replacement and emergency/reconnection measurements.

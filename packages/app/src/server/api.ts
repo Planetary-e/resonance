@@ -202,9 +202,13 @@ export async function handleApi(req: Req, res: Res, relayUrl: string): Promise<b
   }
 
   // Tokens and trust configuration are available only inside the authenticated local session.
-  if (url === '/api/admission-wallet' && method === 'GET') {
+  if ((url === '/api/admission-wallet' || url.startsWith('/api/admission-wallet?')) && method === 'GET') {
     if (!requireAuth(req, res)) return true;
-    json(res, getAdmissionWalletStatus()); return true;
+    const params = new URL(url, 'http://localhost').searchParams;
+    if ([...params.keys()].some(key => key !== 'cursor') || params.getAll('cursor').length > 1 || (params.get('cursor')?.length ?? 0) > 2048) { error(res, 'Invalid wallet status query', 400); return true; }
+    try { json(res, getAdmissionWalletStatus(params.get('cursor') ?? undefined)); }
+    catch (err) { error(res, err instanceof Error ? err.message : 'Wallet status unavailable', 409); }
+    return true;
   }
   if (url === '/api/admission-wallet/configure' && method === 'POST') {
     if (!requireAuth(req, res)) return true;

@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, expect, it, vi } from 'vitest';
 import { randomBytes } from 'node:crypto';
-import { existsSync, fsyncSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, fsyncSync, openSync, fstatSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fork } from 'node:child_process';
@@ -9,14 +9,16 @@ import { publicVerif } from '@cloudflare/privacypass-ts';
 import { createAdmissionRequestBindingV2, generateSigningKeyPair } from '@resonance/core';
 import { admissionKeyFingerprint, parseAdmissionWalletProfile, signAdmissionPolicy, type SignedAdmissionPolicy } from '@resonance/core/admission-policy';
 import { openEncryptedLocalState } from '@resonance/core/local-state';
+import * as walletModule from '../blind-admission-wallet.js';
 import { openBlindAdmissionWalletV2 } from '../blind-admission-wallet.js';
 import { openManagedAdmissionWallet } from '../managed-admission-wallet.js';
 import { createAdmissionIssuanceBatch, issueAdmissionBatch } from '../blind-admission-issuance.js';
 
-vi.mock('node:fs', async original => { const fs = await original<typeof import('node:fs')>(); return { ...fs, fsyncSync: vi.fn(fs.fsyncSync) }; });
+vi.mock('node:fs', async original => { const fs = await original<typeof import('node:fs')>(); return { ...fs, fsyncSync: vi.fn(fs.fsyncSync), openSync: vi.fn(fs.openSync) }; });
 const actualFsync = (await vi.importActual<typeof import('node:fs')>('node:fs')).fsyncSync;
+const actualOpen = (await vi.importActual<typeof import('node:fs')>('node:fs')).openSync;
 const clean: Array<() => void> = [];
-afterEach(() => { vi.restoreAllMocks(); vi.mocked(fsyncSync).mockReset().mockImplementation(actualFsync); for (const close of clean.splice(0).reverse()) close(); });
+afterEach(() => { vi.restoreAllMocks(); vi.mocked(fsyncSync).mockReset().mockImplementation(actualFsync); vi.mocked(openSync).mockReset().mockImplementation(actualOpen); for (const close of clean.splice(0).reverse()) close(); });
 type Profile = Awaited<ReturnType<typeof parseAdmissionWalletProfile>>['profile'];
 let keys: CryptoKeyPair[], profiles: Profile[], tokens: string[][], old: SignedAdmissionPolicy, policy: SignedAdmissionPolicy;
 let start: number, authority: string, authorityKeys: ReturnType<typeof generateSigningKeyPair>, ids: string[];
@@ -137,8 +139,18 @@ it('refuses reactivation through a newer signed policy and inconsistent saved co
 it.each(process.platform === 'win32' ? [false] : [false, true])('recovers complete reservations or permanent denials after failed flush (after rename=%s)', async afterRename => {
   const options = fixture(); let { wallet, capability } = await prepared(options);
   const plan = wallet.planRetirement(ids[0]);
-  if (afterRename) vi.mocked(fsyncSync).mockImplementationOnce(actualFsync);
-  vi.mocked(fsyncSync).mockImplementationOnce(() => { throw new Error('wallet retirement flush failed'); });
+  let snapshotFd = -1, snapshotFlushed = false;
+  vi.mocked(openSync).mockImplementation((...args: Parameters<typeof openSync>) => {
+    const fd = actualOpen(...args);
+    if (String(args[0]).includes('.admission-wallet.json.') && String(args[0]).endsWith('.tmp')) snapshotFd = fd;
+    return fd;
+  });
+  vi.mocked(fsyncSync).mockImplementation(fd => {
+    // Historical handles acquire a fresh ownership claim. Inject at the token
+    // replacement itself, never at that earlier ownership publication.
+    if ((!afterRename && fd === snapshotFd) || (afterRename && snapshotFlushed && fstatSync(fd).isDirectory())) throw new Error('wallet retirement flush failed');
+    actualFsync(fd); if (fd === snapshotFd) snapshotFlushed = true;
+  });
   expect(() => wallet.retire(ids[0], plan.approvalDigest)).toThrow('wallet retirement flush failed');
   expect(() => wallet.status()).toThrow('write failed'); expect(() => wallet.capabilityFor(context('fresh'))).toThrow('write failed'); wallet.close();
   vi.mocked(fsyncSync).mockReset().mockImplementation(actualFsync); options.time = start;
@@ -225,4 +237,17 @@ it('rechecks the clock immediately before writing the retirement fence', async (
   const plan = low.planRetirement(policy), before = readFileSync(path); roll = true;
   expect(() => low.retire(policy, plan.approvalDigest)).toThrow('retry cutoff');
   expect(readFileSync(path)).toEqual(before); expect(low.summary().permanentlyRetired).toBe(false);
+});
+
+
+it('bounds multi-key legacy installation and reactivation to active plus one historical handle', async () => {
+  const options = fixture(), actualOpenWallet = walletModule.openBlindAdmissionWalletV2;
+  let live = 0, peak = 0;
+  vi.spyOn(walletModule, 'openBlindAdmissionWalletV2').mockImplementation(value => {
+    const wallet = actualOpenWallet(value); live++; peak = Math.max(peak, live); let closed = false;
+    return { ...wallet, close() { if (!closed) { closed = true; live--; wallet.close(); } } };
+  });
+  const wallet = await open(options); await wallet.installPolicy(old, authority); expect(live).toBe(1);
+  expect(wallet.status().archived).toHaveLength(1); await wallet.installPolicy(policy, authority);
+  expect(peak).toBeLessThanOrEqual(2); expect(live).toBe(1); wallet.close(); expect(live).toBe(0);
 });

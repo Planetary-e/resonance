@@ -19,10 +19,11 @@ export default function AdmissionWallet({ privateDeliveryAvailable, onChange }: 
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [retirementPlan, setRetirementPlan] = useState<AdmissionWalletRetirementPlan | null>(null);
-  async function refresh() {
-    const result = await getAdmissionWallet();
+  const [pageCursor, setPageCursor] = useState<string | undefined>();
+  async function refresh(cursor?: string) {
+    const result = await getAdmissionWallet(cursor);
     if (result.error) { setMessage(result.error); return; }
-    setStatus(result);
+    setPageCursor(cursor); setStatus(result);
   }
   useEffect(() => { void refresh(); }, []);
   async function configure(event: React.FormEvent) {
@@ -91,6 +92,10 @@ export default function AdmissionWallet({ privateDeliveryAvailable, onChange }: 
       setRetirementPlan(null); await refresh(); await onChange();
     } finally { setBusy(false); }
   }
+  async function changePage(cursor?: string) {
+    setBusy(true); setRetirementPlan(null); setMessage('');
+    try { await refresh(cursor); } finally { setBusy(false); }
+  }
   return <section className="relay-section">
     <h3>Access-token wallet</h3>
     {message && <p role="status">{message}</p>}
@@ -110,7 +115,7 @@ export default function AdmissionWallet({ privateDeliveryAvailable, onChange }: 
       </form>
     </details>}
     {status?.policy && <div>
-      <p>Community setups: {status.policy.currentKeys}/8 current; {status.policy.archivedKeys}/64 permanently retired.</p>
+      <p>Community policy keys: {status.policy.currentKeys}/8 current; {status.policy.archivedKeys} archived. Local wallet cleanup is shown separately below.</p>
       <p>Community policy revision {status.policy.revision}. Refresh before {new Date(status.policy.expiresAt).toLocaleString()}.</p>
       <p className="text-sm" style={{ overflowWrap: 'anywhere' }}>Authority fingerprint: {status.policy.authorityFingerprint}</p>
       <p className="text-sm">Current key: issuance ends {new Date(status.policy.issueUntil).toLocaleString()}; new uses end {new Date(status.policy.spendUntil).toLocaleString()}; recorded retries end {new Date(status.policy.retryUntil).toLocaleString()}.</p>
@@ -150,11 +155,12 @@ export default function AdmissionWallet({ privateDeliveryAvailable, onChange }: 
         <textarea id="wallet-tokens" value={tokens} onChange={event => setTokens(event.target.value)} disabled={busy}
           autoComplete="off" spellCheck={false} rows={3} maxLength={122000} />
         <button className="btn btn-primary btn-sm" disabled={busy || !!status.pendingIssuance || !tokens.trim()}>Import tokens</button>
-        <button className="btn btn-ghost btn-sm" type="button" disabled={busy} onClick={() => void refresh()}>Refresh balance</button>
+        <button className="btn btn-ghost btn-sm" type="button" disabled={busy} onClick={() => void changePage()}>Refresh balance</button>
       </form></details>
       <p className="text-sm text-muted">Up to {status.availableCapacity} available tokens and {status.capacity} total history slots per setup. Reservations are retained to prevent reuse.</p>
       <PreviousWallets archived={status.archived} plan={retirementPlan} busy={busy || !!status.pendingIssuance}
         onReview={key => void reviewRetirement(key)} onApply={() => void applyRetirement()} onCancel={() => setRetirementPlan(null)} />
+      <PreviousWalletPages cursor={pageCursor} nextCursor={status.nextCursor} total={status.archivedTotal ?? status.archived.length} busy={busy} onNavigate={cursor => void changePage(cursor)} />
       {privateDeliveryAvailable && !status.policy && <button className="btn btn-ghost btn-sm" disabled={busy || !!status.pendingIssuance} onClick={() => setChanging(true)}>Change issuer or token period</button>}
     </> : privateDeliveryAvailable ? <>
       <p>Use setup details verified with your community. Each setup pins its issuer key, token period, and destination relays. A changed setup requires a new key. Previous tokens stay on this device for exact retries; new requests use the setup you activate. Setup pauses automatic mailbox checks.</p>
@@ -200,4 +206,16 @@ export function PreviousWallets({ archived, plan, busy, onReview, onApply, onCan
       <button className="btn btn-ghost btn-sm" disabled={busy} onClick={onCancel}>Cancel cleanup</button>
     </section>}
   </details>;
+}
+
+
+export function PreviousWalletPages({ cursor, nextCursor, total, busy, onNavigate }: {
+  cursor?: string; nextCursor?: string; total: number; busy: boolean; onNavigate: (cursor?: string) => void;
+}) {
+  if (!cursor && !nextCursor) return null;
+  return <nav aria-label="Previous wallet pages">
+    {cursor && <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => onNavigate()}>First wallet page</button>}
+    {nextCursor && <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => onNavigate(nextCursor)}>Next wallet page</button>}
+    <p>{total} previous local wallet setups</p>
+  </nav>;
 }

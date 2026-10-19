@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { PreviousWallets } from './AdmissionWallet.js';
+import { PreviousWallets, PreviousWalletPages } from './AdmissionWallet.js';
 import type { AdmissionWalletRetirementPlan, AdmissionWalletStatus } from '../api.client.js';
 vi.mock('../api.client', () => ({}));
 const scope = { issuer: 'Volunteer community', community: 'public', epoch: 'old period' };
@@ -24,4 +24,11 @@ it('offers no cleanup for ineligible or already closed wallets and shows retaine
   const html = render([{ ...prior, canRetire: false, permanentlyRetired: true, available: 0, reserved: 0, tokensRemoved: 4, reservationsRemoved: 1 }]);
   expect(html).toContain('Permanently closed'); expect(html).toContain('4 tokens removed'); expect(html).toContain('1 old reservation remains blocked');
   expect(html).not.toContain('Review cleanup'); expect(render([])).toBe('');
+});
+
+it('shows bounded previous-wallet pages and disables navigation while a mutation or page fetch is pending', () => {
+  const page = (cursor?: string, nextCursor?: string, busy = false) => renderToStaticMarkup(<PreviousWalletPages cursor={cursor} nextCursor={nextCursor} total={100} busy={busy} onNavigate={() => {}} />);
+  expect(page(undefined, 'next')).toContain('100 previous local wallet setups'); expect(page(undefined, 'next')).not.toContain('First wallet page');
+  expect(page('current')).toContain('First wallet page'); expect(page('current')).not.toContain('Next wallet page');
+  expect(page('current', 'next', true).match(/disabled=""/g)).toHaveLength(2); expect(page()).toBe('');
 });

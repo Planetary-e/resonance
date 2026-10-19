@@ -4,7 +4,7 @@ import { closeSync, constants, existsSync, fstatSync, fsyncSync, lstatSync, mkdi
 import { join, resolve } from 'node:path';
 import { openEncryptedLocalState } from './encrypted-local-state.js';
 import { withStorageReservationAuthority, type StorageReservationAuthority } from '@resonance/core/storage-reservations';
-import { admissionPolicyArchivePageDigest, resolveAdmissionPolicy, inspectResolvedAdmissionPolicy,
+import { admissionPolicyArchivePageDigest, resolveAdmissionPolicy, AdmissionPolicyArchiveBudget, resolveAdmissionPolicyCatalogueMembership, inspectResolvedAdmissionPolicyKey,
   type AdmissionPolicyArchiveLimits, type ResolvedAdmissionPolicy, type ArchivedAdmissionPolicyAdvance } from '@resonance/core/admission-policy-archive';
 import { ADMISSION_POLICY_ADVANCE_MAX_BYTES } from '@resonance/core/admission-policy-advance';
 import { admissionPolicyObserversId, parseAdmissionPolicyHead, parseAdmissionPolicyObservers, type AdmissionPolicyHead, type AdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
@@ -164,33 +164,37 @@ export function openWalletPolicyProofStore(raw: WalletPolicyProofStorage, encryp
   };
   return {
     limits: options.limits, reader,
+    catalogueRead(digest: string) {
+      if (!id(digest)) throw new Error('Invalid wallet catalogue root');
+      const saved = read(join(options.directory, `catalogue-${digest.slice(7)}.bin`), `resonance:wallet-enrollment:v1:${options.authorityId}`, 2 * 1024 * 1024);
+      if (hash(Buffer.from(JSON.stringify(saved.value))) !== digest) throw new Error('Wallet catalogue digest differs');
+      return saved.value;
+    },
+    cataloguePublish(value: unknown) {
+      const digest = hash(Buffer.from(JSON.stringify(value)));
+      publish(join(options.directory, `catalogue-${digest.slice(7)}.bin`), value, `resonance:wallet-enrollment:v1:${options.authorityId}`);
+      return digest;
+    },
     progress() { ready(); return structuredClone(manifest.read()); },
-    async resolve(refValue: WalletPolicyProofReference, context: AdmissionPolicyObservers, signal?: AbortSignal, issuerKeys: readonly string[] = []) {
+    async resolve(refValue: WalletPolicyProofReference, context: AdmissionPolicyObservers, signal?: AbortSignal, issuerKeys: readonly string[] = [], budget = new AdmissionPolicyArchiveBudget({ limits: options.limits, signal })) {
       ready(); const ref = reference(refValue, context);
       let first: ReturnType<typeof record>;
-      if (issuerKeys.length > 72) throw new Error('Wallet profile history is full');
-      const entries = new Map<string, AdmissionPolicyKey>();
-      function collect(value: unknown) {
-        const policy = value as SignedAdmissionPolicy;
-        for (const entry of [...(policy.keys ?? []), ...(policy.version === 2 ? policy.archivedKeys ?? [] : [])]) {
-          const fingerprint = admissionKeyFingerprint(entry.profile.issuerPublicKey);
-          if (issuerKeys.includes(fingerprint)) entries.set(fingerprint, structuredClone(entry));
-        }
-      }
 
       async function* advances() {
         let tip = first!.digest;
         for (let index = 1; index < ref.count; index++) {
           signal?.throwIfAborted(); const next = record(index);
           if (next.value.previous !== tip) throw new Error('Wallet policy proof hash chain differs');
-          tip = next.digest; collect((next.value.value as ArchivedAdmissionPolicyAdvance).policy); yield next.value.value;
+          tip = next.digest; yield next.value.value;
         }
         if (tip !== ref.tip) throw new Error('Wallet policy proof terminal digest differs');
       }
       const resolved = await resolveAdmissionPolicy({ context, genesis: undefined,
-        readGenesis: async readSignal => { readSignal.throwIfAborted(); first = record(0); collect(first.value.value); return first.value.value; },
-        advances: advances(), selectedHead: ref.head, reader, limits: options.limits, signal, retainIssuerKeys: issuerKeys });
-      return { resolved, entries };
+        readGenesis: async readSignal => { readSignal.throwIfAborted(); first = record(0); return first.value.value; },
+        advances: advances(), selectedHead: ref.head, reader, limits: options.limits, signal, budget });
+      const memberships = await resolveAdmissionPolicyCatalogueMembership({ policy: resolved, issuerKeys, reader, limits: options.limits, signal, budget });
+      const entries = new Map([...memberships].map(([id, membership]) => [id, inspectResolvedAdmissionPolicyKey(resolved, membership)]));
+      return { resolved, entries, memberships };
     },
     publishGenesis(genesis: SignedAdmissionPolicy, context: AdmissionPolicyObservers): WalletPolicyProofReference {
       ready(); const tip = publish(recordPath(0), { version: 1, previous: null, kind: 'genesis', value: genesis }, recordDomain(0));
