@@ -104,15 +104,32 @@ it('retains101 local profiles across100 signed transitions with bounded handles,
   const boundary = await preparePrivateBoundary(n);
   try {
   const started = performance.now(); let privateUpdateMs = 0; let wallet = await openManagedAdmissionWallet(n.options); cleanup.push(() => wallet.close());
+  const reopenMeasurements: Array<{ stage: string; elapsedMs: number; outcome: 'completed' | 'failed' }> = [];
+  const reopen = async (stage: string) => {
+    const start = performance.now();
+    try {
+      const reopened = await openManagedAdmissionWallet(n.options);
+      reopenMeasurements.push({ stage, elapsedMs: performance.now() - start, outcome: 'completed' });
+      process.stdout.write(JSON.stringify({ test: 'wallet-reopen', ...reopenMeasurements.at(-1) }) + '\n');
+      return reopened;
+    } catch (error) {
+      reopenMeasurements.push({ stage, elapsedMs: performance.now() - start, outcome: 'failed' });
+      process.stdout.write(JSON.stringify({ test: 'wallet-reopen', ...reopenMeasurements.at(-1) }) + '\n');
+      process.stderr.write(JSON.stringify({ test: 'wallet-reopen', failedStage: stage }) + '\n');
+      writeFileSync(join(tmpdir(), 'resonance-wallet-v7-measurement.json'), JSON.stringify({ failedStage: stage,
+        error: error instanceof Error ? error.message : String(error), reopenMeasurements, lifecycleMs: performance.now() - started }));
+      throw error;
+    }
+  };
   await wallet.installPolicy(genesis, authority, context); await wallet.importTokens(tokens[0]);
   const reserved = wallet.capabilityFor({ ...request, policyObservation: n.observation() });
   expect(wallet.capabilityFor({ ...request, policyObservation: n.observation() })).toEqual(reserved);
   for (let i = 0; i < advances.length; i++) {
     n.setNow(1010 + i * 10);
-    if (i === 99) { wallet.close(); privateUpdateMs = await boundary.update(); wallet = await openManagedAdmissionWallet(n.options); }
+    if (i === 99) { wallet.close(); privateUpdateMs = await boundary.update(); wallet = await reopen('private-update'); }
     else await wallet.appendPolicyProof({ advance: advances[i], pages: pagesByStep[i] });
     if ([70, 71, 98].includes(i)) {
-      wallet.close(); wallet = await openManagedAdmissionWallet(n.options);
+      wallet.close(); wallet = await reopen(`transition-${i + 1}`);
       expect(wallet.status().archivedTotal).toBe(i + 1);
     }
   }
@@ -140,14 +157,14 @@ it('retains101 local profiles across100 signed transitions with bounded handles,
       return result;
     } };
   });
-  const reopenStart = performance.now(); wallet = await openManagedAdmissionWallet(n.options); const reopenMs = performance.now() - reopenStart;
+  const reopenStart = performance.now(); wallet = await reopen('final'); const reopenMs = performance.now() - reopenStart;
   vi.mocked(openSync).mockImplementation(actualOpen);
   expect(reads.pages).toBe(148); expect(reopenMs).toBeLessThan(limits.timeoutMs);
   const actual = inventory(n.proofDirectory), snapshotBytes = statSync(join(n.options.directory, 'admission-profile.json')).size;
   expect(actual.bytes + 2 * 32768 + 8192).toBeLessThan(n.options.proofStorage.maxCiphertextBytes);
   expect(actual.records + 3).toBeLessThanOrEqual(n.options.proofStorage.maxRecords); expect(snapshotBytes).toBeLessThan(2 * 1024 * 1024);
   expect(n.options.proofStorage.authority.status().reservedBytes).toBeLessThanOrEqual(2 * 1024 ** 3);
-  writeFileSync(join(tmpdir(), 'resonance-wallet-v7-measurement.json'), JSON.stringify({ profiles: 101, transitions: 100, ...actual, snapshotBytes, privateUpdateMs, reservedBytes: n.options.proofStorage.authority.status().reservedBytes, peakWalletHandles: handles.peak, reopenPageReads: reads.pages, reopenMs, lifecycleMs: performance.now() - started }));
+  writeFileSync(join(tmpdir(), 'resonance-wallet-v7-measurement.json'), JSON.stringify({ profiles: 101, transitions: 100, ...actual, snapshotBytes, privateUpdateMs, reservedBytes: n.options.proofStorage.authority.status().reservedBytes, peakWalletHandles: handles.peak, reopenPageReads: reads.pages, reopenMs, reopenMeasurements, lifecycleMs: performance.now() - started }));
   expect(wallet.capabilityFor(freshRequest)).toEqual(current);
   const activePath = join(n.options.directory, `admission-wallet-${admissionKeyFingerprint(entries[100].profile.issuerPublicKey).slice(7)}.json`), activeBytes = readFileSync(activePath);
   expect(wallet.status().available).toBe(1);

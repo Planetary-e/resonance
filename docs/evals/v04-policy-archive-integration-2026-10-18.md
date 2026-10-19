@@ -2055,3 +2055,26 @@ headroom. No deadline increase, weakened proof, new persistence, broader stress
 campaign or KPI completion. Sol medium implements, parent reviews established
 contract, one affected wallet regression after review. Shared quota entry96%,
 ordinary usage allowed; prior alternatives/unknown historical effort retained.
+
+Wallet result: parent reviewed Set equivalence, verification ordering and unchanged
+per-file invariants; no production rework. SolMedium composed run passes37/37
+across wallet proof, freshness and managed wallet tests,68.36s. Log:
+/tmp/resonance-wallet-reopen-set-regression.log. Reopen stages71/72/99/private
+update/final:1735.23/1659.50/2401.16/2435.95/2473.27ms; peak2 wallet handles,
+148 page reads. This passes the unchanged local3s acceptance, with limited margin;
+it is not proof of hosted recovery or quantified speedup over the previous run.
+Compilation passes. Logging-only adjustment bypasses test console mocks so CI
+retains the same stage measurements; no heavy rerun for that output change.
+
+Remaining hosted protected65 failure is whole-test120s expiration; separate hosted
+99.780s pass establishes variability, not resolution. Preserve120s and every
+operation budget pending next combined CI evidence. No further speculative tuning,
+full suite reruns locally, or classification of a component pass as K2/K3 completion.
+
+Wallet exact patch SHA256068320ec71eca3daac6d603e7ea6be07060e4024c75a38472a94ce1decc13d28;
+regression log41466ef14c29af1bcc15bba5c18818415fedbb7a7c2d69e624c6ddf1d4a56580;
+receipt /tmp/resonance-wallet-reopen-set-measurement.json SHA256
+b852b44dbdaabc346785604d39799bb3f6d67f3bcd75107c02abb288d901a661.
+Final logging-only change recompiled; parent reviewed. First-pass implementation
+accepted, no material review findings; one diagnostic-output correction. Shared
+quota96->97% across block, ordinary usage allowed; no per-agent attribution.

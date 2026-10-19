@@ -187,6 +187,7 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
       if (JSON.stringify(inspected.policy) !== JSON.stringify(state.policy) || !sameAdmissionPolicyHead(inspected.head, state.freshness.installed)) throw new Error('Wallet profile differs from its exact original proof');
       proofCursor = { reference: state.proof, resolved };
     }
+    let openingEntries: AdmissionPolicyKey[] = [];
     if (state.policy) {
       if (state.version < 6) {
         const policy = state.policy;
@@ -194,7 +195,9 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
         else await verifyAdmissionPolicy(policy, policy.authority);
       }
       if (state.freshness) parseWalletPolicyFreshness(state.freshness, state.policy);
-      for (const profile of state.profiles) if (!policyEntries(state).some(entry => JSON.stringify(entry.profile) === JSON.stringify(profile))) throw new Error('Wallet profile is absent from its signed policy');
+      openingEntries = policyEntries(state);
+      const signedProfiles = new Set(openingEntries.map(entry => JSON.stringify(entry.profile)));
+      for (const profile of state.profiles) if (!signedProfiles.has(JSON.stringify(profile))) throw new Error('Wallet profile is absent from its signed policy');
       if (admissionKeyFingerprint(state.profiles[state.active].issuerPublicKey) !== state.policy.activeKey) throw new Error('Wallet active key differs from signed policy');
     }
     const seen = new Set<string>();
@@ -208,7 +211,7 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
       parsedProfiles.set(fingerprint, parsed);
       const before = fileIdentity(index, profile), wallet = open(index, parsed, true);
       try {
-        validateRetiredWallet(state, wallet, index);
+        validateRetiredWallet(state, wallet, index, openingEntries);
         if (before !== fileIdentity(index, profile)) throw new Error('Enrolled wallet history changed while opening');
         rememberFile(index, profile, wallet); if (index === state.active) wallets[index] = wallet;
       }
