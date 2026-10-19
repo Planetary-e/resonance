@@ -19,7 +19,7 @@ export function openRetainedPolicyObserverArchive(config: PolicyObserverConfigur
   const directory = config.archiveDirectory, contextId = historyCheckpointContextId(config.historyContext), proposal = config.root.proposal;
   if (!lstatSync(directory).isDirectory()) throw new Error('Policy archive needs an existing real directory');
   const key = readOperatorStorageKey(config.storageKeyFile);
-  type State = { version: 1; contextId: string; proposal: unknown; blocks: string[] };
+  type State = { version: 1 | 2; contextId: string; proposal: unknown; blocks: string[] };
   let storage: ReturnType<typeof openEncryptedLocalState<State>> | undefined;
   try {
     // Same funded durable download, including its manifest replacement peak. No disposable cache.
@@ -29,7 +29,7 @@ export function openRetainedPolicyObserverArchive(config: PolicyObserverConfigur
     storage = openEncryptedLocalState<State>({ path: join(directory, HISTORY_DOWNLOAD_FILENAME), key,
       domain: 'resonance:history-ancestry-download:v1', maxBytes: 2 * 1024 * 1024, mode: 'open-existing',
       initial: { version: 1, contextId, proposal, blocks: [] }, validate: (value): value is State => {
-        if (!exactWitnessFields(value, ['version', 'contextId', 'proposal', 'blocks']) || value.version !== 1 || value.contextId !== contextId
+        if (!exactWitnessFields(value, ['version', 'contextId', 'proposal', 'blocks']) || (value.version !== 1 && value.version !== 2) || value.contextId !== contextId
           || !Array.isArray(value.blocks) || value.blocks.length < 1 || value.blocks.length > 10001
           || !value.blocks.every(isHistoryDigest) || new Set(value.blocks).size !== value.blocks.length) return false;
         try { return historySuccessorProposalId(parseHistorySuccessorProposal(value.proposal, config.historyContext)) === expected; } catch { return false; }

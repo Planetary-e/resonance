@@ -78,9 +78,10 @@ it('serves an older signed policy after recovery using its complete retained arc
   expect(n.received()).toBe(received); expect(snapshot()).toEqual(before);
   // The oldest requested transition can be found before the tail is checked.
   // Corrupting that later block must still prevent any earlier result escaping.
-  const manifest = openEncryptedLocalState<{ blocks: string[] }>({ path: join(archive, HISTORY_DOWNLOAD_FILENAME), key: n.key,
-    domain: 'resonance:history-ancestry-download:v1', maxBytes: 2 * 1024 * 1024, mode: 'open-existing', initial: { blocks: [] },
-    validate: (value): value is { blocks: string[] } => !!value && typeof value === 'object' && 'blocks' in value });
+  const manifest = openEncryptedLocalState<{ version: number; blocks: string[] }>({ path: join(archive, HISTORY_DOWNLOAD_FILENAME), key: n.key,
+    domain: 'resonance:history-ancestry-download:v1', maxBytes: 2 * 1024 * 1024, mode: 'open-existing', initial: { version: 2, blocks: [] },
+    validate: (value): value is { version: number; blocks: string[] } => !!value && typeof value === 'object' && 'blocks' in value });
+  expect(manifest.read().version).toBe(2);
   const newest = join(archive, `${manifest.read().blocks[0].slice(7)}.block`); manifest.close();
   const original = readFileSync(newest); writeFileSync(newest, Buffer.from([0xff]));
   await expect(service.successor(n.context.genesis)).rejects.toThrow('encoding'); expect(readFileSync(newest)).toEqual(Buffer.from([0xff]));
@@ -94,6 +95,20 @@ it('serves an older signed policy after recovery using its complete retained arc
   await expect(older.successor(n.context.genesis)).rejects.toThrow('outside this retained generation');
 }, 30000);
 
+it('reads a legacy version 1 retained archive without network requests or file changes', async () => {
+  const n = await fixture(true); await complete(n); await n.call('recovery-export', [...n.prefix, n.destination, n.output]);
+  const config = readPolicyObserverConfigurationFile(n.output), archive = config.archiveDirectory!;
+  const manifest = openEncryptedLocalState<Record<string, unknown> & { blocks: string[] }>({ path: join(archive, HISTORY_DOWNLOAD_FILENAME), key: n.key,
+    domain: 'resonance:history-ancestry-download:v1', maxBytes: 2 * 1024 * 1024, mode: 'open-existing', initial: { blocks: [] },
+    validate: (value): value is Record<string, unknown> & { blocks: string[] } => !!value && typeof value === 'object' && 'blocks' in value });
+  manifest.write({ ...manifest.read(), version: 1 }); manifest.close();
+  const snapshot = () => Object.fromEntries(readdirSync(archive).sort().map(name => [name, readFileSync(join(archive, name)).toString('base64')]));
+  const before = snapshot(), received = n.received();
+  expect(await readArchivedPolicySuccessor(config, n.context.genesis)).toEqual(n.advance);
+  expect(await readArchivedPolicySuccessor(config, n.advance.commitment.next)).toEqual(n.later);
+  expect(n.received()).toBe(received); expect(snapshot()).toEqual(before);
+}, 30000);
+
 it('refuses missing, owned, incomplete and mismatched archives without recreating or repairing them', async () => {
   const n = await fixture(true); await complete(n); await n.call('recovery-export', [...n.prefix, n.destination, n.output]);
   const config = readPolicyObserverConfigurationFile(n.output), archive = config.archiveDirectory!, path = join(archive, HISTORY_DOWNLOAD_FILENAME);
@@ -104,6 +119,8 @@ it('refuses missing, owned, incomplete and mismatched archives without recreatin
   const owned = open(), saved = owned.read();
   try { await expect(read()).rejects.toThrow(); } finally { owned.close(); }
   for (const invalid of [
+    ...[0, 3, '2', null].map(version => ({ ...saved, version })),
+    { ...saved, extra: true }, { ...saved, compaction: {} },
     { ...saved, blocks: saved.blocks.slice(1) }, { ...saved, blocks: saved.blocks.slice(0, -1) },
     { ...saved, blocks: [...saved.blocks, saved.blocks[0]] }, { ...saved, contextId: 'sha256:' + '0'.repeat(64) },
     { ...saved, proposal: { ...(saved.proposal as object), sequence: 0 } },

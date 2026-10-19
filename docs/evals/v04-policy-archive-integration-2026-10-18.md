@@ -1903,3 +1903,75 @@ the hosted failure; retained stage labels will identify its caller if repeated.
 The next push contains the stable reviewed storage repair, earlier wallet fixture
 correction and these test-only diagnostics; routine CI remains Mac-only and
 installer workflow is tag/manual only.
+
+### Hosted qualification blocked by unavailable failure evidence
+
+Push confirmed de3840b→63007164c995c1a997c22811a9da0ce1a38c1b45
+on feature/v0.4-private-transport. CI39306434650 started on that exact SHA:
+https://github.com/Planetary-e/resonance/actions/runs/39306434650 .
+Mac TypeScript build passed. Last successful API snapshot: desktop-boundaries
+job118244619362 completed failure; test, admission-durability and local-ownership
+still in progress. No inference about their later outcome is justified.
+
+Failure evidence is unavailable: gh run watch lost api.github.com connection;
+gh run view --job --log refuses logs until whole-run completion; direct job-log
+API then failed connecting to productionresultssa3.blob.core.windows.net; job
+step-detail API also failed connecting to api.github.com. No test failure cause
+or timeout cause was obtained. Local log targets
+/tmp/resonance-6300716-ci-watch.log and
+/tmp/resonance-6300716-desktop-ci.log retain only available output (the latter
+is empty because the download failed). No workflow was restarted or cancelled.
+
+Stop4 applies to hosted qualification: exact failure evidence requires restored
+GitHub API/log access. Reviewed local correction and221 distinct checks are
+retained; do not certify CI, K2/K3 or release. Next action is one status/log fetch
+for this same run once access returns, classify its actual failure before edits
+or reruns. Last available shared quota88%; later consumption is not inferred.
+This receipt/checkpoint remains local to avoid triggering another CI merely for
+documentation while the candidate's CI is unfinished.
+
+### Resume: observer retained-archive version compatibility
+
+User requested continuation. API remained unavailable, but read-only IAB access
+to CI39306434650 exposed job annotations: desktop observer recovery3 failures
+and local-ownership observer archive/config/CLI/outbound failures consistently
+throw `Encrypted outbox state is invalid` at policy-observer-archive.ts:29.
+Run still in progress at observation; no general/durability outcome inferred.
+Source identifies a version integration mismatch: new downloads initialize
+State.version2, while openRetainedPolicyObserverArchive accepts only version1.
+This is a necessary compatibility correction under B-HISTORY-LIFECYCLE, not
+a changed trust/resource assumption or evidence of data loss. No authentication
+relaxation, semantic compaction or replay deadline increase is authorized.
+
+Bounded SolMedium task: reproduce one existing observer recovery failure,
+accept exact v1/v2 original-evidence manifests in the read-only retained archive
+reader, preserve all other schema/pin/size/integrity checks and no writes/network.
+Test both supported versions and unknown/extra-field rejection without weakening
+existing corruption/conflict tests. Scoped review then affected observer archive,
+CLI, desktop and outbound checks only; no101-generation repetition. Entry shared
+weekly90%; historical limits and unknown effort remain.
+
+Coverage correction: the prior14-file regression covered writer/download/replay
+but omitted the independent retained observer archive reader used by desktop
+and CLI recovery. This omission explains why a version integration regression
+escaped local qualification; generation101 replay alone is insufficient. The
+affected composed selection for this fix is policy-observer-recovery-command,
+policy-observer-outbound and desktop policy-observer-recovery integration files,
+plus focused reader format cases. Existing issuer/relay ancestry source uses
+createHistoryAncestryDownload itself, which already accepts versions1/2; no
+second independent version-restricted reader was found in the scoped search.
+Do not push again until the existing run's useful remaining evidence is captured.
+
+Compatibility correction: unchanged reader reproduced exact CI failure in2.33s,
+/tmp/resonance-observer-archive-version-before.log. Two-line production fix plus
+focused validation passes4/4 in10.95s. Scoped AstraHigh review gives limited
+acceptance with no actionable findings: exactfields/context/proposal/blocks,
+complete replay, legacy read-only behavior and compaction refusal remain.
+Affected composed regression passes22/22 in3files75.95s,
+/tmp/resonance-observer-archive-version-composed.log. Entire workspace TypeScript
+including desktop server passes, /tmp/resonance-observer-archive-version-workspace-compile.log.
+No101-generation repetition or deadline adjustment. SolMedium implementation
+and first-pass AstraHigh review accepted, no production rework. Entry shared90%,
+implementer exit91%, account-wide; no per-agent cost attribution.
+Candidate packages/relay/src/policy-observer-archive.ts: SHA256 3469d41c2cc2dfd04c1c2dffac8d2d52df16013486f7699933f0da9216313428.
+Candidate packages/relay/src/__tests__/policy-observer-recovery-command.integration.test.ts: SHA256 87c19eab58d7143cab9c39fdef0ddd614f60291b088c62da60b6148405912e6e.
