@@ -1333,3 +1333,84 @@ Replay prerequisite composed acceptance:81/81 tests in4files192.63s pass
 Log `/tmp/resonance-replay-prefix-composed.log`. Together with19 focusedv3 tests,
 100 distinct checks pass; this is component coverage, not100 lifecycle cycles or
 a complete KPI. First-pass AstraHigh review accepted; no rework rounds.
+
+Replay prerequisite committed as `8925748`; workspace TypeScript build passes
+(`/tmp/resonance-replay-prefix-build.log`). Shared exit67% vs entry64%, with
+concurrent account use unassigned. Walletv7 SolHigh implementation dispatched
+after composed acceptance, entry67%; frozen coupled contract above applies.
+The old candidate5fad341 hosted general suite is allowed to finish; no duplicate
+installer or new CI run is triggered while implementing this next candidate.
+
+Walletv7 first focused run15/16 passes;101-profile lifecycle took107409ms and
+exceeded the existing60000ms test ceiling. Log `/tmp/wallet-v7-proof-focused.log`.
+Keep this failure and all resource/deadline ceilings. Identified implementation
+work is quadratic historical token-file reopening on every transition. Frozen
+contract requires full authentication on opening/migration and complete provider
+reservation/denial scans, not repeated ciphertext opening on each transition.
+Minimal correction retains authenticated retirement receipts tied to each
+historical file identity and new resolved membership; every transition must
+check unchanged dev/ino/size/mtime/ctime and non-aliased regular-file status.
+Changed history refuses until authenticated reopening, never trust mere existence.
+Refresh only after successful owned mutation; uncertain writes poison. Regress
+changed historical file between transitions and owned retirement followed by
+transition. This corrects implementation within the existing alternative; no
+new cache of reservations, enlarged limit or counter reset.
+
+Hosted5fad341 general result:3326/3327 tests pass in361files1701.72s. Approved
+collection completes issuer3200ms/relay75ms (30000ms allowance); no OOM. Sole
+failure is pre-crash setup in `history-volunteer-service.test.ts` certifiedGeneration:
+append checkpoint to allfive services rejects a missing predecessor after writer
+returned its requiredfour-confirmation quorum. This occurs before launching the
+SIGKILL child or exercising retirement. Log `/tmp/resonance-5fad341-general.log`.
+Do not claim fullCI green or historical-retirement qualification.
+
+Frozen independent fixture correction: confirm quorum completion contract;
+explicitly enroll exact root/delta on each service before test requires allfive
+checkpoint states. Deterministically hold back fifth delivery to reproduce old
+setup failure; retain real crash assertions. No production/quorum/deadline changes,
+no suspended historical-retirement investigation. SolMedium owns only this test
+file; walletSol owns disjoint wallet work. Prepare edits now but serialize test
+execution behind wallet timing measurement to avoid host-load contamination.
+Parent review and one targeted fixture regression; no another fullsuite rerun.
+
+Walletv7 corrected coupled qualification17/17 passes56.73s,
+`/tmp/wallet-v7-proof-final.log`. Private app100→101 update4607.88ms within25s;
+101-profile reopen2418.40ms within unchanged3s;148 cumulative page reads;peak2
+wallet handles. Actual proof directory3,170,439bytes/242records plus3 reserved
+controls=245≤256; encrypted profile5458bytes; authority reservation1,718,616,902
+bytes≤2GiB. Local results are not a hosted timing/p95 claim. Original107409ms
+failure is retained. Corrected intermediate15/17 had fixture clock mismatch
+(private descriptors real time versus query clock2000) and an assertion expecting
+status to succeed despite deliberately changed history; both discriminants fixed.
+
+Parent review required new membership helper to capture the original policy
+before await; correction and mutation regression pass. Small focused36/36 across
+core membership, legacy wallet/retirement and UI pass; corrected legacy/catalogue
+checks15/15 also pass (overlapping coverage, not additive distinct totals).
+One newly added multi-key legacy-handle case is compiled but awaits parent
+regression. Sol froze production13:17:04UTC; core/node/app-server/app compile.
+AstraHigh review now active; no final acceptance yet. Independent fixture test
+starts only after wallet host becomes idle. Shared usage latest68%, walletentry67%;
+not attributable task/model cost.
+
+Independent quorum-fixture correction accepted by parent: exact authenticated
+root/delta enrollment before allfive checkpoint setup; deterministic fifth writer
+append omission covers genesis and continuation. Production quorums unchanged.
+Whole affected file57/57 passes218.56s, `/tmp/resonance-five-replica-fixture.log`;
+existing SIGKILL assertions unchanged. SolMedium prepared only this test file,
+no concurrent workload during wallet timing. SHA256
+d3aba6211028e7c5654ddb60d5b29a69cc7ac1199338bbc600882f7a81a262c8.
+Hosted fullgreen confirmation awaits the next stable candidate; no whole suite
+was rerun locally or installer triggered.
+
+Wallet AstraHigh review requires three P2 corrections: read-only withWallet must
+recheck rather than refresh authenticated file identity; new-wallet acquisition
+uncertainty must poison owner; every newly acquired active handle must close if
+validation fails before ownership transfer. Add distinguishing regressions plus
+sparse-v5-enrollment, historical ownership-open failure after earlier reservation,
+and final synchronous scan deadline/freshness expiry. One bounded SolHigh
+correction bundle, followed by scoped review and affected regression; no new
+resource/authority assumption. Original candidate manifest
+acb8c0ec68a7fb97f8055538773b221ba67a57d0eb5f652882f2eaff9f43c52e
+remains evidence, not accepted. Review verification13:19:10–13:20:11UTC; review
+began earlier without its own clock stamp. No fabricated active interval.

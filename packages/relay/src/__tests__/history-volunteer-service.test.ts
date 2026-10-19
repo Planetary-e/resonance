@@ -30,7 +30,7 @@ import { historyCheckpointFixture } from './fixtures/history-checkpoint-fixture.
 
 const cleanup: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
-async function fixture(maxGenerations = 65, managed = false) {
+async function fixture(maxGenerations = 65, managed = false, omitFifthWriterAppend = false) {
   const f = historyCheckpointFixture(), directory = mkdtempSync(join(tmpdir(), 'history-volunteer-'));
   cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
   const authority = managed ? openStorageReservationAuthority({ directory: join(directory, 'reservations'), mode: 'create-new', limitBytes: 1024 * 1024 * 1024 }) : undefined;
@@ -53,6 +53,8 @@ async function fixture(maxGenerations = 65, managed = false) {
   async function append(root: HistoryCheckpointEnvelope) {
     const writer = createHistoryCheckpointWriter({ ...owner, directory: join(directory, `writer-${root.generation}`), members,
       rootId: historyCheckpointEnvelopeId(root), generation: root.generation, initialize: true,
+      transport: (member, frame, signal) => omitFifthWriterAppend && member.publicKey === members[4].publicKey
+        ? Promise.reject(new Error('Fixture omits the fifth writer append')) : exchangeHistoryCheckpoint(member, frame, signal),
       ...(root.kind === 'continuation' ? { continuation: root } : {}) }); cleanup.push(() => writer.close());
     const delta = f.next(root); await writer.replicate(root); await writer.replicate(delta); return [root, delta];
   }
@@ -91,11 +93,16 @@ async function fixture(maxGenerations = 65, managed = false) {
 async function certifiedGeneration(n: Awaited<ReturnType<typeof fixture>>, root: HistoryCheckpointEnvelope) {
   const blocks = await n.append(root), checkpoint = n.next(blocks[1], 'complete opaque owner state', 'checkpoint');
   const rootId = historyCheckpointEnvelopeId(root), genesisId = historyCheckpointEnvelopeId(n.root), issuedAt = Date.now();
+  // Writer completion proves four durable copies, and may cancel the fifth.
+  // All-service maintenance below needs each exact predecessor enrolled first;
+  // authenticated append is idempotent for replicas already holding the block.
   for (let i = 0; i < 5; i++) {
-    const request = createHistoryExchangeRequest({ action: 'append', rootId, generation: root.generation, replica: n.context.members[i],
-      challenge: randomBytes(32).toString('base64url'), issuedAt, expiresAt: issuedAt + 30000,
-      sequence: checkpoint.sequence, envelopeId: historyCheckpointEnvelopeId(checkpoint) }, n.context, n.owner.signingKey);
-    n.services[i].checkpoint({ request, envelope: checkpoint });
+    for (const envelope of [...blocks, checkpoint]) {
+      const request = createHistoryExchangeRequest({ action: 'append', rootId, generation: root.generation, replica: n.context.members[i],
+        challenge: randomBytes(32).toString('base64url'), issuedAt, expiresAt: issuedAt + 30000,
+        sequence: envelope.sequence, envelopeId: historyCheckpointEnvelopeId(envelope) }, n.context, n.owner.signingKey);
+      parseHistoryExchangeResponse(n.services[i].checkpoint({ request, envelope }), request, n.context);
+    }
   }
   const proposal = createHistoryCompactionProposal({ genesisId, rootId, checkpoint, issuedAt, expiresAt: issuedAt + 30000 }, n.context, n.owner.signingKey);
   const certificate = await collectHistoryCompactionCertificate({ context: n.context, genesisId, proposal, checkpoint, members: n.members });
@@ -107,6 +114,26 @@ async function certifiedGeneration(n: Awaited<ReturnType<typeof fixture>>, root:
   const retention = parseHistoryCompactionRetention({ version: 1, kind: 'history-compaction-retention', certificate, receipts }, n.context, genesisId);
   return { blocks: [...blocks, checkpoint], certificate, retention };
 }
+
+it('synchronizes every certified-generation predecessor when the fifth writer append is absent', async () => {
+  const n = await fixture(65, false, true), append = n.append;
+  n.append = async root => {
+    const blocks = await append(root);
+    expect(n.services.slice(0, 4).every(service => service.describe().latest.sequence === blocks[1].sequence)).toBe(true);
+    expect(n.services[4].describe().latest.sequence).toBe(root.sequence);
+    return blocks;
+  };
+  let root: HistoryCheckpointEnvelope = n.root;
+  // Exercise both genesis and the provisioned continuation root.
+  for (let generation = 0; generation < 2; generation++) {
+    const current = await certifiedGeneration(n, root), checkpoint = current.blocks[2];
+    for (const service of n.services) {
+      expect(service.describe().latest).toMatchObject({ sequence: checkpoint.sequence, envelopeId: historyCheckpointEnvelopeId(checkpoint) });
+      expect(service.retainedCompactionCheckpoint(historyCheckpointEnvelopeId(root))).toEqual(current.certificate);
+    }
+    if (generation === 0) { root = await n.decide(current.blocks); await n.provision(root as HistoryContinuationRoot); }
+  }
+});
 
 it('reuses two funded locations through seven generations without growing lifetime reservations or losing accepted history', async () => {
   const n = await fixture(3, true), service = n.services[0], stale = service.planPool(2);
