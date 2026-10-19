@@ -1184,3 +1184,27 @@ Model routing: AstraMedium design, SolHigh implementation/rework, AstraHigh revi
 Luna was unnecessary for deterministic commands. Original freeze2s condition4
 remains pending owner decision. No threshold has changed. General64587dd CI still
 running at latest check; no remote completion claim for the new relay candidate.
+
+### Owner approved production-default freeze qualification
+
+Owner explicitly answered yes to replacing this fixture's2s owner-loss collection
+allowance with the existing30s production default. Approval covers collection
+only, not agreement/download/provision/replay deadlines, quota/trust/validation or
+KPI targets. Remove only that override; log role/elapsed/allowance on success for
+one new hosted Mac measurement. Keep short-deadline failure coverage and retain
+both prior2s failures. Entry shared quota62%, ordinary usage allowed. This is a
+mechanical approved fixture change, no new agent or architecture review needed.
+
+Previous64587dd general CI now complete:3316/3317 pass, sole failure issuerfreeze
+at2004ms with allfive collectors reaching73 reads. No worker error/OOM remains.
+Log `/tmp/resonance-64587dd-general.log`; ownership/desktop pass and durability
+316/317 sole samefreeze failure. Locally validate changed cold65 case plus existing
+short-deadline recovery tests, then push with reviewed c8802e6 relay integration
+and one new Mac CI. No further limits move without evidence/decision.
+
+Local approved fixture validation46/46 in2files162.94s, including original short
+deadline/cancellation checks; `/tmp/resonance-freeze-production-default.log`.
+Successful console metrics were suppressed, so final instrumentation writes two
+bounded temp receipts and existing Mac CI jobs report them after tests (also on
+failure). No extra scenario/rerun, product change or timeout changes elsewhere.
+Receipts distinguish complete collection from an absent/failed measurement.

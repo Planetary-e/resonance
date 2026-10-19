@@ -137,6 +137,15 @@ jobs:
           packages/node/src/__tests__/wallet-policy-proof.test.ts
           packages/node/src/__tests__/protected-admission-consumers-v3.integration.test.ts
 
+      - name: Report owner-loss collection timing
+        if: always()
+        run: >-
+          node --input-type=module -e 'import { readFileSync, existsSync } from "node:fs";
+          import { tmpdir } from "node:os"; import { join } from "node:path";
+          for (const role of ["admission-issuer", "relay-admission-spends"]) {
+          const path = join(tmpdir(), "protected-consumer-freeze-" + role + ".json");
+          console.log(existsSync(path) ? readFileSync(path, "utf8") : "No completed collection receipt for " + role); }'
+
   desktop-boundaries:
     # Actual local API/process checks; no native compilation or app installers.
     strategy:
@@ -201,6 +210,15 @@ jobs:
 
       - name: Run tests
         run: npx vitest run --maxWorkers=1
+
+      - name: Report owner-loss collection timing
+        if: always()
+        run: >-
+          node --input-type=module -e 'import { readFileSync, existsSync } from "node:fs";
+          import { tmpdir } from "node:os"; import { join } from "node:path";
+          for (const role of ["admission-issuer", "relay-admission-spends"]) {
+          const path = join(tmpdir(), "protected-consumer-freeze-" + role + ".json");
+          console.log(existsSync(path) ? readFileSync(path, "utf8") : "No completed collection receipt for " + role); }'
 
       - name: Run eval suite (quick)
         run: npm run eval:quick
