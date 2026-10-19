@@ -529,8 +529,13 @@ async function preparePrivateBoundary(n: ReturnType<typeof fixture>) {
   const app = createAppServer({ port: 0, relayUrl }); const base = `http://127.0.0.1:${await app.start()}`;
   let token = '';
   const request = async (path: string, body?: unknown, authenticated = true) => {
-    const response = await fetch(base + path, { method: body === undefined ? 'GET' : 'POST', headers: { 'content-type': 'application/json', ...(authenticated ? { authorization: `Bearer ${token}` } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
-    return { status: response.status, body: await response.json() as any };
+    const method = body === undefined ? 'GET' : 'POST';
+    let response: Response;
+    try {
+      response = await fetch(base + path, { method, headers: { 'content-type': 'application/json', connection: 'close', ...(authenticated ? { authorization: `Bearer ${token}` } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
+    } catch (cause) { throw new Error(`${method} ${path}: fetch failed`, { cause }); }
+    try { return { status: response.status, body: await response.json() as any }; }
+    catch (cause) { throw new Error(`${method} ${path}: JSON response failed (HTTP ${response.status})`, { cause }); }
   };
   const unlock = async () => { const result = await request('/api/unlock', { password: 'catalogue-private-password' }); expect(result.status).toBe(200); token = result.body.token; };
   expect((await request('/api/init', { password: 'catalogue-private-password' })).status).toBe(200); await unlock();

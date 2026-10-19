@@ -1473,3 +1473,106 @@ than run1000 tests of an incomplete contract. A one-cycle relay-only integration
 oracle is possible but would explicitly leave issuer/observer/authority stages
 blocked; do not present that extra helper as closing this decision. K3 also
 still requires same-key replacement and emergency/reconnection measurements.
+
+### Owner-approved semantic-evidence decision block
+
+The owner approved resolving the evidence gap before the1000-fault campaign.
+Same B-HISTORY-LIFECYCLE/K2,K3 blocker; no historical effort/alternative reset.
+Entry shared quota74%, ordinary usage allowed. AstraHigh performs one bounded
+constructive interface review: identify complete retained obligations, verifier
+identity and the minimal executable non-authorizing evidence check available
+under existing encrypted-history/four-of-five trust and resource assumptions.
+No destructive compaction, guard removal, cap increase, plaintext disclosure or
+retry/rephrasing of the suspended historical investigation. Outcome must be an
+implementable acceptance contract or the exact unavailable trust/resource
+decision, not another generic wrapper that reports already-known blocked stages.
+Sol implementation follows only a concrete frozen contract. Existing Mac
+CI39261276579 continues independently; no new suite or installer was started.
+
+### Constructive review outcome: paged original-evidence replay (pending approval)
+
+AstraHigh's bounded review found that existing genesis-to-selected-proposal
+replay is already the semantic oracle. Another comparison/report wrapper would
+not supply independently verifiable evidence for shortened history. Volunteers
+authenticate ciphertext retention and chain selection; they cannot attest to
+the encrypted semantic obligations. Keep all three semantic compaction guards.
+
+Proposed versioned contract: retain all original encrypted proof and independent
+genesis pins; reconstruct every obligation by complete replay at the authorized
+recovering keyholder. Change the current lifetime depth64 bound to64 per page,
+sharing existing total byte, block, funded-storage and applicable deadline
+budgets across every page. Page-boundary state remains provisional and cannot
+authorize restore or operations. Freshness/write readiness remains separate.
+No deletion, released reservation, new trusted party or public plaintext.
+
+This changes a resource contract and remains subject to owner approval under
+stop condition4. The decision question has been sent; no dependent code is
+authorized or implemented yet. Acceptance, if approved: histories exceeding64
+continuations preserve exact obligations under unchanged aggregate budgets;
+missing/reordered pages, boundary mismatch and aggregate exhaustion refuse;
+serialized intermediate state cannot authorize; existing bounded histories
+remain compatible. If complete proof cannot fit existing aggregate resources,
+retain the failed result and stop for decision rather than enlarge budgets.
+
+Independent hosted evidence at de3840b: Mac durability completed328/329 tests;
+the101-profile lifecycle failed with fetch failed/read ECONNRESET. This log does
+not establish a deadline failure or its cause. Local-ownership and desktop
+boundaries passed; general tests were still running at this observation.
+Log: /tmp/resonance-de3840b-durability.log. One bounded SolMedium read-only
+diagnosis examines the real HTTP fixture/request lifecycle before any correction
+experiment. No retry of the full suite or installer was started.
+
+### Owner approval and first correction experiment (October19)
+
+Owner explicitly approved64 generations per page with unchanged aggregate
+resources. Approval resolves the resource-decision gate only, not K2/K3 or
+semantic compaction. Retain the three guards and complete original evidence.
+Entry account counter76% weekly used (shared, ordinary usage permitted).
+
+First bounded deliverable: isolate the wallet101 HTTP fixture from idle pooled
+connection reuse, preserving the real app/private route and all resource and
+timing assertions. SolMedium owns only wallet-policy-proof.test.ts: label
+HTTP/JSON failures with method/path and original cause, and request explicit
+Connection: close. Run the exact failing lifecycle once. Hypothesis: an idle
+pooled socket can reset between the initial unlock and99 transitions; existing
+CI lacks path evidence, so passing the isolated fixture does not prove historical
+causation. Any new failure is retained and diagnosed without retries, limit
+increases or broad reruns. Parent reviews the small fixture diff. This is a
+necessary hosted-validation correction under the same B-HISTORY-LIFECYCLE,
+not a new architectural alternative. Paged-replay implementation follows it.
+
+Fixture correction accepted by parent review: single targeted lifecycle passes
+1/1 (23 unselected),58.37s total on Node24.19.0. Private update4736.68ms,
+reopen2554.21ms under unchanged3000ms;148 page reads,2 peak handles,
+242 records/3,170,439 bytes. Log /tmp/resonance-wallet-ci-reset-focused.log;
+measurement /tmp/resonance-wallet-ci-reset-measurement.json. Test file SHA256
+a24cfacc2715b7275f8803a8f73ddef34cb1d5eb40fc8e2d693ac5f9adf6cabc.
+No production change, retries or extra suite. Original reset cause unproven.
+
+### Frozen implementation: original-evidence ancestry paging v2
+
+Same B-HISTORY-LIFECYCLE/K2,K3. SolHigh implements one coherent download/replay
+change, with scoped AstraHigh review before acceptance. Observable improvement:
+an authenticated encrypted history crossing64 continuations can download and
+replay all issuer, observer and allocation-authority obligations from original
+independent genesis pins, without a semantic compaction certificate.
+
+Use an explicit versioned paging contract shared by downloader and three replay
+paths. Page boundaries carry chain continuity, never trusted semantic anchors.
+All existing aggregate blocks/bytes/funding and applicable operation deadlines
+cover every page; page transitions never reset them. Legacy within64 evidence
+remains valid; persisted download compatibility must be explicit and tested.
+Do not reinterpret an explicit resumable download attempt as an unlimited
+single operation, or let internal paging replenish an attempt's time budget.
+Original encrypted evidence remains funded and retained. Keep compaction guards,
+freshness gates, local pending/applied evidence checks and restore capabilities.
+
+Focused evidence before review: >64-continuation authentic chains for each role
+with independently expected retained obligations, download/reopen across a page
+boundary, missing/reordered/misbound boundary rejection, aggregate block/byte/time
+exhaustion across pages, partial/serialized page state unable to authorize.
+Then one affected composed regression plus workspace compilation after review.
+No1000-fault campaign, installers, resource increases, semantic pruning or
+suspended historical investigation. Any inability to fit existing resources is
+a recorded decision gate, not permission to enlarge them. Historical effort and
+alternative counts remain attached to the same blocker.
