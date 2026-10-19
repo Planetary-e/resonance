@@ -233,18 +233,30 @@ it('crosses65 archived configurations with protected issuance/admission, exact b
   issuer.close(); verifier.close();
   rmSync(n.issuer.ownerDirectory, { recursive: true, force: true }); rmSync(n.relay.ownerDirectory, { recursive: true, force: true });
   stage('owners-deleted');
-  const recoveredIssuer = await n.issuer.recover(), recoveredRelay = await n.relay.recover();
+  stage('recovering-issuer');
+  const recoveredIssuer = await n.issuer.recover();
+  stage('recovering-relay');
+  const recoveredRelay = await n.relay.recover();
+  stage('preparing-issuer-restore');
   const issuerDestination = { path: join(n.directory, 'restored-issuer', 'issuer.json'), writerDirectory: join(n.directory, 'restored-issuer', 'writer') };
   const preparedIssuer = await prepareProtectedIssuerRestore({ destination: issuerDestination, context: n.issuer.context, genesisId: n.issuer.genesisId,
     profile: entries[0].profile, authority, encryptionKey: n.key, continuation: recoveredIssuer.continuation, blocks: recoveredIssuer.blocks() });
   const issuerOptions = { ...n.issuer.issuerOptions, path: issuerDestination.path, protection: { ...n.issuer.issuerOptions.protection, writerDirectory: issuerDestination.writerDirectory, ancestrySource: recoveredIssuer.blocks } };
-  issuer = await n.run(() => openProtectedAdmissionIssuerLedger({ ...issuerOptions, restore: { preparation: preparedIssuer, approvedDigest: preparedIssuer.review.approvalDigest }, protection: { ...issuerOptions.protection, initializeWriter: true, initializeArchive: true } })); cleanup.push(issuer.close); await issuer.ready();
+  stage('opening-restored-issuer');
+  issuer = await n.run(() => openProtectedAdmissionIssuerLedger({ ...issuerOptions, restore: { preparation: preparedIssuer, approvedDigest: preparedIssuer.review.approvalDigest }, protection: { ...issuerOptions.protection, initializeWriter: true, initializeArchive: true } })); cleanup.push(issuer.close);
+  stage('readying-restored-issuer');
+  await issuer.ready();
+  stage('approving-restored-issuer');
   expect(await issuer.approve(permit, batch.request, n.issuerProof(issuer))).toEqual(response);
   const relayDirectory = join(n.directory, 'restored-relay');
+  stage('preparing-relay-restore');
   const preparedRelay = await prepareAdmissionHistoryRestore({ directory: relayDirectory, context: n.relay.context, genesisId: n.relay.genesisId,
     encryptionKey: n.key, continuation: recoveredRelay.continuation, blocks: recoveredRelay.blocks(), blockSource: recoveredRelay.blocks, policy: currentPolicy, now: n.now });
+  stage('opening-restored-relay');
   const restoredRelay = await n.run(() => openProtectedAdmissionSpendHistory({ ...n.relay.relayOptions, directory: relayDirectory, policy: currentPolicy, initialize: true,
-    protection: { ...n.relay.protection, ancestrySource: recoveredRelay.blocks, initializeWriter: true, initializeArchive: true, restore: { preparation: preparedRelay, approvedDigest: preparedRelay.review.approvalDigest } } })); cleanup.push(restoredRelay.close); await restoredRelay.ready();
+    protection: { ...n.relay.protection, ancestrySource: recoveredRelay.blocks, initializeWriter: true, initializeArchive: true, restore: { preparation: preparedRelay, approvedDigest: preparedRelay.review.approvalDigest } } })); cleanup.push(restoredRelay.close);
+  stage('readying-restored-relay');
+  await restoredRelay.ready();
   stage('restored');
   expect(restoredRelay.size()).toBe(1); expect(restoredRelay.roleState().coordinator?.certificates).toHaveLength(1);
   expect(restoredRelay.read().image.policyProof?.head).toEqual(advances.at(-1)!.commitment.next);

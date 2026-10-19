@@ -1877,3 +1877,29 @@ Next independent validation issue remains hosted protected-consumer restoration
 archive deadline; previous CI error lacks a precise restoration substage.
 
 Workspace TypeScript build including desktop server passes: `node node_modules/typescript/bin/tsc -b`, log /tmp/resonance-pool-reviewed-workspace-compile.log. No installer was built.
+
+### Hosted restoration deadline diagnosis
+
+Reviewed shared-pool prerequisite committed8f62671, following local wallet-fixture
+commit0ca9ebb; neither pushed yet to avoid duplicate CI. Next bounded work under
+B-HISTORY-LIFECYCLE is the already-observed protected-consumer restoration
+archive timeout in hosted run39261276579. Goal: identify exact owning operation
+and deadline contract, then make only a supported correction or retain precise
+instrumentation if local evidence cannot distinguish cause. Existing3s protected
+decision,30s approved offline reconstruction and all storage/read limits remain.
+Start from retained CI log and restoration call graph; no broad suite, speculative
+timeout increase or historical retirement investigation. Any local reproduction
+is the single existing65-archive case with fixed settings. SolHigh bounded
+diagnosis; parent owns integration. Shared entry88%; historical counts persist.
+
+Read-only diagnosis found a concrete budget distinction but no proven failing
+caller: issuer/relay replay30s outer bounds contain proof-reference3s traversal;
+issuer open selects30s offline startup, protected observation stays3s. Parent
+added only before-operation stages splitting both recoveries, preparations,
+open/ready and issuer approval. The existing65-archive case passes1/1 with26
+skipped in88.59s, /tmp/resonance-protected-restoration-stages.log. No deadline,
+production code or test assertion changed. This local pass does not resolve
+the hosted failure; retained stage labels will identify its caller if repeated.
+The next push contains the stable reviewed storage repair, earlier wallet fixture
+correction and these test-only diagnostics; routine CI remains Mac-only and
+installer workflow is tag/manual only.
