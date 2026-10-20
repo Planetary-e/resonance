@@ -2161,3 +2161,23 @@ import. One focused actual wallet lifecycle on this corrected layout passes1/1
 2455.40ms, private-update reopen2438.05ms; expected negative cases no longer create
 misleading unlock diagnostics. No runtime assertion or operation deadline changed.
 Wait for existing durability/ownership jobs before publishing this import-only fix.
+
+Hosted021c634 completed: desktop/ownership pass. Durability332pass/1fail/2skip;
+all31 protected consumers pass, main65case101647ms, restored97571ms. Log
+/tmp/resonance-021c634-durability.log. This is measured hosted confirmation of
+approved restoration-preparation wiring, not a completeK2/K3. Wallet fails direct
+transition99 open3014.995ms at unchanged3s, before private-update/HTTP unlock.
+Prior503 remains separate unproven cause. No additional speculative wallet tuning.
+
+Wallet timing decision (condition4 if proceeding by resource change): target3s;
+latest direct hostedfailure3015ms, localfinal2455ms. Exact-membership Set removed
+known quadratic work but has not established reliable hosted headroom; historical
+alternatives remain unknown, not zero. Proposed next bounded option: explicitly
+version cold personal-wallet reconstruction for up to30s cumulatively, with no
+live operation inheriting its execution, no serving before completion, original
+reference/resource bounds unchanged and every file/ownership/proof check retained.
+It needs owner approval because issuer/relay preparation approval did not cover
+personal-wallet opening. If approved, one coherent implementation, critical phase
+separation review, focused plus affected regression and one hosted candidate;
+no new fingerprints, compaction, trust assumptions or installers. Stop before
+implementation pending that decision; finish independent import correction push.
