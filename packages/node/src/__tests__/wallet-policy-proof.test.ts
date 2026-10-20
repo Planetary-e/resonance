@@ -104,12 +104,13 @@ it('retains101 local profiles across100 signed transitions with bounded handles,
   const n = fixture(); handles.peak = handles.open;
   const boundary = await preparePrivateBoundary(n);
   try {
-  const started = performance.now(); let privateUpdateMs = 0; let wallet = await openManagedAdmissionWallet(n.options); cleanup.push(() => wallet.close());
+  const coldOptions = { ...n.options, reconstruction: { version: 2 as const, purpose: 'offline-startup-reconstruction' as const, timeoutMs: 30000 } };
+  const started = performance.now(); let privateUpdateMs = 0; let wallet = await openManagedAdmissionWallet(coldOptions); cleanup.push(() => wallet.close());
   const reopenMeasurements: Array<{ stage: string; elapsedMs: number; outcome: 'completed' | 'failed' }> = [];
   const reopen = async (stage: string) => {
     const start = performance.now();
     try {
-      const reopened = await openManagedAdmissionWallet(n.options);
+      const reopened = await openManagedAdmissionWallet(coldOptions);
       reopenMeasurements.push({ stage, elapsedMs: performance.now() - start, outcome: 'completed' });
       process.stdout.write(JSON.stringify({ test: 'wallet-reopen', ...reopenMeasurements.at(-1) }) + '\n');
       return reopened;
@@ -160,12 +161,12 @@ it('retains101 local profiles across100 signed transitions with bounded handles,
   });
   const reopenStart = performance.now(); wallet = await reopen('final'); const reopenMs = performance.now() - reopenStart;
   vi.mocked(openSync).mockImplementation(actualOpen);
-  expect(reads.pages).toBe(148); expect(reopenMs).toBeLessThan(limits.timeoutMs);
+  expect(reads.pages).toBe(148); expect(reopenMs).toBeLessThan(coldOptions.reconstruction.timeoutMs);
   const actual = inventory(n.proofDirectory), snapshotBytes = statSync(join(n.options.directory, 'admission-profile.json')).size;
   expect(actual.bytes + 2 * 32768 + 8192).toBeLessThan(n.options.proofStorage.maxCiphertextBytes);
   expect(actual.records + 3).toBeLessThanOrEqual(n.options.proofStorage.maxRecords); expect(snapshotBytes).toBeLessThan(2 * 1024 * 1024);
   expect(n.options.proofStorage.authority.status().reservedBytes).toBeLessThanOrEqual(2 * 1024 ** 3);
-  writeFileSync(join(tmpdir(), 'resonance-wallet-v7-measurement.json'), JSON.stringify({ profiles: 101, transitions: 100, ...actual, snapshotBytes, privateUpdateMs, reservedBytes: n.options.proofStorage.authority.status().reservedBytes, peakWalletHandles: handles.peak, reopenPageReads: reads.pages, reopenMs, reopenMeasurements, lifecycleMs: performance.now() - started }));
+  writeFileSync(join(tmpdir(), 'resonance-wallet-v7-measurement.json'), JSON.stringify({ profiles: 101, transitions: 100, openingTimeoutMs: coldOptions.reconstruction.timeoutMs, liveTimeoutMs: limits.timeoutMs, ...actual, snapshotBytes, privateUpdateMs, reservedBytes: n.options.proofStorage.authority.status().reservedBytes, peakWalletHandles: handles.peak, reopenPageReads: reads.pages, reopenMs, reopenMeasurements, lifecycleMs: performance.now() - started }));
   expect(wallet.capabilityFor(freshRequest)).toEqual(current);
   const activePath = join(n.options.directory, `admission-wallet-${admissionKeyFingerprint(entries[100].profile.issuerPublicKey).slice(7)}.json`), activeBytes = readFileSync(activePath);
   expect(wallet.status().available).toBe(1);
@@ -184,21 +185,21 @@ it('retains101 local profiles across100 signed transitions with bounded handles,
   expect(wallet.status().available).toBe(1);
   expect(() => wallet.capabilityFor({ ...request, policyObservation: n.observation(advances[99].commitment.next) })).toThrow('permanently retired');
   wallet.close();
-  await expect(openManagedAdmissionWallet({ ...n.options, proofStorage: undefined })).rejects.toThrow('funded policy proof');
+  await expect(openManagedAdmissionWallet({ ...coldOptions, proofStorage: undefined })).rejects.toThrow('funded policy proof');
   const catalogue = join(n.proofDirectory, readdirSync(n.proofDirectory).find(name => name.startsWith('catalogue-'))!);
   const catalogueBytes = readFileSync(catalogue); rmSync(catalogue);
-  await expect(openManagedAdmissionWallet(n.options)).rejects.toThrow(); writeFileSync(catalogue, catalogueBytes);
-  writeFileSync(catalogue, randomBytes(catalogueBytes.length)); await expect(openManagedAdmissionWallet(n.options)).rejects.toThrow(); writeFileSync(catalogue, catalogueBytes);
+  await expect(openManagedAdmissionWallet(coldOptions)).rejects.toThrow(); writeFileSync(catalogue, catalogueBytes);
+  writeFileSync(catalogue, randomBytes(catalogueBytes.length)); await expect(openManagedAdmissionWallet(coldOptions)).rejects.toThrow(); writeFileSync(catalogue, catalogueBytes);
   const page = join(n.proofDirectory, readdirSync(n.proofDirectory).find(name => name.startsWith('page-'))!);
   const original = readFileSync(page); writeFileSync(page, randomBytes(original.length));
-  await expect(openManagedAdmissionWallet(n.options)).rejects.toThrow(); writeFileSync(page, original);
+  await expect(openManagedAdmissionWallet(coldOptions)).rejects.toThrow(); writeFileSync(page, original);
   const genesisRecord = join(n.proofDirectory, 'record-0.bin'), genesisBytes = readFileSync(genesisRecord);
   writeFileSync(genesisRecord, Buffer.alloc(512 * 1024 + 4096 + 8192 + 1));
-  await expect(openManagedAdmissionWallet(n.options)).rejects.toThrow('Invalid wallet proof ciphertext'); writeFileSync(genesisRecord, genesisBytes);
+  await expect(openManagedAdmissionWallet(coldOptions)).rejects.toThrow('Invalid wallet proof ciphertext'); writeFileSync(genesisRecord, genesisBytes);
   const record = join(n.proofDirectory, 'record-32.bin'), retained = readFileSync(record); rmSync(record);
-  await expect(openManagedAdmissionWallet(n.options)).rejects.toThrow(); writeFileSync(record, retained);
+  await expect(openManagedAdmissionWallet(coldOptions)).rejects.toThrow(); writeFileSync(record, retained);
   rmSync(join(n.options.directory, 'admission-wallet.json'));
-  await expect(openManagedAdmissionWallet(n.options)).rejects.toThrow('wallet is missing');
+  await expect(openManagedAdmissionWallet(coldOptions)).rejects.toThrow('wallet is missing');
   } finally { await boundary.close(); }
 }, 60000);
 
@@ -382,6 +383,66 @@ it('bounds funded legacy opening signature verification and releases locks after
   try { expect(reopened.status().policy?.revision).toBe(1); } finally { reopened.close(); }
 });
 
+
+it('uses explicit offline opening without extending a subsequent live proof operation', async () => {
+  const n = fixture(), legacy = await openManagedAdmissionWallet({ ...n.options, proofStorage: undefined });
+  await legacy.installPolicy(genesis, authority, context); legacy.close();
+  n.options.proofStorage.limits = { ...limits, timeoutMs: 100 };
+  const verify = policyModule.verifyAdmissionPolicy;
+  vi.spyOn(policyModule, 'verifyAdmissionPolicy').mockImplementationOnce(async (...args) => {
+    await new Promise(resolve => setTimeout(resolve, 150)); return verify(...args);
+  });
+  const wallet = await openManagedAdmissionWallet({ ...n.options,
+    reconstruction: { version: 2, purpose: 'offline-startup-reconstruction', timeoutMs: 2000 } });
+  cleanup.push(wallet.close); expect(wallet.status().policy?.revision).toBe(1);
+  vi.restoreAllMocks();
+  const importKey = crypto.subtle.importKey.bind(crypto.subtle);
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  vi.spyOn(crypto.subtle, 'importKey').mockImplementation(async (...args) => {
+    if (args[0] === 'spki') await held;
+    return importKey(...args);
+  });
+  try { await expect(wallet.beginPolicyProof(genesis, context)).rejects.toThrow(/timed out|cancelled/); }
+  finally { release(); }
+  expect(wallet.status().policy?.revision).toBe(1);
+});
+
+it.each(['cancel', 'caller-deadline', 'thirty-second-cap'] as const)('bounds offline wallet opening at %s and releases its lock', async mode => {
+  const n = fixture(), legacy = await openManagedAdmissionWallet({ ...n.options, proofStorage: undefined });
+  await legacy.installPolicy(genesis, authority, context); legacy.close();
+  let enter!: () => void, release!: () => void;
+  const entered = new Promise<void>(resolve => { enter = resolve; }), held = new Promise<void>(resolve => { release = resolve; });
+  const verify = policyModule.verifyAdmissionPolicy, controller = new AbortController();
+  vi.spyOn(policyModule, 'verifyAdmissionPolicy').mockImplementationOnce(async (...args) => { enter(); await held; return verify(...args); });
+  const work = openManagedAdmissionWallet({ ...n.options,
+    reconstruction: { version: 2, purpose: 'offline-startup-reconstruction', timeoutMs: 30000 }, signal: controller.signal,
+    ...(mode === 'caller-deadline' ? { deadline: performance.now() + 150 } : {}) }).then(value => { value.close(); return { error: undefined }; }, error => ({ error }));
+  let clock: ReturnType<typeof vi.spyOn> | undefined;
+  try {
+    await entered;
+    if (mode === 'cancel') controller.abort();
+    if (mode === 'thirty-second-cap') {
+      const now = performance.now.bind(performance);
+      clock = vi.spyOn(performance, 'now').mockImplementation(() => now() + 30001);
+      release();
+    }
+    const result = await Promise.race([work, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Offline opening did not refuse')), 800))]);
+    expect(String(result.error)).toMatch(/cancelled|timed out/);
+    clock?.mockRestore();
+    const reopened = await openManagedAdmissionWallet(n.options); reopened.close();
+  } finally { clock?.mockRestore(); release(); vi.restoreAllMocks(); await work; }
+});
+
+it.each([
+  { version: 1, purpose: 'reference-bounded' },
+  { version: 2, purpose: 'offline-startup-reconstruction', timeoutMs: 30001 },
+  { version: 2, purpose: 'offline-startup-reconstruction', timeoutMs: 30000, extra: true },
+])('rejects malformed wallet reconstruction before acquiring state: %j', async reconstruction => {
+  const n = fixture();
+  await expect(openManagedAdmissionWallet({ ...n.options, reconstruction: reconstruction as any })).rejects.toThrow(/execution/);
+  const wallet = await openManagedAdmissionWallet(n.options); wallet.close();
+});
 
 it('migrates authenticated v6 local enrollment without rewriting original token filenames', async () => {
   const n = fixture(); let wallet = await openManagedAdmissionWallet(n.options); cleanup.push(() => wallet.close());

@@ -939,7 +939,8 @@ async function unlockSessionOnce(password: string, relayUrl: string, signal: Abo
     try {
       walletProofStorage = openWalletProofStorageSelection(getDataDir());
       admissionWallet = await openManagedAdmissionWallet({ directory: getDataDir(), encryptionKey: walletKey,
-        proofStorage: walletProofStorage?.proofStorage });
+        proofStorage: walletProofStorage?.proofStorage, signal,
+        reconstruction: { version: 2, purpose: 'offline-startup-reconstruction', timeoutMs: 30000 } });
     }
     catch { throw new WalletLoadError(); }
     finally { walletKey.fill(0); }

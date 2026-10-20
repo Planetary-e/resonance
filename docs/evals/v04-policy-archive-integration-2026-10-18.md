@@ -2181,3 +2181,45 @@ personal-wallet opening. If approved, one coherent implementation, critical phas
 separation review, focused plus affected regression and one hosted candidate;
 no new fingerprints, compaction, trust assumptions or installers. Stop before
 implementation pending that decision; finish independent import correction push.
+
+
+### October20 — approved personal-wallet cold reconstruction
+
+Owner explicitly approves up to30s personal-wallet opening/unlock reconstruction.
+B-HISTORY-LIFECYCLE/K2/K3 prerequisite, not changed live authorization. One coherent
+candidate: explicit v2 reconstruction option, original proof limits/counters, one
+opening deadline with cancellation and all101 file checks; desktop opts in. Default
+unversioned opening remains reference-bounded. Return API only after reconstruction;
+all live methods create fresh reference-bounded operations. No storage reference
+migration or capacity change. Acceptance: v1 timeout retained, offline success past
+reference deadline, caller cancellation/shorter deadline,30s cap and live timeout
+following offline open; actual101-profile HTTP update; malformed envelope rejection;
+focused, critical review, affected regression, forced workspace compile, one stable
+push. Prior alternatives/cost history retained; account last observed1% shared.
+
+Wallet focused8/8 pass9.05s: unversioned reference timeout remains, offline opening
+can exceed a100ms reference without extending subsequent100ms live proof work,
+cancellation/shorter caller deadline/30s cap and invalid envelopes. Log
+/tmp/resonance-wallet-offline-focused.log. Critical AstraHigh review accepts the
+four-file production/test change; a small guarded lifetime initialization cleanup
+follow-up also accepted (no test duplication). Initialization catch closes timer
+and clears copied key if acquisition fails. Budget initialization stays in guarded
+opening; final check precedes API return. Forced whole-workspace compilation passes
+/tmp/resonance-wallet-offline-final-compile.log. Run one seven-file affected wallet
+and desktop HTTP regression next, no repeated unrelated restoration suites.
+
+Wallet composed acceptance:73/73 across7files,157.96s, including all31 wallet proof
+checks, freshness, ordinary wallet, private-route policy, desktop update, desktop
+wallet and local HTTP boundary. Log /tmp/resonance-wallet-offline-composed.log.
+Actual101-profile private-update/final reopens3738.74/3364.00ms complete offline;
+reference limits remain3000ms and live-bound refusal test passes. No assertion of
+faster opening or completeK2/K3. Forced compile and whitespace pass; candidate
+/tmp/resonance-wallet-offline-final-candidate.json SHA256
+fe7f405b9d46cd4e4bfd40e69eadb0fe1e50db86161bbebfa50b3f7420c4631b.
+Daily implementation/testing/docs/CI stayed in the principal executor; AstraHigh
+only scoped critical review, no delegated micro-implementation/repeated exploration.
+First-pass review accepted, one cleanup follow-up accepted, no protocol rework.
+Shared account window0->2% across both October20 corrections (not model attribution
+or a measured savings rate), ordinary usage allowed. New approved wallet candidate
+supersedes intermediate import-only CI; do not claim that interrupted full run
+passed. Push once, then await hosted evidence without further speculative changes.

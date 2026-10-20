@@ -3,7 +3,7 @@ import { verifyAdmissionPolicy, assertAdmissionPolicyCurrent, assertAdmissionPol
 import { captureStorageReservationOperation, withStorageReservationAuthority } from '@resonance/core/storage-reservations';
 import { appendWalletEnrollmentCatalogue, readWalletEnrollmentCatalogue, parseWalletEnrollmentCatalogue, type WalletEnrollmentCatalogue } from './wallet-enrollment-catalogue.js';
 import { openWalletPolicyProofStore, parseWalletPolicyProofReference, type WalletPolicyProofReference, type WalletPolicyProofStorage } from './wallet-policy-proof-store.js';
-import { archivedAdmissionPolicyDigest, inspectResolvedAdmissionPolicy, AdmissionPolicyArchiveBudget, resolveAdmissionPolicyCatalogueMembership, inspectResolvedAdmissionPolicyKey, type ResolvedAdmissionPolicyKey, resolveAdmissionPolicy, resolveAdmissionPolicyAdvance, type ArchivedAdmissionPolicy, type ResolvedAdmissionPolicy, type ArchivedAdmissionPolicyAdvance } from '@resonance/core/admission-policy-archive';
+import { archivedAdmissionPolicyDigest, inspectResolvedAdmissionPolicy, AdmissionPolicyArchiveBudget, AdmissionPolicyArchiveExecutionContext, type AdmissionPolicyArchiveExecution, resolveAdmissionPolicyCatalogueMembership, inspectResolvedAdmissionPolicyKey, type ResolvedAdmissionPolicyKey, resolveAdmissionPolicy, resolveAdmissionPolicyAdvance, type ArchivedAdmissionPolicy, type ResolvedAdmissionPolicy, type ArchivedAdmissionPolicyAdvance } from '@resonance/core/admission-policy-archive';
 import type { AdmissionPolicyKey } from '@resonance/core/admission-policy';
 import type { AdmissionPolicyProofStep } from '@resonance/core/admission-policy-transfer';
 import { existsSync, lstatSync } from 'node:fs';
@@ -54,12 +54,12 @@ function validState(value: unknown): value is State {
 }
 
 interface ProofOperation { signal: AbortSignal; deadline: number; budget?: AdmissionPolicyArchiveBudget; check(): void; wait<T>(work: () => Promise<T>): Promise<T>; close(): void }
-function proofOperation(timeoutMs: number, external?: AbortSignal): ProofOperation {
-  const controller = new AbortController(), deadline = performance.now() + timeoutMs;
+function proofOperation(timeoutMs: number, external?: AbortSignal, callerDeadline?: number): ProofOperation {
+  const controller = new AbortController(), deadline = Math.min(performance.now() + timeoutMs, callerDeadline ?? Infinity);
   const abort = () => controller.abort();
   external?.addEventListener('abort', abort, { once: true });
   if (external?.aborted) abort();
-  const timer = setTimeout(abort, timeoutMs);
+  const timer = setTimeout(abort, Math.max(1, deadline - performance.now()));
   function check() {
     if (performance.now() >= deadline) abort();
     if (controller.signal.aborted) throw new Error('Wallet proof operation cancelled or timed out');
@@ -79,18 +79,31 @@ function proofOperation(timeoutMs: number, external?: AbortSignal): ProofOperati
   };
 }
 
-export async function openManagedAdmissionWallet(options: { directory: string; encryptionKey: Uint8Array; now?: () => number; proofStorage?: WalletPolicyProofStorage }) {
+export async function openManagedAdmissionWallet(options: {
+  directory: string; encryptionKey: Uint8Array; now?: () => number; proofStorage?: WalletPolicyProofStorage;
+  /** Explicit cold reconstruction only; live operations retain the proof reference budget. */
+  reconstruction?: Extract<AdmissionPolicyArchiveExecution, { version: 2 }>;
+  signal?: AbortSignal; deadline?: number;
+}) {
   options = { ...options };
   const proofStorage = options.proofStorage ? { ...options.proofStorage, limits: structuredClone(options.proofStorage.limits) } : undefined;
+  if (options.reconstruction !== undefined && options.reconstruction?.version !== 2) throw new Error('Invalid wallet reconstruction execution');
+  const openingContext = proofStorage || options.reconstruction || options.signal || options.deadline !== undefined
+    ? new AdmissionPolicyArchiveExecutionContext({ execution: options.reconstruction, timeoutMs: proofStorage?.limits.timeoutMs ?? 3000,
+      signal: options.signal, deadline: options.deadline }) : undefined;
   if (proofStorage && proofStorage.authority.status().authorityId !== proofStorage.authorityId) throw new Error('Wallet proof storage authority differs from its independently selected pin');
   const inheritedOperation = captureStorageReservationOperation();
   const run = <T>(work: () => T): T => proofStorage
     ? withStorageReservationAuthority(proofStorage.authority, work) : inheritedOperation(work);
   const key = Buffer.from(options.encryptionKey);
   let storage: ReturnType<typeof openEncryptedLocalState<State>>;
-  try { storage = run(() => openEncryptedLocalState<State>({ path: join(options.directory, 'admission-profile.json'), key,
+  let opening: ProofOperation | undefined;
+  try {
+    opening = openingContext ? proofOperation(openingContext.execution.version === 2 ? openingContext.execution.timeoutMs : proofStorage?.limits.timeoutMs ?? 3000,
+      options.signal, openingContext.executionDeadline) : undefined;
+    storage = run(() => openEncryptedLocalState<State>({ path: join(options.directory, 'admission-profile.json'), key,
     domain: 'resonance:admission-profile:v1', maxBytes: 2 * 1024 * 1024, initial: { version: 1, profile: null }, validate: validState }));
-  } catch (error) { key.fill(0); throw error; }
+  } catch (error) { opening?.close(); key.fill(0); throw error; }
   const wallets: BlindAdmissionWalletV2[] = [];
   let enrolledProfiles: AdmissionWalletProfileV1[] = [];
   const parsedProfiles = new Map<string, Awaited<ReturnType<typeof parseAdmissionWalletProfile>>>();
@@ -167,9 +180,9 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
     return run(() => openBlindAdmissionWalletV2({ path: file(index, parsed.profile), encryptionKey: key,
       scope: parsed.profile.scope, issuerPublicKey: parsed.publicKey, now: options.now, mode: existing ? 'open-existing' : undefined }));
   }
-  const opening = proofStorage ? proofOperation(proofStorage.limits.timeoutMs) : undefined;
-  if (opening) opening.budget = new AdmissionPolicyArchiveBudget({ limits: proofStorage!.limits, signal: opening.signal, deadline: opening.deadline });
   try {
+    if (opening && proofStorage) opening.budget = new AdmissionPolicyArchiveBudget({ limits: proofStorage.limits,
+      signal: opening.signal, deadline: opening.deadline, execution: openingContext!.execution });
     if (proofStorage) proof = run(() => openWalletPolicyProofStore(proofStorage!, key));
     const saved = storage.read();
     if (saved.version === 7) {
@@ -181,7 +194,7 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
     if (state.version >= 6) {
       if (!proof || !state.proof || !state.freshness || !state.policy) throw new Error('Wallet v6 requires its funded policy proof storage');
       const replay = await proof.resolve(parseWalletPolicyProofReference(state.proof), state.freshness.context, opening?.signal,
-        state.profiles.map(profile => admissionKeyFingerprint(profile.issuerPublicKey)), opening?.budget);
+        state.profiles.map(profile => admissionKeyFingerprint(profile.issuerPublicKey)), opening?.budget, openingContext?.execution);
       resolved = replay.resolved; profileEntries = replay.entries; profileMemberships = replay.memberships;
       const inspected = inspectResolvedAdmissionPolicy(resolved);
       if (JSON.stringify(inspected.policy) !== JSON.stringify(state.policy) || !sameAdmissionPolicyHead(inspected.head, state.freshness.installed)) throw new Error('Wallet profile differs from its exact original proof');
@@ -226,7 +239,7 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
     if (proof && state.version < 6 && proof.progress().progress) {
       const progress = proof.progress();
       if (!progress.context || !progress.progress || (state.freshness && admissionPolicyObserversId(state.freshness.context) !== admissionPolicyObserversId(progress.context))) throw new Error('Backfill differs from retained wallet pins');
-      const replay = await proof.resolve(progress.progress, progress.context, opening?.signal, state.profiles.map(profile => admissionKeyFingerprint(profile.issuerPublicKey)), opening?.budget);
+      const replay = await proof.resolve(progress.progress, progress.context, opening?.signal, state.profiles.map(profile => admissionKeyFingerprint(profile.issuerPublicKey)), opening?.budget, openingContext?.execution);
       const cursorPolicy = inspectResolvedAdmissionPolicy(replay.resolved).policy;
       if (state.policy && (cursorPolicy.revision > state.policy.revision || (cursorPolicy.revision === state.policy.revision && JSON.stringify(cursorPolicy) !== JSON.stringify(state.policy)))) throw new Error('Backfill differs from the installed wallet policy');
       proofCursor = { reference: progress.progress, resolved: replay.resolved };
@@ -234,6 +247,7 @@ export async function openManagedAdmissionWallet(options: { directory: string; e
       // the profile activation. Revalidate and finish that exact commit on open.
       if (state.policy && cursorPolicy.revision === state.policy.revision) await activateProof(state, replay.resolved, progress.progress, replay.entries, opening?.signal, opening, replay.memberships);
     }
+    opening?.check();
   } catch (error) { wallets.forEach(wallet => wallet.close()); proof?.close(); storage.close(); key.fill(0); throw error; }
   finally { opening?.close(); }
   function validateRetiredWallet(state: StateV2, wallet: BlindAdmissionWalletV2, index: number, entries = policyEntries(state)) {

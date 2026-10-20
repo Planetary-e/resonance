@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { openEncryptedLocalState } from './encrypted-local-state.js';
 import { withStorageReservationAuthority, type StorageReservationAuthority } from '@resonance/core/storage-reservations';
 import { admissionPolicyArchivePageDigest, resolveAdmissionPolicy, AdmissionPolicyArchiveBudget, resolveAdmissionPolicyCatalogueMembership, inspectResolvedAdmissionPolicyKey,
-  type AdmissionPolicyArchiveLimits, type ResolvedAdmissionPolicy, type ArchivedAdmissionPolicyAdvance } from '@resonance/core/admission-policy-archive';
+  type AdmissionPolicyArchiveLimits, type AdmissionPolicyArchiveExecution, type ResolvedAdmissionPolicy, type ArchivedAdmissionPolicyAdvance } from '@resonance/core/admission-policy-archive';
 import { ADMISSION_POLICY_ADVANCE_MAX_BYTES } from '@resonance/core/admission-policy-advance';
 import { admissionPolicyObserversId, parseAdmissionPolicyHead, parseAdmissionPolicyObservers, type AdmissionPolicyHead, type AdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
 import { sameAdmissionPolicyHead } from '@resonance/core/admission-policy-advance';
@@ -176,7 +176,7 @@ export function openWalletPolicyProofStore(raw: WalletPolicyProofStorage, encryp
       return digest;
     },
     progress() { ready(); return structuredClone(manifest.read()); },
-    async resolve(refValue: WalletPolicyProofReference, context: AdmissionPolicyObservers, signal?: AbortSignal, issuerKeys: readonly string[] = [], budget = new AdmissionPolicyArchiveBudget({ limits: options.limits, signal })) {
+    async resolve(refValue: WalletPolicyProofReference, context: AdmissionPolicyObservers, signal?: AbortSignal, issuerKeys: readonly string[] = [], budget = new AdmissionPolicyArchiveBudget({ limits: options.limits, signal }), execution?: AdmissionPolicyArchiveExecution) {
       ready(); const ref = reference(refValue, context);
       let first: ReturnType<typeof record>;
 
@@ -191,8 +191,8 @@ export function openWalletPolicyProofStore(raw: WalletPolicyProofStorage, encryp
       }
       const resolved = await resolveAdmissionPolicy({ context, genesis: undefined,
         readGenesis: async readSignal => { readSignal.throwIfAborted(); first = record(0); return first.value.value; },
-        advances: advances(), selectedHead: ref.head, reader, limits: options.limits, signal, budget });
-      const memberships = await resolveAdmissionPolicyCatalogueMembership({ policy: resolved, issuerKeys, reader, limits: options.limits, signal, budget });
+        advances: advances(), selectedHead: ref.head, reader, limits: options.limits, signal, budget, execution });
+      const memberships = await resolveAdmissionPolicyCatalogueMembership({ policy: resolved, issuerKeys, reader, limits: options.limits, signal, budget, execution });
       const entries = new Map([...memberships].map(([id, membership]) => [id, inspectResolvedAdmissionPolicyKey(resolved, membership)]));
       return { resolved, entries, memberships };
     },
