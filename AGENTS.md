@@ -31,11 +31,20 @@ them; do not broaden samples or relax targets after observing failure.
 
 ## Models and delegation
 
-Honor the owner's roles: Astra directs architecture and reviews protocol-critical
-integration; GPT-6.1 Sol implements; GPT-6 Luna may perform bounded simple work.
-Default to one Sol implementer. A deterministic command or short file lookup does
-not justify an agent. Use concurrent implementers only for genuinely independent
-changes with fixed contracts and nonoverlapping files.
+The owner approved Sol-led daily execution on October 20. GPT-6.1 Sol at medium
+owns the complete ordinary deliverable: diagnosis, bounded planning, implementation,
+tests, documentation, integration and CI. Do not retain those routine activities in
+an Astra coordinator or divide them into tiny implementation-only delegations.
+Use GPT-6 Astra for bounded architecture decisions and independent reviews of
+protocol-critical safety, concurrency and recovery changes. Its technical review
+role does not require continuous Astra orchestration. GPT-6 Luna may perform
+bounded mechanical work when substantial enough to justify delegation.
+
+Default to one executing agent. A deterministic command or short file lookup does
+not justify an agent. Delegate a complete coherent task with an observable result;
+avoid duplicating the diagnosis before delegation and reconstructing it afterward.
+Use concurrent implementers only for genuinely independent changes with fixed
+contracts and nonoverlapping files.
 
 Delegate using a compact brief with file ownership, contract, acceptance and
 exclusions. Start a fresh scoped context for a new deliverable instead of carrying
@@ -50,9 +59,9 @@ Use these initial routing defaults, subject to evidence from accepted work:
 
 | Work | Model | Effort |
 | --- | --- | --- |
-| Direction, bounded planning and routine integration | GPT-6 Astra | medium |
+| Daily diagnosis, planning, implementation, tests, documentation and CI | GPT-6.1 Sol | medium |
+| Bounded architecture decision | GPT-6 Astra | medium |
 | Protocol-critical review and unresolved safety reasoning | GPT-6 Astra | high |
-| Implementation with an established contract | GPT-6.1 Sol | medium |
 | Concurrency, crash recovery and state migrations | GPT-6.1 Sol | high |
 | Mechanical edits, inventories and literal evidence extraction | GPT-6 Luna | low |
 | Bounded classification requiring some interpretation | GPT-6 Luna | medium |
