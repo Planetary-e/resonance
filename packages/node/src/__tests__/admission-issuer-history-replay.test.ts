@@ -200,3 +200,44 @@ it('retains exact issuer obligations through100 real pooled recovery transitions
   writeFileSync('/tmp/resonance-original-pool-issuer.json', JSON.stringify(measured, null, 2));
   expect(measured.pools.every(p => p!.pages === 2 && p!.peakBytes <= 256 * 1024 * 1024)).toBe(true);
 }, 300000);
+
+// Schedule after the source is entered: pre-aborted/synchronously aborted sources
+// cannot distinguish a replay that blocks the event loop while draining input.
+it('delivers scheduled external cancellation during source ingestion within32 blocks', async () => {
+  const input = selected(Array.from({ length: 96 }, () => base)), controller = new AbortController();
+  const callerKey = Buffer.from(input.encryptionKey); let consumed = 0, closed = false;
+  function* source() {
+    try {
+      for (const block of input.blocks) {
+        if (++consumed === 1) {
+          setImmediate(() => controller.abort());
+        }
+        yield block;
+      }
+    } finally { closed = true; }
+  }
+  await expect(replayProtectedIssuerHistory({ ...input, blocks: source(), signal: controller.signal })).rejects.toThrow('cancelled');
+  expect(consumed).toBeGreaterThan(0); expect(consumed).toBeLessThanOrEqual(32);
+  expect(closed).toBe(true); expect(input.encryptionKey).toEqual(callerKey);
+}, 30000);
+
+it('retains exact issuer state and minimum evidence through a confirmed generation continuation', async () => {
+  const input = selected([base, granted]), root = continuation(input), rootId = historyCheckpointEnvelopeId(root);
+  const challenge = randomBytes(32).toString('base64url'), freeze = createHistoryFreeze(input.context, 1, 2, challenge, input.owner);
+  const receipts = input.memberKeys.slice(0, 4).map((key, i) => {
+    const request = createHistoryExchangeRequest({ action: 'freeze', rootId, generation: 1, replica: input.context.members[i],
+      challenge, issuedAt: 100, expiresAt: 200, sequence: 2, envelopeId: null }, input.context, input.owner);
+    return createHistoryExchangeResponse(request, 'frozen', { generation: 1, rootId, sequence: 0, envelopeId: rootId, freeze }, null, input.context, key);
+  });
+  const proposal = createHistorySuccessorProposal({ version: 1, kind: 'frozen-history', rootId, generation: 1, nextGeneration: 2,
+    receipts, envelopes: [root] }, input.context, input.owner);
+  const result = await replayProtectedIssuerHistory({ ...input, proposal, blocks: [...input.blocks, root], minimumEvidence: [granted] });
+  expect(result.state).toEqual(granted); expect(result.generations).toBe(2); expect(result.head).toMatchObject({ generation: 1, sequence: 0, rootId });
+  await expect(replayProtectedIssuerHistory({ ...input, proposal, blocks: [input.blocks[0], root] })).rejects.toThrow('exact complete selected chain');
+});
+it('freezes array contents, profile and minimum evidence before ingestion yields', async () => {
+  const input = selected(Array.from({ length: 96 }, () => base)), minimum = structuredClone(base), expected = structuredClone(base);
+  const replay = replayProtectedIssuerHistory({ ...input, minimumEvidence: [minimum] });
+  input.blocks.splice(0); input.profile.scope.issuer = 'mutated'; minimum.profile.scope.issuer = 'mutated'; input.encryptionKey.fill(0);
+  expect((await replay).state).toEqual(expected);
+});

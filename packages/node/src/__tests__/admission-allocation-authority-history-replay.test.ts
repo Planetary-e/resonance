@@ -73,7 +73,7 @@ it('replays expired signed allocations and assignments through complete confirme
   expect(result.replayDigest).toBe(historyDigest(`resonance:admission-allocation-authority-replay:v1\n${JSON.stringify([result.contextId, result.genesisId, result.proposalId, assigned])}`));
   expect(result.head).toMatchObject({ rootId: historyCheckpointEnvelopeId(root), generation: 1, sequence: 1 });
   await expect(replayProtectedAllocationAuthorityHistory({ ...input, proposal: p, blocks: [root, next] })).rejects.toThrow('genesis');
-  await expect(replayProtectedAllocationAuthorityHistory({ ...input, proposal: p, blocks: [input.blocks[0], root, next] })).rejects.toThrow('page boundary');
+  await expect(replayProtectedAllocationAuthorityHistory({ ...input, proposal: p, blocks: [input.blocks[0], root, next] })).rejects.toThrow('exact complete selected chain');
   const forged = structuredClone(root); forged.certificate.votes[0].signature = Buffer.alloc(64).toString('base64url');
   await expect(replayProtectedAllocationAuthorityHistory({ ...input, proposal: p, blocks: [...input.blocks, forged, next] })).rejects.toThrow();
   expect(() => input.continuation(input.proposal, 'prepare')).toThrow();
@@ -184,3 +184,30 @@ it('retains signed allocations and assignment denials through100 real pooled rec
   writeFileSync('/tmp/resonance-original-pool-authority.json', JSON.stringify(measured, null, 2));
   expect(measured.pools.every(p => p!.pages === 2 && p!.peakBytes <= 256 * 1024 * 1024)).toBe(true);
 }, 300000);
+
+// Schedule after the source is entered: pre-aborted/synchronously aborted sources
+// cannot distinguish a replay that blocks the event loop while draining input.
+it('delivers scheduled external cancellation during source ingestion within32 blocks', async () => {
+  const input = selected(Array.from({ length: 96 }, () => base)), controller = new AbortController();
+  const callerKey = Buffer.from(input.encryptionKey); let consumed = 0, closed = false;
+  function* source() {
+    try {
+      for (const block of input.blocks) {
+        if (++consumed === 1) {
+          setImmediate(() => controller.abort());
+        }
+        yield block;
+      }
+    } finally { closed = true; }
+  }
+  await expect(replayProtectedAllocationAuthorityHistory({ ...input, blocks: source(), signal: controller.signal })).rejects.toThrow('cancelled');
+  expect(consumed).toBeGreaterThan(0); expect(consumed).toBeLessThanOrEqual(32);
+  expect(closed).toBe(true); expect(input.encryptionKey).toEqual(callerKey);
+}, 30000);
+
+it('freezes exact minimum evidence and array contents before ingestion yields', async () => {
+  const input = selected([base, ...Array.from({ length: 95 }, () => installed)]), minimum = structuredClone(installed);
+  const replay = replayProtectedAllocationAuthorityHistory({ ...input, minimumEvidence: [minimum] });
+  input.blocks.splice(0); minimum.manifests.splice(0); input.context.authority = Buffer.alloc(32).toString('base64url'); input.encryptionKey.fill(0);
+  expect((await replay).state).toEqual(installed);
+});

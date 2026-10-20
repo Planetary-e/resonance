@@ -2326,3 +2326,113 @@ and correct scheduled cancellation without weakening input snapshots, source
 closure, proofs, selection, counters or budgets. This is a bounded derivative of
 the reviewed cancellation finding, not authorization to reopen semantic compaction
 or repeat all three local101-generation workloads without a new relevant failure.
+
+
+### Frozen derivative: scheduled original-evidence ingest cancellation — October20
+
+Same B-HISTORY-LIFECYCLE / K2,K3 and existing stop conditions1–4, prior
+alternatives and unknown historical effort. Baseline25f3cac; bounded correction
+of the accepted relay review finding, not a new substantive alternative. Observable
+result: issuer/allocation-authority cryptographic ingestion and observer semantic
+source traversal deliver externally scheduled cancellation within32 consumed
+blocks, close a generic iterator and preserve the caller key. Preserve entry
+pins/profile/minimum evidence and bounded array snapshots before new awaits; array
+snapshot serialization/copying remains synchronous, with no cancellation claim
+for that phase. Generic inputs are copied/parsed as consumed; issuer proofs retain
+the complete authenticated supplied ancestry before semantic decoding. Versioned
+page positions advance only after authenticated continuation ancestry, without
+materializing pages or resetting state, ids, aggregate counters/deadlines/proofs,
+64MiB generation limits, selected-chain or readiness/compaction/freshness guards.
+
+Acceptance: distinguishing setImmediate/timer abort after source ingestion begins,
+source consumption <=32, iterator finally/return, caller key retained; genuine
+small selected-chain compatibility plus malformed/missing continuation and exact
+minimum-evidence refusal. Focused tests and forced workspace TypeScript compile,
+then one affected composed regression after parent critical review. Existing
+three101-generation workloads stay mandatory general CI, not repeated locally
+without a relevant failure. No trust/resource increase, semantic-compaction work,
+installers, Git mutations or new CI dispatch. Loopback tests require the permitted
+network execution when applicable. SolHigh owns implementation/testing/receipt;
+parent owns one bounded Astra critical review/integration. Shared account observed
+4% weekly used at entry, ordinary usage allowed; not task/model cost attribution.
+Prospective active interval starts12:13UTC; exclude command/review waits.
+
+Derivative candidate, before critical review: incremental issuer/authority ingest
+retains entry array snapshots and exact minimum evidence, releases raw snapshots
+as authenticated envelopes replace them, and yields every32 parsed envelopes.
+All three semantic paths use authenticated v2 page positions and yield every32
+records or page boundary; selected-chain/capacity/proof checks remain cumulative.
+Queued external setImmediate abort tests enter a96-envelope source, reject by32
+consumed blocks, close its iterator and preserve the caller key for every role.
+Small genuine selected-chain/minimum tests pass, including issuer and authority
+confirmed generation continuations and96 observer snapshots (95policy advances).
+
+First focused invocation:17pass,4fail,36excluded. One timer abort consumed64
+cheap allocation blocks because a newly scheduled0ms timer was not yet due at
+the first setImmediate yield; this was an overly strict test scheduling assumption.
+The distinguishing <=32 regression uses a queued setImmediate, matching the
+accepted relay contract. No timer-delay production change remains. Three observer
+fixture failures came from omitting the retained predecessor head when constructing
+policy advances; the genuine fixture now supplies it. One pre-review rework round
+corrected those assumptions; no production safety failure was reproduced.
+
+Final narrow command: `npx vitest run --maxWorkers=1
+packages/node/src/__tests__/admission-issuer-history-replay.test.ts
+packages/node/src/__tests__/admission-allocation-authority-history-replay.test.ts
+packages/relay/src/__tests__/policy-observer-history-replay.test.ts
+-t '^(?!.*pooled).*'`:55pass,2long pooled cases deliberately excluded,3files,
+3.16s; `/tmp/resonance-ingest-cancellation-narrow.log`. Earlier selected discriminants
+pass21/21. Forced workspace `npx tsc -b --force` passes; log
+`/tmp/resonance-ingest-cancellation-tsc.log`. `git diff --check` passes.
+No local101-generation workload, loopback run or composed regression yet.
+Six code/test source hashes frozen in
+`/tmp/resonance-ingest-cancellation-review-manifest.json`, manifest SHA256
+4b4664c4037c5b046a72951c52b17dfb6689f64354b56b197dddb03d332ca37c.
+Critical review and its one affected composed regression remain before acceptance.
+SolHigh prospective active interval12:13–12:19UTC (commands ran alongside
+implementation; subsequent review waiting excluded); no unknown historical hours
+filled in. Shared account4->4% weekly used, ordinary usage allowed, coarse shared
+measurement only. No fullK2/K3 or semantic-compaction claim.
+
+Scoped AstraHigh final critical review accepts: six frozen hashes match; no actionable production
+finding or required code correction. Chain/proof ownership, initial snapshots and
+minimum evidence, cumulative counters/deadlines and key cleanup accepted within
+this derivative scope. First critical-review pass accepted; one earlier pre-review
+test/fixture rework round as recorded above.
+
+The one approved post-review composed command, with permitted local loopback:
+`npx vitest run --maxWorkers=1
+packages/node/src/__tests__/admission-issuer-history-replay.test.ts
+packages/node/src/__tests__/admission-allocation-authority-history-replay.test.ts
+packages/relay/src/__tests__/policy-observer-history-replay.test.ts
+packages/node/src/__tests__/protected-issuer-restore.integration.test.ts
+packages/node/src/__tests__/protected-allocation-authority-restore.integration.test.ts
+packages/relay/src/__tests__/policy-observer-history-restore.integration.test.ts
+-t '^(?!.*pooled).*'`:69/69pass across6files,2long pooled cases excluded,
+28.48s; `/tmp/resonance-ingest-cancellation-composed.log`. Started12:21:44UTC;
+original six hashes remain byte-identical after the run. This covers exact
+issuer obligations/retirement after owner+archive loss, allocation plans/pending
+claims and minimum evidence after complete local loss, plus observer replay,
+equivocation, pending local evidence, two generations and fresh readiness.
+Existing SIGKILL and all three101-generation workloads remain mandatory general
+CI. No new local long workload, Git mutation, push or CI dispatch.
+
+Final receipt work resumes12:22UTC; review and28.48s test waiting excluded from
+active effort. The prospective12:13–12:19 implementation interval and this brief
+regression-launch/result interval remain on the same blocker, without resetting
+unknown historical effort/alternatives. Shared weekly usage4->5% observed at
+exit, ordinary allowed; no task/model cost attribution. Hosted qualification of
+this correction belongs to parent integration. K2/K3, semantic compaction and the
+suspended historical-retirement investigation remain open under their prior stop.
+
+Parent integration verifies all six manifest hashes after the69-case regression;
+no additional source edits or local repeat are justified. The earlier relay-only
+push started CI39420493078 before the same-class follow-up was grouped: desktop
+2m31s, ownership6m40s and durability7m30s pass; general is still running. To avoid
+waiting for an obsolete general run and then repeating it, publish the consolidated
+reviewed candidate now under existing PR concurrency. The replacement fullMac CI
+must finish on that exact candidate before hosted acceptance. This is a correction
+to push batching, not a skipped code CI or a fullpass claim for25f3cac. Keep code
+stable during the final run; only a concrete new failure justifies another change.
+The next unresolved lifecycle/semantic-compaction gate and suspended investigation
+remain under their existing stop; no paging or cancellation success closesK2/K3.

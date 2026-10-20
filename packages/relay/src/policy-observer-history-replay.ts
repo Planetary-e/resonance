@@ -1,4 +1,4 @@
-import { historyAncestryPages } from '@resonance/core/history-ancestry-pages';
+import { firstHistoryAncestryPage, nextHistoryAncestryGeneration } from '@resonance/core/history-ancestry-pages';
 /** Offline semantic replay. Historical certificates never authorize live signing. */
 import { createHash } from 'node:crypto';
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
@@ -89,9 +89,10 @@ export async function replayPolicyObserverHistory(options: {
         account(size); yield parseHistoryCheckpointEnvelope(raw, historyContext);
       }
     }
-    for (const page of historyAncestryPages(parsedBlocks())) {
-    for (const block of page.blocks) {
+    let page = firstHistoryAncestryPage(), processed = 0;
+    for (const block of parsedBlocks()) {
       live(); const id = historyCheckpointEnvelopeId(block), size = Buffer.byteLength(JSON.stringify(block));
+      let pageBoundary = false;
       if (!head) {
         if (block.kind !== 'checkpoint' || block.generation !== 0 || block.sequence !== 0 || id !== genesisId) throw new Error('Policy observer replay requires its independently pinned genesis');
         state = await decodePolicyObserverSnapshot(block, historyContext, context, key);
@@ -102,6 +103,8 @@ export async function replayPolicyObserverHistory(options: {
       } else if (block.kind === 'continuation') {
         if (block.proposal.generation !== head.generation || block.generation <= head.generation) throw new Error('Invalid policy observer generation ancestry');
         assertHistorySuccessorChain(block.proposal, ids);
+        const nextPage = nextHistoryAncestryGeneration(page);
+        pageBoundary = nextPage.index !== page.index; page = nextPage;
         rootId = id; ids = [id]; generations++; generationBytes = size;
       } else {
         if (block.generation !== head.generation || block.sequence !== head.sequence + 1 || block.previous !== historyCheckpointEnvelopeId(head)) throw new Error('Policy observer history has a gap, fork or wrong generation');
@@ -125,9 +128,7 @@ export async function replayPolicyObserverHistory(options: {
       if (generationBytes > 64 * 1024 * 1024) throw new Error('Policy observer replay generation capacity exceeded');
       if (block.generation > proposal.generation || block.generation === proposal.generation && block.sequence > proposal.sequence) throw new Error('Policy observer replay exceeds its selected head');
       head = block;
-      if (blocks % 16 === 0) { await yieldToEventLoop(); live(); }
-    }
-    await yieldToEventLoop(); live();
+      if (++processed % 32 === 0 || pageBoundary) { await yieldToEventLoop(); live(); }
     }
     live();
     if (!state || !genesis || !head || head.generation !== proposal.generation || rootId !== proposal.rootId) throw new Error('Policy observer history does not reach its selected generation');

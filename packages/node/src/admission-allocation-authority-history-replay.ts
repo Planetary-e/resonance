@@ -1,4 +1,4 @@
-import { historyAncestryPages } from '@resonance/core/history-ancestry-pages';
+import { firstHistoryAncestryPage, nextHistoryAncestryGeneration } from '@resonance/core/history-ancestry-pages';
 /** Complete authenticated allocation-authority history replay. Historical evidence never grants live write authority. */
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
 import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointContextId, historyCheckpointEnvelopeId, isHistoryDigest,
@@ -29,20 +29,39 @@ export async function replayProtectedAllocationAuthorityHistory(options: Protect
     || maxBytes < 1 || maxBytes > 256 * 1024 * 1024 || timeoutMs < 50 || timeoutMs > 300000) throw new Error('Invalid allocation-authority history replay bounds or pins');
   const key = Uint8Array.from(options.encryptionKey), contextId = historyCheckpointContextId(context), proposalId = historySuccessorProposalId(proposal);
   try {
-    // Freeze the complete bounded iterable and evidence before the first await.
-    const supplied: HistoryCheckpointEnvelope[] = []; let bytes = 0;
-    for (const raw of options.blocks) {
-      live(); if (supplied.length >= maxBlocks) throw new Error('Allocation authority history replay block capacity exceeded');
-      const size = Buffer.byteLength(JSON.stringify(raw) ?? '');
-      if (!size || size > HISTORY_ENVELOPE_MAX_BYTES || (bytes += size) > maxBytes) throw new Error('Allocation authority history replay byte capacity exceeded');
-      supplied.push(parseHistoryCheckpointEnvelope(structuredClone(raw), context));
-    }
     if (options.minimumEvidence !== undefined && (!Array.isArray(options.minimumEvidence) || options.minimumEvidence.length > 256)) throw new Error('Invalid allocation authority minimum evidence bound');
     const evidence: unknown[] = []; let evidenceBytes = 0;
     for (const value of options.minimumEvidence ?? []) {
       live(); const size = Buffer.byteLength(JSON.stringify(value) ?? '');
       if (!size || size > MAX_BYTES || (evidenceBytes += size) > maxBytes) throw new Error('Allocation authority minimum evidence byte capacity exceeded');
       evidence.push(structuredClone(value));
+    }
+    // Array ownership is frozen before any await. Generic sources are copied as
+    // consumed; never drain a potentially expensive authenticated source without
+    // a macrotask opportunity for external cancellation.
+    let source = options.blocks;
+    if (Array.isArray(source)) {
+      const snapshots: unknown[] = []; let snapshotBytes = 0;
+      for (const raw of source) {
+        live(); if (snapshots.length >= maxBlocks) throw new Error('Allocation authority history replay block capacity exceeded');
+        const size = Buffer.byteLength(JSON.stringify(raw) ?? '');
+        if (!size || size > HISTORY_ENVELOPE_MAX_BYTES || (snapshotBytes += size) > maxBytes) throw new Error('Allocation authority history replay byte capacity exceeded');
+        snapshots.push(structuredClone(raw));
+      }
+      // Release each raw snapshot as its authenticated replacement is retained.
+      source = (function* () {
+        for (let i = 0; i < snapshots.length; i++) {
+          const raw = snapshots[i]; snapshots[i] = undefined; yield raw;
+        }
+      })();
+    }
+    const supplied: HistoryCheckpointEnvelope[] = []; let bytes = 0;
+    for (const raw of source) {
+      live(); if (supplied.length >= maxBlocks) throw new Error('Allocation authority history replay block capacity exceeded');
+      const size = Buffer.byteLength(JSON.stringify(raw) ?? '');
+      if (!size || size > HISTORY_ENVELOPE_MAX_BYTES || (bytes += size) > maxBytes) throw new Error('Allocation authority history replay byte capacity exceeded');
+      supplied.push(parseHistoryCheckpointEnvelope(structuredClone(raw), context));
+      if (supplied.length % 32 === 0) { await yieldToEventLoop(); live(); }
     }
     live();
     const minimum: State[] = [];
@@ -58,9 +77,10 @@ export async function replayProtectedAllocationAuthorityHistory(options: Protect
     }
     let state: State | undefined, genesis: HistoryEncryptedEnvelope | undefined, head: HistoryCheckpointEnvelope | undefined;
     let rootId = '', ids: string[] = [], generations = 0, generationBytes = 0;
-    for (const page of historyAncestryPages(supplied)) {
-    for (const block of page.blocks) {
+    let page = firstHistoryAncestryPage(), processed = 0;
+    for (const block of supplied) {
       live(); const id = historyCheckpointEnvelopeId(block), size = Buffer.byteLength(JSON.stringify(block));
+      let pageBoundary = false;
       if (!head) {
         if (block.kind !== 'checkpoint' || block.generation !== 0 || block.sequence !== 0 || id !== genesisId) throw new Error('Allocation authority replay requires its independently pinned original genesis');
         state = await decode(block);
@@ -69,6 +89,8 @@ export async function replayProtectedAllocationAuthorityHistory(options: Protect
       } else if (block.kind === 'continuation') {
         if (block.proposal.generation !== head.generation || block.generation <= head.generation) throw new Error('Invalid allocation authority generation ancestry');
         assertHistorySuccessorChain(block.proposal, ids);
+        const nextPage = nextHistoryAncestryGeneration(page);
+        pageBoundary = nextPage.index !== page.index; page = nextPage;
         rootId = id; ids = [id]; generations++; generationBytes = size;
       } else {
         if (block.kind !== 'checkpoint' || block.generation !== head.generation || block.sequence !== head.sequence + 1 || block.previous !== historyCheckpointEnvelopeId(head)) throw new Error('Allocation authority history has a gap, fork or wrong generation');
@@ -79,9 +101,7 @@ export async function replayProtectedAllocationAuthorityHistory(options: Protect
       if (generationBytes > 64 * 1024 * 1024) throw new Error('Allocation authority replay generation capacity exceeded');
       if (block.generation > proposal.generation || block.generation === proposal.generation && block.sequence > proposal.sequence) throw new Error('Allocation authority replay exceeds its selected head');
       head = block;
-      if (head.sequence % 16 === 0) { await yieldToEventLoop(); live(); }
-    }
-    await yieldToEventLoop(); live();
+      if (++processed % 32 === 0 || pageBoundary) { await yieldToEventLoop(); live(); }
     }
     live();
     if (!state || !genesis || !head || head.generation !== proposal.generation || rootId !== proposal.rootId) throw new Error('Allocation authority history does not reach its selected generation');
