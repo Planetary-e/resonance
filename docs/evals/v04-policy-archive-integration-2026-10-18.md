@@ -2436,3 +2436,188 @@ to push batching, not a skipped code CI or a fullpass claim for25f3cac. Keep cod
 stable during the final run; only a concrete new failure justifies another change.
 The next unresolved lifecycle/semantic-compaction gate and suspended investigation
 remain under their existing stop; no paging or cancellation success closesK2/K3.
+
+
+### October20 hosted lifecycle harness qualification — frozen before correction
+
+Parent blocker remains B-HISTORY-LIFECYCLE / K2/K3. Actual routing: GPT-6.1
+Sol/medium, one bounded daily deliverable; parent reviews harness-only changes.
+Clean branch `feature/v0.4-private-transport`, HEAD
+`3b223cbfd73a18b17ba897b11c4f5d51ef458bcf`. Preserved hosted failure log:
+`/tmp/resonance-3b223cb-durability.log` (CI39421929395 durability343pass,
+2fail,2intentional skips,711.93s). General CI remains parent-owned and pending.
+
+Both failures explicitly say Vitest Test timed out: protected65 at120000ms
+(actual120495ms), wallet101 at60000ms (actual68251ms). Protected stages:
+legacy34785ms, backfill55746ms, v3installed62254ms, owners deleted79835ms,
+issuer/relay collection starts79836/91892ms, issuer preparation103034ms,
+open107306ms, ready110353ms, approve110405ms; relay preparation110412ms,
+open114740ms, ready118254ms, restored118309ms. Still pending after restored:
+funded-ancestry refusal, original-proof missing/tampered refusals and final issuer
+reopen/readiness. Wallet measured completed reopens71/72/99/private/final:
+2499/2735/4111/4367/3805ms; all within explicit30s offline opening, although
+post-expiry work is not an accepted testcase completion. No product operation
+timeout or safety failure is reported by these retained failures.
+
+Frozen acceptance at12:42UTC, before test-source changes or local execution:
+change only the two affected `it` lifetimes to300000ms, the existing five-minute
+multi-generation lifecycle convention (issuer/allocation/observer pooled replay
+and relay paged replay cases). These lifetimes enclose many separately bounded
+live/offline operations plus negative corruption/reopening checks; the former
+whole-case60s/120s values do not express one operation deadline. Run exactly the
+two named long cases once locally with permitted loopback, maxWorkers1, retaining
+all stage diagnostics, final state/readiness checks,101-file scans and explicit
+operation assertions. Require2/2pass, no retries/skips, unchanged product3s live
+and approved30s offline contexts, then source hashes and diff check. No timer
+value iteration after failure: a product operation/resource/safety failure stops
+this correction for specific assessment. No compile required for two numeric
+harness literals. No full suites, repeated101 pooled workloads, production edits,
+CI settings/platform changes, Git mutation, pushes or CI dispatch/cancellation.
+
+Entry shared weekly usage5%, ordinary usage allowed; no new cap or per-task cost
+attribution. Prospective active interval12:42–12:43UTC for diagnosis/freeze/edit
+and launch; test waits excluded. Prior alternatives/unknown historical effort
+are retained. Semantic ancestry/compaction, complete K2/K3 and the suspended
+historical-retirement investigation remain at their existing condition4 stop.
+
+
+One frozen local command, permitted loopback, exit0:
+`npx vitest run --maxWorkers=1 packages/node/src/__tests__/protected-admission-consumers-v3.integration.test.ts packages/node/src/__tests__/wallet-policy-proof.test.ts -t '^(crosses65 archived configurations with protected issuance/admission, exact backfill, restart and actual owner-loss replica restoration|retains101 local profiles across100 signed transitions with bounded handles, paged status and funded reopen)$'`.
+Result2/2selected cases pass across2files,60unselected cases reported skipped by
+name filter (no test skip/retry added),135.32s total,134.32s tests including hooks.
+Vitest result-cache file durations: protected79164.477ms, wallet55159.709ms;
+individual testcase durations were not emitted. Wallet measured lifecycle37643.089ms
+(before later negative checks), private update4521.614ms, reopens
+1571.539/1595.660/2627.514/2449.663/2423.035ms,148page reads,2peak handles,
+242proof records,3170439proof bytes,1718616902reserved bytes. All unchanged
+assertions pass, including both complete final corruption/readiness sequences.
+Protected issuer measured reopen2332ms,475imports. Actual platform receipts are
+under `/var/folders/gb/yrv4v_5d64lbdv2ngllxrqdm0000gn/T/` as
+`resonance-wallet-v7-measurement.json` and `protected-consumer-reopen-count.json`;
+`/tmp` contains older receipts and is not used for these measurements.
+
+Log `/tmp/resonance-lifecycle-harness-two-cases.log`, SHA256
+`a01d47fd01968fc14fa2b59849b31b4beb316098c9ca574459d00dc93807aedb`.
+Preserved hosted failure log SHA256
+`6b732aae441c4719f87d30bc991ff12baa968d7faf993ecd5918437624131d14`.
+Dirty candidate source hashes before/after run agree:
+protected-consumers `b6b12e415c250e83ae12b59914fa83a03fa67ac53655a4c5aaa483a0e15057f2`;
+wallet-policy-proof `2bb7926bca52c9c8c4e580cc9b12491f8e576629273e79b13569b5dfe71ed7d6`.
+Only two `it` lifetimes changed120000/60000->300000; no production/assertion
+change. `git diff --check` passes. No type edits or compile repeat.
+
+First implementation/local acceptance pass;0rework rounds or material findings.
+Parent harness review and hosted confirmation remain; no full CI/KPI pass claimed.
+Result/receipt active interval12:45–12:46UTC;135.32s execution wait excluded.
+Shared weekly usage5->5%, ordinary allowed, coarse account observation only.
+This harness correction resolves local qualification interruption, not semantic
+compaction or complete K2/K3; existing condition4 stop and unknown historical
+hours/alternatives are unchanged. No Git mutation, push or CI change performed.
+
+
+### October20 remaining general-CI fixture qualification — frozen13:01UTC
+
+Same bounded B-HISTORY-LIFECYCLE / K2/K3 correction, actual Sol/medium.
+Parent accepts the two harness literals and2/2local result; leave them intact.
+GeneralCI39421929395 now finishes3404pass/2fail,367files,1951.10s; preserved
+`/tmp/resonance-3b223cb-general.log`. Additional failures: configured freshness
+correctly rejects persisted newer-floor spend but server frame count is1 instead
+of0; repeated genesis observer replay rejects a gap before the expected capacity.
+Client collection starts five transports and finishes/aborts on four matching
+votes; local client draining does not await remote handlers already admitted.
+Streaming replay checks ancestry on each block, so duplicate genesis is invalid
+at its second element, before maxBlocks3 can exhaust on a fourth valid element.
+
+Frozen fixture-only acceptance before edits: deterministically retain the fifth
+old-query server callback across four-response quorum and verifier reopen; record
+outbound challenge/dispatch identities and release that callback after server
+frames reset. Assert the late callback belongs to the original challenge, then
+assert persisted observed-floor refusal starts zero additional transport dispatches
+and no new server challenge. Preserve signed successor recovery, persisted conflict,
+fresh quorum and witness/exact-retry checks. A new post-floor query/safety failure
+stops this correction rather than relaxing assertions.
+
+Isolate the cheap negative replay source checks from the100-recovery setup using
+a small genuine selected signed chain. Assert infinite repeated genesis fails on
+exact gap error after2reads and closes its iterator. Separately assert genuine
+valid chain capacity at maxBlocks3 consumes4blocks, reports block capacity and
+closes its iterator; verify the full small chain passes first. Keep mandatory real
+100-recovery general-CI case and its page-boundary variants; make its block-limit
+variant require the exact capacity category. Do not rerun the long100case locally.
+Run the smallest distinguishing cases, then one affected two-file regression
+excluding only the named100case. No production/resource/freshness/workflow change,
+no Git/CI action or new agents. Whole-workspace compile if types change.
+Prospective active interval13:00–13:08UTC for diagnosis/freeze/edit/test launch;
+exclude test/parent waits; known shared weekly5%, ordinary allowed, no new cap.
+Prior alternatives/unknown historical hours and condition4 semantic gate remain.
+
+
+Deterministic distinguishing reproduction preserves both original bad expectations:
+`npx vitest run --maxWorkers=1 packages/relay/src/__tests__/configured-policy-freshness.integration.test.ts packages/relay/src/__tests__/history-original-pool-observer.test.ts -t '^(retains a newer head|fails fast on a repeated genesis)'`.
+Expected2/2fail in2.24s: held original-challenge frame arrives after reopen while
+outbound dispatch count stays5, and repeated genesis reports exact gap. No new
+post-floor dispatch or production safety failure. Log
+`/tmp/resonance-ci-fixture-discriminants.log`, SHA256
+`b45cff56c7a2f963015dbafb2f2d9a38f1f8568c718bd03d2b62adf1acc829ba`.
+Preserved general failure log SHA256
+`1a584609284dd781c5f1f790f0614a1315d6950ad39fca7e1d88e5a3c4d81611`.
+
+Corrected affected command, permitted loopback:
+`npx vitest run --maxWorkers=1 packages/relay/src/__tests__/configured-policy-freshness.integration.test.ts packages/relay/src/__tests__/history-original-pool-observer.test.ts -t '^(?!retains policy conflict obligations across100).*'`:
+5/5pass,2files,6.66s,1long case excluded by name filter. Covers fresh quorum,
+invalid-token no-query, exact retry, replayed evidence/offline refusal, retained
+newer floor/signed successor/conflict persistence, witness-before-vote freshness;
+plus exact duplicate-root gap after2reads and valid selected4block/2generation
+replay followed by maxBlocks3 exhaustion on read4. Both negative sources close
+iterators. Long100case remains mandatory generalCI, with its page-boundary block
+exhaustion assertion now requiring block capacity specifically. Log
+`/tmp/resonance-ci-fixture-composed.log`, SHA256
+`3c298fd4c8a62f9327c3df96c202c3bb5003b668df19aa8b49b19875d22a3838`.
+
+Forced whole-workspace `npx tsc -b --force` passes, empty log
+`/tmp/resonance-ci-fixture-tsc.log`. Parent accepts fixture-only semantic scope;
+one review/self-review cleanup finding: resolve fifthArrival as well as
+fifthRelease before closing listeners, so partial-connect failure cannot strand
+already-admitted first4handlers. One cleanup rework round, no production change.
+After this existing-void-callback correction, only the affected freshness file
+reruns: `npx vitest run --maxWorkers=1 packages/relay/src/__tests__/configured-policy-freshness.integration.test.ts`:
+3/3pass,1.84s; log `/tmp/resonance-ci-fixture-freshness-reviewed.log`, SHA256
+`52a36299155b0cecff09f5a20a04add09fb1d7292423acc3c185721fef876447`.
+Parent requires no compile repeat for the unchanged callback types. No lifecycle
+or long100workload repeated. First fixture semantic acceptance passes; the two
+intentional failing discriminants are preserved diagnosis, not failed alternatives.
+
+Final source SHA256:
+configured freshness `a0d22407cd78fe670ac1ff660f7a21f3fcc0ef7fffe2bc4c04e700ef5a0b8d46`;
+original-pool observer `1ee0afd2140db7f71e4616ef9102126ce7a70640076bd65f85028803cf8600d1`.
+The two earlier numeric-harness hashes remain unchanged. `git diff --check`
+passes. Integrated correction accounts for all four distinct hosted fixture/harness
+failures; hosted acceptance requires parent's one stable combined candidate/full
+MacCI. No production, trust, funding, resource, freshness, capacity, workflow,
+Git mutation, dispatch/cancellation, installer, release or semantic-compaction
+change. Both prior2/2long-case results stand; no fullK2/K3 qualification claim.
+
+Actual additional active interval13:00–13:04UTC within the prospective window;
+test/compile waits and parent idle waiting excluded, without invented historical
+hours. Actual Sol/medium throughout. Shared weekly5->6% observed, ordinary usage
+allowed; shared/coarse change includes other work and has no task/model attribution.
+Earlier alternatives and unknown effort remain; semantic ancestry/compaction and
+the suspended historical retirement investigation retain their condition4 stop.
+
+Parent final integration: all four test hashes match the accepted receipts; only
+harness/fixtures plus these existing docs changed after3b223cb. No production,
+workflow, operation-budget or assertion-target relaxation. New isolated invalid
+source and genuine-capacity tests retain the full100-recovery case in generalCI.
+Accepted cleanup resolves both held server barriers on failure. Publish all four
+concrete CI corrections together and let one fullMac run finish on the stable
+candidate. General3b source evidence is3404/3406 across367files in1951.10s;
+new relay101-generation restore passes hosted in100981ms. Issuer/allocation long
+pooled files and both protected65/wallet101 cases pass in general; durability's
+whole-test expiries remain rejected qualification until corrected hosted evidence.
+Sanitized log SHA256 general1a584609284dd781c5f1f790f0614a1315d6950ad39fca7e1d88e5a3c4d81611;
+durability6b732aae441c4719f87d30bc991ff12baa968d7faf993ecd5918437624131d14.
+The original observer operational workload reached its old duplicate-root assertion;
+its complete corrected suffix still requires hosted execution. No completeK2/K3,
+semantic compaction or independent deployment is inferred. Shared account observed
+6% used, ordinary allowed; cumulative block entry3%, account-wide/coarse, not
+model attribution. Keep prior alternatives/unknown hours and the semantic gate.

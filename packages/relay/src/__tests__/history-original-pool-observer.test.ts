@@ -50,18 +50,13 @@ it('retains policy conflict obligations across100 real pooled recoveries and dow
       return n.services()[enrolled.context.members.indexOf(member.publicKey)].checkpoint(frame); } });
   try { await expect(timed.run({ maxBlocks: 10001 })).rejects.toThrow(/timed out|unavailable/); expect(crossed).toBe(true); expect(timed.read().page).toBe(1); expect(timed.read().complete).toBe(false); }
   finally { timed.close(); attemptClock.mockRestore(); }
-  let reads = 0, returned = false;
-  function* repeated() { try { while (true) { reads++; yield enrolled.root; } } finally { returned = true; } }
-  await expect(replayPolicyObserverHistory({ context: f.context, historyContext: enrolled.context, genesisId: n.genesisId, proposal,
-    encryptionKey: f.options.encryptionKey, blocks: repeated(), maxBlocks: 3 })).rejects.toThrow('block capacity');
-  expect(reads).toBe(4); expect(returned).toBe(true);
   const input = { context: f.context, historyContext: enrolled.context, genesisId: n.genesisId, proposal, encryptionKey: f.options.encryptionKey, blocks: [...download.blocks()] };
   for (const damage of ['gap', 'reorder', 'blocks', 'bytes']) {
     const blocks = [...input.blocks], boundary = blocks.findIndex(b => b.generation === 64);
     if (damage === 'gap') blocks.splice(boundary, 1);
     if (damage === 'reorder') [blocks[boundary - 1], blocks[boundary]] = [blocks[boundary], blocks[boundary - 1]];
     await expect(replayPolicyObserverHistory({ ...input, blocks, ...(damage === 'blocks' ? { maxBlocks: boundary + 1 } : {}),
-      ...(damage === 'bytes' ? { maxBytes: input.blocks.slice(0, boundary + 1).reduce((n, b) => n + Buffer.byteLength(JSON.stringify(b)), 0) } : {}) })).rejects.toThrow();
+      ...(damage === 'bytes' ? { maxBytes: input.blocks.slice(0, boundary + 1).reduce((n, b) => n + Buffer.byteLength(JSON.stringify(b)), 0) } : {}) })).rejects.toThrow(damage === 'blocks' ? 'block capacity' : undefined);
   }
   let elapsed = 0; const clock = vi.spyOn(performance, 'now').mockImplementation(() => elapsed);
   function* delayed() { for (const block of input.blocks) { if (block.generation === 64) elapsed = 51; yield block; } }
@@ -73,3 +68,32 @@ it('retains policy conflict obligations across100 real pooled recoveries and dow
   writeFileSync('/tmp/resonance-original-pool-observer.json', JSON.stringify(measured, null, 2));
   expect(measured.pools.every(p => p!.pages === 2 && p!.peakBytes <= 256 * 1024 * 1024)).toBe(true);
 }, 300000);
+
+
+it('fails fast on a repeated genesis and closes its source before block capacity', async () => {
+  const f = await policyObserverFixture(); cleanup.push(f.close);
+  const enrolled = await createPolicyObserverHistoryRoot({ context: f.context, signingKey: f.keys[0], encryptionKey: f.options.encryptionKey, policy: f.first, now: () => f.now });
+  const n = historyOriginalPoolFixture({ context: enrolled.context, root: enrolled.root, encryptionKey: f.options.encryptionKey, owner: f.keys[0], memberKeys: f.keys }); cleanup.push(n.close);
+  const proposal = n.select();
+  let reads = 0, returned = false;
+  function* repeated() { try { while (true) { reads++; yield enrolled.root; } } finally { returned = true; } }
+  await expect(replayPolicyObserverHistory({ context: f.context, historyContext: enrolled.context, genesisId: n.genesisId, proposal,
+    encryptionKey: f.options.encryptionKey, blocks: repeated(), maxBlocks: 3 })).rejects.toThrow('Policy observer history has a gap, fork or wrong generation');
+  expect(reads).toBe(2); expect(returned).toBe(true);
+});
+
+it('exhausts block capacity on a genuine selected chain and closes its source', async () => {
+  const f = await policyObserverFixture(); cleanup.push(f.close);
+  const enrolled = await createPolicyObserverHistoryRoot({ context: f.context, signingKey: f.keys[0], encryptionKey: f.options.encryptionKey, policy: f.first, now: () => f.now });
+  const initial: AdmissionPolicyObserverState = { version: 1, contextId: admissionPolicyObserversId(f.context), policy: f.first, previous: null, advance: null, conflict: null };
+  const advanced = advanceAdmissionPolicyObserverState(initial, f.advance, f.context), conflicted = advanceAdmissionPolicyObserverState(advanced, f.conflict, f.context);
+  const n = historyOriginalPoolFixture({ context: enrolled.context, root: enrolled.root, encryptionKey: f.options.encryptionKey, owner: f.keys[0], memberKeys: f.keys }); cleanup.push(n.close);
+  n.append(advanced); n.append(conflicted); const first = n.select(); n.rotate(first);
+  const input = { context: f.context, historyContext: enrolled.context, genesisId: n.genesisId, proposal: n.select(), encryptionKey: f.options.encryptionKey, blocks: n.blocks() };
+  const complete = await replayPolicyObserverHistory({ ...input, minimumState: conflicted });
+  expect(complete.blocks).toBe(4); expect(complete.generations).toBe(2); expect(complete.state).toEqual(conflicted);
+  let reads = 0, returned = false;
+  function* valid() { try { for (const block of input.blocks) { reads++; yield block; } } finally { returned = true; } }
+  await expect(replayPolicyObserverHistory({ ...input, blocks: valid(), maxBlocks: 3 })).rejects.toThrow('block capacity');
+  expect(reads).toBe(4); expect(returned).toBe(true);
+});

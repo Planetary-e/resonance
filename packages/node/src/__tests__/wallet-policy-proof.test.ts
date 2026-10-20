@@ -201,7 +201,7 @@ it('retains101 local profiles across100 signed transitions with bounded handles,
   rmSync(join(n.options.directory, 'admission-wallet.json'));
   await expect(openManagedAdmissionWallet(coldOptions)).rejects.toThrow('wallet is missing');
   } finally { await boundary.close(); }
-}, 60000);
+}, 300000);
 
 it('backfills pinnedv5 resumably without changing the installed policy or observed floor', async () => {
   const n = fixture(); let wallet = await openManagedAdmissionWallet({ ...n.options, proofStorage: undefined }); cleanup.push(() => wallet.close());

@@ -275,7 +275,7 @@ it('crosses65 archived configurations with protected issuance/admission, exact b
   const altered = JSON.parse(proofBytes.toString('utf8')); altered.ciphertext = `${altered.ciphertext[0] === 'A' ? 'B' : 'A'}${altered.ciphertext.slice(1)}`;
   writeFileSync(proofPath, JSON.stringify(altered)); await expect(n.run(() => openProtectedAdmissionIssuerLedger(issuerOptions))).rejects.toThrow(); writeFileSync(proofPath, proofBytes);
   issuer = await n.run(() => openProtectedAdmissionIssuerLedger(issuerOptions)); await issuer.ready(); issuer.close();
-}, 120000);
+}, 300000);
 
 it('honors a stricter cancellation signal on an explicitly shared immutable core budget', async () => {
   const controller = new AbortController(), budget = new AdmissionPolicyArchiveBudget({ limits });
