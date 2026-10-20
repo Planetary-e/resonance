@@ -2144,3 +2144,20 @@ Final logging-only diff reviewed by parent; final core/relay/node compilation an
 whitespace pass. Candidate manifest /tmp/resonance-restore-preparation-final-candidate.json.
 One stable push follows, including previously committed model routing. No installers,
 merge or release.
+
+Hosted021c634 general job fails during clean TypeScript build: test diagnostic's
+new literal dynamic import pulled desktop storage source outside node rootDir
+(TS6059/TS6307). Incremental local compilation missed this project-boundary error.
+Use the same variable dynamic-import convention as the pre-existing desktop test
+boundary; no runtime or production change. Run one forced whole-workspace compile
+before next push. Other jobs still running; preserve their eventual test evidence.
+Do not rerun the110-test regression for the import spelling correction alone.
+
+Import correction verification: forced entire workspace compilation passes;
+/tmp/resonance-restore-preparation-forced-workspace-compile.log. Removed only the
+four untracked desktop storage .js/.d.ts artifacts emitted by the earlier literal
+import. One focused actual wallet lifecycle on this corrected layout passes1/1
+(23skipped),56.54s; /tmp/resonance-wallet-unlock-diagnostic-final.log. Final reopen
+2455.40ms, private-update reopen2438.05ms; expected negative cases no longer create
+misleading unlock diagnostics. No runtime assertion or operation deadline changed.
+Wait for existing durability/ownership jobs before publishing this import-only fix.

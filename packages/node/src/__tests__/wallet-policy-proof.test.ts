@@ -532,7 +532,8 @@ async function preparePrivateBoundary(n: ReturnType<typeof fixture>) {
     if (unlocking) process.stderr.write(JSON.stringify({ test: 'private-wallet-unlock', stage,
       error: error instanceof Error ? error.message : String(error) }) + '\n');
   };
-  const storageModule = await import('../../../app/src/server/wallet-proof-storage.js');
+  const storageModulePath = '../../../app/src/server/wallet-proof-storage.js';
+  const storageModule = await import(storageModulePath);
   const actualOpenStorage = storageModule.openWalletProofStorageSelection;
   vi.spyOn(storageModule, 'openWalletProofStorageSelection').mockImplementation((...args) => {
     try { return actualOpenStorage(...args); }
