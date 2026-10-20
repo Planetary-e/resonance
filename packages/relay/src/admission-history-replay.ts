@@ -1,4 +1,4 @@
-import { archivedAdmissionPolicyDigest as admissionPolicyDigest } from '@resonance/core/admission-policy-archive';
+import { AdmissionPolicyArchiveExecutionContext, archivedAdmissionPolicyDigest as admissionPolicyDigest } from '@resonance/core/admission-policy-archive';
 import type { PolicyProofHistory, PolicyProofOperation, PolicyProofCache } from './admission-policy-history-proof.js';
 /** Offline semantic reconstruction. A complete result is historical evidence, never write readiness. */
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
@@ -39,13 +39,14 @@ export async function replayAdmissionHistory(options: {
     throw new Error('Compaction replay certificate exceeds its bound');
   }
   const compaction: unknown = encodedCompaction === undefined ? undefined : JSON.parse(encodedCompaction);
-  const genesisId = options.genesisId, key = Buffer.from(options.encryptionKey), started = performance.now();
+  const genesisId = options.genesisId, started = performance.now();
   let image: AdmissionHistoryImage | undefined, genesis: HistoryEncryptedEnvelope | undefined;
   let anchor: { certificate: HistoryCompactionCertificate; checkpoint: HistoryCheckpointEnvelope } | undefined;
   let consumedCompaction = false;
   let head: HistoryCheckpointEnvelope | undefined, rootId = '', ids: string[] = [], bytes = 0, blocks = 0, generationBytes = 0, generations = 0;
   function live() {
     if (options.signal?.aborted || performance.now() - started >= timeoutMs) throw new Error('Admission history replay cancelled or timed out');
+    proofOperation.budget?.check();
   }
   function decode(block: HistoryCheckpointEnvelope): unknown {
     const plaintext = openHistoryCheckpoint(block, context, key);
@@ -58,7 +59,14 @@ export async function replayAdmissionHistory(options: {
       checkpoint: anchor.checkpoint, context, genesisId });
     else assertHistorySuccessorChain(selected, ids);
   }
-  const proofOperation: PolicyProofOperation = {}, proofCache: PolicyProofCache = new Map();
+  // Historical proof reconstruction owns one explicit offline deadline from replay
+  // entry. Retained reference bounds remain unchanged and cannot authorize writes.
+  const startup = new AdmissionPolicyArchiveExecutionContext({
+    execution: { version: 2, purpose: 'offline-startup-reconstruction', timeoutMs: Math.min(timeoutMs, 30000) },
+    timeoutMs, signal: options.signal, deadline: started + Math.min(timeoutMs, 30000),
+  });
+  const key = Buffer.from(options.encryptionKey);
+  const proofOperation: PolicyProofOperation = { startup }, proofCache: PolicyProofCache = new Map();
   const proofHistory: PolicyProofHistory = { context, encryptionKey: key, operation: proofOperation, cache: proofCache,
     signal: options.signal, deadline: started + timeoutMs, source: options.blockSource ?? (() => options.blocks as Iterable<HistoryCheckpointEnvelope>) };
   try {

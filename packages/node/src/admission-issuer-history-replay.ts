@@ -1,6 +1,6 @@
 import { historyAncestryPages } from '@resonance/core/history-ancestry-pages';
-import { AdmissionPolicyArchiveBudget, parseAdmissionPolicyProofReference } from '@resonance/core/admission-policy-archive';
-import type { PolicyProofOperation, PolicyProofCache } from '../../relay/src/admission-policy-history-proof.js';
+import { AdmissionPolicyArchiveExecutionContext, parseAdmissionPolicyProofReference } from '@resonance/core/admission-policy-archive';
+import { policyProofBudget, type PolicyProofOperation, type PolicyProofCache } from '../../relay/src/admission-policy-history-proof.js';
 import type { ProtectedIssuerState as State } from './protected-admission-issuer-state.js';
 /** Complete authenticated issuer history replay. Historical evidence never grants live write authority. */
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
@@ -23,11 +23,19 @@ export async function replayProtectedIssuerHistory(options: ProtectedIssuerRepla
   const profileInput = structuredClone(options.profile), proposal = parseHistorySuccessorProposal(structuredClone(options.proposal), context);
   const maxBlocks = options.maxBlocks ?? 10001, maxBytes = options.maxBytes ?? 256 * 1024 * 1024, timeoutMs = options.timeoutMs ?? 30000;
   const signal = options.signal, started = performance.now();
-  function live() { if (signal?.aborted || performance.now() - started >= timeoutMs) throw new Error('Issuer history replay cancelled or timed out'); }
+  function live() {
+    if (signal?.aborted || performance.now() - started >= timeoutMs) throw new Error('Issuer history replay cancelled or timed out');
+    proofOperation.budget?.check();
+  }
   if (context.role !== 'admission-issuer' || context.authority !== authority || !isHistoryDigest(genesisId)
     || !(options.encryptionKey instanceof Uint8Array) || options.encryptionKey.length !== 32
     || ![maxBlocks, maxBytes, timeoutMs].every(Number.isSafeInteger) || maxBlocks < 1 || maxBlocks > 10001
     || maxBytes < 1 || maxBytes > 256 * 1024 * 1024 || timeoutMs < 50 || timeoutMs > 300000) throw new Error('Invalid issuer history replay bounds or pins');
+  const startup = new AdmissionPolicyArchiveExecutionContext({
+    execution: { version: 2, purpose: 'offline-startup-reconstruction', timeoutMs: Math.min(timeoutMs, 30000) },
+    timeoutMs, signal, deadline: started + Math.min(timeoutMs, 30000),
+  });
+  const proofOperation: PolicyProofOperation = { startup }, proofCache: PolicyProofCache = new Map();
   const key = Uint8Array.from(options.encryptionKey), contextId = historyCheckpointContextId(context), proposalId = historySuccessorProposalId(proposal);
   try {
     // Freeze the complete bounded iterable and evidence before the first await.
@@ -52,7 +60,6 @@ export async function replayProtectedIssuerHistory(options: ProtectedIssuerRepla
     const found = minimum.map(() => false);
     // Replay starts without a remembered head and verifies every original append once.
     // Only the preceding/current opaque heads survive between complete business records.
-    const proofOperation: PolicyProofOperation = {}, proofCache: PolicyProofCache = new Map();
     async function decode(block: HistoryCheckpointEnvelope) {
       if (block.kind !== 'checkpoint') throw new Error('Issuer replay requires complete snapshots');
       const plaintext = openHistoryCheckpoint(block, context, key);
@@ -60,7 +67,7 @@ export async function replayProtectedIssuerHistory(options: ProtectedIssuerRepla
         if (plaintext.length > MAX_BYTES) throw new Error('Issuer history snapshot exceeds its bound');
         const raw = JSON.parse(new TextDecoder('utf8', { fatal: true }).decode(plaintext));
         const reference = raw.policyProof && parseAdmissionPolicyProofReference(raw.policyProof);
-        const budget = reference ? proofOperation.budget ??= new AdmissionPolicyArchiveBudget({ limits: reference.limits, signal, deadline: started + timeoutMs }) : undefined;
+        const budget = reference ? policyProofBudget(proofOperation, reference, signal, started + timeoutMs) : undefined;
         const image = budget ? await budget.wait(() => parseProtectedIssuerImage(raw, pins, budget.keyImports)) : await parseProtectedIssuerImage(raw, pins);
         await validateProtectedIssuerPolicyProof(image, { source: () => supplied, context, encryptionKey: key, signal, deadline: started + timeoutMs, operation: proofOperation, cache: proofCache });
         return image;

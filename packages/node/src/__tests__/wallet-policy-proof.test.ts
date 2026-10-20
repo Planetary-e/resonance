@@ -7,6 +7,7 @@ import { openEncryptedLocalState } from '@resonance/core/local-state';
 import { performance } from 'node:perf_hooks';
 import * as walletModule from '../blind-admission-wallet.js';
 import * as profiles from '../admission-wallet-profile.js';
+import * as managedWalletModule from '../managed-admission-wallet.js';
 import { openBlindAdmissionWalletV2 } from '../blind-admission-wallet.js';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
@@ -526,6 +527,25 @@ async function preparePrivateBoundary(n: ReturnType<typeof fixture>) {
     import(serverModule), import(sessionModule), import('../../../relay/src/server.js'),
     import('../../../relay/src/admission-policy-transfer.js'), import('@resonance/core/admission-policy-query'), import('@resonance/core'), import('../config.js'),
   ]);
+  let unlocking = false;
+  const reportOpenFailure = (stage: string, error: unknown) => {
+    if (unlocking) process.stderr.write(JSON.stringify({ test: 'private-wallet-unlock', stage,
+      error: error instanceof Error ? error.message : String(error) }) + '\n');
+  };
+  const storageModule = await import('../../../app/src/server/wallet-proof-storage.js');
+  const actualOpenStorage = storageModule.openWalletProofStorageSelection;
+  vi.spyOn(storageModule, 'openWalletProofStorageSelection').mockImplementation((...args) => {
+    try { return actualOpenStorage(...args); }
+    catch (error) { reportOpenFailure('storage-selection', error); throw error; }
+  });
+  const actualOpenManaged = managedWalletModule.openManagedAdmissionWallet;
+  vi.spyOn(managedWalletModule, 'openManagedAdmissionWallet').mockImplementation(async options => {
+    try { return await actualOpenManaged(options); }
+    catch (error) {
+      reportOpenFailure('wallet-open', error);
+      throw error;
+    }
+  });
   const systemNow = vi.spyOn(Date, 'now').mockImplementation(n.options.now);
   vi.stubEnv('RESONANCE_DATA_DIR', n.options.directory); vi.stubEnv('RESONANCE_WALLET_PROOF_STORAGE_SELECTION_FILE', undefined);
   vi.spyOn(EmbeddingEngine.prototype, 'initialize').mockResolvedValue();
@@ -554,7 +574,13 @@ async function preparePrivateBoundary(n: ReturnType<typeof fixture>) {
     try { return { status: response.status, body: await response.json() as any }; }
     catch (cause) { throw new Error(`${method} ${path}: JSON response failed (HTTP ${response.status})`, { cause }); }
   };
-  const unlock = async () => { const result = await request('/api/unlock', { password: 'catalogue-private-password' }); expect(result.status).toBe(200); token = result.body.token; };
+  const unlock = async () => {
+    unlocking = true;
+    try {
+      const result = await request('/api/unlock', { password: 'catalogue-private-password' });
+      expect(result.status, JSON.stringify(result.body)).toBe(200); token = result.body.token;
+    } finally { unlocking = false; }
+  };
   expect((await request('/api/init', { password: 'catalogue-private-password' })).status).toBe(200); await unlock();
   n.options.encryptionKey = Buffer.from(deriveAdmissionWalletKey(session.getSession()!.identity)); session.lockSession();
   const existing = [{ path: n.options.directory, scope: 'directory' as const }]; n.funding.adoptExisting(existing, n.funding.reviewExisting(existing).approvalDigest);

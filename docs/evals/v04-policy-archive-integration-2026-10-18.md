@@ -2078,3 +2078,69 @@ b852b44dbdaabc346785604d39799bb3f6d67f3bcd75107c02abb288d901a661.
 Final logging-only change recompiled; parent reviewed. First-pass implementation
 accepted, no material review findings; one diagnostic-output correction. Shared
 quota96->97% across block, ordinary usage allowed; no per-agent attribution.
+
+
+### October20 — Sol-led hosted-boundary correction (same B-HISTORY-LIFECYCLE)
+
+Baseline3366f04, published application b086dd8, CI39314696569 complete. General
+3384/3386 passes; durability327pass/2fail/2skip within15min. Both fail relay
+restore preparation at original proof budget3s and wallet private unlock503.
+Read-only evidence fixes the relay caller location (preparing-relay-restore),
+but does not identify the wallet503 internal error. No KPI qualification claim.
+
+Hypothesis1: historical replay omitted the approved explicit offline context and
+incorrectly inherits reference3s inside outer30s. Request one bounded AstraHigh
+contract review before wiring. Preserve one cumulative deadline/counters, all
+funding/bytes/transitions and cancellation; live authorization remains3s. No
+historical retirement investigation or compaction guard changes.
+Hypothesis2: HTTP wallet failure needs its original internal exception before a
+production fix. Add test-only interception of actual managed opening failures,
+retaining generic external response and all existing assertions. One changed
+focused lifecycle run; a local pass leaves hosted cause unproven. Do not tune
+unmeasured paths or increase limits. New shared usage window observed0%; earlier
+alternative counts and historical unknown effort remain unchanged. The coordinator
+owns daily diagnosis/implementation/evidence; no Sol microtask delegations.
+
+Owner explicitly approved30s cumulative historical proof reconstruction during
+issuer/relay restore preparation on October20; shorter caller limits remain.
+This supersedes the prior scope exclusion for those pure reconstruction functions,
+not live authorization, reference bounds or any other operation. Candidate uses
+one explicit v2 context from replay entry; issuer parsing and proof resolution
+share policyProofBudget. Counters and final checks remain cumulative. Acceptance:
+actual65-archive restore, cancellation/shorter deadline tests, held crypto longer
+than3s succeeding only offline, and existing live3s refusal. Wallet change is only
+failure diagnostics; no asserted correction without original error evidence.
+
+Focused evidence:6/6 original cancellation/shorter deadline and new offline
+success cases pass,12.85s; two additional monotonic30s-cap cases pass2/2,7.23s.
+Logs /tmp/resonance-restore-preparation-{focused,cap}.log. AstraHigh accepts the
+three-file replay/test diff after owner approval; no actionable findings, no
+reviewer test duplication. Parent caught and removed a pre-try secret-copy cleanup
+gap before acceptance. Compilation passes. Dirty candidate identity recorded in
+/tmp/resonance-restore-preparation-candidate.json.
+
+The first composed run lacked loopback permission (independent binding probe
+returnsEPERM), so it was interrupted and supplies no acceptance result. Repeat
+same five-file regression once in the permitted local-network environment; retain
+/tmp/resonance-restore-preparation-composed.log and -composed-network.log. Exclude
+only existing expensive through100-real-pooled case locally; it remains mandatory
+in the unfiltered general CI. Do not interpret setup skips or interrupted output
+as a product pass. Account observed0->1% during block, ordinary usage allowed;
+shared/coarse counter cannot attribute model cost. No new quota cap.
+
+Permitted composed regression:110/110 executed checks pass,1 deliberately skipped
+long pooled case,5files,282.56s. Includes actual65-archive restore, short caller
+bounds, cancellation,30s cap, live3s rejection, existing issuer/relay restoration
+and process-death cases, full24-case wallet proof file. Log:
+/tmp/resonance-restore-preparation-composed-network.log. Wallet final reopen2739.64ms,
+private-update reopen2502.73ms. No hosted503 reproduced and no production wallet
+fix claimed. Logging-only follow-up restricts diagnostics to actual HTTP unlock,
+separates storage-selection from wallet-open failures and suppresses expected
+negative-test noise; subsequent compilation/parent diff check required, not another
+heavy run. First-pass critical review accepted; no new protocol rework or delegated
+implementation. Existing historical retirement suspension/compaction guards remain.
+
+Final logging-only diff reviewed by parent; final core/relay/node compilation and
+whitespace pass. Candidate manifest /tmp/resonance-restore-preparation-final-candidate.json.
+One stable push follows, including previously committed model routing. No installers,
+merge or release.

@@ -494,6 +494,49 @@ it.each(['relay-cancel', 'issuer-cancel', 'relay-deadline', 'issuer-deadline'] a
   } finally { crypto.release(); crypto.restore(); await work; }
 }, 20000);
 
+it.each(['relay', 'issuer'] as const)('reconstructs %s proof offline beyond its unchanged reference deadline', async role => {
+  const n = await fixture(), issuer = n.issuer.owner as Awaited<ReturnType<typeof openProtectedAdmissionIssuerLedger>>;
+  const image = role === 'issuer' ? readProtectedIssuerRecoverySource(await issuer.reviewRecoverySource()).minimumEvidence[0]
+    : (n.relay.owner as Awaited<ReturnType<typeof openProtectedAdmissionSpendHistory>>).read().image;
+  const reference = admissionPolicyProofReference(context, context.genesis, { ...limits, timeoutMs: 50 });
+  const proof = { proofVersion: 1 as const, policyProof: reference, policyProofAppend: { version: 1, kind: 'genesis', policy: genesis } };
+  const retained = selectedProofRoot({ ...image, ...proof, ...(role === 'relay' ? { policyTrust: { context, installed: context.genesis, observed: context.genesis } } : {}) },
+    role === 'issuer' ? 'admission-issuer' : 'relay-admission-spends', n.key);
+  const crypto = holdPolicyCrypto(role === 'issuer' ? 1 : 0);
+  const work = role === 'issuer' ? replayProtectedIssuerHistory({ ...retained, authority, profile: entries[0].profile, timeoutMs: 5000 })
+    : replayAdmissionHistory({ ...retained, timeoutMs: 5000 });
+  try {
+    await crypto.held;
+    await new Promise(resolve => setTimeout(resolve, 100));
+    crypto.release();
+    const result = await work;
+    const restored = 'state' in result ? result.state : result.image;
+    expect(restored.policyProof).toEqual(reference);
+    expect(restored.policyProof!.limits.timeoutMs).toBe(50);
+  } finally { crypto.release(); crypto.restore(); await work.catch(() => {}); }
+}, 15000);
+
+it.each(['relay', 'issuer'] as const)('caps %s historical proof reconstruction at thirty cumulative seconds', async role => {
+  const n = await fixture(), issuer = n.issuer.owner as Awaited<ReturnType<typeof openProtectedAdmissionIssuerLedger>>;
+  const image = role === 'issuer' ? readProtectedIssuerRecoverySource(await issuer.reviewRecoverySource()).minimumEvidence[0]
+    : (n.relay.owner as Awaited<ReturnType<typeof openProtectedAdmissionSpendHistory>>).read().image;
+  const proof = { proofVersion: 1 as const, policyProof: admissionPolicyProofReference(context, context.genesis, limits),
+    policyProofAppend: { version: 1, kind: 'genesis', policy: genesis } };
+  const retained = selectedProofRoot({ ...image, ...proof, ...(role === 'relay' ? { policyTrust: { context, installed: context.genesis, observed: context.genesis } } : {}) },
+    role === 'issuer' ? 'admission-issuer' : 'relay-admission-spends', n.key);
+  const crypto = holdPolicyCrypto(role === 'issuer' ? 1 : 0);
+  const work = (role === 'issuer' ? replayProtectedIssuerHistory({ ...retained, authority, profile: entries[0].profile, timeoutMs: 60000 })
+    : replayAdmissionHistory({ ...retained, timeoutMs: 60000 })).then(() => ({ error: undefined }), error => ({ error }));
+  let clock: ReturnType<typeof vi.spyOn> | undefined;
+  try {
+    await crypto.held;
+    const now = performance.now.bind(performance);
+    clock = vi.spyOn(performance, 'now').mockImplementation(() => now() + 30001);
+    crypto.release();
+    expect(String((await work).error)).toMatch(/cancelled|timed out/);
+  } finally { clock?.mockRestore(); crypto.release(); crypto.restore(); await work; }
+}, 15000);
+
 it('cancels the first protected issuer install verification and releases busy without an intent', async () => {
   const n = await fixture(), issuer = n.issuer.owner as Awaited<ReturnType<typeof openProtectedAdmissionIssuerLedger>>;
   n.select(advances[0]);
