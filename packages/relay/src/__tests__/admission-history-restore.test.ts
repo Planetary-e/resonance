@@ -83,6 +83,35 @@ it('closes its source and retains the caller key on cancellation during semantic
   await expect(replayAdmissionHistory({ ...n.replayOptions(), blocks: source(), signal: controller.signal })).rejects.toThrow('cancelled');
   expect(returned).toBe(true); expect(n.key).toEqual(before);
 });
+it('delivers scheduled cancellation before ingesting a complete large generation', async () => {
+  const n = await fixture(), controller = new AbortController(), before = Buffer.from(n.key);
+  let previousId = historyCheckpointEnvelopeId(n.continuation());
+  for (let sequence = 1; sequence <= 96; sequence++) {
+    const block = sealHistoryCheckpoint({ context: n.context, signingKey: n.owner, encryptionKey: n.key,
+      header: { kind: 'delta', generation: 1, sequence, previous: previousId },
+      plaintext: encodeAdmissionHistoryRecord({ version: 1, kind: 'spend', at: n.time + 10000, row: n.currentRow }) });
+    n.generations[1].forEach(store => store.append(block)); previousId = historyCheckpointEnvelopeId(block);
+  }
+  await n.certify();
+  const input = n.replayOptions(); let consumed = 0, closed = false;
+  let timer: ReturnType<typeof setImmediate> | undefined;
+  function* source() {
+    try {
+      for (const block of input.blocks) {
+        // Queue an external event only after ingestion begins, rather than abort
+        // synchronously in the generator or during earlier policy verification.
+        if (++consumed === 10) timer = setImmediate(() => controller.abort());
+        yield block;
+      }
+    } finally { closed = true; }
+  }
+  try {
+    await expect(replayAdmissionHistory({ ...input, blocks: source(), signal: controller.signal })).rejects.toThrow('cancelled');
+    expect(controller.signal.aborted).toBe(true); expect(closed).toBe(true);
+    expect(consumed).toBeGreaterThanOrEqual(10); expect(consumed).toBeLessThanOrEqual(32);
+    expect(n.key).toEqual(before);
+  } finally { if (timer) clearImmediate(timer); }
+}, 30000);
 it('requires four fresh root writes before serving a reviewed restored image and fences local-only readers', async () => {
   const n = await fixture(), { history, input } = await initialize(n); n.online(3);
   expect(history.read().version).toBe(4); expect(history.read().image).toEqual(n.image);

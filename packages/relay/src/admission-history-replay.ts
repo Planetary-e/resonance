@@ -1,3 +1,4 @@
+import { firstHistoryAncestryPage, nextHistoryAncestryGeneration } from '@resonance/core/history-ancestry-pages';
 import { AdmissionPolicyArchiveExecutionContext, archivedAdmissionPolicyDigest as admissionPolicyDigest } from '@resonance/core/admission-policy-archive';
 import type { PolicyProofHistory, PolicyProofOperation, PolicyProofCache } from './admission-policy-history-proof.js';
 /** Offline semantic reconstruction. A complete result is historical evidence, never write readiness. */
@@ -71,11 +72,13 @@ export async function replayAdmissionHistory(options: {
     signal: options.signal, deadline: started + timeoutMs, source: options.blockSource ?? (() => options.blocks as Iterable<HistoryCheckpointEnvelope>) };
   try {
     live();
+    let page = firstHistoryAncestryPage(), processed = 0;
     for (const raw of options.blocks) {
       live(); if (++blocks > maxBlocks) throw new Error('Admission replay block capacity exceeded');
       const size = Buffer.byteLength(JSON.stringify(raw) ?? '');
       if (!size || size > HISTORY_ENVELOPE_MAX_BYTES || (bytes += size) > maxBytes) throw new Error('Admission replay byte capacity exceeded');
       const block = parseHistoryCheckpointEnvelope(raw, context), id = historyCheckpointEnvelopeId(block);
+      let pageBoundary = false;
       if (!head) {
         if (block.kind !== 'checkpoint' || block.generation !== 0 || block.sequence !== 0 || id !== genesisId) throw new Error('Admission replay needs its independently pinned genesis');
         genesis = block; image = await parseAdmissionHistoryImage(decode(block), context.authority, maxSpends, proofHistory);
@@ -91,8 +94,12 @@ export async function replayAdmissionHistory(options: {
         rootId = certificate.proposal.rootId; ids = [id]; generationBytes = block.generation === 0 ? generationBytes + size : size;
         if (block.generation > 0) generations++;
       } else if (block.kind === 'continuation') {
-        if (generations >= 65 || block.proposal.generation !== head.generation || block.generation <= head.generation) throw new Error('Invalid admission generation ancestry');
+        if (block.proposal.generation !== head.generation || block.generation <= head.generation) throw new Error('Invalid admission generation ancestry');
         assertSelectedChain(block.proposal);
+        // Page positions partition authenticated traversal without buffering input
+        // or resetting semantic state, capacity counters or proof deadlines.
+        const nextPage = nextHistoryAncestryGeneration(page);
+        pageBoundary = nextPage.index !== page.index; page = nextPage;
         anchor = undefined; generations++; rootId = id; ids = [id]; generationBytes = size;
       } else {
         if (block.generation !== head.generation || block.sequence !== head.sequence + 1 || block.previous !== historyCheckpointEnvelopeId(head)) {
@@ -106,7 +113,7 @@ export async function replayAdmissionHistory(options: {
       if (block.generation > proposal.generation || (block.generation === proposal.generation && block.sequence > proposal.sequence)) throw new Error('Admission history exceeds its selected head');
       head = block;
       // Yield macrotasks so cancellation can arrive during long local histories.
-      if (blocks % 32 === 0) { options.onProgress?.({ blocks, bytes, generations }); await yieldToEventLoop(); live(); }
+      if (++processed % 32 === 0 || pageBoundary) { options.onProgress?.({ blocks, bytes, generations }); await yieldToEventLoop(); live(); }
     }
     live();
     if (!image || !genesis || !head || head.generation !== proposal.generation || rootId !== proposal.rootId

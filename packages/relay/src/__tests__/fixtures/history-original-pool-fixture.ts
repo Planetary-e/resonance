@@ -23,8 +23,8 @@ export function historyOriginalPoolFixture(o: { context: HistoryCheckpointContex
   const options = memberKeys.map((signingKey, i) => ({ storageVersion: 2 as const, directory: join(directory, `replica-${i}`), localKey: localKeys[i], context: o.context, signingKey, genesisId }));
   let services = withStorageReservationAuthority(authority, () => options.map(p => openHistoryVolunteerService({ ...p, initialize: o.root })));
   let root = o.root, chain: HistoryCheckpointEnvelope[] = [root];
-  function append(value: unknown) {
-    const previous = chain.at(-1)!, block = sealHistoryCheckpoint({ context: o.context, header: { kind: 'checkpoint', generation: root.generation, sequence: previous.sequence + 1,
+  function append(value: unknown, kind: 'checkpoint' | 'delta' = 'checkpoint') {
+    const previous = chain.at(-1)!, block = sealHistoryCheckpoint({ context: o.context, header: { kind, generation: root.generation, sequence: previous.sequence + 1,
       previous: historyCheckpointEnvelopeId(previous) }, plaintext: Buffer.from(JSON.stringify(value)), encryptionKey: o.encryptionKey, signingKey: o.owner });
     const issuedAt = Date.now();
     services.forEach((s, i) => s.checkpoint({ request: createHistoryExchangeRequest({ action: 'append', rootId: historyCheckpointEnvelopeId(root), generation: root.generation,
@@ -59,7 +59,7 @@ export function historyOriginalPoolFixture(o: { context: HistoryCheckpointContex
     function scan(path: string) { for (const name of readdirSync(path)) { const file = join(path, name), stat = lstatSync(file); if (stat.isDirectory()) scan(file); else files.push({ path: file.slice(directory.length + 1), bytes: stat.size }); } }
     scan(directory); return { generations: services[0].describe().generations, files: files.length, actualBytes: files.reduce((n, f) => n + f.bytes, 0), pools: services.map(s => s.originalStorageUsage()), funding: authority.status(), memory: process.memoryUsage() };
   }
-  return { directory, services: () => services, members, genesisId, append, select, rotate, reopen, measurement,
+  return { run: <T>(work: () => T): T => withStorageReservationAuthority(authority, work), directory, services: () => services, members, genesisId, append, select, rotate, reopen, measurement,
     blocks: () => [...services[0].originalBlocks()],
     refuseCatalogMutation(mutate: (value: any) => void) {
       services.forEach(s => s.close()); const path = join(options[0].directory, HISTORY_SHARED_CATALOG), original = readFileSync(path);

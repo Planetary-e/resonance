@@ -2241,3 +2241,88 @@ attribution or claimed savings. Idle CI wait excluded from active effort.
 Follow-up commit edits only these two Markdown evidence/checkpoint documents and
 uses GitHub's skip-ci marker to avoid repeating the unchanged3397-check code run.
 Validated source remains4bc05fc; no code, tests, dependencies or workflow changed.
+
+
+### October20 — relay completion of approved original-evidence paging
+
+Baseline0561ae9, code4bc05fc hosted3397/3397 plus all Mac jobs green. Entry quota3%
+shared, ordinary usage allowed. Same B-HISTORY-LIFECYCLE/K2,K3, prior alternatives
+and historical unknown effort retained. Bounded AstraMedium direction confirms
+relay paging is a necessary compatible completion of the owner-approved64-per-page
+original-evidence representation. It does not reopen semantic compaction or the
+suspended investigation. No new owner resource/trust decision for this scope.
+
+Concrete gap: admission-history-replay still refuses65th continuation while other
+three semantic roles already use v2 pages. Implement the same pages here, preserving
+cross-page chain state, aggregate counts/deadlines/cancellation, per-generation
+capacity, proof provenance, freshness and all business-only compaction guards.
+Acceptance: real five-volunteer shared stores across100 generation transitions,
+original-genesis replay at65/101 generations, independent expected spends/denials
+and original policy proofs, remote selected download and actual reviewed restore
+with readiness. Boundary missing/reordered/mismatched evidence, aggregate byte/block
+exhaustion, cancellation and incomplete selected ancestry must refuse. Retain legacy
+restore/compaction compatibility. No1000-fault campaign or claim of100 complete
+owner-recovery/compaction cycles/KPI closure. Stop on changed trust/resources or
+missing semantic evidence. One implementation, focused checks, scoped critical
+review and one affected regression; long operational workload runs once locally.
+
+Implementation review found one material scheduling regression in the first
+buffered-page draft: parsing a whole page synchronously delayed external abort
+until semantic replay. That draft is not accepted. The correction uses the
+existing v2 page-position functions during streaming replay, advancing only after
+validated continuation ancestry and retaining the previous 32-block macrotask
+cadence. Scoped AstraHigh follow-up accepts that correction, with no other safety
+finding. A new externally scheduled abort regression passes, closing its source
+by 32 consumed blocks and retaining the caller key. Its 96-delta real-store setup
+needs a 30s test-harness timeout (initial default5s expired during setup); production
+operation budgets and the consumed-block assertion are unchanged. A test-only
+inferred continuation type was also corrected; forced workspace compilation passes.
+
+Preflight caught a separate test-setup mistake during the first long run: default
+download.run() requests at most64 blocks and cannot complete the selected101-chain.
+The run was explicitly interrupted before reaching that known-invalid assertion;
+log /tmp/resonance-relay-paging-long-interrupted.log is retained. The corrected
+fixture explicitly requests exactly the selected block count within the unchanged
+10001-block/30s attempt bounds and asserts completion. One composed acceptance run
+now covers that long workload plus existing restore/legacy-compaction regressions.
+No failed safety result, resource-limit increase or full KPI claim is implied.
+
+Accepted local candidate (Node24.19.0, macOS ARM64, original checkout):
+`node node_modules/vitest/vitest.mjs run --maxWorkers=1 packages/relay/src/__tests__/admission-history-paged-replay.integration.test.ts packages/relay/src/__tests__/admission-history-restore.test.ts packages/relay/src/__tests__/admission-history-compacted-replay.test.ts`
+passes49/49 across3 files in296.66s. Forced whole-workspace `tsc -b --force`
+passes after the final fixture correction. At1/65/101 generations the independent
+business/proof oracle passes; the full long workload completes in209343ms,
+including selected download, actual reviewed restore and fresh readiness. The
+last provisioned continuation makes102 retained generations. All five pools use
+two pages; max accounted pool peak28013131 bytes <=268435456. Actual retained files
+at final measurement10226/110349185 bytes; aggregate funded reservations1835048960
+of2147483648 bytes, including the selected download and restored owner. These are
+one controlled small-state workload, not100 policy transitions, full lifecycle
+compactions, a latency percentile, independent devices or a complete KPI.
+
+Candidate source SHA256: relay replay8174b54bb93ec0b2508b54052d5b39345ad77e1755ebfde9e5dadf06cf2e7787;
+long test961e43a60992b507a72f045311a57695839f97aab744f144a5aa64e90ac72103;
+restore test439a566faeae3c49ecfbe631c30b187cfef7c1f8b248ffba596de1372a18766e;
+shared fixture68b46ebd22bced0d510db3153066046e9796965df9827109c2af7a69038e84de.
+Composed log /tmp/resonance-relay-paging-composed.log SHA256
+72fe2ead2683a89cbbab1d862b015eaf7e7583efeb46e1376963de89efb30c2f;
+measurement /tmp/resonance-original-pool-relay.json SHA256
+0433926b1e7117cdd540242c5402fa2c84bfcdbdf59cfb412a5add67457b17ba.
+Intermediate measurements retained beside it as -1/-65/-101.json.
+
+Routing: parent owns ordinary implementation/integration; its runtime model/effort
+is not exposed by the available status tools (approved routing is SolMedium).
+Bounded contract agent was explicitly AstraMedium; critical reviewer AstraHigh;
+no mechanical agent. First review acceptance: no; one material streaming rework,
+then scoped acceptance. Test-only type/harness/download preparation corrections
+are recorded above. Shared observed account usage3->4%, ordinary usage allowed;
+not model-attributed cost or demonstrated savings. Original blocker alternatives
+and unknown historical hours remain; idle test/CI waiting is excluded from effort.
+
+The review also exposes a necessary same-class follow-up in existing issuer,
+allocation-authority and observer ingestion: their original-evidence page traversal
+(or preceding copied-source parsing) is synchronous before semantic yields. Record
+and correct scheduled cancellation without weakening input snapshots, source
+closure, proofs, selection, counters or budgets. This is a bounded derivative of
+the reviewed cancellation finding, not authorization to reopen semantic compaction
+or repeat all three local101-generation workloads without a new relevant failure.
