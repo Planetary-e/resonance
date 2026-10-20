@@ -2223,3 +2223,21 @@ Shared account window0->2% across both October20 corrections (not model attribut
 or a measured savings rate), ordinary usage allowed. New approved wallet candidate
 supersedes intermediate import-only CI; do not claim that interrupted full run
 passed. Push once, then await hosted evidence without further speculative changes.
+
+
+Final hosted code qualification4bc05fc4510484b6b43cdc50c211ad7b7e6dc677:
+CI39412838913 success; all4Mac jobs pass. General3397/3397,365files,1730.17s,
+quick eval success; /tmp/resonance-4bc05fc-general.log. Durability340pass/2skip,
+30files; /tmp/resonance-4bc05fc-durability.log. Two intentionally skipped focused-job
+pooled cases remain in and pass general. Actual65-archive restored stage55856ms;
+wallet intermediate71/72/99 reopens1071/1000/1482ms, private-update1595ms and
+final1432ms. These timings are one hosted scenario, not p95 or universal bounds.
+Desktop and ownership pass. No completeK2/K3, semantic compaction or independent
+pilot claim. Original closure boundary/guards and suspended investigation persist.
+No further helper work on the two corrected boundaries without new evidence.
+Shared observed quota0->3% over this block, ordinary usage allowed; no exact model
+attribution or claimed savings. Idle CI wait excluded from active effort.
+
+Follow-up commit edits only these two Markdown evidence/checkpoint documents and
+uses GitHub's skip-ci marker to avoid repeating the unchanged3397-check code run.
+Validated source remains4bc05fc; no code, tests, dependencies or workflow changed.
