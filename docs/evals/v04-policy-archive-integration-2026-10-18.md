@@ -2621,3 +2621,39 @@ its complete corrected suffix still requires hosted execution. No completeK2/K3,
 semantic compaction or independent deployment is inferred. Shared account observed
 6% used, ordinary allowed; cumulative block entry3%, account-wide/coarse, not
 model attribution. Keep prior alternatives/unknown hours and the semantic gate.
+
+### October20 final hosted acceptance of the combined correction
+
+Exact candidate1137438333d495e28ff7267f42479aca7e556cc7;
+CI39427490508 https://github.com/Planetary-e/resonance/actions/runs/39427490508
+completes all fourMac jobs successfully. General3408/3408 across367files in
+1949.91s; legacy quick evaluation44/44. Durability345pass/2intentional skips,
+30files,559.90s; the two excluded long pooled cases pass in unfiltered general.
+Ownership5m41s, desktop3m15s, durability9m51s, full general/eval job36m16s.
+No full K2/K3/K5/K6 or independent deployment inference from these test gates.
+
+New relay101-generation restore passes hosted96461ms; corrected observer pooled
+file3/3 in131626ms, configured freshness3/3 in1367ms. Both long lifecycle files
+pass in general and durability; no product-operation limit was increased.
+General log /tmp/resonance-1137438-general.log SHA256
+8ffe7b22319d4c8bb9c29a425d74269d98b1fe3d483abcfcc06e79ded355f587;
+durability /tmp/resonance-1137438-durability.log SHA256
+83d034ebaa72f0179249f0e4ddc9e4b06d90463e16a38888e5dc632c686184b1.
+
+All concrete failures from3b qualification are resolved with their preserved
+regressions. The necessary relay paging/cancellation deliverable is accepted.
+Stop condition4 remains at the subsequent semantic-compaction line: complete
+original evidence is retained, but no approved verifiable semantic-equivalence
+contract permits reclaiming it while preserving all retained obligations. No
+investigation retry, guard removal, resource increase or KPI closure is authorized.
+Earlier alternatives/unknown historical effort remain; CI waiting excluded.
+Shared observed account3->6% across the block, ordinary usage allowed; this cannot
+attribute cost by model. Ordinary derivative implementation used explicitly
+SolHigh for recovery/cancellation and SolMedium for harness/fixture qualification;
+AstraMedium supplied the bounded paging direction, AstraHigh scoped reviews.
+Parent runtime model/effort remains unavailable through status tools. No Luna
+microtasks or further reviewer chain was used.
+
+Final follow-up edits only these existing twoMarkdown documents and uses[skip ci].
+Validated source/test candidate remains1137438; no code/dependency/workflow change,
+additional suite, installer, release or merge. The robustv0.4 objective remains open.
