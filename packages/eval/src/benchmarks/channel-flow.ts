@@ -10,20 +10,21 @@ import {
 import { createRelayServer } from '@resonance/relay';
 import { createRelayClient } from '@resonance/node';
 import { formatMs, timeAsync } from '../utils.js';
-
-const PORT = 49090 + Math.floor(Math.random() * 1000);
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 export async function benchmarkChannelFlow(engine: EmbeddingEngine): Promise<BenchmarkResult[]> {
+  const directory = mkdtempSync(join(tmpdir(), 'resonance-eval-publication-'));
   const server = createRelayServer({
-    port: PORT,
+    port: 0,
     host: '127.0.0.1',
-    persistDir: `/tmp/resonance-eval-publication-${Date.now()}`,
+    persistDir: directory,
     maxAuthAttemptsPerMin: 100,
     persistIntervalMs: 999_999,
   });
-  await server.start();
-
   try {
+    await server.start();
     const offerEmbedding = await engine.embedForMatching(
       'Python developer available for Django projects',
       'offer',
@@ -54,36 +55,45 @@ export async function benchmarkChannelFlow(engine: EmbeddingEngine): Promise<Ben
     // The identity remains a local-store key source for this API generation;
     // submitPublicationOperation does not transmit it.
     const client = createRelayClient({
-      relayUrl: `ws://localhost:${PORT}`,
+      relayUrl: `ws://127.0.0.1:${server.getListeningPort()!}`,
       identity: generateIdentity(),
     });
 
+    const acceptanceCpuStart = process.cpuUsage();
     const { durationMs: firstAcceptanceMs } = await timeAsync(async () => {
       const ack = await client.submitPublicationOperation(offer);
       if (ack.status !== 'ok') throw new Error(ack.message ?? 'publication rejected');
     });
+    const acceptanceCpu = process.cpuUsage(acceptanceCpuStart);
+    const matchingCpuStart = process.cpuUsage();
     const { durationMs: matchingMs } = await timeAsync(async () => {
       const ack = await client.submitPublicationOperation(need);
       if (ack.status !== 'ok') throw new Error(ack.message ?? 'publication rejected');
     });
+    const matchingCpu = process.cpuUsage(matchingCpuStart);
+    const cpuMs = (usage: NodeJS.CpuUsage) => (usage.user + usage.system) / 1000;
+    const stats = server.getStats();
 
     return [
       {
         name: 'Persisted v2 publication acceptance',
         target: '<500ms',
-        actual: formatMs(firstAcceptanceMs),
+        actual: `${formatMs(firstAcceptanceMs)} (CPU ${formatMs(cpuMs(acceptanceCpu))})`,
         value: firstAcceptanceMs,
         passed: firstAcceptanceMs < 500,
+        details: { wallMs: firstAcceptanceMs, processCpuMs: cpuMs(acceptanceCpu), durable: true },
       },
       {
-        name: 'V2 publication → match indexing',
+        name: 'V2 publication → durable encrypted match',
         target: '<500ms',
-        actual: formatMs(matchingMs),
+        actual: `${formatMs(matchingMs)} (CPU ${formatMs(cpuMs(matchingCpu))})`,
         value: matchingMs,
-        passed: matchingMs < 500 && server.getStats().matches_today > 0,
+        passed: matchingMs < 500 && stats.matches_today > 0 && stats.mailbox_envelopes === 2,
+        details: { wallMs: matchingMs, processCpuMs: cpuMs(matchingCpu), durable: true,
+          matches: stats.matches_today, mailboxEnvelopes: stats.mailbox_envelopes },
       },
     ];
   } finally {
-    await server.stop();
+    try { await server.stop(); } finally { rmSync(directory, { recursive: true, force: true }); }
   }
 }

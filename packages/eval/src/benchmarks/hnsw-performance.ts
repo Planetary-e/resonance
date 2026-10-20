@@ -1,68 +1,19 @@
-import { HnswIndex } from '@resonance/relay';
 import type { BenchmarkResult } from '@resonance/core';
-import { generateRandomUnitVector, timeSync, percentile, formatMs } from '../utils.js';
+import { formatMs } from '../utils.js';
+import { measureHnswProcess } from './hnsw-measurement.js';
 
-/** Benchmark: HNSW insert + search latency. Target: search p95 <5ms at 100K vectors */
+/** Dedicated-process insert/search latency and absolute process peak RSS. */
 export async function benchmarkHnswPerformance(quick: boolean): Promise<BenchmarkResult[]> {
-  const vectorCount = quick ? 10_000 : 100_000;
-  const searchCount = 100;
-
-  const index = new HnswIndex({ maxElements: vectorCount + 1000 });
-  index.initialize();
-
-  // Measure insert time
-  const memBefore = process.memoryUsage().heapUsed;
-  const insertStart = performance.now();
-
-  for (let i = 0; i < vectorCount; i++) {
-    index.addVector(generateRandomUnitVector(768), {
-      did: `did:test:${i}`,
-      itemType: i % 2 === 0 ? 'need' : 'offer',
-      itemId: `item-${i}`,
-    });
-  }
-
-  const insertDuration = performance.now() - insertStart;
-  const memAfter = process.memoryUsage().heapUsed;
-  const memUsedMB = (memAfter - memBefore) / (1024 * 1024);
-
-  // Measure search latency
-  const searchTimings: number[] = [];
-  for (let i = 0; i < searchCount; i++) {
-    const query = generateRandomUnitVector(768);
-    const { durationMs } = timeSync(() => index.search(query, 5, 0.0));
-    searchTimings.push(durationMs);
-  }
-
-  const p50 = percentile(searchTimings, 50);
-  const p95 = percentile(searchTimings, 95);
-  const p99 = percentile(searchTimings, 99);
-  const mean = searchTimings.reduce((a, b) => a + b, 0) / searchTimings.length;
-
+  const measured = await measureHnswProcess(quick ? 10000 : 100000);
+  const { vectorCount, insertDurationMs, p50, p95, p99, mean } = measured;
+  const peakRssMiB = measured.peakRssBytes / 1048576;
   return [
-    {
-      name: `HNSW search (p95, ${(vectorCount / 1000)}K)`,
-      target: '<5ms',
-      actual: formatMs(p95),
-      value: p95,
-      passed: p95 < 5,
-      details: { vectorCount, p50, p95, p99, mean, insertDurationMs: insertDuration, memUsedMB },
-    },
-    {
-      name: `HNSW insert (${(vectorCount / 1000)}K total)`,
-      target: 'info',
-      actual: formatMs(insertDuration),
-      value: insertDuration,
-      passed: true, // informational
-      details: { vectorCount, totalMs: insertDuration, perVectorMs: insertDuration / vectorCount },
-    },
-    {
-      name: `HNSW memory (${(vectorCount / 1000)}K)`,
-      target: '<4GB',
-      actual: `${memUsedMB.toFixed(0)}MB`,
-      value: memUsedMB,
-      passed: memUsedMB < 4096,
-      details: { memUsedMB },
-    },
+    { name: `HNSW search (p95, ${vectorCount / 1000}K)`, target: '<5ms', actual: formatMs(p95), value: p95, passed: p95 < 5,
+      details: { vectorCount, p50, p95, p99, mean, insertDurationMs } },
+    { name: `HNSW insert (${vectorCount / 1000}K total)`, target: 'info', actual: formatMs(insertDurationMs), value: insertDurationMs, passed: true,
+      details: { vectorCount, totalMs: insertDurationMs, perVectorMs: insertDurationMs / vectorCount } },
+    { name: `HNSW process peak RSS (${vectorCount / 1000}K)`, target: '<4096 MiB', actual: `${peakRssMiB.toFixed(1)} MiB`, value: peakRssMiB,
+      passed: peakRssMiB < 4096, details: { ...measured, peakRssMiB, measurement: 'isolated-process-resourceUsage.maxRSS',
+        scope: 'Whole child process through search completion, including runtime/imports/native allocations; not index-only or full-app memory.' } },
   ];
 }

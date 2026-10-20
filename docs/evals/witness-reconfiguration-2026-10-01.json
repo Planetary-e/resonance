@@ -1,0 +1,326 @@
+{
+  "generatedAt": "2026-10-01T05:57:35.802Z",
+  "sourceBase": "d78715369f96c8a738a00d0c8776f5bb26e012b7",
+  "worktreeDirty": true,
+  "sourceSha256": {
+    "packages/eval/src/witness-membership.ts": "2b64c5f16a65d04e7baf574be2cd8ff78422afeee471566abcbb37ac1c08ebdc",
+    "packages/eval/src/witness-reconfiguration.ts": "3fa23a7e62d3bacd069c72a4b8781aaa9cff82631f282d41855ba4c8c45781fa"
+  },
+  "assumptions": {
+    "witnessesPerSet": 5,
+    "quorum": 4,
+    "maxByzantineAcrossUnion": 1,
+    "honestVotesNeverReset": true,
+    "stateTransfer": false,
+    "retiredConfigurationsFenced": false,
+    "model": "certificate intersections only"
+  },
+  "replacements": [
+    {
+      "replaced": 0,
+      "oldMembers": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ],
+      "newMembers": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ],
+      "comparedPairs": 25,
+      "minimumIntersection": 3,
+      "unsafePairs": 0,
+      "counterexample": null
+    },
+    {
+      "replaced": 1,
+      "oldMembers": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ],
+      "newMembers": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "F"
+      ],
+      "comparedPairs": 25,
+      "minimumIntersection": 2,
+      "unsafePairs": 0,
+      "counterexample": null
+    },
+    {
+      "replaced": 2,
+      "oldMembers": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ],
+      "newMembers": [
+        "A",
+        "B",
+        "C",
+        "F",
+        "G"
+      ],
+      "comparedPairs": 25,
+      "minimumIntersection": 1,
+      "unsafePairs": 6,
+      "counterexample": {
+        "oldQuorum": [
+          "B",
+          "C",
+          "D",
+          "E"
+        ],
+        "newQuorum": [
+          "A",
+          "C",
+          "F",
+          "G"
+        ],
+        "intersection": [
+          "C"
+        ],
+        "permitsConflictingCertificates": true
+      }
+    },
+    {
+      "replaced": 3,
+      "oldMembers": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ],
+      "newMembers": [
+        "A",
+        "B",
+        "F",
+        "G",
+        "H"
+      ],
+      "comparedPairs": 25,
+      "minimumIntersection": 0,
+      "unsafePairs": 16,
+      "counterexample": {
+        "oldQuorum": [
+          "B",
+          "C",
+          "D",
+          "E"
+        ],
+        "newQuorum": [
+          "B",
+          "F",
+          "G",
+          "H"
+        ],
+        "intersection": [
+          "B"
+        ],
+        "permitsConflictingCertificates": true
+      }
+    },
+    {
+      "replaced": 4,
+      "oldMembers": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ],
+      "newMembers": [
+        "A",
+        "F",
+        "G",
+        "H",
+        "I"
+      ],
+      "comparedPairs": 25,
+      "minimumIntersection": 0,
+      "unsafePairs": 25,
+      "counterexample": {
+        "oldQuorum": [
+          "B",
+          "C",
+          "D",
+          "E"
+        ],
+        "newQuorum": [
+          "F",
+          "G",
+          "H",
+          "I"
+        ],
+        "intersection": [],
+        "permitsConflictingCertificates": true
+      }
+    },
+    {
+      "replaced": 5,
+      "oldMembers": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ],
+      "newMembers": [
+        "F",
+        "G",
+        "H",
+        "I",
+        "J"
+      ],
+      "comparedPairs": 25,
+      "minimumIntersection": 0,
+      "unsafePairs": 25,
+      "counterexample": {
+        "oldQuorum": [
+          "B",
+          "C",
+          "D",
+          "E"
+        ],
+        "newQuorum": [
+          "G",
+          "H",
+          "I",
+          "J"
+        ],
+        "intersection": [],
+        "permitsConflictingCertificates": true
+      }
+    }
+  ],
+  "successiveReplacements": {
+    "first": {
+      "oldMembers": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ],
+      "newMembers": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "F"
+      ],
+      "comparedPairs": 25,
+      "minimumIntersection": 2,
+      "unsafePairs": 0,
+      "counterexample": null
+    },
+    "second": {
+      "oldMembers": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "F"
+      ],
+      "newMembers": [
+        "A",
+        "B",
+        "C",
+        "F",
+        "G"
+      ],
+      "comparedPairs": 25,
+      "minimumIntersection": 2,
+      "unsafePairs": 0,
+      "counterexample": null
+    },
+    "oldestVersusNewest": {
+      "oldMembers": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ],
+      "newMembers": [
+        "A",
+        "B",
+        "C",
+        "F",
+        "G"
+      ],
+      "comparedPairs": 25,
+      "minimumIntersection": 1,
+      "unsafePairs": 6,
+      "counterexample": {
+        "oldQuorum": [
+          "B",
+          "C",
+          "D",
+          "E"
+        ],
+        "newQuorum": [
+          "A",
+          "C",
+          "F",
+          "G"
+        ],
+        "intersection": [
+          "C"
+        ],
+        "permitsConflictingCertificates": true
+      }
+    },
+    "trace": {
+      "oldMembers": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ],
+      "intermediateMembers": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "F"
+      ],
+      "finalMembers": [
+        "A",
+        "B",
+        "C",
+        "F",
+        "G"
+      ],
+      "oldCertificate": [
+        "A",
+        "B",
+        "D",
+        "E"
+      ],
+      "newCertificate": [
+        "A",
+        "C",
+        "F",
+        "G"
+      ],
+      "equivocator": "A",
+      "explanation": "A signs both bindings. B,D,E sign only the old binding; C,F,G sign only the new binding. The intermediate set need not certify either."
+    }
+  }
+}

@@ -2,7 +2,11 @@
 
 import WebSocket, { type RawData } from 'ws';
 import type { Socket } from 'node:net';
+import { isRelayResponseLive, relayResponseDeadline, type RelayResponseDeadline } from './relay-response-deadline.js';
+import { HISTORY_LINK_FRAME_TYPE } from './history-relay-link.js';
+import type { HistoryRelayRouter } from './history-relay-router.js';
 import {
+  assertSecureRelayTransportEndpoint, relayTlsClientOptions,
   MAX_RELAY_DISCOVERY_FRAME_BYTES,
   MAX_RELAY_REPLICA_INVENTORY_BATCH_RECEIPTS,
   RELAY_REPLICA_INVENTORY_BATCH_RESPONSE_FRAME_TYPE,
@@ -20,8 +24,11 @@ import {
   RELAY_MAILBOX_SYNC_REQUEST_FRAME_TYPE,
   RELAY_RELATIONSHIP_MAILBOX_SYNC_RESPONSE_FRAME_TYPE,
   RELAY_RELATIONSHIP_MAILBOX_SYNC_REQUEST_FRAME_TYPE,
+  type RelayLinkOpenV1,
   createRelayLinkOpenFrameV1,
   createRelayLinkOpenV1,
+  parseRelayLinkChallengeV1,
+  serializeRelayLinkChallengeRequestV1,
   createRelayReplicaInventoryRequestFrameV1,
   createRelayReplicaInventoryRequestV1,
   createRelayReplicaInventoryBatchRequestFrameV1,
@@ -105,6 +112,10 @@ const MAX_PENDING_MAILBOX_SYNCS = 32;
 const DEFAULT_DESCRIPTOR_REFRESH_INTERVAL_MS = 60_000;
 
 export interface RelayLinkClientOptions {
+  /** Cancels the entire connection, including an unfinished handshake. */
+  signal?: AbortSignal;
+  /** Explicitly pinned history traffic; attached only after the signed handshake. */
+  historyLinks?: HistoryRelayRouter;
   handshakeTimeoutMs?: number;
   heartbeatIntervalMs?: number;
   heartbeatTimeoutMs?: number;
@@ -195,7 +206,10 @@ export function connectRelayLinkV1(
   identity: Identity,
   options: RelayLinkClientOptions = {},
 ): Promise<RelayLinkConnection> {
+  if (options.signal?.aborted) return Promise.reject(new Error('Relay link cancelled'));
   if (!verifyRelayContactHintV1(hint)) return Promise.reject(new Error('Invalid relay contact hint'));
+  try { assertSecureRelayTransportEndpoint(hint.endpoint); }
+  catch (error) { return Promise.reject(error); }
   const handshakeTimeoutMs = options.handshakeTimeoutMs ?? 15_000;
   const heartbeatIntervalMs = options.heartbeatIntervalMs ?? 30_000;
   const heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? 90_000;
@@ -216,65 +230,72 @@ export function connectRelayLinkV1(
 
   const clock = options.now ?? Date.now;
   const createdAt = clock();
-  const request = createRelayLinkOpenV1(
-    localDescriptor,
-    identity,
-    createdAt,
-    createdAt + Math.min(30_000, handshakeTimeoutMs + 5_000),
-    hint.endpoint,
-  );
-  const serialized = serializeRelayLinkOpenFrameV1(createRelayLinkOpenFrameV1(request));
 
   return new Promise((resolve, reject) => {
     let socket: WebSocket;
+    const handshakeDeadline = performance.now() + handshakeTimeoutMs;
     let accepted = false;
+    let request: RelayLinkOpenV1 | null = null;
     let acceptedRemoteDescriptor: RelayDescriptorV1 | null = null;
     let settled = false;
     let heartbeat: ReturnType<typeof setInterval> | null = null;
     let descriptorExpiryTimer: ReturnType<typeof setTimeout> | null = null;
+    let cancellationTimer: ReturnType<typeof setTimeout> | null = null;
     let lastPongAt = createdAt;
     const pendingReplicas = new Map<string, {
       request: RelayReplicaPutV1;
       timer: ReturnType<typeof setTimeout>;
+      deadline: RelayResponseDeadline;
       resolve: (receipt: RelayReplicaReceiptV1) => void;
       reject: (error: Error) => void;
     }>();
     const pendingInventories = new Map<string, {
       request: RelayReplicaInventoryRequestV1;
       timer: ReturnType<typeof setTimeout>;
+      deadline: RelayResponseDeadline;
       resolve: (response: RelayReplicaInventoryResponseV1) => void;
       reject: (error: Error) => void;
     }>();
     const pendingInventoryBatches = new Map<string, {
       request: RelayReplicaInventoryBatchRequestV1;
       timer: ReturnType<typeof setTimeout>;
+      deadline: RelayResponseDeadline;
       resolve: (response: RelayReplicaInventoryBatchResponseV1) => void;
       reject: (error: Error) => void;
     }>();
     const pendingReconciliations = new Map<string, {
       request: RelayReplicaReconciliationRequestV1;
       timer: ReturnType<typeof setTimeout>;
+      deadline: RelayResponseDeadline;
       resolve: (response: RelayReplicaReconciliationResponseV1) => void;
       reject: (error: Error) => void;
     }>();
     const pendingQueries = new Map<string, {
       request: RelayQueryRequestV1;
       timer: ReturnType<typeof setTimeout>;
+      deadline: RelayResponseDeadline;
       resolve: (response: RelayQueryResponseV1) => void;
       reject: (error: Error) => void;
     }>();
     const pendingMailboxSyncs = new Map<string, {
       request: RelayMailboxSyncRequestV1;
       timer: ReturnType<typeof setTimeout>;
+      deadline: RelayResponseDeadline;
       resolve: (response: RelayMailboxSyncResponseV1) => void;
       reject: (error: Error) => void;
     }>();
     const pendingRelationshipMailboxSyncs = new Map<string, {
       request: RelayRelationshipMailboxSyncRequestV1;
       timer: ReturnType<typeof setTimeout>;
+      deadline: RelayResponseDeadline;
       resolve: (response: RelayRelationshipMailboxSyncResponseV1) => void;
       reject: (error: Error) => void;
     }>();
+    function rejectExpired(pending: { timer: ReturnType<typeof setTimeout>; deadline: RelayResponseDeadline; reject(error: Error): void },
+      requests: { delete(id: string): boolean }, id: string): boolean {
+      if (isRelayResponseLive(pending.deadline, clock())) return false;
+      clearTimeout(pending.timer); requests.delete(id); pending.reject(new Error('Relay response expired or timed out')); return true;
+    }
     let resolveClosed!: (value: RelayLinkClose) => void;
     const closed = new Promise<RelayLinkClose>(resolveClosedPromise => {
       resolveClosed = resolveClosedPromise;
@@ -284,8 +305,7 @@ export function connectRelayLinkV1(
       if (settled) return;
       settled = true;
       clearTimeout(handshakeTimer);
-      if (socket.readyState === WebSocket.OPEN) socket.close(4000, 'invalid_link_handshake');
-      else if (socket.readyState === WebSocket.CONNECTING) socket.terminate();
+      socket.terminate();
       reject(error);
     };
 
@@ -294,9 +314,11 @@ export function connectRelayLinkV1(
     }, handshakeTimeoutMs);
 
     try {
-      socket = new WebSocket(hint.endpoint, {
+      socket = new WebSocket(hint.endpoint, { ...relayTlsClientOptions,
         handshakeTimeout: handshakeTimeoutMs,
         maxPayload: MAX_RELAY_DISCOVERY_FRAME_BYTES,
+        perMessageDeflate: false,
+        followRedirects: false,
       });
     } catch (error) {
       clearTimeout(handshakeTimer);
@@ -304,9 +326,30 @@ export function connectRelayLinkV1(
       return;
     }
 
-    socket.on('upgrade', response => options.onTransportSocket?.(response.socket));
-    socket.on('open', () => socket.send(serialized));
+    const cancel = () => {
+      if (!accepted) failHandshake(new Error('Relay link cancelled'));
+      // Send a peer-visible protocol close before destroying TCP. If the peer
+      // never acknowledges it, force local teardown within one second.
+      if (accepted && socket.readyState === WebSocket.OPEN) socket.close(1000, 'relay_link_cancelled');
+      if (accepted && socket.readyState === WebSocket.CLOSING) {
+        cancellationTimer = setTimeout(() => socket.terminate(), 1000);
+      } else socket.terminate();
+    };
+    socket.on('upgrade', response => {
+      if (settled) return;
+      try { options.onTransportSocket?.(response.socket); }
+      catch { failHandshake(new Error('Relay link socket accounting failed')); }
+    });
+    socket.on('open', () => {
+      if (settled) return;
+      if (performance.now() >= handshakeDeadline) { failHandshake(new Error('Relay link handshake timed out')); return; }
+      try { socket.send(serializeRelayLinkChallengeRequestV1()); } catch { failHandshake(new Error('Relay link handshake send failed')); }
+    });
     socket.on('message', (data: RawData, isBinary: boolean) => {
+      // A timed-out/rejected dial no longer has an owner. Buffered messages
+      // must not revive it or install timers after its caller starts a retry.
+      if (options.signal?.aborted || (settled && !accepted)) return;
+      if (!accepted && performance.now() >= handshakeDeadline) { failHandshake(new Error('Relay link handshake timed out')); return; }
       if (accepted) {
         if (isBinary) {
           socket.close(4000, 'relay_message_must_be_json');
@@ -320,6 +363,11 @@ export function connectRelayLinkV1(
         }
         if (!isObject(candidate)) {
           socket.close(4000, 'unexpected_link_message');
+          return;
+        }
+        if (candidate.type === HISTORY_LINK_FRAME_TYPE) {
+          if (!acceptedRemoteDescriptor || !options.historyLinks) socket.close(4003, 'history_link_disabled');
+          else options.historyLinks.handle(raw, acceptedRemoteDescriptor.relayId, socket);
           return;
         }
         if (candidate.type === RELAY_REPLICA_PUT_FRAME_TYPE
@@ -378,7 +426,7 @@ export function connectRelayLinkV1(
               || response.senderRelayId !== acceptedRemoteDescriptor?.relayId) {
               throw new Error('Relay query response is not bound to this request');
             }
-            if (clock() > pending.request.expiresAt) return;
+            if (rejectExpired(pending, pendingQueries, response.requestId)) return;
             clearTimeout(pending.timer);
             pendingQueries.delete(response.requestId);
             pending.resolve(response);
@@ -396,7 +444,7 @@ export function connectRelayLinkV1(
               || response.senderRelayId !== acceptedRemoteDescriptor?.relayId) {
               throw new Error('Mailbox sync response is not bound to this relay link');
             }
-            if (clock() > pending.request.expiresAt) return;
+            if (rejectExpired(pending, pendingMailboxSyncs, response.requestId)) return;
             clearTimeout(pending.timer);
             pendingMailboxSyncs.delete(response.requestId);
             pending.resolve(response);
@@ -414,7 +462,7 @@ export function connectRelayLinkV1(
               || response.senderRelayId !== acceptedRemoteDescriptor?.relayId) {
               throw new Error('Relationship mailbox sync response is not bound to this relay link');
             }
-            if (clock() > pending.request.expiresAt) return;
+            if (rejectExpired(pending, pendingRelationshipMailboxSyncs, response.requestId)) return;
             clearTimeout(pending.timer);
             pendingRelationshipMailboxSyncs.delete(response.requestId);
             pending.resolve(response);
@@ -458,11 +506,12 @@ export function connectRelayLinkV1(
           try {
             const frame = parseRelayReplicaReceiptFrameV1(raw);
             const pending = pendingReplicas.get(frame.receipt.requestId);
-            if (!pending
-              || !verifyRelayReplicaReceiptV1(frame.receipt, pending.request)
+            if (!pending) return; // A signed reply may outlive its local timer.
+            if (!verifyRelayReplicaReceiptV1(frame.receipt, pending.request)
               || frame.receipt.responderRelayId !== acceptedRemoteDescriptor?.relayId) {
               throw new Error('Replica receipt is not bound to this relay request');
             }
+            if (rejectExpired(pending, pendingReplicas, frame.receipt.requestId)) return;
             clearTimeout(pending.timer);
             pendingReplicas.delete(frame.receipt.requestId);
             pending.resolve(frame.receipt);
@@ -475,11 +524,12 @@ export function connectRelayLinkV1(
           try {
             const frame = parseRelayReplicaInventoryResponseFrameV1(raw);
             const pending = pendingInventories.get(frame.response.requestId);
-            if (!pending
-              || !verifyRelayReplicaInventoryResponseV1(frame.response, pending.request)
+            if (!pending) return; // A signed reply may outlive its local timer.
+            if (!verifyRelayReplicaInventoryResponseV1(frame.response, pending.request)
               || frame.response.responderRelayId !== acceptedRemoteDescriptor?.relayId) {
               throw new Error('Replica inventory response is not bound to this relay request');
             }
+            if (rejectExpired(pending, pendingInventories, frame.response.requestId)) return;
             clearTimeout(pending.timer);
             pendingInventories.delete(frame.response.requestId);
             pending.resolve(frame.response);
@@ -492,11 +542,12 @@ export function connectRelayLinkV1(
           try {
             const frame = parseRelayReplicaInventoryBatchResponseFrameV1(raw);
             const pending = pendingInventoryBatches.get(frame.response.requestId);
-            if (!pending
-              || !verifyRelayReplicaInventoryBatchResponseV1(frame.response, pending.request)
+            if (!pending) return; // A signed reply may outlive its local timer.
+            if (!verifyRelayReplicaInventoryBatchResponseV1(frame.response, pending.request)
               || frame.response.responderRelayId !== acceptedRemoteDescriptor?.relayId) {
               throw new Error('Replica inventory batch response is not bound to this relay request');
             }
+            if (rejectExpired(pending, pendingInventoryBatches, frame.response.requestId)) return;
             clearTimeout(pending.timer);
             pendingInventoryBatches.delete(frame.response.requestId);
             pending.resolve(frame.response);
@@ -509,11 +560,12 @@ export function connectRelayLinkV1(
           try {
             const frame = parseRelayReplicaReconciliationResponseFrameV1(raw);
             const pending = pendingReconciliations.get(frame.response.requestId);
-            if (!pending
-              || !verifyRelayReplicaReconciliationResponseV1(frame.response, pending.request)
+            if (!pending) return; // A signed reply may outlive its local timer.
+            if (!verifyRelayReplicaReconciliationResponseV1(frame.response, pending.request)
               || frame.response.responderRelayId !== acceptedRemoteDescriptor?.relayId) {
               throw new Error('Replica reconciliation response is not bound to this relay request');
             }
+            if (rejectExpired(pending, pendingReconciliations, frame.response.requestId)) return;
             clearTimeout(pending.timer);
             pendingReconciliations.delete(frame.response.requestId);
             pending.resolve(frame.response);
@@ -530,7 +582,19 @@ export function connectRelayLinkV1(
         return;
       }
       try {
-        const frame = parseRelayLinkAcceptFrameV1(rawDataToString(data));
+        const raw = rawDataToString(data);
+        if (!request) {
+          const challenge = parseRelayLinkChallengeV1(raw, clock());
+          const issuedAt = clock();
+          request = createRelayLinkOpenV1(
+            localDescriptor, identity, challenge.nonce, issuedAt,
+            Math.min(challenge.expiresAt, issuedAt + Math.min(30_000, handshakeTimeoutMs + 5_000)),
+            hint.endpoint,
+          );
+          socket.send(serializeRelayLinkOpenFrameV1(createRelayLinkOpenFrameV1(request)));
+          return;
+        }
+        const frame = parseRelayLinkAcceptFrameV1(raw);
         const receivedAt = clock();
         if (!isRelayLinkAcceptActiveV1(frame.response, request, receivedAt)) {
           throw new Error('Relay link acceptance is invalid or inactive');
@@ -544,6 +608,8 @@ export function connectRelayLinkV1(
           throw new Error('Relay link responder descriptor does not bind the contacted endpoint');
         }
 
+        if (performance.now() >= handshakeDeadline) throw new Error('Relay link handshake timed out');
+        options.historyLinks?.attach(remoteDescriptor.relayId, socket);
         accepted = true;
         acceptedRemoteDescriptor = remoteDescriptor;
         settled = true;
@@ -586,7 +652,7 @@ export function connectRelayLinkV1(
               >= MAX_PENDING_REPLICA_REQUESTS) {
               return Promise.reject(new Error('Relay link replica request limit reached'));
             }
-            const requestCreatedAt = clock();
+            const requestCreatedAt = clock(), began = performance.now();
             const replicaRequest = createRelayReplicaPutV1(
               operation,
               identity,
@@ -604,6 +670,7 @@ export function connectRelayLinkV1(
               timer.unref?.();
               pendingReplicas.set(replicaRequest.requestId, {
                 request: replicaRequest,
+                deadline: relayResponseDeadline(replicaRequest, replicaRequestTimeoutMs, began),
                 timer,
                 resolve: resolveReplica,
                 reject: rejectReplica,
@@ -635,7 +702,7 @@ export function connectRelayLinkV1(
               >= MAX_PENDING_REPLICA_REQUESTS) {
               return Promise.reject(new Error('Relay link replica request limit reached'));
             }
-            const requestCreatedAt = clock();
+            const requestCreatedAt = clock(), began = performance.now();
             const inventoryRequest = createRelayReplicaInventoryRequestV1(
               receipt,
               identity,
@@ -653,6 +720,7 @@ export function connectRelayLinkV1(
               timer.unref?.();
               pendingInventories.set(inventoryRequest.requestId, {
                 request: inventoryRequest,
+                deadline: relayResponseDeadline(inventoryRequest, replicaRequestTimeoutMs, began),
                 timer,
                 resolve: resolveInventory,
                 reject: rejectInventory,
@@ -685,7 +753,7 @@ export function connectRelayLinkV1(
               + pendingReconciliations.size >= MAX_PENDING_REPLICA_REQUESTS) {
               return Promise.reject(new Error('Relay link replica request limit reached'));
             }
-            const requestCreatedAt = clock();
+            const requestCreatedAt = clock(), began = performance.now();
             const batchRequest = createRelayReplicaInventoryBatchRequestV1(
               receipts,
               identity,
@@ -703,6 +771,7 @@ export function connectRelayLinkV1(
               timer.unref?.();
               pendingInventoryBatches.set(batchRequest.requestId, {
                 request: batchRequest,
+                deadline: relayResponseDeadline(batchRequest, replicaRequestTimeoutMs, began),
                 timer,
                 resolve: resolveBatch,
                 reject: rejectBatch,
@@ -734,7 +803,7 @@ export function connectRelayLinkV1(
               >= MAX_PENDING_REPLICA_REQUESTS) {
               return Promise.reject(new Error('Relay link replica request limit reached'));
             }
-            const requestCreatedAt = clock();
+            const requestCreatedAt = clock(), began = performance.now();
             const reconciliationRequest = createRelayReplicaReconciliationRequestV1(
               receipt,
               identity,
@@ -752,6 +821,7 @@ export function connectRelayLinkV1(
               timer.unref?.();
               pendingReconciliations.set(reconciliationRequest.requestId, {
                 request: reconciliationRequest,
+                deadline: relayResponseDeadline(reconciliationRequest, replicaRequestTimeoutMs, began),
                 timer,
                 resolve: resolveReconciliation,
                 reject: rejectReconciliation,
@@ -779,7 +849,7 @@ export function connectRelayLinkV1(
               || pendingQueries.size >= MAX_PENDING_QUERY_REQUESTS) {
               return Promise.reject(new Error('Relay query request limit reached'));
             }
-            const createdAt = clock();
+            const createdAt = clock(), began = performance.now();
             const queryRequest = createRelayQueryRequestV1(
               search, remoteDescriptor.relayId, identity, remainingHops,
               admission, createdAt, Math.min(search.expiresAt, createdAt + timeoutMs),
@@ -794,7 +864,7 @@ export function connectRelayLinkV1(
               }, timeoutMs);
               timer.unref?.();
               pendingQueries.set(queryRequest.requestId, {
-                request: queryRequest, timer, resolve: resolveQuery, reject: rejectQuery,
+                request: queryRequest, deadline: relayResponseDeadline(queryRequest, timeoutMs, began), timer, resolve: resolveQuery, reject: rejectQuery,
               });
               socket.send(serializedQuery, error => {
                 if (!error) return;
@@ -813,6 +883,7 @@ export function connectRelayLinkV1(
               || pendingMailboxSyncs.size >= MAX_PENDING_MAILBOX_SYNCS) {
               return Promise.reject(new Error('Mailbox replica link unavailable'));
             }
+            const began = performance.now();
             const request = createRelayMailboxSyncRequestV1(receipt, cursor, events, identity, clock());
             const serialized = serializeRelayMailboxSyncRequestFrameV1(request);
             return new Promise<RelayMailboxSyncResponseV1>((resolveSync, rejectSync) => {
@@ -822,7 +893,7 @@ export function connectRelayLinkV1(
               }, Math.min(replicaRequestTimeoutMs, request.expiresAt - clock()));
               timer.unref?.();
               pendingMailboxSyncs.set(request.requestId, {
-                request, timer, resolve: resolveSync, reject: rejectSync,
+                request, deadline: relayResponseDeadline(request, replicaRequestTimeoutMs, began), timer, resolve: resolveSync, reject: rejectSync,
               });
               socket.send(serialized, error => {
                 if (!error) return;
@@ -841,6 +912,7 @@ export function connectRelayLinkV1(
               || pendingRelationshipMailboxSyncs.size >= MAX_PENDING_MAILBOX_SYNCS) {
               return Promise.reject(new Error('Relationship mailbox replica link unavailable'));
             }
+            const began = performance.now();
             const request = createRelayRelationshipMailboxSyncRequestV1(
               remoteDescriptor.relayId, mailboxId, cursor, events, identity, clock(),
             );
@@ -852,7 +924,7 @@ export function connectRelayLinkV1(
               }, Math.min(replicaRequestTimeoutMs, request.expiresAt - clock()));
               timer.unref?.();
               pendingRelationshipMailboxSyncs.set(request.requestId, {
-                request, timer, resolve: resolveSync, reject: rejectSync,
+                request, deadline: relayResponseDeadline(request, replicaRequestTimeoutMs, began), timer, resolve: resolveSync, reject: rejectSync,
               });
               socket.send(serialized, error => {
                 if (!error) return;
@@ -878,9 +950,11 @@ export function connectRelayLinkV1(
       if (!accepted) failHandshake(asError(error, 'Relay link connection failed'));
     });
     socket.on('close', (code, reason) => {
+      options.signal?.removeEventListener('abort', cancel);
       clearTimeout(handshakeTimer);
       if (heartbeat) clearInterval(heartbeat);
       if (descriptorExpiryTimer) clearTimeout(descriptorExpiryTimer);
+      if (cancellationTimer) clearTimeout(cancellationTimer);
       for (const pending of pendingReplicas.values()) {
         clearTimeout(pending.timer);
         pending.reject(new Error(`Relay link closed before replica receipt (${code})`));
@@ -922,6 +996,8 @@ export function connectRelayLinkV1(
       }
       resolveClosed({ code, reason: reason.toString('utf8') });
     });
+    options.signal?.addEventListener('abort', cancel, { once: true });
+    if (options.signal?.aborted) cancel();
   });
 }
 
@@ -933,6 +1009,7 @@ export class RelayLinkManager {
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly durabilityReceipts = new Map<string, Map<string, RelayReplicaReceiptV1>>();
   private running = false;
+  private lifetime = new AbortController();
 
   constructor(
     private readonly identity: Identity,
@@ -968,11 +1045,13 @@ export class RelayLinkManager {
   start(): void {
     if (this.running) return;
     this.running = true;
+    if (this.lifetime.signal.aborted) this.lifetime = new AbortController();
     for (const hint of this.targets) this.schedule(hint, 0);
   }
 
   stop(): void {
     this.running = false;
+    this.lifetime.abort();
     for (const timer of this.timers.values()) clearTimeout(timer);
     this.timers.clear();
     for (const connection of this.connections.values()) connection.close();
@@ -1171,8 +1250,12 @@ export class RelayLinkManager {
       this.schedule(hint, this.options.reconnectBaseMs ?? 1_000);
       return;
     }
+    const lifetime = this.lifetime;
+    const signal = this.options.signal ? AbortSignal.any([lifetime.signal, this.options.signal]) : lifetime.signal;
+    if (signal.aborted) return;
     try {
-      const connection = await connectRelayLinkV1(hint, this.descriptor(), this.identity, this.options);
+      const connection = await connectRelayLinkV1(hint, this.descriptor(), this.identity, { ...this.options, signal });
+      if (lifetime !== this.lifetime || signal.aborted) { connection.close(); return; }
       if (!this.running || this.connections.size >= maxConnections
         || this.relayEndpoints.has(connection.remoteDescriptor.relayId)) {
         connection.close();
@@ -1188,6 +1271,7 @@ export class RelayLinkManager {
         relayId: connection.remoteDescriptor.relayId,
       });
       const closed = await connection.closed;
+      if (this.connections.get(hint.endpoint) !== connection) return;
       this.connections.delete(hint.endpoint);
       this.relayEndpoints.delete(connection.remoteDescriptor.relayId);
       this.options.onEvent?.({
@@ -1208,7 +1292,7 @@ export class RelayLinkManager {
         error: String(error),
       });
     }
-    if (!this.running) return;
+    if (!this.running || lifetime !== this.lifetime || signal.aborted) return;
     const attempt = (this.attempts.get(hint.endpoint) ?? 0) + 1;
     this.attempts.set(hint.endpoint, attempt);
     const base = this.options.reconnectBaseMs ?? 1_000;

@@ -1,0 +1,64 @@
+/** Reviewed history operations. Shared implementation also serves the desktop. */
+import { runSelectedAdmissionHistoryCommand } from '../packages/relay/src/selected-admission-history-command.js';
+import { runAdmissionHistoryCommand } from '../packages/relay/src/admission-history-command.js';
+
+const controller = new AbortController();
+const cancel = () => { controller.abort(); process.exitCode = 1; };
+process.once('SIGINT', cancel); process.once('SIGTERM', cancel);
+let stop: (() => Promise<void>) | undefined;
+try {
+  const [command, ...args] = process.argv.slice(2);
+  const options = { transportFile: process.env.RESONANCE_HISTORY_OPERATOR_TRANSPORT_FILE, signal: controller.signal };
+  const selected = process.env.RESONANCE_RELAY_STORAGE_SELECTION_FILE;
+  const operation = selected ? await runSelectedAdmissionHistoryCommand(selected, command ?? '', args, options)
+    : await runAdmissionHistoryCommand(command ?? '', args, options);
+  stop = operation.stop; console.log(JSON.stringify(operation.result));
+} catch (error) {
+  console.error(error instanceof Error ? error.message : 'Admission history operation failed');
+  console.error('Usage: node --import tsx scripts/admission-history.ts');
+  console.error('  Optional pinned outbound transport: RESONANCE_HISTORY_OPERATOR_TRANSPORT_FILE=operator-transport.json');
+  console.error('  owner-config owner-private.json authority.pub policy.json members.json owner-config.json');
+  console.error('  owner-config-plan owner-private.json authority.pub policy.json members.json owner-config.json [history-id]');
+  console.error('  owner-config-create --approve <digest> owner-private.json authority.pub policy.json members.json owner-config.json <history-id>');
+  console.error('  owner-setup-plan|owner-setup-apply [--approve <digest>] <new|resume|export> owner-config.json policy.json owner-storage.hex owner-directory enrollment.json');
+  console.error('  owner-prepare|owner-export|owner-resume-setup owner-config.json policy.json owner-storage.hex owner-directory enrollment.json');
+  console.error('  owner-limits-plan|owner-limits [--approve <digest>] owner-config.json enrollment.json policy.json owner-storage.hex owner-directory new-config.json <archive-MiB> <archive-blocks>');
+  console.error('  storage-inventory runtime-directory [owner-history-directory volunteer-history-directory recovery-workspace ...] [--file exact-output-file ...]');
+  console.error('  owner-inspect owner-config.json enrollment.json');
+  console.error('  owner-ready owner-config.json policy.json owner-storage.hex owner-directory');
+  console.error('  owner-checkpoint-plan|owner-checkpoint [--approve <digest>] owner-config.json policy.json owner-storage.hex owner-directory');
+  console.error('  owner-checkpoint-certification-plan|owner-checkpoint-certify [--approve <digest>] owner-config.json policy.json owner-storage.hex owner-directory new-certificate.json');
+  console.error('  owner-checkpoint-retention-plan|owner-checkpoint-retain [--approve <digest>] owner-config.json enrollment.json certificate.json [new-retention-evidence.json]');
+  console.error('  owner-checkpoint-discover owner-config.json enrollment.json new-certificate.json');
+  console.error('  owner-prefix-plan|owner-prefix-retire [--approve <digest>] owner-config.json policy.json owner-storage.hex owner-directory');
+  console.error('  owner-initial-readiness-plan|owner-initial-ready [--approve <digest>] owner-config.json enrollment.json policy.json owner-storage.hex owner-directory');
+  console.error('  owner-retirement-plan|owner-retire [--approve <digest>] owner-config.json policy.json owner-storage.hex owner-directory <issuer-key-fingerprint>');
+  console.error('  owner-role-capture-plan|owner-role-capture [--approve <digest>] owner-config.json policy.json owner-storage.hex owner-directory local-role-directory <witness|coordinator|both>');
+  console.error('  role-setup-plan|role-setup [--approve <digest>] <new|resume> <witness|coordinator> storage.hex new-role-directory public-key-output.json');
+  console.error('  owner-role-key-plan|owner-role-key-export [--approve <digest>] owner-config.json policy.json owner-storage.hex owner-directory local-role-directory <witness|coordinator> new-private-key-output.json');
+  console.error('  owner-role-retirement-plan|owner-role-retire [--approve <digest>] owner-config.json policy.json owner-storage.hex owner-directory <witness|coordinator> <issuer-key-fingerprint>');
+  console.error('  owner-legacy-plan|owner-legacy-recover [--approve <digest>] owner-config.json policy.json owner-storage.hex owner-directory proofs.json');
+  console.error('  owner-recovery-plan|owner-recovery-start [--approve <digest>] owner-config.json enrollment.json owner-storage.hex recovery-directory <view>');
+  console.error('  owner-recovery-status|owner-recovery-step owner-config.json enrollment.json owner-storage.hex recovery-directory');
+  console.error('  owner-recovery-review|owner-recovery-restore [--approve <digest>] owner-config.json enrollment.json owner-storage.hex recovery-directory policy.json new-owner-directory');
+  console.error('  owner-recovery-readiness-plan|owner-recovery-ready [--approve <digest>] owner-config.json enrollment.json owner-storage.hex recovery-directory policy.json retained-owner-directory');
+  console.error('  All owner-recovery commands accept [--checkpoint-proof certificate.json] after --approve, when present, and before file arguments. Supply the same independently retained proof on every step.');
+  console.error('  replica-plan enrollment.json member-private.json member-storage.hex replica-directory');
+  console.error('  replica-enroll --approve <digest> enrollment.json member-private.json member-storage.hex replica-directory');
+  console.error('  replica-resume-plan|replica-resume [--approve <digest>] enrollment.json member-private.json member-storage.hex replica-directory');
+  console.error('  replica-serve enrollment.json member-private.json member-storage.hex replica-directory <port>');
+  console.error('  replica-prefix-plan|replica-prefix-retire [--approve <digest>] enrollment.json member-private.json member-storage.hex replica-directory <generation-root-id>');
+  console.error('  replica-generations-plan|replica-generations-retire [--approve <digest>] enrollment.json member-private.json member-storage.hex replica-directory retention-evidence.json');
+  console.error('  replica-pool-plan|replica-pool-enable [--approve <digest>] enrollment.json member-private.json member-storage.hex replica-directory <slots> [retention-evidence.json]');
+  process.exitCode = 1;
+} finally {
+  process.removeListener('SIGINT', cancel); process.removeListener('SIGTERM', cancel);
+}
+if (stop) {
+  const close = stop; let stopping = false;
+  const shutdown = async () => {
+    if (stopping) return; stopping = true;
+    try { await close(); process.exitCode = 0; } catch { process.exitCode = 1; }
+  };
+  process.once('SIGINT', shutdown); process.once('SIGTERM', shutdown);
+}

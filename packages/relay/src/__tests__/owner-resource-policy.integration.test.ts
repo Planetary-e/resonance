@@ -12,7 +12,7 @@ import {
 } from '@resonance/core';
 import { createRelayServer, type RelayServer } from '../server.js';
 
-const PORT = 35_000 + Math.floor(Math.random() * 1_000);
+let PORT = 0;
 const DIR = `/tmp/resonance-owner-limits-${Date.now()}-${PORT}`;
 let relay: RelayServer;
 let allowNewWork = true;
@@ -36,7 +36,7 @@ beforeAll(async () => {
     port: PORT, host: '127.0.0.1', persistDir: DIR,
     acceptNewWork: () => allowNewWork,
   });
-  await relay.start();
+  await relay.start(); PORT = relay.getListeningPort()!;
 });
 
 afterAll(async () => {

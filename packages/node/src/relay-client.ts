@@ -3,12 +3,19 @@
  */
 
 import WebSocket from 'ws';
+import { mailboxAcknowledgementBatches } from './mailbox-ack-batches.js';
+import { parseRelayAcknowledgement, parseRelayMailbox } from './relay-response.js';
+import { createPrivateRelayClient } from './private-relay-client.js';
+import type { PrivateTrafficScheduleOptions } from './private-traffic-scheduler.js';
+import type { AdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
+import type { WalletPolicyObservation } from './wallet-policy-freshness.js';
 import {
+  assertSecureRelayTransportEndpoint, relayTlsClientOptions,
+  MAX_SIGNED_MESSAGE_BYTES,
   MessageTypes,
   MAILBOX_RESPONSE_MESSAGE_TYPE,
   SEARCH_RESPONSE_MESSAGE_TYPE,
   createAdmissionRequestBindingV2,
-  createMessage,
   createMailboxDepositFrame,
   createMailboxDepositRequest,
   createMailboxRequest,
@@ -28,7 +35,6 @@ import {
   serializeSearchRequestFrameV2,
   serializeRelationshipMailboxDepositFrameV2,
   serializeRelationshipMailboxRequestFrameV2,
-  serializeMessage,
   parseMessage,
   verifyMessage,
   verifySearchResponsePayloadV2,
@@ -64,25 +70,47 @@ import {
 
 export interface RelayClientConfig {
   relayUrl: string;
-  /** Required only by isolated legacy authenticated methods. */
+  /** Deprecated compatibility input; never transmitted by protocol v2. */
   identity?: Identity;
   /** Additional relay URLs to try if primary fails. */
   fallbackUrls?: string[];
-  /** Enable auto-reconnect with exponential backoff. */
+  /** Explicit entry relays for private mode; destination URLs stay separate. */
+  privateEntryUrls?: string[];
+  /** Bounded batch release and timing jitter for experimental private mode. */
+  privateTraffic?: PrivateTrafficScheduleOptions;
+  /** Deprecated compatibility input; v2 uses a short connection per operation. */
   autoReconnect?: boolean;
-  /** Supplies an unlinkable capability for each exact v2 relay request. */
+  /** Supplies capabilities for admitted requests and an optional local destination guard for prepaid ACKs. */
   admissionCapabilityProvider?: AdmissionCapabilityProviderV2;
+}
+
+function openRelaySocket(url: string): WebSocket {
+  assertSecureRelayTransportEndpoint(url);
+  return new WebSocket(url, { ...relayTlsClientOptions,
+    handshakeTimeout: 10_000,
+    maxPayload: MAX_SIGNED_MESSAGE_BYTES,
+    followRedirects: false,
+    perMessageDeflate: false,
+  });
 }
 
 export interface AdmissionCapabilityRequestContextV2 {
   relayUrl: string;
   action: RelayAdmissionActionV2;
   requestBinding: string;
+  policyObservation?: WalletPolicyObservation;
 }
 
-export type AdmissionCapabilityProviderV2 = (
+export type AdmissionCapabilityProviderV2 = ((
   context: AdmissionCapabilityRequestContextV2,
-) => AdmissionCapabilityV2 | undefined;
+) => AdmissionCapabilityV2 | undefined) & {
+  /** Independently pinned context, read only after releasing queued work. */
+  policyObservers?: () => AdmissionPolicyObservers | undefined;
+  /** Recheck retained state immediately before socket transmission; never reserve. */
+  assertCurrent?: (context: AdmissionCapabilityRequestContextV2) => void;
+  /** Local destination consent for prepaid maintenance; no policy query or token reservation. */
+  assertMaintenanceDestination?: (relayUrl: string) => void;
+};
 
 export interface RelayClientEvents {
   onMatch?: (payload: MatchPayload) => void;
@@ -93,6 +121,11 @@ export interface RelayClientEvents {
 }
 
 export interface RelayClient {
+  /** Private-only public metadata query; no personal identifier or capability. */
+  queryAdmissionPolicy?(context: AdmissionPolicyObservers): Promise<WalletPolicyObservation>;
+  fetchAdmissionPolicySuccessor?(context: AdmissionPolicyObservers, previous: import('@resonance/core/admission-policy-freshness').AdmissionPolicyHead): Promise<import('@resonance/core/admission-policy-advance').AdmissionPolicyAdvance>;
+  fetchAdmissionPolicyGenesis?(context: AdmissionPolicyObservers, options?: { signal?: AbortSignal }): Promise<import('@resonance/core/admission-policy').SignedAdmissionPolicy>;
+  fetchAdmissionPolicyProofStep?(context: AdmissionPolicyObservers, previous: import('@resonance/core/admission-policy-transfer').AdmissionPolicyProofCursor, options?: { signal?: AbortSignal }): Promise<import('@resonance/core/admission-policy-transfer').AdmissionPolicyProofStep>;
   connect(): Promise<void>;
   disconnect(): void;
   /** Submit one self-authenticating v2 operation without sending the root DID. */
@@ -105,6 +138,7 @@ export interface RelayClient {
     keys: PublicationKeyMaterial,
     envelope: EncryptedMailboxEnvelope,
   ): Promise<AckPayload>;
+  /** Returns the final batch's real receipt only after every batch meets the existing destination success rules. */
   acknowledgeMailbox(
     record: PublicationRecord,
     keys: PublicationKeyMaterial,
@@ -116,6 +150,7 @@ export interface RelayClient {
     keys: RelationshipKeyMaterial,
     envelope: EncryptedMailboxEnvelope,
   ): Promise<AckPayload>;
+  /** Returns the final batch's real receipt only after every batch meets the existing destination success rules. */
   acknowledgeRelationshipMailbox(
     keys: RelationshipKeyMaterial,
     envelopeIds: string[],
@@ -139,24 +174,12 @@ export interface RelationshipMailboxFetchResult {
   envelopes: EncryptedMailboxEnvelope[];
 }
 
-interface PendingRequest {
-  resolve: (value: any) => void;
-  reject: (err: Error) => void;
-  timeout: ReturnType<typeof setTimeout>;
-}
-
 export function createRelayClient(config: RelayClientConfig): RelayClient {
-  let ws: WebSocket | null = null;
-  let connected = false;
-  let intentionalDisconnect = false;
-  let reconnectDelay = 1000;
-  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  let currentUrl = config.relayUrl;
+  if (config.privateEntryUrls !== undefined) return createPrivateRelayClient(config);
   const allUrls = [config.relayUrl, ...(config.fallbackUrls ?? [])];
-  let urlIndex = 0;
+  if (allUrls.length > 16) throw new Error('Direct relay client supports at most 16 endpoints');
+  allUrls.forEach(assertSecureRelayTransportEndpoint);
   const events: Partial<RelayClientEvents> = {};
-  const pending = new Map<string, PendingRequest>();
-  let pendingSearchResolve: ((value: SearchResultsPayload) => void) | null = null;
 
   function admissionFor(
     relayUrl: string,
@@ -170,404 +193,129 @@ export function createRelayClient(config: RelayClientConfig): RelayClient {
     });
   }
 
-  function scheduleReconnect(): void {
-    if (!config.autoReconnect || intentionalDisconnect) return;
-    reconnectTimer = setTimeout(async () => {
-      // Try next URL in list
-      urlIndex = (urlIndex + 1) % allUrls.length;
-      currentUrl = allUrls[urlIndex];
-      try {
-        await doConnect(currentUrl);
-        reconnectDelay = 1000; // Reset on success
-        events.onReconnect?.();
-      } catch {
-        reconnectDelay = Math.min(reconnectDelay * 2, 30_000);
-        scheduleReconnect();
-      }
-    }, reconnectDelay);
+  class DisconnectedOperation extends Error {}
+  class OperationTimeout extends Error { constructor() { super('Direct relay operation timeout'); } }
+  const exchanges = new Set<(error: Error) => void>();
+  function rememberFailure(error: unknown): unknown {
+    if (error instanceof DisconnectedOperation || error instanceof OperationTimeout) throw error;
+    return error;
   }
-
-  function send<T>(type: string, payload: T): void {
-    if (!ws || ws.readyState !== WebSocket.OPEN) throw new Error('Not connected');
-    if (!config.identity) throw new Error('Legacy relay authentication requires an identity');
-    const msg = createMessage(type, payload, config.identity);
-    ws.send(serializeMessage(msg));
-  }
-
-  function waitForAck(ref: string, timeoutMs = 10_000): Promise<AckPayload> {
+  function directDeadline() { return performance.now() + 10_000; }
+  function exchange<T>(url: string, raw: () => string, select: (message: Message) => T, deadline: number, valid = () => {}): Promise<T> {
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        pending.delete(ref);
-        reject(new Error(`Timeout waiting for ACK: ${ref}`));
-      }, timeoutMs);
-      pending.set(ref, { resolve, reject, timeout });
-    });
-  }
-
-  function handleMessage(data: Buffer): void {
-    let msg: Message;
-    try {
-      msg = parseMessage(data.toString('utf-8'));
-    } catch {
-      return;
-    }
-
-    switch (msg.type) {
-      case MessageTypes.ACK: {
-        const ack = msg.payload as AckPayload;
-        const req = pending.get(ack.ref);
-        if (req) {
-          clearTimeout(req.timeout);
-          pending.delete(ack.ref);
-          req.resolve(ack);
-        }
-        break;
-      }
-      case MessageTypes.MATCH:
-        events.onMatch?.(msg.payload as MatchPayload);
-        break;
-      case MessageTypes.CONSENT_FORWARD:
-        events.onConsentForward?.(msg.payload as ConsentForwardPayload);
-        break;
-      case MessageTypes.CHANNEL_FORWARD:
-        events.onChannelForward?.(msg.payload as ChannelForwardPayload);
-        break;
-      case MessageTypes.SEARCH_RESULTS:
-        if (pendingSearchResolve) {
-          pendingSearchResolve(msg.payload as SearchResultsPayload);
-          pendingSearchResolve = null;
-        }
-        break;
-    }
-  }
-
-  function doConnect(url: string): Promise<void> {
-    if (!config.identity) return Promise.reject(new Error('Legacy relay authentication requires an identity'));
-    return new Promise((resolve, reject) => {
-      ws = new WebSocket(url);
-
-      ws.on('open', () => {
-        send(MessageTypes.AUTH, {});
-      });
-
-      ws.on('message', (data: Buffer) => {
-        let msg: Message;
-        try { msg = parseMessage(data.toString('utf-8')); } catch { return; }
-
-        if (msg.type === MessageTypes.ACK && (msg.payload as AckPayload).ref === 'auth') {
-          const ack = msg.payload as AckPayload;
-          if (ack.status === 'ok') {
-            connected = true;
-            intentionalDisconnect = false;
-            ws!.removeAllListeners('message');
-            ws!.on('message', handleMessage);
-            resolve();
-          } else {
-            reject(new Error(`Auth failed: ${ack.message}`));
-          }
-          return;
-        }
-      });
-
-      ws.on('close', (code, reason) => {
-        connected = false;
-        events.onDisconnect?.(reason.toString() || `code:${code}`);
-        scheduleReconnect();
-      });
-
-      ws.on('error', (err) => {
-        if (!connected) reject(err);
-      });
-
-      setTimeout(() => {
-        if (!connected) reject(new Error('Connection timeout'));
-      }, 10_000);
-    });
-  }
-
-  function submitToUrl(url: string, operation: PublicationOperation): Promise<AckPayload> {
-    return new Promise((resolve, reject) => {
-      const admission = admissionFor(url, 'publication-write', operation);
-      const operationSocket = new WebSocket(url);
+      if (exchanges.size >= 64) throw new Error('Direct relay client operation capacity exhausted');
+      if (performance.now() >= deadline) throw new OperationTimeout();
+      valid();
+      // Serialization and capability errors belong to the returned promise,
+      // never an uncaught WebSocket open callback.
+      const request = raw();
+      if (performance.now() >= deadline) throw new OperationTimeout();
+      const socket = openRelaySocket(url);
       let settled = false;
-      const timeout = setTimeout(() => finish(new Error('Publication operation timeout')), 10_000);
-
-      function finish(error?: Error, ack?: AckPayload): void {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timeout);
-        if (operationSocket.readyState === WebSocket.OPEN) operationSocket.close();
-        if (error) reject(error);
-        else resolve(ack!);
+      const timeout = setTimeout(() => finish(new OperationTimeout()), Math.max(1, deadline - performance.now()));
+      const cancel = (error: Error) => finish(error); exchanges.add(cancel);
+      function finish(error?: Error, result?: T) {
+        if (settled) return; settled = true;
+        clearTimeout(timeout); exchanges.delete(cancel);
+        // This socket carries exactly one request/reply. Do not leave either
+        // a connecting dial or an uncooperative closing peer alive afterwards.
+        if (socket.readyState !== WebSocket.CLOSED) socket.terminate();
+        if (error) reject(error); else resolve(result!);
       }
-
-      operationSocket.on('open', () => {
-        const frame = createPublicationOperationFrame(operation, admission);
-        operationSocket.send(serializePublicationOperationFrame(frame));
-      });
-      operationSocket.on('message', (data: Buffer) => {
-        try {
-          const message = parseMessage(data.toString('utf-8'));
-          if (!verifyMessage(message)) throw new Error('Relay ACK signature is invalid');
-          if (message.type !== MessageTypes.ACK) return;
-          const ack = message.payload as AckPayload;
-          if (ack.ref !== operation.publicationId) return;
-          finish(undefined, ack);
-        } catch (error) {
-          finish(error instanceof Error ? error : new Error(String(error)));
-        }
-      });
-      operationSocket.on('error', (error) => finish(error));
-      operationSocket.on('close', () => {
-        if (!settled) finish(new Error('Relay closed before acknowledging publication operation'));
-      });
-    });
-  }
-
-  function sendMailboxRequestToUrl(url: string, request: MailboxRequest): Promise<Message> {
-    return new Promise((resolve, reject) => {
-      const admission = admissionFor(
-        url,
-        request.action === 'fetch' ? 'mailbox-fetch' : 'mailbox-acknowledge',
-        request,
-      );
-      const mailboxSocket = new WebSocket(url);
-      let settled = false;
-      const timeout = setTimeout(() => finish(new Error('Mailbox request timeout')), 10_000);
-
-      function finish(error?: Error, message?: Message): void {
+      socket.on('open', () => {
         if (settled) return;
-        settled = true;
-        clearTimeout(timeout);
-        if (mailboxSocket.readyState === WebSocket.OPEN) mailboxSocket.close();
-        if (error) reject(error);
-        else resolve(message!);
-      }
-
-      mailboxSocket.on('open', () => {
-        mailboxSocket.send(serializeMailboxRequestFrame(createMailboxRequestFrame(request, admission)));
-      });
-      mailboxSocket.on('message', (data: Buffer) => {
         try {
-          const message = parseMessage(data.toString('utf8'));
-          if (!verifyMessage(message)) throw new Error('Relay mailbox response signature is invalid');
-          const payload = message.payload as Partial<MailboxResponsePayload & AckPayload>;
-          if (payload.requestId !== request.requestId && payload.ref !== request.requestId) return;
-          finish(undefined, message);
-        } catch (error) {
-          finish(error instanceof Error ? error : new Error(String(error)));
-        }
-      });
-      mailboxSocket.on('error', (error) => finish(error));
-      mailboxSocket.on('close', () => {
-        if (!settled) finish(new Error('Relay closed before answering mailbox request'));
-      });
-    });
-  }
-
-  function sendMailboxDepositToUrl(url: string, request: MailboxDepositRequest): Promise<AckPayload> {
-    return new Promise((resolve, reject) => {
-      const admission = admissionFor(url, 'mailbox-deposit', request);
-      const mailboxSocket = new WebSocket(url);
-      let settled = false;
-      const timeout = setTimeout(() => finish(new Error('Mailbox deposit timeout')), 10_000);
-
-      function finish(error?: Error, ack?: AckPayload): void {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timeout);
-        if (mailboxSocket.readyState === WebSocket.OPEN) mailboxSocket.close();
-        if (error) reject(error);
-        else resolve(ack!);
-      }
-
-      mailboxSocket.on('open', () => {
-        mailboxSocket.send(serializeMailboxDepositFrame(createMailboxDepositFrame(request, admission)));
-      });
-      mailboxSocket.on('message', (data: Buffer) => {
-        try {
-          const message = parseMessage(data.toString('utf8'));
-          if (!verifyMessage(message)) throw new Error('Relay mailbox deposit ACK signature is invalid');
-          if (message.type !== MessageTypes.ACK) return;
-          const ack = message.payload as AckPayload;
-          if (ack.ref !== request.requestId) return;
-          if (ack.status !== 'ok') throw new Error(ack.message ?? 'Relay rejected mailbox deposit');
-          finish(undefined, ack);
-        } catch (error) {
-          finish(error instanceof Error ? error : new Error(String(error)));
-        }
-      });
-      mailboxSocket.on('error', (error) => finish(error));
-      mailboxSocket.on('close', () => {
-        if (!settled) finish(new Error('Relay closed before acknowledging mailbox deposit'));
-      });
-    });
-  }
-
-  function sendRelationshipMailboxRequestToUrl(
-    url: string,
-    request: RelationshipMailboxRequestV2,
-  ): Promise<Message> {
-    return new Promise((resolve, reject) => {
-      const admission = admissionFor(
-        url,
-        request.action === 'fetch' ? 'mailbox-fetch' : 'mailbox-acknowledge',
-        request,
-      );
-      const socket = new WebSocket(url);
-      let settled = false;
-      const timeout = setTimeout(() => finish(new Error('Relationship mailbox request timeout')), 10_000);
-      function finish(error?: Error, message?: Message): void {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timeout);
-        if (socket.readyState === WebSocket.OPEN) socket.close();
-        if (error) reject(error); else resolve(message!);
-      }
-      socket.on('open', () => socket.send(serializeRelationshipMailboxRequestFrameV2(
-        createRelationshipMailboxRequestFrameV2(request, admission),
-      )));
-      socket.on('message', (data: Buffer) => {
-        try {
-          const message = parseMessage(data.toString('utf8'));
-          if (!verifyMessage(message)) throw new Error('Relay relationship mailbox response signature is invalid');
-          const payload = message.payload as Partial<MailboxResponsePayload & AckPayload>;
-          if (payload.requestId !== request.requestId && payload.ref !== request.requestId) return;
-          finish(undefined, message);
+          if (performance.now() >= deadline) throw new OperationTimeout();
+          valid(); socket.send(request);
         } catch (error) { finish(error instanceof Error ? error : new Error(String(error))); }
       });
-      socket.on('error', (error) => finish(error));
-      socket.on('close', () => {
-        if (!settled) finish(new Error('Relay closed before answering relationship mailbox request'));
-      });
-    });
-  }
-
-  function sendRelationshipMailboxDepositToUrl(
-    url: string,
-    request: RelationshipMailboxDepositV2,
-  ): Promise<AckPayload> {
-    return new Promise((resolve, reject) => {
-      const admission = admissionFor(url, 'mailbox-deposit', request);
-      const socket = new WebSocket(url);
-      let settled = false;
-      const timeout = setTimeout(() => finish(new Error('Relationship mailbox deposit timeout')), 10_000);
-      function finish(error?: Error, ack?: AckPayload): void {
+      socket.on('message', (data, binary) => {
         if (settled) return;
-        settled = true;
-        clearTimeout(timeout);
-        if (socket.readyState === WebSocket.OPEN) socket.close();
-        if (error) reject(error); else resolve(ack!);
-      }
-      socket.on('open', () => socket.send(serializeRelationshipMailboxDepositFrameV2(
-        createRelationshipMailboxDepositFrameV2(request, admission),
-      )));
-      socket.on('message', (data: Buffer) => {
         try {
+          if (performance.now() >= deadline) throw new OperationTimeout();
+          if (binary) throw new Error('Relay response must be JSON text');
           const message = parseMessage(data.toString('utf8'));
-          if (!verifyMessage(message)) throw new Error('Relay relationship mailbox ACK signature is invalid');
-          if (message.type !== MessageTypes.ACK) return;
-          const ack = message.payload as AckPayload;
-          if (ack.ref !== request.requestId) return;
-          if (ack.status !== 'ok') throw new Error(ack.message ?? 'Relay rejected relationship mailbox deposit');
-          finish(undefined, ack);
+          if (!verifyMessage(message)) throw new Error('Relay response signature is invalid');
+          if (message.type === MessageTypes.ACK) parseRelayAcknowledgement(message.payload);
+          finish(undefined, select(message));
         } catch (error) { finish(error instanceof Error ? error : new Error(String(error))); }
       });
-      socket.on('error', (error) => finish(error));
-      socket.on('close', () => {
-        if (!settled) finish(new Error('Relay closed before acknowledging relationship mailbox deposit'));
-      });
+      socket.on('error', error => finish(error));
+      socket.on('close', () => finish(new Error('Relay closed before answering request')));
     });
   }
-
-  function searchV2ToUrl(url: string, request: SearchRequestV2): Promise<SearchResponsePayloadV2> {
-    return new Promise((resolve, reject) => {
-      const admission = admissionFor(url, 'search', request);
-      const searchSocket = new WebSocket(url);
-      let settled = false;
-      const timeout = setTimeout(() => finish(new Error('Protocol v2 search timeout')), 10_000);
-
-      function finish(error?: Error, response?: SearchResponsePayloadV2): void {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timeout);
-        if (searchSocket.readyState === WebSocket.OPEN) searchSocket.close();
-        if (error) reject(error);
-        else resolve(response!);
+  function expectedAck(message: Message, ref: string, requireSuccess: boolean): AckPayload {
+    if (message.type !== MessageTypes.ACK) throw new Error('Unexpected relay acknowledgement type');
+    const ack = parseRelayAcknowledgement(message.payload);
+    if (ack.ref !== ref) throw new Error('Relay acknowledgement does not match request');
+    if (requireSuccess && ack.status !== 'ok') throw new Error(ack.message ?? 'Relay rejected request');
+    return ack;
+  }
+  function expectedMailboxReply(message: Message, request: MailboxRequest | RelationshipMailboxRequestV2): Message {
+    if (request.action === 'ack') expectedAck(message, request.requestId, true);
+    else parseRelayMailbox(message, request.requestId, request.mailboxId);
+    return message;
+  }
+  function submitToUrl(url: string, operation: PublicationOperation, deadline: number): Promise<AckPayload> {
+    return exchange(url, () => serializePublicationOperationFrame(createPublicationOperationFrame(operation,
+      admissionFor(url, 'publication-write', operation))), message => expectedAck(message, operation.publicationId, false), deadline);
+  }
+  function sendMailboxRequestToUrl(url: string, request: MailboxRequest, deadline: number): Promise<Message> {
+    return exchange(url, () => serializeMailboxRequestFrame(createMailboxRequestFrame(request,
+      request.action === 'fetch' ? admissionFor(url, 'mailbox-fetch', request) : undefined)),
+    message => expectedMailboxReply(message, request), deadline, request.action === 'ack'
+      ? () => config.admissionCapabilityProvider?.assertMaintenanceDestination?.(url) : undefined);
+  }
+  function sendMailboxDepositToUrl(url: string, request: MailboxDepositRequest, deadline: number): Promise<AckPayload> {
+    return exchange(url, () => serializeMailboxDepositFrame(createMailboxDepositFrame(request,
+      admissionFor(url, 'mailbox-deposit', request))), message => expectedAck(message, request.requestId, true), deadline);
+  }
+  function sendRelationshipMailboxRequestToUrl(url: string, request: RelationshipMailboxRequestV2, deadline: number): Promise<Message> {
+    return exchange(url, () => serializeRelationshipMailboxRequestFrameV2(createRelationshipMailboxRequestFrameV2(request,
+      request.action === 'fetch' ? admissionFor(url, 'mailbox-fetch', request) : undefined)),
+    message => expectedMailboxReply(message, request), deadline, request.action === 'ack'
+      ? () => config.admissionCapabilityProvider?.assertMaintenanceDestination?.(url) : undefined);
+  }
+  function sendRelationshipMailboxDepositToUrl(url: string, request: RelationshipMailboxDepositV2, deadline: number): Promise<AckPayload> {
+    return exchange(url, () => serializeRelationshipMailboxDepositFrameV2(createRelationshipMailboxDepositFrameV2(request,
+      admissionFor(url, 'mailbox-deposit', request))), message => expectedAck(message, request.requestId, true), deadline);
+  }
+  function searchV2ToUrl(url: string, request: SearchRequestV2, deadline: number): Promise<SearchResponsePayloadV2> {
+    return exchange(url, () => serializeSearchRequestFrameV2(createSearchRequestFrameV2(request, admissionFor(url, 'search', request))), message => {
+      if (message.type === MessageTypes.ACK) { expectedAck(message, request.searchId, true); throw new Error('Unexpected search acknowledgement'); }
+      if (message.type !== SEARCH_RESPONSE_MESSAGE_TYPE || !verifySearchResponsePayloadV2(message.payload)
+        || message.payload.searchId !== request.searchId || message.payload.results.length > request.k) {
+        throw new Error('Relay search response does not match the request');
       }
-
-      searchSocket.on('open', () => {
-        searchSocket.send(serializeSearchRequestFrameV2(createSearchRequestFrameV2(request, admission)));
-      });
-      searchSocket.on('message', (data: Buffer) => {
-        try {
-          const message = parseMessage(data.toString('utf8'));
-          if (!verifyMessage(message)) throw new Error('Relay search response signature is invalid');
-          if (message.type === MessageTypes.ACK) {
-            const ack = message.payload as AckPayload;
-            if (ack.ref !== request.searchId) return;
-            throw new Error(ack.message ?? 'Relay rejected protocol v2 search');
-          }
-          if (message.type !== SEARCH_RESPONSE_MESSAGE_TYPE) return;
-          if (!verifySearchResponsePayloadV2(message.payload)
-            || message.payload.searchId !== request.searchId
-            || message.payload.results.length > request.k) {
-            throw new Error('Relay search response does not match the request');
-          }
-          finish(undefined, message.payload);
-        } catch (error) {
-          finish(error instanceof Error ? error : new Error(String(error)));
-        }
-      });
-      searchSocket.on('error', (error) => finish(error));
-      searchSocket.on('close', () => {
-        if (!settled) finish(new Error('Relay closed before answering protocol v2 search'));
-      });
-    });
+      return message.payload;
+    }, deadline);
   }
 
-  async function sendMailboxRequest(request: MailboxRequest): Promise<Message> {
+  async function sendMailboxRequest(request: MailboxRequest, deadline = directDeadline()): Promise<Message> {
     let lastError: unknown;
     for (const url of allUrls) {
-      try { return await sendMailboxRequestToUrl(url, request); } catch (error) { lastError = error; }
+      try { return await sendMailboxRequestToUrl(url, request, deadline); } catch (error) { lastError = rememberFailure(error); }
     }
     throw lastError instanceof Error ? lastError : new Error('All relay URLs failed');
   }
 
   return {
-    async connect(): Promise<void> {
-      intentionalDisconnect = false;
-      // Try all URLs in order
-      for (let i = 0; i < allUrls.length; i++) {
-        try {
-          currentUrl = allUrls[i];
-          await doConnect(currentUrl);
-          urlIndex = i;
-          return;
-        } catch {
-          // Try next
-        }
-      }
-      throw new Error('All relay URLs failed');
+    connect(): Promise<void> {
+      return Promise.reject(new Error('Legacy relay authentication is unavailable; use protocol v2 operations'));
     },
 
     disconnect(): void {
-      intentionalDisconnect = true;
-      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
-      if (ws) {
-        ws.close();
-        ws = null;
-        connected = false;
-      }
+      for (const cancel of [...exchanges]) cancel(new DisconnectedOperation('Direct relay client disconnected'));
+      events.onDisconnect?.('Direct relay client disconnected');
     },
 
     async submitPublicationOperation(operation: PublicationOperation): Promise<AckPayload> {
-      let lastError: unknown;
+      let lastError: unknown; const deadline = directDeadline();
       for (const url of allUrls) {
         try {
-          return await submitToUrl(url, operation);
+          return await submitToUrl(url, operation, deadline);
         } catch (error) {
-          lastError = error;
+          lastError = rememberFailure(error);
         }
       }
       throw lastError instanceof Error ? lastError : new Error('All relay URLs failed');
@@ -577,7 +325,7 @@ export function createRelayClient(config: RelayClientConfig): RelayClient {
       const request = createMailboxRequest('fetch', record, keys);
       const response = await sendMailboxRequest(request);
       if (response.type === MessageTypes.ACK) {
-        const ack = response.payload as AckPayload;
+        const ack = parseRelayAcknowledgement(response.payload);
         throw new Error(ack.message ?? 'Relay rejected mailbox fetch');
       }
       if (response.type !== MAILBOX_RESPONSE_MESSAGE_TYPE) throw new Error('Unexpected mailbox response type');
@@ -609,9 +357,9 @@ export function createRelayClient(config: RelayClientConfig): RelayClient {
       envelope: EncryptedMailboxEnvelope,
     ): Promise<AckPayload> {
       const request = createMailboxDepositRequest(matchId, sender, recipient, keys, envelope);
-      let lastError: unknown;
+      let lastError: unknown; const deadline = directDeadline();
       for (const url of allUrls) {
-        try { return await sendMailboxDepositToUrl(url, request); } catch (error) { lastError = error; }
+        try { return await sendMailboxDepositToUrl(url, request, deadline); } catch (error) { lastError = rememberFailure(error); }
       }
       throw lastError instanceof Error ? lastError : new Error('All relay URLs failed');
     },
@@ -621,22 +369,26 @@ export function createRelayClient(config: RelayClientConfig): RelayClient {
       keys: PublicationKeyMaterial,
       envelopeIds: string[],
     ): Promise<AckPayload> {
-      const request = createMailboxRequest('ack', record, keys, envelopeIds);
-      const response = await sendMailboxRequest(request);
-      if (response.type !== MessageTypes.ACK) throw new Error('Unexpected mailbox acknowledgement type');
-      const ack = response.payload as AckPayload;
-      if (ack.status !== 'ok') throw new Error(ack.message ?? 'Relay rejected mailbox acknowledgement');
-      return ack;
+      const deadline = directDeadline();
+      const requests = mailboxAcknowledgementBatches(envelopeIds).map(ids => createMailboxRequest('ack', record, keys, ids));
+      let last!: AckPayload;
+      for (const request of requests) {
+        const response = await sendMailboxRequest(request, deadline);
+        last = expectedAck(response, request.requestId, true);
+      }
+      // This is the final batch's actual receipt; success means every batch succeeded.
+      return last;
     },
 
     async fetchRelationshipMailbox(keys: RelationshipKeyMaterial): Promise<RelationshipMailboxFetchResult> {
       const request = createRelationshipMailboxRequestV2('fetch', keys);
       // Explicit fallback relays can temporarily disagree during repair. Merge
       // their answers so one empty or stale relay cannot hide a live envelope.
+      const deadline = directDeadline();
       const results = await Promise.allSettled(allUrls.map(async url => {
-        const response = await sendRelationshipMailboxRequestToUrl(url, request);
+        const response = await sendRelationshipMailboxRequestToUrl(url, request, deadline);
         if (response.type === MessageTypes.ACK) {
-          const ack = response.payload as AckPayload;
+          const ack = parseRelayAcknowledgement(response.payload);
           throw new Error(ack.message ?? 'Relay rejected relationship mailbox fetch');
         }
         if (response.type !== MAILBOX_RESPONSE_MESSAGE_TYPE) throw new Error('Unexpected relationship mailbox response');
@@ -646,6 +398,7 @@ export function createRelayClient(config: RelayClientConfig): RelayClient {
           || !Array.isArray(payload.envelopes)) throw new Error('Relationship mailbox response does not match request');
         return payload.envelopes;
       }));
+      for (const result of results) if (result.status === 'rejected' && result.reason instanceof DisconnectedOperation) throw result.reason;
       const successes = results.filter((result): result is PromiseFulfilledResult<EncryptedMailboxEnvelope[]> =>
         result.status === 'fulfilled');
       if (successes.length === 0) {
@@ -661,66 +414,48 @@ export function createRelayClient(config: RelayClientConfig): RelayClient {
 
     async depositRelationshipMailboxEnvelope(recipientRelationshipId, keys, envelope): Promise<AckPayload> {
       const request = createRelationshipMailboxDepositV2(recipientRelationshipId, keys, envelope);
-      let lastError: unknown;
+      let lastError: unknown; const deadline = directDeadline();
       for (const url of allUrls) {
-        try { return await sendRelationshipMailboxDepositToUrl(url, request); } catch (error) { lastError = error; }
+        try { return await sendRelationshipMailboxDepositToUrl(url, request, deadline); } catch (error) { lastError = rememberFailure(error); }
       }
       throw lastError instanceof Error ? lastError : new Error('All relay URLs failed');
     },
 
     async acknowledgeRelationshipMailbox(keys, envelopeIds): Promise<AckPayload> {
-      const request = createRelationshipMailboxRequestV2('ack', keys, envelopeIds);
-      const results = await Promise.allSettled(allUrls.map(async url => {
-        const response = await sendRelationshipMailboxRequestToUrl(url, request);
-        if (response.type !== MessageTypes.ACK) throw new Error('Unexpected relationship mailbox acknowledgement');
-        const ack = response.payload as AckPayload;
-        if (ack.status !== 'ok') throw new Error(ack.message ?? 'Relay rejected relationship mailbox acknowledgement');
-        return ack;
-      }));
-      const success = results.find((result): result is PromiseFulfilledResult<AckPayload> =>
-        result.status === 'fulfilled');
-      if (success) return success.value;
-      const failed = results[0] as PromiseRejectedResult;
-      throw failed.reason instanceof Error ? failed.reason : new Error('All relay URLs failed');
+      const deadline = directDeadline();
+      const requests = mailboxAcknowledgementBatches(envelopeIds).map(ids => createRelationshipMailboxRequestV2('ack', keys, ids));
+      let last!: AckPayload;
+      for (const request of requests) {
+        const results = await Promise.allSettled(allUrls.map(async url => {
+          const response = await sendRelationshipMailboxRequestToUrl(url, request, deadline);
+          return expectedAck(response, request.requestId, true);
+        }));
+        for (const result of results) if (result.status === 'rejected' && result.reason instanceof DisconnectedOperation) throw result.reason;
+        const success = results.find((result): result is PromiseFulfilledResult<AckPayload> => result.status === 'fulfilled');
+        if (!success) {
+          const failed = results[0] as PromiseRejectedResult;
+          throw failed.reason instanceof Error ? failed.reason : new Error('All relay URLs failed');
+        }
+        last = success.value;
+      }
+      // Each batch retains relationship mailbox partial-success semantics.
+      return last;
     },
 
     async searchV2(input: CreateSearchRequestInputV2): Promise<SearchResponsePayloadV2> {
       // createSearchRequestV2 generates fresh signing material on every call.
       const request = createSearchRequestV2(input);
-      let lastError: unknown;
+      let lastError: unknown; const deadline = directDeadline();
       for (const url of allUrls) {
-        try { return await searchV2ToUrl(url, request); } catch (error) { lastError = error; }
+        try { return await searchV2ToUrl(url, request, deadline); } catch (error) { lastError = rememberFailure(error); }
       }
       throw lastError instanceof Error ? lastError : new Error('All relay URLs failed');
     },
 
-    search(payload: SearchPayload): Promise<SearchResultsPayload> {
-      return new Promise((resolve, reject) => {
-        pendingSearchResolve = resolve;
-        send(MessageTypes.SEARCH, payload);
-        // Also wait for the ACK
-        waitForAck('search').catch(() => {});
-        setTimeout(() => {
-          if (pendingSearchResolve) {
-            pendingSearchResolve = null;
-            reject(new Error('Search timeout'));
-          }
-        }, 10_000);
-      });
-    },
-
-    async sendConsent(payload: ConsentPayload): Promise<AckPayload> {
-      send(MessageTypes.CONSENT, payload);
-      return waitForAck(payload.matchId);
-    },
-
-    sendChannelMessage(payload: ChannelMessagePayload): void {
-      send(MessageTypes.CHANNEL_MESSAGE, payload);
-    },
-
-    isConnected(): boolean {
-      return connected;
-    },
+    search(): Promise<SearchResultsPayload> { return Promise.reject(new Error('Legacy search is unavailable; use searchV2')); },
+    sendConsent(): Promise<AckPayload> { return Promise.reject(new Error('Legacy consent is unavailable; use relationship mailboxes')); },
+    sendChannelMessage(): void { throw new Error('Legacy channel messages are unavailable; use relationship mailboxes'); },
+    isConnected(): boolean { return false; }, // v2 has no persistent account-authenticated session.
 
     on(newEvents: Partial<RelayClientEvents>): void {
       Object.assign(events, newEvents);

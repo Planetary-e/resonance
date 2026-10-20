@@ -1,0 +1,462 @@
+{
+  "measuredAt": "2026-10-18T04:27:33.136Z",
+  "node": "v24.19.0",
+  "cryptographicExercise": {
+    "requests": 32,
+    "modeledSources": 8,
+    "entryExposedSearchIds": 0,
+    "colludingSourceOperationLinks": 32,
+    "colludingLinkAccuracy": 1,
+    "attack": "Exact shared request-ID join, ignoring message order"
+  },
+  "selectionBoundary": {
+    "candidates": 8,
+    "acceptedDistinctKeysAndDomains": 8,
+    "sameKeyRejected": true,
+    "sameDomainRejected": true,
+    "operatorOwnershipChecked": false,
+    "connectionAuthenticationSimulated": true
+  },
+  "conditionalCaptureCases": [
+    {
+      "poolSize": 8,
+      "attackers": 0,
+      "arrangement": "clustered",
+      "honestAvailability": 1,
+      "routeProbability": 1,
+      "capturedProbability": 0,
+      "captureAmongAvailableRoutes": 0
+    },
+    {
+      "poolSize": 8,
+      "attackers": 0,
+      "arrangement": "clustered",
+      "honestAvailability": 0.75,
+      "routeProbability": 0.99998474,
+      "capturedProbability": 0,
+      "captureAmongAvailableRoutes": 0
+    },
+    {
+      "poolSize": 8,
+      "attackers": 0,
+      "arrangement": "clustered",
+      "honestAvailability": 0.5,
+      "routeProbability": 0.99609375,
+      "capturedProbability": 0,
+      "captureAmongAvailableRoutes": 0
+    },
+    {
+      "poolSize": 8,
+      "attackers": 0,
+      "arrangement": "clustered",
+      "honestAvailability": 0.25,
+      "routeProbability": 0.89988708,
+      "capturedProbability": 0,
+      "captureAmongAvailableRoutes": 0
+    },
+    {
+      "poolSize": 8,
+      "attackers": 0,
+      "arrangement": "spread",
+      "honestAvailability": 1,
+      "routeProbability": 1,
+      "capturedProbability": 0,
+      "captureAmongAvailableRoutes": 0
+    },
+    {
+      "poolSize": 8,
+      "attackers": 0,
+      "arrangement": "spread",
+      "honestAvailability": 0.75,
+      "routeProbability": 0.99998474,
+      "capturedProbability": 0,
+      "captureAmongAvailableRoutes": 0
+    },
+    {
+      "poolSize": 8,
+      "attackers": 0,
+      "arrangement": "spread",
+      "honestAvailability": 0.5,
+      "routeProbability": 0.99609375,
+      "capturedProbability": 0,
+      "captureAmongAvailableRoutes": 0
+    },
+    {
+      "poolSize": 8,
+      "attackers": 0,
+      "arrangement": "spread",
+      "honestAvailability": 0.25,
+      "routeProbability": 0.89988708,
+      "capturedProbability": 0,
+      "captureAmongAvailableRoutes": 0
+    },
+    {
+      "poolSize": 8,
+      "attackers": 1,
+      "arrangement": "clustered",
+      "honestAvailability": 1,
+      "routeProbability": 1,
+      "capturedProbability": 0.125,
+      "captureAmongAvailableRoutes": 0.125
+    },
+    {
+      "poolSize": 8,
+      "attackers": 1,
+      "arrangement": "clustered",
+      "honestAvailability": 0.75,
+      "routeProbability": 1,
+      "capturedProbability": 0.16666412,
+      "captureAmongAvailableRoutes": 0.16666412
+    },
+    {
+      "poolSize": 8,
+      "attackers": 1,
+      "arrangement": "clustered",
+      "honestAvailability": 0.5,
+      "routeProbability": 1,
+      "capturedProbability": 0.24902344,
+      "captureAmongAvailableRoutes": 0.24902344
+    },
+    {
+      "poolSize": 8,
+      "attackers": 1,
+      "arrangement": "clustered",
+      "honestAvailability": 0.25,
+      "routeProbability": 1,
+      "capturedProbability": 0.44994354,
+      "captureAmongAvailableRoutes": 0.44994354
+    },
+    {
+      "poolSize": 8,
+      "attackers": 1,
+      "arrangement": "spread",
+      "honestAvailability": 1,
+      "routeProbability": 1,
+      "capturedProbability": 0.125,
+      "captureAmongAvailableRoutes": 0.125
+    },
+    {
+      "poolSize": 8,
+      "attackers": 1,
+      "arrangement": "spread",
+      "honestAvailability": 0.75,
+      "routeProbability": 1,
+      "capturedProbability": 0.16666412,
+      "captureAmongAvailableRoutes": 0.16666412
+    },
+    {
+      "poolSize": 8,
+      "attackers": 1,
+      "arrangement": "spread",
+      "honestAvailability": 0.5,
+      "routeProbability": 1,
+      "capturedProbability": 0.24902344,
+      "captureAmongAvailableRoutes": 0.24902344
+    },
+    {
+      "poolSize": 8,
+      "attackers": 1,
+      "arrangement": "spread",
+      "honestAvailability": 0.25,
+      "routeProbability": 1,
+      "capturedProbability": 0.44994354,
+      "captureAmongAvailableRoutes": 0.44994354
+    },
+    {
+      "poolSize": 8,
+      "attackers": 2,
+      "arrangement": "clustered",
+      "honestAvailability": 1,
+      "routeProbability": 1,
+      "capturedProbability": 0.25,
+      "captureAmongAvailableRoutes": 0.25
+    },
+    {
+      "poolSize": 8,
+      "attackers": 2,
+      "arrangement": "clustered",
+      "honestAvailability": 0.75,
+      "routeProbability": 1,
+      "capturedProbability": 0.29165649,
+      "captureAmongAvailableRoutes": 0.29165649
+    },
+    {
+      "poolSize": 8,
+      "attackers": 2,
+      "arrangement": "clustered",
+      "honestAvailability": 0.5,
+      "routeProbability": 1,
+      "capturedProbability": 0.37304688,
+      "captureAmongAvailableRoutes": 0.37304688
+    },
+    {
+      "poolSize": 8,
+      "attackers": 2,
+      "arrangement": "clustered",
+      "honestAvailability": 0.25,
+      "routeProbability": 1,
+      "capturedProbability": 0.55825806,
+      "captureAmongAvailableRoutes": 0.55825806
+    },
+    {
+      "poolSize": 8,
+      "attackers": 2,
+      "arrangement": "spread",
+      "honestAvailability": 1,
+      "routeProbability": 1,
+      "capturedProbability": 0.25,
+      "captureAmongAvailableRoutes": 0.25
+    },
+    {
+      "poolSize": 8,
+      "attackers": 2,
+      "arrangement": "spread",
+      "honestAvailability": 0.75,
+      "routeProbability": 1,
+      "capturedProbability": 0.33203125,
+      "captureAmongAvailableRoutes": 0.33203125
+    },
+    {
+      "poolSize": 8,
+      "attackers": 2,
+      "arrangement": "spread",
+      "honestAvailability": 0.5,
+      "routeProbability": 1,
+      "capturedProbability": 0.46875,
+      "captureAmongAvailableRoutes": 0.46875
+    },
+    {
+      "poolSize": 8,
+      "attackers": 2,
+      "arrangement": "spread",
+      "honestAvailability": 0.25,
+      "routeProbability": 1,
+      "capturedProbability": 0.68359375,
+      "captureAmongAvailableRoutes": 0.68359375
+    },
+    {
+      "poolSize": 8,
+      "attackers": 4,
+      "arrangement": "clustered",
+      "honestAvailability": 1,
+      "routeProbability": 1,
+      "capturedProbability": 0.5,
+      "captureAmongAvailableRoutes": 0.5
+    },
+    {
+      "poolSize": 8,
+      "attackers": 4,
+      "arrangement": "clustered",
+      "honestAvailability": 0.75,
+      "routeProbability": 1,
+      "capturedProbability": 0.54150391,
+      "captureAmongAvailableRoutes": 0.54150391
+    },
+    {
+      "poolSize": 8,
+      "attackers": 4,
+      "arrangement": "clustered",
+      "honestAvailability": 0.5,
+      "routeProbability": 1,
+      "capturedProbability": 0.6171875,
+      "captureAmongAvailableRoutes": 0.6171875
+    },
+    {
+      "poolSize": 8,
+      "attackers": 4,
+      "arrangement": "clustered",
+      "honestAvailability": 0.25,
+      "routeProbability": 1,
+      "capturedProbability": 0.75634766,
+      "captureAmongAvailableRoutes": 0.75634766
+    },
+    {
+      "poolSize": 8,
+      "attackers": 4,
+      "arrangement": "spread",
+      "honestAvailability": 1,
+      "routeProbability": 1,
+      "capturedProbability": 0.5,
+      "captureAmongAvailableRoutes": 0.5
+    },
+    {
+      "poolSize": 8,
+      "attackers": 4,
+      "arrangement": "spread",
+      "honestAvailability": 0.75,
+      "routeProbability": 1,
+      "capturedProbability": 0.625,
+      "captureAmongAvailableRoutes": 0.625
+    },
+    {
+      "poolSize": 8,
+      "attackers": 4,
+      "arrangement": "spread",
+      "honestAvailability": 0.5,
+      "routeProbability": 1,
+      "capturedProbability": 0.75,
+      "captureAmongAvailableRoutes": 0.75
+    },
+    {
+      "poolSize": 8,
+      "attackers": 4,
+      "arrangement": "spread",
+      "honestAvailability": 0.25,
+      "routeProbability": 1,
+      "capturedProbability": 0.875,
+      "captureAmongAvailableRoutes": 0.875
+    },
+    {
+      "poolSize": 8,
+      "attackers": 6,
+      "arrangement": "clustered",
+      "honestAvailability": 1,
+      "routeProbability": 1,
+      "capturedProbability": 0.75,
+      "captureAmongAvailableRoutes": 0.75
+    },
+    {
+      "poolSize": 8,
+      "attackers": 6,
+      "arrangement": "clustered",
+      "honestAvailability": 0.75,
+      "routeProbability": 1,
+      "capturedProbability": 0.7890625,
+      "captureAmongAvailableRoutes": 0.7890625
+    },
+    {
+      "poolSize": 8,
+      "attackers": 6,
+      "arrangement": "clustered",
+      "honestAvailability": 0.5,
+      "routeProbability": 1,
+      "capturedProbability": 0.84375,
+      "captureAmongAvailableRoutes": 0.84375
+    },
+    {
+      "poolSize": 8,
+      "attackers": 6,
+      "arrangement": "clustered",
+      "honestAvailability": 0.25,
+      "routeProbability": 1,
+      "capturedProbability": 0.9140625,
+      "captureAmongAvailableRoutes": 0.9140625
+    },
+    {
+      "poolSize": 8,
+      "attackers": 6,
+      "arrangement": "spread",
+      "honestAvailability": 1,
+      "routeProbability": 1,
+      "capturedProbability": 0.75,
+      "captureAmongAvailableRoutes": 0.75
+    },
+    {
+      "poolSize": 8,
+      "attackers": 6,
+      "arrangement": "spread",
+      "honestAvailability": 0.75,
+      "routeProbability": 1,
+      "capturedProbability": 0.8125,
+      "captureAmongAvailableRoutes": 0.8125
+    },
+    {
+      "poolSize": 8,
+      "attackers": 6,
+      "arrangement": "spread",
+      "honestAvailability": 0.5,
+      "routeProbability": 1,
+      "capturedProbability": 0.875,
+      "captureAmongAvailableRoutes": 0.875
+    },
+    {
+      "poolSize": 8,
+      "attackers": 6,
+      "arrangement": "spread",
+      "honestAvailability": 0.25,
+      "routeProbability": 1,
+      "capturedProbability": 0.9375,
+      "captureAmongAvailableRoutes": 0.9375
+    },
+    {
+      "poolSize": 8,
+      "attackers": 8,
+      "arrangement": "clustered",
+      "honestAvailability": 1,
+      "routeProbability": 1,
+      "capturedProbability": 1,
+      "captureAmongAvailableRoutes": 1
+    },
+    {
+      "poolSize": 8,
+      "attackers": 8,
+      "arrangement": "clustered",
+      "honestAvailability": 0.75,
+      "routeProbability": 1,
+      "capturedProbability": 1,
+      "captureAmongAvailableRoutes": 1
+    },
+    {
+      "poolSize": 8,
+      "attackers": 8,
+      "arrangement": "clustered",
+      "honestAvailability": 0.5,
+      "routeProbability": 1,
+      "capturedProbability": 1,
+      "captureAmongAvailableRoutes": 1
+    },
+    {
+      "poolSize": 8,
+      "attackers": 8,
+      "arrangement": "clustered",
+      "honestAvailability": 0.25,
+      "routeProbability": 1,
+      "capturedProbability": 1,
+      "captureAmongAvailableRoutes": 1
+    },
+    {
+      "poolSize": 8,
+      "attackers": 8,
+      "arrangement": "spread",
+      "honestAvailability": 1,
+      "routeProbability": 1,
+      "capturedProbability": 1,
+      "captureAmongAvailableRoutes": 1
+    },
+    {
+      "poolSize": 8,
+      "attackers": 8,
+      "arrangement": "spread",
+      "honestAvailability": 0.75,
+      "routeProbability": 1,
+      "capturedProbability": 1,
+      "captureAmongAvailableRoutes": 1
+    },
+    {
+      "poolSize": 8,
+      "attackers": 8,
+      "arrangement": "spread",
+      "honestAvailability": 0.5,
+      "routeProbability": 1,
+      "capturedProbability": 1,
+      "captureAmongAvailableRoutes": 1
+    },
+    {
+      "poolSize": 8,
+      "attackers": 8,
+      "arrangement": "spread",
+      "honestAvailability": 0.25,
+      "routeProbability": 1,
+      "capturedProbability": 1,
+      "captureAmongAvailableRoutes": 1
+    }
+  ],
+  "limitations": [
+    "Real signed search frames and HPKE encryption/decryption, but in one process with modeled source labels, no sockets or TLS traffic.",
+    "Generated signed descriptors and documentation IPv6 domains exercise production eligibility checks; endpoint authentication is assumed, not performed.",
+    "Entry selection/fallback availability is an exact synthetic model, not a measurement of volunteer uptime, independent operators or actual network capture.",
+    "Probabilities are conditional on an already selected malicious destination. The current client does not choose both hops uniformly from one population.",
+    "The eight configured entries are assumed to include the stated attacker slots; this is not a discovery-injection or key-forgery exploit.",
+    "Shuffling, padding and removing this shared identifier do not defeat colluding entry/exit operators that retain their forwarded ciphertext mappings."
+  ]
+}

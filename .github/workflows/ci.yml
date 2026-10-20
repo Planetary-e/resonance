@@ -4,11 +4,195 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    # Check development PRs as well as PRs targeting main.
+  workflow_dispatch:
+    inputs:
+      all_platforms:
+        description: 'Run final compatibility checks on macOS, Windows and Linux'
+        type: boolean
+        default: false
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  local-ownership:
+    # Filesystem/process compatibility checks only; no native application build.
+    strategy:
+      fail-fast: false
+      matrix:
+        # Routine development uses macOS; final compatibility is opt-in.
+        os: ${{ fromJSON(inputs.all_platforms && '["macos-latest","ubuntu-latest","windows-latest"]' || '["macos-latest"]') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install test dependencies without native install scripts
+        run: npm ci --ignore-scripts
+      - name: Verify native signatures, local ownership and encrypted state
+        run: npx vitest run --maxWorkers=1 packages/core/src/__tests__/ed25519-vectors.test.ts packages/core/src/__tests__/crypto.test.ts packages/core/src/__tests__/identity-encryption.test.ts packages/core/src/__tests__/local-state-owner.test.ts packages/core/src/__tests__/storage-reservations.test.ts packages/node/src/__tests__/encrypted-local-state.test.ts packages/node/src/__tests__/identity.test.ts packages/node/src/__tests__/identity-file.test.ts packages/node/src/__tests__/identity-file-crash.integration.test.ts
+      - name: Verify IPv4 and IPv6 TLS paths, renewal and proxy forwarding
+        run: npx vitest run --maxWorkers=1 packages/relay/src/__tests__/relay-tls-identity.test.ts packages/relay/src/__tests__/tls-paths.integration.test.ts
+      - name: Verify infrastructure key migration and process interruption
+        run: npx vitest run --maxWorkers=1 packages/relay/src/__tests__/relay-identity-store.test.ts packages/relay/src/__tests__/relay-identity-crash.integration.test.ts
+      - name: Verify protected histories, policy observers and interruption
+        run: >-
+          npx vitest run --maxWorkers=1
+          packages/core/src/__tests__/local-encrypted-state-encoding.test.ts
+          packages/relay/src/__tests__/operator-json-encoding.test.ts
+          packages/core/src/__tests__/admission-policy-freshness.test.ts
+          packages/core/src/__tests__/policy-freshness-model.test.ts
+          packages/relay/src/__tests__/admission-policy-observer.test.ts
+          packages/relay/src/__tests__/admission-policy-observer-crash.integration.test.ts
+          packages/relay/src/__tests__/admission-policy-observation.integration.test.ts
+          packages/relay/src/__tests__/admission-policy-observation-pool.integration.test.ts
+          packages/relay/src/__tests__/policy-observer-listener-reuse.integration.test.ts
+          packages/relay/src/__tests__/admission-policy-query.test.ts
+          packages/core/src/__tests__/admission-policy-query.test.ts
+          packages/core/src/__tests__/admission-policy-trust.test.ts
+          packages/relay/src/__tests__/admission-policy-freshness-gate.test.ts
+          packages/relay/src/__tests__/configured-policy-freshness.integration.test.ts
+          packages/core/src/__tests__/admission-policy-transfer.test.ts
+          packages/relay/src/__tests__/admission-policy-transfer.test.ts
+          packages/node/src/__tests__/wallet-policy-freshness.test.ts
+          packages/node/src/__tests__/issuer-policy-freshness.test.ts
+          packages/node/src/__tests__/private-wallet-policy.integration.test.ts
+          packages/relay/src/__tests__/blind-admission-verifier.test.ts
+          packages/relay/src/__tests__/admission-decision-queue.test.ts
+          packages/relay/src/__tests__/admission-decision-preparation.test.ts
+          packages/relay/src/__tests__/admission-policy-preparation.integration.test.ts
+          packages/relay/src/__tests__/protected-admission-roles.test.ts
+          packages/relay/src/__tests__/history-current-head.integration.test.ts
+          packages/relay/src/__tests__/protected-policy-observer.integration.test.ts
+          packages/relay/src/__tests__/protected-policy-quorum.integration.test.ts
+          packages/relay/src/__tests__/policy-observer-history-restore.integration.test.ts
+          packages/relay/src/__tests__/policy-observer-compaction-boundary.integration.test.ts
+          packages/relay/src/__tests__/policy-observer-restore-crash.integration.test.ts
+          packages/relay/src/__tests__/policy-observer-recovery.integration.test.ts
+          packages/relay/src/__tests__/policy-observer-recovery-crash.integration.test.ts
+          packages/relay/src/__tests__/policy-observer-config.integration.test.ts
+          packages/relay/src/__tests__/policy-observer-recovery-command.integration.test.ts
+          packages/relay/src/__tests__/policy-observer-setup.integration.test.ts
+          packages/relay/src/__tests__/policy-observer-setup-crash.integration.test.ts
+          packages/relay/src/__tests__/policy-observer-outbound.integration.test.ts
+          packages/relay/src/__tests__/policy-observer-runtime.integration.test.ts
+          packages/relay/src/__tests__/history-owner-routing.test.ts
+          packages/relay/src/__tests__/history-local-exchange.test.ts
+          packages/relay/src/__tests__/history-volunteer-collection.test.ts
+          packages/relay/src/__tests__/history-volunteer-collection.integration.test.ts
+
+  admission-durability:
+    # Keep process-death suites within a bounded job as coverage grows.
+    strategy:
+      fail-fast: false
+      matrix:
+        # Routine development uses macOS; final compatibility is opt-in.
+        os: ${{ fromJSON(inputs.all_platforms && '["macos-latest","ubuntu-latest","windows-latest"]' || '["macos-latest"]') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install test dependencies without native install scripts
+        run: npm ci --ignore-scripts
+      # The two 101-generation pooled workloads remain mandatory in the general
+      # test job. Do not duplicate them inside this 15-minute focused job.
+      - name: Verify issuer, allocation and policy archive durability
+        run: >-
+          npx vitest run --maxWorkers=1
+          --testNamePattern='^(?!.*through100 real pooled)'
+          packages/core/src/__tests__/admission-issuance-allocation.test.ts
+          packages/node/src/__tests__/admission-allocation-authority.test.ts
+          packages/node/src/__tests__/admission-allocation-authority-state.test.ts
+          packages/node/src/__tests__/protected-admission-allocation-authority.test.ts
+          packages/node/src/__tests__/protected-allocation-authority.integration.test.ts
+          packages/node/src/__tests__/protected-allocation-authority-crash.integration.test.ts
+          packages/node/src/__tests__/admission-allocation-authority-history-replay.test.ts
+          packages/node/src/__tests__/protected-allocation-authority-restore.integration.test.ts
+          packages/node/src/__tests__/admission-allocation-authority-recovery.test.ts
+          packages/node/src/__tests__/admission-allocation-authority-restore-resumption.test.ts
+          packages/node/src/__tests__/protected-allocation-authority-recovery-command.integration.test.ts
+          packages/node/src/__tests__/protected-allocation-authority-recovery-crash.integration.test.ts
+          packages/node/src/__tests__/admission-issuer-allocation.test.ts
+          packages/core/src/__tests__/admission-claim-assignment.test.ts
+          packages/node/src/__tests__/admission-claim-assignment-authority.test.ts
+          packages/node/src/__tests__/admission-issuer-assignment.test.ts
+          packages/relay/src/__tests__/protected-issuer-history.test.ts
+          packages/relay/src/__tests__/protected-issuer-enrollment.test.ts
+          packages/relay/src/__tests__/protected-allocation-enrollment.test.ts
+          packages/node/src/__tests__/protected-admission-issuer-ledger.test.ts
+          packages/node/src/__tests__/protected-issuer-command.integration.test.ts
+          packages/node/src/__tests__/admission-issuer-history-replay.test.ts
+          packages/node/src/__tests__/protected-issuer-restore.integration.test.ts
+          packages/node/src/__tests__/admission-issuer-recovery.test.ts
+          packages/node/src/__tests__/protected-issuer-recovery-crash.integration.test.ts
+          packages/node/src/__tests__/protected-issuer-recovery-command.integration.test.ts
+          packages/relay/src/__tests__/policy-observer-v3.integration.test.ts
+          packages/relay/src/__tests__/policy-observer-65-rotations.integration.test.ts
+          packages/node/src/__tests__/wallet-policy-proof.test.ts
+          packages/node/src/__tests__/protected-admission-consumers-v3.integration.test.ts
+
+      - name: Report owner-loss collection timing
+        if: always()
+        run: >-
+          node --input-type=module -e 'import { readFileSync, existsSync } from "node:fs";
+          import { tmpdir } from "node:os"; import { join } from "node:path";
+          for (const role of ["admission-issuer", "relay-admission-spends"]) {
+          const path = join(tmpdir(), "protected-consumer-freeze-" + role + ".json");
+          console.log(existsSync(path) ? readFileSync(path, "utf8") : "No completed collection receipt for " + role); }'
+
+  desktop-boundaries:
+    # Actual local API/process checks; no native compilation or app installers.
+    strategy:
+      fail-fast: false
+      matrix:
+        # Routine development uses macOS; final compatibility is opt-in.
+        os: ${{ fromJSON(inputs.all_platforms && '["macos-latest","ubuntu-latest","windows-latest"]' || '["macos-latest"]') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install test dependencies without native install scripts
+        run: npm ci --ignore-scripts
+      - name: Verify desktop imports, retained selections and HTTP boundaries
+        run: >-
+          npx vitest run --maxWorkers=1
+          packages/core/src/__tests__/embedding-lifecycle.test.ts
+          packages/core/src/__tests__/embedding-bounds.test.ts
+          scripts/fixtures/real-app-network.test.ts
+          packages/core/src/__tests__/model-file-cache.test.ts
+          packages/node/src/__tests__/command-model-lifetime.test.ts
+          packages/app/src/server/__tests__/publication-outbox.integration.test.ts
+          packages/app/src/server/__tests__/history-collection-storage.test.ts
+          packages/app/src/server/__tests__/history-collection-activation.integration.test.ts
+          packages/app/src/server/__tests__/local-api-lifetime.test.ts
+          packages/app/src/server/__tests__/local-http-boundary.integration.test.ts
+          packages/app/src/server/__tests__/native-import-boundary.integration.test.ts
+          packages/app/src/server/__tests__/policy-observer-activation.integration.test.ts
+          packages/app/src/server/__tests__/policy-observer-setup.integration.test.ts
+          packages/app/src/server/__tests__/policy-observer-recovery.integration.test.ts
+          packages/app/src/server/__tests__/private-policy-query.integration.test.ts
+          packages/app/src/server/__tests__/private-policy-transfer.integration.test.ts
+          packages/app/src/server/__tests__/admission-policy-update.integration.test.ts
+          packages/app/src/server/__tests__/wallet-proof-storage.test.ts
+          packages/app/src/server/__tests__/wallet-proof-update.integration.test.ts
+          packages/node/src/__tests__/private-policy-proof.integration.test.ts
+          packages/app/src/server/__tests__/relay-loader-path.test.ts
+
   test:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -29,6 +213,15 @@ jobs:
 
       - name: Run tests
         run: npx vitest run --maxWorkers=1
+
+      - name: Report owner-loss collection timing
+        if: always()
+        run: >-
+          node --input-type=module -e 'import { readFileSync, existsSync } from "node:fs";
+          import { tmpdir } from "node:os"; import { join } from "node:path";
+          for (const role of ["admission-issuer", "relay-admission-spends"]) {
+          const path = join(tmpdir(), "protected-consumer-freeze-" + role + ".json");
+          console.log(existsSync(path) ? readFileSync(path, "utf8") : "No completed collection receipt for " + role); }'
 
       - name: Run eval suite (quick)
         run: npm run eval:quick

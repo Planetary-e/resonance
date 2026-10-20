@@ -13,24 +13,30 @@ import {
   type PublicationRecord,
 } from '@resonance/core';
 import { createRelayServer, type RelayServer } from '../server.js';
+import { createRelayTestEndpoints, type RelayTestEndpoint } from './fixtures/relay-test-endpoint.js';
 
-const BASE = 38_000 + Math.floor(Math.random() * 1_000);
-const RUN = `${Date.now()}-${BASE}`;
-const CONTROLLER = BASE;
-const VOLUNTEERS = [1, 2, 3, 4, 5].map(offset => BASE + offset);
-const GATEWAY = BASE + 6;
+const RUN = `${Date.now()}-${process.pid}`;
+let CONTROLLER = 0, GATEWAY = 0;
+const VOLUNTEERS = [0, 0, 0, 0, 0];
+let testEndpoints: RelayTestEndpoint[] = [];
+const relayEndpoints = new Map<RelayServer, RelayTestEndpoint>();
 const DIRECT_VOLUNTEER = 2;
-const directories = [CONTROLLER, ...VOLUNTEERS, GATEWAY]
-  .map(port => `/tmp/resonance-v03-completion-${port}-${RUN}`);
+// Seven relays share one event loop here. Keep maintenance and observation
+// traffic below the work being tested, including on slower CI workers.
+const LINK_TIMING = {
+  handshakeTimeoutMs: 15_000, heartbeatIntervalMs: 1_000,
+  heartbeatTimeoutMs: 15_000, reconnectBaseMs: 250, reconnectMaxMs: 1_000,
+};
+const directories = Array.from({ length: 7 }, (_, index) => `/tmp/resonance-v03-completion-${index}-${RUN}`);
 
 function endpoint(port: number): string { return `ws://127.0.0.1:${port}/`; }
 
 function volunteer(index: number): RelayServer {
   const port = VOLUNTEERS[index];
   const direct = index === DIRECT_VOLUNTEER;
-  return createRelayServer({
+  const relay = createRelayServer({
     maxSearchesPerMin: 1_000,
-    port, host: '127.0.0.1', persistDir: directories[index + 1],
+    port: 0, host: '127.0.0.1', persistDir: directories[index + 1],
     relayDiscovery: {
       endpoints: direct ? [endpoint(port)] : [],
       reachability: direct ? 'direct' : 'outbound-only',
@@ -39,44 +45,45 @@ function volunteer(index: number): RelayServer {
     },
     relayLinks: {
       targets: [createRelayContactHintV1('configured', endpoint(CONTROLLER))],
-      handshakeTimeoutMs: 5_000, heartbeatIntervalMs: 500,
-      heartbeatTimeoutMs: 5_000, reconnectBaseMs: 50, reconnectMaxMs: 200,
+      ...LINK_TIMING,
     },
-    relayLinkHeartbeatIntervalMs: 500, relayLinkHeartbeatTimeoutMs: 5_000,
+    relayLinkHeartbeatIntervalMs: 1_000, relayLinkHeartbeatTimeoutMs: 15_000,
   });
+  relayEndpoints.set(relay, testEndpoints[index + 1]); return relay;
 }
 
 function controller(volunteers: RelayServer[]): RelayServer {
-  return createRelayServer({
+  const relay = createRelayServer({
     maxSearchesPerMin: 1_000,
-    port: CONTROLLER, host: '127.0.0.1', persistDir: directories[0],
+    port: 0, host: '127.0.0.1', persistDir: directories[0],
     desiredReplicaCount: 5, minimumHealthyReplicaCount: 3,
-    replicaRepairIntervalMs: 250, replicaInventoryIntervalMs: 2_000,
+    replicaRepairIntervalMs: 1_000, replicaInventoryIntervalMs: 30_000,
     inboundReplicaTargetIds: volunteers.map(target => target.getRelayDescriptor()!.relayId),
     relayDiscovery: {
       endpoints: [endpoint(CONTROLLER)], reachability: 'direct',
       supportedGroups: ['public'],
       storage: { capacityBytes: 4_000_000, availableBytes: 3_000_000 },
     },
-    relayLinkHeartbeatIntervalMs: 500, relayLinkHeartbeatTimeoutMs: 5_000,
+    relayLinkHeartbeatIntervalMs: 1_000, relayLinkHeartbeatTimeoutMs: 15_000,
   });
+  relayEndpoints.set(relay, testEndpoints[0]); return relay;
 }
 
 function gateway(): RelayServer {
-  return createRelayServer({
+  const relay = createRelayServer({
     maxSearchesPerMin: 1_000,
-    port: GATEWAY, host: '127.0.0.1', persistDir: directories[6],
+    port: 0, host: '127.0.0.1', persistDir: directories[6],
     relayDiscovery: {
       endpoints: [], reachability: 'outbound-only', supportedGroups: ['public'],
       storage: { capacityBytes: 4_000_000, availableBytes: 3_000_000 },
     },
     relayLinks: {
       targets: [createRelayContactHintV1('configured', endpoint(VOLUNTEERS[DIRECT_VOLUNTEER]))],
-      handshakeTimeoutMs: 5_000, heartbeatIntervalMs: 500,
-      heartbeatTimeoutMs: 5_000, reconnectBaseMs: 50, reconnectMaxMs: 200,
+      ...LINK_TIMING,
     },
-    relayLinkHeartbeatIntervalMs: 500, relayLinkHeartbeatTimeoutMs: 5_000,
+    relayLinkHeartbeatIntervalMs: 1_000, relayLinkHeartbeatTimeoutMs: 15_000,
   });
+  relayEndpoints.set(relay, testEndpoints[6]); return relay;
 }
 
 function request(port: number, raw: string): Promise<Message> {
@@ -97,13 +104,16 @@ function request(port: number, raw: string): Promise<Message> {
   });
 }
 
-async function waitFor(check: () => boolean | Promise<boolean>, timeoutMs = 40_000): Promise<void> {
+async function waitFor(
+  check: () => boolean | Promise<boolean>, timeoutMs = 40_000,
+  diagnostics?: () => unknown,
+): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (await check()) return;
-    await new Promise(resolve => setTimeout(resolve, 75));
+    await new Promise(resolve => setTimeout(resolve, 500));
   }
-  throw new Error('v0.3 completion condition not met');
+  throw new Error(`v0.3 completion condition not met: ${JSON.stringify(diagnostics?.() ?? {})}`);
 }
 
 function publication(itemType: 'need' | 'offer') {
@@ -134,23 +144,26 @@ async function fetch(port: number, record: PublicationRecord, keys: PublicationK
 
 describe('v0.3 volunteer-only completion path', () => {
   it('keeps search and encrypted notice delivery after the controller and two volunteers disappear', async () => {
-    const volunteers = VOLUNTEERS.map((_, index) => volunteer(index));
-    let source = controller(volunteers);
-    const entry = gateway();
+    let volunteers: RelayServer[], source: RelayServer, entry: RelayServer;
     const running = new Set<RelayServer>();
     const start = async (relay: RelayServer): Promise<void> => {
       await relay.start();
-      running.add(relay);
+      running.add(relay); relayEndpoints.get(relay)!.forwardTo(relay.getListeningPort()!);
     };
     const stop = async (relay: RelayServer): Promise<void> => {
+      await relay.stop({ graceful: false }); relayEndpoints.get(relay)!.disconnect();
       running.delete(relay);
-      await relay.stop({ graceful: false });
     };
     try {
+      testEndpoints = await createRelayTestEndpoints(7);
+      CONTROLLER = testEndpoints[0].port; GATEWAY = testEndpoints[6].port;
+      VOLUNTEERS.forEach((_, index) => { VOLUNTEERS[index] = testEndpoints[index + 1].port; });
+      volunteers = VOLUNTEERS.map((_, index) => volunteer(index)); source = controller(volunteers); entry = gateway();
       await start(source);
       await Promise.all(volunteers.map(start));
       await start(entry);
       await waitFor(() => source.getRelayLinkStatus().inboundRelayIds.length === 5
+        && volunteers.every(target => target.getRelayLinkStatus().connectedRelayIds.length === 1)
         && entry.getRelayLinkStatus().connectedRelayIds.length === 1);
 
       const offer = publication('offer');
@@ -199,7 +212,8 @@ describe('v0.3 volunteer-only completion path', () => {
       await start(source);
       await Promise.all([start(volunteers[0]), start(volunteers[1])]);
       await waitFor(() => source.getReplicaPlacementStatus(offer.record.publicationId)?.confirmedReplicaCount === 5
-        && source.getRelayLinkStatus().inboundRelayIds.length === 5);
+        && source.getRelayLinkStatus().inboundRelayIds.length === 5
+        && volunteers.every(target => target.getRelayLinkStatus().connectedRelayIds.length === 1));
       await waitFor(async () => (await Promise.all(VOLUNTEERS.map(port => fetch(port, offer.record, offer.keys))))
         .every(envelopes => envelopes.length === 1 && envelopes[0].envelopeId === notices[0].envelopeId));
 
@@ -208,9 +222,16 @@ describe('v0.3 volunteer-only completion path', () => {
           [notices[0].envelopeId], Date.now())),
       ));
       expect(ack.payload).toMatchObject({ status: 'ok', message: 'acknowledged:1' });
-      await waitFor(async () => (await Promise.all([CONTROLLER, ...VOLUNTEERS]
-        .map(port => fetch(port, offer.record, offer.keys))))
-        .every(envelopes => envelopes.length === 0));
+      let remainingEnvelopes: number[] = [];
+      await waitFor(async () => {
+        remainingEnvelopes = (await Promise.all([CONTROLLER, ...VOLUNTEERS]
+          .map(port => fetch(port, offer.record, offer.keys)))).map(envelopes => envelopes.length);
+        return remainingEnvelopes.every(count => count === 0);
+      }, 40_000, () => ({
+        phase: 'acknowledgement propagation', remainingEnvelopes,
+        controller: source.getRelayLinkStatus(),
+        volunteers: volunteers.map(target => target.getRelayLinkStatus()),
+      }));
 
       const tombstone = createPublicationTombstone(
         offer.record, 'withdrawn', offer.keys.signingKeyPair, Date.now(),
@@ -221,8 +242,11 @@ describe('v0.3 volunteer-only completion path', () => {
       await waitFor(() => volunteers.every(target => target.getStats().active_publications === 1));
       expect(await fetch(VOLUNTEERS[DIRECT_VOLUNTEER], offer.record, offer.keys)).toEqual([]);
     } finally {
-      await Promise.all([...running].map(relay => relay.stop({ graceful: false })));
+      const stopped = await Promise.allSettled([...running].map(relay => relay.stop({ graceful: false })));
+      const closed = await Promise.allSettled(testEndpoints.map(endpoint => endpoint.close())); relayEndpoints.clear();
       for (const directory of directories) rmSync(directory, { recursive: true, force: true });
+      const failures = [...stopped, ...closed].filter(result => result.status === 'rejected');
+      if (failures.length) throw new AggregateError(failures.map(result => result.reason), 'Completion fixture cleanup failed');
     }
   }, 180_000);
 });

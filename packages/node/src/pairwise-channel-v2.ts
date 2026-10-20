@@ -37,9 +37,13 @@ export interface PairwiseChannelSyncResult {
   channelOperationsProcessed: number;
 }
 
+export interface MailboxSyncScope {
+  publicationIds: readonly string[];
+  relationshipIds: readonly string[];
+}
 export interface PairwiseChannelManagerV2 {
   initiate(matchId: string): Promise<StoredPairwiseChannel>;
-  syncMailboxes(): Promise<PairwiseChannelSyncResult>;
+  syncMailboxes(scope?: MailboxSyncScope): Promise<PairwiseChannelSyncResult>;
   sendDisclosure(
     channelId: string,
     text: string,
@@ -236,9 +240,10 @@ export function createPairwiseChannelManagerV2(
     return sent;
   }
 
-  async function syncRelationshipMailboxes(): Promise<number> {
+  async function syncRelationshipMailboxes(scope?: MailboxSyncScope): Promise<number> {
     let processed = 0;
     for (const listed of store.listPairwiseChannels()) {
+      if (scope && !scope.relationshipIds.includes(listed.localKeys.relationshipId)) continue;
       let channel = listed.pendingOutbound ? await flushPending(listed) : listed;
       if (!channel.channelId || !channel.partnerRelationshipId || !channel.partnerRelationshipKey
         || !channel.sharedKey || channel.status === 'offer-sent') continue;
@@ -378,13 +383,13 @@ export function createPairwiseChannelManagerV2(
       return store.getPairwiseChannelByMatchId(matchId)!;
     },
 
-    async syncMailboxes(): Promise<PairwiseChannelSyncResult> {
+    async syncMailboxes(scope?: MailboxSyncScope): Promise<PairwiseChannelSyncResult> {
       let matchesAdded = 0;
       let messagesProcessed = 0;
       let channelsActivated = 0;
 
       for (const publication of store.listPublications()) {
-        if (publication.tombstone) continue;
+        if (publication.tombstone || (scope && !scope.publicationIds.includes(publication.publicationId))) continue;
         const inbox = await relayClient.fetchMailbox(publication.record, publication.keys);
 
         for (const notice of inbox.notices) {
@@ -412,7 +417,7 @@ export function createPairwiseChannelManagerV2(
           );
         }
       }
-      const channelOperationsProcessed = await syncRelationshipMailboxes();
+      const channelOperationsProcessed = await syncRelationshipMailboxes(scope);
       return { matchesAdded, messagesProcessed, channelsActivated, channelOperationsProcessed };
     },
 

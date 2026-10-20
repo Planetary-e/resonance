@@ -1,6 +1,7 @@
 /** Fsynced append-only authority for relay protocol state. */
 
 import { Buffer } from 'node:buffer';
+import { reserveManagedStorage, type StorageReservationLease } from '@resonance/core/storage-reservations';
 import {
   appendFileSync,
   closeSync,
@@ -114,8 +115,14 @@ export class RelayJournalCapacityError extends Error {
   constructor() { super('Relay journal storage quota exhausted'); }
 }
 
+/** A record exceeded its own prepaid allowance, independently of journal space. */
+export class RelayJournalRecordSizeError extends Error {
+  constructor() { super('Relay journal record exceeds its reserved byte limit'); }
+}
+
 export class RelayOperationLog {
   private readonly directory: string;
+  private readonly reservation: StorageReservationLease | undefined;
   private readonly path: string;
   private records: RelayOperationLogRecord[] = [];
   private failed = false;
@@ -130,12 +137,14 @@ export class RelayOperationLog {
       && (!Number.isSafeInteger(maxFileBytes) || maxFileBytes < 0))) {
       throw new Error('Invalid relay journal file quota');
     }
-    mkdirSync(directory, { recursive: true });
     this.directory = directory;
     this.path = join(directory, RELAY_OPERATION_LOG_FILENAME);
+    this.reservation = reserveManagedStorage({ path: this.path, component: 'relay-operation-log', scope: 'file', maximumBytes: 2 * maxFileBytes });
+    mkdirSync(directory, { recursive: true });
   }
 
   load(): readonly RelayOperationLogRecord[] {
+    this.reservation?.assertWritable();
     this.failed = false;
     // A crash before rename leaves only an abandoned candidate; the primary
     // journal remains authoritative and the candidate must not consume the
@@ -186,8 +195,10 @@ export class RelayOperationLog {
     return this.records;
   }
 
-  append(entry: RelayOperationLogEntry, committedAt = Date.now()): RelayOperationLogRecord {
+  /** maxRecordBytes includes the complete serialized record and trailing newline. */
+  append(entry: RelayOperationLogEntry, committedAt = Date.now(), maxRecordBytes = Number.POSITIVE_INFINITY): RelayOperationLogRecord {
     if (this.failed) throw new Error('Relay operation log requires restart after an append failure');
+    this.reservation?.assertWritable();
     if (!isLogEntry(entry) || !isTimestamp(committedAt)) throw new Error('Invalid relay operation log entry');
     const base = {
       version: 1 as const,
@@ -198,6 +209,10 @@ export class RelayOperationLog {
     const record: RelayOperationLogRecord = { ...base, recordId: recordId(base) };
     const serialized = `${JSON.stringify(record)}\n`;
     const writtenBytes = Buffer.byteLength(serialized, 'utf8');
+    if (maxRecordBytes !== Number.POSITIVE_INFINITY && (!Number.isSafeInteger(maxRecordBytes) || maxRecordBytes < 0)) {
+      throw new Error('Invalid relay journal record byte limit');
+    }
+    if (writtenBytes > maxRecordBytes) throw new RelayJournalRecordSizeError();
     const reservedBytes = this.reservedBytesAfterAppend(entry);
     if (!Number.isSafeInteger(reservedBytes) || reservedBytes < 0) {
       throw new Error('Invalid relay journal reserve');
@@ -225,6 +240,7 @@ export class RelayOperationLog {
   /** Replace a replayed journal with an atomically installed, fsynced snapshot of its retained events. */
   compact(retained: readonly Pick<RelayOperationLogRecord, 'committedAt' | 'entry'>[]): void {
     if (this.failed) throw new Error('Relay operation log requires restart after an append failure');
+    this.reservation?.assertWritable();
     const compacted = retained.map(({ committedAt, entry }, index) => {
       if (!isLogEntry(entry) || !isTimestamp(committedAt)) {
         throw new Error('Invalid relay operation log compaction entry');

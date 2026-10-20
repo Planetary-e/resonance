@@ -59,3 +59,34 @@ describe('signed relay query frames', () => {
     expect(verifyRelayQueryResponseV1({ ...response, senderRelayId: sender.did }, request)).toBe(false);
   });
 });
+
+
+describe('relay query signature and request isolation', () => {
+  it('rejects canonical request and response signatures made with an unrelated relay secret', () => {
+    const { sender, target, search, request } = fixture(), attacker = generateIdentity();
+    // These frames retain every authenticated identity and schema field. Only
+    // the actual signing secret belongs to another relay.
+    const forgedRequest = createRelayQueryRequestV1(search, target.did,
+      { ...sender, secretKey: attacker.secretKey }, 1, undefined, NOW + 1, NOW + 3_001);
+    expect(forgedRequest.signature).toHaveLength(request.signature.length);
+    expect(verifyRelayQueryRequestV1(forgedRequest)).toBe(false);
+    expect(() => parseRelayQueryRequestFrameV1(JSON.stringify({ type: 'relay_query_request', request: forgedRequest }))).toThrow();
+    const forgedResponse = createRelayQueryResponseV1(request,
+      { ...target, secretKey: attacker.secretKey }, 'ok', [], NOW + 2);
+    expect(forgedResponse.signature).toHaveLength(request.signature.length);
+    expect(verifyRelayQueryResponseV1(forgedResponse)).toBe(false);
+    expect(() => parseRelayQueryResponseFrameV1(JSON.stringify({ type: 'relay_query_response', response: forgedResponse }))).toThrow();
+  });
+
+  it('rejects an authentic reply to another request or another target even when the underlying search is identical', () => {
+    const { sender, target, search, request } = fixture();
+    const retry = createRelayQueryRequestV1(search, target.did, sender, 1, undefined, NOW + 1, NOW + 3_001);
+    const reply = createRelayQueryResponseV1(retry, target, 'ok', [], NOW + 2);
+    expect(verifyRelayQueryResponseV1(reply)).toBe(true);
+    expect(verifyRelayQueryResponseV1(reply, request)).toBe(false);
+    const other = generateIdentity(), otherRequest = createRelayQueryRequestV1(search, other.did, sender, 1, undefined, NOW + 1, NOW + 3_001);
+    const otherReply = createRelayQueryResponseV1(otherRequest, other, 'ok', [], NOW + 2);
+    expect(verifyRelayQueryResponseV1(otherReply)).toBe(true);
+    expect(verifyRelayQueryResponseV1(otherReply, request)).toBe(false);
+  });
+});

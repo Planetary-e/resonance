@@ -6,9 +6,26 @@
   "scripts": {
     "eval": "tsx src/run.ts",
     "eval:quick": "tsx src/run.ts --quick",
-    "smoke": "tsx src/smoke.ts"
+    "eval:scoped-fingerprint": "tsx src/scoped-fingerprint.ts",
+    "eval:scoped-fingerprint:real": "node --import tsx src/scoped-fingerprint-real.ts",
+    "eval:embedding-resources": "node --import tsx src/embedding-resources.ts",
+    "eval:private-timing": "tsx src/private-timing.ts",
+    "eval:private-mix": "tsx src/private-mix-timing.ts",
+    "eval:private-adversaries": "node --import tsx src/private-adversaries.ts",
+    "eval:private-replies": "tsx src/private-mix-timing.ts --reply-comparison",
+    "eval:quiet-budgets": "node --import tsx src/quiet-period-budgets.ts",
+    "smoke": "tsx src/smoke.ts",
+    "eval:witness-availability": "node --import tsx src/witness-quorum.ts",
+    "eval:service-availability": "node --import tsx src/run-service-availability-feasibility.ts",
+    "eval:private-schedule": "node --import tsx src/run-private-schedule-feasibility.ts",
+    "eval:witness-reconfiguration": "node --import tsx src/witness-reconfiguration.ts",
+    "eval:history-checkpoints": "node --import tsx src/history-checkpoints.ts",
+    "eval:history-successors": "node --import tsx src/history-successors.ts",
+    "eval:protected-roles": "node --import tsx src/protected-role-costs.ts",
+    "eval:private-schedule-tls": "node --import tsx src/run-private-schedule-tls.ts"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.3.0",
     "@resonance/core": "*",
     "@resonance/node": "*",
     "@resonance/relay": "*",

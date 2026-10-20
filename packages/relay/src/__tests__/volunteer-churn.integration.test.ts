@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { rmSync } from 'node:fs';
-import { connect, createServer, type Server, type Socket } from 'node:net';
+import { connect, createServer, type AddressInfo, type Server, type Socket } from 'node:net';
 import WebSocket from 'ws';
 import {
   createMailboxRequest, createMailboxRequestFrame,
@@ -12,14 +12,18 @@ import {
 } from '@resonance/core';
 import { createRelayServer, type RelayServer } from '../server.js';
 import { log } from '../logger.js';
+import { loadOrCreateRelayIdentity } from '../relay-identity-store.js';
 
-const BASE_PORT = 33_000 + Math.floor(Math.random() * 1_000);
-const SOURCE_PORT = BASE_PORT;
-const TARGET_PORTS = [1, 2, 3, 4, 5].map(offset => BASE_PORT + offset);
-const PARTITION_PORT = BASE_PORT + 6;
+// Bind initial listeners to OS-assigned ports; random fixed ports can collide
+// with another test or with the runner's ephemeral client sockets. Restarts keep
+// the actual bound ports so the partition/reconnect scenario remains unchanged.
+let SOURCE_PORT = 0;
+const TARGET_PORTS = Array<number>(5).fill(0);
+let PARTITION_PORT = 0;
 const RUN_ID = `${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
 const SOURCE_DIR = `/tmp/resonance-churn-source-${RUN_ID}`;
-const TARGET_DIRS = TARGET_PORTS.map(port => `/tmp/resonance-churn-target-${port}-${RUN_ID}`);
+const TARGET_DIRS = TARGET_PORTS.map((_, index) => `/tmp/resonance-churn-target-${index}-${RUN_ID}`);
+const targetIds: string[] = [];
 
 const targets: RelayServer[] = [];
 const runningTargets = new Set<number>();
@@ -55,7 +59,7 @@ function makeSource(): RelayServer {
     desiredReplicaCount: 5, minimumHealthyReplicaCount: 3,
     replicaRepairIntervalMs: 250, replicaInventoryIntervalMs: 2_000,
     replicaOfflineReplacementDelayMs: 20_000,
-    inboundReplicaTargetIds: targets.map(target => target.getRelayDescriptor()!.relayId),
+    inboundReplicaTargetIds: targetIds,
     relayDiscovery: {
       endpoints: [endpoint(SOURCE_PORT), endpoint(PARTITION_PORT)],
       reachability: 'direct', supportedGroups: ['public'],
@@ -94,6 +98,7 @@ async function connectProxy(): Promise<void> {
     proxy!.once('error', reject);
     proxy!.listen(PARTITION_PORT, '127.0.0.1', resolve);
   });
+  PARTITION_PORT = (proxy.address() as AddressInfo).port;
 }
 
 async function disconnectProxy(): Promise<void> {
@@ -151,6 +156,7 @@ async function fetch(port: number, record: PublicationRecord, keys: PublicationK
   const response = await request(port, serializeMailboxRequestFrame(createMailboxRequestFrame(
     createMailboxRequest('fetch', record, keys, [], Date.now()),
   ))) as Message<{ envelopes: Array<{ envelopeId: string }> }>;
+  expect(Array.isArray(response.payload.envelopes), JSON.stringify(response.payload)).toBe(true);
   return response.payload.envelopes.map(envelope => envelope.envelopeId);
 }
 
@@ -176,14 +182,20 @@ async function waitFor(check: () => Promise<boolean> | boolean, timeoutMs = 90_0
 }
 
 beforeAll(async () => {
-  for (let index = 0; index < TARGET_PORTS.length; index++) {
-    targets.push(makeTarget(index));
+  for (const directory of TARGET_DIRS) {
+    const identity = loadOrCreateRelayIdentity(directory);
+    targetIds.push(identity.did); identity.secretKey.fill(0);
   }
   await connectProxy();
   source = makeSource();
   await source.start();
-  await Promise.all(targets.map(target => target.start()));
-  TARGET_PORTS.forEach((_, index) => runningTargets.add(index));
+  SOURCE_PORT = source.getListeningPort()!;
+  for (let index = 0; index < TARGET_PORTS.length; index++) {
+    const target = makeTarget(index); targets.push(target);
+    await target.start();
+    TARGET_PORTS[index] = target.getListeningPort()!;
+    runningTargets.add(index);
+  }
 });
 
 afterAll(async () => {
@@ -248,7 +260,9 @@ describe('five-relay volunteer churn and partition', () => {
     const emptyJournalRestartStarted = Date.now();
     await targets[1].start();
     runningTargets.add(1);
-    await waitFor(() => targets[1].getStats().active_publications === 2);
+    // Three publications now exist. Two repaired records can be the need and the later offer,
+    // leaving this offer's mailbox absent; repair order is not guaranteed.
+    await waitFor(() => targets[1].getStats().active_publications === 3);
     await waitFor(async () => (await fetch(TARGET_PORTS[1], offer.record, offer.keys)).includes(noticeId));
     const emptyJournalRepairMs = Date.now() - emptyJournalRestartStarted;
 

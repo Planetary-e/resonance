@@ -1,10 +1,8 @@
 /** Owner limits apply to discretionary new work; retained obligations remain serviceable. */
 
 import { execFileSync } from 'node:child_process';
-import {
-  closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync,
-  readdirSync, renameSync, writeFileSync,
-} from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { openResourceCheckpoint } from './resource-checkpoint.js';
 import { join } from 'node:path';
 
 const HOUR_MS = 3_600_000;
@@ -27,7 +25,13 @@ export interface OwnerResourcePolicyOptions {
   externalPower?: () => boolean;
 }
 
+type StoredBudget = {
+  version: 1; hourStarted: number; minuteStarted: number; minuteCpuStarted: number;
+  hourTotalBandwidthStarted: number; newWorkIngressBytes: number;
+};
 export class OwnerResourcePolicy {
+  private readonly checkpointFile?: { write(value: StoredBudget): void };
+  private checkpointFailed = false;
   private readonly now: () => number;
   private readonly cpuMicros: () => number;
   private readonly externalPower: () => boolean;
@@ -59,11 +63,13 @@ export class OwnerResourcePolicy {
     this.minuteStarted = this.hourStarted;
     this.minuteCpuStarted = this.cpuMicros();
     this.hourTotalBandwidthStarted = options.totalBandwidthBytes?.() ?? 0;
+    if (![this.hourStarted, this.minuteCpuStarted, this.hourTotalBandwidthStarted]
+      .every(value => Number.isSafeInteger(value) && value >= 0)) throw new Error('Invalid resource measurement');
     if (options.persistDir) {
-      const path = join(options.persistDir, POLICY_FILE);
-      if (existsSync(path)) {
-        const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'));
-        if (!isStoredBudget(parsed)) throw new Error('Invalid persisted relay owner budget');
+      const checkpoint = openResourceCheckpoint(join(options.persistDir, POLICY_FILE), isStoredBudget);
+      this.checkpointFile = checkpoint;
+      const parsed = checkpoint.read();
+      if (parsed) {
         this.hourStarted = parsed.hourStarted;
         this.minuteStarted = parsed.minuteStarted;
         this.minuteCpuStarted = parsed.minuteCpuStarted;
@@ -74,17 +80,22 @@ export class OwnerResourcePolicy {
   }
 
   allowNewWork(ingressBytes: number): boolean {
-    if (!Number.isSafeInteger(ingressBytes) || ingressBytes < 0) return false;
-    const now = this.now();
-    if (now - this.hourStarted >= HOUR_MS || now < this.hourStarted) {
+    if (this.checkpointFailed || !Number.isSafeInteger(ingressBytes) || ingressBytes < 0) return false;
+    const now = this.now(), cpu = this.cpuMicros(), total = this.options.totalBandwidthBytes?.();
+    if (![now, cpu, ...(total === undefined ? [] : [total])]
+      .every(value => Number.isSafeInteger(value) && value >= 0)
+      || now < this.hourStarted || now < this.minuteStarted) return false;
+    if (now - this.hourStarted >= HOUR_MS) {
       this.hourStarted = now;
       this.newWorkIngressBytes = 0;
-      this.hourTotalBandwidthStarted = this.options.totalBandwidthBytes?.() ?? 0;
+      this.hourTotalBandwidthStarted = total ?? 0;
     }
-    if (now - this.minuteStarted >= MINUTE_MS || now < this.minuteStarted) {
+    if (now - this.minuteStarted >= MINUTE_MS) {
       this.minuteStarted = now;
-      this.minuteCpuStarted = this.cpuMicros();
+      this.minuteCpuStarted = cpu;
     }
+    if (cpu < this.minuteCpuStarted || (total !== undefined && total < this.hourTotalBandwidthStarted)
+      || !Number.isSafeInteger(this.newWorkIngressBytes + ingressBytes)) return false;
     if (this.schedule) {
       const date = new Date(now);
       const minutes = date.getHours() * 60 + date.getMinutes();
@@ -95,10 +106,9 @@ export class OwnerResourcePolicy {
     }
     if (this.options.requireExternalPower && !this.externalPower()) return false;
     if (this.options.maxCpuMillisecondsPerMinute !== undefined
-      && this.cpuMicros() - this.minuteCpuStarted
+      && cpu - this.minuteCpuStarted
         >= this.options.maxCpuMillisecondsPerMinute * 1_000) return false;
     if (this.options.maxTotalBandwidthBytesPerHour !== undefined) {
-      const total = this.options.totalBandwidthBytes?.();
       if (total === undefined || total - this.hourTotalBandwidthStarted
         > this.options.maxTotalBandwidthBytesPerHour) return false;
     }
@@ -112,6 +122,7 @@ export class OwnerResourcePolicy {
         this.persist();
       } catch {
         // A failed budget write must not grant work that could exceed limits on restart.
+        this.checkpointFailed = true;
         return false;
       }
     }
@@ -119,38 +130,21 @@ export class OwnerResourcePolicy {
   }
 
   private persist(): void {
-    const dir = this.options.persistDir!;
-    mkdirSync(dir, { recursive: true });
-    const path = join(dir, POLICY_FILE);
-    const temporary = `${path}.next`;
-    const fd = openSync(temporary, 'w', 0o600);
-    try {
-      writeFileSync(fd, JSON.stringify({
-        version: 1, hourStarted: this.hourStarted, minuteStarted: this.minuteStarted,
-        minuteCpuStarted: this.minuteCpuStarted,
-        hourTotalBandwidthStarted: this.hourTotalBandwidthStarted,
-        newWorkIngressBytes: this.newWorkIngressBytes,
-      }));
-      fsyncSync(fd);
-    } finally { closeSync(fd); }
-    renameSync(temporary, path);
-    // Windows flushes the file above but rejects fsync on directory handles.
-    if (process.platform === 'win32') return;
-    const directoryFd = openSync(dir, 'r');
-    try { fsyncSync(directoryFd); } finally { closeSync(directoryFd); }
+    this.checkpointFile!.write({
+      version: 1, hourStarted: this.hourStarted, minuteStarted: this.minuteStarted,
+      minuteCpuStarted: this.minuteCpuStarted,
+      hourTotalBandwidthStarted: this.hourTotalBandwidthStarted,
+      newWorkIngressBytes: this.newWorkIngressBytes,
+    });
   }
 }
 
-function isStoredBudget(value: unknown): value is {
-  version: 1; hourStarted: number; minuteStarted: number; minuteCpuStarted: number;
-  hourTotalBandwidthStarted: number; newWorkIngressBytes: number;
-} {
+function isStoredBudget(value: unknown): value is StoredBudget {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
-  return record.version === 1 && [
-    'hourStarted', 'minuteStarted', 'minuteCpuStarted',
-    'hourTotalBandwidthStarted', 'newWorkIngressBytes',
-  ].every(key => Number.isSafeInteger(record[key]) && (record[key] as number) >= 0);
+  const keys = ['hourStarted', 'minuteStarted', 'minuteCpuStarted', 'hourTotalBandwidthStarted', 'newWorkIngressBytes'];
+  return Object.keys(record).length === keys.length + 1 && record.version === 1
+    && keys.every(key => Number.isSafeInteger(record[key]) && (record[key] as number) >= 0);
 }
 
 function parseActiveHours(value: string): { start: number; end: number } {

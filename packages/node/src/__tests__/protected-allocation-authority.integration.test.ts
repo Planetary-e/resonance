@@ -1,0 +1,36 @@
+import { afterEach, expect, it } from 'vitest';
+import { signAdmissionIssuanceAllocation } from '@resonance/core/admission-issuance-allocation';
+import { protectedAllocationAuthorityFixture } from './fixtures/protected-allocation-authority-fixture.js';
+const cleanup: Array<() => void | Promise<void>> = [];
+afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
+
+it('requires four actual volunteers and resumes the same plan and assignment without leaking pending output', async () => {
+  const n = await protectedAllocationAuthorityFixture(close => cleanup.push(close));
+  expect(n.context.owner).not.toBe(n.authority); expect(n.journal.status().protection.ready).toBe(false);
+  n.online(3); await expect(n.journal.ready()).rejects.toThrow('Four');
+  n.online(4); await n.journal.ready();
+  const plan = n.plan(), reviewed = await n.journal.review(plan);
+  const expected = await signAdmissionIssuanceAllocation(plan, n.authority, n.authorityKey.secretKey);
+  n.online(3); await expect(n.journal.sign(plan, reviewed.approvalDigest)).rejects.toThrow('Four');
+  expect(n.journal.current('public', 'period-one')).toBeUndefined();
+  expect(n.journal.status().protection).toMatchObject({ ready: false, pending: true, applied: { sequence: 0 } });
+  await n.reopen(); expect(n.journal.current('public', 'period-one')).toBeUndefined();
+  await expect(n.journal.ready()).rejects.toThrow('Four'); n.online(4); await n.journal.ready();
+  expect(n.journal.current('public', 'period-one')).toEqual(expected);
+  expect(await n.journal.sign(plan, reviewed.approvalDigest)).toEqual(expected);
+  const request = n.request(), assignmentReview = await n.journal.reviewAssignment(request);
+  n.online(3); await expect(n.journal.assignClaim(request, assignmentReview.approvalDigest)).rejects.toThrow('Four');
+  expect(n.journal.currentAssignment('public', 'period-one', request.claimHandle)).toBeUndefined();
+  await n.reopen(); n.online(4); await n.journal.ready();
+  const assignment = await n.journal.assignClaim(request, assignmentReview.approvalDigest);
+  expect(n.journal.currentAssignment('public', 'period-one', request.claimHandle)).toEqual(assignment);
+  expect(n.journal.status()).toMatchObject({ manifestCount: 1, assignmentCount: 1, protection: { pending: false, applied: { sequence: 2 } } });
+  const conflictingRequest = n.request(request.claimHandle, 1), conflictReview = await n.journal.reviewAssignment(conflictingRequest);
+  await expect(n.journal.assignClaim(conflictingRequest, conflictReview.approvalDigest)).rejects.toThrow('different issuer');
+  n.clock(300); await n.reopen(); n.online(0);
+  expect(await n.journal.sign(plan, reviewed.approvalDigest)).toEqual(expected);
+  expect(await n.journal.assignClaim(request, assignmentReview.approvalDigest)).toEqual(assignment);
+  expect(n.journal.status().protection.ready).toBe(false);
+  const next = n.plan('period-two'), nextReview = await n.journal.review(next);
+  await expect(n.journal.sign(next, nextReview.approvalDigest)).rejects.toThrow();
+}, 30000);

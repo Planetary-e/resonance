@@ -1,0 +1,48 @@
+{
+  "measuredAt": "2026-10-18T03:45:33.752Z",
+  "checkpoints": [
+    "Two actual app processes initialized and unlocked with the cached FP32 model; blinded issuance completed through authenticated APIs",
+    "Three real-text publications accepted; two offers from one account have separate publication keys and IDs",
+    "Real-text private search retrieves the complementary offer",
+    "Both applications decrypt and retain match notices; lock/unlock plus another mailbox check does not duplicate them",
+    "No root account identifier, plaintext item text or spent token appears in captured network frames; distinct request bindings use distinct tokens"
+  ],
+  "model": "nomic-ai/nomic-embed-text-v1",
+  "dtype": "fp32",
+  "remoteModelDownloads": false,
+  "applicationProcesses": 2,
+  "published": 3,
+  "mailboxMatchCounts": [
+    1,
+    2
+  ],
+  "distinctRequestBindings": 10,
+  "distinctSpentTokens": 10,
+  "actions": {
+    "publication-write": 3,
+    "search": 1,
+    "mailbox-fetch": 4,
+    "mailbox-acknowledge": 2
+  },
+  "resources": {
+    "durationMs": 32886,
+    "websocketPayloadBytes": 568280,
+    "parentPeakRssBytes": 360218624,
+    "applicationPeakRssBytes": [
+      2117435392,
+      1641136128
+    ],
+    "cpuSeconds": 18.611362999999997,
+    "node": "v24.19.0",
+    "platform": "darwin",
+    "architecture": "arm64"
+  },
+  "limitations": [
+    "Local IPv4/IPv6 loopback domains on one computer; not independent operators, Internet or TLS deployment.",
+    "Actual desktop backend APIs and embeddings; no graphical user interaction or native installer is certified.",
+    "Signed manual policy and real blinded tokens with a durable local issuer; observer freshness, quorum spends and eligibility distribution are tested separately, not composed here.",
+    "Account/credential-field separation is not timing or content unlinkability; static fingerprints and match relationships remain observable to the destination.",
+    "Wire payload counts exclude TCP/TLS/WebSocket headers; per-process peak RSS values are not simultaneous total memory and CPU time is not energy.",
+    "Two concurrent model processes on this host; representative hardware and cold first-download experience remain unmeasured."
+  ]
+}

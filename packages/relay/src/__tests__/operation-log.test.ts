@@ -1,4 +1,4 @@
-import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -14,7 +14,7 @@ import {
 } from '@resonance/core';
 import {
   RelayOperationLog,
-  RelayJournalCapacityError,
+  RelayJournalCapacityError, RelayJournalRecordSizeError,
   RELAY_OPERATION_LOG_FILENAME,
   type RelayOperationLogEntry,
 } from '../operation-log.js';
@@ -147,6 +147,26 @@ describe('RelayOperationLog', () => {
       .toThrow(RelayJournalCapacityError);
     expect(limited.byteLength).toBe(fileBytes);
     expect(new RelayOperationLog(dir).load()).toHaveLength(1);
+  });
+
+  it('bounds the complete serialized record including its wrapper and newline before creating a journal', () => {
+    const entry = { kind: 'publication' as const, operation: fixture().need };
+    const reference = new RelayOperationLog(directory()); reference.load(); reference.append(entry, NOW);
+    const bytes = reference.byteLength;
+    expect(bytes).toBeGreaterThan(Buffer.byteLength(JSON.stringify(entry), 'utf8'));
+    const dir = directory(), log = new RelayOperationLog(dir); log.load();
+    expect(() => log.append(entry, NOW, bytes - 1)).toThrow(RelayJournalRecordSizeError);
+    expect(existsSync(join(dir, RELAY_OPERATION_LOG_FILENAME))).toBe(false); expect(log.length).toBe(0);
+    log.append(entry, NOW, bytes);
+    expect(log.byteLength).toBe(bytes); expect(new RelayOperationLog(dir).load()[0].entry).toEqual(entry);
+  });
+
+  it('reports a record allowance violation before global capacity and leaves default appends governed by the global quota', () => {
+    const dir = directory(), log = new RelayOperationLog(dir, 0); log.load();
+    const entry = { kind: 'publication' as const, operation: fixture().need };
+    expect(() => log.append(entry, NOW, 0)).toThrow(RelayJournalRecordSizeError);
+    expect(() => log.append(entry, NOW)).toThrow(RelayJournalCapacityError);
+    expect(existsSync(join(dir, RELAY_OPERATION_LOG_FILENAME))).toBe(false); expect(log.byteLength).toBe(0);
   });
 
   it('leaves the original journal intact when a compaction copy exceeds its disk budget', () => {

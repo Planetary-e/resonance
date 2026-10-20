@@ -312,6 +312,10 @@ input[type="range"]::-moz-range-thumb { width: 18px; height: 18px; border-radius
 
 /* --- Relay Section --- */
 .relay-section { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.25rem; margin-bottom: 1.5rem; }
+.history-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; }
+.history-actions .btn { white-space: normal; }
+.history-activation p, .history-activation-review p { margin: 0.75rem 0; }
+.history-activation-review { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border); }
 .relay-toggle-row { display: flex; align-items: center; justify-content: space-between; }
 .relay-controls { display: grid; grid-template-columns: minmax(12rem, 1fr) minmax(10rem, 2fr); align-items: center; gap: 0.65rem 1rem; margin-top: 1rem; }
 .relay-controls label:last-child { grid-column: 1 / -1; display: flex; align-items: center; gap: 0.5rem; }

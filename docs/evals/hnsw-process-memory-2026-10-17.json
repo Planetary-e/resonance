@@ -1,0 +1,138 @@
+{
+  "version": 1,
+  "date": "2026-10-17",
+  "baseCommit": "4412d099c8850810eb30c5d0242b95517912da42",
+  "sourceSha256": {
+    "packages/eval/src/benchmarks/hnsw-performance.ts": "a1921b6ccc43666e5249370f31641ffd1094793e7313dcb8dc009aa01594604f",
+    "packages/eval/src/benchmarks/hnsw-measurement.ts": "fff8e12271fdfa4d06c223c98d4003657fab7de8a376b42439be2ad9c0e5f385",
+    "packages/eval/src/benchmarks/hnsw-worker.ts": "f70185007d5ce47213066ac1fac7304d2eaaccd904473b695c5c79d1f04d2d08",
+    "packages/eval/src/utils.ts": "305d61410ef1638bce62fa8b7732ba0096a3749ef17d04b83c5a84c635d1b6db",
+    "packages/eval/src/witness-availability.ts": "6e67d3cb1771241182a40a3aea1be0ba8c66bbf504337293c57cd8222b78ab06",
+    "packages/relay/src/hnsw.ts": "f11f02c2f2a6efd0ab141e1f24bff335d60439756eb0f18aea45f768a32fd125",
+    "package-lock.json": "46adb89e47bfc2b6113495d2bf68d5dec904be67e0cb5ba13ff9e9be11365fb7"
+  },
+  "scope": "Dedicated child through search completion, including runtime/imports/JavaScript/native allocations; not index-only or full application/device memory.",
+  "conditions": "One run per size, sequential sizes on the same Mac. Host power/thermal conditions uncontrolled. A short test group overlapped the beginning of 10K; no deliberate heavy parallel benchmark during 100K.",
+  "quick": [
+    {
+      "name": "HNSW search (p95, 10K)",
+      "target": "<5ms",
+      "actual": "1.6ms",
+      "value": 1.5800410000010743,
+      "passed": true,
+      "details": {
+        "vectorCount": 10000,
+        "p50": 1.3243750000001455,
+        "p95": 1.5800410000010743,
+        "p99": 1.7160000000003492,
+        "mean": 1.3500025200000163,
+        "insertDurationMs": 27593.232083000003
+      }
+    },
+    {
+      "name": "HNSW insert (10K total)",
+      "target": "info",
+      "actual": "27.59s",
+      "value": 27593.232083000003,
+      "passed": true,
+      "details": {
+        "vectorCount": 10000,
+        "totalMs": 27593.232083000003,
+        "perVectorMs": 2.7593232083
+      }
+    },
+    {
+      "name": "HNSW process peak RSS (10K)",
+      "target": "<4096 MiB",
+      "actual": "136.2 MiB",
+      "value": 136.234375,
+      "passed": true,
+      "details": {
+        "version": 1,
+        "pid": 8486,
+        "vectorCount": 10000,
+        "searchCount": 100,
+        "dimensions": 768,
+        "seed": 20261017,
+        "nodeVersion": "v24.19.0",
+        "platform": "darwin",
+        "arch": "arm64",
+        "insertDurationMs": 27593.232083000003,
+        "p50": 1.3243750000001455,
+        "p95": 1.5800410000010743,
+        "p99": 1.7160000000003492,
+        "mean": 1.3500025200000163,
+        "cpuTimeMs": 27671.183,
+        "baselineRssBytes": 103956480,
+        "initializedRssBytes": 108609536,
+        "insertedRssBytes": 137150464,
+        "finalRssBytes": 137822208,
+        "peakRssBytes": 142852096,
+        "peakRssMiB": 136.234375,
+        "measurement": "isolated-process-resourceUsage.maxRSS",
+        "scope": "Whole child process through search completion, including runtime/imports/native allocations; not index-only or full-app memory."
+      }
+    }
+  ],
+  "full": [
+    {
+      "name": "HNSW search (p95, 100K)",
+      "target": "<5ms",
+      "actual": "2.2ms",
+      "value": 2.2430419999873266,
+      "passed": true,
+      "details": {
+        "vectorCount": 100000,
+        "p50": 1.8132500000065193,
+        "p95": 2.2430419999873266,
+        "p99": 2.313957999984268,
+        "mean": 1.8521575499989558,
+        "insertDurationMs": 487546.87575
+      }
+    },
+    {
+      "name": "HNSW insert (100K total)",
+      "target": "info",
+      "actual": "487.55s",
+      "value": 487546.87575,
+      "passed": true,
+      "details": {
+        "vectorCount": 100000,
+        "totalMs": 487546.87575,
+        "perVectorMs": 4.8754687575
+      }
+    },
+    {
+      "name": "HNSW process peak RSS (100K)",
+      "target": "<4096 MiB",
+      "actual": "449.2 MiB",
+      "value": 449.21875,
+      "passed": true,
+      "details": {
+        "version": 1,
+        "pid": 8534,
+        "vectorCount": 100000,
+        "searchCount": 100,
+        "dimensions": 768,
+        "seed": 20261017,
+        "nodeVersion": "v24.19.0",
+        "platform": "darwin",
+        "arch": "arm64",
+        "insertDurationMs": 487546.87575,
+        "p50": 1.8132500000065193,
+        "p95": 2.2430419999873266,
+        "p99": 2.313957999984268,
+        "mean": 1.8521575499989558,
+        "cpuTimeMs": 485925.117,
+        "baselineRssBytes": 104136704,
+        "initializedRssBytes": 114917376,
+        "insertedRssBytes": 469958656,
+        "finalRssBytes": 470990848,
+        "peakRssBytes": 471040000,
+        "peakRssMiB": 449.21875,
+        "measurement": "isolated-process-resourceUsage.maxRSS",
+        "scope": "Whole child process through search completion, including runtime/imports/native allocations; not index-only or full-app memory."
+      }
+    }
+  ]
+}

@@ -1,0 +1,322 @@
+import { afterEach, expect, it } from 'vitest';
+import { cpSync, existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
+import { randomBytes } from 'node:crypto';
+import { fork, type ChildProcess } from 'node:child_process';
+import { once } from 'node:events';
+import { createAdmissionPolicyHeadRequest, parseAdmissionPolicyHeadVote } from '@resonance/core/admission-policy-freshness';
+import { historyCheckpointContextId, historyCheckpointEnvelopeId, openHistoryCheckpoint, sealHistoryCheckpoint } from '@resonance/core/history-checkpoint';
+import { createHistoryFreeze } from '@resonance/core/history-checkpoint';
+import { createPolicyObserverHistoryRoot, openProtectedPolicyObserver, policyObserverHistoryContext } from '../protected-policy-observer.js';
+import { createHistoryCheckpointReplica, exchangeHistoryCheckpoint, listenHistoryCheckpointReplica, type HistoryCheckpointTransport } from '../history-checkpoint-exchange.js';
+import { openHistoryCheckpointStore } from '../history-checkpoint-store.js';
+import { createRetainedHistoryCheckpointWriter } from '../history-retained-writer.js';
+import { parseAdmissionHistoryConfiguration } from '../admission-history-config.js';
+import { policyObserverFixture } from './fixtures/policy-observer-fixture.js';
+import { createAdmissionPolicyObserverExchange, exchangeAdmissionPolicyObservation, listenAdmissionPolicyObserver } from '../admission-policy-observation-transport.js';
+
+const cleanup: Array<() => void | Promise<void>> = [];
+const children: ChildProcess[] = [];
+afterEach(async () => {
+  await Promise.all(children.splice(0).map(async child => {
+    if (child.exitCode === null && child.signalCode === null) { const exited = once(child, 'exit'); child.kill('SIGKILL'); await exited; }
+  }));
+  for (const close of cleanup.splice(0).reverse()) await close();
+});
+async function fixture(limits: { maxArchiveBlocks?: number; maxArchiveBytes?: number; maximumConcurrentObservations?: 1 | 2 } = {}) {
+  const f = await policyObserverFixture(); cleanup.push(f.close);
+  const enrolled = await createPolicyObserverHistoryRoot({ context: f.context, signingKey: f.keys[0], encryptionKey: f.options.encryptionKey, policy: f.first, now: () => f.now });
+  const stores = enrolled.context.members.map((replica, i) => openHistoryCheckpointStore({ directory: join(f.directory, `r${i}`), context: enrolled.context,
+    replica, localKey: randomBytes(32), rootId: historyCheckpointEnvelopeId(enrolled.root), generation: 0, initialize: enrolled.root }));
+  stores.forEach(store => cleanup.push(store.close));
+  const roles = stores.map((store, i) => createHistoryCheckpointReplica({ context: enrolled.context, store,
+    signingKey: f.keys.find(key => Buffer.from(key.publicKey).toString('base64url') === enrolled.context.members[i])! }));
+  roles.forEach(role => cleanup.push(role.close));
+  const listeners: Awaited<ReturnType<typeof listenHistoryCheckpointReplica>>[] = [];
+  for (const role of roles) { const listener = await listenHistoryCheckpointReplica(role, { port: 0 }); listeners.push(listener); cleanup.push(listener.close); }
+  const members = enrolled.context.members.map((publicKey, i) => ({ publicKey, endpoint: listeners[i].endpoint }));
+  let online = new Set([0, 1, 2, 3, 4]), lost = false, gate: Promise<void> | undefined, calls = 0, time = f.now;
+  const headChallenges: string[] = [];
+  const transport: HistoryCheckpointTransport = async (member, frame, signal) => {
+    calls++; if (!online.has(enrolled.context.members.indexOf(member.publicKey))) throw new Error('volunteer offline');
+    if (frame.request.action === 'head') headChallenges.push(frame.request.challenge);
+    if (gate) await gate;
+    const response = await exchangeHistoryCheckpoint(member, frame, signal);
+    if (lost && frame.request.action === 'append') throw new Error('durable reply lost');
+    return response;
+  };
+  const options = { directory: join(f.directory, 'owner'), encryptionKey: f.options.encryptionKey, context: f.context, signingKey: f.keys[0],
+    historyContext: enrolled.context, root: enrolled.root, members, transport, timeoutMs: 2500, now: () => time, ...limits };
+  async function open(mode: 'create-new' | 'open-existing' = 'open-existing', overrides: Partial<typeof options> = {}) {
+    const observer = await openProtectedPolicyObserver({ ...options, ...overrides, mode }); cleanup.push(observer.close); return observer;
+  }
+  const observer = await open('create-new'); expect(calls).toBe(0);
+  return { ...f, enrolled, stores, roles, members, listeners, options, observer, open,
+    calls: () => calls, headChallenges, online: (...indices: number[]) => { online = new Set(indices); }, lost: (value: boolean) => { lost = value; },
+    gate: (value?: Promise<void>) => { gate = value; }, time: (value: number) => { time = value; } };
+}
+
+it('requires four current durable heads per observation and repairs a different returning fourth volunteer', async () => {
+  const n = await fixture(), observer = n.observer; n.online(0, 1, 2, 3); await observer.ready();
+  await observer.advance(n.advance); expect(n.stores.slice(0, 4).map(store => store.describe().sequence)).toEqual([1, 1, 1, 1]);
+  expect(n.stores[4].describe().sequence).toBe(0);
+  const request = createAdmissionPolicyHeadRequest(n.context, n.now);
+  n.online(0, 1, 2); await expect(observer.observe(request)).rejects.toThrow('Four');
+  n.online(0, 1, 2, 4);
+  expect(parseAdmissionPolicyHeadVote(await observer.observe(request), request, n.context, n.now).head).toEqual(n.advance.commitment.next);
+  expect(n.stores[4].describe().sequence).toBe(1);
+  const bytes = readFileSync(join(n.options.directory, 'history-writer.json'));
+  expect(bytes.toString()).not.toContain(n.authority); observer.close();
+  const reopened = await n.open(); expect(reopened.policy()).toEqual(n.second);
+  expect((await reopened.observe(request)).head).toEqual(n.advance.commitment.next);
+});
+
+it('fences a coherent stale backup even if it was already open and previously passed readiness', async () => {
+  const n = await fixture(); await n.observer.ready(); n.observer.close();
+  const backup = join(n.directory, 'backup'); cpSync(n.options.directory, backup, { recursive: true });
+  const current = await n.open(), stale = await n.open('open-existing', { directory: backup }); await stale.ready();
+  expect((await stale.observe(createAdmissionPolicyHeadRequest(n.context, n.now))).head).toEqual(n.context.genesis);
+  await current.advance(n.advance);
+  await expect(stale.observe(createAdmissionPolicyHeadRequest(n.context, n.now))).rejects.toThrow('Four');
+  await expect(stale.ready()).rejects.toThrow('Four');
+  await expect(stale.advance(n.conflict)).rejects.toThrow('Four');
+  expect(stale.status().pending).toBe(true);
+  expect((await current.observe(createAdmissionPolicyHeadRequest(n.context, n.now))).head).toEqual(n.advance.commitment.next);
+  stale.close(); const restored = await n.open('open-existing', { directory: backup });
+  await expect(restored.observe(createAdmissionPolicyHeadRequest(n.context, n.now))).rejects.toThrow('pending');
+  await expect(restored.ready()).rejects.toThrow('Four');
+});
+
+it('serves exact signed retained successors after restart without a network quorum or reconstructed history', async () => {
+  const n = await fixture(); await n.observer.ready(); await n.observer.advance(n.advance); await n.observer.advance(n.later);
+  n.observer.close(); const observer = await n.open(), calls = n.calls(); n.online();
+  expect(await observer.successor(n.context.genesis)).toEqual(n.advance);
+  expect(await observer.successor(n.advance.commitment.next)).toEqual(n.later);
+  expect(n.calls()).toBe(calls);
+  await expect(observer.successor({ ...n.context.genesis, transition: 'a'.repeat(64) })).rejects.toThrow('differs');
+  await expect(observer.successor(n.later.commitment.next)).rejects.toThrow('outside');
+  await expect(observer.successor(n.context.genesis, AbortSignal.abort())).rejects.toThrow();
+  observer.close(); await expect(observer.successor(n.context.genesis)).rejects.toThrow('closed');
+});
+
+it('retains exact accepted ciphertext through lost replies and restart without rolling back to the last local certificate', async () => {
+  const n = await fixture(); await n.observer.ready(); n.online(0, 1, 2, 3); n.lost(true);
+  await expect(n.observer.advance(n.advance)).rejects.toThrow('Four');
+  const id = n.stores[0].describe().envelopeId;
+  expect(n.observer.status()).toMatchObject({ pending: true, head: n.advance.commitment.next }); n.observer.close();
+  const observer = await n.open(); expect(observer.policy()).toEqual(n.second);
+  await expect(observer.observe(createAdmissionPolicyHeadRequest(n.context, n.now))).rejects.toThrow('pending');
+  await expect(observer.advance(n.later)).rejects.toThrow('pending');
+  n.lost(false); await observer.advance(n.advance);
+  expect(observer.status()).toMatchObject({ pending: false, retainedBlocks: 2 });
+  expect(n.stores.slice(0, 4).map(store => store.describe().envelopeId)).toEqual([id, id, id, id]);
+});
+
+it('keeps terminal equivocation evidence across partition, pending replay and restart', async () => {
+  const n = await fixture(); await n.observer.ready(); await n.observer.advance(n.advance); n.online(0, 1, 2);
+  await expect(n.observer.advance(n.conflict)).rejects.toThrow('Four');
+  expect(n.observer.status()).toMatchObject({ blocked: true, pending: true }); n.observer.close();
+  const observer = await n.open(); expect(observer.status().evidence).toHaveLength(2);
+  await expect(observer.observe(createAdmissionPolicyHeadRequest(n.context, n.now))).rejects.toThrow('equivocated');
+  n.online(0, 1, 2, 3); await expect(observer.ready()).rejects.toThrow('equivocated');
+  expect(observer.status().pending).toBe(false); expect(n.stores.slice(0, 4).map(store => store.describe().sequence)).toEqual([2, 2, 2, 2]);
+  observer.close(); const reopened = await n.open(); expect(reopened.status().evidence).toHaveLength(2);
+  await expect(reopened.advance(n.later)).rejects.toThrow('equivocated');
+});
+
+it('reserves a terminal conflict checkpoint before normal updates consume the bounded archive', async () => {
+  const n = await fixture({ maxArchiveBlocks: 3 }); await n.observer.ready(); await n.observer.advance(n.advance);
+  const calls = n.calls(); await expect(n.observer.advance(n.later)).rejects.toThrow('conflict headroom');
+  expect(n.calls()).toBe(calls); expect(n.observer.status().pending).toBe(false);
+  await expect(n.observer.advance(n.conflict)).rejects.toThrow('equivocated');
+  expect(n.observer.status()).toMatchObject({ pending: false, blocked: true, retainedBlocks: 3 });
+});
+
+it('retains a conflict intent even when an operator reduces the archive below its previous reservation', async () => {
+  const n = await fixture({ maxArchiveBlocks: 3 }); await n.observer.ready(); await n.observer.advance(n.advance); n.observer.close();
+  const smaller = await n.open('open-existing', { maxArchiveBlocks: 2 });
+  await expect(smaller.advance(n.conflict)).rejects.toThrow('capacity exceeded');
+  expect(smaller.status()).toMatchObject({ blocked: true, pending: true }); smaller.close();
+  const restored = await n.open(); expect(restored.status().blocked).toBe(true);
+  await expect(restored.ready()).rejects.toThrow('equivocated'); expect(restored.status().pending).toBe(false);
+});
+
+it('does not turn a new directory, different role or different history identifier into a replacement observer', async () => {
+  const n = await fixture(), calls = n.calls(), directory = join(n.directory, 'missing');
+  await expect(n.open('open-existing', { directory })).rejects.toThrow('missing');
+  for (const historyContext of [{ ...n.enrolled.context, historyId: randomBytes(32).toString('base64url') },
+    { ...n.enrolled.context, role: 'relay-admission-spends' as const }]) {
+    await expect(n.open('create-new', { directory, historyContext })).rejects.toThrow();
+  }
+  expect(existsSync(join(directory, 'history-writer.json'))).toBe(false); expect(n.calls()).toBe(calls);
+  expect(() => parseAdmissionHistoryConfiguration({ version: 1, context: n.enrolled.context, members: n.members, ownerKeyFile: 'owner.key' })).toThrow('history role');
+  expect(policyObserverHistoryContext(n.context, n.enrolled.context.owner)).toEqual(n.enrolled.context);
+  expect(historyCheckpointContextId({ ...n.enrolled.context, role: 'relay-admission-spends' })).not.toBe(historyCheckpointContextId(n.enrolled.context));
+});
+
+it.each([1, 2] as const)('serves five concurrent witness challenges through actual sockets with %i reader(s) and a fresh history check for each', async maximumConcurrentObservations => {
+  const n = await fixture({ maximumConcurrentObservations }); await n.observer.ready(); const calls = n.calls();
+  const exchange = createAdmissionPolicyObserverExchange({ observe: n.observer.observe, advance: n.observer.advance,
+    maximumConcurrentObservations: n.observer.maximumConcurrentObservations }, n.context, () => n.now);
+  const listener = await listenAdmissionPolicyObserver(exchange); cleanup.push(listener.close);
+  const member = { publicKey: Buffer.from(n.keys[0].publicKey).toString('base64url'), endpoint: listener.endpoint };
+  n.gate(delay(120));
+  const requests = Array.from({ length: 5 }, () => createAdmissionPolicyHeadRequest(n.context, n.now));
+  const results = await Promise.allSettled(requests.map(request => exchangeAdmissionPolicyObservation(member,
+    { request, advance: null }, new AbortController().signal)));
+  expect(results.map(result => result.status)).toEqual(Array(5).fill('fulfilled'));
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i]; if (result.status === 'fulfilled') expect(parseAdmissionPolicyHeadVote(result.value, requests[i], n.context, n.now).head).toEqual(n.context.genesis);
+  }
+  expect(n.calls() - calls).toBeGreaterThanOrEqual(20); expect(n.calls() - calls).toBeLessThanOrEqual(25);
+});
+
+it('bounds admitted observer work including blocked transports and snapshots queued input', async () => {
+  const n = await fixture(); await n.observer.ready(); const calls = n.calls();
+  const exchange = createAdmissionPolicyObserverExchange({ observe: n.observer.observe, advance: n.observer.advance,
+    maximumConcurrentObservations: n.observer.maximumConcurrentObservations }, n.context, () => n.now);
+  let release!: () => void; n.gate(new Promise<void>(resolve => { release = resolve; }));
+  const inputs = Array.from({ length: 8 }, () => ({ request: createAdmissionPolicyHeadRequest(n.context, n.now), advance: null }));
+  const original = structuredClone(inputs[7].request), pending = inputs.map(exchange);
+  inputs[7].request.challenge = randomBytes(32).toString('base64url');
+  await expect(exchange(inputs[0])).rejects.toThrow('queue is full');
+  release(); const replies = await Promise.all(pending);
+  expect(parseAdmissionPolicyHeadVote(replies[7], original, n.context, n.now).request).toEqual(original); expect(n.calls() - calls).toBeGreaterThanOrEqual(32); expect(n.calls() - calls).toBeLessThanOrEqual(40);
+  expect(parseAdmissionPolicyHeadVote(await exchange(inputs[0]), inputs[0].request, n.context, n.now).head).toEqual(n.context.genesis);
+});
+
+it.each([1, 2] as const)('charges queue waiting against the original monotonic deadline with %i reader(s) and continues after expired work', async maximumConcurrentObservations => {
+  const n = await fixture({ maximumConcurrentObservations }); await n.observer.ready(); const calls = n.calls();
+  const exchange = createAdmissionPolicyObserverExchange({ observe: n.observer.observe, advance: n.observer.advance,
+    maximumConcurrentObservations: n.observer.maximumConcurrentObservations }, n.context, () => n.now);
+  let release!: () => void; n.gate(new Promise<void>(resolve => { release = resolve; }));
+  const first = exchange({ request: createAdmissionPolicyHeadRequest(n.context, n.now), advance: null });
+  const second = exchange({ request: createAdmissionPolicyHeadRequest(n.context, n.now), advance: null });
+  const expired = exchange({ request: createAdmissionPolicyHeadRequest(n.context, n.now, 100), advance: null });
+  const refused = expect(expired).rejects.toThrow('expired in observer queue');
+  await delay(160); release(); await Promise.all([first, second]); await refused;
+  expect(n.calls() - calls).toBeGreaterThanOrEqual(8); expect(n.calls() - calls).toBeLessThanOrEqual(10); // Only the two valid reads query history.
+  const request = createAdmissionPolicyHeadRequest(n.context, n.now);
+  expect(parseAdmissionPolicyHeadVote(await exchange({ request, advance: null }), request, n.context, n.now).head).toEqual(n.context.genesis);
+});
+
+it('enforces an explicit single reader before transport work and uses a new challenge after it releases', async () => {
+  const n = await fixture({ maximumConcurrentObservations: 1 }); await n.observer.ready();
+  expect(n.observer.maximumConcurrentObservations).toBe(1);
+  const calls = n.calls(), challenges = n.headChallenges.length;
+  let release!: () => void; n.gate(new Promise<void>(resolve => { release = resolve; }));
+  const first = createAdmissionPolicyHeadRequest(n.context, n.now), second = createAdmissionPolicyHeadRequest(n.context, n.now);
+  const reading = n.observer.observe(first);
+  try {
+    await delay(0); expect(n.calls() - calls).toBe(4);
+    await expect(n.observer.observe(second)).rejects.toThrow('already in progress');
+    await expect(n.observer.advance(n.advance)).rejects.toThrow('already in progress');
+    await expect(n.observer.ready()).rejects.toThrow('already in progress');
+    expect(() => n.observer.reviewRecoverySource()).toThrow('active');
+    expect(n.calls() - calls).toBe(4);
+  } finally { release(); }
+  expect(parseAdmissionPolicyHeadVote(await reading, first, n.context, n.now).head).toEqual(n.context.genesis);
+  expect(parseAdmissionPolicyHeadVote(await n.observer.observe(second), second, n.context, n.now).head).toEqual(n.context.genesis);
+  expect(n.calls() - calls).toBeGreaterThanOrEqual(8); expect(n.calls() - calls).toBeLessThanOrEqual(10); expect(new Set(n.headChallenges.slice(challenges)).size).toBe(2);
+});
+
+it('overlaps two independent fresh reads while excluding mutations, recovery and a third reader', async () => {
+  const n = await fixture(); await n.observer.ready(); const calls = n.calls(), challenges = n.headChallenges.length;
+  expect(n.observer.maximumConcurrentObservations).toBe(2);
+  let release!: () => void; n.gate(new Promise<void>(resolve => { release = resolve; }));
+  const requests = [createAdmissionPolicyHeadRequest(n.context, n.now), createAdmissionPolicyHeadRequest(n.context, n.now)];
+  const reads = requests.map(request => n.observer.observe(request));
+  await delay(0);
+  expect(n.calls() - calls).toBeGreaterThanOrEqual(8); expect(n.calls() - calls).toBeLessThanOrEqual(10); expect(new Set(n.headChallenges.slice(challenges)).size).toBe(2);
+  await expect(n.observer.observe(requests[0])).rejects.toThrow('already in progress');
+  await expect(n.observer.advance(n.advance)).rejects.toThrow('already in progress');
+  await expect(n.observer.ready()).rejects.toThrow('already in progress');
+  expect(() => n.observer.reviewRecoverySource()).toThrow('active');
+  release(); const replies = await Promise.all(reads);
+  replies.forEach((reply, i) => expect(parseAdmissionPolicyHeadVote(reply, requests[i], n.context, n.now).head).toEqual(n.context.genesis));
+  await n.observer.advance(n.advance);
+  expect((await n.observer.observe(requests[0])).head).toEqual(n.advance.commitment.next);
+});
+
+it.each([1, 2] as const)('keeps a queued policy advance as an exclusive barrier with %i reader(s)', async maximumConcurrentObservations => {
+  const n = await fixture({ maximumConcurrentObservations }); await n.observer.ready(); const calls = n.calls();
+  const exchange = createAdmissionPolicyObserverExchange({ observe: n.observer.observe, advance: n.observer.advance,
+    maximumConcurrentObservations: n.observer.maximumConcurrentObservations }, n.context, () => n.now);
+  let release!: () => void; n.gate(new Promise<void>(resolve => { release = resolve; }));
+  const request = () => createAdmissionPolicyHeadRequest(n.context, n.now);
+  const before = [exchange({ request: request(), advance: null }), exchange({ request: request(), advance: null })];
+  const update = exchange({ request: request(), advance: n.advance });
+  const after = exchange({ request: request(), advance: null });
+  await delay(0); expect(n.calls() - calls).toBe(4 * maximumConcurrentObservations); expect(n.observer.policy().revision).toBe(1);
+  release();
+  const earlier = await Promise.all(before);
+  for (const reply of earlier) expect((reply as { head: unknown }).head).toEqual(n.context.genesis);
+  expect((await update as { head: unknown }).head).toEqual(n.advance.commitment.next);
+  expect((await after as { head: unknown }).head).toEqual(n.advance.commitment.next);
+});
+
+it('serializes in-flight operations, captures the request and fences signatures after close', async () => {
+  const n = await fixture(); await n.observer.ready();
+  let release!: () => void; n.gate(new Promise<void>(resolve => { release = resolve; }));
+  const request = createAdmissionPolicyHeadRequest(n.context, n.now), original = structuredClone(request), observed = n.observer.observe(request);
+  request.challenge = randomBytes(32).toString('base64url');
+  await expect(n.observer.advance(n.advance)).rejects.toThrow('already in progress'); release();
+  expect((await observed).request).toEqual(original);
+  n.gate(new Promise<void>(resolve => { release = resolve; }));
+  const late = n.observer.observe(original), concurrent = n.observer.observe(original);
+  n.observer.close(); release(); await Promise.all([expect(late).rejects.toThrow(), expect(concurrent).rejects.toThrow()]);
+});
+
+it.each([1, 2] as const)('rechecks expiry and the monotonic request budget with %i reader(s) even with a frozen wall clock', async maximumConcurrentObservations => {
+  const n = await fixture({ maximumConcurrentObservations }); await n.observer.ready();
+  const calls = n.calls(); await expect(n.observer.observe({ ...createAdmissionPolicyHeadRequest(n.context, n.now), extra: true })).rejects.toThrow(); expect(n.calls()).toBe(calls);
+  n.gate(delay(160)); await expect(n.observer.observe(createAdmissionPolicyHeadRequest(n.context, n.now, 100))).rejects.toThrow('too late');
+  let release!: () => void; n.gate(new Promise<void>(resolve => { release = resolve; }));
+  const observed = n.observer.observe(createAdmissionPolicyHeadRequest(n.context, n.now, 30000));
+  n.time(n.first.expiresAt); release(); await expect(observed).rejects.toThrow('not current');
+});
+
+it('rejects a frozen generation even while its original policy and old receipt remain valid', async () => {
+  const n = await fixture(); await n.observer.ready();
+  const freeze = createHistoryFreeze(n.enrolled.context, 0, 1, randomBytes(32).toString('base64url'), n.keys[0]);
+  n.stores.slice(0, 4).forEach(store => store.freeze(freeze));
+  await expect(n.observer.observe(createAdmissionPolicyHeadRequest(n.context, n.now))).rejects.toThrow('Four');
+});
+
+it('rejects an owner-signed complete snapshot that discards durable conflict evidence during replay', async () => {
+  const n = await fixture(); await n.observer.ready(); await n.observer.advance(n.advance);
+  await expect(n.observer.advance(n.conflict)).rejects.toThrow('equivocated'); n.observer.close();
+  const writer = createRetainedHistoryCheckpointWriter({ directory: n.options.directory, localKey: n.options.encryptionKey,
+    context: n.enrolled.context, rootId: historyCheckpointEnvelopeId(n.enrolled.root), generation: 0, signingKey: n.keys[0], members: n.members });
+  cleanup.push(writer.close);
+  const committed = writer.read().committed!.envelope, bytes = openHistoryCheckpoint(committed, n.enrolled.context, n.options.encryptionKey);
+  const snapshot = JSON.parse(bytes.toString()); bytes.fill(0); snapshot.conflict = null;
+  const illegal = sealHistoryCheckpoint({ context: n.enrolled.context, signingKey: n.keys[0], encryptionKey: n.options.encryptionKey,
+    header: { kind: 'checkpoint', generation: 0, sequence: committed.sequence + 1, previous: historyCheckpointEnvelopeId(committed) }, plaintext: Buffer.from(JSON.stringify(snapshot)) });
+  await writer.replicate(illegal); writer.close();
+  await expect(n.open()).rejects.toThrow('continued after equivocation');
+});
+
+for (const conflict of [false, true]) it.each(['pending-published', 'ciphertext-published', 'archive-index-published', 'certificate-published',
+  ...(process.platform === 'win32' ? [] : ['pending-flushed', 'certificate-flushed'])])(`retains ${conflict ? 'conflict evidence' : 'the exact update'} across process death at %s`, async boundary => {
+  const n = await fixture(); await n.observer.ready(); if (conflict) await n.observer.advance(n.advance); n.observer.close();
+  const child = fork(new URL('./fixtures/protected-policy-observer-crash.ts', import.meta.url), [], { serialization: 'advanced',
+    execArgv: ['--import', 'tsx'], stdio: ['ignore', 'ignore', 'inherit', 'ipc'] });
+  children.push(child); expect((await once(child, 'message'))[0]).toBe('ready');
+  const errors: unknown[] = []; child.on('message', value => errors.push(value));
+  const marker = join(n.directory, 'crash-marker'), exited = once(child, 'exit'), { now: _, transport: _t, ...options } = n.options;
+  child.send({ options, now: n.now, advance: conflict ? n.conflict : n.advance, marker, boundary }); await exited; expect(errors).toEqual([]);
+  expect(readFileSync(marker, 'utf8')).toBe(boundary);
+  const observer = await n.open(); expect(observer.policy()).toEqual(n.second);
+  expect(observer.status().pending).toBe(!boundary.startsWith('certificate-'));
+  if (conflict) {
+    expect(observer.status().evidence).toHaveLength(2);
+    await expect(observer.ready()).rejects.toThrow('equivocated');
+    await expect(observer.observe(createAdmissionPolicyHeadRequest(n.context, n.now))).rejects.toThrow('equivocated');
+  } else {
+    await observer.advance(n.advance);
+    expect((await observer.observe(createAdmissionPolicyHeadRequest(n.context, n.now))).head).toEqual(n.advance.commitment.next);
+  }
+  expect(observer.status().pending).toBe(false);
+}, 15000);

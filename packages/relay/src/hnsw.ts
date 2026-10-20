@@ -3,11 +3,12 @@
  * Wraps hnswlib-node with Resonance-specific types and cosine similarity threshold.
  */
 
-import HnswLib from 'hnswlib-node';
-const { HierarchicalNSW } = HnswLib;
+import type HnswLib from 'hnswlib-node';
+import { createRequire } from 'node:module';
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { guardUnmanagedExport } from './unmanaged-export.js';
 import type { MatchResult, ItemType } from '@resonance/core';
 import { HNSW_DEFAULTS } from '@resonance/core';
 
@@ -29,7 +30,8 @@ export interface VectorMetadata {
  * Single HNSW index (used internally by MatchingIndex).
  */
 export class HnswIndex {
-  private index: InstanceType<typeof HierarchicalNSW> | null = null;
+  private readonly assertExportAllowed = guardUnmanagedExport();
+  private index: InstanceType<typeof HnswLib.HierarchicalNSW> | null = null;
   private config: HnswIndexConfig;
   private labelCount = 0;
   private metadata = new Map<number, VectorMetadata>();
@@ -45,6 +47,10 @@ export class HnswIndex {
   }
 
   initialize(): void {
+    // Legacy evaluation indexes are optional for ordinary relay/desktop startup.
+    // Resolve only on use; retain the synchronous API in ESM and CJS bundles.
+    const nativeRequire = typeof require === 'function' ? require : createRequire(import.meta.url);
+    const { HierarchicalNSW } = nativeRequire('hnswlib-node') as typeof HnswLib;
     this.index = new HierarchicalNSW('cosine', this.config.dimensions);
     this.index.initIndex(
       this.config.maxElements,
@@ -99,6 +105,7 @@ export class HnswIndex {
   }
 
   save(path: string): void {
+    this.assertExportAllowed();
     if (!this.index) throw new Error('Index not initialized');
     this.index.writeIndexSync(path);
   }
@@ -110,6 +117,7 @@ export class HnswIndex {
 
   /** Save HNSW binary + metadata JSON to a directory with a prefix. */
   saveWithMetadata(dir: string, prefix: string): void {
+    this.assertExportAllowed();
     if (!this.index) throw new Error('Index not initialized');
     mkdirSync(dir, { recursive: true });
     this.index.writeIndexSync(join(dir, `${prefix}.hnsw`));

@@ -6,6 +6,10 @@ import {
   createRelayLinkAcceptV1,
   createRelayLinkOpenFrameV1,
   createRelayLinkOpenV1,
+  createRelayLinkChallengeV1,
+  parseRelayLinkChallengeRequestV1,
+  serializeRelayLinkChallengeRequestV1,
+  parseRelayLinkChallengeV1,
   isRelayLinkAcceptActiveV1,
   isRelayLinkOpenActiveV1,
   parseRelayLinkAcceptFrameV1,
@@ -17,6 +21,7 @@ import {
 } from '../relay-link.js';
 
 const NOW = 1_800_000_000_000;
+const NONCE = 'A'.repeat(32);
 
 function descriptor(identity: Identity, direct: boolean) {
   return createRelayDescriptorV1({
@@ -45,7 +50,7 @@ describe('relay link handshake', () => {
   it('mutually authenticates an outbound-only initiator and direct responder', () => {
     const initiator = generateIdentity();
     const responder = generateIdentity();
-    const request = createRelayLinkOpenV1(descriptor(initiator, false), initiator, NOW, NOW + 30_000);
+    const request = createRelayLinkOpenV1(descriptor(initiator, false), initiator, NONCE, NOW, NOW + 30_000);
     const acceptance = createRelayLinkAcceptV1(
       request,
       descriptor(responder, true),
@@ -64,18 +69,20 @@ describe('relay link handshake', () => {
   it('rejects tampering, mismatched requests, and expired handshakes', () => {
     const initiator = generateIdentity();
     const responder = generateIdentity();
-    const request = createRelayLinkOpenV1(descriptor(initiator, false), initiator, NOW, NOW + 30_000);
+    const request = createRelayLinkOpenV1(descriptor(initiator, false), initiator, NONCE, NOW, NOW + 30_000);
     const acceptance = createRelayLinkAcceptV1(request, descriptor(responder, true), responder, NOW + 1);
 
     const tampered = copy(request);
     tampered.descriptor.storage.availableBytes -= 1;
     expect(verifyRelayLinkOpenV1(tampered)).toBe(false);
+    expect(verifyRelayLinkOpenV1({ ...request, serverNonce: 'B'.repeat(32) })).toBe(false);
     expect(isRelayLinkOpenActiveV1(request, request.expiresAt)).toBe(false);
 
     const otherIdentity = generateIdentity();
     const otherRequest = createRelayLinkOpenV1(
       descriptor(otherIdentity, false),
       otherIdentity,
+      NONCE,
       NOW,
       NOW + 30_000,
     );
@@ -85,7 +92,7 @@ describe('relay link handshake', () => {
   it('round-trips strict open and acceptance frames', () => {
     const initiator = generateIdentity();
     const responder = generateIdentity();
-    const request = createRelayLinkOpenV1(descriptor(initiator, false), initiator, NOW, NOW + 30_000);
+    const request = createRelayLinkOpenV1(descriptor(initiator, false), initiator, NONCE, NOW, NOW + 30_000);
     const acceptance = createRelayLinkAcceptV1(request, descriptor(responder, true), responder, NOW + 1);
     const openFrame = createRelayLinkOpenFrameV1(request);
     const acceptFrame = createRelayLinkAcceptFrameV1(acceptance);
@@ -99,7 +106,7 @@ describe('relay link handshake', () => {
   it('binds an optional contacted endpoint to the initiator signature', () => {
     const initiator = generateIdentity();
     const request = createRelayLinkOpenV1(
-      descriptor(initiator, false), initiator, NOW, NOW + 30_000,
+      descriptor(initiator, false), initiator, NONCE, NOW, NOW + 30_000,
       'wss://relay.example.net/',
     );
     expect(verifyRelayLinkOpenV1(request)).toBe(true);
@@ -109,8 +116,17 @@ describe('relay link handshake', () => {
     expect(verifyRelayLinkOpenV1({ ...request, dialedEndpoint: 'wss://other.example.net/' }))
       .toBe(false);
     expect(() => createRelayLinkOpenV1(
-      descriptor(initiator, false), initiator, NOW, NOW + 30_000,
+      descriptor(initiator, false), initiator, NONCE, NOW, NOW + 30_000,
       'wss://relay.example.net:443/',
     )).toThrow();
+  });
+
+  it('requires a fresh bounded receiving-socket challenge', () => {
+    const challenge = createRelayLinkChallengeV1(NOW);
+    expect(() => parseRelayLinkChallengeRequestV1(serializeRelayLinkChallengeRequestV1())).not.toThrow();
+    expect(parseRelayLinkChallengeV1(JSON.stringify(challenge), NOW + 1)).toEqual(challenge);
+    expect(() => parseRelayLinkChallengeV1(JSON.stringify(challenge), challenge.expiresAt)).toThrow();
+    expect(() => parseRelayLinkChallengeV1(JSON.stringify({ ...challenge, extra: 1 }), NOW)).toThrow();
+    expect(() => parseRelayLinkChallengeRequestV1(JSON.stringify({ type: 'relay_link_challenge_request', version: 1, extra: 1 }))).toThrow();
   });
 });

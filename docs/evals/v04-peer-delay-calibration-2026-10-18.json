@@ -1,0 +1,72 @@
+{
+  "measuredAt": "2026-10-18T06:10:31.136Z",
+  "rows": [
+    {
+      "oneWayDelayMs": 0,
+      "openingMs": 8.042500000000004,
+      "roundTripsMs": [
+        0.8939579999999978,
+        0.6454999999999984,
+        0.3092499999999916,
+        0.5835000000000008,
+        0.3329169999999948,
+        0.2640829999999994,
+        0.18224999999999625,
+        0.20387499999999648,
+        0.1858749999999958,
+        0.23858300000000554
+      ],
+      "transport": {
+        "encrypted": true,
+        "simulatedOneWayDelayMs": 0,
+        "scope": "all-exposed-peer-endpoints",
+        "categories": [
+          {
+            "category": "policy-observer",
+            "endpoints": 1,
+            "connections": 1,
+            "clientToServerBytes": 28124,
+            "serverToClientBytes": 28915
+          }
+        ],
+        "connections": 1,
+        "tcpStreamBytes": 57039
+      }
+    },
+    {
+      "oneWayDelayMs": 25,
+      "openingMs": 110.884833,
+      "roundTripsMs": [
+        54.75045799999998,
+        56.045416999999986,
+        54.47958399999999,
+        54.69454200000001,
+        54.83133300000003,
+        55.44012500000002,
+        55.986042,
+        56.63462500000003,
+        56.75083299999994,
+        55.51479200000006
+      ],
+      "transport": {
+        "encrypted": true,
+        "simulatedOneWayDelayMs": 25,
+        "scope": "all-exposed-peer-endpoints",
+        "categories": [
+          {
+            "category": "policy-observer",
+            "endpoints": 1,
+            "connections": 1,
+            "clientToServerBytes": 28124,
+            "serverToClientBytes": 28914
+          }
+        ],
+        "connections": 1,
+        "tcpStreamBytes": 57038
+      }
+    }
+  ],
+  "addedMedianRoundTripMs": 55.190792000000044,
+  "passed": true,
+  "scope": "Real WSS; two 25 ms ordered stream delays. TCP_NODELAY on fixture hops. No packet loss, TCP setup latency, bandwidth or Internet claim."
+}

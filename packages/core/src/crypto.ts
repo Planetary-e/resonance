@@ -9,6 +9,7 @@
 
 import nacl from 'tweetnacl';
 import naclUtil from 'tweetnacl-util';
+import { createPrivateKey, createPublicKey, sign as signEd25519, verify as verifyEd25519, timingSafeEqual, type KeyObject } from 'node:crypto';
 const { encodeBase64, decodeBase64, encodeUTF8, decodeUTF8 } = naclUtil;
 
 // --- Base58 encoding (for did:key) ---
@@ -133,12 +134,43 @@ export function didToPublicKey(did: string): Uint8Array {
 
 /** Sign a message with an ed25519 secret key. Returns the 64-byte signature. */
 export function sign(message: Uint8Array, secretKey: Uint8Array): Uint8Array {
-  return nacl.sign.detached(message, secretKey);
+  if (!(message instanceof Uint8Array) || !(secretKey instanceof Uint8Array) || secretKey.byteLength !== 64) throw new Error('Invalid Ed25519 signing input');
+  // RFC 8410 wraps the 32-byte seed, while our existing NaCl key includes its
+  // public half. Validate that half too: importing just the seed must not
+  // silently accept a corrupted/mismatched retained key. No private-key cache.
+  const encoded = Buffer.concat([ED25519_PKCS8_PREFIX, secretKey.subarray(0, 32)]);
+  try {
+    const key = createPrivateKey({ key: encoded, format: 'der', type: 'pkcs8' });
+    const publicDer = createPublicKey(key).export({ format: 'der', type: 'spki' });
+    if (!timingSafeEqual(publicDer.subarray(ED25519_SPKI_PREFIX.length), secretKey.subarray(32))) throw new Error('Invalid Ed25519 secret key');
+    return Uint8Array.from(signEd25519(null, message, key));
+  } finally { encoded.fill(0); }
 }
 
-/** Verify an ed25519 signature. */
+const ED25519_PKCS8_PREFIX = Buffer.from('302e020100300506032b657004220420', 'hex');
+const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
+const MAX_VERIFICATION_KEYS = 512;
+// Public keys only. Key by copied bytes, never a caller-owned mutable array.
+// Successful verification admits a key; signatures themselves are never cached here.
+const verificationKeys = new Map<string, KeyObject>();
+
+/** Verify an Ed25519 signature, rejecting malformed and noncanonical signatures. */
 export function verify(message: Uint8Array, signature: Uint8Array, publicKey: Uint8Array): boolean {
-  return nacl.sign.detached.verify(message, signature, publicKey);
+  if (!(message instanceof Uint8Array) || !(signature instanceof Uint8Array) || !(publicKey instanceof Uint8Array)
+    || signature.byteLength !== 64 || publicKey.byteLength !== 32) return false;
+  try {
+    const bytes = Buffer.from(publicKey), id = bytes.toString('hex');
+    const key = verificationKeys.get(id) ?? createPublicKey({
+      key: Buffer.concat([ED25519_SPKI_PREFIX, bytes]), format: 'der', type: 'spki',
+    });
+    if (!verifyEd25519(null, message, key, signature)) return false;
+    verificationKeys.delete(id);
+    verificationKeys.set(id, key);
+    if (verificationKeys.size > MAX_VERIFICATION_KEYS) verificationKeys.delete(verificationKeys.keys().next().value!);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** SHA-512 digest used for deterministic protocol identifiers. */
@@ -246,43 +278,65 @@ function deriveKeyLegacy(password: string): Uint8Array {
 
 /** Export an identity encrypted with a password (Argon2id KDF). */
 export async function exportIdentity(identity: Identity, password: string): Promise<string> {
-  const salt = nacl.randomBytes(16);
-  const key = await deriveKeyFromPassword(password, salt);
-  const data = decodeUTF8(JSON.stringify({
-    publicKey: encodeBase64(identity.publicKey),
-    secretKey: encodeBase64(identity.secretKey),
-    did: identity.did,
+  validateIdentity(identity);
+  if (typeof password !== 'string') throw new Error('Invalid identity password');
+  // Capture caller-owned bytes before the asynchronous password derivation.
+  const salt = nacl.randomBytes(16), data = decodeUTF8(JSON.stringify({
+    publicKey: encodeBase64(identity.publicKey), secretKey: encodeBase64(identity.secretKey), did: identity.did,
   }));
-  const { nonce, ciphertext } = secretboxEncrypt(data, key);
-  return JSON.stringify({
-    version: 2,
-    salt: encodeBase64(salt),
-    nonce: encodeBase64(nonce),
-    ciphertext: encodeBase64(ciphertext),
-  });
+  let key: Uint8Array | undefined;
+  try {
+    key = await deriveKeyFromPassword(password, salt);
+    const { nonce, ciphertext } = secretboxEncrypt(data, key);
+    return JSON.stringify({ version: 2, salt: encodeBase64(salt), nonce: encodeBase64(nonce), ciphertext: encodeBase64(ciphertext) });
+  } finally { key?.fill(0); data.fill(0); }
+}
+
+export const MAX_ENCRYPTED_IDENTITY_BYTES = 4096;
+function exactIdentityFields(value: unknown, fields: string[]): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+    && Object.keys(value).sort().join(',') === [...fields].sort().join(',');
+}
+function identityBytes(value: unknown, size?: number): Uint8Array {
+  if (typeof value !== 'string' || value.length > MAX_ENCRYPTED_IDENTITY_BYTES) throw new Error('Invalid encrypted identity bytes');
+  const bytes = decodeBase64(value);
+  if (encodeBase64(bytes) !== value || (size !== undefined && bytes.length !== size)) throw new Error('Invalid encrypted identity bytes');
+  return bytes;
+}
+function validateIdentity(value: Identity): void {
+  if (!(value?.publicKey instanceof Uint8Array) || value.publicKey.length !== 32
+    || !(value.secretKey instanceof Uint8Array) || value.secretKey.length !== 64
+    || value.did !== publicKeyToDid(value.publicKey)) throw new Error('Invalid identity key or identifier');
+  const derived = nacl.sign.keyPair.fromSeed(value.secretKey.subarray(0, 32));
+  try {
+    if (!nacl.verify(derived.publicKey, value.publicKey) || !nacl.verify(derived.secretKey, value.secretKey)) throw new Error('Identity signing keys do not match');
+  } finally { derived.secretKey.fill(0); }
 }
 
 /** Import an identity from an encrypted export. Supports v1 (SHA-512) and v2 (Argon2id). */
 export async function importIdentity(encrypted: string, password: string): Promise<Identity> {
-  const parsed = JSON.parse(encrypted);
-  let key: Uint8Array;
-
-  if (parsed.version === 2) {
-    // v2: Argon2id with salt
-    key = await deriveKeyFromPassword(password, decodeBase64(parsed.salt));
-  } else {
-    // v1 (legacy): raw SHA-512
-    key = deriveKeyLegacy(password);
-  }
-
-  const decrypted = secretboxDecrypt(decodeBase64(parsed.ciphertext), decodeBase64(parsed.nonce), key);
-  if (!decrypted) throw new Error('Decryption failed — wrong password?');
-  const data = JSON.parse(encodeUTF8(decrypted));
-  return {
-    publicKey: decodeBase64(data.publicKey),
-    secretKey: decodeBase64(data.secretKey),
-    did: data.did,
-  };
+  if (typeof encrypted !== 'string' || Buffer.byteLength(encrypted) > MAX_ENCRYPTED_IDENTITY_BYTES
+    || typeof password !== 'string') throw new Error('Invalid encrypted identity');
+  const parsed: unknown = JSON.parse(encrypted);
+  const modern = exactIdentityFields(parsed, ['version', 'salt', 'nonce', 'ciphertext']) && parsed.version === 2;
+  const legacy = (exactIdentityFields(parsed, ['version', 'nonce', 'ciphertext']) && parsed.version === 1)
+    || exactIdentityFields(parsed, ['nonce', 'ciphertext']);
+  if (!modern && !legacy) throw new Error('Unsupported encrypted identity format');
+  const envelope = parsed as Record<string, unknown>;
+  const nonce = identityBytes(envelope.nonce, nacl.secretbox.nonceLength), ciphertext = identityBytes(envelope.ciphertext);
+  if (ciphertext.length < nacl.secretbox.overheadLength) throw new Error('Invalid identity ciphertext');
+  const salt = modern ? identityBytes(envelope.salt, 16) : undefined;
+  let key: Uint8Array | undefined, decrypted: Uint8Array | null = null, secretKey: Uint8Array | undefined;
+  try {
+    key = salt ? await deriveKeyFromPassword(password, salt) : deriveKeyLegacy(password);
+    decrypted = secretboxDecrypt(ciphertext, nonce, key);
+    if (!decrypted) throw new Error('Decryption failed — wrong password?');
+    const data: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(decrypted));
+    if (!exactIdentityFields(data, ['publicKey', 'secretKey', 'did']) || typeof data.did !== 'string') throw new Error('Invalid identity plaintext');
+    const publicKey = identityBytes(data.publicKey, 32); secretKey = identityBytes(data.secretKey, 64);
+    const identity = { publicKey, secretKey, did: data.did }; validateIdentity(identity);
+    secretKey = undefined; return identity;
+  } finally { key?.fill(0); decrypted?.fill(0); secretKey?.fill(0); }
 }
 
 // --- Encoding helpers (re-exported for protocol use) ---

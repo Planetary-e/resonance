@@ -1,0 +1,411 @@
+{
+  "measuredAt": "2026-10-18T04:47:00.359Z",
+  "checkpoints": [
+    "Two actual app processes initialized and unlocked with the cached FP32 model; blinded issuance completed through authenticated APIs",
+    "Three real-text publications accepted; two offers from one account have separate publication keys and IDs",
+    "Real-text private search retrieves the complementary offer",
+    "Both applications decrypt and retain match notices; lock/unlock plus another mailbox check does not duplicate them",
+    "All six protected admission owners reopen; exact retry succeeds and a conflicting spend remains rejected",
+    "Witness history quorum loss refuses actual application search and retains the uncertain token without refund",
+    "Protected observer history quorum loss refuses an actual app search before reserving or redeeming another token",
+    "No root account identifier, plaintext item text or spent token appears in captured network frames; distinct request bindings use distinct tokens"
+  ],
+  "model": "nomic-ai/nomic-embed-text-v1",
+  "dtype": "fp32",
+  "remoteModelDownloads": false,
+  "applicationProcesses": 2,
+  "published": 3,
+  "mailboxMatchCounts": [
+    1,
+    2
+  ],
+  "distinctRequestBindings": 13,
+  "distinctSpentTokens": 13,
+  "protectedPolicy": {
+    "observers": 5,
+    "durableHistories": 25,
+    "privateQueries": 18,
+    "issuerAndRelayFreshness": true,
+    "quorumLossRefusedBeforeSpend": true
+  },
+  "protectedAdmission": {
+    "witnesses": 5,
+    "coordinators": 1,
+    "durableHistories": 30,
+    "restartedOwners": 6,
+    "retainedDoubleSpendRefusal": true,
+    "quorumLossRefused": true
+  },
+  "apiTimings": [
+    {
+      "operation": "/api/init",
+      "status": 200,
+      "durationMs": 694
+    },
+    {
+      "operation": "/api/unlock",
+      "status": 200,
+      "durationMs": 473
+    },
+    {
+      "operation": "/api/admission-wallet/configure",
+      "status": 200,
+      "durationMs": 34
+    },
+    {
+      "operation": "/api/admission-wallet/policy",
+      "status": 200,
+      "durationMs": 17
+    },
+    {
+      "operation": "/api/admission-wallet/request",
+      "status": 200,
+      "durationMs": 278
+    },
+    {
+      "operation": "/api/admission-wallet/complete",
+      "status": 200,
+      "durationMs": 70
+    },
+    {
+      "operation": "/api/init",
+      "status": 200,
+      "durationMs": 868
+    },
+    {
+      "operation": "/api/unlock",
+      "status": 200,
+      "durationMs": 548
+    },
+    {
+      "operation": "/api/admission-wallet/configure",
+      "status": 200,
+      "durationMs": 30
+    },
+    {
+      "operation": "/api/admission-wallet/policy",
+      "status": 200,
+      "durationMs": 16
+    },
+    {
+      "operation": "/api/admission-wallet/request",
+      "status": 200,
+      "durationMs": 342
+    },
+    {
+      "operation": "/api/admission-wallet/complete",
+      "status": 200,
+      "durationMs": 70
+    },
+    {
+      "operation": "/api/items",
+      "status": 200,
+      "durationMs": 3710
+    },
+    {
+      "operation": "/api/items",
+      "status": 200,
+      "durationMs": 3683
+    },
+    {
+      "operation": "/api/items",
+      "status": 200,
+      "durationMs": 3412
+    },
+    {
+      "operation": "/api/search",
+      "status": 200,
+      "durationMs": 3542
+    },
+    {
+      "operation": "/api/private-requests/hold-mailbox",
+      "status": 200,
+      "durationMs": 9
+    },
+    {
+      "operation": "/api/private-requests/:id/release",
+      "status": 200,
+      "durationMs": 6929
+    },
+    {
+      "operation": "/api/matches",
+      "status": 200,
+      "durationMs": 6
+    },
+    {
+      "operation": "/api/lock",
+      "status": 200,
+      "durationMs": 4
+    },
+    {
+      "operation": "/api/unlock",
+      "status": 200,
+      "durationMs": 611
+    },
+    {
+      "operation": "/api/private-requests/hold-mailbox",
+      "status": 200,
+      "durationMs": 9
+    },
+    {
+      "operation": "/api/private-requests/:id/release",
+      "status": 200,
+      "durationMs": 3503
+    },
+    {
+      "operation": "/api/matches",
+      "status": 200,
+      "durationMs": 8
+    },
+    {
+      "operation": "/api/private-requests/hold-mailbox",
+      "status": 200,
+      "durationMs": 11
+    },
+    {
+      "operation": "/api/private-requests/:id/release",
+      "status": 200,
+      "durationMs": 7264
+    },
+    {
+      "operation": "/api/matches",
+      "status": 200,
+      "durationMs": 5
+    },
+    {
+      "operation": "/api/lock",
+      "status": 200,
+      "durationMs": 5
+    },
+    {
+      "operation": "/api/unlock",
+      "status": 200,
+      "durationMs": 575
+    },
+    {
+      "operation": "/api/private-requests/hold-mailbox",
+      "status": 200,
+      "durationMs": 11
+    },
+    {
+      "operation": "/api/private-requests/:id/release",
+      "status": 200,
+      "durationMs": 3879
+    },
+    {
+      "operation": "/api/matches",
+      "status": 200,
+      "durationMs": 6
+    },
+    {
+      "operation": "/api/admission-wallet",
+      "status": 200,
+      "durationMs": 3
+    },
+    {
+      "operation": "/api/admission-wallet",
+      "status": 200,
+      "durationMs": 3
+    },
+    {
+      "operation": "/api/search",
+      "status": 503,
+      "durationMs": 1015
+    },
+    {
+      "operation": "/api/search",
+      "status": 200,
+      "durationMs": 3897
+    },
+    {
+      "operation": "/api/admission-wallet",
+      "status": 200,
+      "durationMs": 2
+    },
+    {
+      "operation": "/api/admission-wallet",
+      "status": 200,
+      "durationMs": 2
+    },
+    {
+      "operation": "/api/admission-wallet",
+      "status": 200,
+      "durationMs": 2
+    },
+    {
+      "operation": "/api/admission-wallet",
+      "status": 200,
+      "durationMs": 2
+    },
+    {
+      "operation": "/api/search",
+      "status": 503,
+      "durationMs": 1167
+    },
+    {
+      "operation": "/api/search",
+      "status": 200,
+      "durationMs": 4128
+    },
+    {
+      "operation": "/api/admission-wallet",
+      "status": 200,
+      "durationMs": 1
+    },
+    {
+      "operation": "/api/admission-wallet",
+      "status": 200,
+      "durationMs": 1
+    },
+    {
+      "operation": "/api/admission-wallet",
+      "status": 200,
+      "durationMs": 0
+    },
+    {
+      "operation": "/api/admission-wallet",
+      "status": 200,
+      "durationMs": 2
+    },
+    {
+      "operation": "/api/search",
+      "status": 503,
+      "durationMs": 1060
+    },
+    {
+      "operation": "/api/search",
+      "status": 200,
+      "durationMs": 4008
+    },
+    {
+      "operation": "/api/admission-wallet",
+      "status": 200,
+      "durationMs": 1
+    },
+    {
+      "operation": "/api/admission-wallet",
+      "status": 200,
+      "durationMs": 1
+    },
+    {
+      "operation": "/api/admission-wallet",
+      "status": 200,
+      "durationMs": 5
+    },
+    {
+      "operation": "/api/search",
+      "status": 503,
+      "durationMs": 3223
+    },
+    {
+      "operation": "/api/admission-wallet",
+      "status": 200,
+      "durationMs": 2
+    },
+    {
+      "operation": "/api/admission-wallet",
+      "status": 200,
+      "durationMs": 2
+    },
+    {
+      "operation": "/api/search",
+      "status": 503,
+      "durationMs": 972
+    },
+    {
+      "operation": "/api/admission-wallet",
+      "status": 200,
+      "durationMs": 2
+    }
+  ],
+  "faultCooldownMs": 52237,
+  "concurrentSearches": {
+    "trials": 3,
+    "concurrency": 2,
+    "submitted": 6,
+    "succeeded": 3,
+    "acceptedSpends": 3,
+    "consumedTokens": 3,
+    "cooldownMs": 27806,
+    "outcomes": [
+      {
+        "round": 1,
+        "client": 0,
+        "status": 200,
+        "durationMs": 3897,
+        "consumedTokens": 1,
+        "failureCategory": null
+      },
+      {
+        "round": 1,
+        "client": 1,
+        "status": 503,
+        "durationMs": 1015,
+        "consumedTokens": 0,
+        "failureCategory": "other"
+      },
+      {
+        "round": 2,
+        "client": 0,
+        "status": 200,
+        "durationMs": 4128,
+        "consumedTokens": 1,
+        "failureCategory": null
+      },
+      {
+        "round": 2,
+        "client": 1,
+        "status": 503,
+        "durationMs": 1167,
+        "consumedTokens": 0,
+        "failureCategory": "other"
+      },
+      {
+        "round": 3,
+        "client": 0,
+        "status": 200,
+        "durationMs": 4008,
+        "consumedTokens": 1,
+        "failureCategory": null
+      },
+      {
+        "round": 3,
+        "client": 1,
+        "status": 503,
+        "durationMs": 1060,
+        "consumedTokens": 0,
+        "failureCategory": "other"
+      }
+    ],
+    "allSucceeded": false,
+    "websocketPayloadBytes": 1856892,
+    "cpuSeconds": 3.461156999999999
+  },
+  "actions": {
+    "publication-write": 3,
+    "search": 4,
+    "mailbox-fetch": 4,
+    "mailbox-acknowledge": 2
+  },
+  "resources": {
+    "durationMs": 152372,
+    "websocketPayloadBytes": 9471701,
+    "parentPeakRssBytes": 397787136,
+    "applicationPeakRssBytes": [
+      2108456960,
+      1492680704
+    ],
+    "cpuSeconds": 30.926886,
+    "node": "v24.19.0",
+    "platform": "darwin",
+    "architecture": "arm64"
+  },
+  "limitations": [
+    "Local IPv4/IPv6 loopback domains on one computer; not independent operators, Internet or TLS deployment.",
+    "Actual desktop backend APIs and embeddings; no graphical user interaction or native installer is certified.",
+    "Five protected observers, five witnesses and one coordinator use 55 local durable history services; eligibility distribution and independent operators remain separate.",
+    "Account/credential-field separation is not timing or content unlinkability; static fingerprints and match relationships remain observable to the destination.",
+    "Wire payload counts exclude TCP/TLS/WebSocket headers; per-process peak RSS values are not simultaneous total memory and CPU time is not energy.",
+    "Two concurrent model processes on this host; representative hardware and cold first-download experience remain unmeasured."
+  ]
+}
