@@ -37,7 +37,7 @@ export async function openAdmissionPolicyObserver(options: {
     await parseAdmissionPolicyObserverState(storage.read(), context);
     const local = storage;
     const stateHead = (state: State) => policyObserverStateHead(state, context);
-    const usable = () => { const state = local.read(); if (state.conflict) throw new Error('Community policy authority equivocated; retain evidence and stop observations'); return state; };
+    const usable = () => { const state = local.read(); if (state.policy.keys.some(e => e.witnesses?.version === 2)) throw new Error('Protected witness epochs require a durable protected observer seal path'); if (state.conflict) throw new Error('Community policy authority equivocated; retain evidence and stop observations'); return state; };
     return {
       status() {
         const state = local.read();

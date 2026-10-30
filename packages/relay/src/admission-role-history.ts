@@ -1,3 +1,6 @@
+import { copyAdmissionReplayValue } from '@resonance/core';
+import { witnessConstraint, type ProtectedWitnessHandoffState } from './witness-handoff-state.js';
+import { admissionWitnessSetId } from '@resonance/core/admission-witness';
 import { admissionPolicyHistoryEntry, admissionPolicyHistoryParticipant, assertArchivedAdmissionPolicyCurrent, type ArchivedAdmissionPolicy, type AdmissionPolicyHistoryMembership } from '@resonance/core/admission-policy-archive';
 /** Witness/coordinator decisions retained inside encrypted owner history.
  * Parsing proves signatures and membership, not freshness or safe restoration. */
@@ -25,42 +28,45 @@ function capacity(limit: number) {
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 10000) throw new Error('Invalid admission role history capacity');
 }
 
-export function parseAdmissionRoleHistories(value: unknown, policy: ArchivedAdmissionPolicy, limit = 10000, membership?: AdmissionPolicyHistoryMembership): AdmissionRoleHistories {
+export function parseAdmissionRoleHistories(value: unknown, policy: ArchivedAdmissionPolicy, limit = 10000, membership?: AdmissionPolicyHistoryMembership, handoff?: ProtectedWitnessHandoffState): AdmissionRoleHistories {
   capacity(limit);
   if (!exactWitnessFields(value, ['witness', 'coordinator'])) throw new Error('Invalid admission role histories');
 
+  const allSets = [...policy.keys.flatMap(k => k.witnesses ? [k.witnesses] : []), ...(handoff?.inherited.sets ?? []), ...(handoff?.proposal ? [handoff.proposal.oldSet, handoff.proposal.newSet] : [])];
+  const historicalSet = (claim: AdmissionSpendClaim) => allSets.find(s => admissionWitnessSetId(s) === claim?.setId) ?? entryFor(policy, claim?.issuerKey, membership)?.witnesses;
+  const historicalParticipant = (role: 'witness' | 'coordinator', key: string) => allSets.some(s => role === 'witness' ? s.members.some(m => m.publicKey === key) : s.coordinators.includes(key));
   let witness: AdmissionWitnessHistoryState | null = null, coordinator: AdmissionCoordinatorHistoryState | null = null;
   if (value.witness !== null) {
     const raw = value.witness;
     if (!exactWitnessFields(raw, ['version', 'witness', 'votes', 'retiredIssuerKeys']) || raw.version !== 2 || !witnessBytes(raw.witness, 32)
-      || !admissionPolicyHistoryParticipant(policy, membership, 'witness', raw.witness)
-      || !validRetiredIssuerKeys(raw.retiredIssuerKeys, policy, raw.witness, 'witness', membership)
+      || !(admissionPolicyHistoryParticipant(policy, membership, 'witness', raw.witness) || handoff && historicalParticipant('witness', raw.witness))
+      || !validRetiredIssuerKeys(raw.retiredIssuerKeys, policy, raw.witness, handoff ? 'local-spends' : 'witness', membership)
       || !Array.isArray(raw.votes) || raw.votes.length > limit) throw new Error('Invalid retained witness history');
     const seen = new Set<string>(), retired = new Set(raw.retiredIssuerKeys);
     for (const vote of raw.votes) {
-      const set = entryFor(policy, vote?.issuerKey, membership)?.witnesses;
+      const set = historicalSet(vote);
       if (!set || retired.has(vote?.issuerKey) || vote.witness !== raw.witness || !verifyRetainedAdmissionVote(vote, vote, set)
-        || seen.has(admissionRoleClaimIndex(vote))) throw new Error('Invalid or conflicting retained witness vote');
-      seen.add(admissionRoleClaimIndex(vote));
+        || seen.has(`${vote.setId}:${admissionRoleClaimIndex(vote)}`)) throw new Error('Invalid or conflicting retained witness vote');
+      seen.add(`${vote.setId}:${admissionRoleClaimIndex(vote)}`);
     }
-    witness = structuredClone(raw) as unknown as AdmissionWitnessHistoryState;
+    witness = copyAdmissionReplayValue(raw) as unknown as AdmissionWitnessHistoryState;
   }
   if (value.coordinator !== null) {
     const raw = value.coordinator;
     if (!exactWitnessFields(raw, ['version', 'coordinator', 'certificates', 'retiredIssuerKeys']) || raw.version !== 2 || !witnessBytes(raw.coordinator, 32)
-      || !admissionPolicyHistoryParticipant(policy, membership, 'coordinator', raw.coordinator)
-      || !validRetiredIssuerKeys(raw.retiredIssuerKeys, policy, raw.coordinator, 'coordinator', membership)
+      || !(admissionPolicyHistoryParticipant(policy, membership, 'coordinator', raw.coordinator) || handoff && historicalParticipant('coordinator', raw.coordinator))
+      || !validRetiredIssuerKeys(raw.retiredIssuerKeys, policy, raw.coordinator, handoff ? 'local-spends' : 'coordinator', membership)
       || !Array.isArray(raw.certificates) || raw.certificates.length > limit) throw new Error('Invalid retained coordinator history');
     const seen = new Set<string>(), retired = new Set(raw.retiredIssuerKeys);
     for (const certificate of raw.certificates) {
-      const claim = certificate?.votes?.[0], set = entryFor(policy, claim?.issuerKey, membership)?.witnesses;
+      const claim = certificate?.votes?.[0], set = historicalSet(claim);
       if (!set || !claim || !set.coordinators.includes(raw.coordinator) || retired.has(claim.issuerKey)
-        || !verifyRetainedAdmissionCertificate(certificate, claim, set) || seen.has(admissionRoleClaimIndex(claim))) {
+        || !verifyRetainedAdmissionCertificate(certificate, claim, set) || seen.has(`${claim.setId}:${admissionRoleClaimIndex(claim)}`)) {
         throw new Error('Invalid or conflicting retained admission certificate');
       }
-      seen.add(admissionRoleClaimIndex(claim));
+      seen.add(`${claim.setId}:${admissionRoleClaimIndex(claim)}`);
     }
-    coordinator = structuredClone(raw) as unknown as AdmissionCoordinatorHistoryState;
+    coordinator = copyAdmissionReplayValue(raw) as unknown as AdmissionCoordinatorHistoryState;
   }
   return { witness, coordinator };
 }
@@ -95,17 +101,17 @@ export function assertAdmissionRoleRetention(before: AdmissionRoleHistories, aft
       : old.coordinator !== (next as AdmissionCoordinatorHistoryState).coordinator)
       || old.retiredIssuerKeys.some(key => !next.retiredIssuerKeys.includes(key))) throw new Error('Retained admission role or denial is missing');
     const decisions = 'votes' in old ? old.votes : old.certificates.map(c => c.votes[0]);
-    const retained = new Map(('votes' in next ? next.votes : next.certificates.map(c => c.votes[0])).map(c => [admissionRoleClaimIndex(c), admissionSpendClaimId(c)]));
-    if (decisions.some(c => !next.retiredIssuerKeys.includes(c.issuerKey) && retained.get(admissionRoleClaimIndex(c)) !== admissionSpendClaimId(c))) {
+    const retained = new Map(('votes' in next ? next.votes : next.certificates.map(c => c.votes[0])).map(c => [`${c.setId}:${admissionRoleClaimIndex(c)}`, admissionSpendClaimId(c)]));
+    if (decisions.some(c => !next.retiredIssuerKeys.includes(c.issuerKey) && retained.get(`${c.setId}:${admissionRoleClaimIndex(c)}`) !== admissionSpendClaimId(c))) {
       throw new Error('Retained admission role decision is missing or conflicting');
     }
   }
 }
 
 export function reduceAdmissionRoleHistory(roles: AdmissionRoleHistories, record: AdmissionRoleMutation,
-  policy: ArchivedAdmissionPolicy, limit = 10000, membership?: AdmissionPolicyHistoryMembership): AdmissionRoleHistories {
+  policy: ArchivedAdmissionPolicy, limit = 10000, membership?: AdmissionPolicyHistoryMembership, handoff?: ProtectedWitnessHandoffState): AdmissionRoleHistories {
   capacity(limit); assertArchivedAdmissionPolicyCurrent(policy, record.at);
-  const next = structuredClone(roles);
+  const next = copyAdmissionReplayValue(roles);
   if (record.kind === 'role-retire') {
     const state = next[record.role]; if (!state) throw new Error('Admission role has not been captured');
     const participant = record.role === 'witness' ? next.witness!.witness : next.coordinator!.coordinator;
@@ -121,21 +127,27 @@ export function reduceAdmissionRoleHistory(roles: AdmissionRoleHistories, record
     if (!state) throw new Error('Admission role has not been captured');
     const claim = witness ? record.vote : record.certificate?.votes?.[0];
     const entry = entryFor(policy, claim?.issuerKey, membership), set = entry?.witnesses;
+    if (set?.version === 2) {
+      if (!handoff || !['ACTIVE_OLD','ACTIVE_NEW'].includes(handoff.phase)) throw new Error('Protected witness epoch is not active or is durably frozen');
+      const rule = witnessConstraint(handoff.inherited, claim);
+      if (rule !== 'fresh' && rule !== 'bound') throw new Error(`Inherited witness constraint refuses authorization: ${rule}`);
+      if (next.witness && next.witness.votes.length + handoff.inherited.votes.length + handoff.inherited.certificates.length + handoff.inherited.accepted.length >= limit) throw new Error('Inherited and current witness state exceed existing role capacity');
+    }
     if (!set || !claim || (witness ? record.vote.witness !== next.witness!.witness || !verifyRetainedAdmissionVote(record.vote, record.vote, set)
       : !set.coordinators.includes(next.coordinator!.coordinator) || !verifyRetainedAdmissionCertificate(record.certificate, claim, set))) {
       throw new Error('Invalid admission role decision');
     }
-    const previous = witness ? next.witness!.votes.find(v => admissionRoleClaimIndex(v) === admissionRoleClaimIndex(claim))
-      : next.coordinator!.certificates.find(c => admissionRoleClaimIndex(c.votes[0]) === admissionRoleClaimIndex(claim))?.votes[0];
+    const previous = witness ? next.witness!.votes.find(v => v.setId === claim.setId && admissionRoleClaimIndex(v) === admissionRoleClaimIndex(claim))
+      : next.coordinator!.certificates.find(c => c.votes[0].setId === claim.setId && admissionRoleClaimIndex(c.votes[0]) === admissionRoleClaimIndex(claim))?.votes[0];
     if (state.retiredIssuerKeys.includes(claim.issuerKey) || (policy.version === 3 ? !policy.keys.some(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === claim.issuerKey) : isArchivedAdmissionKey(policy, claim.issuerKey))
       || record.at < entry!.notBefore || record.at >= (witness && !previous ? entry!.spendUntil : entry!.retryUntil)) {
       throw new Error('Admission role issuer is unavailable at the recorded time');
     }
     if (previous && admissionSpendClaimId(previous) !== admissionSpendClaimId(claim)) throw new Error('Conflicting retained admission decision');
     if (!previous) {
-      if (witness) next.witness!.votes.push(structuredClone(record.vote));
-      else next.coordinator!.certificates.push(structuredClone(record.certificate));
+      if (witness) next.witness!.votes.push(copyAdmissionReplayValue(record.vote));
+      else next.coordinator!.certificates.push(copyAdmissionReplayValue(record.certificate));
     }
   }
-  return parseAdmissionRoleHistories(next, policy, limit, membership);
+  return parseAdmissionRoleHistories(next, policy, limit, membership, handoff);
 }

@@ -120,7 +120,7 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
     if (context) {
       let query: AdmissionPolicyQuery | undefined;
       const reply = await sendTo(url, () => {
-        query = createAdmissionPolicyQuery(context);
+        query = provider?.preparePolicyObservation?.() ?? createAdmissionPolicyQuery(context);
         observationDeadline = performance.now() + query.request.expiresAt - query.request.issuedAt;
         return JSON.stringify(query);
       }, operation, signal, undefined, false);

@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { fsyncSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { fsyncSync, renameSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { historyCheckpointEnvelopeId } from '@resonance/core/history-checkpoint';
 import { createHistoryExchangeResponse } from '@resonance/core/history-exchange';
@@ -7,10 +7,11 @@ import { createHistoryCheckpointReplica } from '../history-checkpoint-exchange.j
 import { createHistoryAncestryDownload, HISTORY_DOWNLOAD_FILENAME } from '../history-ancestry-download.js';
 import { historyAgreementFixture } from './fixtures/history-agreement-fixture.js';
 
-vi.mock('node:fs', async original => { const fs = await original<typeof import('node:fs')>(); return { ...fs, fsyncSync: vi.fn(fs.fsyncSync) }; });
+vi.mock('node:fs', async original => { const fs = await original<typeof import('node:fs')>(); return { ...fs, fsyncSync: vi.fn(fs.fsyncSync), renameSync: vi.fn(fs.renameSync) }; });
+const actualRename = (await vi.importActual<typeof import('node:fs')>('node:fs')).renameSync;
 const actualFsync = (await vi.importActual<typeof import('node:fs')>('node:fs')).fsyncSync;
 const cleanup: Array<() => void> = [];
-afterEach(() => { vi.mocked(fsyncSync).mockReset().mockImplementation(actualFsync); cleanup.splice(0).reverse().forEach(f => f()); });
+afterEach(() => { vi.mocked(renameSync).mockReset().mockImplementation(actualRename); vi.mocked(fsyncSync).mockReset().mockImplementation(actualFsync); cleanup.splice(0).reverse().forEach(f => f()); });
 function fixture(length = 3) {
   const n = historyAgreementFixture('missing', length); cleanup.push(() => n.close());
   const roles = n.stores.map((store, i) => {
@@ -108,4 +109,31 @@ it('reopens legacy v1 download manifests without silently changing their paging 
   state.write({ ...state.read(), version: 1 }); state.close();
   const legacy = n.open(false); expect(legacy.read().pagingVersion).toBe(1); expect((await legacy.run()).complete).toBe(true);
   expect([...legacy.blocks()]).toEqual(n.blocks); legacy.close(); expect(n.open(false).read().pagingVersion).toBe(1);
+});
+
+import { openStorageReservationAuthority, STORAGE_RESERVATION_CONTROL_BYTES, withStorageReservationAuthority } from '@resonance/core/storage-reservations';
+it.each(['block', 'manifest'] as const)('reopens funded uncertain %s rename and finishes accepted block after exhaustion', async boundary => {
+  const n = fixture(), authority = openStorageReservationAuthority({ directory: join(n.directory, 'funding'), mode: 'create-new', limitBytes: STORAGE_RESERVATION_CONTROL_BYTES + 2_000_000 }); cleanup.push(authority.close);
+  await withStorageReservationAuthority(authority, async () => {
+    let download = n.open(true, { fundedGrowth: 'monotone-v1' }), manifestWrites = 0;
+    vi.mocked(renameSync).mockImplementation((from, to) => {
+      actualRename(from, to);
+      const target = String(to);
+      if (boundary === 'block' && target.endsWith('.block') || boundary === 'manifest' && target.endsWith(HISTORY_DOWNLOAD_FILENAME) && ++manifestWrites === 2) throw new Error('uncertain funded rename');
+    });
+    await expect(download.run({ maxBlocks: 1 })).rejects.toThrow(/uncertain/); download.close(); vi.mocked(renameSync).mockImplementation(actualRename);
+    authority.reserve({ path: join(n.directory, 'exhaust'), component: 'test', scope: 'file', maximumBytes: authority.status().availableBytes });
+    const reserved = authority.status().reservedBytes;
+    download = n.open(false, { fundedGrowth: 'monotone-v1' }); expect(authority.status().reservedBytes).toBe(reserved);
+    if (!download.read().blocks) await download.run({ maxBlocks: 1 });
+    expect(download.read().blocks).toBe(1); expect(authority.status().availableBytes).toBe(0);
+  });
+});
+it('refuses download funding before publishing any block under exhausted authority', async () => {
+  const n = fixture(), authority = openStorageReservationAuthority({ directory: join(n.directory, 'funding'), mode: 'create-new', limitBytes: STORAGE_RESERVATION_CONTROL_BYTES + 2_000_000 }); cleanup.push(authority.close);
+  await withStorageReservationAuthority(authority, async () => {
+    const download = n.open(true, { fundedGrowth: 'monotone-v1' });
+    authority.reserve({ path: join(n.directory, 'exhaust'), component: 'test', scope: 'file', maximumBytes: authority.status().availableBytes });
+    await expect(download.run({ maxBlocks: 1 })).rejects.toThrow(/exhausted/); expect(download.read().blocks).toBe(0);
+  });
 });

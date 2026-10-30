@@ -243,3 +243,25 @@ it('refuses missing state, invalid pins and attempts to reinterpret a preparatio
   expect(() => n.recovery(false, { nextGeneration: 2 })).toThrow('state is invalid');
 });
 });
+
+import { openStorageReservationAuthority, STORAGE_RESERVATION_CONTROL_BYTES, withStorageReservationAuthority } from '@resonance/core/storage-reservations';
+it('refuses exact-selection completion funding before persisting an attempt or freezing a replica', async () => {
+  const n = network(), authority = openStorageReservationAuthority({ directory: join(n.directory, 'funding'), mode: 'create-new', limitBytes: STORAGE_RESERVATION_CONTROL_BYTES + 1_000_000 }); clean.push(authority.close);
+  await withStorageReservationAuthority(authority, async () => {
+    const recovery = n.recovery(true, { exactSelection: { envelopes: [n.root] } });
+    authority.reserve({ path: join(n.directory, 'exhaust'), component: 'test', scope: 'file', maximumBytes: authority.status().availableBytes });
+    await expect(recovery.prepare()).rejects.toThrow(/exhausted/);
+    expect(recovery.read().attempt).toBeNull(); expect(n.stores.every(store => store.describe().freeze === null)).toBe(true);
+  });
+});
+it('retains exact originals and retry completion headroom across reopen without allocating on reopen', async () => {
+  const n = network(), authority = openStorageReservationAuthority({ directory: join(n.directory, 'funding'), mode: 'create-new', limitBytes: STORAGE_RESERVATION_CONTROL_BYTES + 1_000_000 }); clean.push(authority.close);
+  await withStorageReservationAuthority(authority, async () => {
+    let recovery = n.recovery(true, { exactSelection: { envelopes: [n.root] } }); expect((await recovery.prepare()).envelopes).toEqual([n.root]); recovery.close();
+    const reserved = authority.status().reservedBytes;
+    recovery = n.recovery(false, { exactSelection: { envelopes: [n.root] } }); expect(authority.status().reservedBytes).toBe(reserved);
+    expect((await recovery.prepare()).envelopes).toEqual([n.root]);
+    recovery.close(); const other = n.next(n.root);
+    expect(() => n.recovery(false, { exactSelection: { envelopes: [n.root, other] } })).toThrow(/invalid/);
+  });
+});

@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "command": "node scripts/rso5-baseline-windows.mjs",
+  "started_at": "2026-10-29T12:22:52.347Z",
+  "failed_at": "2026-10-29T12:57:05.921Z",
+  "completed": [
+    {
+      "run_id": "idle-baseline-final",
+      "scenario": "full-smoke",
+      "outcome": "passed",
+      "workers": 52,
+      "clean_stops": 52,
+      "messages": 563,
+      "frame_bytes": 5337360
+    }
+  ],
+  "error": "runtime-old-0 runtime:retry: Laboratory request refused: Current admission retry key is retired: runtime:retry me-old-0: Freeze requires four durable prospective completion reservations\nLaboratory socket close runtime-old-0: 1006 \nLaboratory socket close runtime-old-0: 1006 \nLaboratory socket close runtime-old-0: 1006 \nLaboratory socket close runtime-old-0: 1006 \nLaboratory socket close runtime-old-0: 1006 \nLaboratory socket close runtime-old-0: 1006 \nLaboratory socket close runtime-old-0: 1006 \nLaboratory socket close runtime-old-0: 1006 \nLaboratory socket close runtime-old-0: 1006 \nLaboratory socket close runtime-old-0: 1006 \nLaboratory socket close runtime-old-0: 1006 \nLaboratory channel refusal runtime-old-0: Retained denial/conflict/uncertainty\nLaboratory socket close runtime-old-0: 1006 \nLaboratory channel refusal runtime-old-0: Conflicting original retry\nLaboratory socket close runtime-old-0: 1006 \nLaboratory socket close runtime-old-0: 1006 \nLaboratory socket close runtime-old-0: 1006 \nLaboratory socket close runtime-old-0: 1006 \nLaboratory channel refusal runtime-old-0: Current admission retry key is retired\n",
+  "matrix_runs_executed": 0,
+  "sustained_windows_executed": false,
+  "acceptance_evaluation": "not_run"
+}

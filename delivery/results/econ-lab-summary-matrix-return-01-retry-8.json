@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "run_id": "matrix-return-01-retry-8",
+  "scenario": "returning",
+  "outcome": "passed",
+  "diagnostic_only": true,
+  "source_manifest": "delivery/results/econ-lab-manifest-matrix-return-01-retry-8.json",
+  "workers": 52,
+  "clean_stops": 52,
+  "predecessor_runtime_and_replicas_stopped_before_recovery": false,
+  "recovered_proofs": 0,
+  "post_new_view_startup_groups": 0,
+  "post_new_view_durable_readiness": true,
+  "logical_process_held_copy_audits": 164,
+  "copy_model": "logical process-held copies; not physical devices or crash-durability proof",
+  "exact_traffic_accounting": true,
+  "private_leakage_detected": false,
+  "work_bytes_separate_metric": 487248843,
+  "energy": "blocked",
+  "network_scope": "loopback_only",
+  "E2": "blocked",
+  "acceptance_evaluation": "not_run"
+}

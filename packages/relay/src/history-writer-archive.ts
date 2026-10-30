@@ -8,14 +8,14 @@ import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointContextId, historyCheckpoi
   parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { HISTORY_RECOVERY_MAX_BLOCKS, HISTORY_RECOVERY_MAX_BYTES } from '@resonance/core/history-exchange';
 import type { createHistoryCheckpointWriter, HistoryCheckpointWriterState } from './history-checkpoint-quorum.js';
-import { reserveHistoryStorage } from './history-storage-reservation.js';
+import { historyFundedGrowth, validHistoryFundedGrowth, openHistoryFundedGrowth, type HistoryFundedGrowth, reserveHistoryStorage } from './history-storage-reservation.js';
 import { registerHistoryWriterPrefix } from './history-writer-prefix.js';
 import { readHistorySequenceIndex, type StoredHistorySequenceIndex } from './history-sequence-index.js';
 import { parseHistoryCompactionAttestation, parseHistoryCompactionCertificate, type HistoryCompactionCertificate } from '@resonance/core/history-compaction';
 
 export const HISTORY_WRITER_ARCHIVE_FILENAME = 'history-writer-payloads.json';
 const MANIFEST_BYTES = 2 * 1024 * 1024;
-interface State { version: 1; contextId: string; rootId: string; generation: number; blocks: StoredHistorySequenceIndex;
+interface State { funding?: HistoryFundedGrowth; version: 1; contextId: string; rootId: string; generation: number; blocks: StoredHistorySequenceIndex;
   compaction?: HistoryCompactionCertificate; reclaimReplicaPrefix?: true }
 
 /** Shared read-only preflight for reviewed first initialization and its apply. */
@@ -37,7 +37,7 @@ export function openHistoryWriterArchive(options: {
   readWriter: ReturnType<typeof createHistoryCheckpointWriter>['read']; initialize?: boolean;
   /** Explicitly reviewed retry of first initialization; no committed/pending writer or unknown files. */
   resumePristine?: boolean;
-  maxBlocks?: number; maxBytes?: number;
+  maxBlocks?: number; maxBytes?: number; fundedGrowth?: 'monotone-v1';
   /** Original independently pinned genesis is required for certified repair in later generations. */
   genesisId?: string;
 }) {
@@ -49,7 +49,8 @@ export function openHistoryWriterArchive(options: {
     || (options.genesisId !== undefined && (!isHistoryDigest(options.genesisId) || generation === 0 && options.genesisId !== rootId))
     || !Number.isSafeInteger(maxBlocks) || maxBlocks < 1 || maxBlocks > HISTORY_RECOVERY_MAX_BLOCKS
     || !Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > HISTORY_RECOVERY_MAX_BYTES) throw new Error('Invalid writer archive bounds or pins');
-  const initial: State = { version: 1, contextId, rootId, generation, blocks: [] };
+  const expectedFunding = options.fundedGrowth ? historyFundedGrowth(directory, 'history-writer-ciphertext', maxBytes) : undefined;
+  const initial: State = { version: 1, contextId, rootId, generation, blocks: [], ...(expectedFunding ? { funding: expectedFunding } : {}) };
   const index = (state: State) => readHistorySequenceIndex(state.blocks, maxBlocks);
   function writerState() {
     const state = options.readWriter();
@@ -60,6 +61,7 @@ export function openHistoryWriterArchive(options: {
     const compacted = !!raw && typeof raw === 'object' && Object.hasOwn(raw, 'compaction');
     const reclaim = !!raw && typeof raw === 'object' && Object.hasOwn(raw, 'reclaimReplicaPrefix');
     if (!exactWitnessFields(raw, [...Object.keys(initial), ...(compacted ? ['compaction'] : []), ...(reclaim ? ['reclaimReplicaPrefix'] : [])])
+      || (expectedFunding && !validHistoryFundedGrowth(raw.funding, expectedFunding))
       || (reclaim && (!compacted || raw.reclaimReplicaPrefix !== true)) || raw.version !== 1 || raw.contextId !== contextId
       || raw.rootId !== rootId || raw.generation !== generation) return false;
     try {
@@ -99,9 +101,10 @@ export function openHistoryWriterArchive(options: {
     return writer;
   }
   let reservation: ReturnType<typeof reserveHistoryStorage>;
+  let growth: ReturnType<typeof openHistoryFundedGrowth> | undefined;
   try {
     const writer = writerState();
-    reservation = reserveHistoryStorage({ directory, component: 'history-writer-ciphertext', ciphertextBytes: maxBytes,
+    if (!expectedFunding) reservation = reserveHistoryStorage({ directory, component: 'history-writer-ciphertext', ciphertextBytes: maxBytes,
       manifestFilename: HISTORY_WRITER_ARCHIVE_FILENAME, manifestBytes: MANIFEST_BYTES });
     if (options.initialize) {
       assertHistoryWriterArchiveInitialization(directory, writer, options.resumePristine);
@@ -113,7 +116,8 @@ export function openHistoryWriterArchive(options: {
     if (!lstatSync(directory).isDirectory()) throw new Error('Writer archive needs a real directory');
     storage = openEncryptedLocalState<State>({ path: join(directory, HISTORY_WRITER_ARCHIVE_FILENAME), key: options.localKey,
       domain: 'resonance:history-writer-archive:v1', maxBytes: MANIFEST_BYTES, initial, validate,
-      mode: options.initialize ? 'create-new' : 'open-existing' });
+      funding: options.fundedGrowth, mode: options.initialize ? 'create-new' : 'open-existing' });
+    if (expectedFunding) growth = openHistoryFundedGrowth(storage.read().funding!, !options.initialize);
     const ids = index(storage.read());
     for (const [sequence, id] of ids.records) {
       const saved = readBlock(id); consecutive(saved.block, sequence, ids.get(sequence - 1)); bytes += saved.bytes;
@@ -123,18 +127,31 @@ export function openHistoryWriterArchive(options: {
     if (proof) parseHistoryCompactionCertificate(proof, context, genesisId!, readBlock(proof.proposal.envelopeId).block);
     const current = anchor(), pendingId = current.pending && historyCheckpointEnvelopeId(current.pending);
     const allowed = new Set([...ids.records.map(([, id]) => id), ...(pendingId ? [pendingId] : [])].map(id => `${id.slice(7)}.block`));
+    let unindexedBytes = 0, retiredBytes = 0;
     for (const name of readdirSync(directory)) {
       if (/^[a-f0-9]{64}\.block$/.test(name) && !allowed.has(name)) {
         // Only a validated owner-signed block in a committed retired slot may
         // be cleaned after a crash; arbitrary extra payloads still fail closed.
-        const extra = readBlock(`sha256:${name.slice(0, -6)}`).block;
+        const savedExtra = readBlock(`sha256:${name.slice(0, -6)}`), extra = savedExtra.block; retiredBytes += savedExtra.bytes;
         if (extra.generation !== generation || extra.sequence === 0 || ids.get(extra.sequence) !== null
           || extra.sequence >= (proof?.proposal.sequence ?? 0)) throw new Error('Unregistered writer archive block');
       }
     }
     if (pendingId && ids.get(current.pending!.sequence) !== pendingId && existsSync(path(pendingId))) {
-      const saved = readBlock(pendingId); consecutive(saved.block, ids.headSequence + 1, ids.headId);
+      const saved = readBlock(pendingId); unindexedBytes = saved.bytes; consecutive(saved.block, ids.headSequence + 1, ids.headId);
       if (ids.count >= maxBlocks || bytes + saved.bytes > maxBytes) throw new Error('Writer archive capacity exceeded');
+    }
+    if (growth) {
+      const pendingBytes = current.pending && ids.get(current.pending.sequence) !== pendingId ? Buffer.byteLength(JSON.stringify(current.pending)) : 0;
+      const promised = current.pending ?? current.committed?.envelope;
+      growth.assertExisting(bytes + pendingBytes + (promised && 'checkpointReserveBytes' in promised ? promised.checkpointReserveBytes ?? 0 : 0));
+      let temporaryBytes = 0;
+      for (const name of readdirSync(directory)) if (/^\.writer-payload-[a-f0-9]{32}\.tmp$/.test(name)) {
+        const stat = lstatSync(join(directory, name));
+        if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) throw new Error('Invalid writer temporary payload');
+        temporaryBytes += stat.size;
+      }
+      growth.assertExisting(bytes + unindexedBytes + retiredBytes + temporaryBytes);
     }
     // Only after authenticating indexed/pending data may uncommitted temporary files be discarded.
     let cleaned = false;
@@ -147,11 +164,23 @@ export function openHistoryWriterArchive(options: {
   } catch (error) { storage!?.close(); throw error; }
   function open() {
     if (closed || failed) throw new Error('Writer archive closed or write failed; reopen before reuse');
-    reservation.assertWritable(); storage.read();
+    if (growth) growth.assertExisting(); else reservation.assertWritable(); storage.read();
+  }
+  function preflight(block: HistoryCheckpointEnvelope) {
+    open();
+    if (!growth) return;
+    const state = storage.read(), ids = index(state), id = historyCheckpointEnvelopeId(block);
+    const additional = ids.get(block.sequence) === id ? 0 : Buffer.byteLength(JSON.stringify(block));
+    const bound = bytes + additional + ('checkpointReserveBytes' in block ? block.checkpointReserveBytes ?? 0 : 0);
+    const funding = growth.reserve(bound);
+    const next = { ...state, funding, blocks: ids.get(block.sequence) === id ? state.blocks : ids.extend(block.sequence, id) };
+    storage.preflight(next);
+    if (JSON.stringify(state.funding) !== JSON.stringify(funding)) storage.write({ ...state, funding });
   }
   function retainPending() {
     open(); const writer = anchor(), pending = writer.pending;
     if (!pending) return;
+    preflight(pending);
     const state = storage.read(), ids = index(state), id = historyCheckpointEnvelopeId(pending);
     if (ids.get(pending.sequence) === id) return;
     consecutive(pending, ids.headSequence + 1, ids.headId);
@@ -193,6 +222,7 @@ export function openHistoryWriterArchive(options: {
       notice: 'Retires ciphertext strictly before the certified checkpoint, preserving the root and committed suffix. Storage promises and sequence limits remain unchanged.' } };
   }
   return {
+    preflight,
     retainPending,
     /** Local publication retains owner bytes. Enabling remote prefix reclamation
      * requires review of the current committed checkpoint, never an old tail. */

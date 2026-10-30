@@ -1,0 +1,93 @@
+[
+  {
+    "path": "review-candidate-hashes.json",
+    "sha256": "210db54e90bc699f351553bf4ce435c131d0d57e4beb337c7c19d8ddf65189bc",
+    "bytes": 1649,
+    "original": "/tmp/v04-sustainable-corrections-2026-10-24/review-candidate-hashes.json",
+    "sanitization": "Inspected small text; preserved verbatim; historical local filesystem paths may appear."
+  },
+  {
+    "path": "final-path-hashes.json",
+    "sha256": "f994a1484c6925c0586906cd6ef72100619453a485ce7805445a2e93f0842371",
+    "bytes": 2196,
+    "original": "/tmp/v04-sustainable-corrections-2026-10-24/final-path-hashes.json",
+    "sanitization": "Inspected small text; preserved verbatim; historical local filesystem paths may appear."
+  },
+  {
+    "path": "closing-path-hashes.json",
+    "sha256": "c173e8ddc5624ff7fd4f90fb1ad0f0f546f7f5f4e0523e9705d1a1345e45df48",
+    "bytes": 2382,
+    "original": "/tmp/v04-sustainable-corrections-2026-10-24/closing-path-hashes.json",
+    "sanitization": "Inspected small text; preserved verbatim; historical local filesystem paths may appear."
+  },
+  {
+    "path": "result.json",
+    "sha256": "e514c9a5c8c797ca9ed021a7d6d68eded3df0d585cd9f0da66bca36d4ed17de4",
+    "bytes": 531,
+    "original": "/tmp/v04-sustainable-corrections-2026-10-24/result.json",
+    "sanitization": "Inspected small text; preserved verbatim; historical local filesystem paths may appear."
+  },
+  {
+    "path": "frozen-focused.log",
+    "sha256": "fc84f6fbe02957f9d3de3e6dd2466acacba380120030d740434de1965cde5bb5",
+    "bytes": 249,
+    "original": "/tmp/v04-sustainable-corrections-2026-10-24/frozen-focused.log",
+    "sanitization": "Inspected small text; preserved verbatim; historical local filesystem paths may appear."
+  },
+  {
+    "path": "composed-unreviewed.log",
+    "sha256": "83243d7b44f987aecfb89fdf6ebbaa14c9bac2fc7f8c67f8336a36725d8064d4",
+    "bytes": 249,
+    "original": "/tmp/v04-sustainable-corrections-2026-10-24/composed-unreviewed.log",
+    "sanitization": "Inspected small text; preserved verbatim; historical local filesystem paths may appear."
+  },
+  {
+    "path": "source-tsc-final.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bytes": 0,
+    "original": "/tmp/v04-sustainable-corrections-2026-10-24/source-tsc-final.log",
+    "sanitization": "Inspected small text; preserved verbatim; historical local filesystem paths may appear."
+  },
+  {
+    "path": "correction.patch",
+    "sha256": "3bbdae719d43dac2cb32d4e4a64d3adfef8a9b7d4c958416561be1fe7f2b4602",
+    "bytes": 93152,
+    "original": "/tmp/v04-sustainable-corrections-2026-10-24/correction.patch",
+    "sanitization": "Inspected small text; preserved verbatim; historical local filesystem paths may appear."
+  },
+  {
+    "path": "historical-equivocation-regression.log",
+    "sha256": "1fc893bc601abc9965897c7bd4fc280ddac9760ffedd0b44ddd26426a3eae92b",
+    "bytes": 1815,
+    "original": "/tmp/v04-sustainable-implementation-2026-10-23/equivocation-regression.log",
+    "sanitization": "Inspected small text; preserved verbatim; historical local filesystem paths may appear."
+  },
+  {
+    "path": "historical-equivocation-regression-receipt.json",
+    "sha256": "1f191a2fd7ee07b2e8d9306171a15e4b9a6a2e793e01295f8e3d8bc7b6288788",
+    "bytes": 2912,
+    "original": "/tmp/v04-sustainable-implementation-2026-10-23/equivocation-regression-receipt.json",
+    "sanitization": "Inspected small text; preserved verbatim; historical local filesystem paths may appear."
+  },
+  {
+    "path": "historical-vertical-final-diagnostic.log",
+    "sha256": "4f4309086c7d7396e7fa8ca4525ba38bf4ba433572fda0df00f8e314a82522d9",
+    "bytes": 2017,
+    "original": "/tmp/v04-sustainable-implementation-2026-10-23/vertical-final-diagnostic.log",
+    "sanitization": "Inspected small text; preserved verbatim; historical local filesystem paths may appear."
+  },
+  {
+    "path": "portable-typecheck-validation.json",
+    "sha256": "221353e1fbd2c3dad89c24b42d08e38c0b65ac953e584e8c7166e404832634d0",
+    "bytes": 739,
+    "original": "Parent documentation verification during this handover",
+    "sanitization": "Compiler/source input metadata only; local filesystem provenance may appear."
+  },
+  {
+    "path": "portable-source-showconfig.json",
+    "sha256": "1b3b5f3d01b9e55db0568794fdfe29e5264a0d3b96e02417e6ffd253ba769254",
+    "bytes": 52861,
+    "original": "Parent documentation verification during this handover",
+    "sanitization": "Compiler/source input metadata only; local filesystem provenance may appear."
+  }
+]

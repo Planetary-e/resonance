@@ -301,6 +301,8 @@ export {
   didToPublicKey,
   sign,
   verify,
+  withSuccessfulEd25519VerificationReuse,
+  type SuccessfulEd25519VerificationUsage,
   sha512,
   boxEncrypt,
   boxDecrypt,
@@ -563,3 +565,5 @@ export {
   parseMessage,
   serializeMessage,
 } from './protocol.js';
+
+export { copyAdmissionReplayValue, chargeAdmissionReplayCopy, withAdmissionReplayValues, isOwnedAdmissionReplayValue, ownAdmissionReplayValue, snapshotAdmissionReplayValue } from './admission-replay-values.js';

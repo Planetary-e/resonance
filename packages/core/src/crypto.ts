@@ -7,9 +7,10 @@
  * - did:key method for decentralized identifiers
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import nacl from 'tweetnacl';
 import naclUtil from 'tweetnacl-util';
-import { createPrivateKey, createPublicKey, sign as signEd25519, verify as verifyEd25519, timingSafeEqual, type KeyObject } from 'node:crypto';
+import { createPrivateKey, createPublicKey, sign as signEd25519, verify as verifyEd25519, createHash, timingSafeEqual, type KeyObject } from 'node:crypto';
 const { encodeBase64, decodeBase64, encodeUTF8, decodeUTF8 } = naclUtil;
 
 // --- Base58 encoding (for did:key) ---
@@ -154,8 +155,76 @@ const MAX_VERIFICATION_KEYS = 512;
 // Successful verification admits a key; signatures themselves are never cached here.
 const verificationKeys = new Map<string, KeyObject>();
 
+/** Upper bounds include an allowance for each retained Buffer, digest, Map and bucket.
+ * Temporary lookup copies are separately bounded by maxBytes (16 MiB combined).
+ * This is disposable memory, never retained storage or a proof resource allowance. */
+const MAX_SIGNATURE_REUSE_BYTES = 8 * 1024 * 1024;
+const MAX_SIGNATURE_REUSE_ENTRIES = 4096;
+const SIGNATURE_REUSE_ENTRY_OVERHEAD = 1024;
+export interface SuccessfulEd25519VerificationUsage {
+  attempts: number; primitiveCalls: number; hits: number; entries: number; retainedBytes: number;
+}
+interface SignatureReuseScope {
+  active: boolean; check: () => void; maxEntries: number; maxBytes: number;
+  entries: Map<string, Buffer[]>; usage: SuccessfulEd25519VerificationUsage;
+}
+const signatureReuse = new AsyncLocalStorage<SignatureReuseScope>();
+/** Own exactly one asynchronous operation. Nested/concurrent operations get fresh
+ * scopes; even detached child tasks lose reuse when their owner settles. A hit
+ * proves only the primitive signature, never schema/context/freshness/ancestry.
+ * The operation's existing deadline, cancellation and counters belong in check.
+ * Smaller limits are useful for constrained callers; saturation simply verifies.
+ */
+export async function withSuccessfulEd25519VerificationReuse<T>(
+  options: { check: () => void; maxEntries?: number; maxBytes?: number },
+  work: (usage: () => Readonly<SuccessfulEd25519VerificationUsage>) => T | Promise<T>,
+): Promise<T> {
+  const maxEntries = options.maxEntries ?? MAX_SIGNATURE_REUSE_ENTRIES, maxBytes = options.maxBytes ?? MAX_SIGNATURE_REUSE_BYTES;
+  if (typeof options.check !== 'function' || !Number.isSafeInteger(maxEntries) || maxEntries < 0 || maxEntries > MAX_SIGNATURE_REUSE_ENTRIES
+    || !Number.isSafeInteger(maxBytes) || maxBytes < 0 || maxBytes > MAX_SIGNATURE_REUSE_BYTES) throw new Error('Invalid Ed25519 verification reuse bounds');
+  const scope: SignatureReuseScope = { active: true, check: options.check, maxEntries, maxBytes, entries: new Map(),
+    usage: { attempts: 0, primitiveCalls: 0, hits: 0, entries: 0, retainedBytes: 0 } };
+  return signatureReuse.run(scope, async () => {
+    try { scope.check(); const result = await work(() => Object.freeze({ ...scope.usage })); scope.check(); return result; }
+    finally { scope.active = false; scope.entries.clear(); scope.usage.entries = 0; scope.usage.retainedBytes = 0; }
+  });
+}
+
 /** Verify an Ed25519 signature, rejecting malformed and noncanonical signatures. */
 export function verify(message: Uint8Array, signature: Uint8Array, publicKey: Uint8Array): boolean {
+  if (!(message instanceof Uint8Array) || !(signature instanceof Uint8Array) || !(publicKey instanceof Uint8Array)
+    || signature.byteLength !== 64 || publicKey.byteLength !== 32) return false;
+  const scope = signatureReuse.getStore();
+  if (!scope?.active) return verifyPrimitive(message, signature, publicKey);
+  scope.check(); scope.usage.attempts++;
+  const length = 32 + 64 + message.byteLength, cost = length + SIGNATURE_REUSE_ENTRY_OVERHEAD;
+  // Oversized input cannot allocate an unbounded lookup copy. No admission when
+  // saturated, but existing entries can still hit without resetting any counter.
+  if (cost > scope.maxBytes) {
+    scope.usage.primitiveCalls++; const valid = verifyPrimitive(message, signature, publicKey); scope.check(); return valid;
+  }
+  // One immutable snapshot supplies BOTH lookup equality and the primitive input.
+  // The prefix fixes Ed25519/null algorithm; fixed key/signature sizes frame the
+  // complete message, which already contains its protocol signing domain.
+  const bytes = Buffer.allocUnsafe(length);
+  bytes.set(publicKey, 0); bytes.set(signature, 32); bytes.set(message, 96);
+  const id = createHash('sha256').update('resonance:successful-ed25519:null:v1\n').update(bytes).digest('hex');
+  if (scope.entries.get(id)?.some(prior => prior.equals(bytes))) {
+    scope.usage.hits++; scope.check(); return true;
+  }
+  scope.usage.primitiveCalls++;
+  const valid = verifyPrimitive(bytes.subarray(96), bytes.subarray(32, 96), bytes.subarray(0, 32));
+  scope.check();
+  if (valid && scope.usage.entries < scope.maxEntries && scope.usage.retainedBytes + cost <= scope.maxBytes) {
+    const bucket = scope.entries.get(id);
+    if (bucket) bucket.push(bytes); else scope.entries.set(id, [bytes]);
+    scope.usage.entries++; scope.usage.retainedBytes += cost;
+  }
+  return valid;
+}
+
+/** Verify an Ed25519 signature, rejecting malformed and noncanonical signatures. */
+function verifyPrimitive(message: Uint8Array, signature: Uint8Array, publicKey: Uint8Array): boolean {
   if (!(message instanceof Uint8Array) || !(signature instanceof Uint8Array) || !(publicKey instanceof Uint8Array)
     || signature.byteLength !== 64 || publicKey.byteLength !== 32) return false;
   try {

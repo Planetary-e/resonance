@@ -1,3 +1,4 @@
+import * as core from '@resonance/core';
 import { afterEach, beforeAll, expect, it, vi } from 'vitest';
 import { randomBytes, generateKeyPairSync } from 'node:crypto';
 import { fsyncSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -436,4 +437,27 @@ it('does not return accepted when the new-spend cutoff passes while durable repl
   expect(await pending).toEqual({ status: 'rejected', reason: 'key_retired' });
   expect(n.stores.filter(s => s.describe().sequence === 1).length).toBeGreaterThanOrEqual(4);
   expect(await verifier.verifyAndSpend(capability, context)).toEqual({ status: 'replay' });
+});
+
+it('closes an acquired cold history and its selected source when the operation expires at scope exit', async () => {
+  const n = await fixture(), rootId = historyCheckpointEnvelopeId(n.history.enrollment().root);
+  const blocks = [...n.history.originalBlocks()]; n.history.close();
+  const sourceClose = vi.fn(), reuse = core.withSuccessfulEd25519VerificationReuse;
+  let acquired: { read(): unknown } | undefined;
+  const boundary = vi.spyOn(core, 'withSuccessfulEd25519VerificationReuse').mockImplementation((settings, work) => {
+    let returned = false;
+    return reuse({ ...settings, check() { settings.check(); if (returned) throw new Error('deadline at scope exit'); } }, async usage => {
+      const result = await work(usage);
+      acquired = result as { read(): unknown }; returned = true; return result;
+    });
+  });
+  try {
+    const ancestrySelection: NonNullable<AdmissionHistoryProtection['ancestrySelection']> = {
+      funding: { authorityDirectory: n.directory, authorityId: '0'.repeat(32) }, binding: 'test-owned-source', check() {}, assertRecoveryDownload() {},
+      expectedAncestry: { rootId, genesisId: rootId }, open: () => ({ blocks: () => blocks, close: sourceClose }),
+    };
+    await expect(openProtectedAdmissionSpendHistory({ ...n.options, protection: { ...n.options.protection, ancestrySelection } })).rejects.toThrow('deadline at scope exit');
+    expect(() => acquired!.read()).toThrow('closed'); expect(sourceClose).toHaveBeenCalledTimes(1);
+  } finally { boundary.mockRestore(); }
+  const reopened = await openProtectedAdmissionSpendHistory(n.options); reopened.close();
 });

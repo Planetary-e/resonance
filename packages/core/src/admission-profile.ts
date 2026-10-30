@@ -1,3 +1,5 @@
+import { copyAdmissionReplayValue, chargeAdmissionReplayCopy } from './admission-replay-values.js';
+import { snapshotAdmissionReplayValue, ownAdmissionReplayValue } from './admission-replay-values.js';
 import { createHash } from 'node:crypto';
 import { assertSecureRelayTransportEndpoint } from './relay-transport.js';
 import type { BlindAdmissionScopeV2 } from './blind-admission-v2.js';
@@ -62,7 +64,7 @@ async function importProfileKey(bytes: Buffer, handle?: AdmissionProfileKeyImpor
 export async function parseAdmissionWalletProfile(value: unknown, imports?: AdmissionProfileKeyImports) {
   validateProfile(value);
   // Copy all inputs before asynchronous crypto so the caller cannot change the pinned policy mid-validation.
-  const input = structuredClone(value);
+  const input = snapshotAdmissionReplayValue(value);
   const { publicKey, pem } = await importProfileKey(keyBytes(input.issuerPublicKey), imports);
   const profile: AdmissionWalletProfileV1 = { version: 1, scope: { issuer: input.scope.issuer, community: input.scope.community, epoch: input.scope.epoch }, issuerPublicKey: pem,
     relayUrls: [...new Set(input.relayUrls.map(normalizeAdmissionRelay))].sort() };

@@ -9,8 +9,36 @@ import { env } from '@huggingface/transformers';
 import { EmbeddingEngine, EMBEDDING_CONFIG, getScopedProjectionMatrixV2, getSharedProjectionMatrix,
   hashEmbedding, hammingSimilarity, cosineSimilarity, normalize } from '@resonance/core';
 
-const { values } = parseArgs({ options: { out: { type: 'string' }, enforce: { type: 'boolean', default: false } } });
+const { values } = parseArgs({ options: { out: { type: 'string' }, enforce: { type: 'boolean', default: false }, 'actual-capture': { type: 'string' }, 'actual-manifest': { type: 'string' }, 'manifest-sha256': { type: 'string' }, 'judged-input': { type: 'string' }, 'frozen-config': { type: 'string' }, 'config-sha256': { type: 'string' } } });
 const root = fileURLToPath(new URL('../../../', import.meta.url));
+if (values['judged-input']) {
+  if (!values['frozen-config'] || !values['config-sha256']) throw new Error('Judged input requires --frozen-config and externally pinned --config-sha256');
+  const { evaluateJudgedQuality } = await import('./fingerprint-judgments.js');
+  const { statSync } = await import('node:fs');
+  const readBounded = (path: string, max: number) => {
+    if (statSync(path).size > max) throw new Error('Input exceeds bounded JSON size');
+    return readFileSync(path, 'utf8');
+  };
+  const configBytes = readBounded(values['frozen-config'], 65536), inputBytes = readBounded(values['judged-input'], 32 * 1024 * 1024);
+  let report: unknown;
+  if (values['actual-capture']) {
+    if (!values['actual-manifest'] || !values['manifest-sha256']) throw new Error('Actual export requires frozen manifest and pinned --manifest-sha256');
+    const { exportActualPredictions } = await import('./fingerprint-actual-export.js');
+    report = exportActualPredictions(configBytes, inputBytes, readBounded(values['actual-manifest'], 8 * 1024 * 1024), readBounded(values['actual-capture'], 32 * 1024 * 1024), values['config-sha256'], values['manifest-sha256']);
+  } else {
+    if (values['actual-manifest'] || values['manifest-sha256']) throw new Error('Manifest requires --actual-capture');
+    report = evaluateJudgedQuality(configBytes, inputBytes, values['config-sha256']);
+  }
+  if (values.out) {
+    const output = resolve(root, values.out);
+    if (!output.endsWith('.json')) throw new Error('Output must end in .json');
+    mkdirSync(dirname(output), { recursive: true });
+    writeFileSync(output, JSON.stringify(report, null, 2) + '\n', { flag: 'wx' });
+  }
+  console.log(JSON.stringify(report, null, 2));
+  if (values.enforce) process.exitCode = 1; // Offline corpus input never certifies all K5 gates.
+} else {
+  if (values['actual-capture'] || values['actual-manifest'] || values['manifest-sha256'] || values['frozen-config'] || values['config-sha256']) throw new Error('Frozen configuration options require --judged-input');
 const datasetPath = fileURLToPath(new URL('../fixtures/dataset.json', import.meta.url));
 type Pair = { id: string; need: string; offer: string };
 const source = readFileSync(datasetPath), dataset = JSON.parse(source.toString('utf8')) as { positive_pairs: Pair[]; negative_pairs: Pair[] };
@@ -143,3 +171,5 @@ if (values.out) {
   console.log(JSON.stringify({ output, gates, quality: quality.map(({ retrieval: _, ...row }) => row), attacks, resources: report.resources }, null, 2));
 } else console.log(JSON.stringify(report, null, 2));
 if (values.enforce && (!gates.qualityRelativeToPilot || !gates.crossScopeLinking)) process.exitCode = 1;
+
+}

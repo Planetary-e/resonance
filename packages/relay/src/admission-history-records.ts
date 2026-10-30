@@ -1,3 +1,6 @@
+import { copyAdmissionReplayValue } from '@resonance/core';
+import { chargeAdmissionReplayCopy, isOwnedAdmissionReplayValue, ownAdmissionReplayValue } from '@resonance/core';
+import { parseProtectedWitnessHandoffState, assertWitnessStateRetention, type ProtectedWitnessHandoffState } from './witness-handoff-state.js';
 import { archivedAdmissionPolicyDigest, verifyArchivedAdmissionPolicy, assertArchivedAdmissionPolicyCurrent, parseAdmissionPolicyProofReference, parseAdmissionPolicyProofAppend, admissionPolicyHistoryEntry, type ArchivedAdmissionPolicy, type AdmissionPolicyProofReference, type AdmissionPolicyProofAppend, type AdmissionPolicyHistoryMembership } from '@resonance/core/admission-policy-archive';
 import { parseAdmissionPolicyTrust, type AdmissionPolicyTrust } from '@resonance/core/admission-policy-trust';
 import { sameAdmissionPolicyHead } from '@resonance/core/admission-policy-advance';
@@ -13,6 +16,7 @@ import { parseAdmissionRoleHistories, admissionRoleHistoriesIdentity, assertAdmi
 
 export type AdmissionHistoryImage = {
   kind: 'admission-spend-checkpoint'; policy: ArchivedAdmissionPolicy; state: AdmissionSpendState;
+  handoff?: ProtectedWitnessHandoffState;
   proofVersion?: 1; policyProof?: AdmissionPolicyProofReference; policyProofAppend?: AdmissionPolicyProofAppend; policyTrust?: AdmissionPolicyTrust;
 } & ({ version: 1 } | { version: 2; roles: AdmissionRoleHistories });
 export interface AdmissionHistoryPolicyCheckpoint {
@@ -26,7 +30,8 @@ export interface AdmissionHistoryStateCheckpoint {
 export interface AdmissionHistoryRoleCheckpoint {
   version: 1; kind: 'admission-roles-checkpoint'; at: number; image: AdmissionHistoryImage & { version: 2 };
 }
-export type AdmissionHistoryRecord = AdmissionHistoryMutation | AdmissionHistoryPolicyCheckpoint | AdmissionHistoryStateCheckpoint | AdmissionHistoryRoleCheckpoint | AdmissionHistoryProofCheckpoint;
+export interface AdmissionWitnessHandoffCheckpoint { version: 1; kind: 'admission-witness-handoff'; at: number; handoff: ProtectedWitnessHandoffState }
+export type AdmissionHistoryRecord = AdmissionWitnessHandoffCheckpoint | AdmissionHistoryMutation | AdmissionHistoryPolicyCheckpoint | AdmissionHistoryStateCheckpoint | AdmissionHistoryRoleCheckpoint | AdmissionHistoryProofCheckpoint;
 export interface AdmissionHistoryProofCheckpoint {
   version: 1; kind: 'admission-policy-proof-checkpoint'; at: number; image: AdmissionHistoryImage;
 }
@@ -46,12 +51,13 @@ export type AdmissionHistoryMutation =
 function bounded(value: unknown, maxBytes: number): unknown {
   const encoded = JSON.stringify(value);
   if (!encoded || Buffer.byteLength(encoded) > maxBytes) throw new Error('Admission history record capacity exceeded');
-  return JSON.parse(encoded);
+  if (isOwnedAdmissionReplayValue(value)) return value;
+  chargeAdmissionReplayCopy(Buffer.byteLength(encoded)); return ownAdmissionReplayValue(JSON.parse(encoded));
 }
 export async function parseAdmissionHistoryImage(value: unknown, authority: string, limit = 10000, proofHistory?: PolicyProofHistory): Promise<AdmissionHistoryImage> {
   const image = bounded(value, HISTORY_CHECKPOINT_MAX_PAYLOAD);
   const version = (image as AdmissionHistoryImage | null)?.version;
-  if (!exactWitnessFields(image, ['version', 'kind', 'policy', 'state', ...(version === 2 ? ['roles'] : []), ...((image as AdmissionHistoryImage)?.proofVersion === 1 ? ['proofVersion','policyProof','policyTrust', ...((image as AdmissionHistoryImage).policyProofAppend ? ['policyProofAppend'] : [])] : [])]) || (version !== 1 && version !== 2)
+  if (!exactWitnessFields(image, ['version', 'kind', 'policy', 'state', ...(version === 2 ? ['roles'] : []), ...((image as AdmissionHistoryImage)?.handoff ? ['handoff'] : []), ...((image as AdmissionHistoryImage)?.proofVersion === 1 ? ['proofVersion','policyProof','policyTrust', ...((image as AdmissionHistoryImage).policyProofAppend ? ['policyProofAppend'] : [])] : [])]) || (version !== 1 && version !== 2)
     || image.kind !== 'admission-spend-checkpoint') throw new Error('Invalid admission history checkpoint');
   const openingProof = image.proofVersion === 1 && proofHistory ? createAdmissionPolicyHistoryProof({ ...proofHistory,
     reference: parseAdmissionPolicyProofReference(image.policyProof), candidate: image as unknown as AdmissionHistoryImage }) : undefined;
@@ -79,14 +85,15 @@ export async function parseAdmissionHistoryImage(value: unknown, authority: stri
     }
     proofFields = { proofVersion: 1 as const, policyProof, policyTrust, ...(policyProofAppend ? { policyProofAppend } : {}) };
   }
-  const parsed = { kind: 'admission-spend-checkpoint' as const, policy, state: parseAdmissionSpendState(image.state, policy, limit, membership) };
+  const handoff = image.handoff ? await parseProtectedWitnessHandoffState(image.handoff, policy, limit) : undefined;
+  const parsed = { ...(handoff ? { handoff } : {}), kind: 'admission-spend-checkpoint' as const, policy, state: parseAdmissionSpendState(image.state, policy, limit, membership) };
   // Preserve the established v1 field order used by retained replay digests.
-  const normalized: AdmissionHistoryImage = version === 1 ? { version: 1, ...parsed, ...proofFields } : { version: 2, ...parsed, roles: parseAdmissionRoleHistories(image.roles, policy, limit, membership), ...proofFields };
-  openingProof?.budget.check(); return normalized;
+  const normalized: AdmissionHistoryImage = version === 1 ? { version: 1, ...parsed, ...proofFields } : { version: 2, ...parsed, roles: parseAdmissionRoleHistories(image.roles, policy, limit, membership, handoff), ...proofFields };
+  openingProof?.budget.check(); return ownAdmissionReplayValue(normalized);
 }
 export function encodeAdmissionHistoryRecord(value: AdmissionHistoryImage | AdmissionHistoryRecord): Buffer {
   const checkpoint = value.kind === 'admission-spend-checkpoint' || value.kind === 'admission-policy-checkpoint'
-    || value.kind === 'admission-state-checkpoint' || value.kind === 'admission-roles-checkpoint' || value.kind === 'admission-policy-proof-checkpoint';
+    || value.kind === 'admission-witness-handoff' || value.kind === 'admission-state-checkpoint' || value.kind === 'admission-roles-checkpoint' || value.kind === 'admission-policy-proof-checkpoint';
   return Buffer.from(JSON.stringify(bounded(value, checkpoint ? HISTORY_CHECKPOINT_MAX_PAYLOAD : HISTORY_DELTA_MAX_PAYLOAD)));
 }
 
@@ -123,17 +130,18 @@ export async function reduceAdmissionHistory(image: AdmissionHistoryImage, value
   envelopeKind: 'delta' | 'checkpoint' = 'delta', proofHistory?: PolicyProofHistory): Promise<{
   record: AdmissionHistoryRecord; image: AdmissionHistoryImage;
 }> {
-  const input = bounded(value, envelopeKind === 'checkpoint' ? HISTORY_CHECKPOINT_MAX_PAYLOAD : HISTORY_DELTA_MAX_PAYLOAD), current = structuredClone(image);
+  const input = bounded(value, envelopeKind === 'checkpoint' ? HISTORY_CHECKPOINT_MAX_PAYLOAD : HISTORY_DELTA_MAX_PAYLOAD), current = isOwnedAdmissionReplayValue(image) ? { ...image } : copyAdmissionReplayValue(image);
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Invalid admission history mutation');
   const raw = input as Record<string, unknown>;
-  const fields = raw.kind === 'authorized-spend' ? ['certificate', 'row'] : raw.kind === 'spend' ? ['row'] : raw.kind === 'retire' ? ['issuerKey']
+  const fields = raw.kind === 'admission-witness-handoff' ? ['handoff'] : raw.kind === 'authorized-spend' ? ['certificate', 'row'] : raw.kind === 'spend' ? ['row'] : raw.kind === 'retire' ? ['issuerKey']
     : raw.kind === 'policy' ? ['policy'] : raw.kind === 'legacy-recovery' ? ['attributions']
-      : ['admission-policy-checkpoint', 'admission-state-checkpoint', 'admission-roles-checkpoint', 'admission-policy-proof-checkpoint'].includes(raw.kind as string) ? ['image']
+      : ['admission-witness-handoff', 'admission-policy-checkpoint', 'admission-state-checkpoint', 'admission-roles-checkpoint', 'admission-policy-proof-checkpoint'].includes(raw.kind as string) ? ['image']
         : raw.kind === 'witness-vote' ? ['vote'] : raw.kind === 'coordinator-certificate' ? ['certificate']
           : raw.kind === 'role-retire' ? ['role', 'issuerKey'] : [];
   if (!fields.length || !exactWitnessFields(raw, ['version', 'kind', 'at', ...fields]) || raw.version !== 1
     || !Number.isSafeInteger(raw.at) || (raw.at as number) < 0
-    || (envelopeKind === 'checkpoint') !== ['admission-policy-checkpoint', 'admission-state-checkpoint', 'admission-roles-checkpoint', 'admission-policy-proof-checkpoint'].includes(raw.kind as string)) throw new Error('Invalid admission history mutation');
+    || (envelopeKind === 'checkpoint') !== ['admission-witness-handoff', 'admission-policy-checkpoint', 'admission-state-checkpoint', 'admission-roles-checkpoint', 'admission-policy-proof-checkpoint'].includes(raw.kind as string)) throw new Error('Invalid admission history mutation');
+  if (raw.image && JSON.stringify((raw.image as AdmissionHistoryImage).handoff) !== JSON.stringify(current.handoff)) throw new Error('Checkpoint cannot change protected witness handoff state');
   const at = raw.at as number, state = current.state, policy = current.policy;
   if (current.policyTrust && ['spend','authorized-spend','witness-vote','coordinator-certificate'].includes(raw.kind as string)
     && (current.policyTrust.conflict || !sameAdmissionPolicyHead(current.policyTrust.installed, current.policyTrust.observed))) throw new Error('Protected admission decision crossed a retained policy fence');
@@ -149,6 +157,13 @@ export async function reduceAdmissionHistory(image: AdmissionHistoryImage, value
     const participants = [...(roles.witness ? [{ role: 'witness' as const, publicKey: roles.witness.witness }] : []), ...(roles.coordinator ? [{ role: 'coordinator' as const, publicKey: roles.coordinator.coordinator }] : [])];
     membership = (await validateAdmissionPolicyHistoryImage({ ...proofHistory, image: current, policy, issuerKeys, participants })).membership;
   }
+  if (raw.kind === 'admission-witness-handoff') {
+    const handoff = await parseProtectedWitnessHandoffState(raw.handoff, policy, limit);
+    if (current.handoff) assertWitnessStateRetention(current.handoff, handoff);
+    else if (!current.policyTrust || JSON.stringify(current.policyTrust.context) !== JSON.stringify(handoff.context) || handoff.genesis.revision !== policy.revision && !handoff.manifest) throw new Error('Explicit protected witness enrollment requires pinned fresh observer context and original policy');
+    current.handoff = handoff;
+    return { record: { version: 1, kind: 'admission-witness-handoff', at, handoff }, image: ownAdmissionReplayValue(current) };
+  }
   if (raw.kind === 'authorized-spend') {
     const certificate = raw.certificate as AdmissionSpendCertificate, row = raw.row as AdmissionAuthorizedSpendRecord['row'];
     const claim = certificate?.votes?.[0];
@@ -158,7 +173,7 @@ export async function reduceAdmissionHistory(image: AdmissionHistoryImage, value
     // authentication, capacity, retirement or the other half's cutoff fails.
     const authorized = await reduceAdmissionHistory(current, { version: 1, kind: 'coordinator-certificate', at, certificate }, limit, 'delta', proofHistory);
     const spent = await reduceAdmissionHistory(authorized.image, { version: 1, kind: 'spend', at, row }, limit, 'delta', proofHistory);
-    return { record: { version: 1, kind: 'authorized-spend', at, certificate: structuredClone(certificate), row: { ...row } }, image: spent.image };
+    return { record: { version: 1, kind: 'authorized-spend', at, certificate: copyAdmissionReplayValue(certificate), row: { ...row } }, image: spent.image };
   }
   let next = state, record: AdmissionHistoryRecord;
   if (raw.kind === 'admission-policy-proof-checkpoint') {
@@ -199,7 +214,7 @@ export async function reduceAdmissionHistory(image: AdmissionHistoryImage, value
     preserveRoles(current, replacement);
     if (JSON.stringify([current.policyProof, current.policyProofAppend, current.policyTrust]) !== JSON.stringify([replacement.policyProof, replacement.policyProofAppend, replacement.policyTrust])) throw new Error('Business checkpoint must preserve original policy proof and freshness');
     // Preserve the retained ordering as well as semantics; a checkpoint is no mutation.
-    record = { version: 1, kind: 'admission-state-checkpoint', at, image: structuredClone(current) };
+    record = { version: 1, kind: 'admission-state-checkpoint', at, image: copyAdmissionReplayValue(current) };
   } else if (raw.kind === 'admission-policy-checkpoint') {
     const replacement = await parseAdmissionHistoryImage(raw.image, policy.authority, limit, proofHistory);
     assertArchivedAdmissionPolicyCurrent(replacement.policy, at); if (policy.version !== 3 && replacement.policy.version !== 3) assertAdmissionPolicySuccessor(policy, replacement.policy); else throw new Error('V3 policy changes require protected proof checkpoints');
@@ -220,8 +235,8 @@ export async function reduceAdmissionHistory(image: AdmissionHistoryImage, value
   } else if (['witness-vote', 'coordinator-certificate', 'role-retire'].includes(raw.kind as string)) {
     if (current.version !== 2 || (raw.kind === 'role-retire' && (!['witness', 'coordinator'].includes(raw.role as string)
       || typeof raw.issuerKey !== 'string'))) throw new Error('Admission role has not been captured or is invalid');
-    record = structuredClone(raw) as unknown as AdmissionRoleMutation;
-    current.roles = reduceAdmissionRoleHistory(current.roles, record, policy, limit, membership);
+    record = copyAdmissionReplayValue(raw) as unknown as AdmissionRoleMutation;
+    current.roles = reduceAdmissionRoleHistory(current.roles, record, policy, limit, membership, current.handoff);
   } else if (raw.kind === 'policy') {
     if (policy.version === 3 || current.policyProof) throw new Error('Resolved protected policy changes require a proof checkpoint');
     const successor = await verifyAdmissionPolicy(raw.policy, policy.authority);
@@ -267,8 +282,8 @@ export async function reduceAdmissionHistory(image: AdmissionHistoryImage, value
       record = { version: 1, kind: 'legacy-recovery', at, attributions };
     }
   }
-  if (raw.kind === 'admission-policy-proof-checkpoint') return { record, image: current };
+  if (raw.kind === 'admission-policy-proof-checkpoint') return { record, image: ownAdmissionReplayValue(current) };
   current.state = parseAdmissionSpendState(next, current.policy, limit, membership);
-  if (current.version === 2) current.roles = parseAdmissionRoleHistories(current.roles, current.policy, limit, membership);
-  return { record, image: current };
+  if (current.version === 2) current.roles = parseAdmissionRoleHistories(current.roles, current.policy, limit, membership, current.handoff);
+  return { record, image: ownAdmissionReplayValue(current) };
 }

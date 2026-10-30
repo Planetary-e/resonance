@@ -16,6 +16,7 @@
     "policy-observer": "tsx src/policy-observer-main.ts"
   },
   "dependencies": {
+    "@hpke/core": "^1.9.0",
     "@resonance/core": "*",
     "hnswlib-node": "^3.0.0",
     "ws": "^8.18.0"

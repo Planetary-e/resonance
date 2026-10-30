@@ -201,7 +201,8 @@ export async function openAdmissionHistoryRecovery(options: Options & {
     const currentCompaction = pinned.compaction?.proposal.rootId === slot.rootId
       ? { genesisId, certificate: pinned.compaction } : undefined;
     if (name === 'freeze') result = createHistoryCheckpointRecovery({ ...common, ...slot, directory: path, members: p.members,
-      transport: p.transport, timeoutMs: p.timeoutMs, compaction: currentCompaction, initialize });
+      transport: p.transport, timeoutMs: p.timeoutMs, compaction: currentCompaction, initialize,
+      ...(p.fundedGrowth ? { exactSelection: { envelopes: (p.recoveryOriginals ?? []).filter(block => block.generation === slot.generation) } } : {}) });
     else if (name === 'agreement') {
       if (!state.preferred) throw new Error('Recovery has no frozen proposal');
       result = createHistoryAgreementCoordinator({ ...common, ...slot, directory: path, members: pinned.agreementMembers,
@@ -218,7 +219,7 @@ export async function openAdmissionHistoryRecovery(options: Options & {
     } else if (name === 'download') {
       if (!state.selected) throw new Error('Recovery has no selected proposal');
       result = createHistoryAncestryDownload({ ...common, directory: path, members: p.members, proposal: state.selected,
-        transport: p.transport, timeoutMs: p.timeoutMs, initialize,
+        transport: p.transport, timeoutMs: p.timeoutMs, initialize, fundedGrowth: p.fundedGrowth,
         ...(pinned.compaction ? { compaction: { genesis: pinned.genesis, certificate: pinned.compaction } } : {}) });
     } else {
       if (!state.continuation) throw new Error('Recovery has no confirmed continuation');
@@ -239,7 +240,7 @@ export async function openAdmissionHistoryRecovery(options: Options & {
       return selected.open({ localKey: key, signingKey: signer, members: p.members });
     }
     const download = component('download'); delete handles.download;
-    return { blocks: () => download.blocks(), close: () => download.close() };
+    return { binding: download.binding(), assertFunding: () => { download.assertFunding(); return download.funding()?.authorityId; }, blocks: () => download.blocks(), close: () => download.close() };
   }
   function release() { for (const name of [...names].reverse()) { handles[name]?.close(); delete handles[name]; } }
   function close() { if (!closed) { closed = true; for (const review of reviews) review.close?.(); reviews.clear(); release(); storage.close(); signer.secretKey.fill(0); key.fill(0); } }

@@ -1,4 +1,5 @@
 import { firstHistoryAncestryPage, nextHistoryAncestryGeneration } from '@resonance/core/history-ancestry-pages';
+import { createAdmissionOriginalReferences, createOriginalReferenceWorkBudget, type OriginalReferenceWorkBudget } from './admission-original-references.js';
 /** Offline semantic replay. Historical certificates never authorize live signing. */
 import { createHash } from 'node:crypto';
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
@@ -12,7 +13,7 @@ import { assertHistorySuccessorChain, historySuccessorProposalId, parseHistorySu
 import { resolveAdmissionPolicy, inspectResolvedAdmissionPolicy, type ResolvedAdmissionPolicy, type ArchivedAdmissionPolicyAdvance } from '@resonance/core/admission-policy-archive';
 import { createPolicyObserverPageReader, policyObserverArchiveLimits } from './policy-observer-page-reader.js';
 import { ADMISSION_POLICY_OBSERVER_MAX_BYTES, assertPolicyObserverStateSuccessor, parseAdmissionPolicyObserverState,
-  policyObserverStateHead, samePolicyObserverAdvance, parsePolicyObserverSnapshot, resolveObserverSnapshot, type AdmissionPolicyObserverState } from './admission-policy-observer-state.js';
+  sameObserverPolicyState, policyObserverStateHead, samePolicyObserverAdvance, parsePolicyObserverSnapshot, resolveObserverSnapshot, type AdmissionPolicyObserverState } from './admission-policy-observer-state.js';
 
 /** Same pinned volunteers, a different deterministic history for each observer. */
 export function policyObserverHistoryContext(value: AdmissionPolicyObservers, observer: string): HistoryCheckpointContext {
@@ -29,12 +30,14 @@ export function assertPolicyObserverHistoryContext(context: AdmissionPolicyObser
   }
 }
 export async function decodePolicyObserverSnapshot(block: HistoryCheckpointEnvelope, historyContext: HistoryCheckpointContext,
-  context: AdmissionPolicyObservers, key: Uint8Array, metadataOnly = false) {
+  context: AdmissionPolicyObservers, key: Uint8Array, metadataOnly = false,
+  originals = createAdmissionOriginalReferences(historyCheckpointContextId(historyContext)), workBudget?: OriginalReferenceWorkBudget) {
   if (block.kind !== 'checkpoint') throw new Error('Policy observer needs complete snapshots');
   const bytes = openHistoryCheckpoint(block, historyContext, key);
   try {
     if (bytes.length > ADMISSION_POLICY_OBSERVER_MAX_BYTES) throw new Error('Policy observer snapshot exceeds its bound');
-    return await (metadataOnly ? parsePolicyObserverSnapshot : parseAdmissionPolicyObserverState)(JSON.parse(new TextDecoder('utf8', { fatal: true }).decode(bytes)), context);
+    const raw = originals.accept(JSON.parse(new TextDecoder('utf8', { fatal: true }).decode(bytes)), block.previous, ADMISSION_POLICY_OBSERVER_MAX_BYTES, workBudget);
+    return await (metadataOnly ? parsePolicyObserverSnapshot : parseAdmissionPolicyObserverState)(raw, context);
   } finally { bytes.fill(0); }
 }
 export const policyObserverReplayDigest = (contextId: string, genesisId: string, proposalId: string, state: AdmissionPolicyObserverState) =>
@@ -53,6 +56,7 @@ export async function replayPolicyObserverHistory(options: {
   successorOf?: AdmissionPolicyHead;
   selectedPolicyHead?: AdmissionPolicyHead;
   accountRead?: (bytes: number) => void;
+  workBudget?: OriginalReferenceWorkBudget;
   maxBlocks?: number; maxBytes?: number; timeoutMs?: number; signal?: AbortSignal;
 }) {
   const context = parseAdmissionPolicyObservers(options.context), historyContext = parseHistoryCheckpointContext(options.historyContext);
@@ -75,8 +79,10 @@ export async function replayPolicyObserverHistory(options: {
   let readBlocks = 0, readBytes = 0;
   function account(size: number) { options.accountRead?.(size); if (++readBlocks > maxBlocks || (readBytes += size) > maxBytes) throw new Error('Policy observer replay cumulative read budget exceeded'); }
   const source = options.blockSource ?? (() => options.blocks as Iterable<HistoryCheckpointEnvelope>);
-  const archiveReader = createPolicyObserverPageReader({ source, historyContext, key, maxBlocks, maxBytes, timeoutMs, signal: options.signal, account });
+  const workBudget = options.workBudget ?? createOriginalReferenceWorkBudget();
+  const archiveReader = createPolicyObserverPageReader({ source, historyContext, key, maxBlocks, maxBytes, timeoutMs, signal: options.signal, account, workBudget });
   function live() { if (options.signal?.aborted || performance.now() - started >= timeoutMs) throw new Error('Policy observer replay cancelled or timed out'); }
+  const originals = createAdmissionOriginalReferences(contextId, { check: live, workBudget });
   try {
     live();
     const minimum = suppliedMinimum === undefined ? undefined : await parsePolicyObserverSnapshot(suppliedMinimum, context);
@@ -95,7 +101,7 @@ export async function replayPolicyObserverHistory(options: {
       let pageBoundary = false;
       if (!head) {
         if (block.kind !== 'checkpoint' || block.generation !== 0 || block.sequence !== 0 || id !== genesisId) throw new Error('Policy observer replay requires its independently pinned genesis');
-        state = await decodePolicyObserverSnapshot(block, historyContext, context, key);
+        state = await decodePolicyObserverSnapshot(block, historyContext, context, key, false, originals);
         if (state.previous !== null) throw new Error('Policy observer genesis contains a noninitial policy');
         genesis = block; rootId = id; ids = [id]; generations = 1; generationBytes = size;
         resolved = await resolveAdmissionPolicy({ context, genesis: state.policy, advances: [], selectedHead: context.genesis,
@@ -108,9 +114,9 @@ export async function replayPolicyObserverHistory(options: {
         rootId = id; ids = [id]; generations++; generationBytes = size;
       } else {
         if (block.generation !== head.generation || block.sequence !== head.sequence + 1 || block.previous !== historyCheckpointEnvelopeId(head)) throw new Error('Policy observer history has a gap, fork or wrong generation');
-        const next = await decodePolicyObserverSnapshot(block, historyContext, context, key, true);
+        const next = await decodePolicyObserverSnapshot(block, historyContext, context, key, true, originals);
         assertPolicyObserverStateSuccessor(state!, next, context);
-        if (!next.conflict) {
+        if (!next.conflict && !sameObserverPolicyState(state!, next)) {
           if (next.policy.version === 3 && !options.blockSource && (options.blocks[Symbol.iterator]() as unknown) === options.blocks) throw new Error('V3 replay requires reopenable retained original ancestry');
           resolved = await resolveObserverSnapshot(next, context, { previous: resolved!, reader: archiveReader,
             limits: policyObserverArchiveLimits(maxBlocks, maxBytes, timeoutMs), signal: options.signal });

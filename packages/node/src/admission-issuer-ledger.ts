@@ -192,6 +192,7 @@ export async function openAdmissionIssuerLedger(options: {
           if (advance || !matchesAdmissionPolicyHead(policy, observers.genesis)) throw new Error('Issuer observer enrollment requires its independently pinned genesis');
           freshness = parseAdmissionPolicyTrust({ context: observers, installed: observers.genesis, observed: observers.genesis }, policy);
         } else if (advance) throw new Error('Issuer transition requires independently pinned observers');
+          if (policy.keys.some(e => e.witnesses?.version === 2) && !freshness) throw new Error('Protected witness policy installation requires independently pinned fresh observers');
         if (state.communityPolicy) assertAdmissionPolicySuccessor(state.communityPolicy, policy);
         if (!admissionPolicyKeys(policy).some(entry => JSON.stringify(entry.profile) === JSON.stringify(profile))) throw new Error('Issuer is absent from the signed community policy');
         storage.write({ ...state, communityPolicy: policy, ...(freshness ? { freshness } : {}) });

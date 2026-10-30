@@ -1,0 +1,45 @@
+{
+  "followUpTo": "review-candidate-hashes.json",
+  "paths": [
+    {
+      "path": "packages/relay/src/sustainable-recovery-runtime.ts",
+      "sha256": "e6b30d1cf1c42bebf1e67d42c79bf4a285d08538169976f954e7620b74182ae8",
+      "bytes": 44223
+    },
+    {
+      "path": "packages/relay/src/sustainable-recovery-manifest.ts",
+      "sha256": "b296fbba5f07d4ba33fe454b21fa9ef40d0cf7b514df711478cefdea6114484e",
+      "bytes": 9702
+    },
+    {
+      "path": "packages/relay/src/sustainable-recovery-arena.ts",
+      "sha256": "87fcf15445e63b21bc1fd83c51b24fd99b0cb72ca0375111e1034e4ded68ed2f",
+      "bytes": 15687
+    },
+    {
+      "path": "packages/relay/src/sustainable-recovery-protected-arena.ts",
+      "sha256": "45aae68d16c4e83a0838656e0d42f0e6fa7d1563a33bc50f2198e9492efcd28c",
+      "bytes": 12488
+    },
+    {
+      "path": "packages/relay/src/__tests__/sustainable-recovery-runtime.integration.test.ts",
+      "sha256": "ae663c01557aae7d082fba7615050077bbf2c71e922538b6ecb348c407736dc5",
+      "bytes": 13787
+    },
+    {
+      "path": "packages/relay/src/__tests__/sustainable-recovery-manifest.test.ts",
+      "sha256": "3c1538eb872f76ce4d5172cb11765bba95adde097bb4a65152a4d5462faf9fca",
+      "bytes": 13659
+    },
+    {
+      "path": "packages/relay/src/__tests__/sustainable-recovery-equivocation.integration.test.ts",
+      "sha256": "dac975f40499b5b6d1b72a2e8f5af4da6379c7d0df5d243ea32e74a24418a643",
+      "bytes": 11033
+    },
+    {
+      "path": "packages/relay/src/__tests__/sustainable-recovery-fixture.ts",
+      "sha256": "93b2df3d5c350f9c41fc8955d9d2611bd32cfa0f66d157e9d4d2edacb91e9199",
+      "bytes": 10903
+    }
+  ]
+}

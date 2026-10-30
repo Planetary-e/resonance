@@ -1,5 +1,69 @@
 # Working on Resonance
 
+## Portable resume entry — October 24, 2026
+
+Read [HANDOVER](HANDOVER.md), then the [single active checkpoint](docs/developers/v0.4-completion-plan.md).
+The corrected finite recovery slice passed independent follow-up review, but the
+subsequent aggregate work candidate, `RSO2`, commitment-preflight, and binary-signed
+v2 are STOPPED. A diagnostic-only run measured 15,054,300 bytes for preparation plus
+bootstrap (3.190× cap) and confirmed representation churn dominates. Implementation
+remains SUSPENDED. The immutable-binary bootstrap passed, but reserveInstall later
+reached 6,234,194 bytes (32.1% over cap), so the lifecycle candidate is REJECTED.
+Do not run a stopped campaign, infer a new threshold, or tune replay further. A new
+attempt needs an owner decision and a targeted reserveInstall structural review or
+continued suspension. On October 25 that review returned REVISE, followed by a
+bounded GO for fresh-arena RSO3 per-proof DEKs and recipient HPKE capsules. The
+implementation passed 14 focused tests and actual-source noEmit, but the original-cap
+lifecycle stopped during bootstrap at 4,718,545 / 4,718,592 bytes with mandatory
+writes outstanding. The owner-approved single-pass validated-pair correction also
+passed focused gates but failed bootstrap at 4,718,166 bytes with writes outstanding.
+Both RSO3 candidates are REJECTED before reserveInstall; the reviewer explicitly
+closes another optimization round. A later exact-replay correction passed focused
+gates, but diagnostic bootstrap reached 9,959,445 bytes and first reserveInstall
+9,335,006; returning preparation then failed physical C at 270,204 > 262,144 before
+the second installation. Independent gate reassessment recommends a fundamentally
+different recovery-storage architecture, NOT revised thresholds from this incomplete
+envelope. Requirements are compact scope/key-version delegation rather than proofs×
+recipients×transitions, shared immutable proof ciphertext, reference/availability
+transfer for retained proofs, predecessor-independent role-private recovery and full
+physical closure. The subsequent RSO4 design-only review is also REJECTED: its
+crash-correct complete physical model requires 299,703 B against C=262,144, and
+removing all deltas and signed ranges still requires 268,471 B. Pending generations,
+manifests and delegation cannot be removed without breaking four-copy availability
+or authentication. See `docs/developers/v0.4-rso4-recovery-architecture.md`.
+Do not tune RSO3/RSO4 or infer a new threshold. Implementation remains SUSPENDED;
+another attempt needs a genuinely different model and owner-authorized independent
+review. Preserve technical invariants, acceptance and stop rules below. No R1/R2/K1–K8
+closure is claimed.
+
+Model/vendor routing below records prior operating preferences. A destination
+system may use equivalent competent roles and tools; no Codex/Astra dependency
+is required for review or continuation. Default to one executor, with an independent
+reviewer for protocol-critical acceptance. Preserve all dirty/untracked work.
+
+## Binding project priority — October 23, 2026
+
+The owner explicitly prioritized three outcomes: (1) sustainable recovery and
+authority lifecycle within the accepted limits (K2/K3); (2) viable publication,
+query and observer privacy (K5/K6); (3) one exact integrated candidate qualified
+against K1–K8. Everything else is auxiliary and may proceed only when it removes
+a named necessary blocker on that path. A helper pass is not product completion.
+
+Do not continue serial replay/cache/copy optimizations or fingerprint parameter
+tuning on a stopped design without a reviewed protocol/viability decision.
+Compare established methods before adding custom machinery. Keep historical
+counterexamples, cumulative effort and stop conditions; a reassessment does not
+reset them. Preserve the full scope and existing trust/resource thresholds unless
+the owner explicitly approves a concrete change. Consult the current assessment
+in `docs/developers/v0.4-architecture-reassessment-2026-10-23.md` and the binding
+execution priorities in `docs/developers/v0.4-acceptance-kpis.md`.
+
+The owner subsequently authorized execution of the derived replacement roadmap:
+`docs/developers/v0.4-execution-roadmap.md`. Use its R1–R6 order and one active
+checkpoint. R1's executable recovery decision is the first deliverable; the old
+reassessment-only restriction is superseded for that bounded work. Stopped legacy
+campaigns, trust/resource limits and cumulative histories remain unchanged.
+
 ## Resume with bounded context
 
 Confirm the checkout, branch, dirty files and any running commands first. Read the
@@ -29,7 +93,7 @@ candidate, and unresolved protocol/feasibility decisions. Do not build more
 wrappers to avoid a missing protocol decision. Freeze experiments before running
 them; do not broaden samples or relax targets after observing failure.
 
-## Models and delegation
+## Prior model preferences and delegation
 
 The owner approved Sol-led daily execution on October 20. GPT-6.1 Sol at medium
 owns the complete ordinary deliverable: diagnosis, bounded planning, implementation,
@@ -53,7 +117,7 @@ changed files, test evidence and actionable findings, not a narrated history.
 Avoid reviewer chains and duplicated exploration. Review integrated results before
 acceptance; another review needs a material change or unresolved concern.
 
-### Model and effort selection
+### Prior model and effort selection
 
 Use these initial routing defaults, subject to evidence from accepted work:
 

@@ -1,3 +1,4 @@
+import { runWitnessHandoffCommand } from './witness-handoff-command.js';
 import type { ArchivedAdmissionPolicy } from '@resonance/core/admission-policy-archive';
 /** Explicit preparation/enrollment. No command resets missing accepted history or chooses new members. */
 import { existsSync, lstatSync, readdirSync } from 'node:fs';
@@ -45,7 +46,8 @@ export function readHistoryEnrollmentFile(path: string, allowedRoles: readonly H
 export interface AdmissionHistoryCommandOptions { transportFile?: string; signal?: AbortSignal }
 /** Shared command implementation for the CLI and authenticated desktop workflow.
  * Approval digests remain mandatory; no environment, output stream or process exit is owned here. */
-export async function runAdmissionHistoryCommand(command: string, raw: readonly string[], commandOptions: AdmissionHistoryCommandOptions = {}) {
+export async function runAdmissionHistoryCommand(command: string, raw: readonly string[], commandOptions: AdmissionHistoryCommandOptions = {}): Promise<{ result: Record<string,unknown>; stop?: () => Promise<void> }> {
+  if (command.startsWith('witness-')) return { result: await runWitnessHandoffCommand(command,raw,commandOptions) };
   const cleanup: Array<() => void> = [];
   const transports: Array<ReturnType<typeof createHistoryOperatorTransport>> = [];
   let serving: { service: ReturnType<typeof openHistoryVolunteerService>; listener?: Awaited<ReturnType<typeof listenHistoryAgreementReplica>> } | undefined;

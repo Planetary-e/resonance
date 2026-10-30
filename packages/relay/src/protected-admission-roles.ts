@@ -1,3 +1,4 @@
+import { witnessConstraint } from './witness-handoff-state.js';
 import { assertArchivedAdmissionPolicyCurrent } from '@resonance/core/admission-policy-archive';
 /** Role signatures/certificates become usable only after their decision is in
  * the protected four-copy owner history. Local role files are never a fallback. */
@@ -12,6 +13,7 @@ import type { openProtectedAdmissionSpendHistory } from './protected-admission-h
 export function createProtectedAdmissionRoles(options: {
   history: Awaited<ReturnType<typeof openProtectedAdmissionSpendHistory>>;
   witnessKey?: SigningKeyPair; coordinatorKey?: SigningKeyPair; now?: () => number;
+  checkProtectedAuthorization?: () => void;
   transport?: AdmissionWitnessTransport; timeoutMs?: number; onTransportSocket?: (socket: Socket) => void;
 }) {
   const { history } = options, now = options.now ?? Date.now, timeoutMs = options.timeoutMs ?? 3000;
@@ -29,6 +31,15 @@ export function createProtectedAdmissionRoles(options: {
     const entry = byKey.get(issuerKey);
     if (!entry?.witnesses || (policy.version === 3 ? !byKey.has(issuerKey) : isArchivedAdmissionKey(policy, issuerKey)) || now() < entry.notBefore || now() >= entry.retryUntil) {
       throw new Error('Protected admission issuer is unavailable or retired');
+    }
+    if (entry.witnesses.version === 2) {
+      if (!options.checkProtectedAuthorization) throw new Error('Protected witness epochs require a fresh authorization challenge');
+      history.assertHandoffFunding(); options.checkProtectedAuthorization();
+      if(history.health().pending&&!history.pendingRoleDecision())throw new Error('Uncertain protected handoff/policy state fences authorization');
+      const state = history.handoffState();
+      if (!state || !['ACTIVE_OLD','ACTIVE_NEW'].includes(state.phase)) throw new Error('Protected witness epoch is not active or is frozen');
+      const active = state.phase === 'ACTIVE_NEW' ? state.activation?.proposal.newSet : state.genesis.keys.find(e => admissionKeyFingerprint(e.profile.issuerPublicKey) === issuerKey)?.witnesses;
+      if (!active || admissionWitnessSetId(active) !== admissionWitnessSetId(entry.witnesses)) throw new Error('Install the exact activated protected witness epoch');
     }
     return { policy, entry };
   }
@@ -56,8 +67,9 @@ export function createProtectedAdmissionRoles(options: {
         const state = history.roleState().witness!;
         if (state.retiredIssuerKeys.includes(value.issuerKey)) throw new Error('Admission issuer key is permanently retired on this witness');
         const retained = history.pendingRoleDecision();
-        const previous = retained?.kind === 'witness-vote' && retained.vote.issuerKey === value.issuerKey && retained.vote.spend === value.spend
-          ? retained.vote : state.votes.find(vote => vote.issuerKey === value.issuerKey && vote.spend === value.spend);
+        const previous = retained?.kind === 'witness-vote' && retained.vote.issuerKey === value.issuerKey && retained.vote.spend === value.spend && retained.vote.setId === value.setId
+          ? retained.vote : state.votes.find(vote => vote.issuerKey === value.issuerKey && vote.spend === value.spend && vote.setId === value.setId);
+        if (entry.witnesses!.version === 2) { const rule = witnessConstraint(history.handoffState()!.inherited, value); if (rule !== 'fresh' && rule !== 'bound') throw new Error(`Inherited witness constraint refuses authorization: ${rule}`); }
         if (previous && admissionSpendClaimId(previous) !== admissionSpendClaimId(value)) throw new Error('Conflicting admission vote');
         if (!previous) {
           if (now() >= entry.spendUntil) throw new Error('New admission votes are retired');
@@ -68,6 +80,7 @@ export function createProtectedAdmissionRoles(options: {
         const vote = previous ?? createAdmissionWitnessVote(value, witnessKey!);
         await history.writeRoleDecision({ kind: 'witness-vote', vote });
         available(); policyAndEntry(value.issuerKey);
+        if(entry.witnesses!.version===2){const rule=witnessConstraint(history.handoffState()!.inherited,value);if(rule!=='fresh'&&rule!=='bound')throw new Error(`Inherited witness constraint changed before authorization: ${rule}`);}
         return structuredClone(vote);
       } finally { voting = false; if (voteFinished === completed) voteFinished = undefined; finish(); }
     }, close,
@@ -78,8 +91,10 @@ export function createProtectedAdmissionRoles(options: {
       const controller = new AbortController(); pending = controller;
       const deadline = performance.now() + timeoutMs;
       const timer = setTimeout(() => controller.abort(), timeoutMs);
+      let activeClaim: AdmissionSpendClaim | undefined;
       const current = () => {
         available(); policyAndEntry(issuerKey);
+        if(activeClaim&&byKey.get(issuerKey)?.witnesses?.version===2){const rule=witnessConstraint(history.handoffState()!.inherited,activeClaim);if(rule!=='fresh'&&rule!=='bound')throw new Error(`Inherited constraint changed before final authorization: ${rule}`);}
         if (controller.signal.aborted || performance.now() >= deadline) throw new Error('Admission quorum cancelled');
       };
       try {
@@ -89,10 +104,26 @@ export function createProtectedAdmissionRoles(options: {
         }
         const claim: AdmissionSpendClaim = { setId: admissionWitnessSetId(entry.witnesses!), issuerKey, spend,
           action: context.action, requestBinding: context.requestBinding };
+        activeClaim=claim;
+        if (entry.witnesses!.version === 2) {
+          const inherited = history.handoffState()!.inherited, rule = witnessConstraint(inherited, claim);
+          if (rule !== 'fresh' && rule !== 'bound') throw new Error(`Inherited witness constraint refuses authorization: ${rule}`);
+          if (now() >= entry.spendUntil) {
+            const accepted = history.get(spend);
+            if (!accepted || accepted.issuerKey !== issuerKey || accepted.action !== claim.action || accepted.binding !== claim.requestBinding) throw new Error('Retry-only requires the exact destination-local accepted spend');
+            const sets = [entry.witnesses!, ...inherited.sets];
+            const certificate = [...state.certificates, ...inherited.certificates].find(c => {
+              const original = c.votes[0], set = sets.find(s => admissionWitnessSetId(s) === original.setId);
+              return original.issuerKey === issuerKey && original.spend === spend && original.action === claim.action && original.requestBinding === claim.requestBinding && set && verifyAdmissionSpendCertificate(c, original, set);
+            });
+            if (!certificate) throw new Error('Exact accepted retry lacks its retained original certificate');
+            current(); const result = await commit(certificate); current(); return result;
+          }
+        }
         const retained = history.pendingRoleDecision();
         const cached = retained?.kind === 'coordinator-certificate' && retained.certificate.votes[0].issuerKey === issuerKey
-          && retained.certificate.votes[0].spend === spend ? retained.certificate
-          : state.certificates.find(c => c.votes[0].issuerKey === issuerKey && c.votes[0].spend === spend);
+          && retained.certificate.votes[0].spend === spend && retained.certificate.votes[0].setId === claim.setId ? retained.certificate
+          : state.certificates.find(c => c.votes[0].issuerKey === issuerKey && c.votes[0].spend === spend && c.votes[0].setId === claim.setId);
         if (cached && !verifyAdmissionSpendCertificate(cached, claim, entry.witnesses!)) throw new Error('Conflicting admission certificate');
         const certificate = cached ?? await collectAdmissionWitnessVotes(entry.witnesses!, createAdmissionWitnessRequest(claim, coordinatorKey!), controller.signal,
           options.transport ?? ((member, request, signal) => requestAdmissionWitnessVote(member, request, signal, options.onTransportSocket)));

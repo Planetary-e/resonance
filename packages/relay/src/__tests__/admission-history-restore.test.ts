@@ -1,4 +1,5 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
+import * as core from '@resonance/core';
 import { cpSync, existsSync, readdirSync, rmSync } from 'node:fs';
 import { fork } from 'node:child_process';
 import { once } from 'node:events';
@@ -204,3 +205,36 @@ it('downloads and restores two certified generations over five sockets, preserve
     if (generation === 1) { await n.certify(); rmSync(destination, { recursive: true }); }
   }
 }, 60000);
+
+it('zeroes the copied replay key if deadline expiry occurs between allocation and scope entry', async () => {
+  const n = await fixture(), input = n.replayOptions(), originalFrom = Buffer.from;
+  const copies: Buffer[] = [], callerKey = Buffer.from(n.key);
+  const capture = vi.spyOn(Buffer, 'from').mockImplementation(((...args: unknown[]) => {
+    const result = Reflect.apply(originalFrom, Buffer, args) as Buffer;
+    if (args[0] === input.encryptionKey) copies.push(result);
+    return result;
+  }) as typeof Buffer.from);
+  // An abort before replay starts is rejected by its execution constructor. This
+  // injection specifically models expiry at the later ownership boundary.
+  const boundary = vi.spyOn(core, 'withSuccessfulEd25519VerificationReuse').mockImplementation(() => { throw new Error('deadline at scope entry'); });
+  try {
+    await expect(replayAdmissionHistory(input)).rejects.toThrow('deadline at scope entry');
+    expect(copies.length).toBeGreaterThan(0);
+    expect(copies.every(copy => copy.every(byte => byte === 0))).toBe(true);
+    expect(n.key).toEqual(callerKey);
+  } finally { boundary.mockRestore(); capture.mockRestore(); }
+  expect((await replayAdmissionHistory(input)).image).toEqual(n.image);
+});
+
+
+it('enforces the original thirty-second startup cap during generic capture even with a longer caller timeout', async () => {
+  const n = await fixture(); let consumed = 0, now = performance.now();
+  const clock = vi.spyOn(performance, 'now').mockImplementation(() => now);
+  function* source() {
+    for (let i = 0; i < 96; i++) { if (++consumed === 10) now += 30001; yield n.root; }
+  }
+  try {
+    await expect(replayAdmissionHistory({ ...n.replayOptions(), blocks: source(), timeoutMs: 300000 })).rejects.toThrow(/timed out/);
+    expect(consumed).toBe(10);
+  } finally { clock.mockRestore(); }
+});

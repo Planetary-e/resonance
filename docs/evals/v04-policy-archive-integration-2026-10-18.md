@@ -1,5 +1,41 @@
 # V3 policy archive integration
 
+## RUNNING / UNACCEPTED — October21 bounded successful-signature reuse SAME100
+
+**Reviewed implementation; ONE frozen100 running, K3 OPEN / UNACCEPTED.** Independent GPT-6 Astra HIGH review found two P2 ownership edges: expiry after acquiring a cold-open handle, and expiry between replay key allocation and scope entry. Both are corrected; the SAME reviewer's narrow recheck accepted the corrections with no remaining material finding. One substantive rework round; no first-pass acceptance claim. Boundary tests prove acquired history/source closure and same-directory reopen, and copied-key zeroization while the caller key remains intact. One later compilation-only test-double typing correction supplied required unused fields; runtime/production behavior did not change.
+
+ONE affected composed regression passes **80 tests / five files / 1 intentional frozen100 skip /137.17s**. The changed typed test double alone then passes1/34filtered in1.28s. Forced `npx tsc -b packages/core packages/relay packages/node --force` passes; initial compile failed only the test-double TS2352. Earlier focused31/3files pass, scoped epoch/context/schema negatives2pass and real handoff1pass/1skip55.28s are focused evidence, not cumulative independent qualification. Initial sandbox socket EPERM was an environment refusal; the authorized local-socket execution passed. Initial ownership-test harness errors are retained in the execution summary; no product acceptance is inferred from them.
+
+The first scoped candidate completes the same reconstructed trial22 input in10262.25ms/30000ms,857 actual primitives/856 unique,versus203781 primitives in the baseline30s prefix. This precedes the bounded single-copy adjustment and ownership fixes: it is diagnostic evidence, not an exact-final-candidate timing or100-transition result. No further timing assay was run. Scope retains at most4096 successful entries and8MiB including a1024-byte per-entry object/index allowance, plus a lookup copy of at most8MiB. These are conservative reachable-memory accounting bounds, not a promise about allocator/GC RSS; the campaign samples owned process-group RSS every5s. Limits saturate to actual verification; all original resource counters/checks remain. Every6243 retained original file/52621633B matches the pre-call SHA256/size manifest.
+
+Qualification launched2026-10-21T15:00:41.459205UTC; unchanged8h outer cutoff2026-10-21T23:00:41.459205UTC (October22 01:00:41Madrid), followed by bounded owned-process cleanup. Runner62347, owned child PG62358, caffeinate62359. Preflight found no competing test/compiler. The complete original extended harness is byte-identical after reversing ONE transcript-path literal; frozen100 body, seed, signatures, original evidence, faults, assertions,3s live/30s offline,6MiB replica/2GiB authority remain unchanged. Final deliverable patch SHA256 `cabc130116254e652c1cf853e969a4751d8e59b57895c3a8058e03fb544508ae`; exact10-file source/test identities in `final-candidate.json`, complete non-doc prelaunch identities and harness proof in `qualification100/`. All artifacts under `/tmp/resonance-signature-reuse-2026-10-21/`; atomic `qualification100/status.json`, `run-manifest.json`, `vitest.log`, `campaign.jsonl`, `memory.jsonl` survive chat closure. Original campaign/transcripts remain preserved. Current launched result remains pending; no further optimization, rerun, Git/push/CI/installer/merge follows automatically.
+
+Accounting: actual routing executor GPT-6.1 Sol HIGH; reviewer GPT-6 Astra HIGH. Conservatively charge executor <=20 active minutes including diagnosis, code, test corrections, qualification preparation and docs; idle command/campaign waits excluded. Reviewer <=8min and parent <=7min are reserved upper bounds, not measured active times or model-specific account charges: aggregate <=35min of NEW45; reserve <=3min future completion evaluation within the remaining10min. Historical original4h and additional5min diagnostic, unknown older effort and prior alternatives are unchanged. Shared weekly usage39%→40%, ordinary allowed; coarse account observation does not attribute cost. Parent scheduled exactly ONE native completion follow-up at October22 01:03Madrid; pending completion requires all100 assertions, funded retained evidence and outcome assessment before any K3 claim.
+
+
+
+Owner NEW45 aggregate active-minute extension (executor <=30, independent Astra review <=8, parent <=7), entered14:41:58UTC, shared weekly39% used/ordinary allowed. Historical original4h, prior alternatives and separate5min diagnostic remain visible and unchanged; no budget reset. Parent blocker B-HISTORY-LIFECYCLE/K3 remains OPEN.
+
+ONE reconstructed trial22 preparation at unchanged30s:203781 actual Ed25519 primitive calls,856 exact unique complete algorithm/SPKI-key/message/signature tuples,202925 accepted repeats (99.58%),0 failures; timed out30023ms, primitive execution15352ms. This is a deadline-limited prefix, not a complete-call repeat ratio. Exact reconstructed input SHA256 `07289d90c201b30af31b51bef54cdcf750fb9e1a8c4750884b1f552d9872d6c3`; original failed-call byte identity remains unproven. Temporary complete-byte diagnostic index retained14816244B of UTF16 hex keys, max163794B per key; this diagnostic overhead is not the proposed cache memory. Evidence/commands/source hashes in `/tmp/resonance-signature-reuse-2026-10-21/`.
+
+Pre-edit contract: reuse only successful Ed25519 primitive validity in one explicitly owned async preparation or cold history open/replay operation. Immutable captured complete message bytes (including the existing domain), signature and exact key plus fixed algorithm must match; a digest indexes candidates but cannot establish equality. Every occurrence retains structural/context/chain/cutoff/resource checks. Failure is never admitted. Fresh nested/concurrent scopes isolate trust and accounting; finally closes/clears each scope, including inherited detached tasks. Existing deadline/cancellation/counters never reset. Saturation falls back to actual primitive work with bounded retained entries/bytes and conservative object/index allowance; no global/lifetime signature-validity cache. Reuse never authorizes live work or changes retained evidence, signatures, frames,6MiB replica/2GiB authority,3s live/30s offline.
+
+Observable minimum: same reconstructed input completes below unchanged30s and fewer primitive calls, with focused mutation/domain/key/failure/scope/closure/cancellation/cap tests and negative higher-level original-history checks. Stop this hypothesis if evidence is not distinguishable, a safety counterexample invalidates it, or bounded effort expires. One critical review precedes one affected composed regression/compilation and the unchanged frozen100 qualification; no prior broad115/263-suite repeat, Git/push/CI/installers/merge or next speculative optimization. No component pass closes K3.
+
+
+### October21 trial22 reconstructed-operation measurement — STOPPED / UNACCEPTED
+
+The owner authorized five additional aggregate active minutes for this diagnostic only; worker effort is bounded above by four active minutes, leaving parent coordination/review within the same five-minute total. Earlier two-minute diagnostic and original four-hour aggregate allowance are unchanged. Shared entry weekly usage37%; no model-specific spend inferred.
+
+Reconstructed witnesses5–8 from their retained OLD_FENCED histories/proposal and deterministic fixture signatures. Original failed-call byte identity is not proven. One invalid temporary CommonJS/ESM mount attempt refused at88.38ms (`Policy requires its original resolved runtime capability`); it is a diagnostic mounting error, not a product result. Adding only a temporary `type:module` package marker corrected the mount. ONE valid preparation call then hit the unchanged30000ms deadline at30004.28ms during reduction of the fourth history. The original campaign failed at the final check; instrumented replay therefore reproduces deadline pressure but not the exact stopping point.
+
+Main-loop decryption:387 calls/47.77ms; initial parsing:4 calls/3.79ms; reduction:383 calls/29779.43ms. Three histories completed in7725.11/7495.81/7498.29ms; final four-way merge/normalization was unreached. Three per-history merge calls total3.85ms. CPU sampling attributes approximately19205ms (64%) inclusively beneath core crypto.verify, including inherited proposal/freeze/drain/vote validation. Reduction includes nested signatures/normalization: these figures overlap and must not be summed. Main-loop387 block IDs were all unique; repeated-versus-unique signature/proof work was NOT counted. Filesystem reconstruction/read/decrypt took211.22ms outside the operation timer.
+
+All392 original fixture files read retain their pre-call SHA256; production handoff source hash is unchanged. Instrumented source, input hash, reconstructed inputs (0600), exact command, valid/invalid outputs and CPU profiles are retained under `/tmp/resonance-long100-2026-10-21/diagnostic22/`; `summary.json` records limits and uncertainties. No writer/network/authority opening, campaign, test, limit change or production implementation occurred.
+
+The evidence justifies considering reuse of exact signed-object verification within this one operation, keyed by complete signed bytes, public key and signature domain while preserving occurrence-specific structural/chain/context checks. It does not establish a measured repeat ratio, accepted algorithm or KPI pass. K3 remains OPEN and the candidate unaccepted; no further assay was run.
+
+
 Parent: **B-HISTORY-LIFECYCLE / K2 and K3**. Continue the reviewed page prerequisite
 and existing cumulative effort/stop policy. No new trust assumption, resource
 allowance, history pruning or restart of the suspended investigation is authorized.
@@ -2657,3 +2693,1802 @@ microtasks or further reviewer chain was used.
 Final follow-up edits only these existing twoMarkdown documents and uses[skip ci].
 Validated source/test candidate remains1137438; no code/dependency/workflow change,
 additional suite, installer, release or merge. The robustv0.4 objective remains open.
+
+### October20 continuation — independent K3 same-key witness handoff contract
+
+Owner requests continued development after accepted1137438/greenCI. Entry shared
+weekly account6% used, ordinary allowed; clean c81d2ac branch. The semantic
+compaction line remains stopped and historical-retirement investigation suspended.
+This is an independent necessary K3 protocol decision under the same persistent
+B-HISTORY-LIFECYCLE blocker, preserving prior alternatives and unknown hours.
+Continuation does not approve changed trust/resources or reduced guarantees.
+Implementation within the already requested full K3 scope can proceed once a
+complete compatible contract exists; new protocol versioning alone is not an
+automatic reason to request owner permission.
+
+One bounded AstraMedium contract pass found that current core policy successor
+validation explicitly refuses same-key witness-set replacement; witness decisions
+and certificates bind setId. Retaining completed spends alone omits pending and
+hidden certificates. Existing challenge-window freshness explicitly permits an
+activation to overlap already-running work, so it cannot alone enforce the new
+cutoff. A compatible implementation contract is not already present.
+
+One final bounded continuation must produce a concrete owner-reviewable full
+handoff proposal (partial authenticated constraints, existing accepted exact rights,
+uncertainty, cutoff ordering, protected-role eligibility) or an exact obstruction.
+Do not substitute quiescent-only migration for complete K3, implement report
+wrappers, remove guards, investigate retirement, or increase funded/time budgets.
+No generic SOTA survey or new agents. Observable result is one explicit contract
+and falsifying acceptance, or the specific required product/trust/resource decision;
+Sol implementation follows only known semantics. Full K3 still requires100 correct
+transitions including same RSA key/disjoint witness sets, emergency distribution,
+strict cutoff, reconnect enforcement and retained rights/conflict evidence.
+No new KPI/alternative budget or cap is introduced. No tests/CI/installers/merge.
+
+### October20 frozen protected same-key handoff implementation contract
+
+Parent blocker B-HISTORY-LIFECYCLE / K3; accepted source baseline c81d2ac
+(after accepted1137438, MacCI3408/3408). This is ONE complete deliverable under
+the final `Protected same-key witness handoff vNext — October20 candidate contract`
+in the existing freshness decision. Actual delegated routing: GPT-6.1 Sol/high,
+prospectively selected for concurrent fencing, crash recovery and retained-state
+migration. Entry shared account7% weekly used (parent observed), ordinary allowed;
+prior6% entry, earlier alternatives and historical unknown hours remain. Active
+effort excludes command/test waits and parent idle waiting. No reset or per-model
+cost attribution is inferred.
+
+Observable first acceptance is a real protected transition between disjoint
+five-member witness cohorts, keeping one RSA issuer key and previously issued
+tokens, through explicit enrollment, prepare, four old frozen original histories,
+one agreed manifest, four durable observer seals and a real three-second drain,
+four installed successor histories/readiness reports, immediate signed policy
+activation, fresh four-observer authorizations, and wallet/issuer installation.
+The implementation must expose operational prepare/activate, not only helpers.
+All original decisions, certificates, denials, unresolved/pending constraints and
+original cutoffs survive; state remains funded and bounded at its staging peak.
+
+Frozen invariants/falsifiers: no old authorization after the effective cutoff,
+including cached retries and in-flight/suspended operations; no unenrolled live-key
+upgrade; no observer signing after its seal; restart repeats the real drain; no
+successor vote before activation; no changed current-epoch vote; no silent
+resolution of split partial claims; only a genuine old four-vote certificate can
+recover its binding; conflicting certificates permanently fence; original proof
+alone never supplies destination-local retry acceptance; no allowance/reservation
+refund or resource-limit increase. Every later transition inherits resolved and
+unresolved original evidence. Missing quorum, proof, tails, funding or staging
+headroom must refuse.
+
+Focused evidence must cover actual same-RSA token handoff/fresh spend,
+same-binding partial continuation, split-partial refusal, hidden old certificate,
+seal-crossing authorization expiry, restart/lost replies and meaningful crash
+boundaries, conflicts, stale old role/node reconnection, unchanged issuer permits
+and wallet reservations, exact local retry restriction and insufficient funding.
+Real durable histories/protocol transports and a real drain are mandatory; unit
+clock checks are additional. Run focused tests and forced workspace compilation.
+Do not run the broad composed/100-transition qualification before ONE scoped
+AstraHigh integrated critical review by parent. Return source hashes, commands,
+results, material findings and remaining full-flow obligations. A failed cutoff
+or unprovable enrollment path requires its minimum distinguishing case and the
+existing stop-policy assessment, not an invented guarantee.
+
+Exclusions: semantic compaction remains stopped under condition4 and historical
+retirement investigation suspended; retain all guards/original evidence. No trust,
+Byzantine-model, volunteer-device, ciphertext/frame/storage/funding/time allowance
+increase, generic architecture survey, agent chain, Git mutation/push/CI,
+installer/release/merge or new automation. Full K3 remains open after this first
+handoff and after local100 qualification; distribution/independent operators are
+separate acceptance gates.
+
+Additional frozen required edge (parent clarification before implementation):
+A→B→A/reused member identities must retain distinct signed current epochs; cached
+certificates and earlier owner histories cannot resurrect/unfence a prior epoch.
+Original-evidence traversal must charge unique complete evidence with bounded
+references, without recursively copying earlier handoffs. A hard format/resource
+obstruction is a recorded refusal, never permission to discard evidence.
+
+### October20 integrated protected witness handoff candidate — review receipt
+
+Implementation now connects explicit v2 protected witness enrollment to signed
+same-RSA successors (including archive successor validation), protected owner
+roles/replay, protected observer seal/drain/advance, issuer installation, managed
+wallet installation and its fresh live-query path, and local operator commands.
+Legacy v1 witness formats retain their signatures; legacy local role/observer
+paths refuse protected v2 epochs. New epoch IDs bind every original vote/setId;
+A→B→A preserves earlier evidence and cannot reuse the earlier active epoch.
+
+Four complete retained old histories are reconstructed before a shared manifest
+is accepted. Inherited evidence uses flat unique original sets, votes,
+certificates, accepted-owner rows, denials and activation proofs. Complete old
+ciphertexts stay retained and funded in their original owner/replica histories;
+no prefix/evidence retirement or semantic compaction is introduced. Original
+accepted rows remain owner-qualified evidence and do not populate a destination's
+local acceptance table. Original certificates recover binding constraints;
+conflicting certificates persist a fence. Current-epoch votes remain immutable.
+
+The real integration path uses one unchanged 2GiB aggregate authority, five
+physical volunteer identities, ten distinct old/new witness signing keys and
+80 real durable replica stores (ten witness/coordinator histories, five observer
+histories and one issuer history). It issues RSA tokens before handoff, retains a
+managed wallet reservation, performs disjoint A→B then B→A with a new epoch,
+restarts a sealed observer and waits a real three seconds again. It exercises
+same-binding partials, split refusal, genuine hidden old-certificate recovery,
+old-frame rejection, a write held across sealing, lost replies, owner reopen,
+and a child SIGKILL after durable owner preparation intent. The child mutates
+only already funded bounded files while the parent retains the aggregate lease;
+it does not authorize a token or establish an independent funding authority.
+The retry-only checks distinguish original proof from exact destination-local
+acceptance. A final conflicting-certificate case uses all four fixture private
+keys to supply two valid conflicting certificates; this deliberately tests the
+permanent-fence response beyond the reachable one-Byzantine fault assumption.
+
+Necessary writer-capacity prerequisite: the first unchanged-allowance fixture
+refused before completion with `Combined managed storage budget exhausted`
+(`/tmp/witness-handoff-first6.log`); this failed run is retained. Existing default
+40MiB encrypted writer snapshots plus their staging peaks did not fit the chosen
+small retained arenas. New lower bounds use the same serialized/encrypted writer
+schema, enforce encoded snapshot capacity before replica dispatch/ack, retain
+completion headroom, and pin the chosen bound in encrypted control/state across
+reopen. Protected handoff images and protected observer roots also carry the
+bound across restore. Existing writers without lower-bound metadata keep the
+40MiB default; no reservation is released, allowance increased or accepted state
+truncated. The actual fixture uses 4MiB owner arenas and 6MiB replica arenas with
+12MiB+64KiB writer snapshots. A distinguishing 1MiB-capacity regression refuses
+an oversized pending snapshot before any RPC, retains byte-identical committed
+state and refuses reopen at a different bound. Immutable operator outputs reserve
+their actual encoded length beneath the unchanged format ceiling, avoiding four
+unused 256MiB reservations for four tiny freeze exports.
+
+Operator path uses the existing selected-storage wrapper and explicit commands:
+`witness-enroll`, `witness-propose`, `witness-prepare` (four owners),
+`witness-transfer-prepare`, observer `witness-seal`/`witness-drain` (four observers),
+`witness-drain-prepare`, `witness-install` (four successor owners),
+`witness-activation-prepare`, observer `advance`, and `witness-activate`.
+`witness-coordinator-install` retains a destination's existing local acceptance
+rights; `witness-recover-certificate` retains a genuine original certificate.
+The script's usage lists exact arguments. Freeze, successor install and activation
+are state-idempotent for the exact transition; interrupted exclusive outputs are
+re-exported to a new path under the existing operator convention. Confidential
+freeze artifacts include original encryption keys and are created mode0600.
+The test invokes actual transfer preparation twice to distinct output paths and
+compares exact manifests; owner/observer transport operations use real sockets.
+It does not claim an independently operated ten-process CLI deployment.
+
+Routing remains the prospectively chosen SolHigh for the complete bounded
+implementation/recovery work. No agents or reviewer chain were spawned by the
+implementer. Shared account observations were7→8→9→10% weekly used, ordinary
+allowed, coarse/account-wide only; prior6%, earlier alternatives and unknown
+historical effort remain. Command waits are excluded from active effort;
+precise active minutes were not reliably instrumented and are not invented.
+
+Candidate is for ONE scoped AstraHigh critical review. Composed legacy regression,
+frozen100-transition qualification, independent operators/distribution and full
+K3 acceptance remain pending. No Git mutation, push, CI, installer, release,
+resource increase, semantic compaction or retirement investigation was performed.
+
+Frozen focused verification (October20, review candidate):
+
+- `npx tsc -b --force --pretty false` exits0; log
+  `/tmp/witness-handoff-workspace-final.log` (empty successful diagnostics).
+- `npx vitest run --maxWorkers=1 packages/node/src/__tests__/protected-witness-handoff.integration.test.ts packages/relay/src/__tests__/history-checkpoint-quorum.test.ts`
+  passes17/17 across2files in60.99s; log
+  `/tmp/witness-handoff-candidate-final.log`. This includes the actual lower-bound
+  writer refusal/reopen regression and the complete real handoff test.
+- Earlier moved real-path run passes1/1 in53.73s (test52.87s), log
+  `/tmp/witness-handoff-fullpath2.log`; it predates the final CLI idempotence and
+  conflict assertions. The final17/17 result supersedes it for source review.
+- `git diff --check` passes. The integration test moved from relay to node to
+  obey TypeScript project dependencies. Only84 accidentally generated untracked
+  node `.js`, maps and declaration files from the earlier failed project-boundary
+  compile were removed; legitimate new TypeScript sources remain. The final
+  forced build leaves no generated artifacts beside node sources.
+
+Changed-file SHA256 manifest: `/tmp/witness-handoff-candidate-manifest.sha256`.
+This candidate remains uncommitted in the authorized checkout. The original
+funding refusal and intermediate failures are preserved in `/tmp`; they are not
+relabelled as passes or used to reset the blocker/budget. Broader legacy/composed,
+archived v3 live-handoff qualification and100-transition acceptance await review.
+
+### October20 scoped critical review — same candidate rework
+
+ONE AstraHigh review (4m44 active, parent report) found two reproducible defects:
+P1 observer successor lookup incorrectly equated policy revision and ciphertext
+sequence after a seal-only checkpoint, blocking stale catch-up after handoff;
+P2 historical epoch reuse A→B→originalA passed adjacent-only checks and restored
+original request authentication. Neither report established unsafe authorization
+or a structural impossibility/stop1. Preserved minimum reproduction:
+`/tmp/witness-handoff-review-repro.mts` (real durable observer history plus explicit
+signature-only handoff fixtures). Its historical replay accepts originalA reuse;
+its genesis→seal→activation observer lookup throws `Retained policy successor
+differs from request`. Record these failures before correction; do not weaken
+funding, retention or cutoff rules. This is one rework round under the same
+B-HISTORY-LIFECYCLE blocker, no budget reset. Shared account11% weekly used,
+ordinary allowed, prior10% retained. Same reviewer receives a narrow follow-up
+before composed/100 work; no new agents or generic investigation.
+
+P1 correction resolves actual retained snapshot positions with a bounded binary
+search over authenticated monotonically nondecreasing policy revisions. It finds
+the first newer revision while allowing intervening seal-only ciphertexts, then
+checks the exact signed previous head. Original-ancestry fallback, conflict and
+pending refusal stay intact. The real two-handoff test now asks a restarted
+observer for both immediate successors starting from the stale genesis.
+
+P2 correction validates epoch identity against the issuer's original enrollment
+and every retained activation, including nonadjacent/intermediate epochs and
+changed member sets with a reused epoch ID. Local propose/freeze, independently
+reconstructed transfer, canonical flat ancestry and protected state replay all
+check this rule. A new signature-fixture regression rejects originalA and
+intermediate reuse independently of live APIs; the real flow rejects a signed
+originalA proposal before mutation and accepts the original A identities only
+with their fresh epoch. Original evidence, funding and capacity are unchanged.
+
+Corrected focused evidence: forced `npx tsc -b --force --pretty false` exits0
+(`/tmp/witness-handoff-review-fixes-build.log`).
+`npx vitest run --maxWorkers=1 packages/node/src/__tests__/protected-witness-handoff.integration.test.ts packages/relay/src/__tests__/witness-handoff-epoch.test.ts packages/relay/src/__tests__/protected-policy-observer.integration.test.ts`
+passes36/36 across3files in75.65s, including the full real two-transition flow,
+post-seal/reopen stale lookup, independent historical epoch negatives and the
+existing protected observer regressions. Log:
+`/tmp/witness-handoff-review-fixes-tests.log`. `git diff --check` passes.
+Corrected frozen manifest: `/tmp/witness-handoff-review-fixes-manifest.sha256`;
+prior manifest is preserved. Only the three affected implementation files,
+the real integration test, new epoch regression and this receipt changed from
+the first reviewed candidate. Await the same reviewer's narrow follow-up;
+composed/archive-v3/CLI qualification and100-transition run have not started.
+
+Narrow follow-up accepted P1/P2 (AstraHigh,26sec active; parent confirmed hashes),
+no condition1. Before the one composed regression, the added live v3/CLI path
+produced a concrete fail-closed prerequisite: `/tmp/witness-handoff-v3-cli-preflight.log`
+fails on observer reopen, `Observer history cannot change its pinned writer
+capacity` (47.37s). The v3 snapshot constructor omitted the existing optional
+capacity pin (and previous handoff metadata), whereas legacy advancement copied
+them. No unsafe authorization or changed-resource requirement follows; preserve
+the failed case and carry the already pinned metadata into the v3 successor.
+This is the minimum compatible correction under the same blocker, no reset,
+limit increase or original-evidence removal. CLI owner freeze, activation
+preparation and activation already reached actual protected files in this run.
+The prior 'changed membership' unit fixture is corrected literally to use B
+members with A's epoch; the guard's accepted semantics are unchanged.
+
+One affected composed regression is selected explicitly in
+`/tmp/witness-handoff-composed-selection.txt` (32files): core policy/archive and
+freshness, issuer/wallet/client proof consumers, protected roles and history,
+observer replay/configuration/setup/v3, CLI/selected storage and actual retained
+writer capacity. Run once with maxWorkers1 after forced compilation. The added
+real handoff covers actual funded CLI owner freeze, policy/advance preparation,
+owner activation and v3 activation preparation against a protected owner's
+resolved original proof. The v3 operator command is an explicit13-argument
+variant using the existing owner config/policy/storage/directory prefix; it
+retains the unchanged archive and refuses required new pages. The v2 command
+remains compatible. The new optional100 campaign test is intentionally skipped
+in composed regression and requires its frozen standalone invocation.
+
+### October20 frozen100 same-RSA qualification contract — before execution
+
+Parent blocker/KPI remains B-HISTORY-LIFECYCLE/K3, same alternative and cumulative
+budget. This campaign starts only after the affected composed result, any exact
+failed-path correction, forced compilation and the same reviewer's preservation
+check of the new v3 metadata/operator delta. The final relevant dirty-source
+identity is `/tmp/witness-handoff-qualification-manifest.sha256`; record its digest
+before invocation. This is one fixed100 denominator, not100 parser calls or a
+loop over the static two-handoff fixture. A failed/refused trial stays in the
+100 denominator; do not reduce the sample, raise capacities or tune schedules
+following a failure. No concurrent host build/test during the timed campaign.
+
+Hardware/runtime: local Mac15,6, arm64,11 logical CPUs,19,327,352,832 bytes RAM
+(18GiB), macOS27.0, Nodev24.19.0. One Vitest worker. Schedule seed exactly
+`v04-same-key-handoff-100-2026-10-20`; epoch/partial/split identifiers derive from
+SHA256(seed + newline + label). RSA/Ed25519 cryptographic identities, protected
+history IDs, encryption nonces and loopback ports remain freshly generated and
+are recorded in retained artifacts; deterministic scheduling does not replace
+cryptographic randomness. Initial RSA fingerprint, original policy, encrypted
+owner histories and mode0600 test recovery inputs are retained. This is a
+single-host simulation of the existing five-member/four-quorum/one-Byzantine
+model, not independent physical operators or emergency-distribution evidence.
+
+Exact composition:100 actual successive protected witness replacements under one
+RSA key with seven permits issued/reserved before transition1, from the existing
+fixed allocation8. Alternate the disjoint A/B member identities; each transition
+gets a fresh epoch, including every A return. Each trial independently freezes
+four current original owner histories, reconstructs complete retained originals,
+merges the exact signed constraints, durably seals four observers, waits a real
+three-second live interval, independently installs the agreed state on four new
+owners, obtains readiness, signs/installs the immediate v3 policy, activates via
+four observers, and installs issuer/wallet/owner policy. Transition1 migrates v2
+to v3; transitions2–100 extend live v3. No RSA-key archive additions are made;
+configuration ancestry crosses64 without changing RSA key or token scope.
+
+Original cases are fixed before transition1: an accepted token and reserved
+wallet token, a uniform partial binding, split partial bindings, and a hidden
+old four-vote certificate whose fifth member had another partial binding. At
+all trials the accepted binding continues (accepted at a new destination or an
+exact local replay), the partial binding continues, split claims refuse, issuer
+permit counters and the exact wallet reservation remain unchanged. The hidden
+certificate stays split/refused through49, is genuinely recovered at50, then its
+resolved binding and every unresolved split remain inherited through100. Three
+other preissued tokens authorize fresh requests only at trials1,64,100. A seventh
+permit supplies the existing wallet reservation; no allowance is replenished.
+
+Fixed faults: hold the old destination's original spend write across trial1's
+seal/drain and require its late operation to refuse; every10th trial lose the
+first old owner's durable freeze reply, reopen/finish exact pending state,
+restart one durably sealed observer and repeat its full real drain, then check
+stale original-member rejection and catch-up from genesis. At25 and75 SIGKILL a
+child after the durable owner preparation intent, reopen and finish that exact
+intent before freezing. Every trial checks original key/profile/retry cutoff,
+retained capacity and original constraints. After100 require exact local retry
+rights at the original spend cutoff. The composed real-path case separately
+checks original-certificate-only retry refusal and permanent certificate conflict
+because injecting conflicting certificates intentionally fences that token.
+
+Resources remain one existing2GiB aggregate storage authority,80 durable replica
+stores,4MiB owner/issuer/observer retained arenas,6MiB replica arenas, pinned
+12MiB+64KiB encrypted writer snapshots, existing10,001-block/10,000-semantic-row
+bounds and existing256MiB cumulative original-history reconstruction ceiling.
+Live authorization remains max3s through final response; offline reconstruction
+remains separately max30s and never authorizes. The900,000ms harness timeout
+bounds the whole100 campaign, not a relaxed per-operation deadline. All business
+state, staging peaks, retained original ciphertext and operator artifacts share
+the same authority; no second authority, reservation refund, compaction or
+allowance increase is introduced. The complete campaign transcript is
+`/tmp/witness-handoff-100-2026-10-20.jsonl`; the test preserves funded authority,
+owner directories, original ciphertext and bounded mode0600 recovery inputs on
+success or failure. Test transport listeners close without deleting originals.
+
+Acceptance is exactly100/100 completed transitions, zero unsafe authorizations,
+unchanged counters/reservations/cutoffs, preserved resolved+unresolved originals,
+all scheduled fault recoveries and strict stale/cutoff refusals. Deliberate
+negative assertions are expected safety refusals and do not increment the
+transition success count; an unexpected capacity/deadline/refusal aborts and is
+reported against100. Preserve the failure and apply the existing stop/decision
+policy before adapting anything. K3 distribution p95 and independent operator
+qualification remain separate even if this local campaign passes.
+
+Composed result preserved:32files,447pass/4fail/1intentional100-campaign skip,
+566.11s (`/tmp/witness-handoff-composed.log`). Distinguishing failures:
+(1) livev3 reached the wallet's deliberately legacy-only parser because the
+fixture had not selected the existing funded v3 proof store; (2) original v1
+witness replacement still refused but its legacy diagnostic changed from
+`prior keys` to a new activation parse error; (3) a writer opened with a small
+archive correctly retained pending intent, but reopen with omitted archive limit
+incorrectly recalculated the pinned writer bound and rejected its marker;
+(4) the newly literal changed-membership epoch fixture signed successor readiness
+with the former A keys instead of its selected B membership, so signature
+validation correctly refused before the historical-epoch assertion.
+
+No unsafe authorization or structural counterexample is established by these
+four cases; the v3 wallet refusal is expected for unselected proof storage. The
+minimum corrections select the existing wallet proof store within the SAME
+2GiB authority (4MiB,128records; no new authority/allowance), preserve the original
+legacy refusal diagnostic, adopt a persisted writer bound when no explicit new
+bound was requested (explicit mismatch still refuses), and sign the adversarial
+fixture with its actual changed members. Preserve this result; rerun only the
+four affected files plus the distinguishing writer-capacity file, not all32.
+The remaining28files/447passes keep their original composed evidence. No100
+trial has started and no frozen100 capacity/sample/deadline was adjusted.
+
+Before100, the funded wallet proof selection is fixed to4MiB/128records under
+the SAME aggregate authority and original core proof limits. The writer-pin
+correction authenticates the marker's context/root/generation and bounded stored
+capacity; an explicit requested capacity must equal it, while an omitted bound
+adopts it even if archive limits were omitted/changed. A new distinguishing
+retained-writer test starts at1MiB, refuses an explicit2MiB reopen, reopens with
+omitted arena limits retaining1MiB, then refuses an oversized snapshot before
+any RPC with byte-identical state/no pending intent. No funding is enlarged to
+discover or read a marker. This delta is included for the same reviewer's narrow
+persisted-funding check before campaign execution. Parent's trusted shared quota
+is now13% weekly used, ordinary allowed (prior11%, continuation entry6%); coarse
+account-wide only, no reset or per-model attribution.
+
+Affected correction run:51pass/1fail/1intentional100skip across5files,72.69s
+(`/tmp/witness-handoff-composed-corrections.log`). All four earlier corrections
+are verified, including the new actual1MiB omitted-bound/explicit-mismatch test.
+The real v3 path now reaches issuer+wallet installation but exposes one further
+fail-closed integration defect: `roleCapturePlan` calls the low-level role parser
+with undefined historical membership, which v3 correctly refuses as `Historical
+participant requires authenticated original membership`. The minimum correction
+parses the complete proposed business image using the existing retained-proof
+reader first, producing authenticated original membership, then applies the
+existing capture/retention checks. Do not bypass v3 membership, discard old roles
+or enlarge proof budgets. Preserve this refusal and rerun only its affected role/
+history/live-v3 paths; no broad composed repeat or100 start.
+
+Final affected-role verification passes51/51 with1intentional100-campaign skip
+across3files in104.14s (`/tmp/witness-handoff-v3-role-correction.log`): the complete
+real v3/CLI two-handoff path, protected roles and protected history. Forced
+workspace build exits0 (`/tmp/witness-handoff-v3-role-build.log`). Together with
+the preserved composed run and its targeted corrections, all selected composed
+cases now pass; no second32-file run was made. This is combined evidence across
+the exact corrected paths, not a claim that the initial composed run passed.
+The empty RSA-key archive in the handoff fixture is explicit: this exercises live
+v3 policy/proof/role/observer installation; the composed existing v3-consumer
+cases separately exercise populated archives. The v3 operator reader uses the
+same funded retained original-proof page reader, preserving an existing archive
+and refusing newly required pages rather than silently dropping archived keys.
+
+Final pre-campaign command is fixed:
+`RESONANCE_HANDOFF_QUALIFY_100=1 npx vitest run --maxWorkers=1 packages/node/src/__tests__/protected-witness-handoff.integration.test.ts -t frozen100`
+One harness case contains the fixed100 transition denominator; the unrelated
+static two-handoff test is filtered out. Source/contract manifest:
+`/tmp/witness-handoff-qualification-manifest.sha256`. No other host build/test
+will run concurrently. Wait for the same reviewer's narrow preservation check
+of writer pin adoption and v3 metadata/proof capture before executing this command.
+
+Limited preservation review accepted the material production delta (AstraHigh,
+76sec active, parent reported), no safety/structural stop. Before FIRST100
+execution, two assertion gaps are closed prospectively, tests only: original
+signed votes are copied directly from the four original durable role histories
+before any freeze, and the genuine hidden certificate/original signed set are
+captured independently before the first transition. At51–100 each of four
+successor owners and its agreed manifest must retain those exact original signed
+objects; no implementation merge/digest helper generates the expectations. Each
+of51–100 also exercises the original certified token binding successfully and
+refuses its conflicting binding. Expected totals:200 successor original-evidence
+checks,50 certified-binding continuation/conflict pairs. Every trial compares
+allocated, bound, completed, prepared and remaining issuer permits against its
+complete pre-handoff baseline (100 counter checks). The mode0600 pre-captured
+expectation artifact shares the existing aggregate authority. No schedule,
+resource, fault, sample, deadline or target changes were made; only these
+prospective assertions and receipt were added. Forced compilation is the only
+extra check before the exact isolated frozen100 invocation; no new broad suite
+or review chain. Last trusted shared account13%, ordinary allowed, coarse only.
+
+Prospective assertions compile: `npx tsc -b --force --pretty false` exits0,
+`/tmp/witness-handoff-100-assertions-build.log`; `git diff --check` passes. Update
+the qualification manifest once for this assertion-only delta. All production
+sources remain those accepted by the76sec limited review. The campaign transcript
+is absent before first execution; the next command is the frozen invocation.
+
+### October20 first frozen100 execution — preserved invalid-harness failure
+
+FIRST run is0/100 completed,35.67s total; trial1 drained for3559.922ms, installed
+v3 and reached original main/wallet continuation plus one full issuer-counter
+check. The partial request then correctly refused as unauthenticated. Exact
+read-only reproduction `/tmp/witness-handoff-100-first-repro.mts` reconstructs
+actual retained signed policy/role artifacts: campaign literal setId
+`sha256:874e1eeef450376c57e1199988f5b29446c52ae65054697867d320a34f1351f2`
+differs from installed
+`sha256:5aa0e3588614a1eb2b3af420da5a3b7f8f48db589e162e2e7147a7e806b08ece`;
+parsing that literal gives the EXACT installed object/id. Claim fields otherwise
+validate and its coordinator is installed. The campaign used its unordered
+literal to hash requests; the production signed proposal normalizes the set.
+The existing real two-handoff test already uses the signed normalized set.
+
+Classification/decision BEFORE correction: test construction defect and a correct
+fail-closed request refusal; no unsafe authorization, structural protocol
+obstruction, unavailable measurement or changed trust/resource assumption is
+established, so this case does not establish stop1/4 or a new substantive
+alternative/no-improvement result. Prior alternatives/unknown hours and the
+existing independent compaction stop remain. Parent authorizes the minimum
+TEST-ONLY correction to use signed proposal.newSet for request IDs, with a
+standalone deterministic raw-vs-parsed expectation before the timed campaign.
+No production change, resource/time increase, sample reduction or fault change.
+
+Preserved first artifacts: `/tmp/witness-handoff-100-first.log`, transcript
+`/tmp/witness-handoff-100-2026-10-20.jsonl`,974 original owner/replica/authority
+files; artifact manifest `/tmp/witness-handoff-100-first-artifacts.sha256`
+SHA256 `f2e2e54a6140b89d88ac66eb77147e613cfef3faa313dccc3edc7ec9d38d854b`.
+Original authority retains1,872,439,317/2,147,483,648 bytes reserved,275,044,331
+available; no refunds. Frozen first source manifest781cfe0ec29a40e5004dd40effeb1787f31e1070390e33f2466268a598f99473
+remained unchanged through read-only diagnosis. It is not a first-pass success.
+
+Corrected run remains the SAME100 denominator/seed/composition/limits/cutoffs.
+Use DISTINCT `/tmp/witness-handoff-100-corrected.log` and
+`/tmp/witness-handoff-100-corrected.jsonl`, with an absent-transcript guard.
+A new independent fixture is required because the harness has no implemented
+resume protocol for its live endpoints/queued assertions; do not invent one.
+Each campaign has exactly one2GiB authority; both failed/successful namespaces
+stay independently preserved. This is not a second authority within a campaign,
+capacity workaround or reset of the block's aggregate budget. No new review
+chain for the literal correction. Hold any substantive corrected-run failure for
+its distinguishing evidence and stop assessment before adapting.
+
+Literal correction preflight passes the deterministic canonicalization regression
+(1pass/1unrelated skip,321ms; `/tmp/witness-handoff-100-canonicalization.log`).
+Its fixed parsed setId golden is
+`sha256:40ed7ce23c1d77eda14f806a80135a57577635981ff261e1f9913b9bfb568520`;
+unordered literal differs, parsed/signed-format round-trip matches. Campaign
+request IDs now use proposal.newSet; source diff is TEST-ONLY. Forced workspace
+compile exits0 (`/tmp/witness-handoff-100-corrected-build.log`), diffcheck passes.
+Corrected frozen source manifest is
+`/tmp/witness-handoff-100-corrected-source-manifest.sha256`; the first781cfe
+qualification manifest remains intact. Exact corrected invocation remains
+`RESONANCE_HANDOFF_QUALIFY_100=1 npx vitest run --maxWorkers=1 packages/node/src/__tests__/protected-witness-handoff.integration.test.ts -t frozen100`
+with output only at its new corrected log/transcript paths and no concurrent
+host build/test. Recheck the absent corrected-transcript guard before execution.
+
+
+### October20 frozen100 result — STOPPED resource realization (UNACCEPTED)
+
+**Decision:** stop this resource realization under condition1 of the existing
+[stopping policy](../developers/v0.4-acceptance-kpis.md#stop-and-decision-policy).
+The deterministic6MiB inequality below structurally falsifies this frozen100
+candidate. It establishes neither unsafe authorization nor protocol-wide
+impossibility. K3 remains OPEN; three completed transitions do not qualify100.
+No adaptation, implementation edit, campaign rerun, Git mutation, push or CI
+followed this failure. This final update is documentation/preservation only.
+
+#### Both executed attempts and unchanged contract
+
+Both isolated attempts used exactly:
+
+```sh
+RESONANCE_HANDOFF_QUALIFY_100=1 npx vitest run --maxWorkers=1 packages/node/src/__tests__/protected-witness-handoff.integration.test.ts -t frozen100
+```
+
+| Attempt | Result | Elapsed | Distinguishing evidence |
+| --- | --- | --- | --- |
+| First, original test literal | 0/100 completed |35.67s | Trial1 real drain3559.922ms; unordered literal setId differed from the installed parsed/signed set. Correct unauthenticated-request refusal; invalid harness evidence, preserved before the authorized test-only normalization. |
+| Corrected test literal | **3/100 completed** |99.21s total;98.20s test | Trial4 real drain3611.574917ms, policy revision5 ACTIVE_NEW, then `Four admission witnesses are unavailable or disagree`. Deterministic replica capacity refusal prevents the fourth current vote. |
+
+The same100 denominator, seed `v04-same-key-handoff-100-2026-10-20`, original
+issued-token states, fault schedule, strict3s live authorization/cutoffs, real3s
+observer drains,30s offline reconstruction,900,000ms whole harness bound and
+hardware remained frozen. No sample, capacity or time tuning followed either
+result. The corrected run changed only test request canonicalization plus its
+prospective deterministic expectation; production stayed reviewed/frozen.
+Each independent fixture had exactly ONE2GiB authority. Both namespaces remain
+preserved; this is not a second authority within a campaign or a blocker-budget
+reset. There was no implemented safe live-harness resume protocol to reuse.
+
+Corrected completion evidence: trial1–3 after-seal cycle times11.323s,13.703s,
+16.621s; four actual drain barriers (four observers each); three complete issuer
+baseline checks including allocated7/bound7/completed7/prepared0/remaining1;
+first held old in-flight operation refused across seal/drain, and the first fresh
+case passed. Reused A identities activated with fresh epochs at2 and4, but only
+trial2 completed its full checks. The campaign did NOT reach64 ancestry, scheduled
+10/25/75 loss/restart/crash cases, hidden-certificate recovery50, original-evidence
+and certified-binding checks51–100, or fresh cases64/100. Those counters remain0;
+the separate focused/composed evidence above does not substitute for this failed
+qualification. No independent K3 distribution or pilot claim follows.
+
+#### Minimum distinguishing durable counterexample
+
+At trial4, A0 is deliberately stale at its original revision1 and cannot authenticate
+the current-epoch request. A1 is current revision5/ACTIVE_NEW, inherited the original
+main binding, and durably retains the correct witness-vote intent at sequence27:
+`sha256:1d19d9e1d5f4e837674bd56157fad3430c6f6aa7196f91cfe205c29a70f04652`.
+Both owner and writer are pending; writer committed sequence26. All five A1
+replicas retain the identical prefix through26, with pending27 absent. Existing
+`history-checkpoint-store.ts` `fits()` requires retained bytes, pending signed
+envelope, signed checkpoint reserve and the unchanged two-manifest staging peak:
+
+```text
+retained original signed prefix        1,886,244 B
+pending signed witness-vote envelope       1,258 B
+signed checkpointReserveBytes             262,144 B
+2 * MAX_MANIFEST_BYTES staging peak     4,194,304 B
+required                               6,343,950 B
+frozen per-replica maximum              6,291,456 B (6MiB)
+shortfall                                 52,494 B
+```
+
+The same inequality fails in ALL five A1 stores, before an acknowledgement can
+safely occur. More elapsed time cannot make it fit. A2/A3/A4 each retain a valid
+Ed25519-signed current vote in all five replicas, with no pending state; only three
+current votes are available. Their retained sequences are24,24,23 respectively.
+This confirms quorum pending/refusal, without treating the generic collector
+message as an individual captured server error: those errors were not logged.
+The authenticated read-only capacity reproduction establishes each replica's
+mandatory refusal using its actual retained files, not a speculative timeout.
+A1 writer file272,415B fits its12MiB+64KiB bound; owner retained28files/1,887,502B
+including pending. Neither writer-local nor owner-arena exhaustion is the cause.
+No original evidence was discarded, pending charge refunded, fence reset or old
+certificate used to authorize fresh work. The counterexample concerns local
+replica retained/staging capacity despite aggregate headroom.
+
+Corrected authority `58f85c2b5c67e32e97b3f34efc30bdf5` retains
+**1,872,440,429/2,147,483,648B reserved**,275,043,219B available,306 components,
+2,105,344B control; zero adoptions/refunds. First authority separately retains
+1,872,439,317/2,147,483,648B reserved,275,044,331B available. These are retained
+reservation observations, not a measured total physical-storage peak. The frozen
+80-store layout,6MiB replicas,4MiB owner/observer/issuer arenas,12MiB+64KiB writer,
+4MiB/128-record wallet proof store,10,001 blocks/10,000 rows and256MiB cumulative
+original reconstruction allowance were not raised. Extra aggregate headroom is
+not permission to increase6MiB locally.
+
+#### Preserved manifests, originals and read-only diagnosis
+
+| Artifact in `/tmp/` | SHA256 |
+| --- | --- |
+| `witness-handoff-qualification-manifest.sha256` (first frozen source) | `781cfe0ec29a40e5004dd40effeb1787f31e1070390e33f2466268a598f99473` |
+| `witness-handoff-100-first.log` | `3ab4e8003e438e6d4a045308fa4937201e11c0cd429ac0a91bf0dda6074670d1` |
+| `witness-handoff-100-2026-10-20.jsonl` | `4202cf15244df7c261e0e07933ae06a72467761c959841a143da00ed4d4e382e` |
+| `witness-handoff-100-first-repro.mts` | `bb8837aa7da8cb81d1e94a16395bb325e6549d1786a505b7fb3a2a7633384501` |
+| `witness-handoff-100-first-repro.log` | `ff56428dc52c897ac1d8722d3b8b9467f22066e5c159f73728d2356b8ee79ecc` |
+| `witness-handoff-100-first-artifacts.sha256` (974 files) | `f2e2e54a6140b89d88ac66eb77147e613cfef3faa313dccc3edc7ec9d38d854b` |
+| `witness-handoff-100-corrected-source-manifest.sha256` (39 entries) | `e2d29733b29a72fe8c0701e294edbe9433a5be2ab1121e170020a31eb28155cf` |
+| `witness-handoff-100-corrected.log` | `3b18394f9b5fc560329ad5f7ecc9ec123298f010724c00813702de9a365210ef` |
+| `witness-handoff-100-corrected.jsonl` | `e0d4e76803dce10cece52bd975630a4fdb88622fdaf4d766b3e6b15403dcc65d` |
+| `witness-handoff-100-corrected-state-diagnosis.mts` | `6aecfc6b4a09f1f906137aeb903369ec4a0d15c596926e595772279feb3f6e60` |
+| `witness-handoff-100-corrected-state-diagnosis.jsonl` | `a6f582ae8a9e555ffe778ce33fd7d2c96652a55b6b8fd9ec65eff811adfcb0cf` |
+| `witness-handoff-100-corrected-capacity-repro.mts` | `1b4fcdb6ec1052334cc6aac5743c67e5acea94053f77258eeba8ed651ad2b822` |
+| `witness-handoff-100-corrected-capacity-repro.jsonl` | `5ed4a8330901c724417e73b17c966d301adc51e124c657e8d08e122dee043503` |
+| `witness-handoff-100-corrected-artifacts.sha256` (1,788 files) | `856f1e3a7ff84f1b8272a9dd13e333ae7dd20ff6cad1304bd76e28d5c51182e8` |
+
+First originals: `/var/folders/gb/yrv4v_5d64lbdv2ngllxrqdm0000gn/T/same-rsa-handoff-xJwG0E`
+and authority `/var/folders/gb/yrv4v_5d64lbdv2ngllxrqdm0000gn/T/handoff-100-funding-r7YmIC`.
+Corrected originals: `/var/folders/gb/yrv4v_5d64lbdv2ngllxrqdm0000gn/T/same-rsa-handoff-Kuah7m`
+and authority `/var/folders/gb/yrv4v_5d64lbdv2ngllxrqdm0000gn/T/handoff-100-funding-TrVF0D`.
+All funded originals, pending intents and mode0600 recovery inputs are retained.
+Closing service/funding handles did not remove data or release reservations.
+Read-only diagnosis authenticated AES-GCM snapshots and signed envelopes/votes;
+it did not reopen writers/authorities, append, retry or authorize any request.
+Final preservation hash verification matched all974+1,788 artifact entries and
+all37 frozen source/other-document entries (excluding these two receipt updates).
+Prior manifests are unchanged; they identify the exact failed sources. No post-stop
+build/test was run. Documentation-only `git diff --check` is the final check.
+
+#### Owner decision and effort/acceptance boundary
+
+Minimum next decision: **stop this representation, or authorize one bounded
+redesign attempt within the SAME6MiB replica/2GiB aggregate contract**. Concrete
+proposal only, NOT authorized and NOT an estimate: at most **four aggregate active
+hours**, including implementation, ONE scoped critical review and the SAME100
+qualification, to investigate avoiding repeated original-evidence copies through
+authenticated references. This direction is unproven: references must preserve
+availability, authentication, complete originals, inherited unresolved constraints,
+replay/cutoff checks and funded staging; references alone do not establish fit.
+It is not semantic compaction and grants no deletion, refund, time increase or
+trust change. Any changed local cap requires a separate owner decision even with
+aggregate headroom. No redesign/design investigation has begun. Stop again on a
+counterexample, no viable contract, exhausted budget or no improvement.
+
+This is the SAME B-HISTORY-LIFECYCLE/K3 blocker: prior substantive alternatives
+and historical unknown effort remain recorded, with no reset. The existing five
+active8h workdays/40h stopping threshold remains; exact active minutes for this
+continuation were not instrumented and are UNKNOWN, not zero or an invented40h.
+Waiting is excluded. The proposed four-hour ceiling does not erase prior effort
+or alternatives. Semantic compaction stays separately stopped under condition4;
+historical-authority retirement investigation remains suspended. Existing guards
+and all retained/funded evidence remain intact.
+
+Actual routing: SolHigh implementation, recovery, tests and documentation;
+AstraMedium bounded architecture earlier; AstraHigh critical review4m44s active,
+narrow fix acceptance26s, preservation review76s. The review findings/corrections
+and preserved composed447pass/4fail/1skip plus targeted51pass/1skip results above
+remain evidence, not acceptance after this resource failure. No Luna microtask
+or new agents. Trusted exit shared usage14% weekly used, ordinary allowed;
+continuation6→14% is coarse account-wide only, no per-model attribution/cap reset.
+Current dirty candidate remains UNCOMMITTED/UNACCEPTED, not pushed or CI-qualified.
+Last accepted source is1137438333d495e28ff7267f42479aca7e556cc7; HEADc81d2ac is
+its documentation-only follow-up. K3 and the fullv0.4 qualification remain open.
+
+### October21 owner-authorized bounded original-reference representation
+
+Owner answered **Sí** to ONE redesign attempt under the preceding proposal:
+at most four aggregate active hours including implementation, ONE AstraHigh
+critical review, corrections and the SAME frozen100 qualification. Entry clock
+2026-10-21 08:03:09 UTC; SolHigh diagnosis began prospectively at that clock.
+Shared weekly usage at entry18%, ordinary execution allowed; coarse account-wide
+only. Prior alternatives and historical unknown blocker effort are not reset.
+Reserve at least45 active minutes for review/integration/qualification; stop
+conservatively before four aggregate hours, counting parent coordination and
+excluding reported tool/idle waits. Prior failed originals/manifests stay intact.
+
+**Frozen format contract before source edits (08:09 UTC).** Parent blocker
+B-HISTORY-LIFECYCLE/K3, same original rights and same100 observable workload.
+Replace repeated plaintext copies inside NEW relay-admission history envelopes
+with a versioned, authenticated, prefix-local content-addressed JSON object graph.
+Each immutable node hashes its exact typed JSON encoding (including object field
+order). A record lists only new nodes, children before parents; references resolve
+only against this independently authenticated retained history prefix and earlier
+nodes in the same record. Its base binds the exact preceding envelope ID. No
+external directory, another authority, unverified semantic anchor or network fetch
+may supply a missing node. Expanding a record reconstructs its complete exact
+original JSON; all existing semantic/signature/epoch/cutoff validators still run.
+Every original ciphertext envelope, including old full-copy records and failed
+campaigns, remains immutable and charged. This is lossless representation, not
+semantic compaction or proof retirement. Legacy readers reject the new record
+kind. Existing arbitrary legacy live-key enrollment remains prohibited.
+
+Apply the format at the actual protected writer and every admission original
+reader: pending completion/reopen, full replay/restore, independent frozen-witness
+verification and retained policy proof/page reads. Owner snapshots remain complete
+self-contained encrypted state with their existing32MiB file ceiling; role owner
+archives remain4MiB, writer snapshots12MiB+64KiB, observers/issuer/wallet retain
+their current ceilings. No migration deletes or refunds old allocations. A reopened
+mixed legacy/reference prefix authenticates and indexes its complete originals
+before issuing a new reference. A partially written envelope is charged and must
+complete exactly after lost reply/crash; decoding never repairs missing originals.
+
+Keep all existing8MiB checkpoint/64KiB delta expanded and physical frame bounds,
+10,001 original block/10,000 role row and256MiB cumulative original-byte bounds.
+Additionally bound graph depth and cumulative dictionary storage; reject missing,
+forward, cyclic, mutated or oversized references before output. A reference graph
+does not enable standalone semantic checkpoints: all existing policy-proof and
+compaction guards stay. Signed checkpoint headroom is computed from the actual
+new lossless format for the unchanged next complete image, including node bytes,
+envelope overhead and the original two-manifest staging peak. The6MiB per-replica
+and2GiB campaign authority, all freshness/drain/reconstruction limits, the seed,
+fault schedule, denominator and negative assertions are frozen unchanged.
+
+Falsifiers: any original JSON/signature/constraint lost or changed, cross-prefix
+reference, missing evidence accepted, uncertain intent omitted/refunded, epoch
+reuse, unsafe authorization, physical/temporary peak exceeding its existing cap,
+or inability to complete the same100 under its existing deadlines. Focused checks
+must exercise exact round trips, tamper/missing/base/cycle/expansion bounds, mixed
+legacy prefixes, lost reply/crash/reopen and actual retained source replay.
+Minimum meaningful effect is complete SAME100 qualification with full original
+evidence and funded peaks, after independent review; a smaller focused pass does
+not qualify K3. New qualification logs/transcript use an absent new namespace;
+previous0/100 and3/100 originals stay preserved. Do not run the broad composed or
+same100 campaign until the ONE critical review passes. No commits/push/CI yet.
+
+Necessary prerequisite at08:16UTC: preserved trial4 observer prefixes already
+retain288,178B each and issuer747,499B. Their full snapshots also repeat the same
+signed activations; the SAME deliverable must encode those protected originals
+and update their actual reopen/replay/page readers too. Extend the frozen lossless
+format to those explicitly protected histories under identical invariants; no
+additional protocol/resource authorization is inferred. New graph decoders also
+cap cumulative expanded reconstruction at256MiB per reader operation, separately
+from cumulative dictionary bytes and original physical bytes, with regular caller
+deadline/cancellation checks. This is an additional refusal, not a larger allowance.
+The original implementation bounded expanded frames, original ciphertext bytes,
+blocks/rows and deadlines; it had no separate graph-expansion counter.
+
+Focused first pass: forced workspace compilation0. Local sockets initially fail
+with sandboxEPERM (1.42s), alongside two malformed test expectations; no protocol
+failure established. Corrected focused suite with authorized loopback escalation
+passes7/1skip in56.20s (six reference integrity cases plus the existing real two
+handoff/crash/lost-reply case; frozen100 remains skipped). Preserve logs at
+`/tmp/witness-handoff-references-{build,focused,focused-sockets}.log`.
+Observer/issuer prerequisites still need integration and focused verification.
+
+#### Original-reference candidate ready for ONE scoped review (October21)
+
+The candidate now integrates the common lossless graph at all three protected
+role writers and their original readers. Relay owner and generic issuer outer
+state retain a monotone `originalReferences:1` compatibility fence with the first
+pending intent; the existing writer snapshot does the same before dispatch.
+Earlier strict readers refuse the extra field rather than authorizing from an
+unreadable prefix. Existing allocations, domains,32MiB owner ceiling,12MiB+64KiB
+writer pin,4MiB role archives and6MiB replica/two-manifest peaks are unchanged.
+No original envelope is rewritten and no capacity reservation is refunded.
+
+Exact per-attempt scope: new `admission-original-references.ts` codec; protected
+relay history encoding/reopen, relay replay, policy proof/page reading and frozen
+witness verification; observer encoding/reopen, offline replay and page reading;
+issuer checkpoint owner encoding/reopen and Node issuer replay; common writer
+compatibility fence. Tests add exact mixed legacy/reference issuer/observer replay,
+strict legacy writer refusal, node hash/base/missing/forward/depth/shared-DAG and
+cumulative expansion/dictionary refusals. The existing handoff case exercises actual
+issuer/observer/relay use, lost reply, process death, restart and A→B→freshA epochs.
+
+Focused command:
+`npx vitest run --maxWorkers=1 packages/relay/src/__tests__/admission-original-references.test.ts packages/relay/src/__tests__/history-checkpoint-quorum.test.ts packages/relay/src/__tests__/policy-observer-history-replay.test.ts packages/node/src/__tests__/admission-issuer-history-replay.test.ts packages/node/src/__tests__/protected-witness-handoff.integration.test.ts -t '^(?!.*through100).*'`
+passes **55 tests/2 skips, five files,62.26s**. Skips are SAME100 (not enabled)
+and the old pooled100-generation issuer case, which is outside this focused run.
+Log `/tmp/witness-handoff-references-focused-filtered.log`. Earlier unfiltered
+selection accidentally entered that old issuer case; it was stopped with SIGINT
+at08:26UTC before completion and no result accepted. Its partial log is retained;
+this process mistake grants no campaign or acceptance evidence. No SAME100 handoff
+campaign or broad composed suite has run on this representation before review.
+
+Read-only diagnostic `/tmp/witness-handoff-references-preserved-prefix.mts`
+reconstructs each exact original JSON object from the prior failed corrected
+campaign's actual witnesses1–4. Witness1's27 originals encode hypothetically as
+165,268B versus1,886,244B; retaining its original262,144B checkpoint reserve and
+unchanged4,194,304B staging gives4,621,716B against6,291,456B. Witnesses2/3/4:
+161,183/161,183/159,716B. This is a lossless representation measurement on preserved
+objects, not a migrated live store, physical-peak measurement or100 qualification.
+All1,788 corrected campaign artifact hashes still match. The tsx CLI's sandbox
+IPC refusal was bypassed with `node --import tsx`, without network or mutation.
+
+First source baselines were not copied at entry. Seven exact prior source files
+are now recoverably identified: five were reconstructed by reversing ONLY this
+attempt's edits and **verified against the frozen corrected SHA256**, and two
+were originally clean and read from HEAD. Eight additional files were copied
+before their first edit. All are in `/tmp/witness-handoff-references-preattempt/`;
+no unverified original source is invented. The attempt patch and candidate SHA256
+manifest distinguish this delta from the prior39-file uncommitted protocol.
+
+Limitations for review/qualification: the new256MiB cumulative expanded-work
+counter is an additional fail-closed cap, separate from original physical counters;
+its fit at100 is unproven. Whole-prefix semantic replay and repeated signature
+validation still consume unchanged30s offline/3s live budgets. Exact SAME100
+physical peaks, >64 ancestry, scheduled faults and all original-evidence checks
+are unqualified. No result here closes K3, semantic compaction or retirement.
+
+Forced workspace build after the final test additions exits0:
+`/tmp/witness-handoff-references-final-focused-build.log`; diffcheck passes.
+Both previous artifact sets still match all974+1,788 SHA256 entries, with separate
+preservation logs. The new SAME100 transcript
+`/tmp/witness-handoff-100-references-2026-10-21.jsonl` is absent at08:32:57UTC.
+Its candidate campaign output will be distinct from both earlier failed logs.
+
+Prospective activity interval: SolHigh08:03:09–08:33UTC diagnosis, contract,
+implementation, focused checks/docs and source freeze, conservatively30 active
+minutes (known short tool waits are excluded; work overlapping test execution is
+counted, including the accidental unfiltered selection). Parent coordination and
+the forthcoming ONE review/corrections/qualification count separately toward the
+SAME aggregate four-hour ceiling. Stop substantive work by11:45UTC conservatively.
+No historical unknown hours were inferred or reset. Candidate awaits the parent's
+ONE fresh AstraHigh storage/recovery review; no further source edit, broad composed
+regression or SAME100 run until its result. Last accepted source is unchanged.
+
+#### October21 critical review interrupted — counter corrected, UNACCEPTED stop
+
+The ONE fresh critical reviewer was interrupted mid-turn by the platform message
+**“content flagged for possible cybersecurity risk.”** This is a platform content
+classification interruption, **not an automatic approval-review denial**, and is
+not a completed technical review or acceptance. No retry, rephrasing, replacement
+reviewer, suspended investigation or further diagnosis chain followed. The parent
+authorized finishing only the confirmed ordinary resource-counter correction and
+its necessary focused checks/docs. No broad composed or SAME100 run followed.
+
+**Partial P1 finding:** `policy-observer-page-reader.ts` created a fresh codec for
+every page request; `admission-policy-history-proof.ts` did so for every `images()`
+rescan. Each codec restarted its256MiB expanded-work counter while the enclosing
+physical/read counters remained cumulative. Thus those expanded counters did not
+enforce the frozen per-operation limit. No unsafe authorization is established by
+this resource-accounting finding. The reviewer's inspection-only pending-reference
+reopen comment remains an **unresolved suspicion, not a verified finding**. This
+continuation did not inspect or reproduce that interrupted line.
+
+Correction: an explicit reconstruction-work allowance lives outside each prefix
+dictionary. Replacement decoders and all page/proof rescans charge that SAME
+allowance before returning reconstructed objects. Trusted nested owner/issuer
+operation identities adopt their caller's allowance before decoding and cannot
+replace consumed work. Original physical ciphertext/read counters, dictionary
+bytes, frame/row/depth limits, cancellation/deadline checks and every funding
+reservation remain. No limit, resource or trust assumption was raised.
+
+Equivalent integrations checked for this confirmed counter issue: policy-proof
+reader instances share the caller's startup/operation allowance; relay startup
+dictionary replacement and semantic replay share it with their proof readers;
+the four frozen histories share their one reconstruction operation; issuer replay
+and generic owner/business-token proof reads share it; observer replay shares its
+allowance with nested page reads, and protected observer opening/historical page
+serving/successor/exclusive writes carry the same scope across their decoders.
+The persistent dictionary remains history-local; only work accounting is shared.
+No reference encoding, signature payload, authorization rule or original file
+was changed by this correction.
+
+Ordinary focused result BEFORE the final issuer-token alias edit:
+**41 passed/2 intentional skips, five files,56.21s**, log
+`/tmp/witness-handoff-references-counter-focused.log`, SHA256
+`2196a02aeb7ce9703930bc7e7d172533f381f3fd293881bf1d3750baaae7a1a1`.
+The same earlier five-file focused selection excluded every `through100` case and
+left SAME100 disabled. It covers ordinary integrity, observer/issuer replay and
+the existing two-handoff lost-reply/crash/reopen case. It does not qualify100.
+There was no contemporaneous source freeze for that41-pass run. Its source was
+subsequently reconstructed by reversing ONLY the exact final alias edit; see
+`/tmp/witness-handoff-references-counter-41-source-reconstructed.sha256` and
+the accompanying `counter-41-source-provenance.json`. This derived identity is
+explicitly separate from the final candidate and is not critical acceptance.
+
+The final alias edit to the work helper, issuer business-token mapping and its
+new no-reset regression was already written before the parent's stop message.
+The parent then authorized ONLY the necessary final forced build and exact new
+counter regressions, with no broader repeat or further source change. Final
+`npx tsc -b --force --pretty false` exits0, log
+`/tmp/witness-handoff-references-counter-final-build.log`. Exact focused command:
+`npx vitest run --maxWorkers=1 packages/relay/src/__tests__/original-reference-work-budget.test.ts -t 'nested operation identities share an allowance and cannot replace consumed work|shares one reconstruction allowance across replacement dictionaries without refund|charges repeated observer page scans to the same work budget while preserving physical accounting|shares proof reconstruction work across images rescans and proof readers in one operation'`
+passes **4/4 tests, one file,477ms**, log
+`/tmp/witness-handoff-references-counter-final-alias.log`. These distinguish fresh
+dictionary/rescan accounting, shared nested identities and unchanged physical-read
+charging. The earlier41-test recovery group was not repeated on this final alias
+delta; final recovery acceptance and the full critical review remain outstanding.
+
+Review-artifact inventory:
+`/tmp/witness-handoff-references-partial-review-artifacts.json`. The available new
+review inputs are the frozen50-entry manifest and scope JSON; no completed new
+review report or reproduction output was found. The older unrelated
+`/tmp/witness-handoff-review-repro.mts` remains preserved at SHA256
+`6f4f387d4ed2b60ce05c17e2e7732ff5cf47e4c12510f534579d7f74541152c7`;
+it was not executed or represented as this review's result. No missing review
+claims were reconstructed. Earlier frozen manifests, patches, failed campaign
+logs, ciphertext and all allocations remain preserved.
+
+**Stop decision:** candidate UNACCEPTED; condition4 external critical-review gap.
+K3 remains OPEN; SAME100 on the reference representation is **UNRUN**, and the
+last actual corrected handoff campaign remains **3/100** with its exact6MiB
+counterexample. The entire attempt is below its four-hour ceiling; unused budget
+does not authorize bypassing the review gate. Sol resumed ordinary correction
+prospectively at08:41:40UTC, ending with final checks at08:51UTC and preservation
+afterward. Exact active effort is not fully instrumented; the parent's conservative
+upper bound at08:48:54UTC counted entire parent+Sol+reviewer lifetimes, even idle,
+and was **under two hours**. Do not invent historical active hours or reset prior
+alternatives. Shared usage18→20→22% weekly is coarse account-wide; ordinary usage
+remains allowed and no per-agent/model charge is inferred. Semantic compaction
+stays stopped and historical retirement suspended. No commit/push/CI/installer,
+merge or review retry follows this checkpoint. Last accepted source stays
+`1137438333d495e28ff7267f42479aca7e556cc7`; HEAD remains its documentation follow-up.
+
+Final preservation: both original manifests again verify all974+1,788 entries;
+logs `/tmp/witness-handoff-references-counter-{first,corrected}-preservation.log`.
+The corrected candidate is frozen separately in
+`/tmp/witness-handoff-references-counter-corrected-manifest.sha256`, with an exact
+source copy under `/tmp/witness-handoff-references-counter-corrected-source/` and
+the complete per-attempt delta in
+`/tmp/witness-handoff-references-counter-corrected-attempt.patch`. Earlier review
+inputs and patches are not overwritten. The corrected scope/stop receipt is
+`/tmp/witness-handoff-references-counter-corrected-scope.json`. This is preservation
+of an UNACCEPTED candidate, not publication, a migrated store or review completion.
+
+Closing parent quota observation after preservation: shared weekly usage23%,
+ordinary execution allowed (entry18%; earlier checkpoint22%). This is a coarse
+account-wide delta of five percentage points, without attribution to any model.
+This receipt-only addition follows the final51-file manifest; production/test
+source and the separately copied frozen candidate are unchanged.
+
+#### October21 explicit user continuation — SAME reviewer resumed, source held
+
+At09:12:36UTC the user explicitly instructed continuation, identifying this as
+ordinary application development. That instruction supersedes the provisional
+critical-review-dependency stop for the SAME authorized bounded attempt. The
+parent resumed the SAME original reviewer against the corrected frozen manifest
+and unchanged review scope. This is a continuation of the ONE review, not a new
+reviewer or a reset of the attempt, prior alternatives or historical effort.
+The platform classification interruption and partial P1/correction evidence above
+remain recorded; resumed work is not yet a completed review or acceptance.
+
+Production and test source remain exactly the corrected frozen candidate under
+`/tmp/witness-handoff-references-counter-corrected-manifest.sha256` and its saved
+source copy. Only this existing evaluation receipt and execution checkpoint change
+for the resumption. No implementation, broad test, SAME100, additional agent or
+investigation is opened while the original reviewer runs. Once its completed
+result arrives, Sol retains ownership of minimal necessary corrections, ONE
+affected regression and the exact frozen SAME100. No scope growth, resource/time
+increase, installers, merge or CI/Git is authorized before a viable result.
+All old originals, allocations, failed campaigns and manifests remain preserved.
+
+Budget checkpoint: original entry08:03:09UTC and maximum FOUR aggregate active
+hours remain unchanged, including implementation, parent coordination, the SAME
+review, corrections and qualification; exclude known idle/tool waiting. Prior
+active effort is not fully instrumented, so do not invent an exact remaining
+active allowance. The earlier conservative lifetime upper bound and all prior
+charges remain. The11:45UTC substantive-work hard stop is retained; at09:12:36UTC
+its wall-clock margin is2h32m24s and is NOT a replenished effort budget. Trusted
+shared weekly usage is24%, ordinary allowed; entry18% and the earlier23% closing
+receipt remain. These are coarse account-wide observations, not per-agent cost.
+This documentation-only continuation starts prospectively at09:13:41UTC; source
+will stay held pending the original review's completed result. Candidate remains
+UNACCEPTED, K3 OPEN and reference SAME100 UNRUN during that hold.
+
+#### October21 completed original review — two bounded P2 corrections
+
+The SAME original reviewer resumed09:13:21–09:15:35UTC and completed normally
+(2m14 active). Its initial interrupted interval remains uncertain and charged
+conservatively; suspension/idle time is excluded. It found two concrete P2 issues,
+recorded here BEFORE source fixes, with no unsafe authorization or structural
+impossibility and the same viable lossless representation:
+
+1. `admission-original-references.ts` still enforced lifetime `expandedBytes`
+   against256MiB even when a fresh operation supplied its own bounded work budget.
+   A persistent observer dictionary therefore allowed259 legitimate independent
+   operations and refused260 despite only1,033,011B in that operation and53,137B
+   of retained dictionary. Separate cumulative dictionary retention from each
+   operation's reconstruction budget; keep both existing bounds.
+2. Protected observer `ready()` confirmed under `operationWorkBudget` but called
+   `validateCurrent(state)` with a fresh default page-reader allowance. Pass that
+   SAME readiness allowance through validation so confirmation plus rescans are
+   charged together.
+
+Preserved reviewer reproduction `/tmp/witness-handoff-references-lifetime-review-repro.mjs`
+SHA256 `43197f1d6c367fab61479faa29e08906124683af9090d21073e85347103db949`;
+log `/tmp/witness-handoff-references-lifetime-review-repro.log` SHA256
+`f5d93a82e3716655a97eb7dc0e9f7573085b1c13e71121aebdc8beb639b50457`.
+No other material defect was established in exact reconstruction, prefix-scoped
+references, ordinary pending/reopening, compatibility or funding. The earlier
+inspection-only suspicion remains unestablished; no separate investigation opens.
+
+Authorized correction scope is ONLY these two findings, distinguishing focused
+tests and forced workspace build, then a corrected frozen manifest/delta for the
+SAME reviewer's narrow follow-up. No affected composed selection or exact SAME100
+may start before acceptance. The original four aggregate active-hour ceiling,
+prior effort, unchanged storage/time/trust contract and11:45UTC hard stop remain.
+Prospective Sol correction interval begins09:16:55UTC. K3 remains OPEN and the
+reference SAME100 UNRUN while corrections/follow-up are pending.
+
+P2 corrections complete: the codec's lifetime `expandedBytes` remains diagnostic;
+it no longer rejects independent bounded operations. Each decoded frame still
+fits its existing frame/expanded ceiling, every supplied operation allowance is
+charged cumulatively, and unique dictionary bytes retain their existing bound.
+Readiness now explicitly passes `operationWorkBudget` to its validation reader.
+No other production logic changed. A persistent-dictionary regression runs300
+independent ordinary read operations, each permitting two reconstructions and
+refusing a third under its SAME low test allowance, with unchanged dictionary
+bytes. This is a counter unit test, not100 protocol-transition qualification.
+The actual protected-observer readiness regression exercises confirmation plus a
+real retained page scan and proves all charges reach one allowance; the page-read
+hook does not alter production semantics or authorize anything.
+
+Focused command:
+`npx vitest run --maxWorkers=1 packages/relay/src/__tests__/original-reference-work-budget.test.ts packages/relay/src/__tests__/admission-original-references.test.ts packages/relay/src/__tests__/protected-policy-observer.integration.test.ts -t 'nested operation identities|shares one reconstruction allowance|retains a dictionary across independent operations|charges repeated observer page scans|shares proof reconstruction work|authenticated original reference representation|charges readiness confirmation and subsequent page validation'`
+passes **12/12 selected tests, three files,1.53s** (34 unrelated cases filtered).
+Log `/tmp/witness-handoff-references-p2-focused.log`. Forced workspace build
+`npx tsc -b --force --pretty false` exits0;
+`/tmp/witness-handoff-references-p2-build.log`. Neither a broad composed group nor
+SAME100 was run. Existing failed qualification evidence remains preserved.
+
+The four-file source/test P2 delta and its exact pre-fix baseline are preserved in
+`/tmp/witness-handoff-references-p2-narrow.patch` and
+`/tmp/witness-handoff-references-p2-baseline/`. Corrected full candidate manifest:
+`/tmp/witness-handoff-references-p2-candidate-manifest.sha256`; scope/test/section
+receipt `/tmp/witness-handoff-references-p2-scope.json`. Earlier manifests/source
+copies are not overwritten. Prospective correction/check interval09:16:55–09:22UTC
+is conservatively six active minutes, with brief command waits excluded; prior
+implementation/review effort remains charged and exact historical effort is not
+invented. Source is held for the SAME reviewer's narrow follow-up. Only after its
+acceptance may Sol execute ONE affected composed selection and then the exact
+frozen SAME100 alone. Original four-hour/hard-stop/cap/funding/deadline conditions
+remain; no scope growth, Git, CI, installer or merge is authorized at this point.
+
+#### October21 scoped review accepted — frozen composed selection before SAME100
+
+The SAME reviewer accepts both P2 corrections with no introduced material issue;
+follow-up09:22:41–09:22:45UTC (4s active). The scoped critical-review gate is now
+COMPLETE on the exact corrected production/test source. Earlier review effort and
+the initial interval's uncertainty remain charged. Trusted09:23:20UTC quota25%
+weekly used, ordinary allowed (entry18%, previous24% retained), shared/coarse only.
+This is scoped review acceptance, not K3/100 qualification or release acceptance.
+
+Prospectively freeze ONE coherent affected composed regression covering reference
+integrity/work budgets, original epoch/constraint rules, writer intent/compatibility,
+relay and issuer owner/replay/restore, observer reopen/replay/pages/restore, actual
+v3 retained proofs and the protected two-handoff/operator/process-death path.
+The existing older `through100` issuer pooled-recovery case is excluded; its long
+independent qualification is not repeated here. SAME100 stays disabled in this
+composed run. Selection/command is preserved in
+`/tmp/witness-handoff-references-composed-selection.json` and
+`/tmp/witness-handoff-references-composed-command.txt`; output goes only to
+`/tmp/witness-handoff-references-composed.log`. Exact frozen command:
+
+```sh
+npx vitest run --maxWorkers=1 packages/relay/src/__tests__/admission-original-references.test.ts packages/relay/src/__tests__/original-reference-work-budget.test.ts packages/relay/src/__tests__/history-checkpoint-quorum.test.ts packages/relay/src/__tests__/history-retained-writer.test.ts packages/relay/src/__tests__/protected-admission-history.test.ts packages/relay/src/__tests__/protected-issuer-history.test.ts packages/relay/src/__tests__/protected-admission-roles.test.ts packages/relay/src/__tests__/admission-history-restore.test.ts packages/relay/src/__tests__/policy-observer-history-replay.test.ts packages/relay/src/__tests__/policy-observer-history-restore.integration.test.ts packages/relay/src/__tests__/protected-policy-observer.integration.test.ts packages/relay/src/__tests__/witness-handoff-epoch.test.ts packages/node/src/__tests__/admission-issuer-history-replay.test.ts packages/node/src/__tests__/protected-issuer-restore.integration.test.ts packages/node/src/__tests__/protected-admission-consumers-v3.integration.test.ts packages/node/src/__tests__/protected-witness-handoff.integration.test.ts -t '^(?!.*through100).*'
+```
+
+Before execution verify all reviewed production/test/script hashes and freeze the
+complete selection's source/config identity in
+`/tmp/witness-handoff-references-qualification-manifest.sha256`. No production,
+test, schedule, seed, assertion, capacity or timing edit follows review. A composed
+substantive failure first receives exact preservation, minimum cause and the
+existing stop-policy assessment; no qualification or adaptation follows it.
+
+After a clean composed result ONLY, execute the exact pre-existing frozen SAME100
+command alone, without concurrent builds/tests:
+`RESONANCE_HANDOFF_QUALIFY_100=1 npx vitest run --maxWorkers=1 packages/node/src/__tests__/protected-witness-handoff.integration.test.ts -t frozen100`
+with distinct `/tmp/witness-handoff-100-references-2026-10-21.log` and the already
+absent `/tmp/witness-handoff-100-references-2026-10-21.jsonl`. Preserve denominator100,
+seed `v04-same-key-handoff-100-2026-10-20`, original issued rights/reservations,
+schedule/assertions, real3s drains,3s live/30s offline deadlines,900,000ms harness,
+same6MiB replicas/2GiB single campaign authority, all owner/writer/wallet limits
+and complete originals/no refunds. No smaller preflight campaign or changed
+authority within the campaign. Earlier0/100 and3/100 failures stay preserved;
+the read-only representation diagnostic is not qualification. Any substantive
+SAME100 failure is preserved/assessed before source edits or a rerun. Original
+four aggregate active-hour budget and11:45UTC hard stop remain, without reset.
+
+ONE composed selection completed cleanly: **263 passed/2 intentional skips,
+16 files,387.54s** (382.87s test time),
+`/tmp/witness-handoff-references-composed.log`. The skips are the disabled SAME100
+and the explicitly excluded older issuer pooled100 case. Real protected handoff,
+operator/CLI, lost reply/process death and retained legacy/v3 recovery paths pass
+within this affected selection. This is regression evidence, not100 qualification.
+Known test waiting is excluded from active effort. No source changed during or
+after the selection. Read-only process inventory immediately before qualification
+found no running Vitest/tsc/tsx build/test process; no other build/test is launched.
+
+Proceed prospectively with the exact isolated SAME100 invocation above, with
+fixed900,000ms test bound and unchanged full original assertions. Recheck absent
+new log/transcript and all reviewed source hashes, then preserve the final
+pre-campaign identity in
+`/tmp/witness-handoff-references-100-source-manifest.sha256` (the earlier composed
+manifest remains intact). No additional smoke/preflight campaign, build, sample
+or resource change. On a substantive failure retain the authority, complete current
+prefixes, pending state and distinct logs before its minimum read-only diagnosis
+and existing stop assessment; no source edits or rerun precede that assessment.
+
+#### October21 reference SAME100 — 5/100 resource refusal; candidate stopped
+
+The exact isolated command above ran once on the frozen63-entry source identity
+`/tmp/witness-handoff-references-100-source-manifest.sha256`, SHA256
+`a8a2a1350bab99e16e66db56ceacb11d9a1ecf400af42e19449b456f2b519fd1`.
+Scoped review acceptance and the263-pass composed result remain valid evidence
+for that source; they do not qualify this failed campaign. No source, fixture,
+assertion, seed, denominator, limit or timeout changed after review. The actual
+SAME100 result is **5/100 completed**, trial6 started, then
+`Archive limit exhausted: maxPageReads`. Vitest exits1,138.21s test/139.48s total,
+09:35:22–09:37:41UTC. The900,000ms harness bound was unchanged. The distinct log
+is `/tmp/witness-handoff-100-references-2026-10-21.log`, transcript
+`/tmp/witness-handoff-100-references-2026-10-21.jsonl`. Earlier0/100 and3/100
+failures remain separately preserved; passing the earlier trial4 capacity point
+is an improvement in storage, not the required100-transition qualification.
+
+Five completed transitions retain the same issued issuer baseline checks. Trial5
+ends at revision6 with33 original blocks/195,963 ciphertext bytes in the reported
+history; cycle-after-seal29,679.113ms. Campaign issuerCounterChecks=5,
+originalEvidenceChecks=0 and certifiedBindingChecks=0: the latter scheduled checks
+start later and were NOT reached. Scheduled10/25/75 faults, >64 ancestry and the
+full100 final assertions were NOT reached. This result cannot claim their coverage,
+full original/funding qualification through100, or K3 completion. The separate
+composed regression covers its selected recovery/fault cases only.
+
+Before diagnosis, preserve the actual2112 owner/replica/authority files under
+`/var/folders/gb/yrv4v_5d64lbdv2ngllxrqdm0000gn/T/same-rsa-handoff-SxEFiB` and
+`/var/folders/gb/yrv4v_5d64lbdv2ngllxrqdm0000gn/T/handoff-100-funding-xVpkuz`.
+`/tmp/witness-handoff-100-references-failed-artifacts.sha256` has SHA256
+`55a7c6979b354053e2b94140d06ed39afe8c3af570f3ec8e7daac53221e43baf`;
+`/tmp/witness-handoff-100-references-failed-preservation.json` and
+`/tmp/witness-handoff-100-references-failed-evidence.sha256` preserve the receipt,
+source and logs. Actual final retained file bytes14,426,643 across the fixture and
+authority are a post-failure file measurement, NOT a measured temporary/staging
+peak or proof of all100 capacity. Authority revision306,306 components, reserved
+1,872,440,429/2,147,483,648 bytes, available275,043,219, control2,105,344;
+zero adoptions/refunds. No owner allocations, originals or ciphertext were removed.
+All63 pre-campaign source entries still matched before documentation changes.
+
+Minimum diagnosis is read-only on the retained authenticated witness5/r0 prefix:
+`/tmp/witness-handoff-100-references-read-budget-repro.{mts,jsonl}` and the distinct
+counted version `/tmp/witness-handoff-100-references-read-budget-counted.{mts,jsonl}`.
+They open no owner/writer/authority, send no network requests, sign nothing and
+perform no writer retry or campaign rerun. All four old owners5–8 are durably
+OLD_FENCED at policy revision6, without pending records; owner5 applied sequence34,
+others26. Replaying owner5's35 unique signed/encrypted envelopes (204,784B), with
+the same original parsers/codec/reducer/proof reader and offline30s operation,
+refuses at original sequence31 `authorized-spend`,31 originals reduced.
+
+The precise limit is `maxPageReads=1000`. The proof source is traversed82 times
+and yields1001 actual ciphertext envelopes;1000 reads are charged, and the next
+1001st correctly refuses. Thus this is actual repeated prefix authentication/
+decode work, not an extra accounting charge or test construction error. The
+production freeze verifier uses `source = () => value.blocks`: these are in-memory
+transferred ciphertext envelopes, NOT1001 filesystem reads. The diagnostic loads
+the35 block files once. Repeated source bytes6,306,414; budget history bytes
+7,380,825 additionally include existing semantic snapshot charges. Transitions
+89/128, reconstruction work49,090,504/268,435,456B, dictionary120,835B,
+~1.52s/30s, so no raised allowance or timeout is necessary to reproduce refusal.
+
+Call path: `verifyFrozenHistory` -> `parseAdmissionHistoryImage`/
+`reduceAdmissionHistory` -> `validateAdmissionPolicyHistoryImage` ->
+`proof.matches`/`resolve` -> `readGenesis` and `advances` -> `images` ->
+`AdmissionPolicyArchiveBudget.charge(maxPageReads,1)`. Offline verification
+intentionally has no current/pending live proof cache. Revalidating successive
+original business records repeatedly scans the immutable prefix from genesis.
+The failure stack in the actual campaign and the retained-state reproduction
+agree. The counter remains cumulative and correctly charges real work.
+
+**Stop assessment:** existing acceptance stop condition1 applies to this resource
+realization: a reproducible bounded-read counterexample invalidates it. This
+establishes neither unsafe authorization nor protocol-wide impossibility. It is
+not a mechanical counter correction. Avoiding the real repeated work requires
+a replay/proof progress reuse algorithm and an explicit bounded contract for its
+semantic validation; resetting counters, raising1000, adding a cache without its
+contract, or spending remaining allowance on another representation is not an
+authorized continuation. The concrete owner decision is whether to authorize unproven authenticated
+proof-progress reuse within the SAME operation/replay, with unchanged signatures,
+original evidence, counters and caps, bounded to the unused portion of the
+ORIGINAL four aggregate active-hour ceiling (no reset or new quota), ONE scoped
+algorithm review and then SAME100; or stop/suspend this approach. No such implementation, source edit or campaign retry follows this
+failure. K3 remains OPEN; the candidate is **UNACCEPTED/STOPPED**. Distribution
+and independent-operator gaps remain separate. Semantic compaction condition4
+STOPPED and historical-retirement SUSPENDED remain untouched.
+
+Effort checkpoint: same original08:03:09 entry/four aggregate active-hour ceiling
+and conservative11:45UTC hard stop, with prior efforts/unknown historical hours
+retained. Known387.54s composed and139.48s campaign command waits are excluded;
+read-only preservation/diagnosis and documentation have an observed clock
+checkpoint09:49:11UTC after their09:38 start;13 active minutes is a conservative
+upper bound through closing, not a completed future interval, and includes
+incidental tool waits. Known earlier Sol bounds32min and P2 correction6min remain;
+these incomplete subtotals do not establish an aggregate remainder. Exact aggregate active
+minutes are unavailable; remaining wall margin is not new authorization. Trusted closing shared weekly quota09:48:11UTC27% used/ordinary allowed
+(entry18%, previous24/25% and earlier checkpoints retained), coarse/shared with
+no per-model attribution. Any next work must reserve only provably available unused
+allowance under the ORIGINAL four-hour ceiling, never assume a fresh four hours.
+ONE original reviewer: initial platform classification interruption, subsequent
+normal completed review and accepted P2 follow-up. The interruption was not an
+automatic approval-review denial; the pending-reference inspection suspicion was
+never an established finding. No new review or suspended investigation is opened.
+Final preservation/attempt source/patch receipt is
+`/tmp/witness-handoff-references-final-stop-manifest.json`; previous manifests and
+source copies are retained. No commit, push, CI, installer or merge was performed.
+
+
+#### October21 owner-authorized same-replay proof progress — frozen contract
+
+The owner now authorizes ONE algorithm correction under the SAME
+B-HISTORY-LIFECYCLE/K3 block: authenticated immutable proof progress within one
+operation/replay, then ONE scoped critical algorithm review, one affected composed
+regression and the exact SAME100. Prior0/100,3/100 and5/100 failures and their
+originals/manifests remain intact; none of their counters, funding or effort reset.
+Baseline source is copied to `/tmp/witness-handoff-proof-reuse-baseline/`, with
+`/tmp/witness-handoff-proof-reuse-baseline.sha256`.
+
+Concrete result: the retained35-block trial6 prefix must fully reduce under the
+unchanged1000 actual-read budget because repeated encrypted proof-prefix decoding
+is eliminated. A replay-owned source captures exact complete envelope/context/key
+inputs before awaits, authenticates/decrypts and reconstructs every original proof
+record once under the existing operation budget, retaining ONLY bounded original
+proof append/reference metadata and at most current/previous resolved capabilities
+and membership results. No unverified digest confers proof trust. Every full
+business record and final selected chain/fence still receives its existing semantic
+checks; fresh decisions retain their existing role/signature/freshness checks.
+Exact source/context/key scope, missing/corrupt/conflicting tails, caller mutation,
+new operations and cancellation are distinguishing tests. The immutable replay
+source cannot be silently extended or replaced. Retained rows <=10001 and retained
+metadata/ciphertext bytes <= the existing256MiB/history byte ceiling; dictionaries
+and reconstruction still obey their existing256MiB bound. Every actual new
+read/decode/expanded work is charged monotonically; hits avoid work, never refund
+or reset accounts. Replay-local state is released on completion/failure.
+
+No limit, deadline, trust, evidence, storage, funding, owner/wallet allowance or
+schedule change; no original omission/deletion or semantic compaction. Historical
+retirement remains SUSPENDED. Start09:57UTC; implementation/focused/freeze target
+<=25 active minutes. The09:56:20UTC ledger conservatively bounds all prior relevant
+turn lifetimes (including idle) at178m55s, leaving61m05s of the ORIGINAL4h; this
+correction reserves MAX45 aggregate active minutes INCLUDING parent/review/tests/
+docs, with parent coordination charged separately before the checkpoint. It is
+not a fresh budget. Known idle command waits alone may be excluded prospectively.
+The11:45UTC hard stop remains. Trusted entry27% weekly/ordinary allowed, shared
+and coarse; earlier18% entry remains visible. Any substantive failure is preserved
+and classified before adaptation or another campaign. No Git/push/CI/installers/
+merge before a viable reviewed/qualified result.
+
+
+#### October21 proof-progress correction ready for ONE scoped algorithm review
+
+The replay helper snapshots an exact immutable ciphertext prefix/context/key before
+awaiting, binds its source and two-head/membership maps to the same operation and
+unchanged funding budget, authenticates and reconstructs every proof-source block
+once, and retains only original parsed proof reference/append metadata. Core still
+authenticates each newly resolved signed policy/advance and each actual archive
+page. Per-record business replay, exact original chain, final head/fence and role/
+freshness checks remain mandatory. The helper is used by the actual frozen relay
+witness verification and complete protected issuer replay; ordinary mutable live
+readers and observer readers retain their existing behavior. No general mutable
+source is assumed immutable. Every helper is released in its replay's finally.
+Ciphertext snapshots plus metadata share a256MiB retained ceiling, each metadata
+list has at most10001 corresponding original rows and its existing history-byte
+ceiling. Reconstruction dictionaries and all actual new work retain their original
+bounds. Cached pages are copied to callers; no capability is reconstructed from a
+digest. Source/context/key/operation, budget-object or funding replacement refuses.
+
+The SAME retained35-block trial6 source now fully reduces: **35/35 originals**,
+**35 actual proof envelope reads/1000**, one source traversal,5 signed advances,
+262,643 charged history bytes and4,298,224 expanded-work bytes. The independently
+loaded source remains35 files/204,784 ciphertext bytes, unchanged. Read-only
+script `/tmp/witness-handoff-proof-reuse-prefix.mts` and final output
+`/tmp/witness-handoff-proof-reuse-prefix-final.jsonl` show712ms/30s. This removes
+real repeated authentication/decode work; no counter is reset or waived. This is
+a distinguishing retained-prefix check, not a smaller campaign or100 qualification.
+
+Focused changed-path checks pass **47/47 selected across5 files**, with the older
+issuer pooled100 deliberately filtered; final log
+`/tmp/witness-handoff-proof-reuse-focused-bounded-final.log` (2.38s). Six new
+algorithm checks cover single-pass actual-read charging, immutable inputs and
+returned-page isolation, corrupt tail before early page publication, exact scope/
+new operations/funding/budget replacement, cancellation/release and missing pages/
+unchanged cap refusal. The actual protected two-handoff/operator/process-death
+regression passes **1/1 selected**,54.90s test/56.05s total, including new correctly
+owner-signed missing-middle/missing-tail refusals after a successful prior replay
+and successful reuse of the unchanged originals in a new operation. Log
+`/tmp/witness-handoff-proof-reuse-protected-focused-allowed.log`; SAME100 remains
+disabled. The initial attempt could not bind localhost inside the sandbox
+(`EPERM`), preserved separately in `...protected-focused.log`; the authorized
+localhost rerun succeeded. An earlier unit fixture constructed an already-expired
+context outside its expectation; its preserved `...focused.log` reports1/17
+fixture failure, corrected before final checks. No substantive protocol/campaign
+failure occurred. Forced workspace `npx tsc -b --force --pretty false` exits0,
+`/tmp/witness-handoff-proof-reuse-build-final.log`.
+
+The SAME100 body/seed/100 denominator/faults/assertions/900s harness/3s live/30s
+offline/6MiB replicas/2GiB one authority remain identical. Only its output namespace
+changes to `/tmp/witness-handoff-100-proof-reuse-2026-10-21.jsonl`; the transcript is
+absent and the future log will be distinct. No composed group or campaign runs
+before ONE scoped algorithm acceptance on this frozen source. The narrow delta,
+full source manifest/copy and section receipt are `/tmp/witness-handoff-proof-reuse-`
+`pre-review.patch`, `candidate-manifest.sha256`, `candidate-source/`, `scope.json`.
+Earlier failed candidate source/manifests remain preserved.
+
+Actual execution: one Sol agent, inherited explicit GPT-6.1 Sol/medium; no agents
+spawned.09:57–10:11UTC is conservatively charged as14 active minutes INCLUDING
+incidental waits and the56s focused command, rather than claiming a precise lower
+active total. Parent/review remain separately chargeable. This is within the25min
+implementation target and MAX45 aggregate new-work reservation under the ORIGINAL
+4h ceiling; neither quota nor prior unknown hours reset. Trusted10:08:54UTC usage
+remains27% weekly/ordinary allowed, shared/coarse, versus original18%. K3 remains
+OPEN and candidate UNACCEPTED pending scoped review/composed/SAME100.
+
+
+#### October21 proof-progress algorithm review accepted — qualification frozen
+
+ONE scoped Astra/high review accepted the exact64-entry candidate with no material
+finding,10:12:09–10:13:51UTC (102s active). The reviewer verified immutable source/
+operation/key ownership, authenticated capabilities, original signatures/successor
+checks, complete main replay/tails, counters/bounds/cancellation and all hashes.
+No production/test source changes follow acceptance. This is algorithm acceptance,
+not K3 qualification. Trusted parent checkpoint10:14:27UTC28% weekly/ordinary
+allowed, shared/coarse (original18%; correction27%).
+
+Freeze ONE affected composed selection in
+`/tmp/witness-handoff-proof-reuse-composed-selection.json` and exact command in
+`/tmp/witness-handoff-proof-reuse-composed-command.txt`, nine files covering changed
+proof helper/frozen verifier/issuer replay and actual relay/issuer v3 reopen, restore,
+role/image semantics and operator/process-death. Exclude the older independent
+issuer through100; SAME100 remains disabled. Unchanged observer/writer/quorum
+suites are not repeated. Output `/tmp/witness-handoff-proof-reuse-composed.log`.
+
+Only after that passes, run the exact isolated SAME100 command:
+`RESONANCE_HANDOFF_QUALIFY_100=1 npx vitest run --maxWorkers=1 packages/node/src/__tests__/protected-witness-handoff.integration.test.ts -t frozen100`
+with log `/tmp/witness-handoff-100-proof-reuse-2026-10-21.log` and distinct absent
+transcript `/tmp/witness-handoff-100-proof-reuse-2026-10-21.jsonl`. Full body after
+`it.skipIf(!qualification100)` is byte-identical to the prior campaign source.
+No smaller campaign probe, tuning, limit/denominator/fault/seed/assertion/deadline/
+funding change or simultaneous host build/test. Any substantive failure is retained
+with original owners/replicas/authority/trace before minimum read-only diagnosis
+and stop assessment; no adaptation/rerun. No Git/CI/installers/merge before viability.
+
+Budget checkpoint10:14:27UTC: original2700s correction reservation has1419s
+(23m39s) unused after parent339s, Sol840s and review102s; this remains within the
+ORIGINAL4h ceiling, no reset. Sol qualification/closing interval resumes10:15UTC.
+Actual command waiting will be excluded prospectively only while idle; parent/docs
+remain charged separately.11:45UTC hard stop remains.
+
+
+#### October21 proof-progress SAME100 —16/100, outer harness timeout; unaccepted
+
+ONE affected composed selection passed **115 tests/2 intentional skips in9 files**,
+252.58s total/249.90s test, `/tmp/witness-handoff-proof-reuse-composed.log`. The skips
+are SAME100 disabled and the deliberately excluded older issuer pooled100. All64
+frozen source/config hashes matched after that run; read-only process inventory
+found no Vitest/tsc/tsx workload. No production/test change followed the accepted
+algorithm review. Exact pre-campaign manifest
+`/tmp/witness-handoff-proof-reuse-100-source-manifest.sha256`, SHA256
+`5939799a0795fbcee536e977482e769935cbbeb5f52d5c8768abe2b689dbb98e`,
+remains distinct from prior manifests.
+
+The exact isolated SAME100 command ran once, with unchanged body/seed/100 target,
+faults/assertions,900,000ms harness,3s live/30s offline,6MiB replicas,2GiB single
+authority and all prior rights/allocations/original evidence. It completed
+**16/100 transitions**, trial17 started and drained, then Vitest reported
+**`Test timed out in900000ms`** (902.785s test/903.95s total),10:20:27–10:35:31UTC.
+The distinct output is `/tmp/witness-handoff-100-proof-reuse-2026-10-21.log` and
+`/tmp/witness-handoff-100-proof-reuse-2026-10-21.jsonl`. There is no campaign-complete
+or campaign-failed record: the outer harness interrupted before the campaign's
+catch could report a protocol error. The Vitest log, complete transcript and durable
+state are retained; absence of the catch row does not erase the failed result.
+
+**Minimum cause and limits:** this is the unchanged OUTER900s campaign harness,
+not an observed3s live/30s reconstruction deadline, maxPageReads refusal, signature
+failure or storage/funding exhaustion. Timing is observed, not extrapolated to100:
+cycle-after-seal grows from10,668ms at trial1 to25,032ms at6,45,265ms at10 and
+89,274ms at16. The exact internal CPU/work attribution is UNESTABLISHED; no profile,
+new implementation, timeout edit or campaign rerun follows. Harness expiry alone
+is neither a safety finding nor proof of a structural/protocol impossibility.
+The earlier read-amplification refusal is removed on its distinguishing retained
+prefix, and campaign progress beyond5 is observed; neither fact establishes100
+qualification or acceptable full-lifecycle timing.
+
+After first preserving files, a minimum read-only encrypted-state assessment
+`/tmp/witness-handoff-proof-reuse-timeout-state.{mjs,jsonl}` confirms timeout during
+successor installation: old owners1–4 at revision17/OLD_FENCED; new5/6 at policy
+revision16/NEW_READY for predecessor17; new7/8 still OLD_FENCED for predecessor16.
+All eight local states have no pending envelope. Trial17 did not activate and is
+NOT completed. This reads bytes directly without opening an owner/writer/authority,
+networking, signing or changing state. Prior0/100,3/100 and5/100 failures remain.
+
+Reached evidence: issuerCounterChecks16; same-key/profile/cutoff and reserved-wallet
+checks run for the16 completed trials, including partial/split constraints. Trial10
+lost-reply, observer seal/reopen and old-witness refusal path completed. NOT reached:
+25/75 process death,50 original-certificate binding,51+ preservation checks,>64
+ancestry, fresh-token checkpoints64/100, final cutoffs and full100 assertions.
+originalEvidenceChecks0 and certifiedBindingChecks0 are expected before those
+scheduled later checks and provide NO coverage claim. The composed regression
+separately exercises its selected actual process-death/restore scenarios.
+
+Last completed history has89 original blocks/594,653 ciphertext bytes, within its
+reported4MiB history cap. This is one reported history, not an all-replica measured
+peak. Last funded status remains authority revision306,306 components, reserved
+1,872,439,873/2,147,483,648 bytes, available275,043,775, control2,105,344, zero
+adoptions/refunds. Direct read-only reservations.json confirms revision306,306
+allocations totaling1,870,334,529 maximumBytes plus the reported control charge and
+zero adoptions. Funding headroom never authorizes a changed local or time cap.
+
+**Preservation before diagnosis:** all5003 owner/replica/authority files remain in
+`/var/folders/gb/yrv4v_5d64lbdv2ngllxrqdm0000gn/T/same-rsa-handoff-QyUoms` and
+`/var/folders/gb/yrv4v_5d64lbdv2ngllxrqdm0000gn/T/handoff-100-funding-N6wwSH`,
+with a byte copy `/tmp/witness-handoff-100-proof-reuse-failed-retained/`. Measured
+retained file bytes41,324,082 are NOT a temporary/staging or all100 peak. Artifact
+manifest `/tmp/witness-handoff-100-proof-reuse-failed-artifacts.sha256`, SHA256
+`6e0340859c22c31588882d65e38d8b5ebde484e93d10edd51a62e926ceb6c5f8`; receipt
+`/tmp/witness-handoff-100-proof-reuse-failed-preservation.json` includes source,
+log and transcript hashes. Exact64-entry failed source copy is
+`/tmp/witness-handoff-proof-reuse-failed-source/`. No original, counter, allocation,
+reservation or complete evidence record was removed/refunded.
+
+**Integration/stop decision:** candidate remains **UNACCEPTED/STOPPED**, K3 OPEN.
+The scoped algorithm review/build/regression evidence stands; the frozen100 gate
+failed. No acceptance, commit, push, CI, installer or merge follows. The current
+remaining gate is100 completed transitions under the SAME original envelope, with
+all unreached faults/original/counter/cutoff assertions and complete funded retained
+evidence. Broader distribution/independent-operator gaps remain separate. This
+authorization allowed ONE correction and SAME100, not iterative timing tuning.
+The next concrete owner decision is to suspend this candidate or authorize a
+specific further evidence question within any proven ORIGINAL remainder; no next
+algorithm or completion estimate is assumed. Changing a timer/resource/trust limit
+would separately invoke stop condition4; it is not authorized by spare quota/time.
+Prior stop-policy alternatives, semantic compaction condition4 STOPPED and
+historical-retirement SUSPENDED remain visible, with no count/budget reset.
+
+**Effort/usage:** Sol implementation was conservatively14 active minutes; the
+ONE review102s and parent339s were already charged at10:14:27UTC, leaving1419s
+of the ORIGINAL2700s correction reservation. Sol additional qualification/closing
+10:15–10:40UTC is conservatively charged10 active minutes: >=922s of actually
+awaited idle command tools are excluded (composed189s, campaign733s); all other
+between-call time/docs is charged, rather than subtracting whole test durations.
+Parent activity remains separately chargeable. Original4h ceiling and11:45UTC
+hard stop remain, with no reset and prior unknown history retained. Trusted closing
+10:36:56UTC usage29% weekly/ordinary allowed (original18%, correction27%, review28%),
+shared/coarse with no model-specific attribution. Final stop manifest/patch receipt
+is `/tmp/witness-handoff-proof-reuse-final-stop-manifest.json`.
+
+
+#### October21 single read-only retained-prefix CPU diagnostic — no rerun
+
+After the preserved16/100 timeout, the parent authorized exactly ONE ordinary
+read-only CPU profile of the existing final retained prefix, with a3-active-minute
+preparation/assessment cap. No writer/network/authority open, implementation edit,
+timer change, new campaign or parameter search. The distinct script
+`/tmp/witness-handoff-proof-reuse-final-prefix-profile.mts` replays the retained
+witness1/r0 original prefix under its unchanged30s reconstruction budget.
+
+It fully reduces **91/91 originals**,91 actual proof reads/1000, one source pass,
+16 signed advances,789,319 charged history bytes and28,329,176 expanded-work bytes,
+**4,870ms/30s**. Output `...final-prefix-profile.jsonl`; CPU artifact
+`/tmp/witness-handoff-proof-reuse-final-prefix.cpuprofile`; compact top-functions
+summary `/tmp/witness-handoff-proof-reuse-final-prefix-profile-summary.json`.
+Of5,221.54ms sampled self time (including loader/GC), Node crypto `verifyOneShot`
+accounts for2,939.42ms/**56.29%**, `structuredClone`261.70ms/5.01%, handoff-proposal
+parsing134.46ms/2.58%, JSON parsing104.88ms/2.01%, GC66.58ms/1.28%. This identifies
+signature verification as the dominant sampled work in THIS retained-prefix replay;
+it does not establish whole-campaign attribution, authorize skipping signatures,
+predict100 completion or change the failed qualification result. No further profile
+or implementation follows. Any future evidence question must start from these
+observations and the original remaining budget, rather than a guessed algorithm.
+
+Conservatively charge an additional THREE active minutes10:40–10:43UTC (including
+this closing addendum), within the3min diagnostic cap; the preceding qualification/
+closing upper bound remains10min. Parent time remains separately chargeable. The
+pre-diagnostic final stop manifest/source manifest/patch are retained with
+`.before-profile` names; the final receipt includes this extra evidence. The same
+UNACCEPTED/STOPPED status, original limits/budget/quota and no-Git/CI decision stand.
+
+
+### October21 owner-approved extended SAME100 — historical launch receipt
+
+The owner explicitly approved exactly ONE unattended100-transition run, extending
+only the OUTER harness window from900000ms to28800000ms (8h). The prior16/100
+outer-timeout result and all original sources/runs remain preserved. Production3s
+live/30s reconstruction,6MiB replica/2GiB authority, seed, signatures, original
+evidence, counters, fault schedule and all100-body assertions remain unchanged.
+The harness diff contains only the outer literal and distinct transcript path;
+mechanical reversal reproduces the original complete file byte-for-byte and the
+100-test body hash is identical. No implementation, broad test/review or rerun.
+
+Started2026-10-21T11:29:18.324656Z; watchdog cutoff2026-10-21T19:29:18.324656Z,
+with at most15s bounded process cleanup plus3s caffeinate shutdown. Runner33989,
+owned child process group34000, scoped caffeinate34001. No competing Vitest/tsc
+workload at preflight. Detached runner survives terminal/chat closure; watchdog
+signals only the owned test group and distinguishes watchdog expiry from test
+failure. Fixtures preserve originals on all outcomes. Exit status alone is not
+K3/product acceptance; all100 assertions and retained/funded evidence need assessment.
+
+Exact command in `/Users/marcos/Documents/Codex/2026-09-15/i-x20/resonance-v04`:
+`RESONANCE_HANDOFF_QUALIFY_100=1 npx vitest run --maxWorkers=1 packages/node/src/__tests__/protected-witness-handoff.integration.test.ts -t frozen100`.
+Run directory `/tmp/resonance-long100-2026-10-21/`: `status.json` (atomic0600),
+`run-manifest.json` (environment/command/hashes), `source-manifest.sha256`,
+`prelaunch-source-checks.json`, `harness.before.ts`, `harness.after.ts`,
+`harness.diff`, `runner.py`, `runner.log`, `vitest.log`, `campaign.jsonl` and
+`process-preflight.txt`. Prior source manifest SHA256 remains
+`355285beb4195106b8ed3e3607b1a6f3a478ef0ba0d19124f1752ac61bb9c500`;
+all non-document sources matched before the two harness literal edits. Current
+frozen source-manifest SHA256 is `49f547f9fc17ca0174e9bda126b0da54f0cf64a03631b6134620ceaee470203a` (before this documentation addendum).
+
+Same ORIGINAL four aggregate active-hour ceiling and ledger
+`/tmp/witness-handoff-proof-reuse-budget-ledger.json`; no fresh allowance/quota.
+Conservatively charge six active minutes for this runner/harness/documentation
+preparation; parent coordination and later evaluation charge remaining ORIGINAL
+allowance separately. Owner explicitly permits this one test's unattended execution
+up to8h beyond the old11:45UTC conservative substantive-work guard; idle waiting
+is excluded. Usage query unavailable; last trusted29% weekly/ordinary allowed,
+coarse/shared. No Git/push/CI/installers/merge or further algorithm authorized.
+
+
+### October21 extended SAME100 result — STOPPED / UNACCEPTED, 21/100
+
+The one authorized extended run finished at 2026-10-21T11:55:38.147310Z
+(13:55:38 Madrid), exit 1, after 1579.12s total. It completed 21/100
+transitions and failed during trial22 in prepareProtectedWitnessTransfer at its
+final operation.check, after history verification/merge. That operation has a
+30000ms offline reconstruction deadline; this call supplies no cancellation
+signal. Error: `Archive operation cancelled or timed out`. The outer eight-hour
+watchdog did NOT expire. Extending the harness resolved the earlier measurement
+window limitation but did not qualify the candidate within its internal contract.
+
+Trial21 cycle-after-seal was 137946ms; this is not the emergency-distribution
+p95 metric. issuerCounterChecks=21; originalEvidenceChecks=0;
+certifiedBindingChecks=0. Trial10/20 lost-reply/restart paths completed; trial25/75
+SIGKILL, trial50/51+ certificate/original-binding checks, >64 ancestry and final100
+assertions were not reached. No unsafe authorization is evidenced by this failure;
+unreached assertions remain unproven. Funding reserved1872439317/2147483648 bytes,
+available275044331, 306 components, zero adoptions; no funding refusal observed.
+
+Original fixture files remain in place. File inventory, sizes and SHA256 hashes:
+`/tmp/resonance-long100-2026-10-21/assessment-retained-manifest.json`.
+Status, exact candidate, transcript and output remain in the same run directory.
+No production edit, weaker assertion, increased internal limit, rerun or new
+optimization. K3 remains OPEN and this candidate STOPPED/UNACCEPTED. Any further
+implementation needs a concrete decision against the existing blocker/resource
+record; neither this timeout nor a new subtask resets prior alternatives/budgets.
+The scheduled evening follow-up was removed because the result is assessed now.
+Assessment charged at most three active minutes within the ORIGINAL four-hour
+aggregate allowance; no additional budget is authorized or inferred.
+
+
+### October21 trial22 exact-operation diagnostic — prerequisite missing
+
+Read-only inspection (at most two active minutes, charged to the original four-hour aggregate allowance) identifies the minimum missing input for exact failed-operation profiling: the four original signed freeze reports for witnesses5–8. The harness creates these in the local `frozen` array; `freezeProtectedWitness` signs its returned report after persisting OLD_FENCED, and the failed prepare call never returns its manifest. The campaign transcript retains epochs, not those reports. Retained histories support reconstructing proposal/blocks but do not by themselves establish retention of the ephemeral report signatures. No exhaustive encrypted-payload search was performed.
+
+No exact-operation measurement was run within this bounded inspection. Reconstructing deterministic fixture reports is within the owner-authorized diagnostic scope if originals remain unchanged; it must be labeled reconstructed input, not a captured original call. No additional owner permission is needed merely to compute fixture signatures. The earlier single-prefix profile is not full-operation attribution. Stage times and unique-versus-repeat work remain unknown. Minimum next step: recover the four original report objects from a separately retained call snapshot, if one exists; otherwise reconstruct fixture inputs and identify them honestly; any further effort still requires verified allowance under the original aggregate budget. No source, trust, limit or candidate acceptance changed. Compact receipt, source SHA256s and excerpts: `/tmp/resonance-long100-2026-10-21/diagnostic22/`. Entry shared weekly usage37%; no per-agent cost inferred.
+
+Reports contain no timestamp/fresh nonce. Given the exact proposal, ordered retained prefix and fixture signing key, deterministic Ed25519 signing can reconstruct them; no signing or byte-identity check occurred here. This is a missing exact-call capture, not evidence that history analysis or the design is infeasible. The minimum later assay is ONE reconstructed four-history prepare call with temporary stage instrumentation and the genuine30s deadline, explicitly identifying regenerated input reports and retaining input/source hashes. No campaign is needed.
+
+
+## STOPPED / UNACCEPTED — October22 signature-reuse SAME100 result:26/100
+
+The single authorized campaign ended2026-10-21T15:22:29.582336UTC
+(17:22:29Madrid), exit1, duration1307.52s (~21m48s). It completed26/100
+transitions and failed in trial27 `prepareProtectedWitnessTransfer`, while
+`verifyFrozenHistory` decoded original references. Refusal:
+`Original reference reconstruction exceeds cumulative capacity` at
+`admission-original-references.ts:25,124`. The configured cumulative expanded-work
+allowance is256MiB per operation, shared across reconstruction. This is NOT a
+physical replica/authority disk-full result, a30s timeout or the outer8h watchdog.
+Exact used/next-charge bytes were not instrumented and remain unknown; no limit
+was raised or counter reset. Signature reuse moved the observed campaign frontier
+from21 to26, but did not qualify100 or establish long-term scalability.
+
+Trial25 SIGKILL/restart path and trial10/20 lost-reply/restart paths completed.
+Trial26 cycle-after-seal84994.89ms is not emergency-update distribution p95.
+issuerCounterChecks26; originalEvidenceChecks0; certifiedBindingChecks0.
+Trial50 hidden certificate,51+ original binding checks,75 process death,>64
+ancestry and final100/cutoff assertions remain unreached. No unsafe authorization
+is evidenced by this refusal; unexecuted checks remain unproven. Funding reserved
+1872439873/2147483648B, available275043775B,306 components, zero adoptions; no
+funding refusal observed. Sampled owned test-process-group RSS maximum1300560KiB
+(~1.24GiB),261 five-second samples; not continuous peak or product K7 qualification.
+
+All ten final candidate source/test hashes still match. Retained originals remain
+in place with inventory, sizes, SHA256 and source/log/transcript/status hashes in
+`/tmp/resonance-signature-reuse-2026-10-21/qualification100/completion-assessment.json`.
+Inventory contains7544 retained files/66221295B. Shared weekly usage at assessment42% (block entry39%, launch40%); ordinary usage allowed. These coarse shared observations do not attribute cost to this run or a model.
+No code changes, new signatures, reruns, CI/build/Git/merge or new monitors.
+K3 and parent blocker B-HISTORY-LIFECYCLE remain OPEN; candidate STOPPED/UNACCEPTED.
+The next decision must address cumulative semantic expansion/work within the
+existing resource contract; skipping retained evidence or raising the256MiB cap
+is not authorized. This assessment does not launch another optimization or reset
+historical alternatives. A local100 pass would still leave distribution and
+independent operator evidence outstanding.
+
+Charge at most THREE active minutes for this one completion assessment within the
+same NEW45-minute extension. Prior conservative<=35min plus this<=3min yields
+<=38min accounted upper bound, not measured active effort. Historical4h+5min and
+unknown older work remain unchanged. The one-shot completion follow-up is handled;
+no replacement follow-up was created.
+
+## October22 trial27 semantic expansion diagnostic and design proposal — UNACCEPTED
+
+Within the remaining existing45-minute block, ONE valid reconstructed full `prepareProtectedWitnessTransfer` with current successful-signature reuse refused at the unchanged256MiB cumulative allowance after13628.36ms; internal30000ms deadline remained intact. Used267686951B, next attempted787970B, prospective268474921B:39465B beyond268435456B. Refusal arose in the fourth main history, not a timeout or physical storage refusal. The same original WeakMap work-budget object was wrapped before charge; nested proof replay retained its shared original allowance. Two pre-import MODULE_NOT_FOUND mounting errors preceded the valid call and entered no preparation. No cap changes, reset, new campaign, writer or authority open occurred.
+
+| Old witness | Accepted main root charges B | Accepted nested proof charges B | Physical envelope B | Full retained main expanded roots B |
+| --- | ---: | ---: | ---: | ---: |
+|1|34227478|34227478|1042707|34227478|
+|2|33599309|33599309|968267|33599309|
+|3|33599865|33599865|968268|33599865|
+|4|31249967|33583680|966039|33583680|
+
+Full retained inputs contain485 frames,3945281B envelopes,2808648B plaintext reference packets and2565974B newly supplied dictionary-entry JSON. Their main expanded roots total135010332B (~34.2 times physical envelopes). Full roots include53767856B inherited evidence across records;21426016B of those are exact repeated inherited JSON within the same history (SHA256 identifies repetitions only for this diagnostic). These figures are a separate read-only decode of all four retained histories; the full preparation's main prefix stops earlier. Main plus nested charges reached267686951B before the refusal. First three histories have equal main/nested expanded totals; the fourth nested replay has already charged its complete33583680B while main remains at31249967B. Thus compressed physical references coexist with repeated semantic materialization and nested replay, rather than physical file growth alone explaining this failure.
+
+Frozen reports were regenerated using deterministic fixture owner keys and retained OLD_FENCED proposals. They are reconstructed inputs, not proven byte-identical to the original failed-call reports. All489 read original files retain their before/after hashes; all ten final-candidate source/test hashes match (see artifact for exact read count). The prior7544-file/66221295B manifest remains the campaign inventory; this diagnostic checks only files it reads, without claiming a new full inventory check. Evidence: `/tmp/resonance-expansion27-2026-10-22/{measure.mts,instrumented.ts,measured.json,stdout.log,candidate-preservation.json}`. The measured JSON includes per-file hashes and reconstructed input SHA256. No production/test source edits.
+
+**Proposal, not accepted architecture or safety/scalability proof.** `protected-admission-history.ts:453–457` commits a complete cloned handoff state in each handoff record; that state contains cumulative inherited evidence. `admission-original-references.ts:119–129` expands every root, charges its full semantic JSON bytes and returns `structuredClone(root.value)`. Dictionary compression therefore does not make repeated full-state decoding free. Merely charging unique nodes while continuing to clone and parse every full root would weaken the real-work contract and is not a legitimate fix.
+
+A decoder-preserving approach could retain the existing exact authenticated JSON and immutable dictionary nodes, process newly introduced nodes incrementally, and expose immutable views to a reducer that validates/applies only changed state. Each new node must receive full exact-term, schema and context validation once within its owned operation; every occurrence must still verify prefix/context, predecessor, sequence, envelope/signature binding, cutoff and relevant business-state invariants. No hash-only semantic trust: digest equality requires exact immutable term equality and the original authenticated context. Validation reuse must include the complete validation context, with cold verifier independence and no authority gained from a warm cache. Existing full-snapshot reducer/cloning behavior would have to be replaced along this path; the current256MiB logical-root charge is part of the present contract, so any revised resource metric needs an explicit reviewed contract tied to actual decoded/visited/allocated bytes and bounded memory. Keeping the present logical charge unchanged would still reject this input even after CPU/memory savings.
+
+A distinct format-transition approach would encode actual handoff deltas (new evidence, state changes and authenticated links) rather than repeat cumulative snapshots. Version and migration rules must make original history fully independently replayable and retain immutable originals. Delta context and ordering, repeated/conflicting records, unknown versions, missing evidence and crash/recovery transitions need explicit rejection semantics. No silent retirement/deletion, no trust in hashes alone, and no inherited admission or cold-replay waiver. Both alternatives need bounded actual work/memory plus existing deadline/cancellation and malformed-input refusal guarantees; they require a concrete reviewed contract and distinguishing negative/resource tests before implementation authorization or another qualification campaign.
+
+K3 / B-HISTORY-LIFECYCLE remain OPEN; candidate STOPPED/UNACCEPTED at26/100. This measurement resolves the cap arithmetic and repeated-expansion cause, not100-transition scalability. Conservatively charge this diagnostic+documentation <=4 active minutes within the same45-minute block; prior upper bound38 plus this4 leaves3 for parent and bounded architecture review. Historical4h+5min and unknown prior effort unchanged. Entry shared weekly43%, ordinary allowed; no model attribution or additional usage query.
+
+
+
+### October22 bounded architecture conclusion — same-format feasibility first
+
+GPT-6 Astra MEDIUM bounded architecture review recommends an operation-owned
+immutable decoded-record view shared by proof extraction and business replay,
+keeping the current format initially. Measured proof extraction expands complete
+records to retain policyProof/policyProofAppend; main replay expands them again.
+Remove the actual second decode/copy, not merely its resource charge. Reuse must
+bind the exact frozen source, context, key, operation and ordered occurrence.
+All reference/depth/frame/chain/continuation/final-fence checks remain. Proof
+lookahead is authenticated decoding, never advance business acceptance; corrupt,
+missing or conflicting tails must prevent publication of a completed result.
+
+Feasibility is conditional: cold replay must produce identical decisions and
+negative outcomes; parsers/reducers must not mutate shared values or silently
+clone full roots. Charge every actual reconstruction and full copy, bound retained
+memory, release on all paths. Hash equality proves identity only. Removing the
+near-doubled decode does not prove100 transitions: eager main snapshot expansion
+remains substantial. Event-delta format changes are deferred, not yet required by
+this measurement. Stop for a separate owner decision if this needs changed
+work-accounting semantics/resource bounds or wire format. Architecture direction
+only, not implementation/safety acceptance; K3 OPEN, candidate26/100 unaccepted.
+
+Budget: prior<=38min + Sol diagnostic/design<=4min + Astra review<=2min + parent
+coordination/integration<=1min = <=45min conservative aggregate upper bound for
+the existing45-minute extension. No further margin is verified. Original4h+5min,
+unknown older effort and substantive alternatives remain unchanged. Entry shared
+weekly43% ordinaryallowed; no model-attributed cost or savings inferred. No
+implementation, test campaign, limit change, Git/CI/build/release followed.
+
+## October22 shared decoded-record deliverable — ACTIVE / UNACCEPTED
+
+Owner authorized NEW bounded45 aggregate active minutes from10:27:44UTC: Sol
+executor <=30 (including corrections/tests/qualification/docs), ONE independent
+Astra HIGH critical review <=8, parent <=7. No automatic extension. Entry shared
+weekly43%/ordinary allowed; historical4h+5min and prior45 remain recorded.
+B-HISTORY-LIFECYCLE/K3 stays OPEN. Baseline source/owned-file copies and preservation
+manifest: `/tmp/resonance-shared-decode-2026-10-22/`. Existing dirty/untracked work
+is preserved; no Git/push/CI/installer/merge or additional agents.
+
+Contract before code edits: share immutable original decoded records inside ONE
+operation between authenticated proof lookahead and ordered business replay. Bind
+exact frozen source/context/key/operation/ordered occurrence; authenticate complete
+source, chain, continuations, tail and final fence. Lookahead never advances
+business acceptance. Keep all term/hash/exact-equality/depth/frame/schema/signature,
+canonical/context/cutoff/sequence/conflict/epoch checks per relevant occurrence.
+Cold participants independently verify originals; no cross-operation warm trust.
+Release retained views, source and keys on success/failure/abort, including pending
+loads; retain existing3s live/30s offline,256MiB cumulative original-work,6MiB
+replica/2GiB authority/funding/frame bounds. Charge all actual decode/full-copy
+work, including hidden parser/reducer copies. Bound retained object memory, entries,
+source and metadata rather than only nominal JSON. Internal ownership may avoid
+redundant copies only for values actually made immutable by that exact owner.
+
+Acceptance: focused consumer equivalence and negatives for decode counts, ordered
+occurrences/source/context/key/operation substitution, mutation, missing/conflicting
+future/middle/tails, continuation, epoch/conflict, cancellation/pending release and
+resource refusal. ONE reconstructed trial27 preparation must remove its cap refusal
+without changing limits. Freeze candidate, ONE critical review, necessary narrow
+recheck, then ONE affected composed regression and forced affected compile. Only
+accepted passing candidate and verified budget permit ONE original frozen100 run
+with the existing durable8h runner and mechanically proven harness identity. A
+component or local100 pass never closes K3/distribution/independent-pilot evidence.
+
+Stop if safety fails, actual-copy accounting cannot fit, implementation requires
+changed metric/format/resource authority, improvement is not meaningful, or the
+executor30-minute allowance expires. Sharing only the decoder is insufficient:
+current business bounded() copies every root and reducer clones previous state;
+these copies need removal under a safe immutable ownership contract or charging.
+Same-format feasibility is still conditional; this observation does not require a
+new format.
+
+
+## October22 shared decoded-record candidate — ONE qualification running, K3 OPEN
+
+Same-format operation-owned immutable original records now feed both proof
+lookahead and ordered handoff/cold replay. Private ownership proves read-only
+identity only: every structural, signature, canonical, epoch, cutoff and business
+check still runs. Exact normalized-term comparisons permit returning the original
+owned immutable parser input; caller freeze/hash equality grants no trust. Main
+acceptance still reaches its complete selected chain/final durable fence.
+Continuation-only occurrences authenticate before proof metadata publication.
+Generic cold sources copy/freeze each occurrence and yield every32 with both
+caller and capped30s startup checks; arrays snapshot before the first await.
+Source/context/key/operation/ordered occurrence substitution is refused.
+
+Existing256MiB cumulative original-work allowance charges each actual decode and
+remaining full JSON.parse/structuredClone reconstruction copy, without resetting
+between histories. Eager bounded/raw-handoff/inherited/transitive proposal clones
+are elided only for exact privately owned immutable values; reducer replaces fields
+on a new top-level shell. Dictionary nodes/terms, source, decoded views and proof
+metadata are included in conservative container/reference/key/string estimates,
+with256MiB/1M-container refusal. Scope finally releases ownership; history finally
+clears records/source/dictionary/images/caches and key copies, including failed or
+pending lookahead. JSON serialization for exact normalization/size comparison
+still visits full terms and allocates transient strings under the same deadline;
+it is not semantic validation memoization or a second decoded-object root. Bounds
+are conservative reachable-object estimates, not GC/RSS or long-term scaling proof.
+Issuer proof progress remains metadata-only; certified business compaction retains
+its existing certificate-aware decoder path. No format/resource authority changed.
+
+ONE independent Astra HIGH review found premature proof publication past a skipped
+trailing continuation (P2). Corrected with a distinguishing pre-fix failure and
+post-fix malformed-tail rejection plus valid multi-generation positive; same
+reviewer narrow recheck accepted. Initial composed regression then found generic
+source cancellation starvation. Necessary32-record capture yields corrected it;
+same reviewer narrow recheck required explicit startup checks during capture.
+The original <=8 active-minute reviewer allowance was exhausted. Parent verified
+ONLY exact alignment of this final source-obvious startup check and its negative
+test; no final-guard Astra approval or second general review is claimed. First-pass
+acceptance was not achieved. No new reviewer/allowance or widened assertions.
+
+Evidence in `/tmp/resonance-shared-decode-2026-10-22/`:
+- Initial focused18pass/3files1.07s and cold same-result1pass1.97s.
+- Review correction2continuation cases pass2.52s (original negative failed first).
+- Initial composed137pass/1fail/1intentional frozen100skip across10files188.20s.
+- Existing scheduled-cancellation case passes after correction1/30filtered9.30s.
+- New caller300000ms/startup+30001ms negative refuses at occurrence10;1pass1.99s.
+- Necessary corrected affected regression66pass/1intentional skip,5files154.05s.
+  Unchanged core/archive/original/epoch/protected-live passes retained from initial
+  composed run; only affected cold/proof/handoff consumers repeated.
+- Forced `npx tsc -b packages/core packages/relay packages/node --force` PASS.
+
+ONE reconstructed trial27 preparation initially safely refused conservative
+retained-object accounting after1672ms; corrected normalization ownership then
+completed in12590ms under unchanged30000ms, observing8155 actual structuredClones/
+183866207B. Both assays remain recorded, not silently presented as one first-pass
+success. Input SHA256 b0df61042f47b96104369e5cdc8fa8a57bcf8f55e1cd39dabd0c4209e50a8279;
+regenerated reports are NOT proven byte-identical to the original failed call.
+Successful assay precedes final opt-in isolation/dictionary+metadata accounting
+and cancellation corrections; no exact-final-candidate timing claim. All489
+original files read by prior diagnostic retain their hashes.
+
+ONE original frozen100 campaign launched2026-10-22T10:57:35.819898UTC, exact8h
+watchdog deadline2026-10-22T18:57:35.819898UTC (20:57:35Madrid), plus bounded process
+cleanup. Runner7511, owned process group7521, caffeinate7522. Atomic0600 status,
+manifest, transcript, logs and5s owned-group RSS samples live in `qualification100/`.
+No competing test/compiler at preflight. Entire original extended harness is
+byte-identical after reversal of ONE distinct transcript-path literal; frozen100
+body SHA256 d2e0dc2cc5fbc4677162be6c31d503bfe5a6285afb6931c7943e8b7da56b40d8.
+Seed, original signatures/evidence, faults, all assertions,3s live/30s offline,
+6MiB replica/2GiB authority and8h outer remain unchanged. Source manifest SHA256
+5a2822eb33c0d9dd753f4e619cbfb223aca05560645bac8727311c41a0f1a735.
+Runtime19-file reviewed delta8d7276270ffd0fa23f35301c1de219bd59f9d3436937b6bab793d7fc8ef9f94d;
+launch adds only the harness path. Final source/patch identity is in final-candidate.json.
+
+Candidate remains UNACCEPTED pending complete qualification assessment; K3 and
+B-HISTORY-LIFECYCLE OPEN. No100-transition/scalability/distribution/independent-pilot
+claim. No next optimization/rerun/Git/push/CI/installer/merge follows automatically.
+Parent owns exactly ONE completion follow-up at cutoff if needed.
+
+Accounting: executor GPT-6.1 Sol HIGH, independent reviewer GPT-6 Astra HIGH;
+executor conservatively <=28 active minutes through final documentation/handoff,
+review <=8 and parent <=7 reserved within SAME NEW45 aggregate allowance. Idle
+test/compiler/campaign waits excluded. Historical4h+5min+prior45 and unknown older
+effort remain unchanged. Entry shared weekly43% ordinaryallowed; parent records
+one exit query, no per-agent account cost/savings inferred. No automatic extension.
+
+
+
+## STOPPED / UNACCEPTED — shared-decoding SAME100 completed32/100
+
+Manual completion assessment: the ONE run ended2026-10-22T11:32:01.254524UTC
+(13:32:01Madrid), exit1,2064.77s total (~34m25s). Completed32/100, failedtrial33
+on unchanged256MiB cumulative expanded/copied-work allowance. Stack now identifies
+`chargeAdmissionReplayCopy -> copyAdmissionReplayValue -> createAdmissionPolicyHistoryProof`
+while reducing frozen history. Exact used/next-charge bytes were not instrumented.
+No30s or8h timeout, physical disk/funding refusal, or unsafe authorization is
+established by this refusal. Removing duplicate decoding advanced26->32 but does
+not solve remaining cumulative growth or qualify100. No further tuning follows.
+
+Trial25 SIGKILL/recovery and10/20/30 lost-reply/restart paths completed.
+issuerCounterChecks32; originalEvidenceChecks0; certifiedBindingChecks0.
+Trial50 hidden certificate,51+ original binding,75 SIGKILL,>64 ancestry and
+final100/cutoff assertions remain unreached. Trial32 cycle-after-seal108496.21ms
+is not emergency-distribution p95. Funding1872439317/2147483648B reserved,
+275044331B available,306 components,zero adoptions. Sampled ownedprocessgroupRSS
+maximum1037488KiB (~0.99GiB),412samples,not continuous peak or K7app qualification.
+
+All20 finalcandidate source/test hashes still match. Original fixture inventory,
+sizes and hashes plus status/output/transcript hashes are preserved in
+`/tmp/resonance-shared-decode-2026-10-22/qualification100/completion-assessment.json`.
+Originals remain in place. The evening one-shot follow-up was deleted after this
+manual assessment; no replacementmonitor, campaign, code/signature/limit change,
+Git/CI/build/merge/release. K3/B-HISTORY-LIFECYCLE OPEN, candidateUNACCEPTED.
+Further lifecycle work requires a concrete decision on remaining materialization;
+no claim that a format change is proven necessary or that this closes fullK3.
+
+Charge completion<=2active minutes inside same45min block: executor<=28+review8+
+parent7+completion2=45 conservativeupperbound. Historical4h+5min+prior45 and
+unknownolderalternatives unchanged. No verified margin for a new task is inferred.

@@ -1,11 +1,14 @@
 /** Fixed-membership, four-of-five admission votes. Contains no bearer token or user identity. */
 import { createHash } from 'node:crypto';
 import { sign, verify, type SigningKeyPair } from './crypto.js';
+import { chargeAdmissionWork, chargeAdmissionWorkBase64, type AdmissionWorkMeter } from './admission-work.js';
 import { isRelayAdmissionActionV2, type RelayAdmissionActionV2 } from './admission-v2.js';
 import { assertSecureRelayTransportEndpoint } from './relay-transport.js';
 
 export interface AdmissionWitnessSet {
-  version: 1; quorum: 4;
+  version: 1 | 2; quorum: 4;
+  /** V2 is explicit protected enrollment. Epoch changes even when members return. */
+  epoch?: string; observerContext?: string;
   members: Array<{ publicKey: string; endpoint: string }>;
   /** Infrastructure signing keys allowed to request votes; never client keys. */
   coordinators: string[];
@@ -28,9 +31,10 @@ export function witnessBytes(v: unknown, size: number): v is string {
     && Buffer.from(v, 'base64url').toString('base64url') === v;
 }
 export function parseAdmissionWitnessSet(value: unknown): AdmissionWitnessSet {
-  if (!exactWitnessFields(value, ['version','quorum','members','coordinators']) || value.version !== 1 || value.quorum !== 4
+  if (!exactWitnessFields(value, ['version','quorum','members','coordinators', ...((value as AdmissionWitnessSet)?.version === 2 ? ['epoch','observerContext'] : [])]) || (value.version !== 1 && value.version !== 2) || value.quorum !== 4
     || !Array.isArray(value.members) || value.members.length !== 5 || !Array.isArray(value.coordinators)
     || value.coordinators.length < 1 || value.coordinators.length > 8 || !value.coordinators.every(v => witnessBytes(v, 32))) throw new Error('Invalid four-of-five witness set');
+  if (value.version === 2 && (!witnessBytes(value.epoch, 32) || typeof value.observerContext !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(value.observerContext))) throw new Error('Invalid protected witness epoch');
   const members = value.members.map(member => {
     if (!exactWitnessFields(member, ['publicKey','endpoint']) || !witnessBytes(member.publicKey, 32)
       || typeof member.endpoint !== 'string' || member.endpoint.length > 512) throw new Error('Invalid admission witness');
@@ -39,7 +43,7 @@ export function parseAdmissionWitnessSet(value: unknown): AdmissionWitnessSet {
   }).sort((a, b) => a.publicKey < b.publicKey ? -1 : a.publicKey > b.publicKey ? 1 : 0);
   if (new Set(members.map(m => m.publicKey)).size !== 5 || new Set(members.map(m => m.endpoint)).size !== 5
     || new Set(value.coordinators).size !== value.coordinators.length) throw new Error('Witness membership must be distinct');
-  return { version: 1, quorum: 4, members, coordinators: [...value.coordinators].sort() as string[] };
+  return { version: value.version, quorum: 4, members, coordinators: [...value.coordinators].sort() as string[], ...(value.version === 2 ? { epoch: value.epoch as string, observerContext: value.observerContext as string } : {}) };
 }
 export function admissionWitnessSetId(set: AdmissionWitnessSet): string {
   return `sha256:${createHash('sha256').update(`${DOMAIN}:membership\n${JSON.stringify(set)}`).digest('hex')}`;
@@ -50,11 +54,11 @@ export function validAdmissionSpendClaim(value: AdmissionSpendClaim): boolean {
     && witnessBytes(value.spend, 32) && isRelayAdmissionActionV2(value.action)
     && typeof value.requestBinding === 'string' && /^admreq_[A-Za-z0-9_-]{86}$/.test(value.requestBinding);
 }
-export function admissionSpendClaimId(claim: AdmissionSpendClaim): string {
-  return JSON.stringify([claim.setId, claim.issuerKey, claim.spend, claim.action, claim.requestBinding]);
+export function admissionSpendClaimId(claim: AdmissionSpendClaim, work?: AdmissionWorkMeter): string {
+  const text = JSON.stringify([claim.setId, claim.issuerKey, claim.spend, claim.action, claim.requestBinding]); chargeAdmissionWork(work, Buffer.byteLength(text), 'serialize'); return text;
 }
-function payload(kind: string, claim: AdmissionSpendClaim, key: string) {
-  return Buffer.from(`${DOMAIN}:${kind}\n${admissionSpendClaimId(claim)}\n${key}`);
+function payload(kind: string, claim: AdmissionSpendClaim, key: string, work?: AdmissionWorkMeter) {
+  const bytes = Buffer.from(`${DOMAIN}:${kind}\n${admissionSpendClaimId(claim, work)}\n${key}`); chargeAdmissionWork(work, bytes.length, 'serialize'); return bytes;
 }
 export function copyAdmissionSigningKey(key: SigningKeyPair): SigningKeyPair {
   const owned = { publicKey: Uint8Array.from(key.publicKey), secretKey: Uint8Array.from(key.secretKey) };
@@ -64,11 +68,11 @@ export function copyAdmissionSigningKey(key: SigningKeyPair): SigningKeyPair {
     return owned;
   } catch { owned.secretKey.fill(0); throw new Error('Invalid admission infrastructure signing key'); }
 }
-export function createAdmissionWitnessRequest(claim: AdmissionSpendClaim, key: SigningKeyPair): AdmissionWitnessRequest {
+export function createAdmissionWitnessRequest(claim: AdmissionSpendClaim, key: SigningKeyPair, work?: AdmissionWorkMeter): AdmissionWitnessRequest {
   if (!validAdmissionSpendClaim(claim)) throw new Error('Invalid admission spend claim');
   const coordinator = Buffer.from(key.publicKey).toString('base64url');
   return { ...claim, version: 1, kind: 'admission-witness-request', coordinator,
-    signature: Buffer.from(sign(payload('request', claim, coordinator), key.secretKey)).toString('base64url') };
+    signature: chargeAdmissionWorkBase64(work, sign(payload('request', claim, coordinator, work), key.secretKey)) };
 }
 export function verifyAdmissionWitnessRequest(value: unknown, set: AdmissionWitnessSet): value is AdmissionWitnessRequest {
   if (!exactWitnessFields(value, [...claimFields,'version','kind','coordinator','signature']) || value.version !== 1
@@ -77,11 +81,11 @@ export function verifyAdmissionWitnessRequest(value: unknown, set: AdmissionWitn
   return validAdmissionSpendClaim(v) && v.setId === admissionWitnessSetId(set) && set.coordinators.includes(v.coordinator)
     && verify(payload('request', v, v.coordinator), Buffer.from(v.signature, 'base64url'), Buffer.from(v.coordinator, 'base64url'));
 }
-export function createAdmissionWitnessVote(claim: AdmissionSpendClaim, key: SigningKeyPair): AdmissionWitnessVote {
+export function createAdmissionWitnessVote(claim: AdmissionSpendClaim, key: SigningKeyPair, work?: AdmissionWorkMeter): AdmissionWitnessVote {
   const witness = Buffer.from(key.publicKey).toString('base64url');
   return { setId: claim.setId, issuerKey: claim.issuerKey, spend: claim.spend, action: claim.action, requestBinding: claim.requestBinding,
     version: 1, kind: 'admission-witness-vote', witness,
-    signature: Buffer.from(sign(payload('vote', claim, witness), key.secretKey)).toString('base64url') };
+    signature: chargeAdmissionWorkBase64(work, sign(payload('vote', claim, witness, work), key.secretKey)) };
 }
 export function verifyAdmissionWitnessVote(value: unknown, claim: AdmissionSpendClaim, set: AdmissionWitnessSet): value is AdmissionWitnessVote {
   if (!exactWitnessFields(value, [...claimFields,'version','kind','witness','signature']) || value.version !== 1

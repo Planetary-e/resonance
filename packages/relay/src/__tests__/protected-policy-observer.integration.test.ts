@@ -1,4 +1,8 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
+import * as originalReferences from '../admission-original-references.js';
+import * as archive from '@resonance/core/admission-policy-archive';
+import { signAdmissionPolicy } from '@resonance/core/admission-policy';
+import { createAdmissionPolicyAdvance } from '@resonance/core/admission-policy-advance';
 import { cpSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -71,6 +75,39 @@ it('requires four current durable heads per observation and repairs a different 
   const reopened = await n.open(); expect(reopened.policy()).toEqual(n.second);
   expect((await reopened.observe(request)).head).toEqual(n.advance.commitment.next);
 });
+
+it('charges readiness confirmation and subsequent page validation to one operation allowance', async () => {
+  const n = await fixture(); await n.observer.ready();
+  const v2 = await signAdmissionPolicy({ ...n.body, version: 2, revision: 2, archivedKeys: [] }, n.authority, n.key.secretKey);
+  const v2Advance = await createAdmissionPolicyAdvance(n.first, v2, n.context, n.key);
+  await n.observer.advance(v2Advance);
+  const limits = { maxPages: 16, maxEntries: 100, maxArchiveBytes: 1024*1024, maxHistoryBytes: 1024*1024, maxTransitions: 16, maxPageReads: 100, timeoutMs: 3000 };
+  const reader = async () => { throw new Error('No earlier archive pages'); };
+  const previous = await archive.resolveAdmissionPolicy({ context: n.context, genesis: n.first, advances: [v2Advance], selectedHead: v2Advance.commitment.next, reader, limits });
+  const planned = await archive.prepareAdmissionPolicyV3Successor({ previous, next: { revision: 3, issuedAt: n.body.issuedAt, expiresAt: n.body.expiresAt, activeKey: n.body.activeKey, keys: v2.keys }, reader, limits });
+  const policy = await archive.signAdmissionPolicyV3(planned.body, n.authority, n.key.secretKey);
+  const advanced = await archive.createResolvedAdmissionPolicyAdvance({ previous, policy, key: n.key, reader, limits });
+  await n.observer.advance(advanced.advance);
+
+  const budgets: number[][] = [], makeBudget = originalReferences.createOriginalReferenceWorkBudget;
+  const factory = vi.spyOn(originalReferences, 'createOriginalReferenceWorkBudget').mockImplementation(maximum => {
+    const budget = makeBudget(maximum), charges: number[] = []; budgets.push(charges);
+    return { charge(bytes) { charges.push(bytes); budget.charge(bytes); }, usedBytes: budget.usedBytes };
+  });
+  const lookup = archive.lookupResolvedAdmissionPolicyKey;
+  const validation = vi.spyOn(archive, 'lookupResolvedAdmissionPolicyKey').mockImplementation(async options => {
+    // Exercise the real retained page reader even though this current key needs
+    // no archived key. A missing lookup still performs the complete scan.
+    await expect(options.reader('sha256:'+'a'.repeat(64), new AbortController().signal)).rejects.toThrow(/absent/);
+    return lookup(options);
+  });
+  try {
+    await n.observer.ready();
+    const charged = budgets.filter(charges => charges.length > 0);
+    expect(charged).toHaveLength(1);
+    expect(charged[0].length).toBeGreaterThanOrEqual(4); // confirmation plus three retained snapshots
+  } finally { validation.mockRestore(); factory.mockRestore(); }
+}, 15000);
 
 it('fences a coherent stale backup even if it was already open and previously passed readiness', async () => {
   const n = await fixture(); await n.observer.ready(); n.observer.close();

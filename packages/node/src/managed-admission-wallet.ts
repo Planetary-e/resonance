@@ -1,3 +1,4 @@
+import { createAdmissionPolicyQuery, type AdmissionPolicyQuery } from '@resonance/core/admission-policy-query';
 /** Pinned active wallet plus immutable prior profiles for exact retries. */
 import { verifyAdmissionPolicy, assertAdmissionPolicyCurrent, assertAdmissionPolicySuccessor, admissionAuthorityFingerprint, admissionPolicyDigest, admissionPolicyKeys, MAX_ADMISSION_KEYS, MAX_ARCHIVED_ADMISSION_KEYS, type SignedAdmissionPolicy } from '@resonance/core/admission-policy';
 import { captureStorageReservationOperation, withStorageReservationAuthority } from '@resonance/core/storage-reservations';
@@ -156,6 +157,15 @@ export async function openManagedAdmissionWallet(options: {
       return result;
     } catch (error) { try { wallet.summary(); } catch { poisoned = true; } throw error; }
     finally { if (!held) wallet.close(); }
+  }
+  const protectedObservations = new Map<string, { query: AdmissionPolicyQuery; deadline: number; binding?: string; used: boolean }>();
+  function protectedObservation(context: AdmissionCapabilityRequestContextV2, consume = false) {
+    const state = stateV2(storage.read());
+    if (!state.policy?.keys.some(e => e.witnesses?.version === 2)) return;
+    const query = context.policyObservation?.query, pending = query && protectedObservations.get(query.request.challenge);
+    const bound = JSON.stringify([context.relayUrl, context.action, context.requestBinding]);
+    if (!pending || JSON.stringify(pending.query) !== JSON.stringify(query) || performance.now() >= pending.deadline || pending.binding && pending.binding !== bound || consume && pending.used) throw new Error('Protected witness wallet needs a new locally prepared three-second challenge');
+    if (consume) { pending.used = true; pending.binding = bound; }
   }
   let busy = false; let closed = false; let poisoned = false;
   let proof: ReturnType<typeof openWalletPolicyProofStore> | undefined;
@@ -462,10 +472,20 @@ export async function openManagedAdmissionWallet(options: {
     observePolicy(observation: WalletPolicyObservation) {
       api.policyUpdatePins(); checkFreshness(observation, true); return api.policyUpdatePins();
     },
+    preparePolicyObservation(): AdmissionPolicyQuery | undefined {
+      ready(); const state = stateV2(storage.read());
+      if (!state.policy?.keys.some(e => e.witnesses?.version === 2)) return undefined;
+      if (!state.freshness) throw new Error('Protected witness wallet requires independently pinned observers');
+      for (const [challenge,pending] of protectedObservations) if (performance.now() >= pending.deadline) protectedObservations.delete(challenge);
+      if (protectedObservations.size >= 2) throw new Error('Protected wallet observation capacity exhausted');
+      const query = createAdmissionPolicyQuery(state.freshness.context, (options.now ?? Date.now)(), 3000);
+      protectedObservations.set(query.request.challenge, { query, deadline: performance.now()+3000, used: false }); return structuredClone(query);
+    },
     provider(): AdmissionCapabilityProviderV2 {
       return Object.assign((context: AdmissionCapabilityRequestContextV2) => api.capabilityFor(context), {
+        preparePolicyObservation: () => api.preparePolicyObservation(),
         policyObservers: () => { ready(); return structuredClone(stateV2(storage.read()).freshness?.context); },
-        assertCurrent: (context: AdmissionCapabilityRequestContextV2) => { checkFreshness(context.policyObservation); },
+        assertCurrent: (context: AdmissionCapabilityRequestContextV2) => { protectedObservation(context); checkFreshness(context.policyObservation); },
         assertMaintenanceDestination: (relayUrl: string) => {
           ready(); const state = stateV2(storage.read()); if (!state.profiles.length) return;
           const profile = state.profiles[state.active];
@@ -589,6 +609,7 @@ export async function openManagedAdmissionWallet(options: {
           if (observers.authority !== authority || !sameAdmissionPolicyHead(head, observers.genesis)) throw new Error('Initial observer pins must match this independently verified genesis policy');
           freshness = { context: observers, installed: head, observed: head };
         }
+        if (policy.keys.some(e => e.witnesses?.version === 2) && !freshness) throw new Error('Protected witness wallet installation requires independently pinned observers');
         if (freshness) parseWalletPolicyFreshness(freshness, policy);
         if (previous.policy) {
           if (previous.policy.version === 3) throw new Error('V3 requires funded resolved installation');
@@ -656,7 +677,7 @@ export async function openManagedAdmissionWallet(options: {
     cancelIssuance() { ready(); pending = undefined; },
     capabilityFor(context: AdmissionCapabilityRequestContextV2) {
       ready(); const state = stateV2(storage.read()); if (!state.profiles.length) return undefined;
-      checkFreshness(context.policyObservation);
+      protectedObservation(context,true); checkFreshness(context.policyObservation);
       const normalized = { ...context, relayUrl: normalizeAdmissionRelay(context.relayUrl) };
       // Search ALL old reservations before allocating from the active profile. An old retry
       // must fail at the relay if its epoch is retired, never silently spend a fresh token.
@@ -670,12 +691,12 @@ export async function openManagedAdmissionWallet(options: {
       }
       if (performance.now() >= scanDeadline) throw new Error('Wallet reservation scan timed out');
       checkFreshness(context.policyObservation);
-      if (reserved) { checkPolicy(state.profiles[reserved.index], 'retry'); return reserved.capability; }
+      if (reserved) { checkPolicy(state.profiles[reserved.index], 'retry'); protectedObservation(context); return reserved.capability; }
       const { wallet, profile } = active(); checkPolicy(profile, 'spend');
       if (!profile.relayUrls.includes(normalized.relayUrl)) throw new Error('Destination is not in the pinned access-token relay list');
-      const capability = wallet.capabilityFor(normalized); rememberFile(state.active, profile, wallet); return capability;
+      const capability = wallet.capabilityFor(normalized); rememberFile(state.active, profile, wallet); protectedObservation(context); return capability;
     },
-    close() { if (closed) return; closed = true; pending = undefined; wallets.forEach(wallet => wallet.close()); proof?.close(); storage.close(); key.fill(0); },
+    close() { if (closed) return; closed = true; protectedObservations.clear(); pending = undefined; wallets.forEach(wallet => wallet.close()); proof?.close(); storage.close(); key.fill(0); },
   };
   return api;
 }

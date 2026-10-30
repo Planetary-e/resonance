@@ -3,7 +3,7 @@ import { lstatSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import type { SigningKeyPair } from '@resonance/core';
 import { exactWitnessFields } from '@resonance/core/admission-witness';
-import { assertExistingStorageReservation } from '@resonance/core/storage-reservations';
+import { assertExistingStorageReservation, currentStorageReservationAuthorityId } from '@resonance/core/storage-reservations';
 import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointContextId, historyCheckpointEnvelopeId, historyDigest,
   parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { parseHistoryContinuationRoot } from '@resonance/core/history-continuation';
@@ -16,7 +16,7 @@ export interface HistoryAncestrySelection {
   version: 1; kind: 'recovery-download'; directory: string; enrollmentFile: string; continuationFile: string;
   funding: { authorityDirectory: string; authorityId: string };
 }
-export interface OwnedHistoryAncestrySource { readonly binding?: string; blocks(): Iterable<HistoryCheckpointEnvelope>; close(): void }
+export interface OwnedHistoryAncestrySource { readonly binding?: string; assertFunding?(): string | undefined; blocks(): Iterable<HistoryCheckpointEnvelope>; close(): void }
 export function parseHistoryAncestrySelection(value: unknown): HistoryAncestrySelection {
   const path = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 4096 && !/[\x00-\x1f\x7f]/.test(v);
   if (!exactWitnessFields(value, ['version', 'kind', 'directory', 'enrollmentFile', 'continuationFile', 'funding']) || value.version !== 1 || value.kind !== 'recovery-download'
@@ -50,6 +50,7 @@ export function captureHistoryAncestrySource(value: HistoryAncestrySelection, co
   const genesis = parseHistoryCheckpointEnvelope(enrollment.root, context), root = parseHistoryContinuationRoot(continuation, context);
   if (genesis.kind !== 'checkpoint' || genesis.generation !== 0 || genesis.sequence !== 0) throw new Error('Ancestry requires original genesis enrollment');
   const manifestPath = join(paths.directory, HISTORY_DOWNLOAD_FILENAME), manifestBytes = readOperatorFile(manifestPath, 2 * 1024 * 1024 + 8192);
+  const fundedGrowth = JSON.parse(manifestBytes.toString('utf8')).version === 2 ? 'monotone-v1' as const : undefined;
   const manifestDigest = historyDigest(manifestBytes); manifestBytes.fill(0);
   const expectedAncestry = Object.freeze({ genesisId: historyCheckpointEnvelopeId(genesis), rootId: historyCheckpointEnvelopeId(root) });
   const binding = { selection, paths, identities, enrollmentDigest, continuationDigest, manifestDigest, ...expectedAncestry };
@@ -71,19 +72,21 @@ export function captureHistoryAncestrySource(value: HistoryAncestrySelection, co
       check();
       if (canonicalHistorySetupPath(pins.directory) !== paths.directory || pins.genesisId !== expectedAncestry.genesisId) throw new Error('Selected ancestry does not match the actual recovery download or original genesis');
       if (pins.continuation !== undefined && historyCheckpointEnvelopeId(parseHistoryContinuationRoot(pins.continuation, context)) !== expectedAncestry.rootId) throw new Error('Selected ancestry continuation differs from the completed recovery');
-      assertExistingHistoryAncestryFunding(paths.directory, selection.funding.authorityId);
+      if (currentStorageReservationAuthorityId() !== selection.funding.authorityId) throw new Error('Selected ancestry funding differs from its independent authority');
+      if (!fundedGrowth) assertExistingHistoryAncestryFunding(paths.directory, selection.funding.authorityId);
     },
     open(options: { localKey: Uint8Array; signingKey: SigningKeyPair; members: HistoryReplicaEndpoint[] }): OwnedHistoryAncestrySource {
       check();
-      assertExistingHistoryAncestryFunding(paths.directory, selection.funding.authorityId);
+      if (currentStorageReservationAuthorityId() !== selection.funding.authorityId) throw new Error('Selected ancestry funding differs from its independent authority');
+      if (!fundedGrowth) assertExistingHistoryAncestryFunding(paths.directory, selection.funding.authorityId);
       const download = createHistoryAncestryDownload({ directory: paths.directory, context, localKey: options.localKey, signingKey: options.signingKey,
-        members: options.members, proposal: root.proposal, initialize: false, maxBytes: 256 * 1024 * 1024, maxBlocks: 10001 });
+        members: options.members, proposal: root.proposal, fundedGrowth, initialize: false, maxBytes: 256 * 1024 * 1024, maxBlocks: 10001 });
       try {
         if (!download.read().complete) throw new Error('Selected ancestry download is incomplete');
         const first = download.blocks().next();
         if (first.done || historyCheckpointEnvelopeId(first.value) !== expectedAncestry.genesisId) throw new Error('Selected ancestry does not contain its original genesis');
         check();
-        return Object.freeze({ binding: historyDigest(JSON.stringify(binding)), blocks() { check(); return download.blocks(); }, close() { download.close(); } });
+        return Object.freeze({ assertFunding() { download.assertFunding(); const id = download.funding()?.authorityId; if (fundedGrowth && id !== selection.funding.authorityId) throw new Error('Selected ancestry authority changed'); return id ?? selection.funding.authorityId; }, binding: historyDigest(JSON.stringify(binding)), blocks() { check(); return download.blocks(); }, close() { download.close(); } });
       } catch (error) { download.close(); throw error; }
     },
   });

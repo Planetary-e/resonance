@@ -1,0 +1,33 @@
+{
+  "diagnosticUnbounded": true,
+  "acceptanceEvaluation": "not_run",
+  "usedBytes": 677938671,
+  "forecastBytes": 270132258,
+  "differenceFromForecastBytes": 407806413,
+  "actualExcessBytes": 409503215,
+  "maximumOperation": "local-C-recovery:3",
+  "maximumOperationBytes": 17741154,
+  "operationCrossingCount": 28,
+  "firstOperationCrossing": {
+    "operation": "bootstrap:0",
+    "usedBytes": 5271184,
+    "cumulativeUsedBytes": 7378039
+  },
+  "firstCumulativeCrossing": {
+    "operation": "reserveInstall:2:2",
+    "usedBytes": 6847686,
+    "cumulativeUsedBytes": 275192330
+  },
+  "operationCount": 272,
+  "inventory": {
+    "legacyPreparations": 4,
+    "runtimePhaseCalls": 102,
+    "leaderProposals": 6,
+    "retries": 7,
+    "viewChangeGroups": 2,
+    "newViewCalls": 8,
+    "completeLocalCLossRecoveries": 4
+  },
+  "unreachableClasses": [],
+  "resultSha256": "c8629699254ce4bcb57dd1b6316e163f33834f7ef042e227e39f525cb0981d34"
+}

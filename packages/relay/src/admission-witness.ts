@@ -21,6 +21,7 @@ export interface AdmissionWitness { vote(request: unknown, acceptNew?: () => boo
 export interface LocalAdmissionWitness extends AdmissionWitness { vote(request: unknown, acceptNew?: () => boolean): AdmissionWitnessVote }
 const indexKey = (claim: AdmissionSpendClaim) => `${claim.issuerKey}:${claim.spend}`;
 function entries(policy: SignedAdmissionPolicy) {
+  if (policy.keys.some(e => e.witnesses?.version === 2)) throw new Error('Protected witness epochs require enrolled protected histories and fresh observations');
   return new Map(admissionPolicyKeys(policy).map(key => [admissionKeyFingerprint(key.profile.issuerPublicKey), key]));
 }
 function current(policy: SignedAdmissionPolicy, entry: AdmissionPolicyKey, now: number) {

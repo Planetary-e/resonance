@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "run_id": "matrix-cold-02-retry-8",
+  "scenario": "cold",
+  "run_status": "matrix_run_complete",
+  "E1": "complete_for_local_planning_only",
+  "E2": "blocked",
+  "E2_reasons": [
+    "Aggregate matrix/window evidence incomplete",
+    "Physical power blocked"
+  ],
+  "E3": "pending_separate_owner_authorization",
+  "D4": "prototype-only",
+  "economic_affordability": "pending",
+  "acceptance_evaluation": "not_run"
+}

@@ -235,3 +235,30 @@ it.skipIf(process.platform === 'win32')('refuses a symlink posing as a pristine 
   symlinkSync(original, join(n.payloadDirectory, '.history-writer-payloads.json.0123456789abcdef.tmp'));
   expect(() => n.writer(false, { initializeArchive: true, resumePristineArchive: true })).toThrow('not empty'); expect(readFileSync(original)).toEqual(bytes);
 });
+
+it('keeps the actual persisted writer cap when reopen omits arena limits and rejects explicit or implicit enlargement',async()=>{
+  const n=fixture();let writer=n.writer(true,{maxArchiveBytes:64*1024});await writer.replicate(n.root);
+  expect(writer.read().stateMaxBytes).toBe(1024*1024);writer.close();
+  const beforeCalls=n.calls(),before=readFileSync(join(n.options.directory,HISTORY_WRITER_FILENAME));
+  expect(()=>n.writer(false,{stateMaxBytes:2*1024*1024})).toThrow();expect(n.calls()).toBe(beforeCalls);
+  writer=n.writer(false);expect(writer.read().stateMaxBytes).toBe(1024*1024);
+  // Omitted archive limits must not recompute a 40MiB writer and accept this.
+  await expect(writer.replicate(n.next(n.root,'x'.repeat(800000),'checkpoint'))).rejects.toThrow(/snapshot.*headroom/);
+  expect(n.calls()).toBe(beforeCalls);expect(writer.read().pending).toBeNull();expect(readFileSync(join(n.options.directory,HISTORY_WRITER_FILENAME))).toEqual(before);
+});
+
+import { openStorageReservationAuthority, STORAGE_RESERVATION_CONTROL_BYTES, withStorageReservationAuthority } from '@resonance/core/storage-reservations';
+it('completes a funded retained pending write after lost replies, aggregate exhaustion and restart', async () => {
+  const n = fixture(), authority = openStorageReservationAuthority({ directory: join(n.directory, 'funding'), mode: 'create-new', limitBytes: STORAGE_RESERVATION_CONTROL_BYTES + 2_000_000 }); cleanup.push(authority.close);
+  await withStorageReservationAuthority(authority, async () => {
+    let lose = true;
+    const transport: HistoryCheckpointTransport = async (...args) => { const response = await n.options.transport(...args); if (lose) throw new Error('lost durable reply'); return response; };
+    let writer = n.writer(true, { fundedGrowth: 'monotone-v1', transport });
+    await expect(writer.replicate(n.root)).rejects.toThrow(); expect(writer.read().pending).toEqual(n.root); writer.close();
+    authority.reserve({ path: join(n.directory, 'exhaust'), component: 'test', scope: 'file', maximumBytes: authority.status().availableBytes });
+    const reserved = authority.status().reservedBytes; lose = false;
+    writer = n.writer(false, { fundedGrowth: 'monotone-v1', transport }); expect(authority.status().reservedBytes).toBe(reserved);
+    await writer.replicate(n.root); expect(writer.read().pending).toBeNull(); expect([...writer.history()]).toEqual([n.root]); expect(authority.status().availableBytes).toBe(0);
+    const next = n.next(n.root, 'x'.repeat(100_000), 'checkpoint'); await expect(writer.replicate(next)).rejects.toThrow(/exhausted/); expect(writer.read().pending).toBeNull();
+  });
+}, 30_000);

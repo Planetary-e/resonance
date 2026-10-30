@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { admissionWitnessSetId } from '@resonance/core/admission-witness';
 import { AdmissionPolicyArchiveExecutionContext, assertArchivedAdmissionPolicyCurrent, type ArchivedAdmissionPolicy, type AdmissionPolicyArchiveLimits } from '@resonance/core/admission-policy-archive';
 /** Offline-installed shared policy; persisted revision prevents ordinary rollback on restart. */
 import { join } from 'node:path';
@@ -44,6 +46,8 @@ export async function createConfiguredAdmissionVerifier(options: {
     throw new Error('A separate admission history directory requires protected history');
   }
   const now = options.now ?? Date.now;
+  const authorizations = new AsyncLocalStorage<() => void>();
+  const checkProtectedAuthorization = () => { const check = authorizations.getStore(); if (!check) throw new Error('Protected witness epoch requires its own fresh challenge'); check(); };
   const openStore = () => options.initialize && options.historyProtection?.restore
     ? openPreparedAdmissionPolicyStore(options.historyProtection.restore.preparation, { directory: options.directory, encryptionKey: options.encryptionKey, now })
     : openAdmissionPolicyStore({ path: join(options.directory, 'admission-community-policy.json'),
@@ -103,10 +107,11 @@ export async function createConfiguredAdmissionVerifier(options: {
         try { await (history as Awaited<ReturnType<typeof openProtectedAdmissionSpendHistory>>).observePolicy(observation); }
         finally { store.observe(observation); }
       } } : {}) });
+    if (policy.keys.some(e => e.witnesses?.version === 2) && (!options.historyProtection || !freshness || (options.policyObservationTimeoutMs ?? 3000) > 3000 || (options.witnessTimeoutMs ?? 3000) > 3000)) throw new Error('Protected witness enrollment requires durable histories and at most three seconds through final authorization');
     const shared = { directory: options.directory, encryptionKey: options.encryptionKey, policy, now, maxSpends: options.maxSpends,
       initialize: options.initializeWitnessState ?? options.initialize };
     if ('roleState' in history) {
-      protectedRoles = createProtectedAdmissionRoles({ history, witnessKey: options.witnessKey, coordinatorKey: options.coordinatorKey,
+      protectedRoles = createProtectedAdmissionRoles({ history, checkProtectedAuthorization, witnessKey: options.witnessKey, coordinatorKey: options.coordinatorKey,
         now, transport: options.witnessTransport, timeoutMs: options.witnessTimeoutMs, onTransportSocket: options.onWitnessSocket });
       witness = protectedRoles.witness; quorum = protectedRoles.quorum;
     } else {
@@ -128,7 +133,8 @@ export async function createConfiguredAdmissionVerifier(options: {
         const coordinator = protectedRoles?.quorum;
         if (!coordinator) throw new Error('Signed policy requires four witness votes; no coordinator is configured');
         return coordinator.withCertificate(admissionKeyFingerprint(entry.profile.issuerPublicKey), spend, context,
-          certificate => finish(row => protectedHistory.writeAuthorizedSpend(row, certificate)));
+          certificate => entry.witnesses!.version === 2 && certificate.votes[0].setId !== admissionWitnessSetId(entry.witnesses!)
+            ? finish() : finish(row => protectedHistory.writeAuthorizedSpend(row, certificate)));
       },
     } : {
       async beforeSpend(spend, context, publicKey) {
@@ -139,10 +145,10 @@ export async function createConfiguredAdmissionVerifier(options: {
       },
     };
     const verifier = createLocalBlindAdmissionVerifierV2({ directory: options.directory, maxSpends: options.maxSpends, history,
-      withCurrentPolicy: freshness?.run,
+      withCurrentPolicy: freshness ? (operation, signal) => freshness!.run(check => authorizations.run(check, () => operation(check)), signal) : undefined,
       withDecision: decisions && freshness ? operation => decisions!.runPrepared(
         (_assertLive, signal) => freshness!.prepare(signal),
-        (prepared, assertLive, signal) => operation(assertLive, signal, prepared)) : decisions?.run,
+        (prepared, assertLive, signal) => authorizations.run(prepared, () => operation(assertLive, signal, prepared))) : decisions?.run,
       ...spendHooks,
       keyPolicies() {
         const time = now(); assertArchivedAdmissionPolicyCurrent(policy, time);
@@ -156,10 +162,10 @@ export async function createConfiguredAdmissionVerifier(options: {
       const entry = entries.find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === issuerKey);
       if (!entry?.witnesses || !verifyAdmissionWitnessRequest(value, entry.witnesses)) throw new Error('Unauthenticated admission vote request');
       const request = structuredClone(value);
-      return freshness!.run(async assertCurrent => {
+      return freshness!.run(async assertCurrent => authorizations.run(assertCurrent, async () => {
         assertCurrent(); const result = await witness!.vote(request, () => { assertCurrent(); return acceptNew?.() ?? true; });
         assertCurrent(); return result;
-      });
+      }));
     } } : witness;
     return { verifyAndSpend: verifier.verifyAndSpend, witness: guardedWitness,
       policyFreshnessHealth: freshness?.health,

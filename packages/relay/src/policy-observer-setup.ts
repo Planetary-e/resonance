@@ -1,3 +1,4 @@
+import { retainedHistoryWriterStateBytes } from './history-retained-writer.js';
 /** Reviewed initial preparation. Retain one exact encrypted root beside the
  * canonical owner key before exporting configuration; never regenerate it. */
 import { existsSync, lstatSync, readdirSync } from 'node:fs';
@@ -104,7 +105,7 @@ export async function openPolicyObserverSetup(input: { setupFile: string; output
       check(); busy = true;
       try {
         if (!retained) {
-          const prepared = await createPolicyObserverHistoryRoot({ context, signingKey: signer, encryptionKey: key!, policy: initial.policy });
+          const prepared = await createPolicyObserverHistoryRoot({ context, signingKey: signer, encryptionKey: key!, policy: initial.policy, writerStateBytes:retainedHistoryWriterStateBytes(limits.archiveBytes,limits.writerStateBytes) });
           check(); retained = configuration(prepared.root);
           if (Buffer.byteLength(JSON.stringify(prepared.root)) > limits.archiveBytes) throw new Error('Policy archive budget cannot retain its initial root');
           // Exclusive publication is the one-time anchor. A partial output is

@@ -1,7 +1,8 @@
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
+import { createAdmissionOriginalReferences, createOriginalReferenceWorkBudget, type OriginalReferenceWorkBudget } from './admission-original-references.js';
 /** Pages remain in funded immutable history checkpoints; this reader retains no page cache. */
 import { admissionPolicyArchivePageDigest, type AdmissionPolicyArchiveLimits, type AdmissionPolicyArchiveReader } from '@resonance/core/admission-policy-archive';
-import { openHistoryCheckpoint, type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
+import { openHistoryCheckpoint, historyCheckpointContextId, type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { ADMISSION_POLICY_OBSERVER_MAX_BYTES } from './admission-policy-observer-state.js';
 
 export function policyObserverArchiveLimits(blocks: number, bytes: number, timeoutMs: number): AdmissionPolicyArchiveLimits {
@@ -15,11 +16,14 @@ export function createPolicyObserverPageReader(options: {
   source: () => Iterable<HistoryCheckpointEnvelope>; historyContext: HistoryCheckpointContext; key: Uint8Array;
   maxBlocks: number; maxBytes: number; timeoutMs: number; signal?: AbortSignal;
   account?: (bytes: number) => void;
+  workBudget?: OriginalReferenceWorkBudget;
 }): AdmissionPolicyArchiveReader {
   let blocks = 0, total = 0; const started = performance.now();
+  const workBudget = options.workBudget ?? createOriginalReferenceWorkBudget();
   const live = (signal: AbortSignal) => { if (signal.aborted || options.signal?.aborted || performance.now() - started >= options.timeoutMs) throw new Error('Observer archive read cancelled or timed out'); };
   return async (digest, signal) => {
     live(signal);
+    const originals = createAdmissionOriginalReferences(historyCheckpointContextId(options.historyContext), { check: () => live(signal), workBudget });
     for (const block of options.source()) {
       live(signal);
       const size = Buffer.byteLength(JSON.stringify(block)); options.account?.(size);
@@ -29,7 +33,7 @@ export function createPolicyObserverPageReader(options: {
       const bytes = openHistoryCheckpoint(block, options.historyContext, options.key);
       try {
         if (bytes.length > ADMISSION_POLICY_OBSERVER_MAX_BYTES) throw new Error('Observer archive snapshot exceeds its bound');
-        const state = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+        const state = originals.accept(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)), block.previous, ADMISSION_POLICY_OBSERVER_MAX_BYTES) as Record<string, any>;
         if (state.version !== 2) continue;
         if (!Array.isArray(state.archiveAppend) || state.archiveAppend.length > 2) throw new Error('Invalid archive append source');
         for (const page of state.archiveAppend) {

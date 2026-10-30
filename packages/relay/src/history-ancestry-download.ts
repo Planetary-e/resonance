@@ -7,18 +7,18 @@ import { randomBytes } from 'node:crypto';
 import { assertSecureRelayTransportEndpoint, type SigningKeyPair } from '@resonance/core';
 import { copyAdmissionSigningKey, exactWitnessFields } from '@resonance/core/admission-witness';
 import { openEncryptedLocalState } from '@resonance/core/local-state';
-import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointContextId, historyCheckpointEnvelopeId, isHistoryDigest,
+import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointContextId, historyCheckpointEnvelopeId, historyDigest, isHistoryDigest,
   parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { historySuccessorProposalId, parseHistorySuccessorProposal, type HistorySuccessorProposal } from '@resonance/core/history-successor';
 import { createHistoryExchangeRequest, parseHistoryExchangeRequest, parseHistoryExchangeResponse } from '@resonance/core/history-exchange';
 import { parseHistoryCompactionAttestation, parseHistoryCompactionCertificate, type HistoryCompactionCertificate } from '@resonance/core/history-compaction';
 import { historyCompactionCertificateId } from '@resonance/core/history-compaction-control';
-import { reserveHistoryStorage } from './history-storage-reservation.js';
+import { historyFundedGrowth, validHistoryFundedGrowth, openHistoryFundedGrowth, type HistoryFundedGrowth, reserveHistoryStorage } from './history-storage-reservation.js';
 import { exchangeHistoryCheckpoint, type HistoryCheckpointTransport, type HistoryReplicaEndpoint } from './history-checkpoint-exchange.js';
 
 export const HISTORY_DOWNLOAD_FILENAME = 'history-download.json';
 const MANIFEST_BYTES = 2 * 1024 * 1024, MAX_BYTES = 256 * 1024 * 1024, MAX_BLOCKS = 10_001;
-interface State { version: 1 | 2; contextId: string; proposal: HistorySuccessorProposal; blocks: string[];
+interface State { funding?: HistoryFundedGrowth; version: 1 | 2; contextId: string; proposal: HistorySuccessorProposal; blocks: string[];
   compaction?: { genesisId: string; certificate: HistoryCompactionCertificate } }
 interface Cursor { proposal: HistorySuccessorProposal; sequence: number; envelopeId: string; generationBytes: number; depth: number; page: HistoryAncestryPagePosition; genesis?: true }
 
@@ -26,7 +26,7 @@ export function createHistoryAncestryDownload(options: {
   directory: string; localKey: Uint8Array; context: HistoryCheckpointContext; signingKey: SigningKeyPair;
   /** Independently retained selection. Its four frozen receipts pin every selected parent head. */
   proposal: HistorySuccessorProposal; members: HistoryReplicaEndpoint[]; initialize?: boolean;
-  maxBytes?: number; maxBlocks?: number; timeoutMs?: number; transport?: HistoryCheckpointTransport;
+  fundedGrowth?: 'monotone-v1'; maxBytes?: number; maxBlocks?: number; timeoutMs?: number; transport?: HistoryCheckpointTransport;
   /** Explicit independent enrollment and historical proof. Reopen requires the
    * same pins; no peer advertisement or missing block implicitly enables this. */
   compaction?: { genesis: unknown; certificate: unknown };
@@ -51,9 +51,11 @@ export function createHistoryAncestryDownload(options: {
   });
   if (new Set(members.map(m => m.publicKey)).size !== 5 || new Set(members.map(m => m.endpoint)).size !== 5) throw new Error('History download needs five distinct pinned sources');
   const directory = options.directory, transport = options.transport ?? exchangeHistoryCheckpoint, key = copyAdmissionSigningKey(options.signingKey);
-  const initial: State = { version: 2, contextId, proposal, blocks: [], ...(compaction ? { compaction } : {}) };
+  const expectedFunding = options.fundedGrowth ? historyFundedGrowth(directory, 'history-download-ciphertext', maxBytes - 2 * MANIFEST_BYTES) : undefined;
+  const initial: State = { version: 2, contextId, proposal, blocks: [], ...(expectedFunding ? { funding: expectedFunding } : {}), ...(compaction ? { compaction } : {}) };
   const validate = (raw: unknown): raw is State => {
     if (!exactWitnessFields(raw, Object.keys(initial)) || ![1, 2].includes(raw.version as number) || raw.contextId !== contextId
+      || (expectedFunding && !validHistoryFundedGrowth(raw.funding, expectedFunding))
       || !Array.isArray(raw.blocks) || raw.blocks.length > maxBlocks || !raw.blocks.every(isHistoryDigest)
       || new Set(raw.blocks).size !== raw.blocks.length) return false;
     try {
@@ -115,9 +117,10 @@ export function createHistoryAncestryDownload(options: {
     return { block, size: bytes.length };
   }
   let storage: ReturnType<typeof openEncryptedLocalState<State>>, reservation: ReturnType<typeof reserveHistoryStorage>;
+  let growth: ReturnType<typeof openHistoryFundedGrowth> | undefined;
   try {
     if (Buffer.from(key.publicKey).toString('base64url') !== context.owner) throw new Error('Wrong history download owner');
-    reservation = reserveHistoryStorage({ directory, component: 'history-download-ciphertext', ciphertextBytes: maxBytes - 2 * MANIFEST_BYTES,
+    if (!expectedFunding) reservation = reserveHistoryStorage({ directory, component: 'history-download-ciphertext', ciphertextBytes: maxBytes - 2 * MANIFEST_BYTES,
       manifestFilename: HISTORY_DOWNLOAD_FILENAME, manifestBytes: MANIFEST_BYTES });
     if (options.initialize) {
       if (existsSync(directory) && readdirSync(directory).length) throw new Error('History download directory is not empty');
@@ -127,28 +130,39 @@ export function createHistoryAncestryDownload(options: {
     if (!lstatSync(directory).isDirectory()) throw new Error('History download needs a real directory');
     storage = openEncryptedLocalState<State>({ path: join(directory, HISTORY_DOWNLOAD_FILENAME), key: options.localKey,
       domain: 'resonance:history-ancestry-download:v1', maxBytes: MANIFEST_BYTES, initial, validate,
-      mode: options.initialize ? 'create-new' : 'open-existing' });
+      funding: options.fundedGrowth, mode: options.initialize ? 'create-new' : 'open-existing' });
+    if (expectedFunding) growth = openHistoryFundedGrowth(storage.read().funding!, !options.initialize);
     pagingVersion = storage.read().version;
+    let retainedPromise = 0;
     for (const id of storage.read().blocks) {
       if (!cursor) throw new Error('History download continues past genesis');
       const { block, size } = readBlock(id); blockBytes += size;
+      retainedPromise = Math.max(retainedPromise, blockBytes + ('checkpointReserveBytes' in block ? block.checkpointReserveBytes ?? 0 : 0));
       if (blockBytes + 2 * MANIFEST_BYTES > maxBytes) throw new Error('History download capacity exceeded');
       cursor = advance(cursor, block, size);
     }
     // Only the next authenticated block may be unindexed after a crash. Keep it for explicit resume.
     const allowed = new Set([...storage.read().blocks, ...(cursor ? [cursor.envelopeId] : [])].map(id => `${id.slice(7)}.block`));
+    let temporaryBytes = 0, unindexedBytes = 0;
     for (const name of readdirSync(directory)) {
       if (/^[a-f0-9]{64}\.block$/.test(name) && !allowed.has(name)) throw new Error('Unregistered history download block');
-      if (/^\.download-[a-f0-9]{32}\.tmp$/.test(name)) rmSync(join(directory, name));
+      if (/^\.download-[a-f0-9]{32}\.tmp$/.test(name)) {
+        const stat = lstatSync(join(directory, name));
+        if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) throw new Error('Invalid download temporary payload');
+        temporaryBytes += stat.size;
+      }
     }
     if (cursor && existsSync(path(cursor.envelopeId))) {
-      const { block, size } = readBlock(cursor.envelopeId); advance(cursor, block, size);
+      const { block, size } = readBlock(cursor.envelopeId); unindexedBytes = size; advance(cursor, block, size);
+      growth?.assertExisting(blockBytes + size + ('checkpointReserveBytes' in block ? block.checkpointReserveBytes ?? 0 : 0));
       if (blockBytes + size + 2 * MANIFEST_BYTES > maxBytes) throw new Error('History download capacity exceeded');
     }
+    growth?.assertExisting(Math.max(retainedPromise, blockBytes + unindexedBytes + temporaryBytes));
+    for (const name of readdirSync(directory)) if (/^\.download-[a-f0-9]{32}\.tmp$/.test(name)) rmSync(join(directory, name));
   } catch (error) { storage!?.close(); key.secretKey.fill(0); throw error; }
   function ensureOpen() {
     if (closed || failed) throw new Error('History download closed or write failed; reopen before reuse');
-    reservation.assertWritable(); storage.read();
+    if (growth) growth.assertExisting(); else reservation.assertWritable(); storage.read();
   }
   function status() {
     ensureOpen();
@@ -162,6 +176,14 @@ export function createHistoryAncestryDownload(options: {
     const saved = existsSync(path(id)) ? readBlock(id) : { block, size: encoded.length };
     const next = advance(cursor, saved.block, saved.size), state = storage.read();
     if (state.blocks.length >= maxBlocks || blockBytes + saved.size + 2 * MANIFEST_BYTES > maxBytes) throw new Error('History download capacity exceeded');
+    let nextState: State = { ...state, blocks: [...state.blocks, id] };
+    if (growth) {
+      const funding = growth.reserve(blockBytes + saved.size + ('checkpointReserveBytes' in block ? block.checkpointReserveBytes ?? 0 : 0));
+      nextState = { ...nextState, funding };
+      storage.preflight(nextState);
+      // Persist the funded obligation before block publication. Reopen never grows it.
+      storage.write({ ...state, funding });
+    }
     let fd: number | undefined;
     const temporary = join(directory, `.download-${randomBytes(16).toString('hex')}.tmp`);
     try {
@@ -174,13 +196,16 @@ export function createHistoryAncestryDownload(options: {
         fsyncSync(fd); closeSync(fd); fd = undefined;
         renameSync(temporary, path(id)); flush(directory);
       }
-      storage.write({ ...state, blocks: [...state.blocks, id] }); // Progress only follows durable ciphertext.
+      storage.write(nextState); // Progress only follows durable ciphertext.
       cursor = next; blockBytes += saved.size;
     } catch (error) { failed = true; throw error; }
     finally { if (fd !== undefined) closeSync(fd); rmSync(temporary, { force: true }); }
   }
   return {
     read: status,
+    binding() { ensureOpen(); return historyDigest(JSON.stringify(storage.read())); },
+    funding() { ensureOpen(); return storage.read().funding ? structuredClone(storage.read().funding) : undefined; },
+    assertFunding() { storage.assertFunding(); growth?.assertExisting(blockBytes); },
     /** Explicit proof to pass to semantic restore review with blocks(). */
     compaction() { ensureOpen(); return compaction ? structuredClone(compaction) : null; },
     /** Bounded progress per explicit attempt; no network on construction, reopen, read or iteration. */

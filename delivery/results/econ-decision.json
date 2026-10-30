@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "run_id": "smoke-01",
+  "E1": "complete_for_local_planning_only",
+  "E2": "blocked",
+  "E2_reasons": [
+    "Only one smoke lifecycle; 20-run matrix and 30-minute windows not run",
+    "Physical power blocked",
+    "Independent review pending"
+  ],
+  "E3": "pending_separate_owner_authorization",
+  "D4": "prototype-only",
+  "economic_affordability": "pending",
+  "acceptance_evaluation": "not_run"
+}

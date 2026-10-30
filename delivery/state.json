@@ -1,0 +1,34 @@
+{
+  "schema_version": "1.0",
+  "project": {
+    "name": "Planetary Resonance",
+    "mode": "existing",
+    "release": "v0.4 complete owner-approved scope"
+  },
+  "status": "paused",
+  "onboarding": {
+    "phase": "done"
+  },
+  "worktree": {
+    "path": "/Users/marcos/Documents/Codex/2026-09-15/i-x20/resonance-v04",
+    "branch": "feature/v0.4-private-transport",
+    "head": "c81d2ac55f083c62127d9ea663a3f2d30b078ffb",
+    "dirty_tree_preserved": true,
+    "session_only_installation": true
+  },
+  "current_feature_id": "FEAT-001",
+  "next_action": "DEC-009 accepts RSO5 only as a bounded research prototype; await an owner decision on production requirements/deployment or continued bounded research, with no SOTA or release claim.",
+  "pending_decision_ids": [],
+  "approvals": {
+    "product_scope": "approved",
+    "software_architecture": "pending",
+    "ai_architecture": "pending",
+    "compliance": "pending",
+    "production_release": "pending"
+  },
+  "session": {
+    "id": "kimi-resonance-v04-20261025T190412Z",
+    "started_at": "2026-10-25T19:04:12Z",
+    "updated_at": "2026-10-30T10:44:34Z"
+  }
+}

@@ -12,18 +12,23 @@ import { captureHistoryAncestrySource, parseHistoryAncestrySelection } from './h
 import { readOperatorJson, readOperatorSigningKey } from './admission-operator-files.js';
 
 export function parseAdmissionHistoryArchiveLimits(value: unknown) {
-  if (!exactWitnessFields(value, ['archiveBytes', 'archiveBlocks']) || !Number.isSafeInteger(value.archiveBytes)
+  const explicit = !!value && typeof value==='object' && Object.hasOwn(value,'writerStateBytes');
+  if (!exactWitnessFields(value, ['archiveBytes', 'archiveBlocks',...(explicit?['writerStateBytes']:[])]) || !Number.isSafeInteger(value.archiveBytes)
     || (value.archiveBytes as number) < 1 || (value.archiveBytes as number) > HISTORY_RECOVERY_MAX_BYTES
     || !Number.isSafeInteger(value.archiveBlocks) || (value.archiveBlocks as number) < 1
     || (value.archiveBlocks as number) > HISTORY_RECOVERY_MAX_BLOCKS) throw new Error('Invalid owner history archive limits');
-  return { archiveBytes: value.archiveBytes as number, archiveBlocks: value.archiveBlocks as number };
+  if(explicit&&(!Number.isSafeInteger(value.writerStateBytes)||(value.writerStateBytes as number)<1024*1024||(value.writerStateBytes as number)>40*1024*1024))throw new Error('Invalid pinned writer snapshot capacity');
+  return { archiveBytes: value.archiveBytes as number, archiveBlocks: value.archiveBlocks as number,...(explicit?{writerStateBytes:value.writerStateBytes as number}:{}) };
 }
 export function parseAdmissionHistoryConfiguration(value: unknown) {
   const hasLimits = value !== null && typeof value === 'object' && Object.hasOwn(value, 'limits');
+  const hasFunding = value !== null && typeof value === 'object' && Object.hasOwn(value, 'fundedGrowth');
+  const hasOriginals = value !== null && typeof value === 'object' && Object.hasOwn(value, 'recoveryOriginalsFile');
   const hasAncestry = value !== null && typeof value === 'object' && Object.hasOwn(value, 'ancestry');
-  if (!exactWitnessFields(value, ['version', 'context', 'members', 'ownerKeyFile', ...(hasLimits ? ['limits'] : []), ...(hasAncestry ? ['ancestry'] : [])]) || value.version !== 1
+  if (!exactWitnessFields(value, ['version', 'context', 'members', 'ownerKeyFile', ...(hasLimits ? ['limits'] : []), ...(hasAncestry ? ['ancestry'] : []), ...(hasFunding ? ['fundedGrowth'] : []), ...(hasOriginals ? ['recoveryOriginalsFile'] : [])]) || value.version !== 1
     || typeof value.ownerKeyFile !== 'string' || !value.ownerKeyFile.length || value.ownerKeyFile.length > 4096
     || !Array.isArray(value.members) || value.members.length !== 5) throw new Error('Invalid admission history configuration');
+  if (hasFunding && value.fundedGrowth !== 'monotone-v1' || hasOriginals && (typeof value.recoveryOriginalsFile !== 'string' || !value.recoveryOriginalsFile)) throw new Error('Invalid explicit funded recovery configuration');
   const context = parseHistoryCheckpointContext(value.context);
   if (context.role !== 'relay-admission-spends') throw new Error('Admission history requires its own history role');
   const members = value.members.map(member => {
@@ -35,17 +40,17 @@ export function parseAdmissionHistoryConfiguration(value: unknown) {
   if (new Set(members.map(m => m.publicKey)).size !== 5 || new Set(members.map(m => m.endpoint)).size !== 5) {
     throw new Error('Admission history requires five distinct pinned members and endpoints');
   }
-  return { version: 1 as const, context, members, ownerKeyFile: value.ownerKeyFile, ...(hasLimits ? { limits: parseAdmissionHistoryArchiveLimits(value.limits) } : {}), ...(hasAncestry ? { ancestry: parseHistoryAncestrySelection(value.ancestry) } : {}) };
+  return { version: 1 as const, context, members, ownerKeyFile: value.ownerKeyFile, ...(hasFunding ? { fundedGrowth: 'monotone-v1' as const } : {}), ...(hasOriginals ? { recoveryOriginalsFile: value.recoveryOriginalsFile as string } : {}), ...(hasLimits ? { limits: parseAdmissionHistoryArchiveLimits(value.limits) } : {}), ...(hasAncestry ? { ancestry: parseHistoryAncestrySelection(value.ancestry) } : {}) };
 }
 
 /** Caller clears the returned signingKey.secretKey after the protected ledger has copied it. */
 export function loadAdmissionHistoryProtectionFile(path: string, onTransportSocket?: (socket: Socket) => void): AdmissionHistoryProtection {
-  const { context, members, ownerKeyFile, limits, ancestry } = parseAdmissionHistoryConfiguration(readOperatorJson(path, 64 * 1024));
+  const { context, members, ownerKeyFile, limits, ancestry, fundedGrowth, recoveryOriginalsFile } = parseAdmissionHistoryConfiguration(readOperatorJson(path, 64 * 1024));
   const signingKey = readOperatorSigningKey(resolve(dirname(resolve(path)), ownerKeyFile));
   try {
     if (Buffer.from(signingKey.publicKey).toString('base64url') !== context.owner) throw new Error('Admission history owner key differs from its pinned context');
     const ancestrySelection = ancestry && captureHistoryAncestrySource(ancestry, path, context);
-    return { context, members, signingKey, ...(ancestrySelection ? { ancestrySelection } : {}), ...(limits ? { maxArchiveBytes: limits.archiveBytes, maxArchiveBlocks: limits.archiveBlocks } : {}),
+    return { context, members, signingKey, fundedGrowth, ...(recoveryOriginalsFile ? { recoveryOriginals: readOperatorJson(resolve(dirname(resolve(path)), recoveryOriginalsFile), 256*1024*1024) as AdmissionHistoryProtection['recoveryOriginals'] } : {}), ...(ancestrySelection ? { ancestrySelection } : {}), ...(limits ? { maxArchiveBytes: limits.archiveBytes, maxArchiveBlocks: limits.archiveBlocks, stateMaxBytes: limits.writerStateBytes } : {}),
       transport: (member, frame, signal) => exchangeHistoryCheckpoint(member, frame, signal, onTransportSocket) };
   } catch (error) { signingKey.secretKey.fill(0); throw error; }
 }

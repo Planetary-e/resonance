@@ -90,7 +90,7 @@ export async function openConfiguredPolicyObserver(value: PolicyObserverConfigur
     if (config.archiveDirectory) archive = openRetainedPolicyObserverArchive(config);
     const observer = await openProtectedPolicyObserver({ remoteArchive: options.remoteArchive ?? { exchange: (member, request, signal) => exchangeAdmissionPolicyObserverFrame(member,request,signal,POLICY_ARCHIVE_PAGE_REPLY_MAX_BYTES) }, ancestrySource: archive?.blocks, directory: config.directory, encryptionKey, signingKey, context: config.context,
       historyContext: config.historyContext, root: config.root, genesis: config.genesis, members: config.members, mode: 'open-existing',
-      maxArchiveBytes: config.limits.archiveBytes, maxArchiveBlocks: config.limits.archiveBlocks,
+      stateMaxBytes:config.limits.writerStateBytes, maxArchiveBytes: config.limits.archiveBytes, maxArchiveBlocks: config.limits.archiveBlocks,
       // Each fresh read has at most four live member RPCs, so two readers
       // fit the supplied owner/router transport's eight-operation shared cap.
       maximumConcurrentObservations: 2,

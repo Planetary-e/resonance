@@ -9,6 +9,7 @@ import { openHistoryCheckpointStore } from '../history-checkpoint-store.js';
 import { createHistoryCheckpointReplica, type HistoryCheckpointTransport, type HistoryExchangeFrame } from '../history-checkpoint-exchange.js';
 import { createHistoryCheckpointWriter, HISTORY_WRITER_FILENAME } from '../history-checkpoint-quorum.js';
 import { historyCheckpointFixture } from './fixtures/history-checkpoint-fixture.js';
+import { openEncryptedLocalState } from '@resonance/core/local-state';
 
 vi.mock('node:fs', async original => { const fs = await original<typeof import('node:fs')>(); return { ...fs, fsyncSync: vi.fn(fs.fsyncSync) }; });
 const actualFsync = (await vi.importActual<typeof import('node:fs')>('node:fs')).fsyncSync;
@@ -202,4 +203,41 @@ it('snapshots the per-call cancellation signal and preserves exact intent when i
   const operation={deadline:performance.now()+1000,signal:controller.signal};const pending=writer.replicate(n.root,operation);
   await started;operation.deadline=Infinity;operation.signal=new AbortController().signal;controller.abort();
   await expect(pending).rejects.toThrow('cancelled');expect(historyCheckpointEnvelopeId(writer.read().pending!)).toBe(historyCheckpointEnvelopeId(n.root));expect(writer.read().committed).toBeNull();
+});
+
+it('enforces the actual lower encrypted snapshot capacity before dispatch and pins it on reopen', async () => {
+  const n = network(); let dispatched = 0;
+  const transport: HistoryCheckpointTransport = async (...args) => { dispatched++; return n.transport(...args); };
+  const options = { ...n.options, transport, stateMaxBytes: 1024*1024 };
+  const writer = createHistoryCheckpointWriter({ ...options, initialize:true }); clean.push(writer.close);
+  await writer.replicate(n.root);
+  const before = readFileSync(join(n.options.directory,HISTORY_WRITER_FILENAME)), calls = dispatched;
+  const oversized = n.next(n.root,'x'.repeat(800000),'checkpoint');
+  await expect(writer.replicate(oversized)).rejects.toThrow(/snapshot.*headroom/);
+  expect(dispatched).toBe(calls); expect(writer.read().pending).toBeNull();
+  expect(readFileSync(join(n.options.directory,HISTORY_WRITER_FILENAME))).toEqual(before);
+  expect(before.length).toBeLessThanOrEqual(1024*1024); expect(writer.read().stateMaxBytes).toBe(1024*1024);
+  writer.close();
+  expect(()=>createHistoryCheckpointWriter({ ...options,stateMaxBytes:2*1024*1024 })).toThrow();
+  expect(readFileSync(join(n.options.directory,HISTORY_WRITER_FILENAME))).toEqual(before);
+  const reopened = createHistoryCheckpointWriter(options); clean.push(reopened.close);
+  expect(reopened.read().committed!.envelope).toEqual(n.root); expect(reopened.read().stateMaxBytes).toBe(1024*1024);
+});
+
+it('pins reference readers atomically with intent and legacy readers refuse the marked writer', async () => {
+  const n = network();
+  const writer = n.writer(true, { transport: async (...args) => {
+    expect(writer.read().originalReferences).toBe(1);
+    expect(writer.read().pending).toEqual(n.root);
+    return n.transport(...args);
+  } });
+  await writer.replicate(n.root, { originalReferences: 1 });
+  expect(writer.read().originalReferences).toBe(1); writer.close();
+  expect(() => openEncryptedLocalState({ path: join(n.options.directory, HISTORY_WRITER_FILENAME), key: n.options.localKey,
+    domain: 'resonance:history-checkpoint-writer:v1', maxBytes: 40*1024*1024, mode: 'open-existing', initial: null,
+    validate: (value): value is null => !!value && Object.keys(value).sort().join(',') === 'committed,contextId,generation,pending,rootId,version',
+  })).toThrow(/state is invalid/);
+  const reopened = n.writer(false);
+  expect(reopened.read().originalReferences).toBe(1);
+  expect(reopened.read().committed!.envelope).toEqual(n.root);
 });

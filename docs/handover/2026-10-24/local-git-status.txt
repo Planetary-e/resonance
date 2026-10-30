@@ -1,0 +1,111 @@
+ M AGENTS.md
+ M ROADMAP.md
+ M docs/developers/v0.4-acceptance-kpis.md
+ M docs/developers/v0.4-completion-plan.md
+ M docs/developers/v0.4-fingerprint-evaluation.md
+ M docs/developers/v0.4-policy-freshness-decision.md
+ M docs/evals/v04-policy-archive-integration-2026-10-18.md
+ M packages/core/package.json
+ M packages/core/src/admission-policy-advance.ts
+ M packages/core/src/admission-policy-archive.ts
+ M packages/core/src/admission-policy.ts
+ M packages/core/src/admission-profile.ts
+ M packages/core/src/admission-witness.ts
+ M packages/core/src/crypto.ts
+ M packages/core/src/index.ts
+ M packages/core/src/local-encrypted-state.ts
+ M packages/core/src/storage-reservation-context.ts
+ M packages/core/src/storage-reservations.ts
+ M packages/eval/package.json
+ M packages/eval/src/scoped-fingerprint-real.ts
+ M packages/node/src/__tests__/admission-issuer-history-replay.test.ts
+ M packages/node/src/admission-issuer-history-replay.ts
+ M packages/node/src/admission-issuer-ledger.ts
+ M packages/node/src/managed-admission-wallet.ts
+ M packages/node/src/private-relay-client.ts
+ M packages/node/src/protected-admission-issuer-ledger.ts
+ M packages/node/src/relay-client.ts
+ M packages/relay/src/__tests__/admission-history-restore.test.ts
+ M packages/relay/src/__tests__/history-ancestry-download.test.ts
+ M packages/relay/src/__tests__/history-checkpoint-quorum.test.ts
+ M packages/relay/src/__tests__/history-checkpoint-recovery.test.ts
+ M packages/relay/src/__tests__/history-retained-writer.test.ts
+ M packages/relay/src/__tests__/policy-observer-history-replay.test.ts
+ M packages/relay/src/__tests__/protected-admission-history.test.ts
+ M packages/relay/src/__tests__/protected-policy-observer.integration.test.ts
+ M packages/relay/src/admission-history-command.ts
+ M packages/relay/src/admission-history-config.ts
+ M packages/relay/src/admission-history-records.ts
+ M packages/relay/src/admission-history-recovery.ts
+ M packages/relay/src/admission-history-replay.ts
+ M packages/relay/src/admission-history-restore.ts
+ M packages/relay/src/admission-policy-history-proof.ts
+ M packages/relay/src/admission-policy-observer-state.ts
+ M packages/relay/src/admission-policy-observer.ts
+ M packages/relay/src/admission-role-history.ts
+ M packages/relay/src/admission-spend-history.ts
+ M packages/relay/src/admission-witness.ts
+ M packages/relay/src/configured-admission-verifier.ts
+ M packages/relay/src/history-ancestry-download.ts
+ M packages/relay/src/history-ancestry-source.ts
+ M packages/relay/src/history-checkpoint-quorum.ts
+ M packages/relay/src/history-checkpoint-recovery.ts
+ M packages/relay/src/history-retained-writer.ts
+ M packages/relay/src/history-storage-reservation.ts
+ M packages/relay/src/history-writer-archive.ts
+ M packages/relay/src/policy-observer-command.ts
+ M packages/relay/src/policy-observer-config.ts
+ M packages/relay/src/policy-observer-history-replay.ts
+ M packages/relay/src/policy-observer-page-reader.ts
+ M packages/relay/src/policy-observer-setup.ts
+ M packages/relay/src/protected-admission-history.ts
+ M packages/relay/src/protected-admission-roles.ts
+ M packages/relay/src/protected-checkpoint-owner.ts
+ M packages/relay/src/protected-policy-observer.ts
+ M scripts/admission-history.ts
+?? docs/developers/v0.4-architecture-reassessment-2026-10-23.md
+?? docs/developers/v0.4-certified-state-decision.md
+?? docs/developers/v0.4-execution-roadmap.md
+?? docs/developers/v0.4-recovery-resource-budget.md
+?? docs/developers/v0.4-sustainable-recovery-design.md
+?? docs/evals/v04-certified-recovery-decision-2026-10-23.md
+?? docs/evals/v04-semantic-freeze-boundary-2026-10-23.md
+?? docs/evals/v04-sustainable-recovery-forecast-2026-10-23.md
+?? docs/evals/v04-sustainable-recovery-implementation-2026-10-23.md
+?? docs/evals/v04-terminal-consumer-2026-10-23.md
+?? docs/evals/v04-terminal-operator-lifecycle-2026-10-23.md
+?? docs/evals/v04-terminal-preparation-2026-10-23.md
+?? docs/handover/
+?? packages/core/src/__tests__/local-encrypted-state-funding.test.ts
+?? packages/core/src/__tests__/signature-verification-reuse.test.ts
+?? packages/core/src/admission-replay-values.ts
+?? packages/core/src/admission-witness-handoff.ts
+?? packages/eval/src/__tests__/certified-recovery-model.test.ts
+?? packages/eval/src/__tests__/fingerprint-actual-export.test.ts
+?? packages/eval/src/__tests__/fingerprint-corpus-prepare.test.ts
+?? packages/eval/src/__tests__/fingerprint-judgments.test.ts
+?? packages/eval/src/certified-recovery-model.ts
+?? packages/eval/src/fingerprint-actual-export.ts
+?? packages/eval/src/fingerprint-corpus-prepare.ts
+?? packages/eval/src/fingerprint-judgments.ts
+?? packages/node/src/__tests__/protected-witness-handoff.integration.test.ts
+?? packages/relay/src/__tests__/admission-history-image-roundtrip.test.ts
+?? packages/relay/src/__tests__/admission-original-references.test.ts
+?? packages/relay/src/__tests__/fixtures/protected-witness-handoff-crash.ts
+?? packages/relay/src/__tests__/original-reference-work-budget.test.ts
+?? packages/relay/src/__tests__/policy-proof-replay-progress.test.ts
+?? packages/relay/src/__tests__/semantic-freeze-boundary.integration.test.ts
+?? packages/relay/src/__tests__/sustainable-recovery-equivocation.integration.test.ts
+?? packages/relay/src/__tests__/sustainable-recovery-fixture.ts
+?? packages/relay/src/__tests__/sustainable-recovery-manifest.test.ts
+?? packages/relay/src/__tests__/sustainable-recovery-runtime.integration.test.ts
+?? packages/relay/src/__tests__/terminal-witness-preparation.integration.test.ts
+?? packages/relay/src/__tests__/witness-handoff-epoch.test.ts
+?? packages/relay/src/admission-original-references.ts
+?? packages/relay/src/protected-witness-handoff.ts
+?? packages/relay/src/sustainable-recovery-arena.ts
+?? packages/relay/src/sustainable-recovery-manifest.ts
+?? packages/relay/src/sustainable-recovery-protected-arena.ts
+?? packages/relay/src/sustainable-recovery-runtime.ts
+?? packages/relay/src/witness-handoff-command.ts
+?? packages/relay/src/witness-handoff-state.ts

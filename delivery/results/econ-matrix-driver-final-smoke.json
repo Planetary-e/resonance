@@ -1,0 +1,217 @@
+{
+  "schema_version": 1,
+  "outcome": "passed_selection_only",
+  "matrix_runs_executed": 0,
+  "execution_guard": "independentReviewApproved required for execution",
+  "scenarios": [
+    "cold",
+    "local-loss",
+    "new-view",
+    "returning"
+  ],
+  "randomness": {
+    "source": "node:crypto.randomBytes",
+    "deterministic": false,
+    "exact_business_replay": false,
+    "values": "All fixture keys, evidence values, identities, nonces and other draws are nondeterministic",
+    "seed_retrofit_forbidden": true,
+    "discard_draws_forbidden": true
+  },
+  "analysis_freeze": {
+    "frozen_before_results": [
+      "source_hashes",
+      "seeds",
+      "scenarios",
+      "run_count",
+      "analysis"
+    ],
+    "run_count": 20,
+    "analysis": "Frozen scenario order and lifecycle gates; retain every draw/invalid run; per-role work sum; application WebSocket payload/frame accounting; descriptive evidence only",
+    "post_result_changes_forbidden": true
+  },
+  "scenario_readiness": {
+    "new-view": "runtime:newView followed by runtime:startup for every member, with durable serving sequence/digest evidence"
+  },
+  "runs": [
+    {
+      "runId": "local-04",
+      "scenario": "local-loss",
+      "seed": "0xE0070204",
+      "orderIndex": 0,
+      "manifestPath": "delivery/results/econ-lab-manifest-local-04.json",
+      "readiness": "installed",
+      "status": "selected"
+    },
+    {
+      "runId": "new-view-04",
+      "scenario": "new-view",
+      "seed": "0xE0070304",
+      "orderIndex": 1,
+      "manifestPath": "delivery/results/econ-lab-manifest-new-view-04.json",
+      "readiness": "post-newView-startup",
+      "status": "selected"
+    },
+    {
+      "runId": "local-05",
+      "scenario": "local-loss",
+      "seed": "0xE0070205",
+      "orderIndex": 2,
+      "manifestPath": "delivery/results/econ-lab-manifest-local-05.json",
+      "readiness": "installed",
+      "status": "selected"
+    },
+    {
+      "runId": "return-04",
+      "scenario": "returning",
+      "seed": "0xE0070104",
+      "orderIndex": 3,
+      "manifestPath": "delivery/results/econ-lab-manifest-return-04.json",
+      "readiness": "installed",
+      "status": "selected"
+    },
+    {
+      "runId": "return-03",
+      "scenario": "returning",
+      "seed": "0xE0070103",
+      "orderIndex": 4,
+      "manifestPath": "delivery/results/econ-lab-manifest-return-03.json",
+      "readiness": "installed",
+      "status": "selected"
+    },
+    {
+      "runId": "new-view-03",
+      "scenario": "new-view",
+      "seed": "0xE0070303",
+      "orderIndex": 5,
+      "manifestPath": "delivery/results/econ-lab-manifest-new-view-03.json",
+      "readiness": "post-newView-startup",
+      "status": "selected"
+    },
+    {
+      "runId": "new-view-05",
+      "scenario": "new-view",
+      "seed": "0xE0070305",
+      "orderIndex": 6,
+      "manifestPath": "delivery/results/econ-lab-manifest-new-view-05.json",
+      "readiness": "post-newView-startup",
+      "status": "selected"
+    },
+    {
+      "runId": "local-02",
+      "scenario": "local-loss",
+      "seed": "0xE0070202",
+      "orderIndex": 7,
+      "manifestPath": "delivery/results/econ-lab-manifest-local-02.json",
+      "readiness": "installed",
+      "status": "selected"
+    },
+    {
+      "runId": "cold-05",
+      "scenario": "cold",
+      "seed": "0xE0070005",
+      "orderIndex": 8,
+      "manifestPath": "delivery/results/econ-lab-manifest-cold-05.json",
+      "readiness": "installed",
+      "status": "selected"
+    },
+    {
+      "runId": "return-02",
+      "scenario": "returning",
+      "seed": "0xE0070102",
+      "orderIndex": 9,
+      "manifestPath": "delivery/results/econ-lab-manifest-return-02.json",
+      "readiness": "installed",
+      "status": "selected"
+    },
+    {
+      "runId": "local-03",
+      "scenario": "local-loss",
+      "seed": "0xE0070203",
+      "orderIndex": 10,
+      "manifestPath": "delivery/results/econ-lab-manifest-local-03.json",
+      "readiness": "installed",
+      "status": "selected"
+    },
+    {
+      "runId": "cold-04",
+      "scenario": "cold",
+      "seed": "0xE0070004",
+      "orderIndex": 11,
+      "manifestPath": "delivery/results/econ-lab-manifest-cold-04.json",
+      "readiness": "installed",
+      "status": "selected"
+    },
+    {
+      "runId": "cold-03",
+      "scenario": "cold",
+      "seed": "0xE0070003",
+      "orderIndex": 12,
+      "manifestPath": "delivery/results/econ-lab-manifest-cold-03.json",
+      "readiness": "installed",
+      "status": "selected"
+    },
+    {
+      "runId": "return-05",
+      "scenario": "returning",
+      "seed": "0xE0070105",
+      "orderIndex": 13,
+      "manifestPath": "delivery/results/econ-lab-manifest-return-05.json",
+      "readiness": "installed",
+      "status": "selected"
+    },
+    {
+      "runId": "cold-02",
+      "scenario": "cold",
+      "seed": "0xE0070002",
+      "orderIndex": 14,
+      "manifestPath": "delivery/results/econ-lab-manifest-cold-02.json",
+      "readiness": "installed",
+      "status": "selected"
+    },
+    {
+      "runId": "new-view-02",
+      "scenario": "new-view",
+      "seed": "0xE0070302",
+      "orderIndex": 15,
+      "manifestPath": "delivery/results/econ-lab-manifest-new-view-02.json",
+      "readiness": "post-newView-startup",
+      "status": "selected"
+    },
+    {
+      "runId": "return-01",
+      "scenario": "returning",
+      "seed": "0xE0070101",
+      "orderIndex": 16,
+      "manifestPath": "delivery/results/econ-lab-manifest-return-01.json",
+      "readiness": "installed",
+      "status": "selected"
+    },
+    {
+      "runId": "new-view-01",
+      "scenario": "new-view",
+      "seed": "0xE0070301",
+      "orderIndex": 17,
+      "manifestPath": "delivery/results/econ-lab-manifest-new-view-01.json",
+      "readiness": "post-newView-startup",
+      "status": "selected"
+    },
+    {
+      "runId": "cold-01",
+      "scenario": "cold",
+      "seed": "0xE0070001",
+      "orderIndex": 18,
+      "manifestPath": "delivery/results/econ-lab-manifest-cold-01.json",
+      "readiness": "installed",
+      "status": "selected"
+    },
+    {
+      "runId": "local-01",
+      "scenario": "local-loss",
+      "seed": "0xE0070201",
+      "orderIndex": 19,
+      "manifestPath": "delivery/results/econ-lab-manifest-local-01.json",
+      "readiness": "installed",
+      "status": "selected"
+    }
+  ]
+}

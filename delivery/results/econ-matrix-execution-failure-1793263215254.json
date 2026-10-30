@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "command": "node scripts/rso5-economic-matrix-driver.mjs",
+  "started_at": "2026-10-29T08:39:17.477Z",
+  "previous_entry_failure": "EEXIST: file already exists, open 'delivery/results/econ-matrix-driver-final-smoke.json'",
+  "previous_failure_phase": "selection-only entrypoint; no matrix lifecycle executed",
+  "matrix_runs_executed": 0,
+  "completed": [],
+  "sustained_windows_executed": false,
+  "acceptance_evaluation": "not_run",
+  "outcome": "failed",
+  "failed_at": "2026-10-29T08:40:15.254Z",
+  "error": "runtime-old-1 runtime:startup: Laboratory request refused: Laboratory request refused: Protected policy observer operation is already in progress: observer:observe: runtime:startup Laboratory socket close runtime-old-1: 1006 \nLaboratory socket close runtime-old-1: 1006 \nLaboratory socket close runtime-old-1: 1006 \nLaboratory socket close runtime-old-1: 1006 \nLaboratory socket close runtime-old-1: 1006 \nLaboratory socket close runtime-old-1: 1006 \nLaboratory socket close runtime-old-1: 1006 \nLaboratory socket close runtime-old-1: 1006 \nLaboratory socket close runtime-old-1: 1006 \nLaboratory socket close runtime-old-1: 1006 \nLaboratory channel refusal runtime-old-1: Laboratory request refused: Protected policy observer operation is already in progress: observer:observe\n"
+}

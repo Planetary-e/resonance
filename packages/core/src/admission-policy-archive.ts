@@ -1,3 +1,5 @@
+import { copyAdmissionReplayValue, chargeAdmissionReplayCopy } from './admission-replay-values.js';
+import { assertWitnessHandoffSuccessor, parseWitnessHandoffActivation } from './admission-witness-handoff.js';
 /** Isolated historical archive prerequisite. A verified handle is not traffic authorization.
  * Existing v1/v2 policy limits still apply; pages do not retire original history. */
 import { createHash } from 'node:crypto';
@@ -92,7 +94,7 @@ export class AdmissionPolicyArchiveBudget extends AdmissionPolicyArchiveExecutio
   readonly keyImports = createAdmissionProfileKeyImports();
   private counts = { maxPages: 0, maxEntries: 0, maxArchiveBytes: 0, maxHistoryBytes: 0, maxTransitions: 0, maxPageReads: 0 };
   constructor(operation: Operation) {
-    const value = structuredClone(operation.limits);
+    const value = copyAdmissionReplayValue(operation.limits);
     if (!exactWitnessFields(value, ['maxPages','maxEntries','maxArchiveBytes','maxHistoryBytes','maxTransitions','maxPageReads','timeoutMs'])
       || Object.values(value).some(n => !integer(n)) || value.timeoutMs < 1 || value.timeoutMs > 2_147_483_647) throw new Error('Invalid archive limits');
     super({ ...operation, timeoutMs: value.timeoutMs });
@@ -107,7 +109,7 @@ export class AdmissionPolicyArchiveBudget extends AdmissionPolicyArchiveExecutio
     this.check(); const encoded = JSON.stringify(value);
     if (typeof encoded !== 'string') throw new Error('Invalid archive input');
     this.charge('maxHistoryBytes', Buffer.byteLength(encoded));
-    return JSON.parse(encoded) as unknown;
+    chargeAdmissionReplayCopy(Buffer.byteLength(encoded)); return JSON.parse(encoded) as unknown;
   }
 }
 function operationBudget(options: Operation): AdmissionPolicyArchiveBudget {
@@ -126,7 +128,7 @@ export type AdmissionPolicyProofAppend = { version: 1; kind: 'genesis'; policy: 
   | { version: 1; kind: 'advance'; advance: ArchivedAdmissionPolicyAdvance; pages: AdmissionPolicyProofPage[] };
 export function admissionPolicyProofReference(contextValue: AdmissionPolicyObservers, headValue: AdmissionPolicyHead,
   limits: AdmissionPolicyArchiveLimits): AdmissionPolicyProofReference {
-  const context = parseAdmissionPolicyObservers(structuredClone(contextValue)), head = parseAdmissionPolicyHead(structuredClone(headValue));
+  const context = parseAdmissionPolicyObservers(copyAdmissionReplayValue(contextValue)), head = parseAdmissionPolicyHead(copyAdmissionReplayValue(headValue));
   const bounded = new AdmissionPolicyArchiveBudget({ limits }).limits;
   if (head.revision < context.genesis.revision || head.revision === context.genesis.revision && !sameAdmissionPolicyHead(head, context.genesis)) throw new Error('Proof head precedes original genesis');
   const body = { version: 1 as const, context, genesis: context.genesis, head, limits: bounded };
@@ -141,7 +143,7 @@ export function parseAdmissionPolicyProofReference(value: unknown): AdmissionPol
 /** Structural boundary only. The streaming resolver authenticates every append before installation. */
 export function parseAdmissionPolicyProofAppend(value: unknown): AdmissionPolicyProofAppend {
   if (exactWitnessFields(value, ['version','kind','policy']) && value.version === 1 && value.kind === 'genesis'
-    && (value.policy as { version?: unknown })?.version !== 3 && Buffer.byteLength(JSON.stringify(value)) <= MAX_ADMISSION_POLICY_BYTES + 128) return structuredClone(value) as unknown as AdmissionPolicyProofAppend;
+    && (value.policy as { version?: unknown })?.version !== 3 && Buffer.byteLength(JSON.stringify(value)) <= MAX_ADMISSION_POLICY_BYTES + 128) return copyAdmissionReplayValue(value) as unknown as AdmissionPolicyProofAppend;
   if (!exactWitnessFields(value, ['version','kind','advance','pages']) || value.version !== 1 || value.kind !== 'advance'
     || !Array.isArray(value.pages) || value.pages.length > 2 || Buffer.byteLength(JSON.stringify(value.advance)) > ADMISSION_POLICY_ADVANCE_MAX_BYTES) throw new Error('Invalid bounded policy proof append');
   const pages = value.pages.map(page => {
@@ -152,7 +154,7 @@ export function parseAdmissionPolicyProofAppend(value: unknown): AdmissionPolicy
     return { digest: page.digest, data: page.data };
   });
   if (new Set(pages.map(page => page.digest)).size !== pages.length) throw new Error('Duplicate policy proof pages');
-  return { version: 1, kind: 'advance', advance: structuredClone(value.advance) as ArchivedAdmissionPolicyAdvance, pages };
+  return { version: 1, kind: 'advance', advance: copyAdmissionReplayValue(value.advance) as ArchivedAdmissionPolicyAdvance, pages };
 }
 export async function verifyArchivedAdmissionPolicy(value: unknown, authority: string, imports?: AdmissionProfileKeyImports): Promise<ArchivedAdmissionPolicy> {
   return (value as { version?: unknown })?.version === 3 ? verifyAdmissionPolicyV3(value, authority, imports) : verifyAdmissionPolicy(value, authority, imports);
@@ -176,13 +178,15 @@ export function emptyAdmissionPolicyArchive(contextId: string): AdmissionPolicyA
 }
 async function normalizedEntry(value: unknown): Promise<AdmissionPolicyKey> {
   if (!exactWitnessFields(value, ['profile','notBefore','issueUntil','spendUntil','retryUntil',
-    ...(value && typeof value === 'object' && Object.hasOwn(value, 'witnesses') ? ['witnesses'] : [])])
+    ...(value && typeof value === 'object' && Object.hasOwn(value, 'witnesses') ? ['witnesses'] : []),
+    ...(value && typeof value === 'object' && Object.hasOwn(value, 'witnessHandoff') ? ['witnessHandoff'] : [])])
     || !integer(value.notBefore) || !integer(value.issueUntil) || !integer(value.spendUntil) || !integer(value.retryUntil)
     || value.notBefore >= value.issueUntil || value.issueUntil > value.spendUntil || value.spendUntil > value.retryUntil) throw new Error('Invalid archive entry');
-  const input = structuredClone(value), { profile } = await parseAdmissionWalletProfile(input.profile);
+  const input = copyAdmissionReplayValue(value), { profile } = await parseAdmissionWalletProfile(input.profile);
   return { profile, notBefore: input.notBefore as number, issueUntil: input.issueUntil as number,
     spendUntil: input.spendUntil as number, retryUntil: input.retryUntil as number,
-    ...(Object.hasOwn(input, 'witnesses') ? { witnesses: parseAdmissionWitnessSet(input.witnesses) } : {}) };
+    ...(Object.hasOwn(input, 'witnesses') ? { witnesses: parseAdmissionWitnessSet(input.witnesses) } : {}),
+    ...(Object.hasOwn(input, 'witnessHandoff') ? { witnessHandoff: parseWitnessHandoffActivation(input.witnessHandoff) } : {}) };
 }
 async function normalizedPage(value: unknown): Promise<AdmissionPolicyArchivePage> {
   if (!exactWitnessFields(value, ['version','kind','contextId','previous','index','firstEntry','entries'])
@@ -191,7 +195,7 @@ async function normalizedPage(value: unknown): Promise<AdmissionPolicyArchivePag
     || (value.index === 0 ? value.previous !== null || value.firstEntry !== 0 : value.previous === null || value.firstEntry < value.index)
     || !Array.isArray(value.entries) || value.entries.length < 1 || value.entries.length > 64
     || Buffer.byteLength(JSON.stringify(value)) > ADMISSION_POLICY_ARCHIVE_PAGE_MAX_BYTES) throw new Error('Invalid or oversized archive page');
-  const input = structuredClone(value), entries: AdmissionPolicyKey[] = [];
+  const input = copyAdmissionReplayValue(value), entries: AdmissionPolicyKey[] = [];
   for (const entry of input.entries as unknown[]) entries.push(await normalizedEntry(entry));
   return { version: 1, kind: 'admission-policy-archive-page', contextId: input.contextId as string, previous: input.previous as string | null,
     index: input.index as number, firstEntry: input.firstEntry as number, entries };
@@ -264,7 +268,7 @@ interface Retained {
 const handles = new WeakMap<VerifiedAdmissionPolicyArchive, Retained>();
 function retain(value: Retained): VerifiedAdmissionPolicyArchive {
   const handle = Object.freeze({}) as VerifiedAdmissionPolicyArchive;
-  handles.set(handle, structuredClone(value)); return handle;
+  handles.set(handle, copyAdmissionReplayValue(value)); return handle;
 }
 function requireHandle(handle: VerifiedAdmissionPolicyArchive): Retained {
   const value = handles.get(handle);
@@ -276,8 +280,8 @@ export interface VerifyAdmissionPolicyArchiveOptions extends Operation {
   selectedHead: AdmissionPolicyHead; descriptor: AdmissionPolicyArchiveDescriptor; reader: AdmissionPolicyArchiveReader;
 }
 export async function verifyAdmissionPolicyArchive(options: VerifyAdmissionPolicyArchiveOptions): Promise<VerifiedAdmissionPolicyArchive> {
-  const budget = operationBudget(options), context = parseAdmissionPolicyObservers(structuredClone(options.context)),
-    selectedHead = parseAdmissionPolicyHead(structuredClone(options.selectedHead)), archive = descriptor(structuredClone(options.descriptor)), reader = options.reader;
+  const budget = operationBudget(options), context = parseAdmissionPolicyObservers(copyAdmissionReplayValue(options.context)),
+    selectedHead = parseAdmissionPolicyHead(copyAdmissionReplayValue(options.selectedHead)), archive = descriptor(copyAdmissionReplayValue(options.descriptor)), reader = options.reader;
   if (archive.contextId !== admissionPolicyObserversId(context)) throw new Error('Archive observer context differs');
   if (!Array.isArray(options.advances) || options.advances.length > budget.limits.maxTransitions) throw new Error('Archive transition limit exhausted');
   // Serialize and copy every caller-owned history value before the first await.
@@ -304,7 +308,7 @@ export async function appendAdmissionPolicyArchive(options: Operation & {
   handle: VerifiedAdmissionPolicyArchive; advance: unknown; selectedHead: AdmissionPolicyHead; reader: AdmissionPolicyArchiveReader;
 }): Promise<StagedAdmissionPolicyArchive> {
   const budget = operationBudget(options), retained = requireHandle(options.handle), reader = options.reader,
-    input = budget.snapshot(options.advance), selectedHead = parseAdmissionPolicyHead(structuredClone(options.selectedHead));
+    input = budget.snapshot(options.advance), selectedHead = parseAdmissionPolicyHead(copyAdmissionReplayValue(options.selectedHead));
   budget.charge('maxTransitions', 1);
   const advance = await budget.wait(() => parseAdmissionPolicyAdvance(input, retained.context));
   if (!sameAdmissionPolicyHead(advance.commitment.previous, retained.head) || !sameAdmissionPolicyHead(advance.commitment.next, selectedHead)) throw new Error('Archive append requires the selected immediate successor');
@@ -312,11 +316,11 @@ export async function appendAdmissionPolicyArchive(options: Operation & {
   const expected = extendArchive(retained.expected, advance.policy);
   await scan(retained.descriptor, retained.expected, reader, budget);
   const { descriptor: archive, pages } = stagePages(retained.descriptor, expected.slice(retained.expected.length), budget);
-  return { descriptor: structuredClone(archive), pages,
+  return { descriptor: copyAdmissionReplayValue(archive), pages,
     handle: retain({ context: retained.context, head: selectedHead, policy: advance.policy, descriptor: archive, expected }) };
 }
 function stagePages(prefix: AdmissionPolicyArchiveDescriptor, additions: AdmissionPolicyKey[], budget: AdmissionPolicyArchiveBudget) {
-  const archive = structuredClone(prefix), pages: StagedAdmissionPolicyArchive['pages'] = [];
+  const archive = copyAdmissionReplayValue(prefix), pages: StagedAdmissionPolicyArchive['pages'] = [];
   let entries: AdmissionPolicyKey[] = [];
   const page = (): AdmissionPolicyArchivePage => ({ version: 1, kind: 'admission-policy-archive-page', contextId: archive.contextId,
     previous: archive.root, index: archive.pageCount, firstEntry: archive.entryCount, entries });
@@ -344,7 +348,7 @@ export async function lookupAdmissionPolicyArchive(options: Operation & {
   if (!hashId(issuerKey)) throw new Error('Invalid archived issuer fingerprint');
   await scan(retained.descriptor, retained.expected, reader, budget);
   const entry = retained.expected.find(value => admissionKeyFingerprint(value.profile.issuerPublicKey) === issuerKey);
-  return entry ? structuredClone(entry) : undefined;
+  return entry ? copyAdmissionReplayValue(entry) : undefined;
 }
 
 /** V3 signature/schema validation is deliberately separate from resolved provenance. */
@@ -356,12 +360,12 @@ export type ArchivedAdmissionPolicy = SignedAdmissionPolicy | SignedAdmissionPol
 export interface ArchivedAdmissionPolicyAdvance { commitment: AdmissionPolicyAdvanceCommitment; policy: ArchivedAdmissionPolicy }
 function v3Payload(body: AdmissionPolicyBodyV3) {
   return Buffer.from('resonance:admission-policy:v3\n' + JSON.stringify([body.version, body.kind, body.revision, body.issuedAt,
-    body.expiresAt, body.activeKey, body.keys.map(e => [e.profile, e.notBefore, e.issueUntil, e.spendUntil, e.retryUntil, ...(e.witnesses ? [e.witnesses] : [])]), body.archive]));
+    body.expiresAt, body.activeKey, body.keys.map(e => [e.profile, e.notBefore, e.issueUntil, e.spendUntil, e.retryUntil, ...(e.witnesses ? [e.witnesses] : []), ...(e.witnessHandoff ? [e.witnessHandoff] : [])]), body.archive]));
 }
 export async function parseAdmissionPolicyBodyV3(value: unknown, imports?: AdmissionProfileKeyImports): Promise<AdmissionPolicyBodyV3> {
   if (!exactWitnessFields(value, ['version','kind','revision','issuedAt','expiresAt','activeKey','keys','archive'])
     || value.version !== 3 || Buffer.byteLength(JSON.stringify(value)) > MAX_ADMISSION_POLICY_BYTES) throw new Error('Invalid v3 admission policy');
-  const input = structuredClone(value), archive = descriptor(input.archive);
+  const input = copyAdmissionReplayValue(value), archive = descriptor(input.archive);
   const { archive: _, ...fields } = input;
   const normalized = await parseAdmissionPolicyBody({ ...fields, version: 2, archivedKeys: [] }, imports);
   const { archivedKeys: __, ...body } = normalized;
@@ -383,7 +387,7 @@ export async function verifyAdmissionPolicyV3(value: unknown, authority: string,
   if (!exactWitnessFields(value, ['version','kind','revision','issuedAt','expiresAt','activeKey','keys','archive','authority','signature'])
     || value.authority !== authority || !witnessBytes(value.signature, 64)
     || Buffer.byteLength(JSON.stringify(value) + '\n') > MAX_ADMISSION_POLICY_BYTES) throw new Error('Invalid signed v3 admission policy');
-  const input = structuredClone(value), { authority: _, signature, ...unsigned } = input;
+  const input = copyAdmissionReplayValue(value), { authority: _, signature, ...unsigned } = input;
   const body = await parseAdmissionPolicyBodyV3(unsigned, imports);
   if (!verify(v3Payload(body), Buffer.from(signature as string, 'base64url'), Buffer.from(authority, 'base64url'))) throw new Error('Invalid v3 community policy signature');
   return { ...body, authority, signature: signature as string };
@@ -412,12 +416,12 @@ function resolvedState(handle: ResolvedAdmissionPolicy): ResolvedState {
 }
 function resolvedHandle(state: ResolvedState): ResolvedAdmissionPolicy {
   const handle = Object.freeze({}) as ResolvedAdmissionPolicy;
-  resolvedPolicies.set(handle, structuredClone(state)); return handle;
+  resolvedPolicies.set(handle, copyAdmissionReplayValue(state)); return handle;
 }
 /** Snapshot has at most eight current keys. It is metadata, not a serializable capability. */
 export function inspectResolvedAdmissionPolicy(handle: ResolvedAdmissionPolicy) {
   const state = resolvedState(handle);
-  return structuredClone({ context: state.context, head: state.head, policy: state.policy, currentKeys: state.policy.keys,
+  return copyAdmissionReplayValue({ context: state.context, head: state.head, policy: state.policy, currentKeys: state.policy.keys,
     archive: state.policy.version === 3 ? state.policy.archive : null });
 }
 async function walkPages(archive: AdmissionPolicyArchiveDescriptor, reader: AdmissionPolicyArchiveReader, budget: AdmissionPolicyArchiveBudget,
@@ -443,7 +447,7 @@ async function walkPages(archive: AdmissionPolicyArchiveDescriptor, reader: Admi
   budget.check();
 }
 function retainedCurrent(previous: AdmissionPolicyKey, next: AdmissionPolicyKey) {
-  return JSON.stringify(previous.profile) === JSON.stringify(next.profile) && JSON.stringify(previous.witnesses) === JSON.stringify(next.witnesses)
+  return JSON.stringify(previous.profile) === JSON.stringify(next.profile)
     && previous.notBefore === next.notBefore && next.issueUntil <= previous.issueUntil && next.spendUntil <= previous.spendUntil && next.retryUntil <= previous.retryUntil;
 }
 function removedCurrent(previous: ArchivedAdmissionPolicy, next: AdmissionPolicyBodyV3) {
@@ -464,6 +468,7 @@ async function validateV3Successor(previous: ResolvedState, next: SignedAdmissio
   for (const entry of old.keys) {
     const retained = next.keys.find(e => admissionKeyFingerprint(e.profile.issuerPublicKey) === admissionKeyFingerprint(entry.profile.issuerPublicKey));
     if (retained ? !retainedCurrent(entry, retained) : entry.retryUntil > next.issuedAt) throw new Error('V3 changed retained pins/cutoffs or archived before final retry');
+    if (retained) assertWitnessHandoffSuccessor(entry, retained, archivedAdmissionPolicyDigest(old), old.revision);
   }
   const fresh = next.keys.filter(e => !old.keys.some(prior => admissionKeyFingerprint(e.profile.issuerPublicKey) === admissionKeyFingerprint(prior.profile.issuerPublicKey)));
   const active = old.keys.find(e => admissionKeyFingerprint(e.profile.issuerPublicKey) === old.activeKey)!;
@@ -548,8 +553,8 @@ export interface ResolveAdmissionPolicyOptions extends Operation {
 }
 /** Full original provenance; v3 cannot be a fresh genesis or bypass the signed transition chain. */
 export async function resolveAdmissionPolicy(options: ResolveAdmissionPolicyOptions): Promise<ResolvedAdmissionPolicy> {
-  const budget = operationBudget(options), context = parseAdmissionPolicyObservers(structuredClone(options.context)), reader = options.reader,
-    selected = parseAdmissionPolicyHead(structuredClone(options.selectedHead));
+  const budget = operationBudget(options), context = parseAdmissionPolicyObservers(copyAdmissionReplayValue(options.context)), reader = options.reader,
+    selected = parseAdmissionPolicyHead(copyAdmissionReplayValue(options.selectedHead));
   // Arrays retain the existing up-front snapshot guarantee. Streaming callers
   // retain one item at a time; their next()/return() share this same deadline.
   const source = options.advances;
@@ -613,7 +618,7 @@ export async function resolveAdmissionPolicyAdvance(options: Operation & {
   previous: ResolvedAdmissionPolicy; advance: unknown; selectedHead: AdmissionPolicyHead; reader: AdmissionPolicyArchiveReader;
 }): Promise<ResolvedAdmissionPolicy> {
   const budget = operationBudget(options), previous = resolvedState(options.previous), input = budget.snapshot(options.advance),
-    selected = parseAdmissionPolicyHead(structuredClone(options.selectedHead)), reader = options.reader;
+    selected = parseAdmissionPolicyHead(copyAdmissionReplayValue(options.selectedHead)), reader = options.reader;
   budget.charge('maxTransitions', 1);
   const advance = await parseArchivedAdvance(input, previous.context, budget);
   if (!sameAdmissionPolicyHead(advance.commitment.next, selected)) throw new Error('Resolved successor differs from selected head');
@@ -646,7 +651,7 @@ export async function prepareAdmissionPolicyV3Successor(options: Operation & {
     const page = staged.pages.find(p => p.digest === digest); return page ? page.bytes : reader(digest, signal);
   };
   await validateV3Successor(previous, body, combined, budget);
-  return { body: structuredClone(body), pages: staged.pages, previousHead: structuredClone(previous.head), previousArchive: old.version === 3 ? structuredClone(old.archive) : null };
+  return { body: copyAdmissionReplayValue(body), pages: staged.pages, previousHead: copyAdmissionReplayValue(previous.head), previousArchive: old.version === 3 ? copyAdmissionReplayValue(old.archive) : null };
 }
 /** Creates a signed commitment only after resolving the signed v3 successor and its archive. */
 export async function createResolvedAdmissionPolicyAdvance(options: Operation & {
@@ -677,7 +682,7 @@ export async function lookupResolvedAdmissionPolicyKey(options: Operation & {
     const entry = state.legacyArchive!.find(e => admissionKeyFingerprint(e.profile.issuerPublicKey) === issuerKey);
     if (entry) { found = entry; archived = true; }
   }
-  return found ? { entry: structuredClone(found), archived } : undefined;
+  return found ? { entry: copyAdmissionReplayValue(found), archived } : undefined;
 }
 /** Callbacks run only after one complete validation pass. Stage their effects until this operation succeeds. */
 export async function visitResolvedAdmissionPolicyArchive(options: Operation & {
@@ -688,11 +693,11 @@ export async function visitResolvedAdmissionPolicyArchive(options: Operation & {
   if (state.policy.version === 3) {
     await walkPages(state.policy.archive, reader, budget, () => {});
     await walkPages(state.policy.archive, reader, budget, async (entries, offset) => {
-      for (let i = 0; i < entries.length; i++) await budget.wait(async () => { await visit(structuredClone(entries[i]), offset + i); });
+      for (let i = 0; i < entries.length; i++) await budget.wait(async () => { await visit(copyAdmissionReplayValue(entries[i]), offset + i); });
     });
   } else {
     for (let i = 0; i < state.legacyArchive!.length; i++) {
-      budget.charge('maxEntries', 1); await budget.wait(async () => { await visit(structuredClone(state.legacyArchive![i]), i); });
+      budget.charge('maxEntries', 1); await budget.wait(async () => { await visit(copyAdmissionReplayValue(state.legacyArchive![i]), i); });
     }
   }
 }
@@ -707,13 +712,13 @@ export function retainedResolvedAdmissionPolicyKey(policy: ResolvedAdmissionPoli
   const entry = [...state.policy.keys, ...(state.retainedKeys ?? [])].find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === issuerKey);
   if (!entry) throw new Error('Issuer is absent from the bounded resolved wallet catalogue');
   const handle = Object.freeze({}) as ResolvedAdmissionPolicyKey;
-  resolvedKeys.set(handle, { policy, entry: structuredClone(entry) }); return handle;
+  resolvedKeys.set(handle, { policy, entry: copyAdmissionReplayValue(entry) }); return handle;
 }
 export function inspectResolvedAdmissionPolicyKey(policy: ResolvedAdmissionPolicy, membership: ResolvedAdmissionPolicyKey): AdmissionPolicyKey {
   resolvedState(policy);
   const value = resolvedKeys.get(membership);
   if (!value || value.policy !== policy) throw new Error('Issuer requires its original resolved membership capability');
-  return structuredClone(value.entry);
+  return copyAdmissionReplayValue(value.entry);
 }
 
 export async function resolveAdmissionPolicyKey(options: Operation & {
@@ -735,7 +740,7 @@ export async function resolveAdmissionPolicyCatalogueMembership(options: Operati
   const requested = new Set(options.issuerKeys), staged = new Map<string, AdmissionPolicyKey>();
   function collect(entry: AdmissionPolicyKey) {
     const fingerprint = admissionKeyFingerprint(entry.profile.issuerPublicKey);
-    if (requested.has(fingerprint)) staged.set(fingerprint, structuredClone(entry));
+    if (requested.has(fingerprint)) staged.set(fingerprint, copyAdmissionReplayValue(entry));
   }
   for (const entry of state.policy.keys) collect(entry);
   await visitResolvedAdmissionPolicyArchive({ ...options, policy, budget, visit: collect });
@@ -758,11 +763,11 @@ export async function resolveAdmissionPolicyHistoryMembership(options: Operation
 }): Promise<AdmissionPolicyHistoryMembership> {
   const budget = operationBudget(options);
   if (options.issuerKeys.length > 10000 || options.issuerKeys.some(value => !hashId(value)) || (options.participants?.length ?? 0) > 2) throw new Error('Historical membership request exceeds bounded state');
-  const requested = new Set(options.issuerKeys), participants = structuredClone(options.participants ?? []);
+  const requested = new Set(options.issuerKeys), participants = copyAdmissionReplayValue(options.participants ?? []);
   const entries = new Map<string, AdmissionPolicyKey>(), present = new Set<string>(), state = resolvedState(options.policy);
   const collect = (entry: AdmissionPolicyKey) => {
     const id = admissionKeyFingerprint(entry.profile.issuerPublicKey);
-    if (requested.has(id)) entries.set(id, structuredClone(entry));
+    if (requested.has(id)) entries.set(id, copyAdmissionReplayValue(entry));
     for (const participant of participants) if (participant.role === 'witness'
       ? entry.witnesses?.members.some(member => member.publicKey === participant.publicKey)
       : entry.witnesses?.coordinators.includes(participant.publicKey)) present.add(`${participant.role}:${participant.publicKey}`);
@@ -782,7 +787,7 @@ export function admissionPolicyHistoryEntry(policy: ArchivedAdmissionPolicy, mem
   if (policy.version !== 3) return admissionPolicyKeys(policy).find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === issuerKey);
   const known = membership && historyMemberships.get(membership);
   if (!known || known.digest !== archivedAdmissionPolicyDigest(policy)) throw new Error('Historical policy requires its original authenticated membership capability');
-  return structuredClone(known.entries.get(issuerKey) ?? policy.keys.find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === issuerKey));
+  return copyAdmissionReplayValue(known.entries.get(issuerKey) ?? policy.keys.find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === issuerKey));
 }
 export function admissionPolicyHistoryParticipant(policy: ArchivedAdmissionPolicy, membership: AdmissionPolicyHistoryMembership | undefined, role: 'witness' | 'coordinator', publicKey: string): boolean {
   if (policy.version !== 3) return admissionPolicyKeys(policy).some(entry => role === 'witness'

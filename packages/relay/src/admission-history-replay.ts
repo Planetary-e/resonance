@@ -1,10 +1,14 @@
+import { withAdmissionReplayValues, ownAdmissionReplayValue } from '@resonance/core';
+import { createPolicyProofReplayHistory, decodePolicyProofReplayRecord } from './admission-policy-history-proof.js';
+import { withSuccessfulEd25519VerificationReuse } from '@resonance/core';
 import { firstHistoryAncestryPage, nextHistoryAncestryGeneration } from '@resonance/core/history-ancestry-pages';
+import { createAdmissionOriginalReferences, originalReferenceWorkBudget } from './admission-original-references.js';
 import { AdmissionPolicyArchiveExecutionContext, archivedAdmissionPolicyDigest as admissionPolicyDigest } from '@resonance/core/admission-policy-archive';
 import type { PolicyProofHistory, PolicyProofOperation, PolicyProofCache } from './admission-policy-history-proof.js';
 /** Offline semantic reconstruction. A complete result is historical evidence, never write readiness. */
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
 import { assertAdmissionPolicySuccessor } from '@resonance/core/admission-policy';
-import { HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointContextId, historyCheckpointEnvelopeId, historyDigest, isHistoryDigest, openHistoryCheckpoint, parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, type HistoryCheckpointContext, type HistoryCheckpointEnvelope, type HistoryEncryptedEnvelope } from '@resonance/core/history-checkpoint';
+import { HISTORY_DELTA_MAX_PAYLOAD, HISTORY_ENVELOPE_MAX_BYTES, historyCheckpointContextId, historyCheckpointEnvelopeId, historyDigest, isHistoryDigest, openHistoryCheckpoint, parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, type HistoryCheckpointContext, type HistoryCheckpointEnvelope, type HistoryEncryptedEnvelope } from '@resonance/core/history-checkpoint';
 import { assertHistorySuccessorChain, historySuccessorProposalId, parseHistorySuccessorProposal, type HistorySuccessorProposal } from '@resonance/core/history-successor';
 import { HISTORY_COMPACTION_MAX_BYTES, parseHistoryCompactionCertificate, type HistoryCompactionCertificate } from '@resonance/core/history-compaction';
 import { assertHistoryCompactedSuccessorChain } from '@resonance/core/history-compacted-chain';
@@ -49,11 +53,11 @@ export async function replayAdmissionHistory(options: {
     if (options.signal?.aborted || performance.now() - started >= timeoutMs) throw new Error('Admission history replay cancelled or timed out');
     proofOperation.budget?.check();
   }
-  function decode(block: HistoryCheckpointEnvelope): unknown {
-    const plaintext = openHistoryCheckpoint(block, context, key);
-    try { return JSON.parse(plaintext.toString('utf8')); }
-    catch { throw new Error('Invalid encrypted admission history record'); }
-    finally { plaintext.fill(0); }
+  let occurrence = -1;
+  function decode(_block: HistoryCheckpointEnvelope): unknown {
+    if (compaction !== undefined) { const plaintext = openHistoryCheckpoint(_block, context, key); try { return originals.accept(JSON.parse(plaintext.toString('utf8')), _block.previous, _block.kind === 'delta' ? HISTORY_DELTA_MAX_PAYLOAD : undefined); } finally { plaintext.fill(0); } }
+    const raw = [...proofHistory.source()][occurrence];
+    return decodePolicyProofReplayRecord(proofHistory, occurrence, raw);
   }
   function assertSelectedChain(selected: HistorySuccessorProposal) {
     if (anchor) assertHistoryCompactedSuccessorChain({ proposal: selected, ids, certificate: anchor.certificate,
@@ -66,15 +70,34 @@ export async function replayAdmissionHistory(options: {
     execution: { version: 2, purpose: 'offline-startup-reconstruction', timeoutMs: Math.min(timeoutMs, 30000) },
     timeoutMs, signal: options.signal, deadline: started + Math.min(timeoutMs, 30000),
   });
+  const originals = createAdmissionOriginalReferences(contextId, { check: () => live(), workBudget: originalReferenceWorkBudget(startup) });
   const key = Buffer.from(options.encryptionKey);
   const proofOperation: PolicyProofOperation = { startup }, proofCache: PolicyProofCache = new Map();
-  const proofHistory: PolicyProofHistory = { context, encryptionKey: key, operation: proofOperation, cache: proofCache,
+  let proofHistory: PolicyProofHistory = { context, encryptionKey: key, operation: proofOperation, cache: proofCache,
     signal: options.signal, deadline: started + timeoutMs, source: options.blockSource ?? (() => options.blocks as Iterable<HistoryCheckpointEnvelope>) };
   try {
+  return await withAdmissionReplayValues({ check: () => live(), charge: bytes => originalReferenceWorkBudget(startup).charge(bytes) }, () => withSuccessfulEd25519VerificationReuse({ check: () => live() }, async () => {
     live();
+    let owned: ReturnType<typeof createPolicyProofReplayHistory> | undefined;
+    if (compaction === undefined) {
+      const snapshots: HistoryCheckpointEnvelope[] = []; let snapshotBytes = 0;
+      const synchronousArray = Array.isArray(options.blocks);
+      for (const raw of options.blocks) {
+        live(); startup.check(); const encoded = JSON.stringify(raw), size = Buffer.byteLength(encoded ?? '');
+        if (snapshots.length >= maxBlocks || !size || size > HISTORY_ENVELOPE_MAX_BYTES || (snapshotBytes += size) > maxBytes) throw new Error('Admission replay snapshot exceeds existing capacity');
+        originalReferenceWorkBudget(startup).charge(size);
+        snapshots.push(ownAdmissionReplayValue(JSON.parse(encoded) as HistoryCheckpointEnvelope));
+        // Generic sources retain their existing cancellation opportunity. Arrays
+        // must be captured completely before the first asynchronous boundary.
+        if (!synchronousArray && snapshots.length % 32 === 0) { await yieldToEventLoop(); live(); startup.check(); }
+      }
+      owned = createPolicyProofReplayHistory({ ...proofHistory, shareDecodedRecords: true, source: () => snapshots });
+      proofHistory = owned;
+    }
+    try {
     let page = firstHistoryAncestryPage(), processed = 0;
-    for (const raw of options.blocks) {
-      live(); if (++blocks > maxBlocks) throw new Error('Admission replay block capacity exceeded');
+    for (const raw of owned ? proofHistory.source() : options.blocks) {
+      occurrence++; live(); if (++blocks > maxBlocks) throw new Error('Admission replay block capacity exceeded');
       const size = Buffer.byteLength(JSON.stringify(raw) ?? '');
       if (!size || size > HISTORY_ENVELOPE_MAX_BYTES || (bytes += size) > maxBytes) throw new Error('Admission replay byte capacity exceeded');
       const block = parseHistoryCheckpointEnvelope(raw, context), id = historyCheckpointEnvelopeId(block);
@@ -119,10 +142,16 @@ export async function replayAdmissionHistory(options: {
     if (!image || !genesis || !head || head.generation !== proposal.generation || rootId !== proposal.rootId
       || (compaction !== undefined && !consumedCompaction)) throw new Error('Admission history does not reach its selected generation');
     assertSelectedChain(proposal);
+    // Store the same validated representation that restoration reparses.
+    // Reducers can insert optional fields in a different order; the existing
+    // replay digest deliberately retains its established JSON representation.
+    image = await startup.wait(() => parseAdmissionHistoryImage(image, context.authority, maxSpends, proofHistory));
     const replayDigest = admissionHistoryReplayDigest(contextId, genesisId, proposalId, image);
     options.onProgress?.({ blocks, bytes, generations }); live();
     return { image, genesis, contextId, genesisId, proposalId, replayDigest,
       head: { rootId, generation: head.generation, sequence: head.sequence, envelopeId: historyCheckpointEnvelopeId(head) },
       blocks, bytes, generations };
+    } finally { owned?.release(); }
+  }));
   } finally { key.fill(0); }
 }

@@ -1,3 +1,4 @@
+import { copyAdmissionReplayValue } from '@resonance/core';
 import { admissionPolicyHistoryEntry, type ArchivedAdmissionPolicy, type AdmissionPolicyHistoryMembership } from '@resonance/core/admission-policy-archive';
 /** Key-attributed local spends and irreversible retirement in one encrypted snapshot. */
 import { resolve } from 'node:path';
@@ -59,7 +60,7 @@ export function parseAdmissionSpendState(value: unknown, policy: ArchivedAdmissi
     }
     seen.add(row.spend as string);
   }
-  return structuredClone(value) as unknown as AdmissionSpendState;
+  return copyAdmissionReplayValue(value) as unknown as AdmissionSpendState;
 }
 
 export function openAdmissionSpendHistory(options: {
@@ -69,7 +70,7 @@ export function openAdmissionSpendHistory(options: {
 }): AdmissionSpendLedger & AdmissionHistoryMaintenance & AdmissionLegacyRecovery {
   const limit = options.maxSpends ?? 10000;
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 10000) throw new Error('Invalid admission spend history capacity');
-  const policy = structuredClone(options.policy), now = options.now ?? Date.now;
+  const policy = copyAdmissionReplayValue(options.policy), now = options.now ?? Date.now;
   const known = new Set(admissionPolicyKeys(policy).map(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey)));
   const participant = resolve(options.directory);
   type State = AdmissionSpendState;

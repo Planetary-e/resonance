@@ -44,3 +44,10 @@ export function assertExistingStorageReservation(request: StorageReservationRequ
   if (!selectedId) throw new Error('Retained ancestry funding requires its selected authority identity');
   return selectedId;
 }
+
+/** Captured identity for authenticated monotone funded states. */
+export function currentStorageReservationAuthorityId(): string {
+  const id = authorities.getStore()?.status?.().authorityId;
+  if (!id) throw new Error('Monotone funded state requires an explicit storage authority');
+  return id;
+}

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { assertSecureRelayTransportEndpoint, type SigningKeyPair } from '@resonance/core';
 import { copyAdmissionSigningKey, exactWitnessFields } from '@resonance/core/admission-witness';
 import { parseHistoryContinuationRoot, historyContinuationRootId, type HistoryContinuationRoot } from '@resonance/core/history-continuation';
-import { openEncryptedLocalState } from '@resonance/core/local-state';
+import { openEncryptedLocalState, encryptedLocalStateByteBound } from '@resonance/core/local-state';
 import { historyCheckpointContextId, historyCheckpointEnvelopeId, isHistoryDigest, parseHistoryCheckpointContext,
   parseHistoryCheckpointEnvelope, type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { createHistoryExchangeRequest, parseHistoryExchangeResponse, parseHistoryWriteCertificate,
@@ -16,7 +16,10 @@ import { collectCurrentHistoryHead } from './history-current-head.js';
 
 export const HISTORY_WRITER_FILENAME = 'history-writer.json';
 export interface HistoryCheckpointWriterState {
-  version: 1; contextId: string; rootId: string; generation: number;
+  version: 1 | 2; contextId: string; rootId: string; generation: number;
+  stateMaxBytes?: number;
+  /** Lossless reference payloads require a reader that understands their prefix. */
+  originalReferences?: 1;
   committed: { envelope: HistoryCheckpointEnvelope; certificate: HistoryWriteCertificate } | null;
   pending: HistoryCheckpointEnvelope | null;
   /** Required for every non-genesis writer, including reopen. */
@@ -27,6 +30,9 @@ export function createHistoryCheckpointWriter(options: {
   directory: string; localKey: Uint8Array; context: HistoryCheckpointContext; signingKey: SigningKeyPair;
   rootId: string; generation: number; members: HistoryReplicaEndpoint[]; initialize?: boolean;
   timeoutMs?: number; transport?: HistoryCheckpointTransport;
+  /** Optional lower local snapshot ceiling; never enlarges the existing writer format. */
+  stateMaxBytes?: number; fundedGrowth?: 'monotone-v1';
+  preflightRetained?: (block: HistoryCheckpointEnvelope) => void;
   /** Admission readiness requires replies whose current head is exactly this write, not a later prefix receipt. */
   requireCurrentHead?: boolean;
   /** A decided deterministic root; initial replication must still collect four fresh write receipts. */
@@ -36,6 +42,8 @@ export function createHistoryCheckpointWriter(options: {
 }) {
   const context = parseHistoryCheckpointContext(options.context), contextId = historyCheckpointContextId(context);
   const { rootId, generation } = options;
+  const stateMaxBytes = options.stateMaxBytes ?? 40*1024*1024;
+  if (!Number.isSafeInteger(stateMaxBytes) || stateMaxBytes < 1024*1024 || stateMaxBytes > 40*1024*1024) throw new Error('Invalid bounded writer snapshot ceiling');
   const timeoutMs = options.timeoutMs ?? 10_000, transport = options.transport ?? exchangeHistoryCheckpoint;
   if (!isHistoryDigest(rootId) || !Number.isSafeInteger(generation) || generation < 0
     || !Number.isSafeInteger(timeoutMs) || timeoutMs < 50 || timeoutMs > 30_000
@@ -61,8 +69,8 @@ export function createHistoryCheckpointWriter(options: {
       : block.sequence === 0 && historyCheckpointEnvelopeId(block) === rootId;
   }
   function valid(value: unknown): value is HistoryCheckpointWriterState {
-    if (!exactWitnessFields(value, ['version', 'contextId', 'rootId', 'generation', 'committed', 'pending', ...(generation ? ['continuation'] : [])])
-      || value.version !== 1 || value.contextId !== contextId || value.rootId !== rootId || value.generation !== generation) return false;
+    if (!exactWitnessFields(value, ['version', 'contextId', 'rootId', 'generation', 'committed', 'pending', ...(generation ? ['continuation'] : []), ...((value as HistoryCheckpointWriterState)?.version === 2 ? ['stateMaxBytes'] : []), ...((value as HistoryCheckpointWriterState)?.originalReferences === 1 ? ['originalReferences'] : [])])
+      || (value.version !== 1 && value.version !== 2) || (value.version === 2 ? value.stateMaxBytes !== stateMaxBytes : stateMaxBytes !== 40*1024*1024) || value.contextId !== contextId || value.rootId !== rootId || value.generation !== generation) return false;
     try {
       if (generation) {
         const root = parseHistoryContinuationRoot(value.continuation, context);
@@ -81,17 +89,27 @@ export function createHistoryCheckpointWriter(options: {
   let storage: ReturnType<typeof openEncryptedLocalState<HistoryCheckpointWriterState>>;
   try {
     if (Buffer.from(key.publicKey).toString('base64url') !== context.owner) throw new Error('Wrong checkpoint writer owner');
-    const initial: HistoryCheckpointWriterState = { version: 1, contextId, rootId, generation, committed: null, pending: null,
+    const initial: HistoryCheckpointWriterState = { version: stateMaxBytes === 40*1024*1024 ? 1 : 2, ...(stateMaxBytes === 40*1024*1024 ? {} : {stateMaxBytes}), contextId, rootId, generation, committed: null, pending: null,
       ...(options.continuation ? { continuation: parseHistoryContinuationRoot(options.continuation, context) } : {}) };
     if ((options.initialize || options.continuation) && !valid(initial)) throw new Error('Writer initialization requires its certified continuation');
     storage = openEncryptedLocalState<HistoryCheckpointWriterState>({ path: join(options.directory, HISTORY_WRITER_FILENAME), key: options.localKey,
-      domain: 'resonance:history-checkpoint-writer:v1', maxBytes: 40 * 1024 * 1024,
-      mode: options.initialize ? 'create-new' : 'open-existing',
+      domain: 'resonance:history-checkpoint-writer:v1', maxBytes: stateMaxBytes,
+      funding: options.fundedGrowth, mode: options.initialize ? 'create-new' : 'open-existing',
       initial, validate: valid });
   } catch (error) { key.secretKey.fill(0); throw error; }
   let closed = false, active: AbortController | undefined;
   const observations = new Set<AbortController>();
+  function preflight(block: HistoryCheckpointEnvelope, originalReferences?: 1) {
+    const state = { ...storage.read(), ...(originalReferences ? { originalReferences } : {}), pending: block };
+    if (options.fundedGrowth) storage.preflightBytes(encryptedLocalStateByteBound(state, 65536));
+    options.preflightRetained?.(block);
+  }
+  if (storage.read().pending && options.fundedGrowth) {
+    const obligation = encryptedLocalStateByteBound(storage.read(), 65536);
+    if (obligation > storage.fundedBytes()) { storage.close(); key.secretKey.fill(0); throw new Error('Retained pending writer completion is unfunded'); }
+  }
   return {
+    preflight,
     /** Exposes pending exact ciphertext for explicit retry after restart; never automatically sends. */
     read(): HistoryCheckpointWriterState { return structuredClone(storage.read()); },
     /** Fresh read receipts only; unchanged replicas receive no ciphertext and no
@@ -107,7 +125,7 @@ export function createHistoryCheckpointWriter(options: {
           timeoutMs, controller, isClosed: () => closed, retained: options.retained });
       } finally { controller.abort(); observations.delete(controller); }
     },
-    async replicate(value: unknown, operation?: { signal?: AbortSignal; deadline?: number }): Promise<HistoryWriteCertificate> {
+    async replicate(value: unknown, operation?: { signal?: AbortSignal; deadline?: number; originalReferences?: 1 }): Promise<HistoryWriteCertificate> {
       storage.read();
       if (closed) throw new Error('History writer is closed');
       if (active || observations.size) throw new Error('History writer already has an active attempt');
@@ -127,11 +145,18 @@ export function createHistoryCheckpointWriter(options: {
       };
       try {
         live();
-        const block = envelope(value), id = historyCheckpointEnvelopeId(block), state = storage.read();
+        const block = envelope(value), id = historyCheckpointEnvelopeId(block), retained = storage.read();
+        const state = operation?.originalReferences === 1 ? { ...retained, originalReferences: 1 as const } : retained;
         if (state.pending && historyCheckpointEnvelopeId(state.pending) !== id) throw new Error('Retry the pending exact history block first');
         const retryCommitted = state.committed && historyCheckpointEnvelopeId(state.committed.envelope) === id;
         if (!state.pending && !retryCommitted) {
           if (!follows(block, state.committed)) throw new Error('History write has a gap, fork or stale predecessor');
+          // Reserve both the actual encrypted pending snapshot and the bounded
+          // four-receipt completion before any replica dispatch/acknowledgement.
+          preflight(block, operation?.originalReferences);
+          const plaintextBytes = Buffer.byteLength(JSON.stringify({ ...state, pending: block })) + 65536;
+          const overhead = Buffer.byteLength(JSON.stringify({version:1,nonce:'a'.repeat(16),ciphertext:'',tag:'a'.repeat(22)}));
+          if (overhead + Math.ceil(plaintextBytes*4/3) > stateMaxBytes) throw new Error('History writer snapshot needs funded completion headroom');
           storage.write({ ...state, pending: block }); // Survives a lost reply or process death.
         }
         live();

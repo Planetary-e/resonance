@@ -1,5 +1,13 @@
 # Planetary Resonance
 
+> **Engineering handover (October 24, 2026): [start at HANDOVER](HANDOVER.md).**
+> v0.4 remains incomplete; all K1–K8 are OPEN. The corrected experimental recovery
+> candidate has local passing evidence and still needs independent critical review.
+> Parent handover verification also passes noEmit over 671 actual source inputs;
+> [the portable record](docs/handover/2026-10-24/portable-typecheck-validation.json) distinguishes this from the historical empty log.
+> It is not selected by CLI/live service. Transfer the matching dirty/untracked
+> working tree; do not assume the local candidate is pushed to GitHub.
+
 **Private, decentralized discovery for complementary needs and offers.**
 
 [Latest release](https://github.com/Planetary-e/resonance/releases/latest) · [Roadmap](ROADMAP.md) · [Protocol v2](docs/developers/protocol-v2.md) · [Open issues](https://github.com/Planetary-e/resonance/issues)
@@ -9,6 +17,14 @@ Planetary Resonance is an open-source protocol and application for helping peopl
 A person writes a need or offer in natural language. Their device turns it into a compact matching fingerprint, publishes it under a key created for that one publication, and keeps the original text and root identity local. A relay compares complementary fingerprints. If two publications match, both people can consent to a fresh pairwise relationship and exchange end-to-end encrypted disclosures through asynchronous mailboxes.
 
 Resonance is currently a **research prototype**, not a production network. The protocol v2 privacy and persistence foundation is implemented, along with configured volunteer-relay replication, bounded relay-to-relay search forwarding, publication and relationship mailbox repair, receipt-authorized batch checks after storage loss, narrow signed state reconciliation, and enforced storage quotas. Private transport and mobile participation remain future milestones. Relationship mailbox replication currently requires connected volunteer links and explicitly configured client fallback URLs for retrieval after an original relay disappears; it does not yet provide a durable receipt minimum.
+
+The inherited public projection/fingerprint path **does not satisfy K5
+confidentiality**, as shown by the [failed real-text privacy screen](docs/evals/scoped-fingerprint-real-2026-10-18.md).
+The inherited transport **does not satisfy K6 observer privacy**: the
+[cooperating-hop screen](docs/evals/private-adversaries-2026-10-18.md) linked all
+32 modeled requests. Those fixture results establish limits of the current
+paths; they are not Internet-wide attack estimates. Replacement and qualification
+remain open in the [handover](HANDOVER.md).
 
 ## The goal
 

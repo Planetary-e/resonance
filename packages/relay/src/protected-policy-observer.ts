@@ -1,3 +1,5 @@
+import { createWitnessDrainReport, WITNESS_HANDOFF_LIVE_MS, parseWitnessHandoffActivation } from '@resonance/core/admission-witness-handoff';
+import { createAdmissionOriginalReferences, createOriginalReferenceWorkBudget, type OriginalReferenceWorkBudget } from './admission-original-references.js';
 /** Experimental policy observer backed by the existing four-copy history writer.
  * Explicit configuration is required; reopening never reconstructs lost state. */
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
@@ -6,17 +8,19 @@ import { join, resolve } from 'node:path';
 import type { SigningKeyPair } from '@resonance/core';
 import { copyAdmissionSigningKey, exactWitnessFields } from '@resonance/core/admission-witness';
 import { openEncryptedLocalState } from '@resonance/core/local-state';
-import { captureStorageReservationOperation } from '@resonance/core/storage-reservations';
+import { captureStorageReservationOperation, assertExistingStorageReservation } from '@resonance/core/storage-reservations';
 import { HISTORY_RECOVERY_MAX_BYTES, HISTORY_RECOVERY_MAX_BLOCKS } from '@resonance/core/history-exchange';
 import { resolveAdmissionPolicy, lookupResolvedAdmissionPolicyKey, verifyAdmissionPolicyV3, archivedAdmissionPolicyDigest, decodeAdmissionPolicyArchivePage, emptyAdmissionPolicyArchive, type ResolvedAdmissionPolicy } from '@resonance/core/admission-policy-archive';
 import { admissionPolicyObserversId, createAdmissionPolicyHeadVote, parseAdmissionPolicyHeadRequest,
   parseAdmissionPolicyObservers, parseAdmissionPolicyHead, type AdmissionPolicyObservers, type AdmissionPolicyHeadVote } from '@resonance/core/admission-policy-freshness';
 import { parseAdmissionPolicyAdvance, parseAdmissionPolicyAdvanceCommitment, sameAdmissionPolicyHead } from '@resonance/core/admission-policy-advance';
+import { chargeAdmissionWork, chargeAdmissionWorkJson, type AdmissionWorkMeter } from '@resonance/core/admission-work';
 import { historyCheckpointContextId, historyCheckpointEnvelopeId, historyCheckpointEnvelopeByteLength, historyCheckpointReserveBucket, historyDigest,
   parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, sealHistoryCheckpoint,
   type HistoryCheckpointContext, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
-import { createRetainedHistoryCheckpointWriter } from './history-retained-writer.js';
+import { retainedHistoryWriterStateBytes, createRetainedHistoryCheckpointWriter } from './history-retained-writer.js';
 import { advanceAdmissionPolicyObserverState, assertPolicyObserverStateSuccessor,
+  parseWitnessObserverSeal, sameObserverPolicyState, assertWitnessObserverTransition, type WitnessObserverSeal,
   parseAdmissionPolicyObserverState, policyObserverStateHead, assertPolicyObserverCurrent, parsePolicyObserverSnapshot, resolveObserverSnapshot, ADMISSION_POLICY_OBSERVER_MAX_BYTES, type AdmissionPolicyObserverState } from './admission-policy-observer-state.js';
 
 import { createPolicyObserverRemoteOperation, type PolicyObserverRemoteArchive } from './policy-observer-page-transfer.js';
@@ -47,14 +51,15 @@ type WriterOptions = Parameters<typeof createRetainedHistoryCheckpointWriter>[0]
 /** Offline preparation only. Persist and independently enroll this exact root;
  * regenerating its random ciphertext is not restoration of an existing role. */
 export async function createPolicyObserverHistoryRoot(options: {
-  context: AdmissionPolicyObservers; signingKey: SigningKeyPair; encryptionKey: Uint8Array; policy: unknown; now?: () => number;
+  context: AdmissionPolicyObservers; signingKey: SigningKeyPair; encryptionKey: Uint8Array; policy: unknown; now?: () => number; writerStateBytes?: number;
 }) {
   const context = parseAdmissionPolicyObservers(options.context), signer = copyAdmissionSigningKey(options.signingKey);
   const key = Uint8Array.from(options.encryptionKey), now = options.now ?? Date.now;
   try {
     const historyContext = policyObserverHistoryContext(context, Buffer.from(signer.publicKey).toString('base64url'));
-    const state = await parseAdmissionPolicyObserverState({ version: 1, contextId: admissionPolicyObserversId(context),
+    let state = await parseAdmissionPolicyObserverState({ version: 1, contextId: admissionPolicyObserversId(context),
       policy: options.policy, previous: null, advance: null, conflict: null }, context);
+    if(state.policy.keys.some(e=>e.witnesses?.version===2)){if(options.writerStateBytes===undefined)throw new Error('Protected witness observer genesis must pin its writer capacity');state={...state,writerStateBytes:retainedHistoryWriterStateBytes(undefined,options.writerStateBytes)};}
     assertPolicyObserverCurrent(state.policy, now());
     const plaintext = Buffer.from(JSON.stringify(state));
     try { return { context: historyContext, root: sealHistoryCheckpoint({ context: historyContext,
@@ -74,13 +79,15 @@ export async function openProtectedPolicyObserver(options: {
   /** Funded retained original generations, reopened by the operational archive owner. */
   ancestrySource?: () => Iterable<HistoryCheckpointEnvelope>;
   remoteArchive?: PolicyObserverRemoteArchive;
+  stateMaxBytes?: number;
   timeoutMs?: number; transport?: WriterOptions['transport']; maxArchiveBlocks?: number; maxArchiveBytes?: number;
   /** Defaults to two independent fresh reads, each with at most four live
    * member RPCs. Callers may explicitly serialize reads through one reader. */
   maximumConcurrentObservations?: 1 | 2;
   now?: () => number;
+  work?: AdmissionWorkMeter;
 }) {
-  const run = captureStorageReservationOperation();
+  const run = captureStorageReservationOperation(), work = options.work;
   const maximumConcurrentObservations = options.maximumConcurrentObservations ?? 2;
   if (maximumConcurrentObservations !== 1 && maximumConcurrentObservations !== 2) throw new Error('Invalid policy observation concurrency');
   if (!['create-new', 'open-existing'].includes(options.mode)) throw new Error('Protected policy observer requires an explicit open mode');
@@ -96,7 +103,7 @@ export async function openProtectedPolicyObserver(options: {
     ...(root.kind === 'continuation' ? { continuation: root } : {}),
     members: structuredClone(options.members), initialize: mode === 'create-new' || initializeWriter, requireCurrentHead: true,
     initializeArchive: options.initializeArchive, resumePristineArchive: options.resumePristineArchive,
-    timeoutMs: options.timeoutMs ?? 3000, transport: options.transport,
+    stateMaxBytes: options.stateMaxBytes, timeoutMs: options.timeoutMs ?? 3000, transport: options.transport,
     maxArchiveBlocks: options.maxArchiveBlocks, maxArchiveBytes: options.maxArchiveBytes };
   let writer: ReturnType<typeof createRetainedHistoryCheckpointWriter> | undefined, closed = false, busy = false, fenced = false;
   let observing = 0;
@@ -105,11 +112,26 @@ export async function openProtectedPolicyObserver(options: {
   // Only the committed and pending states are needed after opening. All retained
   // ciphertext is authenticated and replayed before these cached states are used.
   const states = new Map<string, AdmissionPolicyObserverState>();
+  const openingWorkBudget = createOriginalReferenceWorkBudget();
+  let operationWorkBudget = openingWorkBudget;
+  const originals = createAdmissionOriginalReferences(historyCheckpointContextId(historyContext), { check: () => live(), get workBudget() { return operationWorkBudget; } });
+  function encodeSnapshot(state: AdmissionPolicyObserverState, previous: string) {
+    const raw = JSON.stringify(state); chargeAdmissionWork(work, Buffer.byteLength(raw), 'serialize');
+    if (Buffer.byteLength(raw) > ADMISSION_POLICY_OBSERVER_MAX_BYTES) throw new Error('Policy observer snapshot exceeds its existing byte bound');
+    const bytes = Buffer.from(JSON.stringify(state.policy.keys.some(k => k.witnesses?.version === 2)
+      ? originals.encode(JSON.parse(raw), previous) : state)); chargeAdmissionWork(work, bytes.length, 'serialize');
+    if (bytes.length > ADMISSION_POLICY_OBSERVER_MAX_BYTES) throw new Error('Policy observer reference snapshot exceeds its existing byte bound');
+    return bytes;
+  }
+  function chargeBlock(block: HistoryCheckpointEnvelope, mechanism: 'disk-read' | 'disk-write') {
+    if ('ciphertext' in block) { const bytes = Buffer.from(block.ciphertext, 'base64url'); chargeAdmissionWork(work, Buffer.byteLength(block.ciphertext), 'base64'); chargeAdmissionWork(work, bytes.length, mechanism); }
+    chargeAdmissionWorkJson(work, block, mechanism === 'disk-read' ? 'parse' : 'serialize');
+  }
   const resolved = new Map<string, ResolvedAdmissionPolicy>();
   const archiveBounds = policyObserverArchiveLimits(options.maxArchiveBlocks ?? HISTORY_RECOVERY_MAX_BLOCKS, options.maxArchiveBytes ?? HISTORY_RECOVERY_MAX_BYTES, 30000);
-  function pageReader(signal?: AbortSignal, account?: (bytes: number) => void) {
+  function pageReader(signal?: AbortSignal, account?: (bytes: number) => void, workBudget?: OriginalReferenceWorkBudget) {
     return createPolicyObserverPageReader({ source: function* () { if (options.ancestrySource) yield* options.ancestrySource(); if (writer) yield* writer.history(); },
-      historyContext, key, maxBlocks: options.maxArchiveBlocks ?? HISTORY_RECOVERY_MAX_BLOCKS, maxBytes: options.maxArchiveBytes ?? HISTORY_RECOVERY_MAX_BYTES, timeoutMs: 30000, signal, account });
+      historyContext, key, maxBlocks: options.maxArchiveBlocks ?? HISTORY_RECOVERY_MAX_BLOCKS, maxBytes: options.maxArchiveBytes ?? HISTORY_RECOVERY_MAX_BYTES, timeoutMs: 30000, signal, account, workBudget });
   }
   async function validateCurrent(state: AdmissionPolicyObserverState, reader = pageReader(), signal?: AbortSignal) {
     if (state.policy.version !== 3) return;
@@ -129,7 +151,8 @@ export async function openProtectedPolicyObserver(options: {
       operation.live();
       if (++scanned > (options.maxArchiveBlocks ?? HISTORY_RECOVERY_MAX_BLOCKS) || (bytes += size) > (options.maxArchiveBytes ?? HISTORY_RECOVERY_MAX_BYTES)) throw new Error('Historical archive cumulative read budget exceeded');
     };
-    const reader = pageReader(operation.signal, account);
+    const workBudget = createOriginalReferenceWorkBudget();
+    const reader = pageReader(operation.signal, account, workBudget);
     observing++;
     try {
       let capability = resolved.get(rootId), state = states.get(rootId)!;
@@ -140,7 +163,7 @@ export async function openProtectedPolicyObserver(options: {
         if (!options.ancestrySource) throw new Error('Historical archive requires retained original ancestry');
         const replay = await operation.wait(() => replayPolicyObserverHistory({ context, historyContext, genesisId, proposal: root.proposal, encryptionKey: key,
           blocks: options.ancestrySource!(), blockSource: options.ancestrySource, selectedPolicyHead: selected,
-          signal: operation.signal, timeoutMs: 3000, maxBlocks: options.maxArchiveBlocks, maxBytes: options.maxArchiveBytes, accountRead: account }));
+          signal: operation.signal, timeoutMs: 3000, maxBlocks: options.maxArchiveBlocks, maxBytes: options.maxArchiveBytes, accountRead: account, workBudget }));
         if (replay.state.conflict || JSON.stringify(replay.state) !== JSON.stringify(state)) throw new Error('Historical baseline differs from retained original ancestry');
         capability = replay.resolved; selectedResolved = replay.selectedResolved;
       }
@@ -150,10 +173,10 @@ export async function openProtectedPolicyObserver(options: {
         if (!last) { if (historyCheckpointEnvelopeId(block) !== rootId) throw new Error('Historical archive lost original root'); }
         else {
           if (block.previous !== historyCheckpointEnvelopeId(last) || block.sequence !== last.sequence + 1) throw new Error('Historical archive ancestry has a gap or fork');
-          const next = await operation.wait(() => decode(block));
+          const next = await operation.wait(() => decode(block, workBudget));
           assertPolicyObserverStateSuccessor(state, next, context);
           if (next.conflict || !capability) throw new Error('Historical archive lacks resolved nonconflicting ancestry');
-          capability = await operation.wait(() => resolveObserverSnapshot(next, context, { previous: capability!, reader, limits: archiveBounds, signal: operation.signal }));
+          if (!sameObserverPolicyState(state, next)) capability = await operation.wait(() => resolveObserverSnapshot(next, context, { previous: capability!, reader, limits: archiveBounds, signal: operation.signal }));
           state = next;
         }
         if (sameAdmissionPolicyHead(policyObserverStateHead(state, context), selected)) selectedResolved = capability;
@@ -175,14 +198,16 @@ export async function openProtectedPolicyObserver(options: {
   }
   function close() { if (!closed) { closed = true; for (const operation of archiveOperations) operation.close(); archiveOperations.clear(); writer?.close(); restoration?.close(); signer.secretKey.fill(0); key.fill(0); states.clear(); resolved.clear(); } }
   function live() { if (closed) throw new Error('Protected policy observer is closed'); }
-  async function decode(block: HistoryCheckpointEnvelope) {
+  async function decode(block: HistoryCheckpointEnvelope, workBudget?: OriginalReferenceWorkBudget) {
     if (block.generation !== root.generation) throw new Error('Policy observer snapshot belongs to another generation');
-    return decodePolicyObserverSnapshot(block, historyContext, context, key, true);
+    chargeBlock(block, 'disk-read'); if ('ciphertext' in block) chargeAdmissionWork(work, Buffer.from(block.ciphertext, 'base64url').length, 'decrypt');
+    return decodePolicyObserverSnapshot(block, historyContext, context, key, true, originals, workBudget);
   }
   function retained() {
     live(); const saved = writer!.read(), block = saved.pending ?? saved.committed?.envelope ?? root;
     const state = states.get(historyCheckpointEnvelopeId(block));
     if (!state) throw new Error('Policy observer history has not been authenticated');
+    if(state.writerStateBytes!==undefined&&state.writerStateBytes!==(saved.stateMaxBytes??40*1024*1024))throw new Error('Protected observer writer capacity differs from its original restart/restore pin');
     return { saved, block, state };
   }
   function trim() {
@@ -192,16 +217,19 @@ export async function openProtectedPolicyObserver(options: {
     for (const id of states.keys()) if (!keep.has(id)) { states.delete(id); resolved.delete(id); }
   }
   function usable(state: AdmissionPolicyObserverState) {
+    if (state.policy.keys.some(e => e.witnesses?.version === 2)) run(() => assertExistingStorageReservation({path:join(writerOptions.directory,'history-writer.json'),component:'encrypted-local-state',scope:'file',maximumBytes:2*(writer!.read().stateMaxBytes ?? 40*1024*1024)+8192}));
     if (state.conflict) throw new Error('Community policy authority equivocated; retain evidence and stop observations');
+    if (state.handoff && !state.handoff.activation) throw new Error('Predecessor policy is durably sealed for witness handoff');
     assertPolicyObserverCurrent(state.policy, now());
   }
   async function exclusive<T>(operation: () => Promise<T>): Promise<T> {
     live(); if (fenced) throw new Error('Policy observer is permanently fenced for recovery');
     if (busy || observing) throw new Error('Protected policy observer operation is already in progress'); busy = true;
-    try { return await operation(); } finally { busy = false; }
+    const previousBudget = operationWorkBudget; operationWorkBudget = createOriginalReferenceWorkBudget();
+    try { return await operation(); } finally { operationWorkBudget = previousBudget; busy = false; }
   }
   async function confirm(operation?: {signal?: AbortSignal; deadline?: number}) {
-    const { block } = retained(); await writer!.replicate(block, operation); live(); trim(); return retained();
+    const { block } = retained(); await writer!.replicate(block, operation); if (block.kind !== 'continuation') await decode(block); live(); trim(); return retained();
   }
   async function applyAdvance(value: unknown, archivePages: readonly { digest: string; bytes: Uint8Array }[], operation?: ReturnType<typeof createPolicyObserverRemoteOperation>) {
       if (!Array.isArray(archivePages) || archivePages.length > 2) throw new Error('Observer append payload exceeds its page bound');
@@ -210,7 +238,7 @@ export async function openProtectedPolicyObserver(options: {
       operation?.live();
       const read = <T>(work: () => Promise<T>) => operation ? operation.wait(work) : work();
       const { state, block, saved } = retained();
-      const validationReader = pageReader(operation?.signal);
+      const validationReader = pageReader(operation?.signal, undefined, operationWorkBudget);
       let next: AdmissionPolicyObserverState, capability = resolved.get(historyCheckpointEnvelopeId(block));
       if ((input as { policy?: { version?: unknown } })?.policy?.version === 3) {
         if (!exactWitnessFields(input, ['commitment','policy'])) throw new Error('Invalid v3 observer advance');
@@ -223,21 +251,26 @@ export async function openProtectedPolicyObserver(options: {
         } else {
           if (!capability) throw new Error('V3 migration requires retained original resolved ancestry');
           next = await read(() => parsePolicyObserverSnapshot({ version: 2, contextId: admissionPolicyObserversId(context), policy, previous: state.policy, advance: commitment,
-            conflict: null, archiveAppend: supplied }, context));
+            conflict: null, archiveAppend: supplied, ...(state.writerStateBytes===undefined?{}:{writerStateBytes:state.writerStateBytes}), ...(state.handoff?{handoff:state.handoff}:{}) }, context));
           capability = await read(() => resolveObserverSnapshot(next, context, { previous: capability!, reader: validationReader, limits: archiveBounds, signal: operation?.signal }));
         }
       } else {
         if (supplied.length) throw new Error('Legacy observer advance refuses archive pages');
-        const advance = await read(() => parseAdmissionPolicyAdvance(input, context)); live();
+        const advance = await read(() => parseAdmissionPolicyAdvance(input, context, work)); live();
         next = advanceAdmissionPolicyObserverState(state, advance, context);
         if (next !== state && !next.conflict && capability) capability = await read(() => resolveObserverSnapshot(next, context, { previous: capability!, reader: validationReader, limits: archiveBounds, signal: operation?.signal }));
+      }
+      if (next !== state && !next.conflict) {
+        const activation = state.handoff && !state.handoff.activation ? next.policy.keys.find(e => e.witnessHandoff)?.witnessHandoff : undefined;
+        if (activation) next = { ...next, handoff: { ...state.handoff!, activation: parseWitnessHandoffActivation(activation) } };
+        assertWitnessObserverTransition(state, next, context);
       }
       if (next === state) { await confirm(operation); usable(state); await read(() => validateCurrent(state, validationReader, operation?.signal)); return structuredClone(policyObserverStateHead(state, context)); }
       if (saved.pending) throw new Error('Complete the pending policy observer history first');
       if (!saved.committed) throw new Error('Confirm the policy observer genesis before advancing');
       if (!next.conflict) assertPolicyObserverCurrent(next.policy, now());
       operation?.live();
-      const plaintext = Buffer.from(JSON.stringify(next));
+      const plaintext = encodeSnapshot(next, historyCheckpointEnvelopeId(block));
       if (plaintext.length > ADMISSION_POLICY_OBSERVER_MAX_BYTES) throw new Error('Policy observer snapshot exceeds its existing byte bound');
       let pending: HistoryCheckpointEnvelope;
       try {
@@ -255,11 +288,36 @@ export async function openProtectedPolicyObserver(options: {
         // has lowered archive limits since the preceding reservation. Replication
         // may then refuse, but reopen must retain the terminal pending fence.
         pending = sealHistoryCheckpoint({ context: historyContext, header: reservedHeader, plaintext, encryptionKey: key, signingKey: signer });
+        chargeAdmissionWork(work, plaintext.length, 'encrypt'); chargeBlock(pending, 'disk-write');
       } finally { plaintext.fill(0); }
       states.set(historyCheckpointEnvelopeId(pending), next); if (capability) resolved.set(historyCheckpointEnvelopeId(pending), capability);
-      try { operation?.live(); await writer!.replicate(pending, operation); live(); }
+      try { operation?.live(); await writer!.replicate(pending, { signal: operation?.signal, deadline: operation?.deadline,
+        ...(next.policy.keys.some(k => k.witnesses?.version === 2) ? { originalReferences: 1 as const } : {}) }); await decode(pending); live(); }
       finally { trim(); }
       usable(next); await read(() => validateCurrent(next, validationReader, operation?.signal)); operation?.live(); return structuredClone(policyObserverStateHead(next, context));
+  }
+  async function persistWitnessSeal(sealValue: WitnessObserverSeal) {
+    run(() => assertExistingStorageReservation({path:join(writerOptions.directory,'history-writer.json'),component:'encrypted-local-state',scope:'file',maximumBytes:2*(writer!.read().stateMaxBytes ?? 40*1024*1024)+8192}));
+    const seal = parseWitnessObserverSeal(sealValue, context), before = await confirm();
+    if (JSON.stringify(before.state.handoff) === JSON.stringify(seal)) return;
+    if (before.saved.pending || !before.saved.committed) throw new Error('Complete protected observer history before sealing');
+    const next = { ...before.state, handoff: seal };
+    assertWitnessObserverTransition(before.state, next, context);
+    const plaintext = encodeSnapshot(next, historyCheckpointEnvelopeId(before.block));
+    let block: HistoryCheckpointEnvelope;
+    try {
+      if (plaintext.length > ADMISSION_POLICY_OBSERVER_MAX_BYTES) throw new Error('Observer seal exceeds existing snapshot bound');
+      const header = { kind: 'checkpoint' as const, generation: root.generation, sequence: before.block.sequence + 1, previous: historyCheckpointEnvelopeId(before.block) };
+      const reserve = historyCheckpointEnvelopeByteLength({ context: historyContext, header: { ...header, sequence: header.sequence + 1 }, plaintextBytes: plaintext.length + 32768 });
+      const reserved = { ...header, checkpointReserveBytes: historyCheckpointReserveBucket(reserve) };
+      const usage = writer!.historyUsage(), size = historyCheckpointEnvelopeByteLength({ context: historyContext, header: reserved, plaintextBytes: plaintext.length });
+      if (usage.retainedBlocks + 2 > usage.maximumBlocks || usage.retainedCiphertextBytes + size + reserve > usage.maximumCiphertextBytes) throw new Error('Observer seal requires existing funded activation/conflict headroom');
+      block = sealHistoryCheckpoint({ context: historyContext, header: reserved, plaintext, encryptionKey: key, signingKey: signer });
+      chargeAdmissionWork(work, plaintext.length, 'encrypt'); chargeBlock(block, 'disk-write');
+    } finally { plaintext.fill(0); }
+    const id = historyCheckpointEnvelopeId(block), capability = resolved.get(historyCheckpointEnvelopeId(before.block));
+    states.set(id, next); if (capability) resolved.set(id, capability);
+    try { await writer!.replicate(block, { originalReferences: 1 }); await decode(block); live(); } finally { trim(); }
   }
   const fencePath = join(writerOptions.directory, POLICY_OBSERVER_RECOVERY_FENCE);
   const stateDigest = () => historyDigest(JSON.stringify(retained().state));
@@ -275,15 +333,16 @@ export async function openProtectedPolicyObserver(options: {
     const expected = policyObserverHistoryContext(context, Buffer.from(signer.publicKey).toString('base64url'));
     if (historyCheckpointContextId(historyContext) !== historyCheckpointContextId(expected)) throw new Error('Wrong protected policy observer history pins');
     if (genesis.kind !== 'checkpoint' || genesis.generation !== 0 || genesis.sequence !== 0) throw new Error('Policy observer requires its independently pinned genesis');
-    const initial = await decodePolicyObserverSnapshot(genesis, historyContext, context, key);
+    chargeBlock(genesis, 'disk-read'); if ('ciphertext' in genesis) chargeAdmissionWork(work, Buffer.from(genesis.ciphertext, 'base64url').length, 'decrypt');
+    const initial = await decodePolicyObserverSnapshot(genesis, historyContext, context, key, false, originals);
     if (initial.previous !== null) throw new Error('Policy observer root must contain its initial policy');
     let baseline = initial;
     let baselineResolved: ResolvedAdmissionPolicy | undefined = await resolveAdmissionPolicy({ context, genesis: initial.policy, advances: [], selectedHead: context.genesis,
-      reader: pageReader(), limits: archiveBounds });
+      reader: pageReader(undefined, undefined, openingWorkBudget), limits: archiveBounds });
     if (root.kind === 'continuation') {
       let replay: Awaited<ReturnType<typeof replayPolicyObserverHistory>> | undefined;
       if (options.ancestrySource) replay = await replayPolicyObserverHistory({ context, historyContext, genesisId, proposal: root.proposal, encryptionKey: key,
-        blocks: options.ancestrySource(), blockSource: options.ancestrySource });
+        blocks: options.ancestrySource(), blockSource: options.ancestrySource, workBudget: openingWorkBudget });
       restoration = await openPolicyObserverRestoration({ directory: writerOptions.directory, encryptionKey: key, context,
         historyContext, genesisId, root, mode, restore, expectedReplayDigest, resolved: replay?.resolved });
       baseline = restoration.state; baselineResolved = replay?.resolved;
@@ -298,7 +357,7 @@ export async function openProtectedPolicyObserver(options: {
     let previous: AdmissionPolicyObserverState | undefined, last: HistoryCheckpointEnvelope | undefined;
     const start = performance.now(); let count = 0, readBlocks = 0, readBytes = 0;
     const account = (size: number) => { if (++readBlocks > (options.maxArchiveBlocks ?? HISTORY_RECOVERY_MAX_BLOCKS) || (readBytes += size) > (options.maxArchiveBytes ?? HISTORY_RECOVERY_MAX_BYTES)) throw new Error('Observer opening cumulative read budget exceeded'); };
-    const openingReader = pageReader(undefined, account);
+    const openingReader = pageReader(undefined, account, openingWorkBudget);
     const saved = writer.read();
     for (const block of writer.history()) {
       if (performance.now() - start >= 30000) throw new Error('Policy observer replay timed out');
@@ -308,7 +367,7 @@ export async function openProtectedPolicyObserver(options: {
       else {
         if (block.sequence !== last!.sequence + 1 || block.previous !== historyCheckpointEnvelopeId(last!)) throw new Error('Policy observer history has a gap');
         assertPolicyObserverStateSuccessor(previous, state, context);
-        if (!state.conflict && priorResolved) priorResolved = await resolveObserverSnapshot(state, context, { previous: priorResolved, reader: openingReader, limits: archiveBounds });
+        if (!state.conflict && priorResolved && !sameObserverPolicyState(previous!, state)) priorResolved = await resolveObserverSnapshot(state, context, { previous: priorResolved, reader: openingReader, limits: archiveBounds });
         else if (state.policy.version === 3 && !priorResolved) throw new Error('V3 observer lost resolved original ancestry');
       }
       if (id === rootId || saved.committed && id === historyCheckpointEnvelopeId(saved.committed.envelope) || saved.pending && id === historyCheckpointEnvelopeId(saved.pending))  { states.set(id, state); if (priorResolved) resolved.set(id, priorResolved); }
@@ -319,7 +378,7 @@ export async function openProtectedPolicyObserver(options: {
       const pending = saved.pending, state = await decode(pending);
       if (previous) assertPolicyObserverStateSuccessor(previous, state, context);
       else if (historyCheckpointEnvelopeId(pending) !== rootId) throw new Error('Policy observer pending history lost its genesis');
-      if (!state.conflict && priorResolved) priorResolved = await resolveObserverSnapshot(state, context, { previous: priorResolved, reader: openingReader, limits: archiveBounds });
+      if (!state.conflict && priorResolved && previous && !sameObserverPolicyState(previous, state)) priorResolved = await resolveObserverSnapshot(state, context, { previous: priorResolved, reader: openingReader, limits: archiveBounds });
       else if (state.policy.version === 3 && !priorResolved) throw new Error('V3 pending observer lost original ancestry');
       states.set(historyCheckpointEnvelopeId(pending), state); if (priorResolved) resolved.set(historyCheckpointEnvelopeId(pending), priorResolved);
     }
@@ -328,6 +387,23 @@ export async function openProtectedPolicyObserver(options: {
     if (existsSync(fencePath)) { const marker = openFence('open-existing'); marker.close(); fenced = true; }
   } catch (error) { close(); throw error; }
   return {
+    /** Explicit operator preparation. A failed reply leaves the retained/pending
+     * seal active; reopening can only resume that exact proposal. */
+    sealWitnessHandoff(value: WitnessObserverSeal) { return exclusive(() => persistWitnessSeal(structuredClone(value))); },
+    /** Never persist/reconstruct elapsed process time. Every call, including
+     * after restart or reply loss, waits another full real live interval. */
+    drainWitnessHandoff(value: WitnessObserverSeal) { return exclusive(async () => {
+      const seal = parseWitnessObserverSeal(structuredClone(value), context);
+      if (seal.activation) throw new Error('Drain requires an inactive sealed predecessor');
+      await persistWitnessSeal(seal);
+      const started = performance.now();
+      while (performance.now() - started < WITNESS_HANDOFF_LIVE_MS) {
+        await new Promise<void>(resolve => setTimeout(resolve, Math.max(1, WITNESS_HANDOFF_LIVE_MS - (performance.now() - started)))); live();
+      }
+      const { state } = await confirm();
+      if (JSON.stringify(state.handoff) !== JSON.stringify(seal)) throw new Error('Observer seal changed during drain');
+      return createWitnessDrainReport(seal.proposal, seal.manifest, signer, work);
+    }); },
     maximumConcurrentObservations,
     /** Local capability only: callers must be captured before the common read begins. */
     maximumObservationBatchSize: maximumConcurrentObservations,
@@ -358,23 +434,34 @@ export async function openProtectedPolicyObserver(options: {
      * makes no freshness claim and does not create or repair missing evidence. */
     async successor(value: unknown, signal?: AbortSignal) {
       live(); signal?.throwIfAborted(); const previous = parseAdmissionPolicyHead(value);
-      const current = retained();
+      const current = retained(), workBudget = createOriginalReferenceWorkBudget();
       if (current.state.conflict || current.saved.pending) throw new Error('Observer policy history is unavailable for transfer');
       const baseline = states.get(rootId)!, baselineHead = policyObserverStateHead(baseline, context);
       let state = baseline;
       if (!baseline.advance || !sameAdmissionPolicyHead(baseline.advance.previous, previous)) {
-        const sequence = previous.revision - baselineHead.revision + 1;
-        if (!Number.isSafeInteger(sequence) || sequence < 1 || sequence > (current.saved.committed?.envelope.sequence ?? -1)) {
+        // Snapshot sequence includes seal-only checkpoints. Locate the first
+        // authenticated retained snapshot with a newer policy revision instead
+        // of treating revisions as ciphertext offsets.
+        const started = performance.now();
+        let low=1, high=current.saved.committed?.envelope.sequence ?? -1;
+        let selected: AdmissionPolicyObserverState | undefined;
+        if(previous.revision>=baselineHead.revision)while(low<=high){
+          live();signal?.throwIfAborted();
+          if(performance.now()-started>=3000)throw new Error('Policy successor lookup exceeded its live transfer deadline');
+          const middle=Math.floor((low+high)/2), candidate=await decode(writer!.historyBlock(middle), workBudget);
+          if(candidate.policy.revision>previous.revision){selected=candidate;high=middle-1;}else low=middle+1;
+        }
+        if (!selected) {
           if (!options.ancestrySource || root.kind !== 'continuation') throw new PolicySuccessorUnavailableError('Requested policy successor is outside this retained generation');
           const replay = await replayPolicyObserverHistory({ context, historyContext, genesisId, proposal: root.proposal, encryptionKey: key,
-            blocks: options.ancestrySource(), blockSource: options.ancestrySource, successorOf: previous, signal, timeoutMs: 3000 });
+            blocks: options.ancestrySource(), blockSource: options.ancestrySource, successorOf: previous, signal, timeoutMs: 3000, workBudget });
           live(); signal?.throwIfAborted();
           const latest = retained();
           if (latest.state.conflict || latest.saved.pending) throw new Error('Observer policy history changed during archive transfer');
           if (replay.state.conflict || !replay.successor) throw new PolicySuccessorUnavailableError('Requested successor absent from retained original ancestry');
           return replay.successor;
         }
-        state = await decode(writer!.historyBlock(sequence)); live(); signal?.throwIfAborted();
+        state = selected; live(); signal?.throwIfAborted();
       }
       if (state.conflict || !state.advance || !sameAdmissionPolicyHead(state.advance.previous, previous)) throw new Error('Retained policy successor differs from request');
       const latest = retained();
@@ -413,7 +500,7 @@ export async function openProtectedPolicyObserver(options: {
       return source;
     },
     /** No persistent ready flag: every observation performs another fresh check. */
-    ready() { return exclusive(async () => { const { state } = await confirm(); usable(state); await validateCurrent(state); }); },
+    ready() { return exclusive(async () => { const { state } = await confirm(); usable(state); await validateCurrent(state, pageReader(undefined, undefined, operationWorkBudget)); }); },
     async observeBatch(values: readonly unknown[], checks: readonly (() => void)[] = []): Promise<PromiseSettledResult<AdmissionPolicyHeadVote>[]> {
       live(); if (fenced) throw new Error('Policy observer is permanently fenced for recovery');
       if (!Array.isArray(values) || !values.length || values.length > maximumConcurrentObservations
@@ -456,14 +543,14 @@ export async function openProtectedPolicyObserver(options: {
       if (busy || observing >= maximumConcurrentObservations) throw new Error('Protected policy observer operation is already in progress');
       observing++;
       try {
-        const request = parseAdmissionPolicyHeadRequest(value, context, now()), started = performance.now(), remaining = request.expiresAt - now();
+        const request = parseAdmissionPolicyHeadRequest(value, context, now(), work), started = performance.now(), remaining = request.expiresAt - now();
         const validationReader = pageReader();
         const before = retained(); usable(before.state); await validateCurrent(before.state, validationReader);
         if (before.saved.pending) throw new Error('Complete the pending policy observer history first');
         if (!before.saved.committed) throw new Error('Confirm the policy observer root before observing');
         await writer!.observeCurrent(); live(); const { state } = retained(); await validateCurrent(state, validationReader);
         if (performance.now() - started >= remaining) throw new Error('Policy observation completed too late');
-        usable(state); return createAdmissionPolicyHeadVote(request, policyObserverStateHead(state, context), context, signer, now());
+        usable(state); return createAdmissionPolicyHeadVote(request, policyObserverStateHead(state, context), context, signer, now(), work);
       } finally { observing--; }
     },
     advance(value: unknown, archivePages: readonly { digest: string; bytes: Uint8Array }[] = []) { return exclusive(() => applyAdvance(value, archivePages)); },

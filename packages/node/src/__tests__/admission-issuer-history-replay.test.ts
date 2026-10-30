@@ -1,4 +1,5 @@
 import { historyOriginalPoolFixture } from '../../../relay/src/__tests__/fixtures/history-original-pool-fixture.js';
+import { createAdmissionOriginalReferences } from '../../../relay/src/admission-original-references.js';
 import { afterEach, beforeAll, expect, it } from 'vitest';
 import { randomBytes } from 'node:crypto';
 import { mkdtempSync, rmSync, existsSync, writeFileSync } from 'node:fs';
@@ -11,7 +12,7 @@ import { admissionIssuanceAllocationDigest, signAdmissionIssuanceAllocation } fr
 import { signAdmissionClaimAssignment } from '@resonance/core/admission-claim-assignment';
 import { admissionPolicyHead, createAdmissionPolicyAdvance } from '@resonance/core/admission-policy-advance';
 import { parseAdmissionPolicyObservers } from '@resonance/core/admission-policy-freshness';
-import { createHistoryFreeze, sealHistoryCheckpoint, historyCheckpointEnvelopeId, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
+import { createHistoryFreeze, sealHistoryCheckpoint, historyCheckpointEnvelopeId, historyCheckpointContextId, type HistoryCheckpointEnvelope } from '@resonance/core/history-checkpoint';
 import { createHistoryExchangeRequest, createHistoryExchangeResponse } from '@resonance/core/history-exchange';
 import { createHistoryContinuationRoot } from '@resonance/core/history-continuation';
 import { createHistoryAgreementRequest, createHistoryAgreementVote } from '@resonance/core/history-agreement';
@@ -57,12 +58,18 @@ beforeAll(async () => {
   advanced = { ...completed, communityPolicy: nextPolicy, freshness: { ...base.freshness!, installed: advance.commitment.next, observed: advance.commitment.next } };
   retired = { ...advanced, version: 9, communityPolicy: nextPolicy, entries: [], retirement: { retiredAt: 400, ...totals(advanced) } };
 });
-function selected(images: State[]) {
+function selected(images: State[], references = false) {
   // Build sequentially because each owner-signed header commits the previous ciphertext.
   const h = historyCheckpointFixture(), context = { ...h.context, role: 'admission-issuer' as const, authority, policyDigest: `sha256:${admissionPolicyDigest(base.communityPolicy!)}` };
   const blocks: HistoryCheckpointEnvelope[] = [];
-  images.forEach((image, sequence) => blocks.push(sealHistoryCheckpoint({ context, header: { kind: 'checkpoint', generation: 0, sequence,
-    previous: sequence ? historyCheckpointEnvelopeId(blocks[sequence - 1]) : null }, plaintext: Buffer.from(JSON.stringify(image)), encryptionKey: h.key, signingKey: h.owner })));
+  const originals = createAdmissionOriginalReferences(historyCheckpointContextId(context));
+  images.forEach((image, sequence) => {
+    const previous = sequence ? historyCheckpointEnvelopeId(blocks[sequence - 1]) : null;
+    const wire = references && sequence > 0 ? originals.encode(image, previous) : image;
+    originals.accept(wire, previous);
+    blocks.push(sealHistoryCheckpoint({ context, header: { kind: 'checkpoint', generation: 0, sequence, previous },
+      plaintext: Buffer.from(JSON.stringify(wire)), encryptionKey: h.key, signingKey: h.owner }));
+  });
   const rootId = historyCheckpointEnvelopeId(blocks[0]), challenge = randomBytes(32).toString('base64url'), freeze = createHistoryFreeze(context, 0, 1, challenge, h.owner);
   const receipts = h.memberKeys.slice(0, 4).map((key, i) => {
     const request = createHistoryExchangeRequest({ action: 'freeze', rootId, generation: 0, replica: context.members[i], challenge, issuedAt: 100, expiresAt: 200, sequence: 1, envelopeId: null }, context, h.owner);
@@ -71,6 +78,13 @@ function selected(images: State[]) {
   const proposal = createHistorySuccessorProposal({ version: 1, kind: 'frozen-history', rootId, generation: 0, nextGeneration: 1, receipts, envelopes: blocks }, context, h.owner);
   return { context, genesisId: rootId, profile: structuredClone(profile), authority, encryptionKey: h.key, proposal, blocks, owner: h.owner, memberKeys: h.memberKeys };
 }
+it('reconstructs every exact issuer obligation from mixed original/reference snapshots', async () => {
+  const input = selected([base, granted, bound, prepared, completed, advanced, retired], true);
+  const result = await replayProtectedIssuerHistory({ ...input, minimumEvidence: [granted, prepared, completed, advanced, retired] });
+  expect(result.state).toEqual(retired);
+  expect(totals(result.state)).toEqual(totals(completed));
+  await expect(replayProtectedIssuerHistory({ ...input, blocks: [input.blocks[0], ...input.blocks.slice(2)] })).rejects.toThrow();
+});
 it('replays expired historical policies and every grant/signing/retirement edge without current-policy gating', async () => {
   const result = await replayProtectedIssuerHistory(selected([base, granted, bound, prepared, completed, advanced, retired]));
   expect(result.state).toEqual(retired); expect(result.blocks).toBe(7); expect(totals(result.state)).toEqual(totals(completed));

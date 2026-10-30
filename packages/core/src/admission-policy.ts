@@ -1,3 +1,5 @@
+import { snapshotAdmissionReplayValue, ownAdmissionReplayValue } from './admission-replay-values.js';
+import { assertWitnessHandoffSuccessor, parseWitnessHandoffActivation, type WitnessHandoffActivation } from './admission-witness-handoff.js';
 import { inspectResolvedAdmissionPolicy, parseAdmissionPolicyProofReference, archivedAdmissionPolicyDigest, verifyArchivedAdmissionPolicy, type ArchivedAdmissionPolicy, type AdmissionPolicyProofReference, type ResolvedAdmissionPolicy } from './admission-policy-archive.js';
 /** Backend-only shared community admission policy: a pinned authority, revisions and cutoffs. */
 import { createHash } from 'node:crypto';
@@ -9,6 +11,7 @@ import { admissionPolicyObserversId, parseAdmissionPolicyObservers } from './adm
 import { matchesAdmissionPolicyHead, parseAdmissionPolicyAdvance, sameAdmissionPolicyHead } from './admission-policy-advance.js';
 import { inspectAdmissionPolicyObservation, parseAdmissionPolicyTrust, type AdmissionPolicyObservation, type AdmissionPolicyTrust } from './admission-policy-trust.js';
 import { MAX_ADMISSION_KEYS, MAX_ARCHIVED_ADMISSION_KEYS, MAX_ADMISSION_POLICY_BYTES } from './admission-policy-limits.js';
+import { chargeAdmissionWork, chargeAdmissionWorkBase64, type AdmissionWorkMeter } from './admission-work.js';
 export { MAX_ADMISSION_KEYS, MAX_ARCHIVED_ADMISSION_KEYS, MAX_ADMISSION_POLICY_BYTES } from './admission-policy-limits.js';
 export { admissionKeyFingerprint, normalizeAdmissionRelay, parseAdmissionWalletProfile, type AdmissionWalletProfileV1, type AdmissionProfileKeyImports } from './admission-profile.js';
 
@@ -16,6 +19,7 @@ export interface AdmissionPolicyKey {
   profile: AdmissionWalletProfileV1;
   notBefore: number; issueUntil: number; spendUntil: number; retryUntil: number;
   witnesses?: AdmissionWitnessSet;
+  witnessHandoff?: WitnessHandoffActivation;
 }
 export interface AdmissionPolicyBody {
   version: 1 | 2; kind: 'admission-policy'; revision: number; issuedAt: number; expiresAt: number;
@@ -40,14 +44,14 @@ function bytes(value: unknown, size: number): value is string {
   return typeof value === 'string' && value.length <= 100 && Buffer.from(value, 'base64url').length === size && Buffer.from(value, 'base64url').toString('base64url') === value;
 }
 function timestamp(value: unknown): value is number { return Number.isSafeInteger(value) && (value as number) >= 0; }
-function payload(body: AdmissionPolicyBody) {
+function payload(body: AdmissionPolicyBody, work?: AdmissionWorkMeter) {
   legacyPolicy(body);
   const entries = (keys: AdmissionPolicyKey[]) => keys.map(entry => [entry.profile, entry.notBefore, entry.issueUntil, entry.spendUntil, entry.retryUntil,
-    ...(entry.witnesses ? [entry.witnesses] : [])]);
-  return Buffer.from(`${body.version === 1 ? DOMAIN : 'resonance:admission-policy:v2'}\n${JSON.stringify([
+    ...(entry.witnesses ? [entry.witnesses] : []), ...(entry.witnessHandoff ? [entry.witnessHandoff] : [])]);
+  const bytes = Buffer.from(`${body.version === 1 ? DOMAIN : 'resonance:admission-policy:v2'}\n${JSON.stringify([
     body.version, body.kind, body.revision, body.issuedAt, body.expiresAt, body.activeKey, entries(body.keys),
     ...(body.version === 2 ? [entries(body.archivedKeys ?? [])] : []),
-  ])}`);
+  ])}`); chargeAdmissionWork(work, bytes.length, 'serialize'); return bytes;
 }
 export function admissionAuthorityFingerprint(authority: string) {
   if (!bytes(authority, 32)) throw new Error('Invalid community authority key');
@@ -62,16 +66,18 @@ export async function parseAdmissionPolicyBody(value: unknown, imports?: Admissi
     || !Array.isArray(value.keys) || value.keys.length < 1 || value.keys.length > MAX_ADMISSION_KEYS
     || (value.version === 2 && (!Array.isArray(value.archivedKeys) || value.archivedKeys.length > MAX_ARCHIVED_ADMISSION_KEYS))
     || Buffer.byteLength(JSON.stringify(value)) > (value.version === 1 ? 64 * 1024 : MAX_ADMISSION_POLICY_BYTES)) throw new Error('Invalid signed admission policy');
-  const input = structuredClone(value); const keys: AdmissionPolicyKey[] = []; const seen = new Set<string>();
+  const input = snapshotAdmissionReplayValue(value); const keys: AdmissionPolicyKey[] = []; const seen = new Set<string>();
   for (const entry of [...input.keys as unknown[], ...(input.version === 2 ? input.archivedKeys as unknown[] : [])]) {
     if (!exact(entry, ['profile','notBefore','issueUntil','spendUntil','retryUntil',
-      ...(entry && typeof entry === 'object' && Object.hasOwn(entry, 'witnesses') ? ['witnesses'] : [])])
+      ...(entry && typeof entry === 'object' && Object.hasOwn(entry, 'witnesses') ? ['witnesses'] : []),
+      ...(entry && typeof entry === 'object' && Object.hasOwn(entry, 'witnessHandoff') ? ['witnessHandoff'] : [])])
       || !timestamp(entry.notBefore) || !timestamp(entry.issueUntil) || !timestamp(entry.spendUntil) || !timestamp(entry.retryUntil)
       || entry.notBefore >= entry.issueUntil || entry.issueUntil > entry.spendUntil || entry.spendUntil > entry.retryUntil) throw new Error('Invalid admission key cutoffs');
     const { profile } = await parseAdmissionWalletProfile(entry.profile, imports); const id = admissionKeyFingerprint(profile.issuerPublicKey);
     if (seen.has(id)) throw new Error('Duplicate issuer key in admission policy');
     seen.add(id); keys.push({ profile, notBefore: entry.notBefore, issueUntil: entry.issueUntil, spendUntil: entry.spendUntil, retryUntil: entry.retryUntil,
-      ...(Object.hasOwn(entry, 'witnesses') ? { witnesses: parseAdmissionWitnessSet(entry.witnesses) } : {}) });
+      ...(Object.hasOwn(entry, 'witnesses') ? { witnesses: parseAdmissionWitnessSet(entry.witnesses) } : {}),
+      ...(Object.hasOwn(entry, 'witnessHandoff') ? { witnessHandoff: parseWitnessHandoffActivation(entry.witnessHandoff) } : {}) });
   }
   const currentKeys = keys.slice(0, (input.keys as unknown[]).length), archivedKeys = keys.slice(currentKeys.length);
   if (archivedKeys.some(entry => entry.retryUntil > (input.issuedAt as number))) throw new Error('Archived keys must have passed their final retry cutoff before policy issuance');
@@ -79,27 +85,29 @@ export async function parseAdmissionPolicyBody(value: unknown, imports?: Admissi
   return { version: input.version as 1 | 2, kind: 'admission-policy', revision: input.revision as number, issuedAt: input.issuedAt as number,
     expiresAt: input.expiresAt as number, activeKey: input.activeKey as string, keys: currentKeys, ...(input.version === 2 ? { archivedKeys } : {}) };
 }
-export async function signAdmissionPolicy(value: unknown, authority: string, secretKey: Uint8Array): Promise<SignedAdmissionPolicy> {
+export async function signAdmissionPolicy(value: unknown, authority: string, secretKey: Uint8Array, work?: AdmissionWorkMeter): Promise<SignedAdmissionPolicy> {
   admissionAuthorityFingerprint(authority); const secret = Uint8Array.from(secretKey);
   try {
-    const body = await parseAdmissionPolicyBody(value); const signature = sign(payload(body), secret);
-    if (!verify(payload(body), signature, Buffer.from(authority, 'base64url'))) throw new Error('Community authority private key does not match');
-    const signed = { ...body, authority, signature: Buffer.from(signature).toString('base64url') };
+    const body = await parseAdmissionPolicyBody(value); const signature = sign(payload(body, work), secret);
+    if (!verify(payload(body, work), signature, Buffer.from(authority, 'base64url'))) throw new Error('Community authority private key does not match');
+    const signed = { ...body, authority, signature: chargeAdmissionWorkBase64(work, signature) };
     if (Buffer.byteLength(JSON.stringify(signed) + '\n') > (body.version === 1 ? 65536 : MAX_ADMISSION_POLICY_BYTES)) throw new Error('Signed admission policy exceeds its byte limit');
     return signed;
   } finally { secret.fill(0); }
 }
-export async function verifyAdmissionPolicy(value: unknown, authority: string, imports?: AdmissionProfileKeyImports): Promise<SignedAdmissionPolicy> {
+export async function verifyAdmissionPolicy(value: unknown, authority: string, imports?: AdmissionProfileKeyImports, work?: AdmissionWorkMeter): Promise<SignedAdmissionPolicy> {
   admissionAuthorityFingerprint(authority);
   if (!exact(value, ['version','kind','revision','issuedAt','expiresAt','activeKey','keys','authority','signature', ...((value as AdmissionPolicyBody)?.version === 2 ? ['archivedKeys'] : [])])
     || value.authority !== authority || !bytes(value.signature, 64)
     || Buffer.byteLength(JSON.stringify(value) + '\n') > (value.version === 1 ? 65536 : MAX_ADMISSION_POLICY_BYTES)) throw new Error('Admission policy is not signed by the pinned community authority');
-  const input = structuredClone(value); const { signature, authority: _, ...unsigned } = input;
+  const input = snapshotAdmissionReplayValue(value); const { signature, authority: _, ...unsigned } = input;
   const body = await parseAdmissionPolicyBody(unsigned, imports);
-  if (!verify(payload(body), Buffer.from(signature as string, 'base64url'), Buffer.from(authority, 'base64url'))) throw new Error('Invalid community policy signature');
+  chargeAdmissionWork(work, 64, 'base64');
+  if (!verify(payload(body, work), Buffer.from(signature as string, 'base64url'), Buffer.from(authority, 'base64url'))) throw new Error('Invalid community policy signature');
+  for (const entry of [...body.keys, ...(body.archivedKeys ?? [])]) if (entry.witnessHandoff?.authority !== undefined && entry.witnessHandoff.authority !== authority) throw new Error('Handoff authority differs from policy authority');
   return { ...body, authority, signature: signature as string };
 }
-export function admissionPolicyDigest(policy: AdmissionPolicyBody) { return createHash('sha256').update(payload(policy)).digest('hex'); }
+export function admissionPolicyDigest(policy: AdmissionPolicyBody, work?: AdmissionWorkMeter) { return createHash('sha256').update(payload(policy, work)).digest('hex'); }
 export function assertAdmissionPolicyCurrent(policy: AdmissionPolicyBody, now: number) {
   legacyPolicy(policy);
   if (!timestamp(now) || now < policy.issuedAt || now >= policy.expiresAt) throw new Error('Community admission policy is not current; import a current signed revision');
@@ -123,10 +131,11 @@ export function assertAdmissionPolicySuccessor(previous: AdmissionPolicyBody, ne
       continue;
     }
     const entry = next.keys.find(key => admissionKeyFingerprint(key.profile.issuerPublicKey) === admissionKeyFingerprint(old.profile.issuerPublicKey));
-    if (!entry || JSON.stringify(entry.profile) !== JSON.stringify(old.profile) || JSON.stringify(entry.witnesses) !== JSON.stringify(old.witnesses) || entry.notBefore !== old.notBefore
+    if (!entry || JSON.stringify(entry.profile) !== JSON.stringify(old.profile) || entry.notBefore !== old.notBefore
       || entry.issueUntil > old.issueUntil || entry.spendUntil > old.spendUntil || entry.retryUntil > old.retryUntil) {
       throw new Error('A policy must retain prior keys and cannot change their pins or extend retirement cutoffs');
     }
+    assertWitnessHandoffSuccessor(old, entry, admissionPolicyDigest(previous), previous.revision);
   }
 }
 type State = { version: 1; authority: string | null; policy: SignedAdmissionPolicy | null }
@@ -183,7 +192,7 @@ export async function openAdmissionPolicyStore(options: { path: string; encrypti
       if (initial.authority && initial.authority !== authority) throw new Error('Community authority is already pinned');
       busy = true;
       try {
-        const input = structuredClone(value), advanceInput = pins.advance === undefined ? undefined : structuredClone(pins.advance);
+        const input = snapshotAdmissionReplayValue(value), advanceInput = pins.advance === undefined ? undefined : structuredClone(pins.advance);
         const observers = pins.observers === undefined ? undefined : parseAdmissionPolicyObservers(pins.observers);
         const next = await verifyAdmissionPolicy(input, authority);
         const previous = storage.read().policy;

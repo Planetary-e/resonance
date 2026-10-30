@@ -291,6 +291,30 @@ export function openStorageReservationAuthority(options: { directory: string; mo
     }
     return { request, selected, next };
   }
+  // Complete finite layouts must pass byte, entry AND serialized-metadata gates
+  // before any allocation is committed. One ledger transaction retains the old
+  // allocations; a late failure cannot leave an apparently funded prefix.
+  function prepareReservations(raw: readonly StorageReservationRequest[]) {
+    usable();
+    if (!Array.isArray(raw) || !raw.length || raw.length > STORAGE_RESERVATION_MAX_ENTRIES) throw new Error('Invalid finite reservation layout');
+    const seen = new Set<string>(), requests: Array<{ request: StorageReservationRequest; selected: string }> = [];
+    const allocations = new Map(state.allocations.map(entry => [entry.path, entry]));
+    for (const input of raw) {
+      const { request, selected } = prepareReservation(input);
+      if (seen.has(selected)) throw new Error('Duplicate finite reservation scope');
+      seen.add(selected); requests.push({ request, selected });
+      const prior = allocations.get(selected);
+      allocations.set(selected, { path: selected, component: request.component, scope: request.scope,
+        maximumBytes: Math.max(prior?.maximumBytes ?? 0, request.maximumBytes) });
+    }
+    if (allocations.size + state.adoptions.length > STORAGE_RESERVATION_MAX_ENTRIES) throw new Error('Storage reservation entry capacity exhausted');
+    const changed = requests.some(({ request, selected }) => !state.allocations.some(entry => entry.path === selected && entry.maximumBytes >= request.maximumBytes));
+    const next: State = { ...state, revision: state.revision + (changed ? 1 : 0), allocations: [...allocations.values()].sort((a,b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0) };
+    if (!safe(next.revision)) throw new Error('Storage reservation revision capacity exhausted');
+    const metadataBytes = Buffer.byteLength(JSON.stringify(next));
+    if (metadataBytes > STORAGE_RESERVATION_MANIFEST_BYTES) throw new Error('Storage reservation metadata capacity exhausted');
+    return { requests, next, changed, metadataBytes };
+  }
   return {
     /** Review/apply must run while all cooperating writers are excluded. This
      * deliberately charges observed files in addition to future writer peaks;
@@ -339,6 +363,18 @@ export function openStorageReservationAuthority(options: { directory: string; mo
       if (!safe(state.revision + 1)) throw new Error('Storage reservation revision capacity exhausted');
       commit({ ...state, revision: state.revision + 1, limitBytes });
     },
+    reviewReservations(raw: readonly StorageReservationRequest[]) {
+      const { next, metadataBytes } = prepareReservations(raw), reservedBytes = total(next);
+      return { authorityId: state.authorityId, revision: state.revision, reservedBytes,
+        additionalBytes: reservedBytes - total(state), components: next.allocations.length,
+        metadataBytes, fits: reservedBytes <= state.limitBytes };
+    },
+    reserveReservations(raw: readonly StorageReservationRequest[]): StorageReservationLease[] {
+      const { requests, next, changed } = prepareReservations(raw);
+      if (total(next) > state.limitBytes) throw new Error('Combined managed storage budget exhausted');
+      if (changed) commit(next);
+      return requests.map(({ request, selected }) => reservationLease(request, selected, usable, directory));
+    },
     reviewReservation(raw: StorageReservationRequest) {
       const { request, selected, next } = prepareReservation(raw), reservedBytes = total(next ?? state);
       return { path: selected, component: request.component, scope: request.scope, maximumBytes: request.maximumBytes,
@@ -359,7 +395,7 @@ export function openStorageReservationAuthority(options: { directory: string; mo
   };
 }
 
-export { assertExistingStorageReservation, withStorageReservationAuthority, reserveManagedStorage, captureStorageReservationOperation, assertNoStorageReservationContext } from './storage-reservation-context.js';
+export { currentStorageReservationAuthorityId, assertExistingStorageReservation, withStorageReservationAuthority, reserveManagedStorage, captureStorageReservationOperation, assertNoStorageReservationContext } from './storage-reservation-context.js';
 export type { StorageReservationRequest, StorageReservationLease, StorageReservationAuthority, StorageReservationOutput } from './storage-reservation-context.js';
 
 export type { StorageAdoptionTarget, StorageAdoptionBounds } from './storage-adoption-inventory.js';

@@ -1,0 +1,1477 @@
+{
+  "schema_version": 1,
+  "run_id": "unified-new-view-01",
+  "status": "partial",
+  "process_disk_counters": {
+    "status": "unavailable",
+    "reason": "Node.js/macOS per-process physical read/write counters are not exposed by this harness"
+  },
+  "logical_arena_files": [
+    {
+      "role": "observer-0",
+      "usage": null
+    },
+    {
+      "role": "observer-1",
+      "usage": null
+    },
+    {
+      "role": "observer-2",
+      "usage": null
+    },
+    {
+      "role": "observer-3",
+      "usage": null
+    },
+    {
+      "role": "replica-old-0-1",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 34,
+            "bytes": 127447
+          },
+          "frame": {
+            "count": 4,
+            "bytes": 4272
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 152759,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 13476,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:09ec4e7de8c230c33839b952e7bd18e9520940fc92f7835934a3a2e8192ab0d4",
+        "currentSequence": 6,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-old-0-2",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 34,
+            "bytes": 127447
+          },
+          "frame": {
+            "count": 4,
+            "bytes": 4272
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 152759,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 13476,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:09ec4e7de8c230c33839b952e7bd18e9520940fc92f7835934a3a2e8192ab0d4",
+        "currentSequence": 6,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-old-0-3",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 34,
+            "bytes": 127447
+          },
+          "frame": {
+            "count": 4,
+            "bytes": 4272
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 152759,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 13476,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:09ec4e7de8c230c33839b952e7bd18e9520940fc92f7835934a3a2e8192ab0d4",
+        "currentSequence": 6,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-old-0-4",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 34,
+            "bytes": 127447
+          },
+          "frame": {
+            "count": 4,
+            "bytes": 4272
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 152759,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 13476,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:09ec4e7de8c230c33839b952e7bd18e9520940fc92f7835934a3a2e8192ab0d4",
+        "currentSequence": 6,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-old-0-5",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 34,
+            "bytes": 127447
+          },
+          "frame": {
+            "count": 4,
+            "bytes": 4272
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 152759,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 13476,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:09ec4e7de8c230c33839b952e7bd18e9520940fc92f7835934a3a2e8192ab0d4",
+        "currentSequence": 6,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-old-1-1",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 34,
+            "bytes": 127447
+          },
+          "frame": {
+            "count": 4,
+            "bytes": 4272
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 152759,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 13476,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:f5b2f65f5246793d8c2a8d19bdfb97b8abd9ae33b84b19d9301ef41a4d032369",
+        "currentSequence": 6,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-old-1-2",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 34,
+            "bytes": 127447
+          },
+          "frame": {
+            "count": 4,
+            "bytes": 4272
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 152759,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 13476,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:f5b2f65f5246793d8c2a8d19bdfb97b8abd9ae33b84b19d9301ef41a4d032369",
+        "currentSequence": 6,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-old-1-3",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 34,
+            "bytes": 127447
+          },
+          "frame": {
+            "count": 4,
+            "bytes": 4272
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 152759,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 13476,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:f5b2f65f5246793d8c2a8d19bdfb97b8abd9ae33b84b19d9301ef41a4d032369",
+        "currentSequence": 6,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-old-1-4",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 34,
+            "bytes": 127447
+          },
+          "frame": {
+            "count": 4,
+            "bytes": 4272
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 152759,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 13476,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:f5b2f65f5246793d8c2a8d19bdfb97b8abd9ae33b84b19d9301ef41a4d032369",
+        "currentSequence": 6,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-old-1-5",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 34,
+            "bytes": 127447
+          },
+          "frame": {
+            "count": 4,
+            "bytes": 4272
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 152759,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 13476,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:f5b2f65f5246793d8c2a8d19bdfb97b8abd9ae33b84b19d9301ef41a4d032369",
+        "currentSequence": 6,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-old-2-1",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 34,
+            "bytes": 127447
+          },
+          "frame": {
+            "count": 4,
+            "bytes": 4272
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 152759,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 13476,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:0a47268fd7b060eae4169b1427977a6c3b16cd92b5f4266e9ba3795f86c33d37",
+        "currentSequence": 6,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-old-2-2",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 34,
+            "bytes": 127447
+          },
+          "frame": {
+            "count": 4,
+            "bytes": 4272
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 152759,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 13476,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:0a47268fd7b060eae4169b1427977a6c3b16cd92b5f4266e9ba3795f86c33d37",
+        "currentSequence": 6,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-old-2-3",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 34,
+            "bytes": 127447
+          },
+          "frame": {
+            "count": 4,
+            "bytes": 4272
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 152759,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 13476,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:0a47268fd7b060eae4169b1427977a6c3b16cd92b5f4266e9ba3795f86c33d37",
+        "currentSequence": 6,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-old-2-4",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 34,
+            "bytes": 127447
+          },
+          "frame": {
+            "count": 4,
+            "bytes": 4272
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 152759,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 13476,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:0a47268fd7b060eae4169b1427977a6c3b16cd92b5f4266e9ba3795f86c33d37",
+        "currentSequence": 6,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-old-2-5",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 34,
+            "bytes": 127447
+          },
+          "frame": {
+            "count": 4,
+            "bytes": 4272
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 152759,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 13476,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:0a47268fd7b060eae4169b1427977a6c3b16cd92b5f4266e9ba3795f86c33d37",
+        "currentSequence": 6,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-old-3-1",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 34,
+            "bytes": 127447
+          },
+          "frame": {
+            "count": 4,
+            "bytes": 4272
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 152759,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 13476,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:9098ce40db045dbf3bd1fcc21a598a7a4b9da6a91436523f4d979a3358b1d4ef",
+        "currentSequence": 6,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-old-3-2",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 34,
+            "bytes": 127447
+          },
+          "frame": {
+            "count": 4,
+            "bytes": 4272
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 152759,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 13476,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:9098ce40db045dbf3bd1fcc21a598a7a4b9da6a91436523f4d979a3358b1d4ef",
+        "currentSequence": 6,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-old-3-3",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 34,
+            "bytes": 127447
+          },
+          "frame": {
+            "count": 4,
+            "bytes": 4272
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 152759,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 13476,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:9098ce40db045dbf3bd1fcc21a598a7a4b9da6a91436523f4d979a3358b1d4ef",
+        "currentSequence": 6,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-old-3-4",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 34,
+            "bytes": 127447
+          },
+          "frame": {
+            "count": 4,
+            "bytes": 4272
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 152759,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 13476,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:9098ce40db045dbf3bd1fcc21a598a7a4b9da6a91436523f4d979a3358b1d4ef",
+        "currentSequence": 6,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-old-3-5",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 34,
+            "bytes": 127447
+          },
+          "frame": {
+            "count": 4,
+            "bytes": 4272
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 152759,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 13476,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:9098ce40db045dbf3bd1fcc21a598a7a4b9da6a91436523f4d979a3358b1d4ef",
+        "currentSequence": 6,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-new-0-1",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 0,
+            "bytes": 0
+          },
+          "frame": {
+            "count": 0,
+            "bytes": 0
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 0,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 0,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "currentSequence": -1,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-new-0-2",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 0,
+            "bytes": 0
+          },
+          "frame": {
+            "count": 0,
+            "bytes": 0
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 0,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 0,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "currentSequence": -1,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-new-0-3",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 0,
+            "bytes": 0
+          },
+          "frame": {
+            "count": 0,
+            "bytes": 0
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 0,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 0,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "currentSequence": -1,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-new-0-4",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 0,
+            "bytes": 0
+          },
+          "frame": {
+            "count": 0,
+            "bytes": 0
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 0,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 0,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "currentSequence": -1,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-new-0-5",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 0,
+            "bytes": 0
+          },
+          "frame": {
+            "count": 0,
+            "bytes": 0
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 0,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 0,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "currentSequence": -1,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-new-1-1",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 0,
+            "bytes": 0
+          },
+          "frame": {
+            "count": 0,
+            "bytes": 0
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 0,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 0,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "currentSequence": -1,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-new-1-2",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 0,
+            "bytes": 0
+          },
+          "frame": {
+            "count": 0,
+            "bytes": 0
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 0,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 0,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "currentSequence": -1,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-new-1-3",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 0,
+            "bytes": 0
+          },
+          "frame": {
+            "count": 0,
+            "bytes": 0
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 0,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 0,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "currentSequence": -1,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-new-1-4",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 0,
+            "bytes": 0
+          },
+          "frame": {
+            "count": 0,
+            "bytes": 0
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 0,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 0,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "currentSequence": -1,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-new-1-5",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 0,
+            "bytes": 0
+          },
+          "frame": {
+            "count": 0,
+            "bytes": 0
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 0,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 0,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "currentSequence": -1,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-new-2-1",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 0,
+            "bytes": 0
+          },
+          "frame": {
+            "count": 0,
+            "bytes": 0
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 0,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 0,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "currentSequence": -1,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-new-2-2",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 0,
+            "bytes": 0
+          },
+          "frame": {
+            "count": 0,
+            "bytes": 0
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 0,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 0,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "currentSequence": -1,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-new-2-3",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 0,
+            "bytes": 0
+          },
+          "frame": {
+            "count": 0,
+            "bytes": 0
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 0,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 0,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "currentSequence": -1,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-new-2-4",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 0,
+            "bytes": 0
+          },
+          "frame": {
+            "count": 0,
+            "bytes": 0
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 0,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 0,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "currentSequence": -1,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-new-2-5",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 0,
+            "bytes": 0
+          },
+          "frame": {
+            "count": 0,
+            "bytes": 0
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 0,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 0,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "currentSequence": -1,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-new-3-1",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 0,
+            "bytes": 0
+          },
+          "frame": {
+            "count": 0,
+            "bytes": 0
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 0,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 0,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "currentSequence": -1,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-new-3-2",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 0,
+            "bytes": 0
+          },
+          "frame": {
+            "count": 0,
+            "bytes": 0
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 0,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 0,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "currentSequence": -1,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-new-3-3",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 0,
+            "bytes": 0
+          },
+          "frame": {
+            "count": 0,
+            "bytes": 0
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 0,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 0,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "currentSequence": -1,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-new-3-4",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 0,
+            "bytes": 0
+          },
+          "frame": {
+            "count": 0,
+            "bytes": 0
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 0,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 0,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "currentSequence": -1,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "replica-new-3-5",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 0,
+            "bytes": 0
+          },
+          "frame": {
+            "count": 0,
+            "bytes": 0
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 0,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 0,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "currentSequence": -1,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "runtime-old-0",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 34,
+            "bytes": 127447
+          },
+          "frame": {
+            "count": 4,
+            "bytes": 4272
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 152759,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 13476,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:09ec4e7de8c230c33839b952e7bd18e9520940fc92f7835934a3a2e8192ab0d4",
+        "currentSequence": 6,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "runtime-old-1",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 34,
+            "bytes": 127447
+          },
+          "frame": {
+            "count": 4,
+            "bytes": 4272
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 152759,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 13476,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:f5b2f65f5246793d8c2a8d19bdfb97b8abd9ae33b84b19d9301ef41a4d032369",
+        "currentSequence": 6,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "runtime-old-2",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 34,
+            "bytes": 127447
+          },
+          "frame": {
+            "count": 4,
+            "bytes": 4272
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 152759,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 13476,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:0a47268fd7b060eae4169b1427977a6c3b16cd92b5f4266e9ba3795f86c33d37",
+        "currentSequence": 6,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "runtime-old-3",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 34,
+            "bytes": 127447
+          },
+          "frame": {
+            "count": 4,
+            "bytes": 4272
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 152759,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 13476,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:9098ce40db045dbf3bd1fcc21a598a7a4b9da6a91436523f4d979a3358b1d4ef",
+        "currentSequence": 6,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "runtime-new-0",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 0,
+            "bytes": 0
+          },
+          "frame": {
+            "count": 0,
+            "bytes": 0
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 0,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 0,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "currentSequence": -1,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "runtime-new-1",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 0,
+            "bytes": 0
+          },
+          "frame": {
+            "count": 0,
+            "bytes": 0
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 0,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 0,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "currentSequence": -1,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "runtime-new-2",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 0,
+            "bytes": 0
+          },
+          "frame": {
+            "count": 0,
+            "bytes": 0
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 0,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 0,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "currentSequence": -1,
+        "failedBytes": 0
+      }
+    },
+    {
+      "role": "runtime-new-3",
+      "usage": {
+        "proofCounts": {
+          "original": {
+            "count": 0,
+            "bytes": 0
+          },
+          "frame": {
+            "count": 0,
+            "bytes": 0
+          },
+          "policy": {
+            "count": 0,
+            "bytes": 0
+          },
+          "activation": {
+            "count": 0,
+            "bytes": 0
+          }
+        },
+        "archiveBytes": 0,
+        "archiveMaximum": 262144,
+        "checkpointBytes": 0,
+        "checkpointMaximum": 524288,
+        "currentHead": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "currentSequence": -1,
+        "failedBytes": 0
+      }
+    }
+  ],
+  "fsync_behavior": "Existing RSO5/history fsync paths preserved; physical fsync latency not exposed",
+  "iostat": {
+    "status": "observed",
+    "sample_sha256": "sha256:7c4de376b6d29f39571d1cbca442cab47cb9ea18b0ec69773ac2f7a1104c2976",
+    "reconciliation": "Whole-host sample only; per-process attribution unavailable"
+  },
+  "limitations": [
+    "Logical arena bytes are not physical disk I/O",
+    "iostat is whole-host and cannot be attributed to workers"
+  ]
+}

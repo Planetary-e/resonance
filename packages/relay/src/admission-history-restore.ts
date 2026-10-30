@@ -47,7 +47,7 @@ export async function prepareAdmissionHistoryRestore(options: Omit<Parameters<ty
   assertArchivedAdmissionPolicyCurrent(policy, (options.now ?? Date.now)());
   if (canonicalHistorySetupPath(requestedDirectory) !== directory) throw new Error('Admission restore destination changed during review');
   if (policy.version === 3 && options.requireSelectedAncestry && !ancestry?.binding) throw new Error('Restored v3 admission history requires explicitly selected original ancestry');
-  const fundingId = policy.version === 3 && ancestryDirectory ? assertExistingHistoryAncestryFunding(ancestryDirectory) : undefined;
+  const fundingId = policy.version === 3 && ancestryDirectory ? (ancestry?.assertFunding ? ancestry.assertFunding() : assertExistingHistoryAncestryFunding(ancestryDirectory)) : undefined;
   const policyDigest = archivedAdmissionPolicyDigest(policy);
   const approvalDigest = historyDigest(`resonance:admission-history-restore:v1\n${JSON.stringify([
     directory, replay.contextId, replay.genesisId, rootId, replay.replayDigest, policyDigest, ...(ancestry?.binding ? [ancestry.binding] : []), ...(fundingId ? [fundingId] : []),
@@ -114,7 +114,7 @@ export function readPreparedAdmissionRestore(value: PreparedAdmissionHistoryRest
   if (!record || record.state === 'closed' || record.state === 'consumed' || typeof approvedDigest !== 'string' || approvedDigest !== record.approvalDigest
     || record.directory !== canonicalHistorySetupPath(directory) || record.directory !== canonicalHistorySetupPath(record.requestedDirectory) || record.contextId !== historyCheckpointContextId(context)
     || record.policyDigest !== archivedAdmissionPolicyDigest(policy)) throw new Error('Admission restore needs matching reviewed history, policy and destination');
-  if (record.fundingId && record.ancestryDirectory) assertExistingHistoryAncestryFunding(record.ancestryDirectory, record.fundingId);
+  if (record.fundingId && record.ancestryDirectory) { const id = record.ancestry?.assertFunding ? record.ancestry.assertFunding() : assertExistingHistoryAncestryFunding(record.ancestryDirectory, record.fundingId); if (id !== record.fundingId) throw new Error('Restoration ancestry authority changed'); }
   if (record.ancestry) for (const _ of record.ancestry.blocks()) { /* Validate before owner mutation. */ }
   assertRestoreDestination(record);
   record.state = 'checked';

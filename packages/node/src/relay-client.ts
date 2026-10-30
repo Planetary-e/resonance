@@ -1,3 +1,4 @@
+import type { AdmissionPolicyQuery } from '@resonance/core/admission-policy-query';
 /**
  * WebSocket client for connecting a personal node to a relay server.
  */
@@ -105,6 +106,7 @@ export type AdmissionCapabilityProviderV2 = ((
   context: AdmissionCapabilityRequestContextV2,
 ) => AdmissionCapabilityV2 | undefined) & {
   /** Independently pinned context, read only after releasing queued work. */
+  preparePolicyObservation?: () => AdmissionPolicyQuery | undefined;
   policyObservers?: () => AdmissionPolicyObservers | undefined;
   /** Recheck retained state immediately before socket transmission; never reserve. */
   assertCurrent?: (context: AdmissionCapabilityRequestContextV2) => void;

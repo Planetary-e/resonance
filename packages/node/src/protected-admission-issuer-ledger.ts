@@ -1,5 +1,6 @@
 import { admissionPolicyProofReference, parseAdmissionPolicyProofAppend, parseArchivedAdmissionPolicyAdvance, verifyArchivedAdmissionPolicy, archivedAdmissionPolicyDigest, assertArchivedAdmissionPolicyCurrent, inspectResolvedAdmissionPolicy, inspectResolvedAdmissionPolicyKey, retainedResolvedAdmissionPolicyKey, AdmissionPolicyArchiveBudget, AdmissionPolicyArchiveExecutionContext, parseAdmissionPolicyProofReference, type AdmissionPolicyArchiveLimits } from '@resonance/core/admission-policy-archive';
 import { policyProofBudget, type PolicyProofOperation, type PolicyProofCache } from '../../relay/src/admission-policy-history-proof.js';
+import { originalReferenceWorkBudget, shareOriginalReferenceWorkBudget } from '../../relay/src/admission-original-references.js';
 import type { ProtectedIssuerState as State } from './protected-admission-issuer-state.js';
 /** Volunteer-protected issuer. This API directly owns its encrypted image and decisions. */
 import { verifyAdmissionPolicy, assertAdmissionPolicyCurrent, assertAdmissionPolicySuccessor, admissionAuthorityFingerprint, admissionPolicyKeys, isArchivedAdmissionKey } from '@resonance/core/admission-policy';
@@ -70,8 +71,12 @@ export async function openProtectedAdmissionIssuerLedger(options: ProtectedAdmis
     const proofOperations = new WeakMap<object, PolicyProofOperation>(), proofCache: PolicyProofCache = new Map();
     let operationSignal: AbortSignal | undefined, installProofOperation: PolicyProofOperation | undefined;
     const proofOperation = (token: object) => {
-      if (installProofOperation) return installProofOperation;
-      let operation = proofOperations.get(token); if (!operation) { operation = token === startup ? { startup } : {}; proofOperations.set(token, operation); } return operation;
+      if (installProofOperation) {
+        installProofOperation.originalReferenceWork ??= originalReferenceWorkBudget(installProofOperation.budget!);
+        shareOriginalReferenceWorkBudget(token, installProofOperation.originalReferenceWork);
+        return installProofOperation;
+      }
+      let operation = proofOperations.get(token); if (!operation) { operation = { ...(token === startup ? { startup } : {}), originalReferenceWork: originalReferenceWorkBudget(token) }; proofOperations.set(token, operation); } return operation;
     };
     const validate = (value: unknown, token?: object) => {
       const installing = installProofOperation?.budget;
@@ -289,6 +294,7 @@ export async function openProtectedAdmissionIssuerLedger(options: ProtectedAdmis
             if (advance || !(policy.revision === observers.genesis.revision && archivedAdmissionPolicyDigest(policy) === observers.genesis.digest)) throw new Error('Issuer observer enrollment requires its independently pinned genesis');
             freshness = parseAdmissionPolicyTrust({ context: observers, installed: observers.genesis, observed: observers.genesis }, policy);
           } else if (advance) throw new Error('Issuer transition requires independently pinned observers');
+          if (policy.keys.some(e => e.witnesses?.version === 2) && !freshness) throw new Error('Protected witness policy installation requires independently pinned fresh observers');
           if (state.communityPolicy && state.communityPolicy.version !== 3 && policy.version !== 3) assertAdmissionPolicySuccessor(state.communityPolicy, policy);
           if (policy.version !== 3 && !admissionPolicyKeys(policy).some(entry => JSON.stringify(entry.profile) === JSON.stringify(profile))) throw new Error('Issuer is absent from the signed community policy');
           let proofFields = {};

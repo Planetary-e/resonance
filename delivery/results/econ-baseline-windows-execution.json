@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "outcome": "blocked_incomplete_sustained_window",
+  "command": "node scripts/rso5-baseline-windows.mjs",
+  "source_manifest": "delivery/results/econ-baseline-windows-manifest-v6.json",
+  "recorded_at": "2026-10-30T08:10:19.181Z",
+  "terminal_reason": "The 4,500,000 ms Vitest/background deadline interrupted sustained finalization before process, network, work, summary and cleanup artifacts were written; the triggering finalization error, if any, is unavailable.",
+  "completed": [
+    {
+      "run_id": "idle-baseline-complete",
+      "scenario": "full-smoke",
+      "kind": "idle",
+      "outcome": "artifact_complete_window_short",
+      "workers": 52,
+      "clean_stops": 52,
+      "window_30min_gate_passed": false,
+      "baseline_shortfall_ms": 6,
+      "messages": 563,
+      "frame_bytes": 5337672
+    }
+  ],
+  "incomplete": {
+    "run_id": "sustained-max-envelope-complete",
+    "scenario": "full-smoke",
+    "kind": "sustained",
+    "present_artifacts": [
+      "delivery/results/econ-authorization-sustained-max-envelope-complete.json",
+      "delivery/results/econ-baseline-windows-cleanup-v6-timeout.json"
+    ],
+    "missing_required_artifacts": [
+      "delivery/results/econ-lab-summary-sustained-max-envelope-complete.json",
+      "delivery/results/econ-process-sustained-max-envelope-complete.json",
+      "delivery/results/econ-disk-sustained-max-envelope-complete.json",
+      "delivery/results/econ-network-sustained-max-envelope-complete.json",
+      "delivery/results/econ-work-sustained-max-envelope-complete.json",
+      "delivery/results/econ-cleanup-sustained-max-envelope-complete.json",
+      "delivery/results/econ-owner-assumptions-sustained-max-envelope-complete.json",
+      "delivery/results/econ-decision-sustained-max-envelope-complete.json",
+      "delivery/results/econ-power-sustained-max-envelope-complete.json",
+      "delivery/results/econ-power-sustained-max-envelope-complete.csv"
+    ]
+  },
+  "matrix_runs_executed": 0,
+  "sustained_windows_executed": false,
+  "acceptance_evaluation": "not_run"
+}

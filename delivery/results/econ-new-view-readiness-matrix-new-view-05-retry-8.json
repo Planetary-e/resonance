@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "run_id": "matrix-new-view-05-retry-8",
+  "status": "complete",
+  "post_new_view_startup_complete": true,
+  "durable_serving_readiness": true,
+  "groups": [
+    {
+      "view": 1,
+      "readiness": [
+        {
+          "role": "runtime-old-0",
+          "sequence": 1,
+          "digest": "sha256:4c3a7deb6df5d8ecace0213feb57376b041809f7e010b64b548eb26010a98127"
+        },
+        {
+          "role": "runtime-old-1",
+          "sequence": 1,
+          "digest": "sha256:4c3a7deb6df5d8ecace0213feb57376b041809f7e010b64b548eb26010a98127"
+        },
+        {
+          "role": "runtime-old-2",
+          "sequence": 1,
+          "digest": "sha256:4c3a7deb6df5d8ecace0213feb57376b041809f7e010b64b548eb26010a98127"
+        },
+        {
+          "role": "runtime-old-3",
+          "sequence": 1,
+          "digest": "sha256:4c3a7deb6df5d8ecace0213feb57376b041809f7e010b64b548eb26010a98127"
+        }
+      ]
+    }
+  ]
+}

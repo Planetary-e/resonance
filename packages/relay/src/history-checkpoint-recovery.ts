@@ -3,9 +3,9 @@ import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { assertSecureRelayTransportEndpoint, type SigningKeyPair } from '@resonance/core';
 import { copyAdmissionSigningKey, exactWitnessFields } from '@resonance/core/admission-witness';
-import { openEncryptedLocalState } from '@resonance/core/local-state';
+import { openEncryptedLocalState, encryptedLocalStateByteBound } from '@resonance/core/local-state';
 import { createHistoryFreeze, historyCheckpointContextId, historyCheckpointEnvelopeId, isHistoryDigest,
-  parseHistoryCheckpointContext, parseHistoryFreeze, type HistoryCheckpointContext,
+  parseHistoryCheckpointContext, parseHistoryCheckpointEnvelope, parseHistoryFreeze, type HistoryCheckpointContext,
   type HistoryCheckpointEnvelope, type HistoryFreeze } from '@resonance/core/history-checkpoint';
 import { createHistoryExchangeRequest, parseHistoryExchangeRequest, parseHistoryExchangeResponse,
   parseHistoryRecoveryPreparation, HISTORY_RECOVERY_MAX_BLOCKS, HISTORY_RECOVERY_MAX_BYTES,
@@ -17,7 +17,7 @@ import { exchangeHistoryCheckpoint, type HistoryCheckpointTransport, type Histor
 export const HISTORY_RECOVERY_FILENAME = 'history-recovery.json';
 interface RecoveryAttempt { freeze: HistoryFreeze; issuedAt: number; expiresAt: number }
 interface RecoveryState {
-  version: 1; contextId: string; rootId: string; generation: number; nextGeneration: number;
+  selection?: string[]; version: 1; contextId: string; rootId: string; generation: number; nextGeneration: number;
   attempt: RecoveryAttempt | null; prepared: HistoryRecoveryPreparation | null;
   compaction?: { genesisId: string; certificate: HistoryCompactionCertificate };
 }
@@ -30,6 +30,7 @@ export function createHistoryCheckpointRecovery(options: {
   members: HistoryReplicaEndpoint[]; initialize?: boolean; timeoutMs?: number; transport?: HistoryCheckpointTransport;
   /** Explicit independently retained genesis and certified prefix. Never inferred from a relay response. */
   compaction?: { genesisId: string; certificate: unknown };
+  exactSelection?: { envelopes: HistoryCheckpointEnvelope[] };
 }) {
   const context = parseHistoryCheckpointContext(options.context), contextId = historyCheckpointContextId(context);
   const { rootId, generation, nextGeneration } = options;
@@ -56,11 +57,18 @@ export function createHistoryCheckpointRecovery(options: {
     }
     compaction = { genesisId: options.compaction.genesisId, certificate };
   }
+  if (options.exactSelection && (!Array.isArray(options.exactSelection.envelopes) || options.exactSelection.envelopes.length > HISTORY_RECOVERY_MAX_BLOCKS
+    || Buffer.byteLength(JSON.stringify(options.exactSelection.envelopes)) > HISTORY_RECOVERY_MAX_BYTES)) throw new Error('Exact recovery selection exceeds existing capacity');
+  const selected = options.exactSelection?.envelopes.map(block => parseHistoryCheckpointEnvelope(structuredClone(block), context));
+  const selection = selected?.map(historyCheckpointEnvelopeId);
+  if (selected && (!selected.length || selected.some((block, i) => block.generation !== generation || block.sequence !== i
+    || block.previous !== (selection![i - 1] ?? null)) || selection![0] !== rootId)) throw new Error('Invalid exact recovery selection');
   const start = compaction?.certificate.proposal.sequence ?? 0;
   function valid(value: unknown): value is RecoveryState {
-    if (!exactWitnessFields(value, ['version', 'contextId', 'rootId', 'generation', 'nextGeneration', 'attempt', 'prepared', ...(compaction ? ['compaction'] : [])])
+    if (!exactWitnessFields(value, ['version', 'contextId', 'rootId', 'generation', 'nextGeneration', 'attempt', 'prepared', ...(selection ? ['selection'] : []), ...(compaction ? ['compaction'] : [])])
       || value.version !== 1 || value.contextId !== contextId || value.rootId !== rootId
       || value.generation !== generation || value.nextGeneration !== nextGeneration
+      || JSON.stringify(value.selection) !== JSON.stringify(selection)
       || JSON.stringify(value.compaction) !== JSON.stringify(compaction)) return false;
     try {
       if (value.attempt !== null) {
@@ -84,10 +92,17 @@ export function createHistoryCheckpointRecovery(options: {
     if (Buffer.from(key.publicKey).toString('base64url') !== context.owner) throw new Error('Wrong history recovery owner');
     storage = openEncryptedLocalState<RecoveryState>({ path: join(options.directory, HISTORY_RECOVERY_FILENAME),
       key: options.localKey, domain: 'resonance:history-checkpoint-recovery:v1', maxBytes: 96 * 1024 * 1024,
-      mode: options.initialize ? 'create-new' : 'open-existing', validate: valid,
-      initial: { version: 1, contextId, rootId, generation, nextGeneration, attempt: null, prepared: null,
+      funding: selection ? 'monotone-v1' : undefined, mode: options.initialize ? 'create-new' : 'open-existing', validate: valid,
+      initial: { version: 1, contextId, rootId, generation, nextGeneration, attempt: null, prepared: null, ...(selection ? { selection } : {}),
         ...(compaction ? { compaction } : {}) } });
   } catch (error) { key.secretKey.fill(0); throw error; }
+  function completionBound(state: RecoveryState, freeze: HistoryFreeze) {
+    return encryptedLocalStateByteBound({ ...state, attempt: { freeze, issuedAt: Number.MAX_SAFE_INTEGER, expiresAt: Number.MAX_SAFE_INTEGER },
+      prepared: { envelopes: selected } }, 65536 + Buffer.byteLength(JSON.stringify(state.prepared)));
+  }
+  if (selection && storage.read().attempt && completionBound(storage.read(), storage.read().attempt!.freeze) > storage.fundedBytes()) {
+    storage.close(); key.secretKey.fill(0); throw new Error('Retained recovery completion is unfunded');
+  }
   let closed = false, active: AbortController | undefined;
   return {
     /** Historical evidence; reopening never sends requests or resumes writes. */
@@ -105,6 +120,12 @@ export function createHistoryCheckpointRecovery(options: {
       };
       try {
         const freeze = createHistoryFreeze(context, generation, nextGeneration, randomBytes(32).toString('base64url'), key);
+        if (selection) {
+          // Covers maximum receipt/signature/timestamp metadata, prior retained
+          // preparation plus the next attempt, and the complete selected result.
+          const bound = completionBound(state, freeze);
+          storage.preflightBytes(bound);
+        }
         // A failed attempt may have frozen some volunteers. Persist the intent first and never undo a barrier.
         storage.write({ ...state, attempt: { freeze, issuedAt, expiresAt } });
         live();
@@ -172,8 +193,10 @@ export function createHistoryCheckpointRecovery(options: {
               else if (block.previous !== (ids.at(-1) ?? null) || (!sequence && id !== rootId)) {
                 throw new Error('Incomplete or conflicting frozen history');
               }
+              if (selection && selection[sequence] !== id) throw new Error('Frozen recovery differs from exact funded selection');
               envelopes.push(block); ids.push(id); diagnostic.reads++; live();
             }
+            if (selection && (head.sequence !== selection.length - 1 || head.envelopeId !== selection.at(-1))) throw new Error('Frozen head differs from exact funded selection');
             if (head.sequence >= start && ids.at(-1) !== head.envelopeId) throw new Error('Frozen history head does not match payload');
             return { receipt, envelopes, ids };
           }

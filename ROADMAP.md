@@ -2,6 +2,30 @@
 
 > Private, decentralized matching on infrastructure contributed by its users.
 
+## Current v0.4 handover — October 24, 2026
+
+Start at [HANDOVER](HANDOVER.md), then the [active execution roadmap](docs/developers/v0.4-execution-roadmap.md)
+and [checkpoint](docs/developers/v0.4-completion-plan.md). R1/R2 and all K1–K8 remain
+OPEN. The sustainable-recovery experiment is opt-in and not wired to CLI/live service.
+Its corrected finite two-transfer/returning-service path, 13 focused tests, 46
+composed tests and actual-source noEmit pass locally. Independent follow-up review
+accepted the finite experimental slice after three additional findings were corrected;
+this is not R1/R2 or K1–K8 acceptance. The aggregate work candidate, `RSO2`,
+commitment-preflight, and binary-signed v2 are STOPPED. Diagnostic evidence measured
+15,054,300 bytes for preparation plus bootstrap (3.190× cap) and confirmed dominant
+representation churn. The immutable-binary lifecycle candidate is REJECTED after
+reserveInstall reached 6,234,194 bytes (32.1% over cap), although bootstrap and 13
+focused tests passed. Remain suspended or authorize a targeted reserveInstall structural
+review—not the old stopped frozen100 campaign or more cache tuning.
+
+Sustainable recovery/lifecycle precedes viable matching/observer privacy (R3/K5,
+R4/K6), integrated K1–K8 qualification, and independent R6/K8 deployment (at least
+5 operators, 3 networks, 14 days and final platform tests). Existing trust/resource
+limits and [acceptance contract](docs/developers/v0.4-acceptance-kpis.md) are unchanged.
+The older version checklists below retain historical progress and product scope;
+they do not supersede the active R1–R6 order or establish v0.4 completion. Transfer
+the full dirty/untracked working tree; HEAD or GitHub alone is not the candidate.
+
 ## Product and Protocol Principles
 
 The roadmap is governed by these constraints:
@@ -162,6 +186,10 @@ The five-target placement goal remains conditional on enough eligible volunteers
 ## Planned
 
 ### v0.4 — Private Transport and Anonymous Admission
+
+Execution now follows the [replacement roadmap](docs/developers/v0.4-execution-roadmap.md).
+The checklist below records requirements and prior component evidence; it is not
+an instruction to continue the stopped replay or public-fingerprint approaches.
 
 **Goal:** Prevent protocol identifiers from being reconnected through network metadata or abuse controls.
 

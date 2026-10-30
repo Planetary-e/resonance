@@ -1,7 +1,7 @@
 import type { PolicyObservationHandlerDiagnostic } from './admission-policy-observation-transport.js';
 /** Callable local operations for an explicitly configured existing observer. */
 import { ADMISSION_POLICY_ADVANCE_MAX_BYTES } from '@resonance/core/admission-policy-advance';
-import { readOperatorFile } from './admission-operator-files.js';
+import { readOperatorJson, writeOperatorJsonNew, readOperatorFile } from './admission-operator-files.js';
 import { openConfiguredPolicyObserver, readPolicyObserverConfigurationFile, serveConfiguredPolicyObserver } from './policy-observer-config.js';
 import { runPolicyObserverRecoveryCommand } from './policy-observer-recovery-command.js';
 import { runPolicyObserverSetupCommand } from './policy-observer-setup-command.js';
@@ -11,7 +11,7 @@ export async function runPolicyObserverCommand(command: string, args: readonly s
   if (command.startsWith('recovery-')) return { ...await runPolicyObserverRecoveryCommand(command, args, signal, options), close: undefined };
   if (command.startsWith('setup-') || command.startsWith('replica-') || command === 'enrollment-export'
     || command === 'initialize' || command === 'initialize-plan') return runPolicyObserverSetupCommand(command, args, signal, options);
-  if (!['status', 'ready', 'advance', 'serve'].includes(command) || args.length !== (command === 'advance' ? 2 : 1)
+  if (!['status', 'ready', 'advance', 'serve', 'witness-seal', 'witness-drain'].includes(command) || args.length !== (command === 'witness-drain' ? 3 : command === 'advance' || command === 'witness-seal' ? 2 : 1)
     || args.some(arg => typeof arg !== 'string' || !arg.length || arg.startsWith('--'))) throw new Error('Invalid policy observer command');
   if (signal?.aborted) throw new Error('Policy observer command cancelled');
   const config = readPolicyObserverConfigurationFile(args[0]);
@@ -26,7 +26,11 @@ export async function runPolicyObserverCommand(command: string, args: readonly s
   try {
     observer = await openConfiguredPolicyObserver(config, { transport: transport.protection.transport, timeoutMs: transport.maintenanceTimeoutMs });
     if (signal?.aborted) throw new Error('Policy observer command cancelled');
-    if (command === 'ready') await observer.ready();
+    if (command === 'witness-seal' || command === 'witness-drain') {
+      const seal = readOperatorJson(args[1],32768) as Parameters<typeof observer.sealWitnessHandoff>[0];
+      if (command === 'witness-seal') await observer.sealWitnessHandoff(seal);
+      else { const drained = await observer.drainWitnessHandoff(seal); writeOperatorJsonNew(args[2],drained,4096); }
+    } else if (command === 'ready') await observer.ready();
     else if (command === 'advance') {
       const bytes = readOperatorFile(args[1], ADMISSION_POLICY_ADVANCE_MAX_BYTES);
       let value: unknown;

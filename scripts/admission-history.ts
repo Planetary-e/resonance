@@ -17,6 +17,16 @@ try {
   console.error(error instanceof Error ? error.message : 'Admission history operation failed');
   console.error('Usage: node --import tsx scripts/admission-history.ts');
   console.error('  Optional pinned outbound transport: RESONANCE_HISTORY_OPERATOR_TRANSPORT_FILE=operator-transport.json');
+  console.error('  witness-enroll owner-config.json genesis-policy.json owner-storage.hex owner-directory observers.json proof-limits.json witness-private.json|- coordinator-private.json|-');
+  console.error('  witness-propose owner-config.json policy.json owner-storage.hex owner-directory new-witness-set.json authority-private.json proposal-output.json');
+  console.error('  witness-prepare owner-config.json policy.json owner-storage.hex owner-directory proposal.json witness-private.json evidence-output.json');
+  console.error('  witness-terminal-prepare owner-config.json policy.json owner-storage.hex owner-directory proposal.json <create-new|resume> <next-generation> terminal-pair-output.json independent-pins-output.json');
+  console.error('  witness-transfer-prepare proposal.json independent-pins.json old-evidence1.json old-evidence2.json old-evidence3.json old-evidence4.json manifest-output.json seal-output.json');
+  console.error('  witness-drain-prepare manifest.json observer-drain1.json observer-drain2.json observer-drain3.json observer-drain4.json drain-output.json');
+  console.error('  witness-install|witness-coordinator-install owner-config.json policy.json owner-storage.hex owner-directory manifest.json drain.json independent-pins.json role-private.json old-evidence1.json old-evidence2.json old-evidence3.json old-evidence4.json readiness-output.json');
+  console.error('  witness-activation-prepare-v3 owner-config.json prior-policy.json owner-storage.hex owner-directory manifest.json drain.json ready1.json ready2.json ready3.json ready4.json authority-private.json policy-output.json advance-output.json');
+  console.error('  witness-activation-prepare prior-policy.json manifest.json drain.json ready1.json ready2.json ready3.json ready4.json authority-private.json policy-output.json advance-output.json');
+  console.error('  witness-activate owner-config.json successor-policy.json owner-storage.hex owner-directory successor-policy.json advance.json');
   console.error('  owner-config owner-private.json authority.pub policy.json members.json owner-config.json');
   console.error('  owner-config-plan owner-private.json authority.pub policy.json members.json owner-config.json [history-id]');
   console.error('  owner-config-create --approve <digest> owner-private.json authority.pub policy.json members.json owner-config.json <history-id>');

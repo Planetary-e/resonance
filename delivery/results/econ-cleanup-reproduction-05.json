@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "run_id": "reproduction-05",
+  "graceful_or_escalated_stops": [
+    {
+      "role": "observer-0",
+      "exit_code": null
+    },
+    {
+      "role": "observer-1",
+      "exit_code": null
+    },
+    {
+      "role": "observer-2",
+      "exit_code": null
+    },
+    {
+      "role": "observer-3",
+      "exit_code": null
+    }
+  ],
+  "exact_path_sweep": {
+    "matchedBefore": 0,
+    "terminated": [],
+    "remainingLivePids": []
+  },
+  "remaining_live_workers": 0,
+  "acceptance_evaluation": "not_run"
+}
