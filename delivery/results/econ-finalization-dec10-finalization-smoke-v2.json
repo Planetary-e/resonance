@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "run_id": "dec10-finalization-smoke-v2",
+  "status": "complete",
+  "phase": "cleanup",
+  "phases": [
+    {
+      "phase": "startup",
+      "at": "2026-10-30T16:43:00.527Z"
+    },
+    {
+      "phase": "warmup",
+      "at": "2026-10-30T16:43:25.439Z"
+    },
+    {
+      "phase": "baseline",
+      "at": "2026-10-30T16:44:06.974Z"
+    },
+    {
+      "phase": "cooldown",
+      "at": "2026-10-30T16:44:08.173Z"
+    },
+    {
+      "phase": "metrics",
+      "at": "2026-10-30T16:44:08.531Z"
+    },
+    {
+      "phase": "host-tools",
+      "at": "2026-10-30T16:44:08.631Z"
+    },
+    {
+      "phase": "stop-workers",
+      "at": "2026-10-30T16:44:08.659Z"
+    },
+    {
+      "phase": "network-evidence",
+      "at": "2026-10-30T16:44:23.344Z"
+    },
+    {
+      "phase": "artifacts",
+      "at": "2026-10-30T16:44:23.385Z"
+    },
+    {
+      "phase": "summary",
+      "at": "2026-10-30T16:44:23.390Z"
+    },
+    {
+      "phase": "cleanup",
+      "at": "2026-10-30T16:44:23.480Z"
+    }
+  ],
+  "window": {
+    "runId": "dec10-finalization-smoke-v2",
+    "seed": "0xE007B010",
+    "kind": "sustained",
+    "durationMs": 1000,
+    "warmupMs": 0,
+    "cooldownMs": 0,
+    "phases": [
+      {
+        "phase": "warmup",
+        "at": "2026-10-30T16:43:25.439Z",
+        "monotonic_ms": 25483.37625
+      },
+      {
+        "phase": "baseline",
+        "at": "2026-10-30T16:44:06.974Z",
+        "monotonic_ms": 67018.652458
+      },
+      {
+        "phase": "cooldown",
+        "at": "2026-10-30T16:44:08.173Z",
+        "monotonic_ms": 68216.846208
+      }
+    ],
+    "sustained_operations": {
+      "reads": 12,
+      "retries": 24
+    }
+  },
+  "error": null,
+  "acceptance_evaluation": "not_run"
+}

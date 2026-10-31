@@ -16,7 +16,7 @@ import { createPolicyObserverHistoryRoot, openProtectedPolicyObserver } from './
 import { openHistoryCheckpointStore } from './history-checkpoint-store.js';
 import { createHistoryCheckpointReplica } from './history-checkpoint-exchange.js';
 import { chargeSustainableRecoveryWork, sustainableRecoveryJson, sustainableRecoveryWorkUsage, withDiagnosticUnboundedRecoveryWork } from './sustainable-recovery-work.js';
-import { callLabWorker, labTrafficSnapshot, listenLabWorker, type LabEndpoint } from './sustainable-rso5-lab-transport.js';
+import { callLabWorker, labTrafficCount, labTrafficPage, labTrafficSince, listenLabWorker, type LabEndpoint } from './sustainable-rso5-lab-transport.js';
 
 type KeyPayload = { publicKey: string; secretKey: string };
 type ArenaAuthority = ReturnType<typeof openStorageReservationAuthority>;
@@ -210,7 +210,7 @@ function metrics(final = false) {
   try { arena = withDiagnosticUnboundedRecoveryWork(() => replicaArena?.usage() ?? storage?.arena.usage()); } catch { arena = { status: 'closed' }; }
   return { role, labId, pid: process.pid, startedAt: new Date(startedAt).toISOString(), elapsedMs: Date.now() - startedAt,
     cpu: { userMicros: cpu.user, systemMicros: cpu.system }, memory: process.memoryUsage(), lifecycle,
-    work: { usedBytes: totalWorkBytes, operationCount, operations }, traffic: final ? labTrafficSnapshot().slice(metricsCheckpoint) : [],
+    work: { usedBytes: totalWorkBytes, operationCount, operations }, traffic: final ? labTrafficSince(metricsCheckpoint) : [],
     trafficCheckpoint: metricsCheckpoint, arena, stopping };
 }
 function authorize(sender: string, purpose: string, payload: any): void {
@@ -239,11 +239,11 @@ async function invoke(purpose: string, payload: any, sender: string): Promise<un
     if (role.startsWith('observer-')) return setupObserver(payload);
     throw new Error('Unknown laboratory worker kind');
   }
-  if (purpose === 'metrics') { metricsCheckpoint = labTrafficSnapshot().length; return metrics(); }
+  if (purpose === 'metrics') { metricsCheckpoint = labTrafficCount(); return metrics(); }
   if (purpose === 'traffic-page') {
-    const offset = payload?.offset ?? 0, limit = payload?.limit ?? 500, records = labTrafficSnapshot();
+    const offset = payload?.offset ?? 0, limit = payload?.limit ?? 500;
     if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(limit) || offset < 0 || limit < 1 || limit > 1000) throw new Error('Invalid traffic page');
-    return { offset, limit, total: records.length, records: records.slice(offset, offset + limit) };
+    return { offset, limit, ...labTrafficPage(offset, limit) };
   }
   if (purpose === 'stop') {
     stopping = true; lifecycle.push({ event: 'stop-requested', at: new Date().toISOString() });

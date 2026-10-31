@@ -72,21 +72,35 @@ export interface IndependentLabWindow {
   cooldownMs: number;
 }
 
+export async function waitForLabInterval(ms: number): Promise<void> {
+  const deadline = performance.now() + ms;
+  for (;;) {
+    const remaining = deadline - performance.now();
+    if (remaining <= 0) return;
+    await new Promise<void>(resolve => setTimeout(resolve, Math.max(1, Math.ceil(remaining))));
+  }
+}
+
 export async function runIndependentRso5LabSmoke(options: { runId: string; seed: string; scenario?: IndependentLabScenario; manifestPath?: string; window?: IndependentLabWindow }): Promise<IndependentLabSmokeResult> {
   const { runId, seed, scenario = 'full-smoke', window } = options;
   if (typeof runId !== 'string' || typeof seed !== 'string' || !/^[a-z][a-z0-9-]+$/.test(runId) || !/^0x[0-9A-Fa-f]+$/.test(seed)) throw new Error('Invalid laboratory run identity or seed');
   const manifestPath = options.manifestPath ?? `delivery/results/econ-lab-manifest-${runId}.json`;
   if (!existsSync(manifestPath)) throw new Error(`Frozen laboratory manifest missing: ${manifestPath}`);
+  const authorizationId = JSON.parse(readFileSync(manifestPath, 'utf8')).authorization_id ?? 'DEC-008';
   if (window && (scenario !== 'full-smoke' || ![window.durationMs, window.warmupMs, window.cooldownMs].every(value => Number.isSafeInteger(value) && value >= 0))) {
     throw new Error('Baseline window requires full-smoke scenario and nonnegative durations');
   }
   const artifactNames = ['lab-summary', 'process', 'disk', 'network', 'work', 'cleanup', 'authorization', 'owner-assumptions', 'decision', 'power', 'new-view-readiness']
     .map(name => `delivery/results/econ-${name}-${runId}.json`);
-  artifactNames.push(`delivery/results/econ-power-${runId}.csv`);
+  artifactNames.push(`delivery/results/econ-power-${runId}.csv`, `delivery/results/econ-finalization-${runId}.json`);
   const existingArtifacts = artifactNames.filter(path => existsSync(path));
   if (existingArtifacts.length) throw new Error(`Laboratory artifacts already exist: ${existingArtifacts.join(', ')}`);
-  const windowPhases: Array<{ phase: string; at: string }> = [];
-  const markPhase = (phase: string) => windowPhases.push({ phase, at: new Date().toISOString() });
+  const windowPhases: Array<{ phase: string; at: string; monotonic_ms: number }> = [];
+  const markPhase = (phase: string) => {
+    finalizationPhase = phase;
+    windowPhases.push({ phase, at: new Date().toISOString(), monotonic_ms: performance.now() });
+    writeProgress('in_progress');
+  };
   const sustainedOperations = { reads: 0, retries: 0 };
   const wait = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
   clearLabTrafficForTests();
@@ -96,10 +110,21 @@ export async function runIndependentRso5LabSmoke(options: { runId: string; seed:
     .update(`${runId}\n${sender}\n${recipient}\n${channel}`).digest('base64url');
   const controlCredential = (recipient: string) => credential('coordinator', recipient, 'control');
   const root = mkdtempSync(join(tmpdir(), `rso5-independent-lab-${runId}-`)), workers = new Map<string, Worker>();
-  const artifacts: string[] = [];
-  let sampler: ReturnType<typeof setInterval> | undefined;
+  const artifacts: string[] = [], finalizationPhases: Array<{ phase: string; at: string }> = [];
+  let sampler: ReturnType<typeof setInterval> | undefined, finalizationPhase = 'startup';
+  const finalizationPath = join('delivery/results', `econ-finalization-${runId}.json`);
+  const writeProgress = (status: string, error?: string) => {
+    finalizationPhases.push({ phase: finalizationPhase, at: new Date().toISOString() });
+    const value = { schema_version: 1, run_id: runId, status, phase: finalizationPhase, phases: finalizationPhases,
+      window: window ? { ...window, phases: windowPhases, sustained_operations: sustainedOperations } : null,
+      error: error ?? null, acceptance_evaluation: 'not_run' };
+    writeFileSync(finalizationPath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+    if (!artifacts.includes(finalizationPath)) artifacts.push(finalizationPath);
+  };
   const writeJson = (name: string, value: unknown) => {
-    const path = join('delivery/results', name); writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600, flag: 'wx' }); artifacts.push(path);
+    const path = join('delivery/results', name);
+    if (artifacts.includes(path)) return;
+    writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600, flag: 'wx' }); artifacts.push(path);
   };
   const call = async <T>(role: string, purpose: string, payload?: unknown, timeoutMs?: number): Promise<T> => {
     const worker = workers.get(role); if (!worker || worker.stopped) throw new Error(`Laboratory worker unavailable: ${role}`);
@@ -113,7 +138,7 @@ export async function runIndependentRso5LabSmoke(options: { runId: string; seed:
     const records: LabTrafficRecord[] = [];
     for (let offset = 0; ;) {
       const page = await callLabWorker<{ total: number; records: LabTrafficRecord[] }>({ sender: 'coordinator', target: worker.target,
-        secret: controlCredential(worker.role), purpose: 'traffic-page', payload: { offset, limit: 500 } });
+        secret: controlCredential(worker.role), purpose: 'traffic-page', payload: { offset, limit: 1000 }, timeoutMs: 30_000 });
       records.push(...page.records); offset = records.length;
       if (offset >= page.total) return records;
     }
@@ -180,8 +205,9 @@ export async function runIndependentRso5LabSmoke(options: { runId: string; seed:
     });
     worker.target = { role, endpoint }; await sample(); return worker;
   }
+  const hasExited = (worker: Worker) => worker.exitCode !== undefined || worker.exitSignal !== undefined;
   async function waitForExit(worker: Worker, timeoutMs: number): Promise<boolean> {
-    if (worker.exitCode !== undefined && worker.exitCode !== null) return true;
+    if (hasExited(worker)) return true;
     return new Promise<boolean>(resolve => {
       const timer = setTimeout(() => { worker.child.off('exit', exited); resolve(false); }, timeoutMs);
       const exited = () => { clearTimeout(timer); resolve(true); };
@@ -190,11 +216,11 @@ export async function runIndependentRso5LabSmoke(options: { runId: string; seed:
   }
   async function stopWorker(worker: Worker): Promise<void> {
     if (worker.stopped) return;
-    if (worker.exitCode === undefined || worker.exitCode === null) {
+    if (!hasExited(worker)) {
       try {
         if (!worker.metrics) worker.metrics = await callLabWorker({ sender: 'coordinator', target: worker.target,
           secret: controlCredential(worker.role), purpose: 'metrics', timeoutMs: 10_000 });
-        worker.metrics.traffic = await readWorkerTraffic(worker);
+        if (!Array.isArray(worker.metrics.traffic) || worker.metrics.traffic.length === 0) worker.metrics.traffic = await readWorkerTraffic(worker);
         await callLabWorker({ sender: 'coordinator', target: worker.target, secret: controlCredential(worker.role), purpose: 'stop', timeoutMs: 10_000 });
       } catch (error) {
         worker.metricsError = error instanceof Error ? error.message : String(error);
@@ -213,11 +239,131 @@ export async function runIndependentRso5LabSmoke(options: { runId: string; seed:
   async function stopAll(): Promise<number> {
     let clean = 0;
     for (const worker of [...workers.values()].reverse()) {
-      if (!worker.stopped) await stopWorker(worker);
+      if (!worker.stopped) {
+        try { await stopWorker(worker); }
+        catch (error) {
+          worker.metricsError = error instanceof Error ? error.message : String(error);
+          if (!hasExited(worker)) worker.child.kill('SIGKILL');
+          if (!await waitForExit(worker, 5_000)) throw new Error(`Laboratory worker survived final SIGKILL: ${worker.role}`);
+          worker.stopped = true;
+        }
+      }
       if (worker.exitCode === 0) clean++;
     }
     return clean;
   }
+  async function finalizeEvidence(failure?: unknown): Promise<IndependentLabSmokeResult> {
+    const failed = failure !== undefined;
+    const failureError = failed ? String(failure instanceof Error ? failure.message : failure).replace(/[A-Za-z0-9_-]{32,}/g, '[redacted]').slice(0, 2048) : null;
+    finalizationPhase = 'metrics'; writeProgress('in_progress');
+    for (const worker of workers.values()) if (!worker.stopped) {
+      try {
+        if (!worker.metrics) worker.metrics = await call(worker.role, 'metrics');
+        if (!Array.isArray(worker.metrics.traffic) || worker.metrics.traffic.length === 0) worker.metrics.traffic = await readWorkerTraffic(worker);
+      } catch (error) {
+        worker.metricsError = error instanceof Error ? error.message : String(error);
+        if (!failed) throw error;
+      }
+    }
+    finalizationPhase = 'host-tools'; writeProgress('in_progress');
+    let hostTools: any;
+    try { hostTools = await reconcileHostTools([...workers.values()].filter(worker => !worker.stopped)); }
+    catch (error) {
+      if (!failed) throw error;
+      hostTools = { iostat: { status: 'unavailable' }, nettop: { status: 'unavailable' } };
+    }
+    finalizationPhase = 'stop-workers'; writeProgress('in_progress');
+    const cleanStops = await stopAll(); if (sampler) clearInterval(sampler);
+    if (!failed) assert.equal(cleanStops, workers.size, 'Laboratory workers did not stop cleanly');
+    const preTraffic = new Map([...workers.values()].map(worker => [worker.role, worker.metrics?.traffic ?? []]));
+    const finalTraffic = [...labTrafficSnapshot()];
+    for (const worker of workers.values()) {
+      appendLabTraffic(finalTraffic, preTraffic.get(worker.role) ?? []);
+      appendLabTraffic(finalTraffic, worker.finalMetrics?.traffic ?? []);
+    }
+    for (const worker of workers.values()) if (worker.finalMetrics) worker.metrics = worker.finalMetrics;
+    finalizationPhase = 'network-evidence'; writeProgress('in_progress');
+    const network = networkEvidence(mergeLabTraffic(finalTraffic));
+    if (!network.reconciliation.exact) {
+      writeJson(`econ-network-reconciliation-failure-${Date.now()}.json`, { run_id: runId, status: 'invalid', ...network,
+        worker_traffic_counts: [...workers.values()].map(worker => ({ role: worker.role,
+          pre_stop: preTraffic.get(worker.role)?.length ?? null, final: worker.finalMetrics?.traffic?.length ?? null,
+          metrics_error: worker.metricsError ?? null })) });
+      if (!failed) throw new Error(`Laboratory WebSocket accounting differs: sent=${network.reconciliation.sent_messages} received=${network.reconciliation.received_messages} missing=${network.reconciliation.missing_received.length} unexpected=${network.reconciliation.unexpected_received.length}`);
+    }
+    finalizationPhase = 'artifacts'; writeProgress('in_progress');
+    writeJson(`econ-process-${runId}.json`, {
+      schema_version: 1, run_id: runId, authorization_id: authorizationId, status: failed ? 'failed' : 'complete', transport: 'independent-node-processes',
+      window: window ? { ...window, phases: windowPhases, sustained_operations: sustainedOperations } : null,
+      worker_count: workers.size, runtime_count: 8, replica_count: 40, observer_count: 4,
+      roles: [...workers.values()].map(worker => ({ role: worker.role, pid: worker.child.pid, peak_tree_rss_bytes: worker.peakRssBytes,
+        cpu: worker.metrics?.cpu, memory: worker.metrics?.memory, elapsed_ms: worker.metrics?.elapsedMs,
+        lifecycle: [...(worker.metrics?.lifecycle ?? []), { event: 'exit', code: worker.exitCode }],
+        child_processes: [...worker.childProcessIds], process_tree_observation: 'recursive ps parent-link enumeration' })),
+      clean_stops: cleanStops, failure_error: failureError,
+      isolation_limitations: ['Same physical host; no whole-host isolation', 'Loopback IPC only', 'Peak RSS sampled with ps; shared-memory attribution unavailable'],
+    });
+    writeJson(`econ-disk-${runId}.json`, {
+      schema_version: 1, run_id: runId, status: 'partial',
+      process_disk_counters: { status: 'unavailable', reason: 'Node.js/macOS per-process physical read/write counters are not exposed by this harness' },
+      logical_arena_files: [...workers.values()].map(worker => ({ role: worker.role, usage: worker.metrics?.arena ?? null })),
+      fsync_behavior: 'Existing RSO5/history fsync paths preserved; physical fsync latency not exposed',
+      iostat: hostTools.iostat,
+      limitations: ['Logical arena bytes are not physical disk I/O', 'iostat is whole-host and cannot be attributed to workers'],
+    });
+    writeJson(`econ-network-${runId}.json`, {
+      schema_version: 1, run_id: runId, status: network.reconciliation.exact ? 'complete' : 'invalid', scope: 'authenticated-websocket-loopback',
+      internet_evidence: false, wifi_evidence: false, last_mile_evidence: false,
+      ...network, nettop: hostTools.nettop,
+      limitations: ['Application WebSocket payload/frame bytes only; handshake/control frames and TCP/IP bytes excluded', 'nettop is a separate host view and is not added to application counters', 'No external traffic'],
+    });
+    writeJson(`econ-power-${runId}.json`, { schema_version: 1, run_id: runId, status: 'blocked',
+      reason: 'powermetrics requires superuser; no calibrated external AC meter authorized', samples: [], energy_joules: null, energy_kwh: null,
+      limitations: ['No power samples collected', 'CPU/work bytes cannot be converted to energy'] });
+    const csvPath = join('delivery/results', `econ-power-${runId}.csv`);
+    if (!artifacts.includes(csvPath)) {
+      writeFileSync(csvPath, 'status,reason\nblocked,"powermetrics requires superuser; no calibrated external AC meter authorized"\n', { mode: 0o600, flag: 'wx' }); artifacts.push(csvPath);
+    }
+    writeJson(`econ-owner-assumptions-${runId}.json`, { schema_version: 1, run_id: runId, status: 'pending', currency: null, accounting_period: null,
+      electricity_prices: null, network_prices: null, labor_prices: null, hardware_lifetime: null,
+      recovery_arrival_rates: null, maximum_envelope_margin: null, budget: null, value: null, affordability_verdict: 'pending' });
+    writeJson(`econ-decision-${runId}.json`, { schema_version: 1, run_id: runId, scenario,
+      run_status: failed ? 'baseline_window_failed' : window ? 'baseline_window_complete' : scenario === 'full-smoke' ? 'diagnostic_reproduction_complete' : 'matrix_run_complete',
+      E1: failed ? 'incomplete' : 'complete_for_local_planning_only',
+      E2: 'blocked', E2_reasons: ['Aggregate matrix/window evidence incomplete', 'Physical power blocked'],
+      E3: 'pending_separate_owner_authorization', D4: 'prototype-only', economic_affordability: 'pending', acceptance_evaluation: 'not_run', failure_error: failureError });
+    const workBytes = [...workers.values()].reduce((sum, worker) => sum + (worker.metrics?.work?.usedBytes ?? 0), 0);
+    writeJson(`econ-work-${runId}.json`, { schema_version: 1, run_id: runId, scenario,
+      roles: [...workers.values()].map(worker => ({ role: worker.role, used_bytes: worker.metrics?.work?.usedBytes ?? 0,
+        operation_count: worker.metrics?.work?.operationCount ?? 0, operations: worker.metrics?.work?.operations ?? [] })),
+      total_work_bytes: workBytes, recompute_rule: 'sum roles.used_bytes; operations are retained per role for independent review' });
+    if (newViewReadiness.length) writeJson(`econ-new-view-readiness-${runId}.json`, { schema_version: 1, run_id: runId,
+      status: 'complete', post_new_view_startup_complete: true, durable_serving_readiness: true, groups: newViewReadiness });
+    const artifactText = artifacts.filter(path => path.endsWith('.json')).map(path => readFileSync(path, 'utf8')).join('\n');
+    const privateLeakageDetected = privateMarkers.length ? privateMarkers.some(marker => marker.length > 8 && artifactText.includes(marker)) : null;
+    if (!failed) assert.equal(privateLeakageDetected, false, 'Private marker reached laboratory artifacts');
+    writeJson(`econ-lab-summary-${runId}.json`, { schema_version: 1, run_id: runId, scenario, outcome: failed ? 'failed' : 'passed', diagnostic_only: true,
+      source_manifest: manifestPath, workers: workers.size, clean_stops: cleanStops,
+      window: window ? { ...window, phases: windowPhases, sustained_operations: sustainedOperations } : null,
+      predecessor_runtime_and_replicas_stopped_before_recovery: ['full-smoke', 'local-loss'].includes(scenario), recovered_proofs: recoveredProofs,
+      post_new_view_startup_groups: newViewReadiness.length,
+      post_new_view_durable_readiness: window?.kind === 'idle' ? null
+        : newViewReadiness.every(group => group.readiness.every(result => Number.isSafeInteger(result.sequence) && typeof result.digest === 'string')),
+      logical_process_held_copy_audits: logicalCopyAudits,
+      copy_model: 'logical process-held copies; not physical devices or crash-durability proof',
+      exact_traffic_accounting: network.reconciliation.exact,
+      private_leakage_detected: privateLeakageDetected, work_bytes_separate_metric: workBytes,
+      energy: 'blocked', network_scope: 'loopback_only', E2: 'blocked', acceptance_evaluation: 'not_run', failure_error: failureError });
+    finalizationPhase = 'summary'; writeProgress(failed ? 'failed' : 'complete', failureError ?? undefined);
+    return { runId, scenario, outcome: 'passed', workerCount: workers.size, runtimeCount: 8, replicaCount: 40, observerCount: 4,
+      cleanStops, logicalCopyAudits, recoveredProofs, trafficMessages: network.message_count,
+      trafficFrameBytes: network.total_frame_bytes, exactTrafficAccounting: network.reconciliation.exact,
+      privateLeakageDetected: privateLeakageDetected === true, artifacts };
+  }
+  let failure: unknown, recoveredProofs = 0, logicalCopyAudits = 0;
+  let newViewReadiness: Array<{ view: number; readiness: Array<{ role: string; sequence: number; digest: string }> }> = [];
+  let privateMarkers: string[] = [];
+  writeProgress('in_progress');
   try {
     sampler = setInterval(() => { void sample(); }, 500);
     const fixture = await sustainableLegacyFixture(8, window ? { keyLifetimeMs: 3_600_000, policyLifetimeMs: 7_200_000 } : undefined);
@@ -287,17 +433,17 @@ export async function runIndependentRso5LabSmoke(options: { runId: string; seed:
         secret: credential('runtime-old-0', forgedTarget, 'rso5'), purpose: 'rso5:status', expectRefusal: true,
         payload: { action: 'status', scope: setups[0].scope, challenge: randomBytes(32).toString('base64url') } }), /refused|closed/i);
       await assert.rejects(call(forgedTarget, 'runtime:read'), /refused|unauthorized/i);
+      privateMarkers = [labRootSecret.toString('base64url'), ...setups.flatMap(setup => [pub(setup.actor.key), Buffer.from(setup.actor.key.secretKey).toString('base64url')]),
+        accepted.spend, accepted.binding, claim.requestBinding];
       writeJson(`econ-authorization-${runId}.json`, { schema_version: 1, run_id: runId,
         forged_cross_runtime_role_refused: true, privileged_replica_runtime_read_refused: true,
         credentials: 'per-run/per-sender/per-recipient/per-channel', method_authorization: 'explicit' });
-      const newViewReadiness: Array<{ view: number; readiness: Array<{ role: string; sequence: number; digest: string }> }> = [];
-      let recoveredProofs = 0;
       if (window?.kind === 'idle') {
-        markPhase('warmup'); await wait(window.warmupMs);
-        markPhase('baseline'); await wait(window.durationMs);
-        markPhase('cooldown'); await wait(window.cooldownMs);
+        markPhase('warmup'); await waitForLabInterval(window.warmupMs);
+        markPhase('baseline'); await waitForLabInterval(window.durationMs);
+        markPhase('cooldown'); await waitForLabInterval(window.cooldownMs);
       } else {
-      if (window) markPhase('warmup');
+      if (window) { markPhase('warmup'); await waitForLabInterval(window.warmupMs); }
       for (const role of oldRoles) await call(role, 'runtime:bootstrap', undefined, 240_000);
 
       async function read(role: string) { return call<any>(role, 'runtime:read'); }
@@ -411,10 +557,9 @@ export async function runIndependentRso5LabSmoke(options: { runId: string; seed:
           }
           await wait(100);
         }
-        markPhase('cooldown'); await wait(window.cooldownMs);
+        markPhase('cooldown'); await waitForLabInterval(window.cooldownMs);
       }
       }
-      let logicalCopyAudits = 0;
       const auditSide = window?.kind === 'idle' ? '' : scenario === 'cold' ? 'new' : 'old';
       for (const setup of setups.filter(candidate => candidate.side === auditSide)) {
         const { references } = await call<any>(setup.runtimeRole, 'runtime:read-references');
@@ -430,95 +575,18 @@ export async function runIndependentRso5LabSmoke(options: { runId: string; seed:
           logicalCopyAudits++;
         }
       }
-      for (const worker of workers.values()) if (!worker.stopped) {
-        worker.metrics = await call(worker.role, 'metrics'); worker.metrics.traffic = await readWorkerTraffic(worker);
-      }
-      const hostTools = await reconcileHostTools([...workers.values()].filter(worker => !worker.stopped));
-      const cleanStops = await stopAll(); if (sampler) clearInterval(sampler);
-      assert.equal(cleanStops, workers.size, 'Laboratory workers did not stop cleanly');
-      const preTraffic = new Map([...workers.values()].map(worker => [worker.role, worker.metrics?.traffic ?? []]));
-      const finalTraffic = [...labTrafficSnapshot()];
-      for (const worker of workers.values()) finalTraffic.push(...(preTraffic.get(worker.role) ?? []), ...(worker.finalMetrics?.traffic ?? []));
-      for (const worker of workers.values()) if (worker.finalMetrics) worker.metrics = worker.finalMetrics;
-      const network = networkEvidence(mergeLabTraffic(finalTraffic));
-      if (!network.reconciliation.exact) {
-        writeJson(`econ-network-reconciliation-failure-${Date.now()}.json`, { run_id: runId, status: 'invalid', ...network,
-          worker_traffic_counts: [...workers.values()].map(worker => ({ role: worker.role,
-            pre_stop: preTraffic.get(worker.role)?.length ?? null, final: worker.finalMetrics?.traffic?.length ?? null,
-            metrics_error: worker.metricsError ?? null })) });
-        throw new Error(`Laboratory WebSocket accounting differs: sent=${network.reconciliation.sent_messages} received=${network.reconciliation.received_messages} missing=${network.reconciliation.missing_received.length} unexpected=${network.reconciliation.unexpected_received.length}`);
-      }
-
-      const processArtifact = {
-        schema_version: 1, run_id: runId, authorization_id: 'DEC-008', status: 'complete', transport: 'independent-node-processes',
-        window: window ? { ...window, phases: windowPhases, sustained_operations: sustainedOperations } : null,
-        worker_count: workers.size, runtime_count: 8, replica_count: 40, observer_count: 4,
-        roles: [...workers.values()].map(worker => ({ role: worker.role, pid: worker.child.pid, peak_tree_rss_bytes: worker.peakRssBytes,
-          cpu: worker.metrics?.cpu, memory: worker.metrics?.memory, elapsed_ms: worker.metrics?.elapsedMs,
-          lifecycle: [...(worker.metrics?.lifecycle ?? []), { event: 'exit', code: worker.exitCode }],
-          child_processes: [...worker.childProcessIds], process_tree_observation: 'recursive ps parent-link enumeration' })),
-        clean_stops: cleanStops, isolation_limitations: ['Same physical host; no whole-host isolation', 'Loopback IPC only', 'Peak RSS sampled with ps; shared-memory attribution unavailable'],
-      };
-      writeJson(`econ-process-${runId}.json`, processArtifact);
-      writeJson(`econ-disk-${runId}.json`, {
-        schema_version: 1, run_id: runId, status: 'partial',
-        process_disk_counters: { status: 'unavailable', reason: 'Node.js/macOS per-process physical read/write counters are not exposed by this harness' },
-        logical_arena_files: [...workers.values()].map(worker => ({ role: worker.role, usage: worker.metrics?.arena ?? null })),
-        fsync_behavior: 'Existing RSO5/history fsync paths preserved; physical fsync latency not exposed',
-        iostat: hostTools.iostat,
-        limitations: ['Logical arena bytes are not physical disk I/O', 'iostat is whole-host and cannot be attributed to workers'],
-      });
-      writeJson(`econ-network-${runId}.json`, {
-        schema_version: 1, run_id: runId, status: 'complete', scope: 'authenticated-websocket-loopback',
-        internet_evidence: false, wifi_evidence: false, last_mile_evidence: false,
-        ...network, nettop: hostTools.nettop,
-        limitations: ['Application WebSocket payload/frame bytes only; handshake/control frames and TCP/IP bytes excluded', 'nettop is a separate host view and is not added to application counters', 'No external traffic'],
-      });
-      writeJson(`econ-power-${runId}.json`, { schema_version: 1, run_id: runId, status: 'blocked',
-        reason: 'powermetrics requires superuser; no calibrated external AC meter authorized', samples: [], energy_joules: null, energy_kwh: null,
-        limitations: ['No power samples collected', 'CPU/work bytes cannot be converted to energy'] });
-      const csvPath = join('delivery/results', `econ-power-${runId}.csv`);
-      writeFileSync(csvPath, 'status,reason\nblocked,"powermetrics requires superuser; no calibrated external AC meter authorized"\n', { mode: 0o600, flag: 'wx' }); artifacts.push(csvPath);
-      writeJson(`econ-owner-assumptions-${runId}.json`, { schema_version: 1, run_id: runId, status: 'pending', currency: null, accounting_period: null,
-        electricity_prices: null, network_prices: null, labor_prices: null, hardware_lifetime: null,
-        recovery_arrival_rates: null, maximum_envelope_margin: null, budget: null, value: null, affordability_verdict: 'pending' });
-      writeJson(`econ-decision-${runId}.json`, { schema_version: 1, run_id: runId, scenario,
-        run_status: window ? 'baseline_window_complete' : scenario === 'full-smoke' ? 'diagnostic_reproduction_complete' : 'matrix_run_complete',
-        E1: 'complete_for_local_planning_only',
-        E2: 'blocked', E2_reasons: ['Aggregate matrix/window evidence incomplete', 'Physical power blocked'],
-        E3: 'pending_separate_owner_authorization', D4: 'prototype-only', economic_affordability: 'pending', acceptance_evaluation: 'not_run' });
-
-      const workBytes = [...workers.values()].reduce((sum, worker) => sum + (worker.metrics?.work?.usedBytes ?? 0), 0);
-      writeJson(`econ-work-${runId}.json`, { schema_version: 1, run_id: runId, scenario,
-        roles: [...workers.values()].map(worker => ({ role: worker.role, used_bytes: worker.metrics?.work?.usedBytes ?? 0,
-          operation_count: worker.metrics?.work?.operationCount ?? 0, operations: worker.metrics?.work?.operations ?? [] })),
-        total_work_bytes: workBytes, recompute_rule: 'sum roles.used_bytes; operations are retained per role for independent review' });
-      if (newViewReadiness.length) writeJson(`econ-new-view-readiness-${runId}.json`, { schema_version: 1, run_id: runId,
-        status: 'complete', post_new_view_startup_complete: true, durable_serving_readiness: true, groups: newViewReadiness });
-      const artifactText = artifacts.filter(path => path.endsWith('.json')).map(path => readFileSync(path, 'utf8')).join('\n');
-      const privateMarkers = [labRootSecret.toString('base64url'), ...setups.flatMap(setup => [pub(setup.actor.key), Buffer.from(setup.actor.key.secretKey).toString('base64url')]),
-        accepted.spend, accepted.binding, claim.requestBinding];
-      const privateLeakageDetected = privateMarkers.some(marker => marker.length > 8 && artifactText.includes(marker));
-      assert.equal(privateLeakageDetected, false, 'Private marker reached laboratory artifacts');
-      writeJson(`econ-lab-summary-${runId}.json`, { schema_version: 1, run_id: runId, scenario, outcome: 'passed', diagnostic_only: true,
-        source_manifest: manifestPath, workers: workers.size, clean_stops: cleanStops,
-        window: window ? { ...window, phases: windowPhases, sustained_operations: sustainedOperations } : null,
-        predecessor_runtime_and_replicas_stopped_before_recovery: ['full-smoke', 'local-loss'].includes(scenario), recovered_proofs: recoveredProofs,
-        post_new_view_startup_groups: newViewReadiness.length,
-        post_new_view_durable_readiness: window?.kind === 'idle' ? null
-          : newViewReadiness.every(group => group.readiness.every(result => Number.isSafeInteger(result.sequence) && typeof result.digest === 'string')),
-        logical_process_held_copy_audits: logicalCopyAudits,
-        copy_model: 'logical process-held copies; not physical devices or crash-durability proof',
-        exact_traffic_accounting: network.reconciliation.exact,
-        private_leakage_detected: privateLeakageDetected, work_bytes_separate_metric: workBytes,
-        energy: 'blocked', network_scope: 'loopback_only', E2: 'blocked', acceptance_evaluation: 'not_run' });
-      rmSync(root, { recursive: true, force: true });
-      return { runId, scenario, outcome: 'passed', workerCount: workers.size, runtimeCount: 8, replicaCount: 40, observerCount: 4,
-        cleanStops, logicalCopyAudits, recoveredProofs, trafficMessages: network.message_count,
-        trafficFrameBytes: network.total_frame_bytes, exactTrafficAccounting: network.reconciliation.exact,
-        privateLeakageDetected, artifacts };
+      return await finalizeEvidence();
     });
+  } catch (error) {
+    failure = error;
   } finally {
+    if (failure !== undefined) {
+      try { await finalizeEvidence(failure); }
+      catch (finalizationError) {
+        finalizationPhase = 'finalization-error';
+        writeProgress('failed', String(finalizationError instanceof Error ? finalizationError.message : finalizationError).slice(0, 2048));
+      }
+    }
     if (sampler) clearInterval(sampler);
     for (const worker of [...workers.values()].reverse()) if (!worker.stopped) {
       try { await stopWorker(worker); }
@@ -532,9 +600,13 @@ export async function runIndependentRso5LabSmoke(options: { runId: string; seed:
     writeJson(`econ-cleanup-${runId}.json`, { schema_version: 1, run_id: runId,
       graceful_or_escalated_stops: [...workers.values()].map(worker => ({ role: worker.role, exit_code: worker.exitCode })),
       exact_path_sweep: sweep, remaining_live_workers: sweep.remainingLivePids.length, acceptance_evaluation: 'not_run' });
+    finalizationPhase = 'cleanup';
+    writeProgress(failure === undefined ? 'complete' : 'failed', failure === undefined ? undefined : String(failure instanceof Error ? failure.message : failure).slice(0, 2048));
     if (sweep.remainingLivePids.length) throw new Error('Laboratory exact-path sweep found surviving workers');
     rmSync(root, { recursive: true, force: true });
   }
+  if (failure !== undefined) throw failure;
+  throw new Error('Laboratory completed without a result');
 }
 
 export async function driveIndependentRso5Matrix(options: {
@@ -603,6 +675,10 @@ function verifyRso5AuditReply(reply: any, request: any, replica: string): void {
       throw new Error('Unauthenticated RSO5 audit reply');
     }
   });
+}
+
+export function appendLabTraffic(target: LabTrafficRecord[], source: LabTrafficRecord[]): void {
+  for (const record of source) target.push(record);
 }
 
 function mergeLabTraffic(records: LabTrafficRecord[]): LabTrafficRecord[] {

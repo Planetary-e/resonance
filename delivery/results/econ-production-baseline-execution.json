@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "authorization_id": "DEC-010",
+  "command": "node scripts/rso5-production-baseline.mjs",
+  "started_at": "2026-10-30T16:44:38.587Z",
+  "completed_at": "2026-10-30T17:50:06.401Z",
+  "completed": [
+    {
+      "run_id": "idle-production-baseline-v2",
+      "scenario": "full-smoke",
+      "outcome": "passed",
+      "workers": 52,
+      "clean_stops": 52,
+      "messages": 459,
+      "frame_bytes": 5201710
+    },
+    {
+      "run_id": "sustained-production-max-envelope-v2",
+      "scenario": "full-smoke",
+      "outcome": "passed",
+      "workers": 52,
+      "clean_stops": 52,
+      "messages": 1879633,
+      "frame_bytes": 3398617340
+    }
+  ],
+  "matrix_runs_executed": 0,
+  "sustained_windows_executed": true,
+  "acceptance_evaluation": "not_run"
+}

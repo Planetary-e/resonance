@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "run_id": "sustained-dec11-max-envelope",
+  "status": "complete",
+  "post_new_view_startup_complete": true,
+  "durable_serving_readiness": true,
+  "groups": [
+    {
+      "view": 1,
+      "readiness": [
+        {
+          "role": "runtime-old-0",
+          "sequence": 1,
+          "digest": "sha256:39a425dfba600a52c73eeedca6245922de1af3fcaa732d4fe27e46cf519df39e"
+        },
+        {
+          "role": "runtime-old-1",
+          "sequence": 1,
+          "digest": "sha256:39a425dfba600a52c73eeedca6245922de1af3fcaa732d4fe27e46cf519df39e"
+        },
+        {
+          "role": "runtime-old-2",
+          "sequence": 1,
+          "digest": "sha256:39a425dfba600a52c73eeedca6245922de1af3fcaa732d4fe27e46cf519df39e"
+        },
+        {
+          "role": "runtime-old-3",
+          "sequence": 1,
+          "digest": "sha256:39a425dfba600a52c73eeedca6245922de1af3fcaa732d4fe27e46cf519df39e"
+        }
+      ]
+    },
+    {
+      "view": 1,
+      "readiness": [
+        {
+          "role": "runtime-new-0",
+          "sequence": 6,
+          "digest": "sha256:e19f889193c43663a869e2338bc06e8141ed7af27d55d2ee9d22ef67a71e52aa"
+        },
+        {
+          "role": "runtime-new-1",
+          "sequence": 6,
+          "digest": "sha256:e19f889193c43663a869e2338bc06e8141ed7af27d55d2ee9d22ef67a71e52aa"
+        },
+        {
+          "role": "runtime-new-2",
+          "sequence": 6,
+          "digest": "sha256:e19f889193c43663a869e2338bc06e8141ed7af27d55d2ee9d22ef67a71e52aa"
+        },
+        {
+          "role": "runtime-new-3",
+          "sequence": 6,
+          "digest": "sha256:e19f889193c43663a869e2338bc06e8141ed7af27d55d2ee9d22ef67a71e52aa"
+        }
+      ]
+    }
+  ]
+}

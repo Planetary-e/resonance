@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "run_id": "idle-production-baseline",
+  "status": "complete",
+  "phase": "cleanup",
+  "phases": [
+    {
+      "phase": "startup",
+      "at": "2026-10-30T15:33:17.036Z"
+    },
+    {
+      "phase": "warmup",
+      "at": "2026-10-30T15:33:39.826Z"
+    },
+    {
+      "phase": "baseline",
+      "at": "2026-10-30T15:34:39.827Z"
+    },
+    {
+      "phase": "cooldown",
+      "at": "2026-10-30T16:04:39.830Z"
+    },
+    {
+      "phase": "metrics",
+      "at": "2026-10-30T16:05:39.839Z"
+    },
+    {
+      "phase": "host-tools",
+      "at": "2026-10-30T16:05:40.206Z"
+    },
+    {
+      "phase": "stop-workers",
+      "at": "2026-10-30T16:05:40.246Z"
+    },
+    {
+      "phase": "network-evidence",
+      "at": "2026-10-30T16:06:07.562Z"
+    },
+    {
+      "phase": "artifacts",
+      "at": "2026-10-30T16:06:07.579Z"
+    },
+    {
+      "phase": "summary",
+      "at": "2026-10-30T16:06:07.583Z"
+    },
+    {
+      "phase": "cleanup",
+      "at": "2026-10-30T16:06:07.677Z"
+    }
+  ],
+  "window": {
+    "run_id": "idle-production-baseline",
+    "scenario": "full-smoke",
+    "seed": "0xE007B001",
+    "kind": "idle",
+    "duration_ms": 1800000,
+    "warmup_ms": 60000,
+    "cooldown_ms": 60000,
+    "runId": "idle-production-baseline",
+    "durationMs": 1800000,
+    "warmupMs": 60000,
+    "cooldownMs": 60000,
+    "phases": [
+      {
+        "phase": "warmup",
+        "at": "2026-10-30T15:33:39.825Z",
+        "monotonic_ms": 23338.361833
+      },
+      {
+        "phase": "baseline",
+        "at": "2026-10-30T15:34:39.827Z",
+        "monotonic_ms": 83340.4185
+      },
+      {
+        "phase": "cooldown",
+        "at": "2026-10-30T16:04:39.827Z",
+        "monotonic_ms": 1883350.998708
+      }
+    ],
+    "sustained_operations": {
+      "reads": 0,
+      "retries": 0
+    }
+  },
+  "error": null,
+  "acceptance_evaluation": "not_run"
+}

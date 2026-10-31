@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
-import { clearLabTrafficForTests, labTrafficSnapshot, recordLabTraffic, type LabTrafficRecord } from '../sustainable-rso5-lab-transport.js';
-import { driveIndependentRso5Matrix, networkEvidence } from '../sustainable-rso5-lab.js';
+import { clearLabTrafficForTests, labTrafficCount, labTrafficPage, labTrafficSince, labTrafficSnapshot, recordLabTraffic, type LabTrafficRecord } from '../sustainable-rso5-lab-transport.js';
+import { appendLabTraffic, driveIndependentRso5Matrix, networkEvidence, waitForLabInterval } from '../sustainable-rso5-lab.js';
 
 function record(messageId: string, outcome: LabTrafficRecord['outcome'], responseTo?: string): LabTrafficRecord {
   return { messageId, responseTo, source: outcome === 'sent' ? 'a' : 'b', destination: outcome === 'sent' ? 'b' : 'a',
@@ -33,3 +33,26 @@ it('assigns unique unified identities without changing frozen scenarios or seeds
   expect(selected.every(run => run.executionRunId === `unified-${run.runId}`)).toBe(true);
   expect(selected.every(run => !run.executionRunId.startsWith('matrix-'))).toBe(true);
 }, 30_000);
+
+it('pages and slices traffic without changing record identity', () => {
+  clearLabTrafficForTests();
+  for (let index = 0; index < 5; index++) recordLabTraffic(record(`message-${index}`, 'sent'));
+  expect(labTrafficCount()).toBe(5);
+  expect(labTrafficPage(1, 2)).toEqual({ total: 5, records: [record('message-1', 'sent'), record('message-2', 'sent')] });
+  expect(labTrafficSince(3)).toEqual([record('message-3', 'sent'), record('message-4', 'sent')]);
+  clearLabTrafficForTests();
+});
+
+it('waits for at least the requested monotonic interval', async () => {
+  const started = performance.now();
+  await waitForLabInterval(10);
+  expect(performance.now() - started).toBeGreaterThanOrEqual(10);
+});
+
+it('appends large traffic batches without spreading them onto the call stack', () => {
+  const target: LabTrafficRecord[] = [], source = Array.from({ length: 200_000 }, (_, index) => record(`large-${index}`, 'sent'));
+  appendLabTraffic(target, source);
+  expect(target).toHaveLength(200_000);
+  expect(target[0].messageId).toBe('large-0');
+  expect(target.at(-1)?.messageId).toBe('large-199999');
+});

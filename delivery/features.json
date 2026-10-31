@@ -43,7 +43,7 @@
       "title": "Genuinely different recovery architecture decision",
       "milestone_id": "R1",
       "priority": 1,
-      "status": "blocked",
+      "status": "in_progress",
       "requirement_ids": [
         "PRD-002",
         "PRD-003",
@@ -73,11 +73,14 @@
         "DEC-006",
         "DEC-007",
         "DEC-008",
-        "DEC-009"
+        "DEC-009",
+        "DEC-010",
+        "DEC-011",
+        "DEC-012"
       ],
       "work_contract": "delivery/work/FEAT-001.md",
-      "evidence_result_ids": ["RUN-009"],
-      "notes": "DEC-009 accepts RSO5 only as a bounded research prototype with a functional lifecycle and independently reviewed unified matrix. Physical power and sustained evidence remain incomplete; original work thresholds and all production/K1–K8 gates remain open. No SOTA or release claim. FEAT-001 remains blocked for full v0.4 acceptance."
+      "evidence_result_ids": ["RUN-009", "RUN-012"],
+      "notes": "DEC-009 accepts RSO5 only as a bounded research prototype. DEC-012's normal bounded lifecycle independently passes revised-budget research with complete inventory: 677,973,227 B cumulative and 17,741,154 B maximum operation, within research limits 1,016,959,841 B and 26,611,731 B. Original-cap failures remain preserved. Physical power, real network, labor, representative-maxima, E3 and all production/K1–K8 gates remain open; FEAT-001 remains blocked for full acceptance."
     },
     {
       "id": "FEAT-002",

@@ -83,6 +83,18 @@ export function labTrafficSnapshot(): LabTrafficRecord[] {
   return traffic.map(record => ({ ...record }));
 }
 
+export function labTrafficCount(): number {
+  return traffic.length;
+}
+
+export function labTrafficPage(offset: number, limit: number): { total: number; records: LabTrafficRecord[] } {
+  return { total: traffic.length, records: traffic.slice(offset, offset + limit).map(record => ({ ...record })) };
+}
+
+export function labTrafficSince(offset: number): LabTrafficRecord[] {
+  return traffic.slice(offset).map(record => ({ ...record }));
+}
+
 export function labPayloadDigest(payload: unknown): string {
   return `sha256:${createHash('sha256').update(JSON.stringify(payload ?? null)).digest('hex')}`;
 }

@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "run_id": "sustained-dec11-max-envelope",
+  "scenario": "full-smoke",
+  "outcome": "passed",
+  "diagnostic_only": true,
+  "source_manifest": "delivery/results/econ-dec11-baseline-manifest.json",
+  "workers": 52,
+  "clean_stops": 52,
+  "window": {
+    "run_id": "sustained-dec11-max-envelope",
+    "scenario": "full-smoke",
+    "seed": "0xE007B002",
+    "kind": "sustained",
+    "duration_ms": 1800000,
+    "warmup_ms": 60000,
+    "cooldown_ms": 60000,
+    "runId": "sustained-dec11-max-envelope",
+    "durationMs": 1800000,
+    "warmupMs": 60000,
+    "cooldownMs": 60000,
+    "phases": [
+      {
+        "phase": "warmup",
+        "at": "2026-10-31T07:15:08.480Z",
+        "monotonic_ms": 1996367.615583
+      },
+      {
+        "phase": "baseline",
+        "at": "2026-10-31T07:16:50.717Z",
+        "monotonic_ms": 2098605.449458
+      },
+      {
+        "phase": "cooldown",
+        "at": "2026-10-31T07:46:50.793Z",
+        "monotonic_ms": 3898687.2485
+      }
+    ],
+    "sustained_operations": {
+      "reads": 18252,
+      "retries": 36504
+    }
+  },
+  "predecessor_runtime_and_replicas_stopped_before_recovery": true,
+  "recovered_proofs": 164,
+  "post_new_view_startup_groups": 2,
+  "post_new_view_durable_readiness": true,
+  "logical_process_held_copy_audits": 164,
+  "copy_model": "logical process-held copies; not physical devices or crash-durability proof",
+  "exact_traffic_accounting": true,
+  "private_leakage_detected": false,
+  "work_bytes_separate_metric": 24600514019,
+  "energy": "blocked",
+  "network_scope": "loopback_only",
+  "E2": "blocked",
+  "acceptance_evaluation": "not_run",
+  "failure_error": null
+}

@@ -180,3 +180,49 @@
 - **Accepted evidence:** Functional lifecycle, predecessor-independent recovery, new-view readiness and independently reviewed unified 20-run matrix. Original work thresholds still fail, physical power is unmeasured, sustained finalization is incomplete, and production/economic evidence remains open.
 - **Files changed:** Added DEC-009 and prototype acceptance record; updated state/features/work/progress. No source changes, tests, deployment, campaign, Git/CI/install action or release occurred.
 - **Next action:** Await an owner decision on production requirements/deployment or continued bounded research; no SOTA or release claim.
+
+## 2026-10-30T17:56:00Z — DEC-010 baseline artifacts complete but warmup gate blocked
+
+- **State and feature:** `paused`; FEAT-001 remains blocked for full acceptance and prototype-only. Budget evaluation cannot proceed as a corrected baseline; no new window was started after validation.
+- **Timing and cleanup:** Both v2 baseline phases exceed 1,800,000 ms monotonically and both cooldowns exceed 60,000 ms. Idle warmup is 60,002.946 ms; sustained warmup is only 42,613.754 ms against 60,000 ms, a hard gate failure. Both runs have complete finalization phases and 52/52 clean stops with zero survivors. No timeout or orphan cleanup occurred.
+- **Actual totals:** Idle work 384,324 B, 459 envelopes, 5,198,906/5,201,710 payload/frame B, CPU 7.017372 s user + 1.801265 s system, maximum sampled tree RSS 117,489,664 B. Sustained work 24,495,738,843 B, 1,879,633 envelopes, 3,387,316,908/3,398,617,340 payload/frame B, CPU 2,021.837935 s user + 655.380634 s system, RSS 484,556,800 B, with 18,172 reads and 36,344 retries. Descriptive aggregate work is 24,496,123,167 B and traffic is 1,880,092 envelopes, but it is not an accepted baseline.
+- **Root corrections:** Monotonic timers, linear traffic pagination, single traffic collection, signal-exit handling, shared success/failure finalization and stack-safe large-batch append were verified by focused tests 22/22, noEmit and two short 52-worker finalization smokes. The earlier v1 spread-append failure is preserved.
+- **Evidence:** `delivery/results/econ-production-baseline-execution.json`, `econ-production-baseline-baseline.json`, `econ-production-evaluation-decision.json`, `econ-production-baseline-hashes.json` (78 artifacts), `econ-production-baseline-review-hashes.json`, and `docs/evals/v04-production-evaluation-baseline-2026-10-30.md`. All 78/3 hashes verify; unified 254/256 hashes remain unchanged.
+- **Gates and next action:** E2 remains blocked by physical power and the warmup gate; E3 awaits separate owner authorization. No revised-budget, economic, production or K/R acceptance. A further measurement or budget evaluation requires a separate owner decision.
+
+## 2026-10-31T07:48:53Z — DEC-011 full-warmup baseline accepted for independent budget review
+
+- **State and feature:** `paused`; FEAT-001 remains blocked for full acceptance and prototype-only. DEC-011 passes all timing, evidence and cleanup gates, so independent budget review may proceed.
+- **Timing and cleanup:** Idle warmup/baseline/cooldown is 60,002.140/1,800,003.706/60,245 ms; sustained is 102,237.834/1,800,081.799/69,309 ms. Both runs have complete finalization and 52/52 clean stops with zero survivors.
+- **Actual totals:** Idle work 384,324 B, 459 envelopes, 5,198,073/5,200,877 payload/frame B, CPU 6.949021 s user + 2.169174 s system, maximum sampled tree RSS 116,686,848 B. Sustained work 24,600,514,019 B, 1,887,817 envelopes, 3,401,745,747/3,413,095,379 payload/frame B, CPU 2,021.626417 s user + 653.485506 s system, RSS 480,313,344 B, with 18,252 reads and 36,504 retries. Aggregate work is 24,600,898,343 B and traffic is 1,888,276 envelopes.
+- **Verification:** Focused tests 22/22 and noEmit passed; the warmup/finalization smoke passed. The independent validator recomputed exact per-role work, request+response/edge totals, monotonic timings, authorization, power and cleanup. All 50 evidence/3 review hashes verify; DEC-010 78/3 and unified 254/256 hashes remain unchanged.
+- **Evidence:** `delivery/results/econ-dec11-baseline-execution.json`, `econ-dec11-baseline-baseline.json`, `econ-dec11-budget-review-decision.json`, `econ-dec11-baseline-hashes.json`, `econ-dec11-baseline-review-hashes.json`, and `docs/evals/v04-dec11-full-warmup-baseline-2026-10-31.md`.
+- **Gates and next action:** Independent budget review may proceed using measured mandatory maxima, complete history and uncertainty margins. Revised-budget approval remains a separate owner decision. Power and E2 remain blocked; E3, economic, production and K/R acceptance remain open.
+
+## 2026-10-31T08:04:01Z — DEC-011 independent budget review accepted
+
+- **State and feature:** `paused`; FEAT-001 remains blocked for production. Independent review accepts the corrected baseline and the revised-budget analysis, not RSO5 for production.
+- **Measurements:** Maximum operation is 17,741,154 B (3.75984× cap). Maximum complete lifecycle is 677,973,227 B (2.52565× cumulative cap). Sustained work rate is 13,666,331 B/s and frame rate 1,896,078 B/s over 30 minutes.
+- **Budget conclusion:** Scenario-fit +50% values are per-operation 26,611,731 B and cumulative 1,016,959,841 B, but that supports only 4.1339% of measured sustained intensity (~1,509 retries/30min versus 36,504). Full-sustained +50% is 36,900,771,029 B/30min and is not a defensible production budget. Original-cap and 1.5× average-equivalent events are 3.1675 and 4.7513; 1.5× measured lifecycle gives 12.0000, none a lifetime forecast.
+- **Decision:** Retain original caps and reject RSO5 for production now. Scenario-fit revision is research-only with a hard arrival limit <=4.13% and further uncertainty analysis. Physical power, real network, disk, representative-maxima, operational and owner economic evidence remain missing.
+- **Files changed:** Added `docs/evals/v04-dec11-budget-review-2026-10-31.md`; updated state/progress. No budget approval, deployment, implementation, campaign, Git/CI/install action or K/R acceptance occurred.
+- **Next action:** Await an owner decision on requirements/deployment or research-only capped arrival; no revised budget approval.
+
+## 2026-10-31T16:43:03Z — DEC-012 bounded research lifecycle passes
+
+- **State and feature:** `active`; FEAT-001 is open only for revised-budget research evaluation. Original caps and original-cap failures remain preserved; no production, K/R or economic approval follows.
+- **Contract and metering:** Active `SUSTAINABLE_RECOVERY_LIMITS` are operationWork 26,611,731 B and cumulative work 1,016,959,841 B, with arrival intensity <=4.13% of DEC-011 sustained intensity. Every lifecycle operation used normal bounded metering (`diagnosticUnbounded:false`, `budgetId:'DEC-012'`, `maximumBytes:26611731`).
+- **Verification:** Focused RSO5 manifest **17/17 PASS** and actual-source noEmit **PASS**. Complete bounded lifecycle **PASS** with 272 records and complete required inventory: 4 preparations, 102 phases, 6 leader proposals, 7 retries, 2 view groups/8 newView calls and 4 local-C recoveries. No unreachable classes.
+- **Actual results:** Cumulative work **678,000,451 B**, below the DEC-012 budget by 338,959,390 B. Maximum operation `local-C-recovery:3` **17,741,154 B**, below the operation budget by 8,870,577 B. Zero operation/cumulative crossings. Acceptance evaluation is `passed_revised_budget_research` only.
+- **Evidence:** `delivery/results/RUN-RSO5-DEC-012.json` and `rso5-dec012-operation-work.json` are identical with SHA-256 `b2655804beb469ba5d07b166925ef7173df659e8aed27f88796aef562a05f20e`; summary `rso5-dec012-evidence-summary.json`, candidate `docs/handover/2026-10-31/rso5-dec012-candidate-hashes.json`, and receipt `docs/evals/v04-rso5-dec012-bounded-research-2026-10-31.md`. Finalizer verified 23 hashes. Original result files and candidate receipts were not overwritten.
+- **Files changed:** Recovery resource contract, bounded lifecycle evidence writer, DEC-012 finalizer, new result/summary/candidate/receipt artifacts and delivery state/features/work/progress. No failure tuning, campaign, deployment or release action occurred.
+- **Next action:** Independent review of the DEC-012 contract and actual evidence; parent owns commit/push. Physical power, real network, labor, representative maxima, E3 and production approval remain missing.
+
+## 2026-10-31T16:53:51Z — DEC-012 independent research evidence accepted
+
+- **State and feature:** `paused`; FEAT-001 remains blocked for full acceptance. Independent review accepts the revised-budget research evidence, not production, K/R or economic approval.
+- **Verification:** Parent reproduced focused 17/17 and noEmit, then the complete bounded lifecycle with 272 records and complete inventory. Every operation used normal bounded metering with maximumBytes 26,611,731 and no uncapped flag.
+- **Actual results:** Cumulative work 677,973,227 B, leaving 338,986,614 B headroom. Maximum operation `local-C-recovery:3` 17,741,154 B, leaving 8,870,577 B headroom. Zero operation/cumulative crossings. Result is `passed_revised_budget_research` only.
+- **Evidence identity:** Both result artifacts are byte-identical with SHA-256 `a82f20cf8e16cc9d9db144115cba2aac0e129b2fee67763ec755a22b1e2ddd7f`; all 23 candidate hashes verify. The forecast difference is 407,840,969 B.
+- **Files changed:** Recovery resource contract, bounded lifecycle/finalizer, new DEC-012 result/summary/candidate/receipt artifacts and delivery state/features/work/progress. Original-cap evidence remains preserved. Parent owns commit/push.
+- **Next action:** Commit and push validated changes. Physical power, real network, labor, representative maxima, E3 and production approval remain missing.

@@ -1,0 +1,344 @@
+{
+  "schema_version": 1,
+  "authorization_id": "DEC-011",
+  "outcome": "passed_diagnostic_windows",
+  "run_count": 2,
+  "command": "node scripts/rso5-dec11-baseline.mjs",
+  "execution_artifact": "delivery/results/econ-dec11-baseline-execution.json",
+  "manifest_artifact": "delivery/results/econ-dec11-baseline-manifest.json",
+  "runs": [
+    {
+      "run_id": "idle-dec11-baseline",
+      "scenario": "idle",
+      "seed": "0xE007B001",
+      "duration_ms": 1800000,
+      "warmup_ms": 60000,
+      "cooldown_ms": 60000,
+      "measured_warmup_monotonic_ms": 60002.139875,
+      "measured_baseline_monotonic_ms": 1800003.706375,
+      "measured_cooldown_wall_ms": 60245,
+      "work_bytes": 384324,
+      "per_role_work_bytes": {
+        "observer-0": 96081,
+        "observer-1": 96081,
+        "observer-2": 96081,
+        "observer-3": 96081,
+        "replica-old-0-1": 0,
+        "replica-old-0-2": 0,
+        "replica-old-0-3": 0,
+        "replica-old-0-4": 0,
+        "replica-old-0-5": 0,
+        "replica-old-1-1": 0,
+        "replica-old-1-2": 0,
+        "replica-old-1-3": 0,
+        "replica-old-1-4": 0,
+        "replica-old-1-5": 0,
+        "replica-old-2-1": 0,
+        "replica-old-2-2": 0,
+        "replica-old-2-3": 0,
+        "replica-old-2-4": 0,
+        "replica-old-2-5": 0,
+        "replica-old-3-1": 0,
+        "replica-old-3-2": 0,
+        "replica-old-3-3": 0,
+        "replica-old-3-4": 0,
+        "replica-old-3-5": 0,
+        "replica-new-0-1": 0,
+        "replica-new-0-2": 0,
+        "replica-new-0-3": 0,
+        "replica-new-0-4": 0,
+        "replica-new-0-5": 0,
+        "replica-new-1-1": 0,
+        "replica-new-1-2": 0,
+        "replica-new-1-3": 0,
+        "replica-new-1-4": 0,
+        "replica-new-1-5": 0,
+        "replica-new-2-1": 0,
+        "replica-new-2-2": 0,
+        "replica-new-2-3": 0,
+        "replica-new-2-4": 0,
+        "replica-new-2-5": 0,
+        "replica-new-3-1": 0,
+        "replica-new-3-2": 0,
+        "replica-new-3-3": 0,
+        "replica-new-3-4": 0,
+        "replica-new-3-5": 0,
+        "runtime-old-0": 0,
+        "runtime-old-1": 0,
+        "runtime-old-2": 0,
+        "runtime-old-3": 0,
+        "runtime-new-0": 0,
+        "runtime-new-1": 0,
+        "runtime-new-2": 0,
+        "runtime-new-3": 0
+      },
+      "messages": 459,
+      "payload_bytes": 5198073,
+      "frame_bytes": 5200877,
+      "user_cpu_micros": 6949021,
+      "system_cpu_micros": 2169174,
+      "maximum_tree_rss_bytes": 116686848,
+      "clean_stops": 52,
+      "remaining_live_workers": 0,
+      "sustained_operations": {
+        "reads": 0,
+        "retries": 0
+      },
+      "phases": [
+        {
+          "phase": "warmup",
+          "at": "2026-10-31T06:42:16.850Z",
+          "monotonic_ms": 24730.364708
+        },
+        {
+          "phase": "baseline",
+          "at": "2026-10-31T06:43:16.852Z",
+          "monotonic_ms": 84732.504583
+        },
+        {
+          "phase": "cooldown",
+          "at": "2026-10-31T07:13:16.849Z",
+          "monotonic_ms": 1884736.210958
+        }
+      ],
+      "recovered_proofs": 0,
+      "logical_copy_audits": 0,
+      "finalization_phases": [
+        "startup",
+        "warmup",
+        "baseline",
+        "cooldown",
+        "metrics",
+        "host-tools",
+        "stop-workers",
+        "network-evidence",
+        "artifacts",
+        "summary",
+        "cleanup"
+      ],
+      "sample_limitations": {
+        "process": [
+          "Same physical host; no whole-host isolation",
+          "Loopback IPC only",
+          "Peak RSS sampled with ps; shared-memory attribution unavailable"
+        ],
+        "disk": [
+          "Logical arena bytes are not physical disk I/O",
+          "iostat is whole-host and cannot be attributed to workers"
+        ],
+        "per_process_disk": {
+          "status": "unavailable",
+          "reason": "Node.js/macOS per-process physical read/write counters are not exposed by this harness"
+        },
+        "iostat": {
+          "status": "observed",
+          "sample_sha256": "sha256:58c9826b0674405642b8717ae24db0f8bf11876754a706599fbb4cd9985aa562",
+          "reconciliation": "Whole-host sample only; per-process attribution unavailable"
+        },
+        "nettop": {
+          "status": "observed",
+          "matching_process_rows": 0,
+          "sample_sha256": "sha256:9baab479e12195695d31d512d3a5b262f0fcdb2cdd6c13d9b63f234d737c9f8a",
+          "reconciliation": "Separate whole-process host view; no byte total inferred or added to WebSocket accounting"
+        },
+        "network": [
+          "Application WebSocket payload/frame bytes only; handshake/control frames and TCP/IP bytes excluded",
+          "nettop is a separate host view and is not added to application counters",
+          "No external traffic"
+        ]
+      },
+      "paths": {
+        "summary": "delivery/results/econ-lab-summary-idle-dec11-baseline.json",
+        "process": "delivery/results/econ-process-idle-dec11-baseline.json",
+        "disk": "delivery/results/econ-disk-idle-dec11-baseline.json",
+        "network": "delivery/results/econ-network-idle-dec11-baseline.json",
+        "work": "delivery/results/econ-work-idle-dec11-baseline.json",
+        "cleanup": "delivery/results/econ-cleanup-idle-dec11-baseline.json",
+        "authorization": "delivery/results/econ-authorization-idle-dec11-baseline.json",
+        "owner": "delivery/results/econ-owner-assumptions-idle-dec11-baseline.json",
+        "decision": "delivery/results/econ-decision-idle-dec11-baseline.json",
+        "power": "delivery/results/econ-power-idle-dec11-baseline.json",
+        "powerCsv": "delivery/results/econ-power-idle-dec11-baseline.csv",
+        "readiness": "delivery/results/econ-new-view-readiness-idle-dec11-baseline.json",
+        "finalization": "delivery/results/econ-finalization-idle-dec11-baseline.json"
+      }
+    },
+    {
+      "run_id": "sustained-dec11-max-envelope",
+      "scenario": "sustained",
+      "seed": "0xE007B002",
+      "duration_ms": 1800000,
+      "warmup_ms": 60000,
+      "cooldown_ms": 60000,
+      "measured_warmup_monotonic_ms": 102237.83387499978,
+      "measured_baseline_monotonic_ms": 1800081.7990420004,
+      "measured_cooldown_wall_ms": 69309,
+      "work_bytes": 24600514019,
+      "per_role_work_bytes": {
+        "observer-0": 799848680,
+        "observer-1": 799848680,
+        "observer-2": 799848680,
+        "observer-3": 799848680,
+        "replica-old-0-1": 10974931,
+        "replica-old-0-2": 10974931,
+        "replica-old-0-3": 10974931,
+        "replica-old-0-4": 10974931,
+        "replica-old-0-5": 10974931,
+        "replica-old-1-1": 10974931,
+        "replica-old-1-2": 10974931,
+        "replica-old-1-3": 10974931,
+        "replica-old-1-4": 10974931,
+        "replica-old-1-5": 10974931,
+        "replica-old-2-1": 10974931,
+        "replica-old-2-2": 10974931,
+        "replica-old-2-3": 10974931,
+        "replica-old-2-4": 10974931,
+        "replica-old-2-5": 10974931,
+        "replica-old-3-1": 10974931,
+        "replica-old-3-2": 10974931,
+        "replica-old-3-3": 10974931,
+        "replica-old-3-4": 10974931,
+        "replica-old-3-5": 10974931,
+        "replica-new-0-1": 8032287,
+        "replica-new-0-2": 8032287,
+        "replica-new-0-3": 8032287,
+        "replica-new-0-4": 8032287,
+        "replica-new-0-5": 8032287,
+        "replica-new-1-1": 8032287,
+        "replica-new-1-2": 8032287,
+        "replica-new-1-3": 8032287,
+        "replica-new-1-4": 8032287,
+        "replica-new-1-5": 8032287,
+        "replica-new-2-1": 8032287,
+        "replica-new-2-2": 8032287,
+        "replica-new-2-3": 8032287,
+        "replica-new-2-4": 8032287,
+        "replica-new-2-5": 8032287,
+        "replica-new-3-1": 8032287,
+        "replica-new-3-2": 8032287,
+        "replica-new-3-3": 8032287,
+        "replica-new-3-4": 8032287,
+        "replica-new-3-5": 8032287,
+        "runtime-old-0": 5229387486,
+        "runtime-old-1": 5223415134,
+        "runtime-old-2": 5223078906,
+        "runtime-old-3": 5223078906,
+        "runtime-new-0": 36640861,
+        "runtime-new-1": 28457882,
+        "runtime-new-2": 28457882,
+        "runtime-new-3": 28457882
+      },
+      "messages": 1887817,
+      "payload_bytes": 3401745747,
+      "frame_bytes": 3413095379,
+      "user_cpu_micros": 2021626417,
+      "system_cpu_micros": 653485506,
+      "maximum_tree_rss_bytes": 480313344,
+      "clean_stops": 52,
+      "remaining_live_workers": 0,
+      "sustained_operations": {
+        "reads": 18252,
+        "retries": 36504
+      },
+      "phases": [
+        {
+          "phase": "warmup",
+          "at": "2026-10-31T07:15:08.480Z",
+          "monotonic_ms": 1996367.615583
+        },
+        {
+          "phase": "baseline",
+          "at": "2026-10-31T07:16:50.717Z",
+          "monotonic_ms": 2098605.449458
+        },
+        {
+          "phase": "cooldown",
+          "at": "2026-10-31T07:46:50.793Z",
+          "monotonic_ms": 3898687.2485
+        }
+      ],
+      "recovered_proofs": 164,
+      "logical_copy_audits": 164,
+      "finalization_phases": [
+        "startup",
+        "warmup",
+        "baseline",
+        "cooldown",
+        "metrics",
+        "host-tools",
+        "stop-workers",
+        "network-evidence",
+        "artifacts",
+        "summary",
+        "cleanup"
+      ],
+      "sample_limitations": {
+        "process": [
+          "Same physical host; no whole-host isolation",
+          "Loopback IPC only",
+          "Peak RSS sampled with ps; shared-memory attribution unavailable"
+        ],
+        "disk": [
+          "Logical arena bytes are not physical disk I/O",
+          "iostat is whole-host and cannot be attributed to workers"
+        ],
+        "per_process_disk": {
+          "status": "unavailable",
+          "reason": "Node.js/macOS per-process physical read/write counters are not exposed by this harness"
+        },
+        "iostat": {
+          "status": "observed",
+          "sample_sha256": "sha256:fa30a0f963561ea61c243f0a7dcb1b938f2cc4499bf47736e2864f1a9058687d",
+          "reconciliation": "Whole-host sample only; per-process attribution unavailable"
+        },
+        "nettop": {
+          "status": "observed",
+          "matching_process_rows": 0,
+          "sample_sha256": "sha256:aaeb39f43f66d47006a660733e016f8779d3692cabec965d579750c1925bc95d",
+          "reconciliation": "Separate whole-process host view; no byte total inferred or added to WebSocket accounting"
+        },
+        "network": [
+          "Application WebSocket payload/frame bytes only; handshake/control frames and TCP/IP bytes excluded",
+          "nettop is a separate host view and is not added to application counters",
+          "No external traffic"
+        ]
+      },
+      "paths": {
+        "summary": "delivery/results/econ-lab-summary-sustained-dec11-max-envelope.json",
+        "process": "delivery/results/econ-process-sustained-dec11-max-envelope.json",
+        "disk": "delivery/results/econ-disk-sustained-dec11-max-envelope.json",
+        "network": "delivery/results/econ-network-sustained-dec11-max-envelope.json",
+        "work": "delivery/results/econ-work-sustained-dec11-max-envelope.json",
+        "cleanup": "delivery/results/econ-cleanup-sustained-dec11-max-envelope.json",
+        "authorization": "delivery/results/econ-authorization-sustained-dec11-max-envelope.json",
+        "owner": "delivery/results/econ-owner-assumptions-sustained-dec11-max-envelope.json",
+        "decision": "delivery/results/econ-decision-sustained-dec11-max-envelope.json",
+        "power": "delivery/results/econ-power-sustained-dec11-max-envelope.json",
+        "powerCsv": "delivery/results/econ-power-sustained-dec11-max-envelope.csv",
+        "readiness": "delivery/results/econ-new-view-readiness-sustained-dec11-max-envelope.json",
+        "finalization": "delivery/results/econ-finalization-sustained-dec11-max-envelope.json"
+      }
+    }
+  ],
+  "aggregate": {
+    "work_bytes": 24600898343,
+    "messages": 1888276,
+    "payload_bytes": 3406943820,
+    "frame_bytes": 3418296256,
+    "user_cpu_seconds": 2028.575438,
+    "system_cpu_seconds": 655.65468,
+    "maximum_tree_rss_bytes": 480313344
+  },
+  "E1": "complete_for_local_planning_only",
+  "E2": "blocked",
+  "E2_reasons": [
+    "Physical power blocked"
+  ],
+  "E3": "pending_separate_owner_authorization",
+  "D4": "prototype-only",
+  "economic_affordability": "pending",
+  "acceptance_evaluation": "not_run",
+  "independent_budget_review": "may_proceed",
+  "revised_budget_approval": "pending_separate_owner_approval",
+  "production_approval": "not_granted"
+}

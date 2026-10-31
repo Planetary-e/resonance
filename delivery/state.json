@@ -17,7 +17,7 @@
     "session_only_installation": true
   },
   "current_feature_id": "FEAT-001",
-  "next_action": "DEC-009 accepts RSO5 only as a bounded research prototype; await an owner decision on production requirements/deployment or continued bounded research, with no SOTA or release claim.",
+  "next_action": "DEC-012 revised-budget research evidence is independently accepted; commit and push. Production, E3, economic and K/R acceptance remain open.",
   "pending_decision_ids": [],
   "approvals": {
     "product_scope": "approved",
@@ -29,6 +29,6 @@
   "session": {
     "id": "kimi-resonance-v04-20261025T190412Z",
     "started_at": "2026-10-25T19:04:12Z",
-    "updated_at": "2026-10-30T10:44:34Z"
+    "updated_at": "2026-10-31T16:53:51Z"
   }
 }

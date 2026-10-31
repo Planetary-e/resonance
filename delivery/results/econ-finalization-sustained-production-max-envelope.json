@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "run_id": "sustained-production-max-envelope",
+  "status": "failed",
+  "phase": "cleanup",
+  "phases": [
+    {
+      "phase": "startup",
+      "at": "2026-10-30T16:06:07.697Z"
+    },
+    {
+      "phase": "warmup",
+      "at": "2026-10-30T16:06:31.981Z"
+    },
+    {
+      "phase": "baseline",
+      "at": "2026-10-30T16:07:14.607Z"
+    },
+    {
+      "phase": "cooldown",
+      "at": "2026-10-30T16:37:14.992Z"
+    },
+    {
+      "phase": "metrics",
+      "at": "2026-10-30T16:38:15.498Z"
+    },
+    {
+      "phase": "host-tools",
+      "at": "2026-10-30T16:38:25.374Z"
+    },
+    {
+      "phase": "stop-workers",
+      "at": "2026-10-30T16:38:25.424Z"
+    },
+    {
+      "phase": "metrics",
+      "at": "2026-10-30T16:38:40.512Z"
+    },
+    {
+      "phase": "host-tools",
+      "at": "2026-10-30T16:38:40.512Z"
+    },
+    {
+      "phase": "stop-workers",
+      "at": "2026-10-30T16:38:40.539Z"
+    },
+    {
+      "phase": "finalization-error",
+      "at": "2026-10-30T16:38:40.543Z"
+    },
+    {
+      "phase": "cleanup",
+      "at": "2026-10-30T16:38:40.637Z"
+    }
+  ],
+  "window": {
+    "run_id": "sustained-production-max-envelope",
+    "scenario": "full-smoke",
+    "seed": "0xE007B002",
+    "kind": "sustained",
+    "duration_ms": 1800000,
+    "warmup_ms": 60000,
+    "cooldown_ms": 60000,
+    "runId": "sustained-production-max-envelope",
+    "durationMs": 1800000,
+    "warmupMs": 60000,
+    "cooldownMs": 60000,
+    "phases": [
+      {
+        "phase": "warmup",
+        "at": "2026-10-30T16:06:31.981Z",
+        "monotonic_ms": 1995502.2045
+      },
+      {
+        "phase": "baseline",
+        "at": "2026-10-30T16:07:14.607Z",
+        "monotonic_ms": 2038127.953875
+      },
+      {
+        "phase": "cooldown",
+        "at": "2026-10-30T16:37:14.990Z",
+        "monotonic_ms": 3838518.398167
+      }
+    ],
+    "sustained_operations": {
+      "reads": 18264,
+      "retries": 36528
+    }
+  },
+  "error": "Maximum call stack size exceeded",
+  "acceptance_evaluation": "not_run"
+}

@@ -5,7 +5,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import type { openStorageReservationAuthority, StorageReservationRequest } from '@resonance/core/storage-reservations';
 
 export const SUSTAINABLE_RECOVERY_LIMITS = Object.freeze({ bytes: 2 * 1024 ** 3, entries: 512,
-  metadata: 1024 ** 2, work: 256 * 1024 ** 2, liveMs: 3000, offlineMs: 30000 });
+  metadata: 1024 ** 2, operationWork: 26611731, work: 1016959841, liveMs: 3000, offlineMs: 30000 });
 export type RecoveryProofKind = 'original' | 'frame' | 'policy' | 'activation';
 export interface RecoveryProofClosure {
   original:{count:number;bytes:number}; frame:{count:number;bytes:number};

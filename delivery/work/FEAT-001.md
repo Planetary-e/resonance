@@ -4,7 +4,7 @@ status: blocked
 requirement_ids: [PRD-002, PRD-003, PRD-011]
 control_ids: [ARCH-001, ARCH-002, ARCH-005, ARCH-006, ARCH-007, CMP-004]
 evaluation_ids: [EVL-003, EVL-004, EVL-005, EVL-015]
-updated_at: "2026-10-30T10:44:34Z"
+updated_at: "2026-10-31T16:43:03Z"
 ---
 
 # FEAT-001: Genuinely different recovery architecture decision
@@ -138,6 +138,34 @@ This does not accept state of the art, production, a complete v0.4, economic aff
 
 Next action: await an owner decision on production requirements/deployment or continued bounded research; no SOTA or release claim.
 
+## DEC-010 corrected production evaluation windows
+
+Authorization at 2026-10-30T15:07:44Z reopens FEAT-001 only to complete corrected idle and sustained physical evidence and then evaluate whether a revised work budget could support RSO5. The observable result is two sequential 52-worker diagnostic windows with monotonic baseline elapsed of at least 1,800,000 ms, 60,000 ms warmup/cooldown, correct returning-set retry authorization, bounded finalization, complete per-role/process/disk/network/authorization/owner/power/cleanup artifacts and zero survivors. Preserve original recovery behavior, safety, privacy, four-copy availability, quotas and retry rules.
+
+Root-cause work is limited to timer semantics, duplicate/unbounded metrics and traffic finalization, missing failure-phase evidence and cleanup behavior. Do not merely enlarge the timeout, optimize work, create proofs/configurations, weaken authorization or hide finalization failures. Emit phase/failure evidence early enough to diagnose every outcome; collect each worker's metrics and paginated traffic once, bound stop/finalization steps and retain exact accounting.
+
+Resource checkpoint: focused noEmit/tests and one frozen two-window execution only; no unified matrix rerun, stopped campaign, deployment, production routing, dependency installation, privileged command, Git/CI/installer or release action. Power remains exactly blocked with no samples. E2, E3, K/R, economic affordability and production approval remain open; any revised budget requires measured mandatory maxima, uncertainty margins and separate owner approval.
+
+Outcome: both v2 runs completed finalization with complete artifacts and 52/52 clean stops plus zero survivors. Idle passes monotonic timing at 1,800,004.189 ms; sustained passes its 30-minute baseline at 1,800,046.339 ms but fails the frozen warmup gate at 42,613.754 ms instead of 60,000 ms. Actual work is 384,324 B idle and 24,495,738,843 B sustained; request+response envelopes are 459 and 1,879,633. Aggregate values are descriptive, not an accepted baseline. The corrected decision is `blocked_window_gate`; budget evaluation cannot proceed as a corrected baseline. See `delivery/results/econ-production-baseline-baseline.json`, `delivery/results/econ-production-evaluation-decision.json`, the 78-artifact hash set and `docs/evals/v04-production-evaluation-baseline-2026-10-30.md`. No new window follows validation.
+
+## DEC-011 corrected full-warmup baseline repetition
+
+Authorization at 2026-10-31T06:30:25Z permits exactly one corrected baseline repetition. The sole lifecycle correction is to enforce at least 60,000 ms monotonic warmup before the sustained bootstrap/lifecycle, while preserving both 1,800,000 ms baseline phases and both 60,000 ms cooldowns. Required evidence remains 52 workers per run, real traffic, exact per-role work/process/disk/network/authorization/owner/power/cleanup/finalization artifacts and zero survivors. Preserve DEC-010's stack-safe bounded finalization and all prior failures and unified hashes.
+
+Freeze new DEC-011 identities and outputs before execution. Do not change recovery behavior, retry authorization, work/cost or timing requirements; do not rerun the unified matrix or a stopped campaign. Focused tests/noEmit and the authorized corrected pair are the only execution paths. Power remains blocked with no samples. Independent budget review may proceed only if every timing, evidence and cleanup gate passes; any revised budget still needs measured mandatory maxima, uncertainty/history margins and separate owner approval. No deployment, E2, K/R or economic acceptance.
+
+Outcome: both DEC-011 runs pass every timing, evidence and cleanup gate. Idle warmup/baseline/cooldown is 60,002.140/1,800,003.706/60,245 ms; sustained is 102,237.834/1,800,081.799/69,309 ms. Each run has 52/52 clean stops and zero survivors. Work is 384,324 B idle and 24,600,514,019 B sustained; aggregate work is 24,600,898,343 B with 1,888,276 request+response envelopes, 3,406,943,820 payload B and 3,418,296,256 frame B. The independent validator and 50-artifact hash set pass. See `delivery/results/econ-dec11-baseline-baseline.json`, `delivery/results/econ-dec11-budget-review-decision.json` and `docs/evals/v04-dec11-full-warmup-baseline-2026-10-31.md`. Independent budget review may proceed; revised-budget approval remains separate, with no deployment, E2, K/R or economic acceptance.
+
+## DEC-012 scenario-fit research work budget
+
+Authorization at 2026-10-31T16:26:23Z reopens FEAT-001 only for revised-budget research evaluation. The concrete active research contract is per-operation work **26,611,731 B**, cumulative work **1,016,959,841 B**, and arrival intensity at most **4.13%** of the DEC-011 measured sustained recovery intensity. It is not production, K/R, deployment or economic approval. Original caps and all original-cap failures remain preserved history and are not relabeled.
+
+Implement these values in `SUSTAINABLE_RECOVERY_LIMITS` and the RSO5 finalizer, with no contradictory original-cap formula in active metering. Run the current lifecycle only with normal bounded metering (`diagnosticUnbounded:false`, `budgetId:'DEC-012'`), and derive `acceptanceEvaluation` from actual bounded operation/cumulative results plus complete required inventory. Preserve safety, privacy, physical quotas, trust, business reducers, funding and retry behavior. Do not tune any failure or use the uncapped diagnostic for the new result.
+
+Evidence plan: focused RSO5 manifest, actual-source noEmit and one complete bounded lifecycle; then regenerate result artifacts, candidate hashes, receipt and delivery records. Independent review may follow; parent owns commit/push. Power, physical network, labor, representative-maxima and E3 evidence remain missing. No 100-transition campaign, production routing or release action.
+
+Outcome: focused RSO5 manifest **17/17 PASS**, actual-source noEmit **PASS**, and complete bounded lifecycle **PASS** with 272 records and complete inventory. Every operation used `maximumBytes:26611731` with no unbounded flag. Actual cumulative work is **678,000,451 B**, below the DEC-012 cumulative limit by 338,959,390 B. Maximum operation is `local-C-recovery:3` at **17,741,154 B**, below the operation limit by 8,870,577 B. Zero operation/cumulative crossings and no unreachable classes. Acceptance evaluation is `passed_revised_budget_research` only. Result artifacts are `delivery/results/RUN-RSO5-DEC-012.json` and `delivery/results/rso5-dec012-operation-work.json`, both SHA-256 `b2655804beb469ba5d07b166925ef7173df659e8aed27f88796aef562a05f20e`; summary, 23-hash candidate and receipt are in `delivery/results/rso5-dec012-evidence-summary.json`, `docs/handover/2026-10-31/rso5-dec012-candidate-hashes.json` and `docs/evals/v04-rso5-dec012-bounded-research-2026-10-31.md`. Independent review may follow; production, E3, economic and K/R acceptance remain open.
+
 ## Change history and related DEC/ADR IDs
 
 - v1, 2026-10-25: created the work contract as blocked under DEC-001.
@@ -163,3 +191,6 @@ Next action: await an owner decision on production requirements/deployment or co
 - v21, 2026-10-29: Actual immutable 20-run matrix completed in frozen order after preserving entry/startup/readiness/metrics failures and using distinct retry identities. All scenario, cleanup, work, traffic, power and readiness artifacts validate. Parent baseline independent review may proceed; no30-minute windows or E2/K/R acceptance.
 - v22, 2026-10-29: Earlier matrix marked mixed-version invalid history. One frozen harness completed unified 20 runs with traffic reset, consistent request+response semantics and complete artifact hashes. Unified baseline/receipt and 256-artifact review hashes validate; independent review may proceed.
 - v23, 2026-10-30: Baseline attempts stop with a blocked postmortem. V6 idle artifacts are complete but 6 ms short; sustained final artifacts are missing after the 75-minute timeout. One orphan was cleaned with zero survivors. Blocked execution/baseline, 55-artifact hashes and receipt preserve every attempt; full baseline review is blocked, unified matrix review remains available, and no further window or acceptance is claimed.
+- v24, 2026-10-30: DEC-010 v2 runs finalize complete evidence with 52/52 clean stops and zero survivors. Monotonic baselines pass, finalization is bounded and stack-safe, but sustained warmup fails at 42,613.754 ms. Decision and budget evaluation are blocked; actual metrics, 78-artifact hashes and receipt are preserved, with no new attempt or production/economic acceptance.
+- v25, 2026-10-31: DEC-011 enforces sustained warmup before bootstrap. Both runs pass all timing, finalization, work, traffic, authorization, power and cleanup gates with 52/52 clean stops and zero survivors. Actual aggregate work is 24,600,898,343 B; 50 evidence hashes validate. Independent budget review may proceed, with revised-budget, E2/E3, production, economic and K/R decisions still open.
+- v26, 2026-10-31: DEC-012 normal bounded lifecycle passes with complete inventory and zero operation/cumulative crossings: 678,000,451 B total and 17,741,154 B maximum operation, within the research contract. Original-cap history is preserved. Result/summary/candidate/receipt and 23 hashes validate; independent review may follow, with production, E3, economic and K/R acceptance still open.
