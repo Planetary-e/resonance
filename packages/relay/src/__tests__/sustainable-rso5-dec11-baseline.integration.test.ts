@@ -1,9 +1,11 @@
 import { readFileSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { expect, it } from 'vitest';
 import { runIndependentRso5LabSmoke, type IndependentLabWindow } from '../sustainable-rso5-lab.js';
 
 it('runs DEC-011 full-warmup idle and sustained baseline repetition', async () => {
   const startedAt = new Date().toISOString(), completed: unknown[] = [], manifestPath = 'delivery/results/econ-dec11-baseline-manifest.json';
+  const runSuffix = randomBytes(8).toString('hex');
   const definitions = (JSON.parse(readFileSync(manifestPath, 'utf8')).baseline_windows as any[]).map(window => ({
     ...window, runId: window.run_id, durationMs: window.duration_ms, warmupMs: window.warmup_ms, cooldownMs: window.cooldown_ms,
   })) as IndependentLabWindow[];
@@ -11,12 +13,13 @@ it('runs DEC-011 full-warmup idle and sustained baseline repetition', async () =
   expect(definitions.map(window => window.runId)).toEqual(['idle-dec11-baseline', 'sustained-dec11-max-envelope']);
   try {
     for (const window of definitions) {
-      const result = await runIndependentRso5LabSmoke({ runId: window.runId, seed: window.seed, scenario: 'full-smoke', manifestPath, window });
+      const runId = `${window.runId}-${runSuffix}`;
+      const result = await runIndependentRso5LabSmoke({ runId, seed: window.seed, scenario: 'full-smoke', manifestPath, window: { ...window, runId } });
       completed.push({ run_id: result.runId, scenario: result.scenario, outcome: result.outcome,
         workers: result.workerCount, clean_stops: result.cleanStops, messages: result.trafficMessages, frame_bytes: result.trafficFrameBytes });
     }
     expect(completed).toHaveLength(2);
-    writeFileSync('delivery/results/econ-dec11-baseline-execution.json', `${JSON.stringify({ schema_version: 1,
+    writeFileSync(`delivery/results/econ-dec11-baseline-execution-${runSuffix}.json`, `${JSON.stringify({ schema_version: 1,
       authorization_id: 'DEC-011', command: 'node scripts/rso5-dec11-baseline.mjs', started_at: startedAt,
       completed_at: new Date().toISOString(), completed, matrix_runs_executed: 0,
       sustained_windows_executed: true, acceptance_evaluation: 'not_run' }, null, 2)}\n`, { mode: 0o600, flag: 'wx' });

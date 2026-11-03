@@ -1,10 +1,12 @@
+import { randomBytes } from 'node:crypto';
 import { expect, it } from 'vitest';
 import { runIndependentRso5LabSmoke } from '../sustainable-rso5-lab.js';
 
 it('runs one independent-process RSO5 laboratory smoke lifecycle', async () => {
-  const result = await runIndependentRso5LabSmoke({ runId: 'reproduction-16', seed: '0xE0075A16', scenario: 'full-smoke' });
+  const runId = `reproduction-16-${randomBytes(8).toString('hex')}`;
+  const result = await runIndependentRso5LabSmoke({ runId, seed: '0xE0075A16', scenario: 'full-smoke', manifestPath: 'delivery/results/econ-lab-manifest-reproduction-16.json' });
   expect(result).toMatchObject({
-    runId: 'reproduction-16',
+    runId,
     scenario: 'full-smoke',
     outcome: 'passed',
     runtimeCount: 8,

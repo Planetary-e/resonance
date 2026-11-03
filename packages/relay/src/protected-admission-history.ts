@@ -526,10 +526,20 @@ async function openProtectedHistory(options: ProtectedHistoryOptions, inspection
         await finishPending({ signal, deadline: operation.executionDeadline }); operation.check();
         const selected = checkFence();
         if (selected.pending || JSON.stringify(selected.applied) !== JSON.stringify(expectedHead)) throw new Error('Terminal pending completion changed the selected head');
+        const local = [...writer!.history()];
+        if (id(local.at(-1)!) !== expectedHead.id || local.at(-1)!.sequence !== expectedHead.sequence) {
+          throw new Error('Frozen selected history differs from the exact validated local applied head; reconciliation required');
+        }
         // Low-level preparation owns the durable, authenticated four-replica
         // barrier and retains its charged attempt/preparation on refusal.
-        const preparation = await recovery.prepare(); operation.check();
-        const current = checkFence(), local = [...writer!.history()], remote = preparation.envelopes;
+        const preparation = await recovery.prepare().catch(error => {
+          if (error instanceof Error && (error.message === 'Frozen recovery differs from exact funded selection'
+            || error.message === 'Frozen head differs from exact funded selection')) {
+            throw new Error('Frozen selected history differs from the exact validated local applied head; reconciliation required');
+          }
+          throw error;
+        }); operation.check();
+        const current = checkFence(), remote = preparation.envelopes;
         if (current.pending || JSON.stringify(current.applied) !== JSON.stringify(expectedHead)
           || preparation.rootId !== identity.rootId || preparation.generation !== identity.generation
           || remote.length !== local.length || remote.some((block, i) => id(block) !== id(local[i]))

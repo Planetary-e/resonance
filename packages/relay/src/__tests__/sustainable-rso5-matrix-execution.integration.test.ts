@@ -1,11 +1,12 @@
 import { readFileSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { expect, it } from 'vitest';
 import { driveIndependentRso5Matrix } from '../sustainable-rso5-lab.js';
 
 it('executes the approved immutable 20-run matrix in frozen order', async () => {
   const startedAt = new Date().toISOString();
   const retry = Number(process.env.RSO5_MATRIX_RETRY ?? '0'), startIndex = Number(process.env.RSO5_MATRIX_START_INDEX ?? '0');
-  const identityPrefix = process.env.RSO5_MATRIX_IDENTITY_PREFIX ?? 'unified';
+  const identityPrefix = process.env.RSO5_MATRIX_IDENTITY_PREFIX ?? `ci-${randomBytes(8).toString('hex')}`;
   const suffix = retry > 0 ? `-retry-${retry}` : '';
   const previousPath = process.env.RSO5_MATRIX_PREVIOUS;
   const previous = startIndex > 0 && previousPath ? JSON.parse(readFileSync(previousPath, 'utf8')).completed : [];
@@ -33,7 +34,7 @@ it('executes the approved immutable 20-run matrix in frozen order', async () => 
     expect(allResults.map(run => run.orderIndex)).toEqual(Array.from({ length: 20 }, (_, index) => index));
     expect(new Set(allResults.map(run => run.executionRunId)).size).toBe(20);
     const path = identityPrefix === 'unified' ? 'delivery/results/econ-unified-execution.json'
-      : startIndex > 0 ? `delivery/results/econ-matrix-execution-resume-${startIndex}.json` : `delivery/results/econ-matrix-execution${suffix}.json`;
+      : startIndex > 0 ? `delivery/results/econ-matrix-execution-resume-${identityPrefix}-${startIndex}.json` : `delivery/results/econ-matrix-execution-${identityPrefix}${suffix}.json`;
     writeFileSync(path, `${JSON.stringify({ ...base, outcome: 'passed_diagnostic_matrix', completed_at: new Date().toISOString(),
       matrix_runs_executed: 20, results: allResults }, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
   } catch (error) {

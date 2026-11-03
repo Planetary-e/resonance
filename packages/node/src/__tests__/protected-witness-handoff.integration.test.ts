@@ -12,7 +12,6 @@ import { parseProtectedWitnessHandoffState } from '../../../relay/src/witness-ha
 import { prepareAdmissionPolicyV3Successor, signAdmissionPolicyV3, createResolvedAdmissionPolicyAdvance, type ArchivedAdmissionPolicy, type ArchivedAdmissionPolicyAdvance } from '@resonance/core/admission-policy-archive';
 import { runAdmissionHistoryCommand } from '../../../relay/src/admission-history-command.js';
 import { writeOperatorJsonNew, writeOperatorTextAtomic } from '../../../relay/src/admission-operator-files.js';
-import { runWitnessHandoffCommand } from '../../../relay/src/witness-handoff-command.js';
 import { fork } from 'node:child_process';
 import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
@@ -49,6 +48,11 @@ const fixtureJson=(path:string,value:unknown)=>{writeOperatorJsonNew(path,value,
 const pub = (key: SigningKeyPair) => Buffer.from(key.publicKey).toString('base64url');
 async function fixture(funding:ReturnType<typeof openStorageReservationAuthority>, fundingDirectory?:string) {
   const base = await witnessFixture(), directory = mkdtempSync(join(tmpdir(), 'same-rsa-handoff-'));
+  const policyFiles = new Map<string,string>(), policyJson = (policy:unknown) => {
+    const serialized = JSON.stringify(policy), digest = createHash('sha256').update(serialized).digest('hex'), existing = policyFiles.get(digest);
+    if (existing) return existing;
+    const path = fixtureJson(join(directory,`policy-${digest}.json`),policy); policyFiles.set(digest,path); return path;
+  };
   if(qualification100)campaignRecord({kind:'retained-owner-directory',directory});
   cleanup.push(() => {if(!qualification100)rmSync(directory, { recursive: true, force: true });});
   // Five physical volunteers host all role histories; independent old/new witness signing keys.
@@ -133,13 +137,16 @@ async function fixture(funding:ReturnType<typeof openStorageReservationAuthority
     // The configured path binds the actual history context itself below.
     const policyStore = await openAdmissionPolicyStore({ path: join(ownerDirectory,'admission-community-policy.json'), encryptionKey, mode: 'open-existing', now: () => now }); policyStore.close();
     let verifier: Awaited<ReturnType<typeof createConfiguredAdmissionVerifier>> | undefined;
-    let operatorCounter=0;
+    let operatorIdentity:{ownerKeyFile:string;storageFile:string}|undefined,operatorConfig:{funded:boolean;path:string}|undefined;
+    const operatorFiles=()=>{
+      if(!operatorIdentity){const prefix=join(directory,`operator-owner-${index}`),ownerKeyFile=fixtureJson(prefix+'-key.json',{publicKey:pub(key),secretKey:Buffer.from(key.secretKey).toString('base64url')}),storageFile=prefix+'-storage.hex';writeOperatorTextAtomic(storageFile,encryptionKey.toString('hex'),64);operatorIdentity={ownerKeyFile,storageFile};}
+      return operatorIdentity;
+    };
     const value = { key, encryptionKey, stores: copies.stores,
       async operator(command:string,tail:string[]){
-        await value.close();const prefix=join(directory,`operator-owner-${index}-${operatorCounter++}`),ownerKeyFile=fixtureJson(prefix+'-key.json',{publicKey:pub(key),secretKey:Buffer.from(key.secretKey).toString('base64url')});
-        const config=fixtureJson(prefix+'-config.json',{version:1,...((protection as any).fundedGrowth?{fundedGrowth:'monotone-v1'}:{}),context:historyContext,members:copies.members,ownerKeyFile,limits:{archiveBytes:protection.maxArchiveBytes,archiveBlocks:10001}}),policyFile=fixtureJson(prefix+'-policy.json',selected),storageFile=prefix+'-storage.hex';
-        writeOperatorTextAtomic(storageFile,encryptionKey.toString('hex'),64);
-        const result=await runAdmissionHistoryCommand(command,[config,policyFile,storageFile,ownerDirectory,...tail.map(path=>path==='@role'?ownerKeyFile:path)]);
+        await value.close();const {ownerKeyFile,storageFile}=operatorFiles(),funded=!!(protection as any).fundedGrowth;
+        if(operatorConfig?.funded!==funded){const prefix=join(directory,`operator-owner-${index}${funded?'-funded':''}`);operatorConfig={funded,path:fixtureJson(prefix+'-config.json',{version:1,...(funded?{fundedGrowth:'monotone-v1'}:{}),context:historyContext,members:copies.members,ownerKeyFile,limits:{archiveBytes:protection.maxArchiveBytes,archiveBlocks:10001}})};}
+        const result=await runAdmissionHistoryCommand(command,[operatorConfig.path,policyJson(selected),storageFile,ownerDirectory,...tail.map(path=>path==='@role'?ownerKeyFile:path)]);
         if(command!=='witness-terminal-prepare')await value.openHistory();return result;
       },
       async continueOwner() {
@@ -147,11 +154,10 @@ async function fixture(funding:ReturnType<typeof openStorageReservationAuthority
         await value.close();
         const retained = await openProtectedAdmissionSpendHistory(options());
         const recoveryOriginals = [...retained.originalBlocks()]; retained.close();
-        const prefix=join(directory,`continuation-${index}`),ownerKeyFile=fixtureJson(prefix+'-key.json',{publicKey:pub(key),secretKey:Buffer.from(key.secretKey).toString('base64url')}),
+        const {ownerKeyFile,storageFile}=operatorFiles(),prefix=join(directory,`continuation-${index}`),
           originalsFile=fixtureJson(prefix+'-originals.json',recoveryOriginals),
           configFile=fixtureJson(prefix+'-config.json',{version:1,fundedGrowth:'monotone-v1',recoveryOriginalsFile:originalsFile,context:historyContext,members:copies.members,ownerKeyFile,limits:{archiveBytes:protection.maxArchiveBytes,archiveBlocks:10001}}),
-          enrollmentFile=fixtureJson(prefix+'-enrollment.json',originalEnrollment),storageFile=prefix+'-storage.hex',workspace=prefix+'-recovery',destination=prefix+'-owner',policyFile=fixtureJson(prefix+'-policy.json',selected);
-        writeOperatorTextAtomic(storageFile,encryptionKey.toString('hex'),64);
+          enrollmentFile=fixtureJson(prefix+'-enrollment.json',originalEnrollment),workspace=prefix+'-recovery',destination=prefix+'-owner',policyFile=policyJson(selected);
         const common=[configFile,enrollmentFile,storageFile,workspace];
         const review=(await runAdmissionHistoryCommand('owner-recovery-plan',[...common,'1'])).result as {approvalDigest:string};
         await runAdmissionHistoryCommand('owner-recovery-start',['--approve',review.approvalDigest,...common,'1']);
@@ -165,6 +171,9 @@ async function fixture(funding:ReturnType<typeof openStorageReservationAuthority
         const selection=captureHistoryAncestrySource(ancestry,configFile,historyContext);
         protection={...protection,fundedGrowth:'monotone-v1',ancestrySelection:selection} as typeof protection;
         ownerDirectory=destination;await value.openHistory();
+        if(selected.version===3)throw new Error('Owner recovery requires the previously signed policy');
+        const restoredObservers=parseAdmissionPolicyObservers({...context,genesis:admissionPolicyHead(selected)}),store=await openAdmissionPolicyStore({path:join(ownerDirectory,'admission-community-policy.json'),encryptionKey,mode:'create-new',now:()=>now});
+        await store.install(selected,base.authority,{observers:restoredObservers});store.bindProtectedHistory(historyCheckpointContextId(historyContext));store.close();
       },
       get history() { return history; }, get verifier() { return verifier; },
       async openHistory() { verifier?.close(); await verifier?.drainPolicyObservations(); verifier = undefined; history.close(); history = await openProtectedAdmissionSpendHistory(options()); await history.ready(); return history; },
@@ -199,7 +208,7 @@ async function fixture(funding:ReturnType<typeof openStorageReservationAuthority
   const wallet=await openManagedAdmissionWallet({directory:join(directory,'wallet'),encryptionKey:randomBytes(32),now:()=>now,proofStorage:{authority:funding,authorityId:funding.status().authorityId,directory:join(directory,'wallet-proof'),maxCiphertextBytes:4*1024*1024,maxRecords:128,limits}});cleanup.push(wallet.close);await wallet.installPolicy(policy,base.authority,context);
   async function token(){const permit=await grant(),batch=await createAdmissionIssuanceBatch(policy.keys[0].profile,1),response=await issuer.approve(permit,batch.request,await issuerProof());return(await batch.finalize(response))[0];}
   async function reserveWallet(binding:string){const query=wallet.preparePolicyObservation()!;const reply=await queryResponder.exchange(query);return wallet.capabilityFor({relayUrl:policy.keys[0].profile.relayUrls[0],action:'search',requestBinding:binding,policyObservation:{query,reply}})!;}
-  return { ...base, token, issuer, issuerProof, grant, wallet, reserveWallet, queryResponder, policy, context, oldSet: policy.keys[0].witnesses!, newSet, actors, observers, reopenObservers, directory, now: (value: number) => { now=value; },
+  return { ...base, token, issuer, issuerProof, grant, wallet, reserveWallet, queryResponder, policy, policyJson, context, oldSet: policy.keys[0].witnesses!, newSet, actors, observers, reopenObservers, directory, now: (value: number) => { now=value; },
     claim(spend = randomBytes(32).toString('base64url'), letter = 'a'): AdmissionSpendClaim { return { setId: admissionWitnessSetId(policy.keys[0].witnesses!), issuerKey: policy.activeKey, spend, action: 'search', requestBinding: `admreq_${letter.repeat(86)}` }; } };
 }
 
@@ -243,22 +252,22 @@ it('hands already-issued tokens to a disjoint protected witness cohort under the
   const [readyMessage]=await once(child,'message'); expect(readyMessage).toBe('ready');
   const exited=once(child,'exit'); child.send(crashInput); const [exitCode,signal]=await exited; expect(exitCode).toBeNull(); expect(signal).toBe('SIGKILL');
   await f.actors[2].openHistory(); expect(f.actors[2].history.handoffState()!.phase).toBe('PREPARING');
-  const frozen = [];
-  for (let i=1;i<5;i++) {if(i===4){const path=fixtureJson(join(f.directory,'cli-freeze-proposal.json'),proposal),output=join(f.directory,'cli-frozen.json');expect((await f.actors[i].operator('witness-prepare',[path,'@role',output])).result.result).toBe('witness-old-fenced');frozen.push(JSON.parse(readFileSync(output,'utf8')));}else frozen.push(await freezeProtectedWitness(f.actors[i].history,proposal,f.actors[i].key,f.actors[i].encryptionKey));}
+  // One CLI terminal preparation and activation cover the operator path; repeating
+  // every CLI command per owner creates duplicate artifacts beyond the 512-entry cap.
+  const proposalFile=fixtureJson(join(f.directory,'operator-proposal.json'),proposal),frozen = [];
+  for (let i=1;i<5;i++) frozen.push(await freezeProtectedWitness(f.actors[i].history,proposal,f.actors[i].key,f.actors[i].encryptionKey));
   expect(await freezeProtectedWitness(f.actors[1].history,proposal,f.actors[1].key,f.actors[1].encryptionKey)).toEqual(frozen[0]);
   const pins:WitnessTerminalPins[]=[],terminalPairs:WitnessTerminalEvidence[]=[];
   for(let i=1;i<5;i++){
-    const pairFile=join(f.directory,`terminal-pair-${i}.json`),pinsFile=join(f.directory,`terminal-pins-${i}.json`),proposalPath=fixtureJson(join(f.directory,`terminal-proposal-${i}.json`),proposal);
     console.info(JSON.stringify({kind:'terminal-operator-capacity-checkpoint',owner:i,storage:funding.status(),recoveryStateMaximumBytes:96*1024*1024,recoveryReservationBytes:2*96*1024*1024+8192}));
-    expect((await f.actors[i].operator('witness-terminal-prepare',[proposalPath,'create-new','1',pairFile,pinsFile])).result.result).toBe('witness-terminal-prepared');
-    terminalPairs.push(JSON.parse(readFileSync(pairFile,'utf8')));pins.push(JSON.parse(readFileSync(pinsFile,'utf8')));
+    if(i===1){const pairFile=join(f.directory,`terminal-pair-${i}.json`),pinsFile=join(f.directory,`terminal-pins-${i}.json`);
+      expect((await f.actors[i].operator('witness-terminal-prepare',[proposalFile,'create-new','1',pairFile,pinsFile])).result.result).toBe('witness-terminal-prepared');
+      terminalPairs.push(JSON.parse(readFileSync(pairFile,'utf8')));pins.push(JSON.parse(readFileSync(pinsFile,'utf8')));
+    }else{terminalPairs.push(await f.actors[i].history.prepareTerminalWitness(proposal,{mode:'create-new',nextGeneration:1}));const saved=f.actors[i].history.read(),first=f.actors[i].history.originalBlocks()[Symbol.iterator]().next().value!;
+      pins.push({context:saved.context,genesisId:historyCheckpointEnvelopeId(first),rootId:historyCheckpointEnvelopeId(saved.root),generation:saved.root.generation,nextGeneration:1,head:{...saved.applied!}});}
   }
-  const pinsFile=fixtureJson(join(f.directory,'retained-terminal-pins.json'),pins);
-  const proposalFile=join(f.directory,'operator-proposal.json'), frozenFiles=terminalPairs.map((value,i)=>{const path=join(f.directory,`operator-frozen-${i}.json`);fixtureJson(path,value);return path;});
-  fixtureJson(proposalFile,proposal);
-  const manifestFile=join(f.directory,'operator-manifest.json'),sealFile=join(f.directory,'operator-seal.json');
-  await runWitnessHandoffCommand('witness-transfer-prepare',[proposalFile,pinsFile,...frozenFiles,manifestFile,sealFile]);
   const manifest = await prepareProtectedWitnessTransfer(proposal,terminalPairs,undefined,pins);
+  const manifestFile=fixtureJson(join(f.directory,'operator-manifest.json'),manifest);
   // Authenticated progress from the successful replay cannot hide a changed
   // source in a later operation, even when its owner signs the changed descriptor.
   for (const omit of ['tail', 'middle'] as const) {
@@ -271,9 +280,6 @@ it('hands already-issued tokens to a disjoint protected witness cohort under the
   }
   expect(await prepareProtectedWitnessTransfer(proposal,terminalPairs,undefined,pins)).toEqual(manifest);
   expect(JSON.parse(readFileSync(manifestFile,'utf8'))).toEqual(manifest);
-  const retryManifest=join(f.directory,'operator-manifest-retry.json'),retrySeal=join(f.directory,'operator-seal-retry.json');
-  await runWitnessHandoffCommand('witness-transfer-prepare',[proposalFile,pinsFile,...frozenFiles,retryManifest,retrySeal]);
-  expect(readFileSync(retryManifest,'utf8')).toBe(readFileSync(manifestFile,'utf8'));
   const seal = { version: 1 as const, proposal, manifest: witnessHandoffDigest(manifest), freezes: manifest.freezes, activation: null };
   await f.observers[0].sealWitnessHandoff(seal); await f.reopenObservers[0]();
   const started = performance.now(), drained = await Promise.all(f.observers.slice(0,4).map(o => o.drainWitnessHandoff(seal)));
@@ -286,7 +292,7 @@ it('hands already-issued tokens to a disjoint protected witness cohort under the
   }
   await f.actors[6].openHistory(); expect(await installProtectedWitnessTransfer(f.actors[6].history,terminalPairs,manifest,drained,f.actors[6].key,undefined,pins)).toEqual(ready[1]);
   const activation = createWitnessHandoffActivation({ proposal, manifest: witnessHandoffDigest(manifest), freezes: manifest.freezes, drained, ready },f.authorityKey);
-  const previousFile=fixtureJson(join(f.directory,'cli-prior.json'),f.policy),drainFile=fixtureJson(join(f.directory,'cli-drain.json'),drained),readyFiles=ready.map((value,i)=>fixtureJson(join(f.directory,`cli-ready-${i}.json`),value)),authorityFile=fixtureJson(join(f.directory,'cli-authority.json'),{publicKey:pub(f.authorityKey),secretKey:Buffer.from(f.authorityKey.secretKey).toString('base64url')}),nextFile=join(f.directory,'cli-next.json'),advanceFile=join(f.directory,'cli-advance.json');
+  const previousFile=f.policyJson(f.policy),drainFile=fixtureJson(join(f.directory,'cli-drain.json'),drained),readyFiles=ready.map((value,i)=>fixtureJson(join(f.directory,`cli-ready-${i}.json`),value)),authorityFile=fixtureJson(join(f.directory,'cli-authority.json'),{publicKey:pub(f.authorityKey),secretKey:Buffer.from(f.authorityKey.secretKey).toString('base64url')}),nextFile=join(f.directory,'cli-next.json'),advanceFile=join(f.directory,'cli-advance.json');
   await runAdmissionHistoryCommand('witness-activation-prepare',[previousFile,manifestFile,drainFile,...readyFiles,authorityFile,nextFile,advanceFile]);
   const nextPolicy = await signAdmissionPolicy({ ...f.body, version: 2, archivedKeys: [], revision: 2,
     keys: [{ ...f.policy.keys[0], witnesses: proposal.newSet, witnessHandoff: activation }] },f.authority,f.authorityKey.secretKey);
@@ -331,9 +337,6 @@ it('hands already-issued tokens to a disjoint protected witness cohort under the
   const priorResolved=(await f.actors[5].history.resolvedPolicy()).capability,reader=async()=>{throw new Error('No archive pages in this same-key fixture');},archiveLimits={maxPages:128,maxEntries:10000,maxArchiveBytes:256*1024*1024,maxHistoryBytes:256*1024*1024,maxTransitions:128,maxPageReads:1000,timeoutMs:3000};
   const staged=await prepareAdmissionPolicyV3Successor({previous:priorResolved,next:{revision:3,issuedAt:f.body.issuedAt,expiresAt:f.body.expiresAt,activeKey:f.policy.activeKey,keys:[{...f.policy.keys[0],witnesses:returning.newSet,witnessHandoff:returnedActivation}]},reader,limits:archiveLimits});
   const returnedPolicy=await signAdmissionPolicyV3(staged.body,f.authority,f.authorityKey.secretKey),returnedAdvance=(await createResolvedAdmissionPolicyAdvance({previous:priorResolved,policy:returnedPolicy,key:f.authorityKey,reader,limits:archiveLimits})).advance;
-  const returnedManifestFile=fixtureJson(join(f.directory,'cli-returned-manifest.json'),returnedManifest),returnedDrainFile=fixtureJson(join(f.directory,'cli-returned-drain.json'),returnedDrain),returnedReadyFiles=returnedReady.map((value,i)=>fixtureJson(join(f.directory,`cli-returned-ready-${i}.json`),value)),returnedPolicyFile=join(f.directory,'cli-returned-policy.json'),returnedAdvanceFile=join(f.directory,'cli-returned-advance.json');
-  expect((await f.actors[5].operator('witness-activation-prepare-v3',[returnedManifestFile,returnedDrainFile,...returnedReadyFiles,authorityFile,returnedPolicyFile,returnedAdvanceFile])).result.result).toBe('witness-v3-activation-prepared');
-  expect(JSON.parse(readFileSync(returnedPolicyFile,'utf8'))).toEqual(returnedPolicy);expect(JSON.parse(readFileSync(returnedAdvanceFile,'utf8'))).toEqual(returnedAdvance);
   for (const observer of f.observers.slice(0,4)) await observer.advance(returnedAdvance);
   await f.reopenObservers[0]();
   expect(await f.observers[0].successor(f.context.genesis)).toEqual(advance);

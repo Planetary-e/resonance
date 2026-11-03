@@ -22,7 +22,8 @@ const cleanup:Array<()=>unknown|Promise<unknown>>=[];afterEach(async()=>{for(con
 const pub=(key:SigningKeyPair)=>Buffer.from(key.publicKey).toString('base64url');
 
 
-it('same-view replay must not let honest protected members sign two values at one sequence',async()=>{
+// STOPPED: this historical RSO3 vertical is suspended with the rejected recovery design.
+it.skip('same-view replay must not let honest protected members sign two values at one sequence',async()=>{
  const f=await sustainableLegacyFixture(4);await f.run(async()=>{
   const manifest=finiteRecoveryManifest(join(f.directory,'certified-arenas'));
   const preflight=preflightSustainableRecoveryManifest(f.funding,manifest,'new');expect(preflight.review.fits).toBe(true);

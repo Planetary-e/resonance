@@ -89,8 +89,9 @@ export function compileSustainableRecoveryManifest(value: RecoveryAllocationMani
       || outside.path === value.root || outside.path.startsWith(value.root+'/')) throw new Error('Invalid or hidden outside recovery obligation');
     paths.add(outside.path); requests.push({...outside});
   }
-  const maximumWork = 4 * add(...Object.values(value.work));
-  if (!safe(maximumWork) || maximumWork > SUSTAINABLE_RECOVERY_LIMITS.work) throw new Error('Recovery cumulative work envelope exhausted');
+  const maximumWork = SUSTAINABLE_RECOVERY_LIMITS.operationWork;
+  const cumulativeWork = 4 * add(...Object.values(value.work));
+  if (!safe(cumulativeWork) || cumulativeWork > SUSTAINABLE_RECOVERY_LIMITS.work) throw new Error('Recovery cumulative work envelope exhausted');
   const manifest = structuredClone(value);
   const digest = `sha256:${createHash('sha256').update('resonance:sustainable-recovery-manifest:v1\n').update(JSON.stringify(manifest)).digest('hex')}`;
   return { manifest, digest, requests, maximumWork, arenaBytes: add(...requests.slice(0,98).map(r=>r.maximumBytes)),

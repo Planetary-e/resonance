@@ -1,4 +1,5 @@
 import { readFileSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { expect, it } from 'vitest';
 import { driveIndependentRso5Matrix } from '../sustainable-rso5-lab.js';
 
@@ -19,7 +20,7 @@ it('validates frozen matrix order, scenarios and isolated artifact identities wi
   expect(manifest.randomness).toMatchObject({ source: 'node:crypto.randomBytes', deterministic: false,
     exact_business_replay: false, seed_retrofit_forbidden: true, discard_draws_forbidden: true });
   expect(manifest.analysis_freeze.post_result_changes_forbidden).toBe(true);
-  const path = 'delivery/results/econ-matrix-execution-plan.json';
+  const path = `delivery/results/econ-matrix-execution-plan-${randomBytes(8).toString('hex')}.json`;
   writeFileSync(path, `${JSON.stringify({ schema_version: 1, outcome: 'passed_execution_path_selection', matrix_runs_executed: 0,
     entrypoint: 'driveIndependentRso5Matrix({execute:true,independentReviewApproved:true})',
     execution_guard: 'independentReviewApproved required for execution', scenarios: [...new Set(selected.map(run => run.scenario))].sort(),

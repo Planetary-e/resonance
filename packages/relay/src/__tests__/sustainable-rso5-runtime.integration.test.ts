@@ -81,8 +81,9 @@ function saveEvidence(result: { outcome: 'failed' | 'blocked' | 'passed'; error?
   const acceptanceEvaluation = outcome === 'passed' ? 'passed_revised_budget_research' : outcome === 'failed' ? 'failed_revised_budget_research' : 'blocked_revised_budget_research';
   const forecastComparison = { totalForecastBytes: 270132258, differenceFromForecastBytes: evidence.usedBytes - 270132258, forecastExcessBytes: 1696802, actualExcessBytes: Math.max(0, evidence.usedBytes - cumulativeMaximum), unreachableClasses: inventory.complete ? [] : ['complete required inventory'] };
   const run = { outcome, diagnosticUnbounded: false, budgetId: 'DEC-012', acceptanceEvaluation, acceptanceComparison: { operationMaximumBytes: operationMaximum, cumulativeMaximumBytes: cumulativeMaximum }, candidateMaximumBytes: operationMaximum, cumulativeMaximumBytes: cumulativeMaximum, durationMs: result.durationMs, preparationWork: result.preparationWork, ...evidence, inventory, forecastComparison, error: result.error ?? (inventory.complete ? undefined : 'Required diagnostic inventory incomplete') };
-  writeFileSync('delivery/results/rso5-dec012-operation-work.json', JSON.stringify(run, null, 2));
-  writeFileSync('delivery/results/RUN-RSO5-DEC-012.json', JSON.stringify(run, null, 2));
+  const suffix = randomBytes(8).toString('hex');
+  writeFileSync(`delivery/results/rso5-dec012-operation-work-${suffix}.json`, JSON.stringify(run, null, 2), { mode: 0o600, flag: 'wx' });
+  writeFileSync(`delivery/results/RUN-RSO5-DEC-012-${suffix}.json`, JSON.stringify(run, null, 2), { mode: 0o600, flag: 'wx' });
   return run;
 }
 

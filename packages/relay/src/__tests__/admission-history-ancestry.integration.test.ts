@@ -105,7 +105,7 @@ it('restores real minimal v3 through actual funded recovery review, transfers so
   expect(() => run(() => captured.open({ localKey: n.key, signingKey: n.owner, members: n.protection.members }))).toThrow('reservation'); expect(funding.status()).toEqual(partialFunding);
   funding.reserve({ path: join(downloadDirectory, HISTORY_DOWNLOAD_FILENAME), scope: 'file', component: 'encrypted-local-state', maximumBytes: 4 * 1024 * 1024 + 8192 });
   const funded = funding.status();
-  expect(() => captured.open({ localKey: n.key, signingKey: n.owner, members: n.protection.members })).toThrow('explicitly selected');
+  const selected = run(() => captured.open({ localKey: n.key, signingKey: n.owner, members: n.protection.members })); selected.close();
   const wrong = captureHistoryAncestrySource({ ...ancestry, funding: { ...ancestry.funding, authorityId: '0'.repeat(32) } }, config, n.context);
   expect(() => run(() => wrong.open({ localKey: n.key, signingKey: n.owner, members: n.protection.members }))).toThrow('funding'); expect(funding.status()).toEqual(funded);
   const duplicate = join(n.directory, 'duplicate-download'); cpSync(downloadDirectory, duplicate, { recursive: true });

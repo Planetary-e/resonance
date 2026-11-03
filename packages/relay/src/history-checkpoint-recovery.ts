@@ -219,8 +219,10 @@ export function createHistoryCheckpointRecovery(options: {
                     nextGeneration, receipts, envelopes: selected, ...(compaction ? { compaction: compaction.certificate } : {}) }, context, compaction?.genesisId));
                 } catch (error) { finish(undefined, error instanceof Error ? error : new Error('Invalid frozen history preparation')); }
               }
-            }).catch(() => {
+            }).catch(error => {
               if (settled) return;
+              if (selection && error instanceof Error && (error.message === 'Frozen recovery differs from exact funded selection'
+                || error.message === 'Frozen head differs from exact funded selection')) { finish(undefined, error); return; }
               diagnostic.ended = performance.now() - started;
               if (diagnostic.reason === 'pending') diagnostic.reason = expired() ? 'deadline' : controller.signal.aborted ? 'cancelled'
                 : diagnostic.phase === 'transport' ? 'transport' : diagnostic.phase === 'response-validation' ? 'invalid-response'
