@@ -56,6 +56,26 @@ jobs:
           packages/core/src/__tests__/admission-policy-query.test.ts
           packages/core/src/__tests__/admission-policy-trust.test.ts
           packages/relay/src/__tests__/admission-policy-freshness-gate.test.ts
+
+  policy-observer-ownership:
+    # Bound the remaining ownership suites independently of the first ownership job.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(inputs.all_platforms && '["macos-latest","ubuntu-latest","windows-latest"]' || '["macos-latest"]') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install test dependencies without native install scripts
+        run: npm ci --ignore-scripts
+      - name: Verify configured freshness and policy observer ownership
+        run: >-
+          npx vitest run --maxWorkers=1
           packages/relay/src/__tests__/configured-policy-freshness.integration.test.ts
           packages/core/src/__tests__/admission-policy-transfer.test.ts
           packages/relay/src/__tests__/admission-policy-transfer.test.ts
@@ -150,7 +170,11 @@ jobs:
 
   observer-migration:
     # Keep the unchanged three-second migration check out of composed-workload contention.
-    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(inputs.all_platforms && '["macos-latest","ubuntu-latest","windows-latest"]' || '["macos-latest"]') }}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
