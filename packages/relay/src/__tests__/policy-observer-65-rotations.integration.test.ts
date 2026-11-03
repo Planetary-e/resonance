@@ -1,4 +1,6 @@
 import { afterEach, expect, it } from 'vitest';
+import { once } from 'node:events';
+import WebSocket from 'ws';
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -74,11 +76,28 @@ it('retains 65 real rotations through two protected observers, remote pages and 
       if (!exchanges[i]) throw new Error('Fixture observer not enrolled');
       try { return await exchanges[i]!(frame, signal); }
       catch (error) { const type = (frame as { type?: unknown }).type; retainDiagnostic(handlerFailures, { observer: i, type: typeof type === 'string' ? type.slice(0, 64) : 'head', error: String(error).slice(0, 512) }); throw error; }
-    }, { port: 0 });
+    }, { port: 0, allowSequentialRequests: true });
     listeners.push(listener); cleanup.push(listener.close);
   }
   const members = keys.map((key, i) => ({ publicKey: Buffer.from(key.publicKey).toString('base64url'),
     endpoint: i < 2 ? listeners[i].endpoint : `ws://127.0.0.1:${49990 + i}/policy-head` }));
+  const remoteSockets = new Map<string, WebSocket>();
+  async function remoteFrame(member: typeof members[number], request: unknown, signal: AbortSignal) {
+    let socket = remoteSockets.get(member.publicKey);
+    if (!socket || socket.readyState === WebSocket.CLOSING || socket.readyState === WebSocket.CLOSED) {
+      socket = new WebSocket(member.endpoint, { maxPayload: POLICY_ARCHIVE_PAGE_REPLY_MAX_BYTES, perMessageDeflate: false });
+      socket.on('error', () => {}); remoteSockets.set(member.publicKey, socket); cleanup.push(() => socket!.terminate());
+    }
+    const abort = () => socket!.terminate();
+    signal.addEventListener('abort', abort, { once: true });
+    try {
+      if (socket.readyState === WebSocket.CONNECTING) await once(socket, 'open');
+      const response = once(socket, 'message');
+      signal.throwIfAborted(); socket.send(JSON.stringify(request));
+      const [data, binary] = await response; if (binary) throw new Error('Binary policy archive response');
+      return JSON.parse(data.toString());
+    } finally { signal.removeEventListener('abort', abort); }
+  }
   const witnesses = parseAdmissionWitnessSet({ version: 1, quorum: 4, members, coordinators: [authority] });
   // Each issuer key is generated exactly once, before any rotation is exercised.
   const entries: AdmissionPolicyKey[] = Array.from({ length: 66 }, (_, i) => ({
@@ -115,7 +134,7 @@ it('retains 65 real rotations through two protected observers, remote pages and 
       members: enrolled.context.members.map((publicKey, i) => ({ publicKey, endpoint: `ws://127.0.0.1:${42000 + i}/history-checkpoint` })),
       remoteArchive: { exchange: async (member: typeof members[number], request: unknown, signal: AbortSignal) => {
         pageRequests++; const start = performance.now();
-        try { const reply = await exchangeAdmissionPolicyObserverFrame(member, request, signal, POLICY_ARCHIVE_PAGE_REPLY_MAX_BYTES); retainDiagnostic(pageExchanges, { observer: index, peer: members.findIndex(value => value.publicKey === member.publicKey), index: (request as { index?: unknown }).index, ms: performance.now() - start, result: 'reply' }); return reply; }
+        try { const reply = await remoteFrame(member, request, signal); retainDiagnostic(pageExchanges, { observer: index, peer: members.findIndex(value => value.publicKey === member.publicKey), index: (request as { index?: unknown }).index, ms: performance.now() - start, result: 'reply' }); return reply; }
         catch (error) { retainDiagnostic(pageExchanges, { observer: index, peer: members.findIndex(value => value.publicKey === member.publicKey), index: (request as { index?: unknown }).index, ms: performance.now() - start, result: String(error).slice(0, 512) }); throw error; }
       } },
     };
