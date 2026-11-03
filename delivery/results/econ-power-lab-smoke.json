@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "authorization_id": "DEC-013",
+  "status": "passed_parser_and_energy_arithmetic_smoke",
+  "full_scenario": false,
+  "sample_count": 1,
+  "samples": [
+    {
+      "at": "2026-11-02T06:07:54.000Z",
+      "cpu_mw": 412,
+      "gpu_mw": 1,
+      "ane_mw": 0,
+      "combined_mw": 413
+    }
+  ],
+  "units": "mW",
+  "raw_sample_identity": "delivery/results/econ-power-sampler-check.txt",
+  "arithmetic_check": {
+    "kind": "synthetic_unit_test_not_physical_evidence",
+    "expected_joules": 1,
+    "actual_joules": 1,
+    "pass": true
+  },
+  "energy_joules": 0,
+  "energy_kwh": 0,
+  "note": "One actual sample establishes parsing only; no interval energy and no full scenario was measured",
+  "acceptance_evaluation": "not_run"
+}

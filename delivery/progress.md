@@ -226,3 +226,12 @@
 - **Evidence identity:** Both result artifacts are byte-identical with SHA-256 `a82f20cf8e16cc9d9db144115cba2aac0e129b2fee67763ec755a22b1e2ddd7f`; all 23 candidate hashes verify. The forecast difference is 407,840,969 B.
 - **Files changed:** Recovery resource contract, bounded lifecycle/finalizer, new DEC-012 result/summary/candidate/receipt artifacts and delivery state/features/work/progress. Original-cap evidence remains preserved. Parent owns commit/push.
 - **Next action:** Commit and push validated changes. Physical power, real network, labor, representative maxima, E3 and production approval remain missing.
+
+## 2026-11-02T06:29:34Z — DEC-013 power instrumentation and offline smoke complete
+
+- **State and feature:** `active`; FEAT-001 is open only for DEC-013 physical-power instrumentation. Full laboratory runs remain pending; no production, E2, economic or K/R acceptance.
+- **Implementation:** Added one owner-invoked `scripts/rso5-power-lab.mjs` wrapper for continuous 1-second `powermetrics` sampling, actual timestamped mW, trapezoidal absolute energy, matched-idle subtraction only when run and idle evidence are valid, missing/censored intervals, sanitized JSON/CSV and failure-energy joins. Added the unexecuted full-lab integration test and froze 20 scenarios, two 30-minute baselines and 40 paired idle windows in `delivery/results/econ-power-lab-manifest.json`.
+- **Smoke:** Offline parser smoke used only the authorized manual sample `delivery/results/econ-power-sampler-check.txt`: CPU 412 mW, GPU 1 mW, ANE 0 mW, combined 413 mW at `2026-11-02T06:07:54.000Z`. One actual sample has no interval energy. A separately labeled synthetic one-second arithmetic check passed at exactly 1 J. `delivery/results/econ-power-lab-smoke.json` and `.csv` contain no scenario claim or raw host log.
+- **Verification:** Actual-source noEmit and wrapper syntax checks pass. All 28 manifest source hashes match. No full `econ-power-lab-execution.json`, decision or hash set exists, and no privileged action was run by this agent.
+- **Files changed:** Power wrapper, full-lab integration test, frozen manifest and delivery work/state/progress. All previous evidence and original-cap histories are preserved.
+- **Next action:** Owner runs `sudo node scripts/rso5-power-lab.mjs --full`; independent physical-evidence review follows. E3, economic affordability and production approval remain separate decisions.

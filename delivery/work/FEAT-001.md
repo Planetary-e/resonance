@@ -4,7 +4,7 @@ status: blocked
 requirement_ids: [PRD-002, PRD-003, PRD-011]
 control_ids: [ARCH-001, ARCH-002, ARCH-005, ARCH-006, ARCH-007, CMP-004]
 evaluation_ids: [EVL-003, EVL-004, EVL-005, EVL-015]
-updated_at: "2026-10-31T16:43:03Z"
+updated_at: "2026-11-02T06:29:34Z"
 ---
 
 # FEAT-001: Genuinely different recovery architecture decision
@@ -166,6 +166,16 @@ Evidence plan: focused RSO5 manifest, actual-source noEmit and one complete boun
 
 Outcome: focused RSO5 manifest **17/17 PASS**, actual-source noEmit **PASS**, and complete bounded lifecycle **PASS** with 272 records and complete inventory. Every operation used `maximumBytes:26611731` with no unbounded flag. Actual cumulative work is **678,000,451 B**, below the DEC-012 cumulative limit by 338,959,390 B. Maximum operation is `local-C-recovery:3` at **17,741,154 B**, below the operation limit by 8,870,577 B. Zero operation/cumulative crossings and no unreachable classes. Acceptance evaluation is `passed_revised_budget_research` only. Result artifacts are `delivery/results/RUN-RSO5-DEC-012.json` and `delivery/results/rso5-dec012-operation-work.json`, both SHA-256 `b2655804beb469ba5d07b166925ef7173df659e8aed27f88796aef562a05f20e`; summary, 23-hash candidate and receipt are in `delivery/results/rso5-dec012-evidence-summary.json`, `docs/handover/2026-10-31/rso5-dec012-candidate-hashes.json` and `docs/evals/v04-rso5-dec012-bounded-research-2026-10-31.md`. Independent review may follow; production, E3, economic and K/R acceptance remain open.
 
+## DEC-013 physical power instrumentation
+
+Authorization at 2026-11-02T06:10:36Z permits only `sudo powermetrics` for the approved RSO5 laboratory. One owner-invoked `scripts/rso5-power-lab.mjs` wrapper will run the entire driver with permission for the sampler, workers and tests; no other privileged behavior is allowed. Do not run the full matrix or windows in this task. Only a short sampler/parser smoke using the existing authorized manual sample is permitted.
+
+Implement continuous 1-second sampling with actual timestamps and CPU/GPU/ANE/combined mW, trapezoidal absolute energy, matched idle-subtracted energy only when a valid matched baseline exists, and explicit missing/censored intervals and validity. Use combined power once; never derive energy from CPU time or work bytes. Join new power runs to process/disk/network/work artifacts without changing those measurements or double counting.
+
+Freeze existing scenario seeds/order and analysis before execution. Full runs must remain pending and distinct from smoke. Include all 20 scenarios, 30-minute idle/sustained windows, matched pre/post idle windows and failure energy. Power JSON/CSV must exclude serial/UUID/IP/keys/plaintext/private logs and preserve all previous evidence. E2 remains incomplete until full physical evidence validates; no economic, production or K/R acceptance and no commit/push.
+
+Outcome: wrapper and full-lab integration are implemented with 28 matching source hashes; actual-source noEmit and syntax checks pass. Offline smoke used only the authorized manual sample and proves actual mW parsing (CPU 412, GPU 1, ANE 0, combined 413 at `2026-11-02T06:07:54.000Z`) plus a separately labeled 1 J arithmetic check. No full scenario ran, and no execution/decision/hash artifacts exist. Full owner command is `sudo node scripts/rso5-power-lab.mjs --full`; independent review follows complete evidence. No privileged action was run by this agent and no production, E2, economic or K/R acceptance follows.
+
 ## Change history and related DEC/ADR IDs
 
 - v1, 2026-10-25: created the work contract as blocked under DEC-001.
@@ -194,3 +204,4 @@ Outcome: focused RSO5 manifest **17/17 PASS**, actual-source noEmit **PASS**, an
 - v24, 2026-10-30: DEC-010 v2 runs finalize complete evidence with 52/52 clean stops and zero survivors. Monotonic baselines pass, finalization is bounded and stack-safe, but sustained warmup fails at 42,613.754 ms. Decision and budget evaluation are blocked; actual metrics, 78-artifact hashes and receipt are preserved, with no new attempt or production/economic acceptance.
 - v25, 2026-10-31: DEC-011 enforces sustained warmup before bootstrap. Both runs pass all timing, finalization, work, traffic, authorization, power and cleanup gates with 52/52 clean stops and zero survivors. Actual aggregate work is 24,600,898,343 B; 50 evidence hashes validate. Independent budget review may proceed, with revised-budget, E2/E3, production, economic and K/R decisions still open.
 - v26, 2026-10-31: DEC-012 normal bounded lifecycle passes with complete inventory and zero operation/cumulative crossings: 678,000,451 B total and 17,741,154 B maximum operation, within the research contract. Original-cap history is preserved. Result/summary/candidate/receipt and 23 hashes validate; independent review may follow, with production, E3, economic and K/R acceptance still open.
+- v27, 2026-11-02: DEC-013 power wrapper and frozen full-lab test implemented. Offline smoke parses actual 413 mW combined and verifies 1 J arithmetic; no full scenario or privileged action ran. Twenty scenarios, two baselines and 40 paired idle windows remain pending under 28 matching source hashes. Owner command is `sudo node scripts/rso5-power-lab.mjs --full`; no production, E2, economic or K/R acceptance.

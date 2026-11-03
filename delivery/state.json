@@ -5,7 +5,7 @@
     "mode": "existing",
     "release": "v0.4 complete owner-approved scope"
   },
-  "status": "paused",
+  "status": "active",
   "onboarding": {
     "phase": "done"
   },
@@ -17,7 +17,7 @@
     "session_only_installation": true
   },
   "current_feature_id": "FEAT-001",
-  "next_action": "DEC-012 revised-budget research evidence is independently accepted; commit and push. Production, E3, economic and K/R acceptance remain open.",
+  "next_action": "Owner runs `sudo node scripts/rso5-power-lab.mjs --full` for the frozen DEC-013 laboratory, then independent physical-evidence review. Full runs remain pending; no production/E2/economic/K/R acceptance.",
   "pending_decision_ids": [],
   "approvals": {
     "product_scope": "approved",
@@ -29,6 +29,6 @@
   "session": {
     "id": "kimi-resonance-v04-20261025T190412Z",
     "started_at": "2026-10-25T19:04:12Z",
-    "updated_at": "2026-10-31T16:53:51Z"
+    "updated_at": "2026-11-02T06:29:34Z"
   }
 }
