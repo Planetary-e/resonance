@@ -545,7 +545,7 @@ export async function openProtectedPolicyObserver(options: {
       try {
         const request = parseAdmissionPolicyHeadRequest(value, context, now(), work), started = performance.now(), remaining = request.expiresAt - now();
         const validationReader = pageReader();
-        const before = retained(); usable(before.state); await validateCurrent(before.state, validationReader);
+        const before = retained(); usable(before.state);
         if (before.saved.pending) throw new Error('Complete the pending policy observer history first');
         if (!before.saved.committed) throw new Error('Confirm the policy observer root before observing');
         await writer!.observeCurrent(); live(); const { state } = retained(); await validateCurrent(state, validationReader);
