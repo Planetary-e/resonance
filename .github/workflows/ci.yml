@@ -136,7 +136,6 @@ jobs:
           packages/node/src/__tests__/protected-issuer-recovery-crash.integration.test.ts
           packages/node/src/__tests__/protected-issuer-recovery-command.integration.test.ts
           packages/relay/src/__tests__/policy-observer-v3.integration.test.ts
-          packages/relay/src/__tests__/policy-observer-65-rotations.integration.test.ts
           packages/node/src/__tests__/wallet-policy-proof.test.ts
           packages/node/src/__tests__/protected-admission-consumers-v3.integration.test.ts
 
@@ -148,6 +147,21 @@ jobs:
           for (const role of ["admission-issuer", "relay-admission-spends"]) {
           const path = join(tmpdir(), "protected-consumer-freeze-" + role + ".json");
           console.log(existsSync(path) ? readFileSync(path, "utf8") : "No completed collection receipt for " + role); }'
+
+  observer-migration:
+    # Keep the unchanged three-second migration check out of composed-workload contention.
+    runs-on: macos-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install test dependencies without native install scripts
+        run: npm ci --ignore-scripts
+      - name: Verify 65 protected observer rotations and remote migration
+        run: npx vitest run --maxWorkers=1 packages/relay/src/__tests__/policy-observer-65-rotations.integration.test.ts
 
   desktop-boundaries:
     # Actual local API/process checks; no native compilation or app installers.
@@ -212,7 +226,7 @@ jobs:
         run: npm run build
 
       - name: Run tests
-        run: npx vitest run --maxWorkers=1
+        run: npx vitest run --maxWorkers=1 --exclude packages/relay/src/__tests__/policy-observer-65-rotations.integration.test.ts
 
       - name: Report owner-loss collection timing
         if: always()
