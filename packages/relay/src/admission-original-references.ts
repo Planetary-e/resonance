@@ -12,7 +12,7 @@ interface TermList extends Array<Scalar | TermList> {}
 type Term = Scalar | TermList;
 interface Node { term: Term; value: unknown; bytes: number; depth: number }
 export interface OriginalReferencePacket { version: 1; kind: typeof KIND; context: string; previous: string | null; root: Term; nodes: Array<[string, Term]> }
-const digest = (term: Term) => createHash('sha256').update('resonance:admission-original-json:v1\n').update(JSON.stringify(term)).digest('base64url');
+const digest = (term: Term, serialized = JSON.stringify(term)) => createHash('sha256').update('resonance:admission-original-json:v1\n').update(serialized).digest('base64url');
 const size = (value: unknown) => Buffer.byteLength(JSON.stringify(value));
 const exact = (value: object, fields: string[]) => Object.keys(value).sort().join(',') === fields.sort().join(',');
 
@@ -111,12 +111,13 @@ export function createAdmissionOriginalReferences(context: string, limits: { max
     // A failed decode cannot add nodes for a later record.
     const next = new Map(nodes); let addedBytes = 0;
     for (const entry of encoded.nodes) {
-      if (!Array.isArray(entry) || entry.length !== 2 || typeof entry[0] !== 'string' || digest(entry[1]) !== entry[0]) throw new Error('Original reference hash differs');
-      const [id, term] = entry;
+      if (!Array.isArray(entry) || entry.length !== 2 || typeof entry[0] !== 'string') throw new Error('Original reference hash differs');
+      const [id, term] = entry, serialized = JSON.stringify(term);
+      if (digest(term, serialized) !== id) throw new Error('Original reference hash differs');
       const old = next.get(id);
-      if (old) { if (JSON.stringify(old.term) !== JSON.stringify(term)) throw new Error('Conflicting original reference'); continue; }
+      if (old) { if (JSON.stringify(old.term) !== serialized) throw new Error('Conflicting original reference'); continue; }
       const node = expand(term, next);
-      addedBytes += size(entry);
+      addedBytes += Buffer.byteLength(serialized) + Buffer.byteLength(JSON.stringify(id)) + 3;
       if (dictionaryBytes + addedBytes > maximumDictionary) throw new Error('Original reference dictionary exceeds cumulative capacity');
       next.set(id, node);
     }

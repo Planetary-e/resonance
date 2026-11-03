@@ -222,7 +222,8 @@ export function admissionPolicyArchivePageDigest(value: Uint8Array): string {
 function successor(previous: SignedAdmissionPolicy, next: SignedAdmissionPolicy) {
   assertAdmissionPolicySuccessor(previous, next);
   const prior = admissionPolicyKeys(previous), active = previous.keys.find(e => admissionKeyFingerprint(e.profile.issuerPublicKey) === previous.activeKey)!;
-  const fresh = admissionPolicyKeys(next).filter(entry => !prior.some(e => admissionKeyFingerprint(e.profile.issuerPublicKey) === admissionKeyFingerprint(entry.profile.issuerPublicKey)));
+  const priorKeys = new Set(prior.map(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey)));
+  const fresh = admissionPolicyKeys(next).filter(entry => !priorKeys.has(admissionKeyFingerprint(entry.profile.issuerPublicKey)));
   if (fresh.length && (fresh.length !== 1 || admissionKeyFingerprint(fresh[0].profile.issuerPublicKey) !== next.activeKey || !fresh[0].witnesses)) {
     throw new Error('Rotation requires exactly one fresh witnessed active issuer');
   }
@@ -233,7 +234,8 @@ function successor(previous: SignedAdmissionPolicy, next: SignedAdmissionPolicy)
 }
 function extendArchive(expected: AdmissionPolicyKey[], policy: SignedAdmissionPolicy) {
   // Existing policy bounds cap this retained metadata at 64 entries, not an unbounded index.
-  const extra = (policy.archivedKeys ?? []).filter(entry => !expected.some(old => admissionKeyFingerprint(old.profile.issuerPublicKey) === admissionKeyFingerprint(entry.profile.issuerPublicKey)));
+  const expectedKeys = new Set(expected.map(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey)));
+  const extra = (policy.archivedKeys ?? []).filter(entry => !expectedKeys.has(admissionKeyFingerprint(entry.profile.issuerPublicKey)));
   return [...expected, ...extra];
 }
 function checkDescriptorBounds(value: AdmissionPolicyArchiveDescriptor, budget: AdmissionPolicyArchiveBudget) {

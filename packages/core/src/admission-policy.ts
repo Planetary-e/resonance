@@ -119,18 +119,26 @@ export function assertAdmissionPolicySuccessor(previous: AdmissionPolicyBody, ne
   }
   if (next.issuedAt < previous.issuedAt) throw new Error('Admission policy date moved backwards');
   if (previous.version === 2 && next.version !== 2) throw new Error('Cannot downgrade a policy with permanent archives');
+  const index = (entries: AdmissionPolicyKey[]) => {
+    const indexed = new Map<string, AdmissionPolicyKey>();
+    for (const entry of entries) {
+      const id = admissionKeyFingerprint(entry.profile.issuerPublicKey);
+      if (!indexed.has(id)) indexed.set(id, entry);
+    }
+    return indexed;
+  };
+  const current = index(next.keys), archived = index(next.archivedKeys ?? []);
   for (const old of previous.archivedKeys ?? []) {
-    const archived = next.archivedKeys?.find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === admissionKeyFingerprint(old.profile.issuerPublicKey));
-    if (!archived || next.keys.some(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === admissionKeyFingerprint(old.profile.issuerPublicKey)) || JSON.stringify(archived) !== JSON.stringify(old)) throw new Error('Archived admission keys are permanent and immutable');
+    const id = admissionKeyFingerprint(old.profile.issuerPublicKey), entry = archived.get(id);
+    if (!entry || current.has(id) || JSON.stringify(entry) !== JSON.stringify(old)) throw new Error('Archived admission keys are permanent and immutable');
   }
   for (const old of previous.keys) {
-    const archived = next.archivedKeys?.find(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === admissionKeyFingerprint(old.profile.issuerPublicKey));
-    if (archived) {
-      if (next.keys.some(entry => admissionKeyFingerprint(entry.profile.issuerPublicKey) === admissionKeyFingerprint(old.profile.issuerPublicKey))
-        || next.issuedAt < old.retryUntil || JSON.stringify(archived) !== JSON.stringify(old)) throw new Error('Archiving requires the original final cutoff and unchanged pins');
+    const id = admissionKeyFingerprint(old.profile.issuerPublicKey), archivedEntry = archived.get(id);
+    if (archivedEntry) {
+      if (current.has(id) || next.issuedAt < old.retryUntil || JSON.stringify(archivedEntry) !== JSON.stringify(old)) throw new Error('Archiving requires the original final cutoff and unchanged pins');
       continue;
     }
-    const entry = next.keys.find(key => admissionKeyFingerprint(key.profile.issuerPublicKey) === admissionKeyFingerprint(old.profile.issuerPublicKey));
+    const entry = current.get(id);
     if (!entry || JSON.stringify(entry.profile) !== JSON.stringify(old.profile) || entry.notBefore !== old.notBefore
       || entry.issueUntil > old.issueUntil || entry.spendUntil > old.spendUntil || entry.retryUntil > old.retryUntil) {
       throw new Error('A policy must retain prior keys and cannot change their pins or extend retirement cutoffs');
