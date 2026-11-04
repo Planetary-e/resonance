@@ -1,0 +1,119 @@
+{
+  "measuredAt": "2026-10-18T05:36:11.893Z",
+  "model": "nomic-ai/nomic-embed-text-v1",
+  "dtype": "fp32",
+  "targets": {
+    "maximumPeakRssBytes": 1610612736,
+    "maximumInferenceMs": 1000,
+    "maximumInferenceCpuSeconds": 5,
+    "candidateTokens": [
+      128,
+      256,
+      512
+    ],
+    "repetitions": 3
+  },
+  "results": [
+    {
+      "tokens": 128,
+      "textBytes": 870,
+      "measurements": [
+        {
+          "elapsedMs": 70.37233300000003,
+          "cpuSeconds": 0.349227,
+          "rssBytes": 1008107520,
+          "peakRssBytes": 1008107520
+        },
+        {
+          "elapsedMs": 67.066958,
+          "cpuSeconds": 0.334272,
+          "rssBytes": 1012924416,
+          "peakRssBytes": 1012924416
+        },
+        {
+          "elapsedMs": 67.62645900000007,
+          "cpuSeconds": 0.333442,
+          "rssBytes": 1016692736,
+          "peakRssBytes": 1016692736
+        }
+      ]
+    },
+    {
+      "tokens": 256,
+      "textBytes": 1766,
+      "measurements": [
+        {
+          "elapsedMs": 141.72587499999997,
+          "cpuSeconds": 0.704446,
+          "rssBytes": 1014874112,
+          "peakRssBytes": 1014874112
+        },
+        {
+          "elapsedMs": 134.33995800000002,
+          "cpuSeconds": 0.672789,
+          "rssBytes": 1034813440,
+          "peakRssBytes": 1034813440
+        },
+        {
+          "elapsedMs": 132.67429200000004,
+          "cpuSeconds": 0.666688,
+          "rssBytes": 1043644416,
+          "peakRssBytes": 1043644416
+        }
+      ]
+    },
+    {
+      "tokens": 512,
+      "textBytes": 3558,
+      "measurements": [
+        {
+          "elapsedMs": 282.662458,
+          "cpuSeconds": 1.400825,
+          "rssBytes": 1042644992,
+          "peakRssBytes": 1042644992
+        },
+        {
+          "elapsedMs": 279.03495899999984,
+          "cpuSeconds": 1.400902,
+          "rssBytes": 1035698176,
+          "peakRssBytes": 1043791872
+        },
+        {
+          "elapsedMs": 277.5872499999998,
+          "cpuSeconds": 1.387041,
+          "rssBytes": 1039024128,
+          "peakRssBytes": 1043791872
+        }
+      ]
+    }
+  ],
+  "candidates": [
+    {
+      "tokens": 128,
+      "maximumInferenceMs": 70.37233300000003,
+      "maximumInferenceCpuSeconds": 0.349227,
+      "peakRssBytes": 1016692736
+    },
+    {
+      "tokens": 256,
+      "maximumInferenceMs": 141.72587499999997,
+      "maximumInferenceCpuSeconds": 0.704446,
+      "peakRssBytes": 1043644416
+    },
+    {
+      "tokens": 512,
+      "maximumInferenceMs": 282.662458,
+      "maximumInferenceCpuSeconds": 1.400902,
+      "peakRssBytes": 1043791872
+    }
+  ],
+  "selectedMaximumTokens": 512,
+  "node": "v24.19.0",
+  "platform": "darwin",
+  "architecture": "arm64",
+  "limitations": [
+    "One CPU host and repeated public words; worst-case model dimensions, not a representative language benchmark.",
+    "Three inferences per isolated length, including the cold first inference. No overlapping model processes.",
+    "Process RSS includes cached model loading. CPU is not device energy. This evaluation does not impose production limits."
+  ]
+}

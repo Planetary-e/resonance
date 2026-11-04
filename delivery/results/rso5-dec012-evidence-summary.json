@@ -1,0 +1,26 @@
+{
+  "diagnosticUnbounded": false,
+  "budgetId": "DEC-012",
+  "acceptanceEvaluation": "passed_revised_budget_research",
+  "usedBytes": 677973227,
+  "forecastBytes": 270132258,
+  "differenceFromForecastBytes": 407840969,
+  "actualExcessBytes": 0,
+  "maximumOperation": "local-C-recovery:3",
+  "maximumOperationBytes": 17741154,
+  "operationCrossingCount": 0,
+  "firstOperationCrossing": null,
+  "firstCumulativeCrossing": null,
+  "operationCount": 272,
+  "inventory": {
+    "legacyPreparations": 4,
+    "runtimePhaseCalls": 102,
+    "leaderProposals": 6,
+    "retries": 7,
+    "viewChangeGroups": 2,
+    "newViewCalls": 8,
+    "completeLocalCLossRecoveries": 4
+  },
+  "unreachableClasses": [],
+  "resultSha256": "a82f20cf8e16cc9d9db144115cba2aac0e129b2fee67763ec755a22b1e2ddd7f"
+}

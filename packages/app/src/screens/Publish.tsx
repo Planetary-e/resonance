@@ -7,16 +7,19 @@ const PRIVACY_VALUES: ('low' | 'medium' | 'high')[] = ['low', 'medium', 'high'];
 
 interface PublishProps {
   items: Item[];
-  onPublish: (text: string, type: 'need' | 'offer', privacy: 'low' | 'medium' | 'high') => Promise<PublishResult & { error?: string }>;
+  privateDeliveryAvailable: boolean;
+  onOutboxAction: (id: string, action: 'release' | 'cancel' | 'remove') => Promise<{ error?: string }>;
+  onPublish: (text: string, type: 'need' | 'offer', privacy: 'low' | 'medium' | 'high', delivery: 'send' | 'hold') => Promise<PublishResult & { error?: string }>;
   onWithdraw: (id: string) => Promise<{ error?: string }>;
   onToast: (message: string, type?: 'info' | 'success' | 'error') => void;
 }
 
-export default function Publish({ items, onPublish, onWithdraw, onToast }: PublishProps) {
+export default function Publish({ items, privateDeliveryAvailable, onPublish, onWithdraw, onOutboxAction, onToast }: PublishProps) {
   const [text, setText] = useState('');
   const [type, setType] = useState<'need' | 'offer'>('need');
   const [privacy, setPrivacy] = useState(1); // medium
   const [submitting, setSubmitting] = useState(false);
+  const [delivery, setDelivery] = useState<'send' | 'hold'>('send');
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -25,7 +28,7 @@ export default function Publish({ items, onPublish, onWithdraw, onToast }: Publi
     if (!trimmed) return;
 
     setSubmitting(true);
-    const result = await onPublish(trimmed, type, PRIVACY_VALUES[privacy]);
+    const result = await onPublish(trimmed, type, PRIVACY_VALUES[privacy], privateDeliveryAvailable ? delivery : 'send');
     setSubmitting(false);
 
     if (result.error) {
@@ -33,7 +36,9 @@ export default function Publish({ items, onPublish, onWithdraw, onToast }: Publi
       return;
     }
 
-    onToast(`Item published! Status: ${result.status}`, 'success');
+    onToast(result.status === 'held' ? 'Saved on this device; not sent.'
+      : result.status === 'published' ? 'Published.' : 'Saved locally; delivery not confirmed.',
+      result.status === 'local' ? 'info' : 'success');
     setText('');
   }
 
@@ -87,12 +92,23 @@ export default function Publish({ items, onPublish, onWithdraw, onToast }: Publi
           </div>
         </div>
 
+        {privateDeliveryAvailable && <div className="form-group">
+          <label htmlFor="publication-delivery">Delivery</label>
+          <select id="publication-delivery" value={delivery} disabled={submitting}
+            onChange={event => setDelivery(event.target.value as 'send' | 'hold')}>
+            <option value="send">Send now</option>
+            <option value="hold">Save on this device</option>
+          </select>
+          <p>Saved publications stay encrypted here until you choose Send. They expire after seven days and never send automatically.
+            Holding does not hide the timing of a later send.</p>
+        </div>}
+
         <button
           className="btn btn-primary"
           type="submit"
           disabled={submitting || !text.trim()}
         >
-          {submitting ? 'Publishing...' : 'Publish'}
+          {submitting ? 'Saving...' : privateDeliveryAvailable && delivery === 'hold' ? 'Save on this device' : 'Publish'}
         </button>
       </form>
 
@@ -105,14 +121,15 @@ export default function Publish({ items, onPublish, onWithdraw, onToast }: Publi
                 <polyline points="14 2 14 8 20 8" />
               </svg>
             </div>
-            <div className="empty-title">No items published</div>
+            <div className="empty-title">No saved items</div>
             <div className="empty-description">
               Use the form above to publish your first need or offer.
             </div>
           </div>
         ) : (
           items.map(item => (
-            <ItemCard key={item.id} item={item} onWithdraw={handleWithdraw} />
+            <ItemCard key={item.id} item={item} onWithdraw={handleWithdraw}
+              onOutboxAction={onOutboxAction} onToast={onToast} />
           ))
         )}
       </div>

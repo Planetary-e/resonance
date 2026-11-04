@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "run_id": "unified-new-view-03",
+  "status": "complete",
+  "post_new_view_startup_complete": true,
+  "durable_serving_readiness": true,
+  "groups": [
+    {
+      "view": 1,
+      "readiness": [
+        {
+          "role": "runtime-old-0",
+          "sequence": 1,
+          "digest": "sha256:b8ccb3e441d45f5a0be8a27340cb8cc1e48c93ca574ff85a51d8df319b4a5776"
+        },
+        {
+          "role": "runtime-old-1",
+          "sequence": 1,
+          "digest": "sha256:b8ccb3e441d45f5a0be8a27340cb8cc1e48c93ca574ff85a51d8df319b4a5776"
+        },
+        {
+          "role": "runtime-old-2",
+          "sequence": 1,
+          "digest": "sha256:b8ccb3e441d45f5a0be8a27340cb8cc1e48c93ca574ff85a51d8df319b4a5776"
+        },
+        {
+          "role": "runtime-old-3",
+          "sequence": 1,
+          "digest": "sha256:b8ccb3e441d45f5a0be8a27340cb8cc1e48c93ca574ff85a51d8df319b4a5776"
+        }
+      ]
+    }
+  ]
+}

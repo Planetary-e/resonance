@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "outcome": "blocked_incomplete_sustained_window",
+  "hashes": {
+    "delivery/results/econ-baseline-windows-hashes.json": "sha256:e159bd72c2ebd9523db3f18b7e7498fd1ef2ccd87665cb0ee308f02fb7833899",
+    "docs/evals/v04-recovery-economic-baseline-windows-2026-10-30.md": "sha256:f448e6d4e5e1a3ddf7cb88caa5c0dcaa58ac7b1dd1054ac7789d2b9fe25a75c9",
+    "scripts/rso5-baseline-blocked-evidence.mjs": "sha256:5335ca49e978bda80b3414ec1407b495a50dc4a88c43f8864589b78678235245"
+  }
+}

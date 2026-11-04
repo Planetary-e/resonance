@@ -10,13 +10,14 @@ import {
   type PublicationOperation,
 } from '@resonance/core';
 import { createRelayServer, type RelayServer } from '../server.js';
+import { createRelayTestEndpoints, type RelayTestEndpoint } from './fixtures/relay-test-endpoint.js';
 
-const BASE_PORT = 26_000 + Math.floor(Math.random() * 1_000);
-const SOURCE_PORT = BASE_PORT;
-const TARGET_PORTS = [1, 2, 3, 4, 5, 6].map(offset => BASE_PORT + offset);
+let SOURCE_PORT = 0;
+const TARGET_PORTS = [0, 0, 0, 0, 0, 0];
+let testEndpoints: RelayTestEndpoint[] = [];
 const RUN_ID = `${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
 const SOURCE_DIR = `/tmp/resonance-placement-source-${RUN_ID}`;
-const TARGET_DIRS = TARGET_PORTS.map(port => `/tmp/resonance-placement-target-${port}-${RUN_ID}`);
+const TARGET_DIRS = TARGET_PORTS.map((_, index) => `/tmp/resonance-placement-target-${index}-${RUN_ID}`);
 
 let source: RelayServer;
 const targets: RelayServer[] = [];
@@ -30,7 +31,7 @@ function targetEndpoint(port: number): string {
 function createTarget(index: number): RelayServer {
   const port = TARGET_PORTS[index];
   return createRelayServer({
-    port,
+    port: 0,
     host: '127.0.0.1',
     persistDir: TARGET_DIRS[index],
     relayDiscovery: {
@@ -47,7 +48,7 @@ function createTarget(index: number): RelayServer {
 
 function createSource(replicaInventoryIntervalMs = 2_000): RelayServer {
   return createRelayServer({
-    port: SOURCE_PORT,
+    port: 0,
     host: '127.0.0.1',
     persistDir: SOURCE_DIR,
     desiredReplicaCount: 5,
@@ -97,19 +98,23 @@ function submit(operation: PublicationOperation): Promise<void> {
 }
 
 beforeAll(async () => {
+  testEndpoints = await createRelayTestEndpoints(TARGET_PORTS.length);
+  testEndpoints.forEach((endpoint, index) => { TARGET_PORTS[index] = endpoint.port; });
   for (let index = 0; index < TARGET_PORTS.length; index++) targets.push(createTarget(index));
-  await Promise.all(targets.slice(0, 3).map(target => target.start()));
-  for (const target of targets.slice(0, 3)) startedTargets.add(target);
+  await Promise.all(targets.slice(0, 3).map(async (target, index) => { await target.start(); startedTargets.add(target); testEndpoints[index].forwardTo(target.getListeningPort()!); }));
   source = createSource();
-  await source.start();
+  await source.start(); SOURCE_PORT = source.getListeningPort()!;
   sourceStarted = true;
 });
 
 afterAll(async () => {
-  if (sourceStarted) await source.stop({ graceful: false });
-  await Promise.all([...startedTargets].map(target => target.stop({ graceful: false })));
+  const stopped = await Promise.allSettled([...(sourceStarted ? [source.stop({ graceful: false })] : []),
+    ...[...startedTargets].map(target => target.stop({ graceful: false }))]);
+  const closed = await Promise.allSettled(testEndpoints.map(endpoint => endpoint.close()));
   rmSync(SOURCE_DIR, { recursive: true, force: true });
   for (const directory of TARGET_DIRS) rmSync(directory, { recursive: true, force: true });
+  const failures = [...stopped, ...closed].filter(result => result.status === 'rejected');
+  if (failures.length) throw new AggregateError(failures.map(result => result.reason), 'Placement fixture cleanup failed');
 });
 
 describe('durable replica placement', () => {
@@ -140,8 +145,7 @@ describe('durable replica placement', () => {
       minimum_confirmed_placements: 1,
     });
 
-    await Promise.all(targets.slice(3).map(target => target.start()));
-    for (const target of targets.slice(3)) startedTargets.add(target);
+    await Promise.all(targets.slice(3).map(async (target, index) => { await target.start(); startedTargets.add(target); testEndpoints[index + 3].forwardTo(target.getListeningPort()!); }));
     await waitFor(() => source.getRelayLinkStatus().connectedRelayIds.length === 6, 30_000);
     await waitFor(() => source.getReplicaPlacementStatus(operation.publicationId)?.targetConfirmed === true, 30_000);
     const repaired = source.getReplicaPlacementStatus(operation.publicationId)!;
@@ -162,12 +166,13 @@ describe('durable replica placement', () => {
     // Simulate an abrupt loss: a graceful stop intentionally asks the source
     // to retire this relay from the exact placement generation.
     await lostTarget.stop({ graceful: false });
+    testEndpoints[targets.indexOf(lostTarget)].disconnect();
     startedTargets.delete(lostTarget);
     rmSync(`${TARGET_DIRS[0]}/relay-operations.ndjson`, { force: true });
 
     const recoveredTarget = createTarget(0);
     targets[0] = recoveredTarget;
-    await recoveredTarget.start();
+    await recoveredTarget.start(); testEndpoints[0].forwardTo(recoveredTarget.getListeningPort()!);
     startedTargets.add(recoveredTarget);
     expect(recoveredTarget.getRelayDescriptor()!.relayId).toBe(lostTargetId);
     expect(recoveredTarget.getStats().active_publications).toBe(0);
@@ -184,7 +189,7 @@ describe('durable replica placement', () => {
 
     await source.stop();
     source = createSource(5 * 60_000);
-    await source.start();
+    await source.start(); SOURCE_PORT = source.getListeningPort()!;
     await waitFor(() => source.getReplicaPlacementStatus(operation.publicationId)?.confirmedReplicaCount === 5);
     expect(source.getReplicaPlacementStatus(operation.publicationId)).toMatchObject({
       minimumConfirmed: true,
@@ -218,7 +223,7 @@ describe('durable replica placement', () => {
     const spareRelayId = targets.map(target => target.getRelayDescriptor()!.relayId)
       .find(relayId => !selected.has(relayId))!;
 
-    await retiringTarget.stop();
+    await retiringTarget.stop(); testEndpoints[retiringTargetIndex].disconnect();
     startedTargets.delete(retiringTarget);
 
     await waitFor(() => {
@@ -236,7 +241,7 @@ describe('durable replica placement', () => {
 
     const restartedTarget = createTarget(retiringTargetIndex);
     targets[retiringTargetIndex] = restartedTarget;
-    await restartedTarget.start();
+    await restartedTarget.start(); testEndpoints[retiringTargetIndex].forwardTo(restartedTarget.getListeningPort()!);
     startedTargets.add(restartedTarget);
     await waitFor(() => source.getRelayLinkStatus().connectedRelayIds.length === 6);
   }, 90_000);
@@ -262,6 +267,7 @@ describe('durable replica placement', () => {
       .find(relayId => !selected.has(relayId))!;
 
     await lostTarget.stop({ graceful: false });
+    testEndpoints[targets.indexOf(lostTarget)].disconnect();
     startedTargets.delete(lostTarget);
 
     await waitFor(() => {

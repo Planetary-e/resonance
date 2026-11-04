@@ -24,10 +24,10 @@ export function percentile(values: number[], p: number): number {
 }
 
 /** Generate a random unit vector of given dimensions */
-export function generateRandomUnitVector(dimensions: number): Float32Array {
+export function generateRandomUnitVector(dimensions: number, random: () => number = Math.random): Float32Array {
   const v = new Float32Array(dimensions);
   for (let i = 0; i < dimensions; i++) {
-    v[i] = Math.random() - 0.5;
+    v[i] = random() - 0.5;
   }
   return normalize(v);
 }

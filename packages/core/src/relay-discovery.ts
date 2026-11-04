@@ -19,6 +19,7 @@ import {
   type Identity,
   type SigningKeyPair,
 } from './crypto.js';
+import { isRelayTransportKeyActiveV1, type RelayTransportKeyV1 } from './private-envelope.js';
 
 export const RELAY_DISCOVERY_VERSION = 1 as const;
 export const RELAY_PEER_REQUEST_FRAME_TYPE = 'relay_peer_request' as const;
@@ -81,6 +82,8 @@ const PEER_RESPONSE_BODY_KEYS = [
   'version',
 ] as const;
 const PEER_RESPONSE_KEYS = [...PEER_RESPONSE_BODY_KEYS, 'signature'] as const;
+const PEER_RESPONSE_BODY_WITH_KEY_KEYS = [...PEER_RESPONSE_BODY_KEYS, 'transportKey'] as const;
+const PEER_RESPONSE_WITH_KEY_KEYS = [...PEER_RESPONSE_BODY_WITH_KEY_KEYS, 'signature'] as const;
 
 export type RelayReachability = 'direct' | 'outbound-only';
 export type RelayContactHintSource = 'configured' | 'invitation' | 'local' | 'bootstrap' | 'peer-exchange';
@@ -165,6 +168,8 @@ export interface RelayPeerResponseBodyV1 {
   responderId: string;
   /** Base64-encoded Ed25519 relay infrastructure public key. */
   responderKey: string;
+  /** Signed short-lived encryption key for this responder, when private transport is enabled. */
+  transportKey?: RelayTransportKeyV1;
   descriptors: RelayDescriptorV1[];
   createdAt: number;
   expiresAt: number;
@@ -330,6 +335,7 @@ export function createRelayPeerResponseV1(
   descriptors: RelayDescriptorV1[],
   responder: Identity,
   createdAt = Date.now(),
+  transportKey?: RelayTransportKeyV1,
 ): RelayPeerResponseV1 {
   if (!isRelayPeerRequestActiveV1(request, createdAt)) {
     throw new Error('Cannot answer an invalid or inactive relay peer request');
@@ -351,6 +357,7 @@ export function createRelayPeerResponseV1(
     requestId: request.requestId,
     responderId: responder.did,
     responderKey: encodeBase64(responder.publicKey),
+    ...(transportKey === undefined ? {} : { transportKey }),
     descriptors: ordered,
     createdAt,
     expiresAt: Math.min(request.expiresAt, createdAt + 30_000),
@@ -370,7 +377,8 @@ export function verifyRelayPeerResponseV1(
   value: unknown,
   request?: RelayPeerRequestV1,
 ): value is RelayPeerResponseV1 {
-  if (!isObject(value) || !hasOnlyKeys(value, PEER_RESPONSE_KEYS)) return false;
+  if (!isObject(value) || !hasOnlyKeys(value,
+    'transportKey' in value ? PEER_RESPONSE_WITH_KEY_KEYS : PEER_RESPONSE_KEYS)) return false;
   const { signature, ...body } = value;
   if (!isCanonicalBase64(signature, 64) || !isRelayPeerResponseBody(body)) return false;
   if (request !== undefined && (!verifyRelayPeerRequestV1(request)
@@ -486,7 +494,8 @@ function isRelayPeerRequestBody(value: unknown): value is RelayPeerRequestBodyV1
 }
 
 function isRelayPeerResponseBody(value: unknown): value is RelayPeerResponseBodyV1 {
-  if (!isObject(value) || !hasOnlyKeys(value, PEER_RESPONSE_BODY_KEYS)) return false;
+  if (!isObject(value) || !hasOnlyKeys(value,
+    'transportKey' in value ? PEER_RESPONSE_BODY_WITH_KEY_KEYS : PEER_RESPONSE_BODY_KEYS)) return false;
   if (value.version !== RELAY_DISCOVERY_VERSION || value.kind !== 'relay-peer-response') return false;
   if (!isOpaqueId(value.requestId, 'rpr')) return false;
   if (!isRelayIdBoundToKey(value.responderId, value.responderKey)) return false;
@@ -496,6 +505,9 @@ function isRelayPeerResponseBody(value: unknown): value is RelayPeerResponseBody
   if (!isTimestamp(value.createdAt) || !isTimestamp(value.expiresAt)) return false;
   if (value.expiresAt <= value.createdAt
     || value.expiresAt - value.createdAt > MAX_PEER_RESPONSE_LIFETIME_MS) return false;
+  if ('transportKey' in value && (!isRelayTransportKeyActiveV1(value.transportKey, value.createdAt)
+    || value.transportKey.relayId !== value.responderId
+    || value.transportKey.expiresAt < value.expiresAt)) return false;
   const createdAt = value.createdAt;
   return value.descriptors.every(descriptor => isRelayDescriptorActiveV1(descriptor, createdAt));
 }

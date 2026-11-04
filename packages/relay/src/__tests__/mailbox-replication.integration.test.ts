@@ -11,12 +11,11 @@ import {
 } from '@resonance/core';
 import { createRelayServer, type RelayServer } from '../server.js';
 
-const BASE_PORT = 29_000 + Math.floor(Math.random() * 1_000);
-const SOURCE_PORT = BASE_PORT;
-const TARGET_PORTS = [BASE_PORT + 1, BASE_PORT + 2];
+let SOURCE_PORT = 0;
+const TARGET_PORTS = [0, 0];
 const RUN_ID = `${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
 const SOURCE_DIR = `/tmp/resonance-mailbox-source-${RUN_ID}`;
-const TARGET_DIRS = TARGET_PORTS.map(port => `/tmp/resonance-mailbox-target-${port}-${RUN_ID}`);
+const TARGET_DIRS = TARGET_PORTS.map((_, index) => `/tmp/resonance-mailbox-target-${index}-${RUN_ID}`);
 let source: RelayServer;
 let targets: RelayServer[] = [];
 let sourceStarted = false;
@@ -118,8 +117,9 @@ async function waitFor(check: () => Promise<boolean> | boolean, timeoutMs = 30_0
 beforeAll(async () => {
   targets = [makeTarget(0), makeTarget(1)];
   await Promise.all(targets.map(target => target.start()));
+  targets.forEach((target, index) => { TARGET_PORTS[index] = target.getListeningPort()!; });
   source = makeSource();
-  await source.start();
+  await source.start(); SOURCE_PORT = source.getListeningPort()!;
   sourceStarted = true;
 });
 
@@ -157,7 +157,7 @@ describe('publication mailbox anti-entropy', () => {
     expect(await fetch(TARGET_PORTS[1], need.record, need.keys)).toContain(needNoticeId);
 
     source = makeSource();
-    await source.start();
+    await source.start(); SOURCE_PORT = source.getListeningPort()!;
     sourceStarted = true;
     await waitFor(() => source.getRelayLinkStatus().connectedRelayIds.length === 2);
     await acknowledge(TARGET_PORTS[0], offer.record, offer.keys, offerNoticeId);
@@ -167,7 +167,7 @@ describe('publication mailbox anti-entropy', () => {
     await source.stop({ graceful: false });
     sourceStarted = false;
     source = makeSource();
-    await source.start();
+    await source.start(); SOURCE_PORT = source.getListeningPort()!;
     sourceStarted = true;
     await waitFor(() => source.getRelayLinkStatus().connectedRelayIds.length === 2);
     expect(await fetch(SOURCE_PORT, offer.record, offer.keys)).not.toContain(offerNoticeId);

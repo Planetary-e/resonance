@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "run_id": "dec10-finalization-smoke-v2",
+  "scenario": "full-smoke",
+  "outcome": "passed",
+  "diagnostic_only": true,
+  "source_manifest": "delivery/results/econ-production-baseline-manifest-v2.json",
+  "workers": 52,
+  "clean_stops": 52,
+  "window": {
+    "runId": "dec10-finalization-smoke-v2",
+    "seed": "0xE007B010",
+    "kind": "sustained",
+    "durationMs": 1000,
+    "warmupMs": 0,
+    "cooldownMs": 0,
+    "phases": [
+      {
+        "phase": "warmup",
+        "at": "2026-10-30T16:43:25.439Z",
+        "monotonic_ms": 25483.37625
+      },
+      {
+        "phase": "baseline",
+        "at": "2026-10-30T16:44:06.974Z",
+        "monotonic_ms": 67018.652458
+      },
+      {
+        "phase": "cooldown",
+        "at": "2026-10-30T16:44:08.173Z",
+        "monotonic_ms": 68216.846208
+      }
+    ],
+    "sustained_operations": {
+      "reads": 12,
+      "retries": 24
+    }
+  },
+  "predecessor_runtime_and_replicas_stopped_before_recovery": true,
+  "recovered_proofs": 164,
+  "post_new_view_startup_groups": 2,
+  "post_new_view_durable_readiness": true,
+  "logical_process_held_copy_audits": 164,
+  "copy_model": "logical process-held copies; not physical devices or crash-durability proof",
+  "exact_traffic_accounting": true,
+  "private_leakage_detected": false,
+  "work_bytes_separate_metric": 705628599,
+  "energy": "blocked",
+  "network_scope": "loopback_only",
+  "E2": "blocked",
+  "acceptance_evaluation": "not_run",
+  "failure_error": null
+}

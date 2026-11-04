@@ -1,0 +1,866 @@
+{
+  "generatedAt": "2026-10-17T20:51:11.566Z",
+  "sourceBase": "66cb56f421b1a4cd746583027a0dabb80329d333",
+  "sourceSha256": {
+    "packages/core/src/crypto.ts": "5ee9c1b165fdc545f3b9f02dc5f2069f146a78a96671ac301f5316e178ef341a",
+    "packages/eval/src/protected-role-costs.ts": "f55cd60fbeb20c0fb33afcd6cfb633427df137e06f45af9155ea3c5f0816fa17",
+    "packages/eval/src/fixtures/protected-role-cost-worker.ts": "e734727c6a3e9c775347ca1337fca540e7aa63bc791364dc16acc1c1b0c79f78",
+    "packages/relay/src/protected-admission-roles.ts": "cdb74773dbb60fd7c4e7d4a8b078750fdb37505b4b36451ff73eace0560dbdcf",
+    "packages/relay/src/admission-role-history.ts": "5aedf291c9ff8cfdc516d0c9a30de48c5a14e7a963fdfbf236170c429d3da1a8",
+    "packages/relay/src/admission-role-verification.ts": "0dbc51e6025d6d47e485ed7d6ce7f86d0ac929ec9cfeed458679b4222c773498",
+    "packages/relay/src/protected-admission-history.ts": "646bedc903ed0484350c62831e3626bc447681a6e910a4fae6fafd495b9b0ec1",
+    "packages/relay/src/admission-history-records.ts": "94133cb80883bac2b8db7f4094406d1aeb6a7d2ec0ef725e679078836a212772"
+  },
+  "environment": {
+    "node": "v24.19.0",
+    "platform": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Pro",
+    "logicalCpus": 11
+  },
+  "scope": "Five real loopback history sockets in five separate volunteer processes; four local durable witness peers; no independent operators, Internet, TLS or energy measurement.",
+  "accounting": "JSON application request/reply bytes across all history members, excluding witness transport, WebSocket/TCP/TLS framing. CPU is process-wide. Peak RSS is process lifetime, not per-operation allocation. Reopen retains this process signature cache and is not a cold process restart.",
+  "seeded": "Existing signed local votes/certificates are extended offline, then captured through the production reviewed/fenced four-copy workflow. Seeding is not sequential admission throughput.",
+  "near": "90% of the 8 MiB complete application checkpoint bound, with both witness and coordinator rows; row limits also apply.",
+  "coordinatorDeadlineMs": 3000,
+  "historyDeadlineMs": 10000,
+  "coldRestartHistoryDeadlineMs": 10000,
+  "trials": 3,
+  "results": [
+    {
+      "requested": "near",
+      "retainedRowsPerRole": 2691,
+      "checkpointPlaintextBytes": 7548300,
+      "operations": [
+        {
+          "name": "capture",
+          "ok": true,
+          "error": null,
+          "wallMs": 4150.995999999999,
+          "cpuMs": 4087.999,
+          "requestBytes": 50351200,
+          "replyBytes": 17486,
+          "exchanges": 20,
+          "rssMiB": 676.984375,
+          "lifetimePeakRssMiB": 813.203125,
+          "volunteers": [
+            {
+              "cpuMs": 268.971,
+              "receivedBytes": 10070240,
+              "sentBytes": 3902,
+              "exchanges": 4,
+              "rssMiB": 239.59375,
+              "peakRssMiB": 239.59375
+            },
+            {
+              "cpuMs": 282.01,
+              "receivedBytes": 10070240,
+              "sentBytes": 3902,
+              "exchanges": 4,
+              "rssMiB": 253.640625,
+              "peakRssMiB": 257.5
+            },
+            {
+              "cpuMs": 276.646,
+              "receivedBytes": 10070240,
+              "sentBytes": 3902,
+              "exchanges": 4,
+              "rssMiB": 247.421875,
+              "peakRssMiB": 251.78125
+            },
+            {
+              "cpuMs": 291.492,
+              "receivedBytes": 10070240,
+              "sentBytes": 3902,
+              "exchanges": 4,
+              "rssMiB": 190.0625,
+              "peakRssMiB": 249.34375
+            },
+            {
+              "cpuMs": 265.242,
+              "receivedBytes": 10070240,
+              "sentBytes": 3902,
+              "exchanges": 4,
+              "rssMiB": 219.6875,
+              "peakRssMiB": 230.953125
+            }
+          ]
+        },
+        {
+          "name": "witness-new-0",
+          "ok": true,
+          "error": null,
+          "wallMs": 941.9757500000014,
+          "cpuMs": 958.285,
+          "requestBytes": 12260,
+          "replyBytes": 8743,
+          "exchanges": 10,
+          "rssMiB": 782.265625,
+          "lifetimePeakRssMiB": 859.9375,
+          "volunteers": [
+            {
+              "cpuMs": 11.554,
+              "receivedBytes": 2452,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 239.609375,
+              "peakRssMiB": 239.609375
+            },
+            {
+              "cpuMs": 11.689,
+              "receivedBytes": 2452,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 246.78125,
+              "peakRssMiB": 257.5
+            },
+            {
+              "cpuMs": 11.405,
+              "receivedBytes": 2452,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 247.171875,
+              "peakRssMiB": 251.78125
+            },
+            {
+              "cpuMs": 11.62,
+              "receivedBytes": 2452,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 189.1875,
+              "peakRssMiB": 249.34375
+            },
+            {
+              "cpuMs": 11.462,
+              "receivedBytes": 2452,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 221,
+              "peakRssMiB": 230.953125
+            }
+          ]
+        },
+        {
+          "name": "witness-retry-0",
+          "ok": true,
+          "error": null,
+          "wallMs": 235.60191699999996,
+          "cpuMs": 253.861,
+          "requestBytes": 0,
+          "replyBytes": 0,
+          "exchanges": 0,
+          "rssMiB": 830.15625,
+          "lifetimePeakRssMiB": 859.9375,
+          "volunteers": [
+            {
+              "cpuMs": 0.124,
+              "receivedBytes": 0,
+              "sentBytes": 0,
+              "exchanges": 0,
+              "rssMiB": 239.609375,
+              "peakRssMiB": 239.609375
+            },
+            {
+              "cpuMs": 0.108,
+              "receivedBytes": 0,
+              "sentBytes": 0,
+              "exchanges": 0,
+              "rssMiB": 246.78125,
+              "peakRssMiB": 257.5
+            },
+            {
+              "cpuMs": 0.094,
+              "receivedBytes": 0,
+              "sentBytes": 0,
+              "exchanges": 0,
+              "rssMiB": 247.171875,
+              "peakRssMiB": 251.78125
+            },
+            {
+              "cpuMs": 0.11,
+              "receivedBytes": 0,
+              "sentBytes": 0,
+              "exchanges": 0,
+              "rssMiB": 189.1875,
+              "peakRssMiB": 249.34375
+            },
+            {
+              "cpuMs": 0.203,
+              "receivedBytes": 0,
+              "sentBytes": 0,
+              "exchanges": 0,
+              "rssMiB": 221.03125,
+              "peakRssMiB": 230.953125
+            }
+          ]
+        },
+        {
+          "name": "coordinator-new-0",
+          "ok": true,
+          "error": null,
+          "wallMs": 942.9201659999999,
+          "cpuMs": 894.272,
+          "requestBytes": 23660,
+          "replyBytes": 8743,
+          "exchanges": 10,
+          "rssMiB": 859.921875,
+          "lifetimePeakRssMiB": 918.125,
+          "volunteers": [
+            {
+              "cpuMs": 19.921,
+              "receivedBytes": 4732,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 227.65625,
+              "peakRssMiB": 239.609375
+            },
+            {
+              "cpuMs": 18.71,
+              "receivedBytes": 4732,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 234.6875,
+              "peakRssMiB": 257.5
+            },
+            {
+              "cpuMs": 19.538,
+              "receivedBytes": 4732,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 241.65625,
+              "peakRssMiB": 251.78125
+            },
+            {
+              "cpuMs": 17.955,
+              "receivedBytes": 4732,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 194.546875,
+              "peakRssMiB": 249.34375
+            },
+            {
+              "cpuMs": 18.43,
+              "receivedBytes": 4732,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 214.3125,
+              "peakRssMiB": 230.953125
+            }
+          ]
+        },
+        {
+          "name": "coordinator-retry-0",
+          "ok": true,
+          "error": null,
+          "wallMs": 240.69150000000081,
+          "cpuMs": 278.639,
+          "requestBytes": 0,
+          "replyBytes": 0,
+          "exchanges": 0,
+          "rssMiB": 891.203125,
+          "lifetimePeakRssMiB": 918.125,
+          "volunteers": [
+            {
+              "cpuMs": 0.29,
+              "receivedBytes": 0,
+              "sentBytes": 0,
+              "exchanges": 0,
+              "rssMiB": 227.671875,
+              "peakRssMiB": 239.609375
+            },
+            {
+              "cpuMs": 0.279,
+              "receivedBytes": 0,
+              "sentBytes": 0,
+              "exchanges": 0,
+              "rssMiB": 234.703125,
+              "peakRssMiB": 257.5
+            },
+            {
+              "cpuMs": 0.224,
+              "receivedBytes": 0,
+              "sentBytes": 0,
+              "exchanges": 0,
+              "rssMiB": 241.65625,
+              "peakRssMiB": 251.78125
+            },
+            {
+              "cpuMs": 0.205,
+              "receivedBytes": 0,
+              "sentBytes": 0,
+              "exchanges": 0,
+              "rssMiB": 194.5625,
+              "peakRssMiB": 249.34375
+            },
+            {
+              "cpuMs": 0.28,
+              "receivedBytes": 0,
+              "sentBytes": 0,
+              "exchanges": 0,
+              "rssMiB": 214.328125,
+              "peakRssMiB": 230.953125
+            }
+          ]
+        },
+        {
+          "name": "witness-new-1",
+          "ok": true,
+          "error": null,
+          "wallMs": 817.1152079999993,
+          "cpuMs": 839.563,
+          "requestBytes": 12260,
+          "replyBytes": 8743,
+          "exchanges": 10,
+          "rssMiB": 506.828125,
+          "lifetimePeakRssMiB": 933.28125,
+          "volunteers": [
+            {
+              "cpuMs": 10.172,
+              "receivedBytes": 2452,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 236.484375,
+              "peakRssMiB": 239.609375
+            },
+            {
+              "cpuMs": 12.23,
+              "receivedBytes": 2452,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 236.28125,
+              "peakRssMiB": 257.5
+            },
+            {
+              "cpuMs": 12.351,
+              "receivedBytes": 2452,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 240.859375,
+              "peakRssMiB": 251.78125
+            },
+            {
+              "cpuMs": 11.792,
+              "receivedBytes": 2452,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 181.21875,
+              "peakRssMiB": 249.34375
+            },
+            {
+              "cpuMs": 12.414,
+              "receivedBytes": 2452,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 223.1875,
+              "peakRssMiB": 230.953125
+            }
+          ]
+        },
+        {
+          "name": "witness-retry-1",
+          "ok": true,
+          "error": null,
+          "wallMs": 233.84479199999987,
+          "cpuMs": 252.649,
+          "requestBytes": 0,
+          "replyBytes": 0,
+          "exchanges": 0,
+          "rssMiB": 533.390625,
+          "lifetimePeakRssMiB": 933.28125,
+          "volunteers": [
+            {
+              "cpuMs": 0.1,
+              "receivedBytes": 0,
+              "sentBytes": 0,
+              "exchanges": 0,
+              "rssMiB": 236.484375,
+              "peakRssMiB": 239.609375
+            },
+            {
+              "cpuMs": 0.089,
+              "receivedBytes": 0,
+              "sentBytes": 0,
+              "exchanges": 0,
+              "rssMiB": 236.28125,
+              "peakRssMiB": 257.5
+            },
+            {
+              "cpuMs": 0.082,
+              "receivedBytes": 0,
+              "sentBytes": 0,
+              "exchanges": 0,
+              "rssMiB": 240.875,
+              "peakRssMiB": 251.78125
+            },
+            {
+              "cpuMs": 0.063,
+              "receivedBytes": 0,
+              "sentBytes": 0,
+              "exchanges": 0,
+              "rssMiB": 181.234375,
+              "peakRssMiB": 249.34375
+            },
+            {
+              "cpuMs": 0.103,
+              "receivedBytes": 0,
+              "sentBytes": 0,
+              "exchanges": 0,
+              "rssMiB": 223.203125,
+              "peakRssMiB": 230.953125
+            }
+          ]
+        },
+        {
+          "name": "coordinator-new-1",
+          "ok": true,
+          "error": null,
+          "wallMs": 845.1367090000022,
+          "cpuMs": 802.234,
+          "requestBytes": 23660,
+          "replyBytes": 8743,
+          "exchanges": 10,
+          "rssMiB": 667.609375,
+          "lifetimePeakRssMiB": 933.28125,
+          "volunteers": [
+            {
+              "cpuMs": 14.245,
+              "receivedBytes": 4732,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 245.375,
+              "peakRssMiB": 245.375
+            },
+            {
+              "cpuMs": 14.542,
+              "receivedBytes": 4732,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 245.265625,
+              "peakRssMiB": 257.5
+            },
+            {
+              "cpuMs": 14.399,
+              "receivedBytes": 4732,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 249.78125,
+              "peakRssMiB": 251.78125
+            },
+            {
+              "cpuMs": 14.128,
+              "receivedBytes": 4732,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 190.15625,
+              "peakRssMiB": 249.34375
+            },
+            {
+              "cpuMs": 14.486,
+              "receivedBytes": 4732,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 232.046875,
+              "peakRssMiB": 232.046875
+            }
+          ]
+        },
+        {
+          "name": "coordinator-retry-1",
+          "ok": true,
+          "error": null,
+          "wallMs": 235.60579099999813,
+          "cpuMs": 269.673,
+          "requestBytes": 0,
+          "replyBytes": 0,
+          "exchanges": 0,
+          "rssMiB": 715.59375,
+          "lifetimePeakRssMiB": 933.28125,
+          "volunteers": [
+            {
+              "cpuMs": 0.113,
+              "receivedBytes": 0,
+              "sentBytes": 0,
+              "exchanges": 0,
+              "rssMiB": 245.390625,
+              "peakRssMiB": 245.390625
+            },
+            {
+              "cpuMs": 0.121,
+              "receivedBytes": 0,
+              "sentBytes": 0,
+              "exchanges": 0,
+              "rssMiB": 245.265625,
+              "peakRssMiB": 257.5
+            },
+            {
+              "cpuMs": 0.131,
+              "receivedBytes": 0,
+              "sentBytes": 0,
+              "exchanges": 0,
+              "rssMiB": 249.796875,
+              "peakRssMiB": 251.78125
+            },
+            {
+              "cpuMs": 0.128,
+              "receivedBytes": 0,
+              "sentBytes": 0,
+              "exchanges": 0,
+              "rssMiB": 190.171875,
+              "peakRssMiB": 249.34375
+            },
+            {
+              "cpuMs": 0.157,
+              "receivedBytes": 0,
+              "sentBytes": 0,
+              "exchanges": 0,
+              "rssMiB": 232.0625,
+              "peakRssMiB": 232.0625
+            }
+          ]
+        },
+        {
+          "name": "witness-new-2",
+          "ok": true,
+          "error": null,
+          "wallMs": 810.4042079999999,
+          "cpuMs": 778.641,
+          "requestBytes": 12260,
+          "replyBytes": 8743,
+          "exchanges": 10,
+          "rssMiB": 808.296875,
+          "lifetimePeakRssMiB": 933.28125,
+          "volunteers": [
+            {
+              "cpuMs": 9.588,
+              "receivedBytes": 2452,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 249.734375,
+              "peakRssMiB": 249.734375
+            },
+            {
+              "cpuMs": 9.668,
+              "receivedBytes": 2452,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 249.453125,
+              "peakRssMiB": 257.5
+            },
+            {
+              "cpuMs": 9.447,
+              "receivedBytes": 2452,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 255.046875,
+              "peakRssMiB": 255.046875
+            },
+            {
+              "cpuMs": 9.383,
+              "receivedBytes": 2452,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 188.6875,
+              "peakRssMiB": 249.34375
+            },
+            {
+              "cpuMs": 9.497,
+              "receivedBytes": 2452,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 237.296875,
+              "peakRssMiB": 237.296875
+            }
+          ]
+        },
+        {
+          "name": "witness-retry-2",
+          "ok": true,
+          "error": null,
+          "wallMs": 244.86370799999713,
+          "cpuMs": 268.647,
+          "requestBytes": 0,
+          "replyBytes": 0,
+          "exchanges": 0,
+          "rssMiB": 881.109375,
+          "lifetimePeakRssMiB": 933.28125,
+          "volunteers": [
+            {
+              "cpuMs": 0.101,
+              "receivedBytes": 0,
+              "sentBytes": 0,
+              "exchanges": 0,
+              "rssMiB": 247.65625,
+              "peakRssMiB": 249.734375
+            },
+            {
+              "cpuMs": 0.096,
+              "receivedBytes": 0,
+              "sentBytes": 0,
+              "exchanges": 0,
+              "rssMiB": 245.671875,
+              "peakRssMiB": 257.5
+            },
+            {
+              "cpuMs": 0.096,
+              "receivedBytes": 0,
+              "sentBytes": 0,
+              "exchanges": 0,
+              "rssMiB": 252.109375,
+              "peakRssMiB": 255.046875
+            },
+            {
+              "cpuMs": 0.079,
+              "receivedBytes": 0,
+              "sentBytes": 0,
+              "exchanges": 0,
+              "rssMiB": 183.984375,
+              "peakRssMiB": 249.34375
+            },
+            {
+              "cpuMs": 0.1,
+              "receivedBytes": 0,
+              "sentBytes": 0,
+              "exchanges": 0,
+              "rssMiB": 237.140625,
+              "peakRssMiB": 237.296875
+            }
+          ]
+        },
+        {
+          "name": "coordinator-new-2",
+          "ok": true,
+          "error": null,
+          "wallMs": 846.4558340000003,
+          "cpuMs": 827.346,
+          "requestBytes": 23660,
+          "replyBytes": 8743,
+          "exchanges": 10,
+          "rssMiB": 1038.515625,
+          "lifetimePeakRssMiB": 1038.515625,
+          "volunteers": [
+            {
+              "cpuMs": 9.629,
+              "receivedBytes": 4732,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 242,
+              "peakRssMiB": 249.734375
+            },
+            {
+              "cpuMs": 18.496,
+              "receivedBytes": 4732,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 204.03125,
+              "peakRssMiB": 257.5
+            },
+            {
+              "cpuMs": 19.365,
+              "receivedBytes": 4732,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 217.171875,
+              "peakRssMiB": 259.34375
+            },
+            {
+              "cpuMs": 9.843,
+              "receivedBytes": 4732,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 163.109375,
+              "peakRssMiB": 249.34375
+            },
+            {
+              "cpuMs": 18.29,
+              "receivedBytes": 4732,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 178.8125,
+              "peakRssMiB": 237.296875
+            }
+          ]
+        },
+        {
+          "name": "coordinator-retry-2",
+          "ok": true,
+          "error": null,
+          "wallMs": 245.60483300000124,
+          "cpuMs": 276.563,
+          "requestBytes": 0,
+          "replyBytes": 0,
+          "exchanges": 0,
+          "rssMiB": 1061.96875,
+          "lifetimePeakRssMiB": 1061.96875,
+          "volunteers": [
+            {
+              "cpuMs": 8.18,
+              "receivedBytes": 0,
+              "sentBytes": 0,
+              "exchanges": 0,
+              "rssMiB": 202.15625,
+              "peakRssMiB": 249.734375
+            },
+            {
+              "cpuMs": 0.1,
+              "receivedBytes": 0,
+              "sentBytes": 0,
+              "exchanges": 0,
+              "rssMiB": 204.03125,
+              "peakRssMiB": 257.5
+            },
+            {
+              "cpuMs": 0.088,
+              "receivedBytes": 0,
+              "sentBytes": 0,
+              "exchanges": 0,
+              "rssMiB": 217.171875,
+              "peakRssMiB": 259.34375
+            },
+            {
+              "cpuMs": 0.079,
+              "receivedBytes": 0,
+              "sentBytes": 0,
+              "exchanges": 0,
+              "rssMiB": 163.109375,
+              "peakRssMiB": 249.34375
+            },
+            {
+              "cpuMs": 0.098,
+              "receivedBytes": 0,
+              "sentBytes": 0,
+              "exchanges": 0,
+              "rssMiB": 178.8125,
+              "peakRssMiB": 237.296875
+            }
+          ]
+        },
+        {
+          "name": "concurrent-witness-outcomes",
+          "accepted": 1,
+          "refused": 1
+        },
+        {
+          "name": "concurrent-witness-burst",
+          "ok": true,
+          "error": null,
+          "wallMs": 812.3835420000032,
+          "cpuMs": 790.818,
+          "requestBytes": 12260,
+          "replyBytes": 8743,
+          "exchanges": 10,
+          "rssMiB": 1021.25,
+          "lifetimePeakRssMiB": 1069.1875,
+          "volunteers": [
+            {
+              "cpuMs": 9.971,
+              "receivedBytes": 2452,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 203.90625,
+              "peakRssMiB": 249.734375
+            },
+            {
+              "cpuMs": 9.718,
+              "receivedBytes": 2452,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 205.78125,
+              "peakRssMiB": 257.5
+            },
+            {
+              "cpuMs": 9.804,
+              "receivedBytes": 2452,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 218.9375,
+              "peakRssMiB": 259.34375
+            },
+            {
+              "cpuMs": 9.89,
+              "receivedBytes": 2452,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 148.046875,
+              "peakRssMiB": 249.34375
+            },
+            {
+              "cpuMs": 10.188,
+              "receivedBytes": 2452,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 178.90625,
+              "peakRssMiB": 237.296875
+            }
+          ]
+        },
+        {
+          "name": "reopen-and-readiness-warm-cache",
+          "ok": true,
+          "error": null,
+          "wallMs": 235.63474999999744,
+          "cpuMs": 249.21,
+          "requestBytes": 12260,
+          "replyBytes": 8743,
+          "exchanges": 10,
+          "rssMiB": 898.5,
+          "lifetimePeakRssMiB": 1098.796875,
+          "volunteers": [
+            {
+              "cpuMs": 8.772,
+              "receivedBytes": 2452,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 203.96875,
+              "peakRssMiB": 249.734375
+            },
+            {
+              "cpuMs": 8.402,
+              "receivedBytes": 2452,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 206.078125,
+              "peakRssMiB": 257.5
+            },
+            {
+              "cpuMs": 8.346,
+              "receivedBytes": 2452,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 218.9375,
+              "peakRssMiB": 259.34375
+            },
+            {
+              "cpuMs": 8.5,
+              "receivedBytes": 2452,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 156.796875,
+              "peakRssMiB": 249.34375
+            },
+            {
+              "cpuMs": 8.851,
+              "receivedBytes": 2452,
+              "sentBytes": 1951,
+              "exchanges": 2,
+              "rssMiB": 180.65625,
+              "peakRssMiB": 237.296875
+            }
+          ]
+        },
+        {
+          "name": "cold-process-restart",
+          "fullProcessWallMs": 1237.6769999999997,
+          "cpuScope": "new owner process only; volunteer CPU excluded",
+          "openMs": 985.5128749999999,
+          "readinessMs": 56.09687500000018,
+          "wallMs": 1041.60975,
+          "cpuMs": 1082.9,
+          "rssMiB": 223.375,
+          "peakRssMiB": 354.03125,
+          "requestBytes": 12260,
+          "replyBytes": 8743
+        }
+      ]
+    }
+  ]
+}

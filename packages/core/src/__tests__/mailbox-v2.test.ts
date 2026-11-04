@@ -15,6 +15,7 @@ import {
   serializeMailboxRequestFrame,
   verifyMailboxRequest,
   verifyMatchNoticeMessage,
+  verifyMatchOperationAgainstPublicationsV2,
 } from '../index.js';
 
 const NOW = 1_800_000_000_000;
@@ -118,6 +119,25 @@ describe('protocol v2 match mailboxes', () => {
     const envelope = encryptMatchNotice(notice, recipient.record);
     envelope.ciphertext = `${envelope.ciphertext.slice(0, -4)}AAAA`;
     expect(() => decryptMatchNotice(envelope, recipient.keys)).toThrow();
+  });
+
+  it('refuses changed publications even when their IDs, signatures and match references are unchanged', () => {
+    const recipient = publication('need', 1);
+    const partner = publication('offer', 2);
+    const relay = generateIdentity();
+    const operation = createMatchOperationV2(recipient.record, partner.record, relay, {
+      createdAt: NOW + 1, expiresAt: NOW + 60_000,
+    });
+    // Expanding this date leaves the match's binding/expiry constraints satisfied,
+    // but invalidates the original publication signature. Check both positions.
+    for (const pair of [
+      [{ ...recipient.record, expiresAt: recipient.record.expiresAt + 1 }, partner.record],
+      [recipient.record, { ...partner.record, expiresAt: partner.record.expiresAt + 1 }],
+    ]) {
+      expect(() => createMatchOperationV2(pair[0], pair[1], relay)).toThrow('invalid publication');
+      expect(verifyMatchOperationAgainstPublicationsV2(operation, pair[0], pair[1], 0)).toBe(false);
+      expect(() => createMatchNoticeMessage(pair[0], pair[1], operation, relay)).toThrow('invalid publication');
+    }
   });
 });
 

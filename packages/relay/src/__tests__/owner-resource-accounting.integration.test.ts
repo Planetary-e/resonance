@@ -8,7 +8,7 @@ import {
 import { createRelayServer } from '../server.js';
 import { RelayTrafficMeter } from '../relay-resource-meter.js';
 
-const PORT = 37_000 + Math.floor(Math.random() * 1_000);
+let PORT = 0;
 const DIRECTORY = `/tmp/resonance-owner-accounting-${Date.now()}-${PORT}`;
 
 function publish(raw: string): Promise<unknown> {
@@ -35,7 +35,7 @@ describe('relay resource accounting and storage commitments', () => {
       maxJournalStorageBytes: 1_000_000,
     });
     try {
-      await original.start();
+      await original.start(); PORT = original.getListeningPort()!;
       const keys = generatePublicationKeyMaterial();
       const now = Date.now();
       const record = createPublicationRecord({

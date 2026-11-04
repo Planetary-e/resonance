@@ -1,4 +1,6 @@
-import { rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import WebSocket from 'ws';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -15,20 +17,19 @@ import {
   type Message, type PublicationKeyMaterial, type PublicationRecord, type RelationshipKeyMaterial,
 } from '@resonance/core';
 import { createRelayServer, type RelayServer } from '../server.js';
+import { loadOrCreateRelayIdentity } from '../relay-identity-store.js';
 
-const BASE = 36_000 + Math.floor(Math.random() * 1_000);
-const RUN = `${Date.now()}-${BASE}`;
-const CONTROLLER_DIR = `/tmp/resonance-reverse-controller-${RUN}`;
-const VOLUNTEER_DIRS = Array.from({ length: 6 }, (_, index) => (
-  `/tmp/resonance-reverse-volunteer-${index}-${RUN}`
-));
+const RUN_DIR = mkdtempSync(join(tmpdir(), 'resonance-reverse-placement-'));
+const CONTROLLER_DIR = join(RUN_DIR, 'controller');
+const VOLUNTEER_DIRS = Array.from({ length: 6 }, (_, index) => join(RUN_DIR, `volunteer-${index}`));
+let controllerEndpoint: string, controllerPort: number;
 let controller: RelayServer;
 const volunteers: RelayServer[] = [];
 
 function createVolunteer(index: number): RelayServer {
   return createRelayServer({
     maxSearchesPerMin: 1_000,
-    port: BASE + index + 1,
+    port: 0,
     host: '127.0.0.1',
     persistDir: VOLUNTEER_DIRS[index],
     relayDiscovery: {
@@ -37,7 +38,7 @@ function createVolunteer(index: number): RelayServer {
       descriptorLifetimeMs: 60_000,
     },
     relayLinks: {
-      targets: [createRelayContactHintV1('configured', `ws://127.0.0.1:${BASE}/`)],
+      targets: [createRelayContactHintV1('configured', controllerEndpoint)],
       handshakeTimeoutMs: 15_000, heartbeatIntervalMs: 1_000,
       heartbeatTimeoutMs: 15_000, reconnectBaseMs: 50, reconnectMaxMs: 200,
     },
@@ -89,31 +90,33 @@ async function fetch(
 }
 
 beforeAll(async () => {
-  for (let index = 0; index < 6; index++) volunteers.push(createVolunteer(index));
+  // Establish approved identities before the controller binds its OS-assigned port.
+  const approvedIds = VOLUNTEER_DIRS.slice(0, 5).map(directory => loadOrCreateRelayIdentity(directory).did);
   controller = createRelayServer({
     maxSearchesPerMin: 1_000,
-    port: BASE, host: '127.0.0.1', persistDir: CONTROLLER_DIR,
+    port: 0, host: '127.0.0.1', persistDir: CONTROLLER_DIR,
     desiredReplicaCount: 5, minimumHealthyReplicaCount: 3,
-    inboundReplicaTargetIds: volunteers.slice(0, 5)
-      .map(volunteer => volunteer.getRelayDescriptor()!.relayId),
+    inboundReplicaTargetIds: approvedIds,
     replicaRepairIntervalMs: 250, replicaInventoryIntervalMs: 2_000,
     relayLinkHeartbeatIntervalMs: 1_000, relayLinkHeartbeatTimeoutMs: 15_000,
     relayDiscovery: {
-      endpoints: [`ws://127.0.0.1:${BASE}/`], reachability: 'direct',
+      endpoints: ['ws://127.0.0.1:0/'], reachability: 'direct',
       supportedGroups: ['public'],
       storage: { capacityBytes: 1_000_000, availableBytes: 800_000 },
       descriptorLifetimeMs: 60_000,
     },
   });
   await controller.start();
+  controllerEndpoint = controller.getRelayDescriptor()!.endpoints[0];
+  controllerPort = controller.getListeningPort()!;
+  for (let index = 0; index < 6; index++) volunteers.push(createVolunteer(index));
   for (const volunteer of volunteers) await volunteer.start();
 });
 
 afterAll(async () => {
   await Promise.all(volunteers.map(volunteer => volunteer.stop({ graceful: false })));
-  await controller.stop({ graceful: false });
-  rmSync(CONTROLLER_DIR, { recursive: true, force: true });
-  for (const dir of VOLUNTEER_DIRS) rmSync(dir, { recursive: true, force: true });
+  await controller?.stop({ graceful: false });
+  rmSync(RUN_DIR, { recursive: true, force: true });
 });
 
 describe('reverse-link placement onto NAT-style volunteers', () => {
@@ -132,15 +135,15 @@ describe('reverse-link placement onto NAT-style volunteers', () => {
       id: recipient.mailboxId,
       encryptionKey: Buffer.from(recipient.mailboxKeyPair.publicKey).toString('base64'),
     });
-    expect((await request(BASE, serializeRelationshipMailboxDepositFrameV2(
+    expect((await request(controllerPort, serializeRelationshipMailboxDepositFrameV2(
       createRelationshipMailboxDepositFrameV2(createRelationshipMailboxDepositV2(
         recipient.relationshipId, sender, envelope,
       )),
     ))).payload).toMatchObject({ status: 'ok' });
     await waitFor(async () => (await Promise.all(
-      [0, 1, 2, 3, 4].map(index => fetchRelationship(BASE + index + 1, recipient)),
+      [0, 1, 2, 3, 4].map(index => fetchRelationship(volunteers[index].getListeningPort()!, recipient)),
     )).every(ids => ids.includes(envelope.envelopeId)));
-    expect(await fetchRelationship(BASE + 6, recipient)).toEqual([]);
+    expect(await fetchRelationship(volunteers[5].getListeningPort()!, recipient)).toEqual([]);
   }, 60_000);
 
   it('reaches five signed receipts and repairs a lost volunteer over its outbound link', async () => {
@@ -153,7 +156,7 @@ describe('reverse-link placement onto NAT-style volunteers', () => {
       fingerprint: new Uint8Array(64).fill(0x35), itemType: 'offer',
       createdAt: now, expiresAt: now + 600_000,
     }, keys);
-    expect((await request(BASE, serializePublicationOperationFrame(
+    expect((await request(controllerPort, serializePublicationOperationFrame(
       createPublicationOperationFrame(record),
     ))).payload).toMatchObject({ status: 'ok' });
     await waitFor(() => controller.getReplicaPlacementStatus(record.publicationId)?.targetConfirmed === true);
@@ -184,24 +187,24 @@ describe('reverse-link placement onto NAT-style volunteers', () => {
       fingerprint: new Uint8Array(64).fill(0x35), itemType: 'need',
       createdAt: Date.now(), expiresAt: Date.now() + 600_000,
     }, matchingKeys);
-    expect((await request(BASE, serializePublicationOperationFrame(
+    expect((await request(controllerPort, serializePublicationOperationFrame(
       createPublicationOperationFrame(matching),
     ))).payload).toMatchObject({ status: 'ok' });
     await waitFor(() => controller.getReplicaPlacementStatus(matching.publicationId)?.targetConfirmed === true);
     await waitFor(() => volunteers.slice(0, 5)
       .every(volunteer => volunteer.getStats().active_publications === 2));
-    const noticeIds = await fetch(BASE, record, keys);
+    const noticeIds = await fetch(controllerPort, record, keys);
     expect(noticeIds).toHaveLength(1);
     await waitFor(() => volunteers.slice(0, 5)
       .every(volunteer => volunteer.getStats().mailbox_envelopes > 0));
     for (let index = 0; index < 5; index++) {
-      expect(await fetch(BASE + index + 1, record, keys)).toContain(noticeIds[0]);
+      expect(await fetch(volunteers[index].getListeningPort()!, record, keys)).toContain(noticeIds[0]);
     }
 
     const tombstone = createPublicationTombstone(
       record, 'withdrawn', keys.signingKeyPair, Date.now(),
     );
-    expect((await request(BASE, serializePublicationOperationFrame(
+    expect((await request(controllerPort, serializePublicationOperationFrame(
       createPublicationOperationFrame(tombstone),
     ))).payload).toMatchObject({ status: 'ok' });
     await waitFor(() => volunteers.slice(0, 5)

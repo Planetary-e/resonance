@@ -1,5 +1,6 @@
 /** Signed handshake for long-lived relay-to-relay WebSocket links. */
 
+import { randomBytes } from 'node:crypto';
 import {
   decodeBase64,
   decodeUTF8,
@@ -22,11 +23,14 @@ import {
 export const RELAY_LINK_VERSION = 1 as const;
 export const RELAY_LINK_OPEN_FRAME_TYPE = 'relay_link_open' as const;
 export const RELAY_LINK_ACCEPT_FRAME_TYPE = 'relay_link_accept' as const;
+export const RELAY_LINK_CHALLENGE_REQUEST_FRAME_TYPE = 'relay_link_challenge_request' as const;
+export const RELAY_LINK_CHALLENGE_FRAME_TYPE = 'relay_link_challenge' as const;
 export const MAX_RELAY_LINK_HANDSHAKE_LIFETIME_MS = 60_000;
+const MAX_LINK_CHALLENGE_LIFETIME_MS = 10_000;
 
 const LINK_OPEN_DOMAIN = 'resonance:relay-link:v1:open';
 const LINK_ACCEPT_DOMAIN = 'resonance:relay-link:v1:accept';
-const OPEN_BODY_KEYS = ['createdAt', 'descriptor', 'expiresAt', 'kind', 'linkId', 'version'] as const;
+const OPEN_BODY_KEYS = ['createdAt', 'descriptor', 'expiresAt', 'kind', 'linkId', 'serverNonce', 'version'] as const;
 const OPEN_BODY_WITH_ENDPOINT_KEYS = [...OPEN_BODY_KEYS, 'dialedEndpoint'] as const;
 const OPEN_KEYS = [...OPEN_BODY_KEYS, 'signature'] as const;
 const OPEN_WITH_ENDPOINT_KEYS = [...OPEN_BODY_WITH_ENDPOINT_KEYS, 'signature'] as const;
@@ -45,11 +49,53 @@ export interface RelayLinkOpenBodyV1 {
   version: typeof RELAY_LINK_VERSION;
   kind: 'relay-link-open';
   linkId: string;
+  /** Fresh nonce issued on this exact receiving socket. */
+  serverNonce: string;
   descriptor: RelayDescriptorV1;
   /** Signed statement of the exact target URL used for this connection. */
   dialedEndpoint?: string;
   createdAt: number;
   expiresAt: number;
+}
+
+export interface RelayLinkChallengeV1 {
+  type: typeof RELAY_LINK_CHALLENGE_FRAME_TYPE;
+  version: typeof RELAY_LINK_VERSION;
+  nonce: string;
+  expiresAt: number;
+}
+
+export function serializeRelayLinkChallengeRequestV1(): string {
+  return JSON.stringify({ type: RELAY_LINK_CHALLENGE_REQUEST_FRAME_TYPE, version: RELAY_LINK_VERSION });
+}
+
+export function parseRelayLinkChallengeRequestV1(raw: string): void {
+  const value = parseBounded(raw);
+  if (!isObject(value) || !hasOnlyKeys(value, ['type', 'version'])
+    || value.type !== RELAY_LINK_CHALLENGE_REQUEST_FRAME_TYPE || value.version !== RELAY_LINK_VERSION) {
+    throw new Error('Invalid relay link challenge request');
+  }
+}
+
+export function createRelayLinkChallengeV1(now = Date.now()): RelayLinkChallengeV1 {
+  if (!isTimestamp(now)) throw new Error('Invalid relay link challenge time');
+  return {
+    type: RELAY_LINK_CHALLENGE_FRAME_TYPE,
+    version: RELAY_LINK_VERSION,
+    nonce: randomBytes(24).toString('base64url'),
+    expiresAt: now + MAX_LINK_CHALLENGE_LIFETIME_MS,
+  };
+}
+
+export function parseRelayLinkChallengeV1(raw: string, now = Date.now()): RelayLinkChallengeV1 {
+  const value = parseBounded(raw);
+  if (!isObject(value) || !hasOnlyKeys(value, ['type', 'version', 'nonce', 'expiresAt'])
+    || value.type !== RELAY_LINK_CHALLENGE_FRAME_TYPE || value.version !== RELAY_LINK_VERSION
+    || !isServerNonce(value.nonce) || !isTimestamp(value.expiresAt) || !isTimestamp(now)
+    || value.expiresAt <= now || value.expiresAt - now > MAX_LINK_CHALLENGE_LIFETIME_MS) {
+    throw new Error('Invalid or expired relay link challenge');
+  }
+  return value as unknown as RelayLinkChallengeV1;
 }
 
 export interface RelayLinkOpenV1 extends RelayLinkOpenBodyV1 {
@@ -83,6 +129,7 @@ export interface RelayLinkAcceptFrameV1 {
 export function createRelayLinkOpenV1(
   descriptor: RelayDescriptorV1,
   identity: Identity,
+  serverNonce: string,
   createdAt = Date.now(),
   expiresAt = createdAt + 30_000,
   dialedEndpoint?: string,
@@ -92,6 +139,7 @@ export function createRelayLinkOpenV1(
     version: RELAY_LINK_VERSION,
     kind: 'relay-link-open',
     linkId,
+    serverNonce,
     descriptor,
     ...(dialedEndpoint === undefined ? {} : { dialedEndpoint }),
     createdAt,
@@ -255,7 +303,8 @@ function isRelayLinkOpenBody(value: unknown): value is RelayLinkOpenBodyV1 {
     } catch { return false; }
   }
   if (value.version !== RELAY_LINK_VERSION || value.kind !== 'relay-link-open') return false;
-  if (!isOpaqueLinkId(value.linkId) || !verifyRelayDescriptorV1(value.descriptor)) return false;
+  if (!isOpaqueLinkId(value.linkId) || !isServerNonce(value.serverNonce)
+    || !verifyRelayDescriptorV1(value.descriptor)) return false;
   if (!isTimestamp(value.createdAt) || !isTimestamp(value.expiresAt)) return false;
   return value.expiresAt > value.createdAt
     && value.expiresAt - value.createdAt <= MAX_RELAY_LINK_HANDSHAKE_LIFETIME_MS
@@ -279,6 +328,10 @@ function opaqueLinkId(bytes: Uint8Array): string {
 
 function isOpaqueLinkId(value: unknown): value is string {
   return typeof value === 'string' && /^lnk_[A-Za-z0-9_-]{43}$/.test(value);
+}
+
+function isServerNonce(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9_-]{32}$/.test(value);
 }
 
 function signable(domain: string, body: object): Uint8Array {

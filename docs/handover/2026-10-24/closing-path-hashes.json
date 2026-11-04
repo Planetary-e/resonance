@@ -1,0 +1,64 @@
+{
+  "at": "2026-10-24T06:38:21.591232+00:00",
+  "paths": [
+    {
+      "path": "packages/relay/src/sustainable-recovery-runtime.ts",
+      "sha256": "f7a427219588b99b5564a003477c04177dc464685a47d8cfa51df1bf22f8435e",
+      "bytes": 43750
+    },
+    {
+      "path": "packages/relay/src/sustainable-recovery-manifest.ts",
+      "sha256": "b296fbba5f07d4ba33fe454b21fa9ef40d0cf7b514df711478cefdea6114484e",
+      "bytes": 9702
+    },
+    {
+      "path": "packages/relay/src/sustainable-recovery-arena.ts",
+      "sha256": "6418b873fad0a9b4af8d794ad133bb9a94abc7cfddc4a67c7b816afc74fd72a4",
+      "bytes": 15667
+    },
+    {
+      "path": "packages/relay/src/sustainable-recovery-protected-arena.ts",
+      "sha256": "45aae68d16c4e83a0838656e0d42f0e6fa7d1563a33bc50f2198e9492efcd28c",
+      "bytes": 12488
+    },
+    {
+      "path": "packages/relay/src/__tests__/sustainable-recovery-runtime.integration.test.ts",
+      "sha256": "509be9119ac54f98ad4e76f69546522ccd0e5d9df795e352854932b2a23e5ae1",
+      "bytes": 13434
+    },
+    {
+      "path": "packages/relay/src/__tests__/sustainable-recovery-manifest.test.ts",
+      "sha256": "5db4852cc378578e251de1e2022af358776bebf52dbe1e2ac42316970eb4d899",
+      "bytes": 14037
+    },
+    {
+      "path": "packages/relay/src/__tests__/sustainable-recovery-equivocation.integration.test.ts",
+      "sha256": "dac975f40499b5b6d1b72a2e8f5af4da6379c7d0df5d243ea32e74a24418a643",
+      "bytes": 11033
+    },
+    {
+      "path": "packages/relay/src/__tests__/sustainable-recovery-fixture.ts",
+      "sha256": "93b2df3d5c350f9c41fc8955d9d2611bd32cfa0f66d157e9d4d2edacb91e9199",
+      "bytes": 10903
+    },
+    {
+      "path": "docs/evals/v04-sustainable-recovery-implementation-2026-10-23.md",
+      "sha256": "a0f641f9b06f4554957ccb40d15526dea2bc35e2cbf973578cfad52f9e503391",
+      "bytes": 22102
+    },
+    {
+      "path": "docs/developers/v0.4-completion-plan.md",
+      "sha256": "2a34cce9e03b0b6cb6267a2d02c93a29e96915221c4de36fbd155647a90a0fef",
+      "bytes": 318340
+    },
+    {
+      "path": "docs/developers/v0.4-execution-roadmap.md",
+      "sha256": "d0dcdbdb5c729b75e8fe0ec8730f9a16d259da05e7511ea2c6192ffc08a60578",
+      "bytes": 16701
+    }
+  ],
+  "note": "Parent closing observation only; original final manifest and snapshot preserved",
+  "weeklyUsedPercentEntry": 0,
+  "weeklyUsedPercentExit": 1,
+  "ordinaryUsageAllowed": true
+}

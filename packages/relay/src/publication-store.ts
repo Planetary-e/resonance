@@ -8,6 +8,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { guardUnmanagedExport } from './unmanaged-export.js';
 import {
   isPublicationActive,
   verifyPublicationRecord,
@@ -32,13 +33,17 @@ interface PublicationState {
 }
 
 export class PublicationOperationStore {
+  private readonly assertExportAllowed = guardUnmanagedExport();
   private publications = new Map<string, PublicationState>();
   private liveRecords = 0;
   private firstSeenTombstones = 0;
 
   evaluate(operation: unknown): PublicationApplyResult {
     if (!verifyPublicationOperation(operation)) return { status: 'invalid' };
+    return this.evaluateVerified(operation);
+  }
 
+  private evaluateVerified(operation: PublicationOperation): PublicationApplyResult {
     const state = this.publications.get(operation.publicationId);
     const current = state?.current;
     if (!current) {
@@ -63,8 +68,9 @@ export class PublicationOperationStore {
   }
 
   apply(operation: unknown): PublicationApplyResult {
-    const result = this.evaluate(operation);
-    if (result.status !== 'accepted' || !verifyPublicationOperation(operation)) return result;
+    if (!verifyPublicationOperation(operation)) return { status: 'invalid' };
+    const result = this.evaluateVerified(operation);
+    if (result.status !== 'accepted') return result;
 
     const state = this.publications.get(operation.publicationId);
     if (state?.current.kind !== 'publication' && operation.kind === 'publication') this.liveRecords++;
@@ -136,6 +142,7 @@ export class PublicationOperationStore {
   }
 
   save(dir: string): void {
+    this.assertExportAllowed();
     mkdirSync(dir, { recursive: true });
     const publications = Array.from(this.publications.values())
       .sort((a, b) => a.current.publicationId.localeCompare(b.current.publicationId));

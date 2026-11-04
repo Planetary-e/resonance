@@ -1,0 +1,160 @@
+{
+  "generatedAt": "2026-10-04T03:07:54.931Z",
+  "sourceBase": "df977d1be1e3ae42806f6b9908ae5901c63543cd",
+  "worktreeDirty": true,
+  "sourceSha256": {
+    "packages/eval/src/history-checkpoint-model.ts": "3464105be3c91ace6c7a74e291c1d7f7db80a8759cb904dbfc98ce34bc258c10",
+    "packages/eval/src/history-checkpoints.ts": "b4268657a5849392f18063dfa8510841d36bf73c1cd73bdb327a6c3ce74d7516"
+  },
+  "model": "finite cumulative-denial recovery and one generation handoff; no production restore",
+  "assumptions": {
+    "members": 5,
+    "maximumByzantine": 1,
+    "durableWriteAcknowledgements": 4,
+    "freshReadReplies": 4,
+    "correctOwner": true,
+    "authenticCumulativeRevisions": [
+      0,
+      1,
+      2
+    ],
+    "fullPayloadAvailable": true,
+    "pinnedHistoryAndMembership": true,
+    "honestDurableStateNeverReset": true,
+    "cryptographyAndStorageAbstracted": true,
+    "concurrentRecoverers": false
+  },
+  "intersections": [
+    {
+      "writeSize": 3,
+      "readSize": 3,
+      "cases": 600,
+      "minimumHonestIntersection": 0,
+      "lostCompletedWrites": 30,
+      "counterexample": {
+        "byzantine": 0,
+        "stored": [
+          0,
+          1,
+          2
+        ],
+        "readers": [
+          0,
+          3,
+          4
+        ]
+      }
+    },
+    {
+      "writeSize": 4,
+      "readSize": 3,
+      "cases": 300,
+      "minimumHonestIntersection": 1,
+      "lostCompletedWrites": 0,
+      "counterexample": null
+    },
+    {
+      "writeSize": 4,
+      "readSize": 4,
+      "cases": 150,
+      "minimumHonestIntersection": 2,
+      "lostCompletedWrites": 0,
+      "counterexample": null
+    }
+  ],
+  "readRepair": {
+    "selections": 14400,
+    "comparisons": 1080000,
+    "lostCompletedWrites": 0,
+    "regressionsWithoutRepair": 41500,
+    "regressionsWithRepair": 0,
+    "counterexample": {
+      "byzantine": -1,
+      "stored": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "tailRecipients": [
+        0
+      ],
+      "firstReaders": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "secondReaders": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "first": 2,
+      "second": 1
+    }
+  },
+  "generationFreeze": {
+    "cases": 1440,
+    "completedOldWrites": 230,
+    "preservedCompletedWrites": 230,
+    "blockedOldWrites": 1210,
+    "maximumLateOldAcknowledgements": 2
+  },
+  "counterexamples": {
+    "authenticBackup": {
+      "latestRevision": 1,
+      "restoredRevision": 0,
+      "acceptedDenialLost": true
+    },
+    "replayedResponses": {
+      "withoutNonceCheck": 0,
+      "withNonceCheck": null,
+      "latestRevision": 1
+    },
+    "acknowledgeBeforeReplication": {
+      "acknowledgedLocally": 1,
+      "durableRemoteRevision": 0,
+      "recoverableRevision": 0
+    },
+    "staleWriterWithoutFreeze": {
+      "steps": [
+        "Recovery reads empty state",
+        "Old writer commits spent-token to four replicas",
+        "Recovery overwrites with its older state under a higher generation"
+      ],
+      "lost": [
+        "spent-token"
+      ]
+    },
+    "digestOnly": {
+      "readableDigests": 4,
+      "availablePayloads": 0,
+      "canReconstruct": false
+    }
+  },
+  "payloadBudgets": [
+    {
+      "bytes": 65536,
+      "minimumWriteUpload": 262144,
+      "fiveReplicaWriteUpload": 327680,
+      "minimumRecoveryTransfer": 524288,
+      "fiveReplicaStoredPayload": 327680
+    },
+    {
+      "bytes": 1048576,
+      "minimumWriteUpload": 4194304,
+      "fiveReplicaWriteUpload": 5242880,
+      "minimumRecoveryTransfer": 8388608,
+      "fiveReplicaStoredPayload": 5242880
+    },
+    {
+      "bytes": 8388608,
+      "minimumWriteUpload": 33554432,
+      "fiveReplicaWriteUpload": 41943040,
+      "minimumRecoveryTransfer": 67108864,
+      "fiveReplicaStoredPayload": 41943040
+    }
+  ]
+}

@@ -3,6 +3,7 @@
 import { Buffer } from 'node:buffer';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { guardUnmanagedExport } from './unmanaged-export.js';
 import {
   verifyMailboxEnvelope,
   type EncryptedMailboxEnvelope,
@@ -12,6 +13,7 @@ import {
 const STORE_FILENAME = 'mailboxes.json';
 
 export class MailboxStore {
+  private readonly assertExportAllowed = guardUnmanagedExport();
   private mailboxes = new Map<string, Map<string, EncryptedMailboxEnvelope>>();
   /** Prevent an acknowledged envelope from being delivered again on retry. */
   private acknowledged = new Map<string, Map<string, number>>();
@@ -212,6 +214,7 @@ export class MailboxStore {
   }
 
   save(dir: string): void {
+    this.assertExportAllowed();
     mkdirSync(dir, { recursive: true });
     const mailboxes = Array.from(this.mailboxes.entries())
       .sort(([a], [b]) => a.localeCompare(b))

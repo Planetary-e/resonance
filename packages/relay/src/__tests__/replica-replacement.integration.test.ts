@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { rmSync } from 'node:fs';
 import WebSocket from 'ws';
 import {
@@ -11,13 +11,10 @@ import {
   type PublicationOperation,
 } from '@resonance/core';
 import { createRelayServer, type RelayServer } from '../server.js';
+import { createRelayTestEndpoints, type RelayTestEndpoint } from './fixtures/relay-test-endpoint.js';
 
-const BASE_PORT = 29_000 + Math.floor(Math.random() * 500);
-const SOURCE_PORT = BASE_PORT;
-const CAPACITY_PORT = BASE_PORT + 1;
-const TERMINAL_PORT = BASE_PORT + 2;
-const HEALTHY_PORT = BASE_PORT + 3;
-const REPLACEMENT_PORT = BASE_PORT + 4;
+let SOURCE_PORT = 0, CAPACITY_PORT = 0, TERMINAL_PORT = 0, HEALTHY_PORT = 0, REPLACEMENT_PORT = 0;
+let testEndpoints: RelayTestEndpoint[] = [];
 const RUN_ID = `${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
 const SOURCE_DIR = `/tmp/resonance-replacement-source-${RUN_ID}`;
 const CAPACITY_DIR = `/tmp/resonance-replacement-capacity-${RUN_ID}`;
@@ -36,7 +33,7 @@ function createTarget(
   quotaBytes = 1_000_000,
 ): RelayServer {
   return createRelayServer({
-    port,
+    port: 0,
     host: '127.0.0.1',
     persistDir,
     maxPublishesPerMin: 1_000,
@@ -55,7 +52,7 @@ function createTarget(
 
 function createSource(): RelayServer {
   return createRelayServer({
-    port: SOURCE_PORT,
+    port: 0,
     host: '127.0.0.1',
     persistDir: SOURCE_DIR,
     desiredReplicaCount: 2,
@@ -108,7 +105,12 @@ function submit(port: number, operation: PublicationOperation): Promise<{ status
   });
 }
 
-afterEach(() => {
+beforeEach(async () => {
+  testEndpoints = await createRelayTestEndpoints(4);
+  [CAPACITY_PORT, TERMINAL_PORT, HEALTHY_PORT, REPLACEMENT_PORT] = testEndpoints.map(endpoint => endpoint.port);
+});
+afterEach(async () => {
+  await Promise.all(testEndpoints.map(endpoint => endpoint.close()));
   for (const directory of [SOURCE_DIR, CAPACITY_DIR, TERMINAL_DIR, HEALTHY_DIR, REPLACEMENT_DIR]) {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -136,9 +138,9 @@ describe('capacity replacement and reconciliation quarantine', () => {
     let sourceStarted = false;
 
     try {
-      await capacityTarget.start();
+      await capacityTarget.start(); testEndpoints[0].forwardTo(capacityTarget.getListeningPort()!);
       capacityStarted = true;
-      await healthyTarget.start();
+      await healthyTarget.start(); testEndpoints[2].forwardTo(healthyTarget.getListeningPort()!);
       healthyStarted = true;
       expect(capacityTarget.getRelayDescriptor()?.storage.availableBytes).toBe(64 * 1024);
       const healthyRelayId = healthyTarget.getRelayDescriptor()!.relayId;
@@ -146,7 +148,7 @@ describe('capacity replacement and reconciliation quarantine', () => {
       const capacityRelayId = capacityTarget.getRelayDescriptor()!.relayId;
 
       source = createSource();
-      await source.start();
+      await source.start(); SOURCE_PORT = source.getListeningPort()!;
       sourceStarted = true;
       await waitFor(() => source!.getRelayLinkStatus().connectedRelayIds.length === 2);
       // The source has already authenticated a descriptor reporting one
@@ -178,7 +180,7 @@ describe('capacity replacement and reconciliation quarantine', () => {
       await source.stop();
       sourceStarted = false;
       source = createSource();
-      await source.start();
+      await source.start(); SOURCE_PORT = source.getListeningPort()!;
       sourceStarted = true;
       await waitFor(() => source!.getRelayLinkStatus().connectedRelayIds.length === 2);
       expect(source.getReplicaPlacementStatus(operation.publicationId)).toMatchObject({
@@ -188,7 +190,7 @@ describe('capacity replacement and reconciliation quarantine', () => {
         },
       });
 
-      await replacementTarget.start();
+      await replacementTarget.start(); testEndpoints[3].forwardTo(replacementTarget.getListeningPort()!);
       replacementStarted = true;
       await waitFor(() => source!.getRelayLinkStatus().connectedRelayIds.length === 3, 30_000);
       await waitFor(() => {
@@ -248,14 +250,14 @@ describe('capacity replacement and reconciliation quarantine', () => {
     let sourceStarted = false;
 
     try {
-      await terminalTarget.start();
+      await terminalTarget.start(); testEndpoints[1].forwardTo(terminalTarget.getListeningPort()!);
       terminalStarted = true;
       await expect(submit(TERMINAL_PORT, conflicting)).resolves.toMatchObject({ status: 'ok' });
       const terminalRelayId = terminalTarget.getRelayDescriptor()!.relayId;
       const lateRelayId = lateTarget.getRelayDescriptor()!.relayId;
 
       source = createSource();
-      await source.start();
+      await source.start(); SOURCE_PORT = source.getListeningPort()!;
       sourceStarted = true;
       await waitFor(() => source!.getRelayLinkStatus().connectedRelayIds.length === 1);
       await expect(submit(SOURCE_PORT, operation)).resolves.toMatchObject({ status: 'ok' });
@@ -271,7 +273,7 @@ describe('capacity replacement and reconciliation quarantine', () => {
       await source.stop();
       sourceStarted = false;
       source = createSource();
-      await source.start();
+      await source.start(); SOURCE_PORT = source.getListeningPort()!;
       sourceStarted = true;
       await waitFor(() => source!.getRelayLinkStatus().connectedRelayIds.length === 1);
       expect(source.getReplicaPlacementStatus(operation.publicationId)).toMatchObject({
@@ -280,7 +282,7 @@ describe('capacity replacement and reconciliation quarantine', () => {
         intent: { targetRelayIds: [terminalRelayId] },
       });
 
-      await lateTarget.start();
+      await lateTarget.start(); testEndpoints[2].forwardTo(lateTarget.getListeningPort()!);
       lateStarted = true;
       await waitFor(() => source!.getRelayLinkStatus().connectedRelayIds.length === 2, 30_000);
       await pause(500);
@@ -340,11 +342,11 @@ describe('capacity replacement and reconciliation quarantine', () => {
     let sourceStarted = false;
 
     try {
-      await terminalTarget.start();
+      await terminalTarget.start(); testEndpoints[1].forwardTo(terminalTarget.getListeningPort()!);
       terminalStarted = true;
       await expect(submit(TERMINAL_PORT, tombstone)).resolves.toMatchObject({ status: 'ok' });
       source = createSource();
-      await source.start();
+      await source.start(); SOURCE_PORT = source.getListeningPort()!;
       sourceStarted = true;
       await waitFor(() => source!.getRelayLinkStatus().connectedRelayIds.length === 1);
       await expect(submit(SOURCE_PORT, operation)).resolves.toMatchObject({ status: 'ok' });
@@ -356,13 +358,13 @@ describe('capacity replacement and reconciliation quarantine', () => {
       await source.stop();
       sourceStarted = false;
       source = createSource();
-      await source.start();
+      await source.start(); SOURCE_PORT = source.getListeningPort()!;
       sourceStarted = true;
       await waitFor(() => source!.getRelayLinkStatus().connectedRelayIds.length === 1);
       expect(source.getStats().retained_tombstones).toBe(1);
       expect(source.getReplicaPlacementStatus(operation.publicationId)).toBeUndefined();
 
-      await lateTarget.start();
+      await lateTarget.start(); testEndpoints[2].forwardTo(lateTarget.getListeningPort()!);
       lateStarted = true;
       await waitFor(() => source!.getRelayLinkStatus().connectedRelayIds.length === 2, 30_000);
       await pause(350);

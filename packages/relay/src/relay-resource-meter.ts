@@ -1,9 +1,7 @@
 /** Process-local resource measurements for the relay operator. */
 
-import {
-  closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync,
-  readdirSync, renameSync, statSync, writeFileSync,
-} from 'node:fs';
+import { readdirSync, statSync } from 'node:fs';
+import { openResourceCheckpoint } from './resource-checkpoint.js';
 import type { Socket } from 'node:net';
 import { join } from 'node:path';
 
@@ -16,7 +14,9 @@ type ResourceTotals = {
   cpuMicros: number;
 };
 
+type StoredUsage = { version: 1; totals: ResourceTotals };
 export class RelayTrafficMeter {
+  private readonly checkpointFile?: { write(value: StoredUsage): void };
   private readonly active = new Set<Socket>();
   private readonly cpuAtStart = process.cpuUsage();
   private previous: ResourceTotals = {
@@ -27,13 +27,11 @@ export class RelayTrafficMeter {
   private lanIngress = 0;
   private lanEgress = 0;
 
-  constructor(private readonly directory?: string) {
+  constructor(directory?: string) {
     if (!directory) return;
-    const path = join(directory, USAGE_FILE);
-    if (!existsSync(path)) return;
-    const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'));
-    if (!isStoredUsage(parsed)) throw new Error('Invalid persisted relay resource usage');
-    this.previous = parsed.totals;
+    const checkpoint = openResourceCheckpoint(join(directory, USAGE_FILE), isStoredUsage);
+    this.checkpointFile = checkpoint;
+    this.previous = checkpoint.read()?.totals ?? this.previous;
   }
 
   observe(socket: Socket): void {
@@ -48,11 +46,13 @@ export class RelayTrafficMeter {
 
   recordLanIngress(bytes: number): void {
     if (!Number.isSafeInteger(bytes) || bytes < 0) throw new Error('Invalid LAN ingress bytes');
+    if (!Number.isSafeInteger(this.lanIngress + bytes)) throw new Error('LAN ingress counter exceeds its bound');
     this.lanIngress += bytes;
   }
 
   recordLanEgress(bytes: number): void {
     if (!Number.isSafeInteger(bytes) || bytes < 0) throw new Error('Invalid LAN egress bytes');
+    if (!Number.isSafeInteger(this.lanEgress + bytes)) throw new Error('LAN egress counter exceeds its bound');
     this.lanEgress += bytes;
   }
 
@@ -66,43 +66,34 @@ export class RelayTrafficMeter {
     const cpu = process.cpuUsage(this.cpuAtStart);
     const lanIngressBytes = this.previous.lanIngressBytes + this.lanIngress;
     const lanEgressBytes = this.previous.lanEgressBytes + this.lanEgress;
-    return {
+    const totals = {
       ingressBytes, egressBytes, lanIngressBytes, lanEgressBytes,
       cpuMicros: this.previous.cpuMicros + cpu.user + cpu.system,
       totalBandwidthBytes: ingressBytes + egressBytes + lanIngressBytes + lanEgressBytes,
     };
+    if (!Object.values(totals).every(value => Number.isSafeInteger(value) && value >= 0)) throw new Error('Resource measurement exceeds its counter bound');
+    return totals;
   }
 
   /** Atomic, fsynced checkpoint. A crash can lose only traffic since the previous checkpoint. */
   checkpoint(): void {
-    if (!this.directory) return;
-    mkdirSync(this.directory, { recursive: true });
-    const path = join(this.directory, USAGE_FILE);
-    const temporary = `${path}.next`;
+    if (!this.checkpointFile) return;
     const { totalBandwidthBytes: _total, ...totals } = this.snapshot();
-    const fd = openSync(temporary, 'w', 0o600);
-    try {
-      writeFileSync(fd, JSON.stringify({ version: 1, totals }));
-      fsyncSync(fd);
-    } finally {
-      closeSync(fd);
-    }
-    renameSync(temporary, path);
-    // Windows flushes the file above but rejects fsync on directory handles.
-    if (process.platform === 'win32') return;
-    const directoryFd = openSync(this.directory, 'r');
-    try { fsyncSync(directoryFd); } finally { closeSync(directoryFd); }
+    this.checkpointFile.write({ version: 1, totals });
   }
 }
 
-function isStoredUsage(value: unknown): value is { version: 1; totals: ResourceTotals } {
+function isStoredUsage(value: unknown): value is StoredUsage {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const candidate = value as { version?: unknown; totals?: unknown };
-  if (candidate.version !== 1 || !candidate.totals
+  if (Object.keys(value).sort().join(',') !== 'totals,version' || candidate.version !== 1 || !candidate.totals
     || typeof candidate.totals !== 'object' || Array.isArray(candidate.totals)) return false;
   const totals = candidate.totals as Record<string, unknown>;
   const keys = ['ingressBytes', 'egressBytes', 'lanIngressBytes', 'lanEgressBytes', 'cpuMicros'];
-  return keys.every(key => Number.isSafeInteger(totals[key]) && (totals[key] as number) >= 0);
+  return Object.keys(totals).length === keys.length
+    && keys.every(key => Number.isSafeInteger(totals[key]) && (totals[key] as number) >= 0)
+    && Number.isSafeInteger((totals.ingressBytes as number) + (totals.egressBytes as number)
+      + (totals.lanIngressBytes as number) + (totals.lanEgressBytes as number));
 }
 
 /** Counts regular files under the relay data directory, without following links. */

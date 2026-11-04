@@ -18,11 +18,10 @@ import {
 import { RelayOperationLog } from '../operation-log.js';
 import { createRelayServer, type RelayServer } from '../server.js';
 
-const BASE_PORT = 31_000 + Math.floor(Math.random() * 1_000);
 const RUN_ID = `${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
-const PORTS = [0, 1, 2, 3, 4, 5].map(offset => BASE_PORT + offset);
-const DIRECTORIES = PORTS.map(port => `/tmp/resonance-query-routing-${port}-${RUN_ID}`);
-const [ORIGIN, HUB, FIRST_VOLUNTEER, SECOND_VOLUNTEER, ADMISSION_VOLUNTEER, THIRD_HOP] = PORTS;
+const PORTS = [0, 0, 0, 0, 0, 0];
+const DIRECTORIES = PORTS.map((_, index) => `/tmp/resonance-query-routing-${index}-${RUN_ID}`);
+let [ORIGIN, HUB, FIRST_VOLUNTEER, SECOND_VOLUNTEER, ADMISSION_VOLUNTEER, THIRD_HOP] = PORTS;
 
 const sharedRecord = createPublicationRecord({
   groupId: 'public', fingerprintEpoch: '2026-09',
@@ -47,7 +46,7 @@ function endpoint(port: number): string {
 
 function createServer(index: number): RelayServer {
   const port = PORTS[index];
-  const direct = port === HUB || port === THIRD_HOP;
+  const direct = index === 1 || index === 5;
   return createRelayServer({
     port,
     host: '127.0.0.1',
@@ -60,7 +59,7 @@ function createServer(index: number): RelayServer {
       descriptorLifetimeMs: 60_000,
     },
     relayLinks: direct ? undefined : {
-      targets: (port === FIRST_VOLUNTEER ? [HUB, THIRD_HOP] : [HUB])
+      targets: (index === 2 ? [PORTS[1], PORTS[5]] : [PORTS[1]])
         .map(targetPort => createRelayContactHintV1('configured', endpoint(targetPort))),
       handshakeTimeoutMs: 2_000,
       heartbeatIntervalMs: 100,
@@ -70,7 +69,7 @@ function createServer(index: number): RelayServer {
     },
     relayLinkHeartbeatIntervalMs: 100,
     relayLinkHeartbeatTimeoutMs: 1_500,
-    ...(port === ADMISSION_VOLUNTEER ? {
+    ...(index === 4 ? {
       admissionVerifier: {
         verifyAndSpend: () => ({ status: 'rejected' as const }),
       },
@@ -132,15 +131,16 @@ beforeAll(async () => {
   seedReplica(5, thirdHopRecord);
   const hub = createServer(1);
   servers.push(hub);
-  await hub.start();
+  await hub.start(); PORTS[1] = hub.getListeningPort()!;
   const thirdHop = createServer(5);
-  await thirdHop.start();
+  await thirdHop.start(); PORTS[5] = thirdHop.getListeningPort()!;
   for (const index of [0, 2, 3, 4]) {
     const server = createServer(index);
     servers.push(server);
-    await server.start();
+    await server.start(); PORTS[index] = server.getListeningPort()!;
   }
   servers.push(thirdHop);
+  [ORIGIN, HUB, FIRST_VOLUNTEER, SECOND_VOLUNTEER, ADMISSION_VOLUNTEER, THIRD_HOP] = PORTS;
   await waitFor(() => hub.getRelayLinkStatus().inboundRelayIds.length === 4
     && servers[1].getRelayLinkStatus().connectedRelayIds.length === 1
     && servers[2].getRelayLinkStatus().connectedRelayIds.length === 2

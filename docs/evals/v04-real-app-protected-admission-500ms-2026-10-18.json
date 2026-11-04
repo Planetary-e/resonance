@@ -1,0 +1,259 @@
+{
+  "measuredAt": "2026-10-18T04:29:44.878Z",
+  "checkpoints": [
+    "Two actual app processes initialized and unlocked with the cached FP32 model; blinded issuance completed through authenticated APIs",
+    "Three real-text publications accepted; two offers from one account have separate publication keys and IDs",
+    "Real-text private search retrieves the complementary offer",
+    "Both applications decrypt and retain match notices; lock/unlock plus another mailbox check does not duplicate them",
+    "All six protected admission owners reopen; exact retry succeeds and a conflicting spend remains rejected",
+    "Witness history quorum loss refuses actual application search and retains the uncertain token without refund",
+    "Protected observer history quorum loss refuses an actual app search before reserving or redeeming another token",
+    "No root account identifier, plaintext item text or spent token appears in captured network frames; distinct request bindings use distinct tokens"
+  ],
+  "model": "nomic-ai/nomic-embed-text-v1",
+  "dtype": "fp32",
+  "remoteModelDownloads": false,
+  "applicationProcesses": 2,
+  "published": 3,
+  "mailboxMatchCounts": [
+    1,
+    2
+  ],
+  "distinctRequestBindings": 10,
+  "distinctSpentTokens": 10,
+  "protectedPolicy": {
+    "observers": 5,
+    "durableHistories": 25,
+    "privateQueries": 12,
+    "issuerAndRelayFreshness": true,
+    "quorumLossRefusedBeforeSpend": true
+  },
+  "protectedAdmission": {
+    "witnesses": 5,
+    "coordinators": 1,
+    "durableHistories": 30,
+    "restartedOwners": 6,
+    "retainedDoubleSpendRefusal": true,
+    "quorumLossRefused": true
+  },
+  "apiTimings": [
+    {
+      "operation": "/api/init",
+      "status": 200,
+      "durationMs": 706
+    },
+    {
+      "operation": "/api/unlock",
+      "status": 200,
+      "durationMs": 464
+    },
+    {
+      "operation": "/api/admission-wallet/configure",
+      "status": 200,
+      "durationMs": 26
+    },
+    {
+      "operation": "/api/admission-wallet/policy",
+      "status": 200,
+      "durationMs": 13
+    },
+    {
+      "operation": "/api/admission-wallet/request",
+      "status": 200,
+      "durationMs": 278
+    },
+    {
+      "operation": "/api/admission-wallet/complete",
+      "status": 200,
+      "durationMs": 70
+    },
+    {
+      "operation": "/api/init",
+      "status": 200,
+      "durationMs": 730
+    },
+    {
+      "operation": "/api/unlock",
+      "status": 200,
+      "durationMs": 480
+    },
+    {
+      "operation": "/api/admission-wallet/configure",
+      "status": 200,
+      "durationMs": 31
+    },
+    {
+      "operation": "/api/admission-wallet/policy",
+      "status": 200,
+      "durationMs": 16
+    },
+    {
+      "operation": "/api/admission-wallet/request",
+      "status": 200,
+      "durationMs": 284
+    },
+    {
+      "operation": "/api/admission-wallet/complete",
+      "status": 200,
+      "durationMs": 69
+    },
+    {
+      "operation": "/api/items",
+      "status": 200,
+      "durationMs": 3808
+    },
+    {
+      "operation": "/api/items",
+      "status": 200,
+      "durationMs": 3679
+    },
+    {
+      "operation": "/api/items",
+      "status": 200,
+      "durationMs": 3505
+    },
+    {
+      "operation": "/api/search",
+      "status": 200,
+      "durationMs": 3599
+    },
+    {
+      "operation": "/api/private-requests/hold-mailbox",
+      "status": 200,
+      "durationMs": 12
+    },
+    {
+      "operation": "/api/private-requests/:id/release",
+      "status": 200,
+      "durationMs": 7137
+    },
+    {
+      "operation": "/api/matches",
+      "status": 200,
+      "durationMs": 6
+    },
+    {
+      "operation": "/api/lock",
+      "status": 200,
+      "durationMs": 7
+    },
+    {
+      "operation": "/api/unlock",
+      "status": 200,
+      "durationMs": 592
+    },
+    {
+      "operation": "/api/private-requests/hold-mailbox",
+      "status": 200,
+      "durationMs": 9
+    },
+    {
+      "operation": "/api/private-requests/:id/release",
+      "status": 200,
+      "durationMs": 3414
+    },
+    {
+      "operation": "/api/matches",
+      "status": 200,
+      "durationMs": 7
+    },
+    {
+      "operation": "/api/private-requests/hold-mailbox",
+      "status": 200,
+      "durationMs": 11
+    },
+    {
+      "operation": "/api/private-requests/:id/release",
+      "status": 200,
+      "durationMs": 7058
+    },
+    {
+      "operation": "/api/matches",
+      "status": 200,
+      "durationMs": 7
+    },
+    {
+      "operation": "/api/lock",
+      "status": 200,
+      "durationMs": 6
+    },
+    {
+      "operation": "/api/unlock",
+      "status": 200,
+      "durationMs": 539
+    },
+    {
+      "operation": "/api/private-requests/hold-mailbox",
+      "status": 200,
+      "durationMs": 8
+    },
+    {
+      "operation": "/api/private-requests/:id/release",
+      "status": 200,
+      "durationMs": 3556
+    },
+    {
+      "operation": "/api/matches",
+      "status": 200,
+      "durationMs": 8
+    },
+    {
+      "operation": "/api/admission-wallet",
+      "status": 200,
+      "durationMs": 5
+    },
+    {
+      "operation": "/api/search",
+      "status": 503,
+      "durationMs": 3252
+    },
+    {
+      "operation": "/api/admission-wallet",
+      "status": 200,
+      "durationMs": 3
+    },
+    {
+      "operation": "/api/admission-wallet",
+      "status": 200,
+      "durationMs": 3
+    },
+    {
+      "operation": "/api/search",
+      "status": 503,
+      "durationMs": 914
+    },
+    {
+      "operation": "/api/admission-wallet",
+      "status": 200,
+      "durationMs": 2
+    }
+  ],
+  "faultCooldownMs": 27489,
+  "actions": {
+    "publication-write": 3,
+    "search": 1,
+    "mailbox-fetch": 4,
+    "mailbox-acknowledge": 2
+  },
+  "resources": {
+    "durationMs": 86714,
+    "websocketPayloadBytes": 7615634,
+    "parentPeakRssBytes": 382156800,
+    "applicationPeakRssBytes": [
+      2108702720,
+      1891794944
+    ],
+    "cpuSeconds": 26.705445,
+    "node": "v24.19.0",
+    "platform": "darwin",
+    "architecture": "arm64"
+  },
+  "limitations": [
+    "Local IPv4/IPv6 loopback domains on one computer; not independent operators, Internet or TLS deployment.",
+    "Actual desktop backend APIs and embeddings; no graphical user interaction or native installer is certified.",
+    "Five protected observers, five witnesses and one coordinator use 55 local durable history services; eligibility distribution and independent operators remain separate.",
+    "Account/credential-field separation is not timing or content unlinkability; static fingerprints and match relationships remain observable to the destination.",
+    "Wire payload counts exclude TCP/TLS/WebSocket headers; per-process peak RSS values are not simultaneous total memory and CPU time is not energy.",
+    "Two concurrent model processes on this host; representative hardware and cold first-download experience remain unmeasured."
+  ]
+}

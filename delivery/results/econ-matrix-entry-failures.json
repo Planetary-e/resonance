@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "failures": [
+    {
+      "phase": "selection-only entrypoint",
+      "error": "EEXIST: file already exists, open 'delivery/results/econ-matrix-driver-final-smoke.json'",
+      "matrix_lifecycles_completed": 0
+    },
+    {
+      "phase": "first actual matrix lifecycle",
+      "run_id": "matrix-local-04",
+      "error": "Protected policy observer operation is already in progress during parallel post-newView startup",
+      "matrix_lifecycles_completed": 0,
+      "evidence": "delivery/results/econ-matrix-execution-failure-1793263215254.json"
+    },
+    {
+      "phase": "retry-01 pre-lifecycle noEmit",
+      "error": "TS2551: retry metadata referenced run.run_id instead of run.runId",
+      "matrix_lifecycles_completed": 0
+    },
+    {
+      "phase": "retry-02 second matrix lifecycle",
+      "run_id": "matrix-new-view-04-retry-2",
+      "error": "Worker server traffic views were absent when final metrics were selected over pre-stop metrics",
+      "matrix_lifecycles_completed": 1,
+      "completed_run_id": "matrix-local-04-retry-2",
+      "evidence": "delivery/results/econ-matrix-execution-failure-retry-2-1793263804223.json",
+      "correction": "Merge pre-stop and final traffic and resume at frozen index 1 with retry-03 identities"
+    },
+    {
+      "phase": "retry-03 third matrix lifecycle",
+      "run_id": "matrix-local-05-retry-3",
+      "error": "Long-lifecycle metrics/traffic payload was incomplete",
+      "matrix_lifecycles_completed": 2,
+      "evidence": "delivery/results/econ-matrix-execution-failure-retry-3-1793264371210.json",
+      "correction": "Paginate traffic and send only post-checkpoint stop deltas; resume at frozen index 2 with retry-04 identities"
+    },
+    {
+      "phase": "retry-04 fourth matrix lifecycle",
+      "run_id": "matrix-return-04-retry-4",
+      "error": "Returning lifecycle traffic reconciliation incomplete; metrics errors were being swallowed",
+      "matrix_lifecycles_completed": 3,
+      "evidence": "delivery/results/econ-matrix-execution-failure-retry-4-1793264973448.json",
+      "correction": "Fail on metrics errors and record per-worker pre/final traffic counts; resume at frozen index 3 with retry-05 identities"
+    },
+    {
+      "phase": "retry-05 fourth matrix lifecycle",
+      "run_id": "matrix-return-03-retry-5",
+      "error": "Pre-stop traffic counts were obscured by final metrics replacement",
+      "matrix_lifecycles_completed": 4,
+      "evidence": "delivery/results/econ-matrix-execution-failure-retry-5-1793265357043.json",
+      "correction": "Preserve independent pre-stop traffic snapshots and resume at frozen index 4 with retry-06 identities"
+    },
+    {
+      "phase": "retry-06 fifth matrix lifecycle",
+      "run_id": "matrix-new-view-03-retry-6",
+      "error": "Final IPC snapshots were not a reliable duplicate traffic authority",
+      "matrix_lifecycles_completed": 5,
+      "evidence": "delivery/results/econ-matrix-execution-failure-retry-6-1793265698766.json",
+      "correction": "Reconcile authenticated client responseTo linkages directly and retain server snapshots as supplemental evidence; resume at frozen index 5 with retry-07 identities"
+    },
+    {
+      "phase": "retry-07 sixth matrix lifecycle",
+      "run_id": "matrix-new-view-05-retry-7",
+      "error": "Intentional forged-role request lacked a client-side refusal linkage",
+      "matrix_lifecycles_completed": 6,
+      "evidence": "delivery/results/econ-matrix-execution-failure-retry-7-1793266170850.json",
+      "correction": "Mark the intentional refusal with expectRefusal and resume at frozen index 6 with retry-08 identities"
+    }
+  ],
+  "preservation": "No prior artifact was deleted or overwritten; retry identities are unique and frozen order/seeds/scenarios/analysis are unchanged.",
+  "acceptance_evaluation": "not_run"
+}

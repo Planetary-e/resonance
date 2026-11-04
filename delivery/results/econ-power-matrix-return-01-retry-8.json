@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "run_id": "matrix-return-01-retry-8",
+  "status": "blocked",
+  "reason": "powermetrics requires superuser; no calibrated external AC meter authorized",
+  "samples": [],
+  "energy_joules": null,
+  "energy_kwh": null,
+  "limitations": [
+    "No power samples collected",
+    "CPU/work bytes cannot be converted to energy"
+  ]
+}

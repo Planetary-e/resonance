@@ -1,0 +1,475 @@
+{
+  "measuredAt": "2026-10-18T05:27:24.152Z",
+  "model": "nomic-ai/nomic-embed-text-v1",
+  "dtype": "fp32",
+  "modelArtifacts": [
+    {
+      "file": "config.json",
+      "sha256": "913351bb022df8c2b332dc955145dea342380b162d532af756b3bdba3b3a1cfb"
+    },
+    {
+      "file": "tokenizer.json",
+      "sha256": "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66"
+    },
+    {
+      "file": "tokenizer_config.json",
+      "sha256": "d7e0000bcc80134debd2222220427e6bf5fa20a669f40a0d0d1409cc18e0a9bc"
+    },
+    {
+      "file": "onnx/model.onnx",
+      "sha256": "347440e93b5ec979fdcf6041b72721aade7b9680c16022e2830db7115ff6fd9f"
+    }
+  ],
+  "datasetSha256": "1264c9dcd68ff19c69cfa35e86177b7a189b8a871df145a3587b1199df621112",
+  "texts": 200,
+  "profiles": {
+    "baseline": {},
+    "two-threads": {
+      "intraOpNumThreads": 2
+    },
+    "two-threads-no-arena": {
+      "intraOpNumThreads": 2,
+      "enableCpuMemArena": false
+    },
+    "bounded-cache": {}
+  },
+  "targets": {
+    "maximumVectorDifference": 1e-06,
+    "minimumIdenticalFingerprintFraction": 1,
+    "maximumPeakRssRatio": 0.8,
+    "maximumEmbeddingTimeRatio": 1.25,
+    "maximumCpuTimeRatio": 1.1,
+    "desiredPeakRssBytes": 1073741824
+  },
+  "orders": [
+    [
+      "baseline",
+      "bounded-cache"
+    ],
+    [
+      "bounded-cache",
+      "baseline"
+    ]
+  ],
+  "cacheComparison": true,
+  "ioSettleMsPerSession": 1000,
+  "environment": {
+    "node": "v24.19.0",
+    "platform": "darwin",
+    "architecture": "arm64"
+  },
+  "results": [
+    {
+      "profile": "baseline",
+      "trial": 1,
+      "position": 1,
+      "stages": [
+        {
+          "phase": "probe-open",
+          "elapsedMs": 345.034125,
+          "cpuSeconds": 0.385202,
+          "rssBytes": 1003175936,
+          "arrayBufferBytes": 10268675
+        },
+        {
+          "phase": "probe-io-settle",
+          "elapsedMs": 1002.598792,
+          "cpuSeconds": 0.261524,
+          "rssBytes": 1542651904,
+          "arrayBufferBytes": 553147083
+        },
+        {
+          "phase": "probe-dispose",
+          "elapsedMs": 4.853083,
+          "cpuSeconds": 0.004942,
+          "rssBytes": 1380204544,
+          "arrayBufferBytes": 553147083
+        },
+        {
+          "phase": "session-open",
+          "elapsedMs": 320.353792,
+          "cpuSeconds": 0.368078,
+          "rssBytes": 1500758016,
+          "arrayBufferBytes": 554456823
+        },
+        {
+          "phase": "session-inference",
+          "elapsedMs": 2420.538291,
+          "cpuSeconds": 12.121088,
+          "rssBytes": 1527349248,
+          "arrayBufferBytes": 21884369
+        },
+        {
+          "phase": "session-io-settle",
+          "elapsedMs": 1002.369084,
+          "cpuSeconds": 0.416981,
+          "rssBytes": 1528610816,
+          "arrayBufferBytes": 553699019
+        },
+        {
+          "phase": "session-dispose",
+          "elapsedMs": 12.201958,
+          "cpuSeconds": 0.012521,
+          "rssBytes": 1427849216,
+          "arrayBufferBytes": 553699019
+        },
+        {
+          "phase": "unlock-open",
+          "elapsedMs": 393.822125,
+          "cpuSeconds": 0.469522,
+          "rssBytes": 1528430592,
+          "arrayBufferBytes": 555008759
+        },
+        {
+          "phase": "unlock-inference",
+          "elapsedMs": 14.683708,
+          "cpuSeconds": 0.06433,
+          "rssBytes": 1528561664,
+          "arrayBufferBytes": 555070607
+        },
+        {
+          "phase": "unlock-io-settle",
+          "elapsedMs": 1002.722959,
+          "cpuSeconds": 0.353015,
+          "rssBytes": 1531068416,
+          "arrayBufferBytes": 553699019
+        },
+        {
+          "phase": "unlock-dispose",
+          "elapsedMs": 11.514916,
+          "cpuSeconds": 0.01173,
+          "rssBytes": 1437073408,
+          "arrayBufferBytes": 553699019
+        }
+      ],
+      "embeddingMs": 2420.538291,
+      "cpuSeconds": 14.468615,
+      "elapsedMs": 6530.926458,
+      "peakRssBytes": 1542717440,
+      "eagerModelStreamBytes": 1642657278,
+      "maximumVectorDifference": 0,
+      "identicalVectors": 200,
+      "identicalFingerprints": 200
+    },
+    {
+      "profile": "bounded-cache",
+      "trial": 1,
+      "position": 2,
+      "stages": [
+        {
+          "phase": "probe-open",
+          "elapsedMs": 348.879958,
+          "cpuSeconds": 0.388599,
+          "rssBytes": 1036533760,
+          "arrayBufferBytes": 16567665
+        },
+        {
+          "phase": "probe-io-settle",
+          "elapsedMs": 1002.376542,
+          "cpuSeconds": 0.001787,
+          "rssBytes": 1036550144,
+          "arrayBufferBytes": 16567665
+        },
+        {
+          "phase": "probe-dispose",
+          "elapsedMs": 6.2355,
+          "cpuSeconds": 0.00639,
+          "rssBytes": 893042688,
+          "arrayBufferBytes": 16567665
+        },
+        {
+          "phase": "session-open",
+          "elapsedMs": 381.917125,
+          "cpuSeconds": 0.446424,
+          "rssBytes": 1003110400,
+          "arrayBufferBytes": 20141688
+        },
+        {
+          "phase": "session-inference",
+          "elapsedMs": 2459.773041,
+          "cpuSeconds": 12.274643,
+          "rssBytes": 1013497856,
+          "arrayBufferBytes": 7658497
+        },
+        {
+          "phase": "session-io-settle",
+          "elapsedMs": 1002.366375,
+          "cpuSeconds": 0.051698,
+          "rssBytes": 1013497856,
+          "arrayBufferBytes": 7658497
+        },
+        {
+          "phase": "session-dispose",
+          "elapsedMs": 11.77475,
+          "cpuSeconds": 0.012051,
+          "rssBytes": 894271488,
+          "arrayBufferBytes": 7658497
+        },
+        {
+          "phase": "unlock-open",
+          "elapsedMs": 374.306375,
+          "cpuSeconds": 0.434847,
+          "rssBytes": 1013383168,
+          "arrayBufferBytes": 11232520
+        },
+        {
+          "phase": "unlock-inference",
+          "elapsedMs": 13.694709,
+          "cpuSeconds": 0.060329,
+          "rssBytes": 1013514240,
+          "arrayBufferBytes": 11294368
+        },
+        {
+          "phase": "unlock-io-settle",
+          "elapsedMs": 1002.287541,
+          "cpuSeconds": 0.04331,
+          "rssBytes": 1013514240,
+          "arrayBufferBytes": 11294368
+        },
+        {
+          "phase": "unlock-dispose",
+          "elapsedMs": 8.486167,
+          "cpuSeconds": 0.008711,
+          "rssBytes": 911458304,
+          "arrayBufferBytes": 11294368
+        }
+      ],
+      "embeddingMs": 2459.773041,
+      "cpuSeconds": 13.728652,
+      "elapsedMs": 6612.254041,
+      "peakRssBytes": 1036615680,
+      "eagerModelStreamBytes": 0,
+      "maximumVectorDifference": 0,
+      "identicalVectors": 200,
+      "identicalFingerprints": 200
+    },
+    {
+      "profile": "bounded-cache",
+      "trial": 2,
+      "position": 1,
+      "stages": [
+        {
+          "phase": "probe-open",
+          "elapsedMs": 381.037042,
+          "cpuSeconds": 0.414104,
+          "rssBytes": 1035632640,
+          "arrayBufferBytes": 16567665
+        },
+        {
+          "phase": "probe-io-settle",
+          "elapsedMs": 1002.575542,
+          "cpuSeconds": 0.001973,
+          "rssBytes": 1035632640,
+          "arrayBufferBytes": 16567665
+        },
+        {
+          "phase": "probe-dispose",
+          "elapsedMs": 12.808125,
+          "cpuSeconds": 0.013172,
+          "rssBytes": 892157952,
+          "arrayBufferBytes": 16567665
+        },
+        {
+          "phase": "session-open",
+          "elapsedMs": 383.967041,
+          "cpuSeconds": 0.461902,
+          "rssBytes": 1002258432,
+          "arrayBufferBytes": 20141688
+        },
+        {
+          "phase": "session-inference",
+          "elapsedMs": 2486.167417,
+          "cpuSeconds": 12.409173,
+          "rssBytes": 1012547584,
+          "arrayBufferBytes": 7658497
+        },
+        {
+          "phase": "session-io-settle",
+          "elapsedMs": 1000.417958,
+          "cpuSeconds": 0.043371,
+          "rssBytes": 1012547584,
+          "arrayBufferBytes": 7658497
+        },
+        {
+          "phase": "session-dispose",
+          "elapsedMs": 11.225959,
+          "cpuSeconds": 0.011341,
+          "rssBytes": 893321216,
+          "arrayBufferBytes": 7658497
+        },
+        {
+          "phase": "unlock-open",
+          "elapsedMs": 396.590541,
+          "cpuSeconds": 0.453338,
+          "rssBytes": 1010384896,
+          "arrayBufferBytes": 11232520
+        },
+        {
+          "phase": "unlock-inference",
+          "elapsedMs": 13.543792,
+          "cpuSeconds": 0.060107,
+          "rssBytes": 1010515968,
+          "arrayBufferBytes": 11294368
+        },
+        {
+          "phase": "unlock-io-settle",
+          "elapsedMs": 1002.374875,
+          "cpuSeconds": 0.042846,
+          "rssBytes": 1010515968,
+          "arrayBufferBytes": 11294368
+        },
+        {
+          "phase": "unlock-dispose",
+          "elapsedMs": 12.424333,
+          "cpuSeconds": 0.01253,
+          "rssBytes": 908460032,
+          "arrayBufferBytes": 11294368
+        }
+      ],
+      "embeddingMs": 2486.167417,
+      "cpuSeconds": 13.923717,
+      "elapsedMs": 6703.282875,
+      "peakRssBytes": 1035730944,
+      "eagerModelStreamBytes": 0,
+      "maximumVectorDifference": 0,
+      "identicalVectors": 200,
+      "identicalFingerprints": 200
+    },
+    {
+      "profile": "baseline",
+      "trial": 2,
+      "position": 2,
+      "stages": [
+        {
+          "phase": "probe-open",
+          "elapsedMs": 354.691959,
+          "cpuSeconds": 0.393875,
+          "rssBytes": 1033715712,
+          "arrayBufferBytes": 14426140
+        },
+        {
+          "phase": "probe-io-settle",
+          "elapsedMs": 1003.341833,
+          "cpuSeconds": 0.279687,
+          "rssBytes": 1564540928,
+          "arrayBufferBytes": 553147083
+        },
+        {
+          "phase": "probe-dispose",
+          "elapsedMs": 18.256917,
+          "cpuSeconds": 0.015685,
+          "rssBytes": 1396064256,
+          "arrayBufferBytes": 553147083
+        },
+        {
+          "phase": "session-open",
+          "elapsedMs": 388.052458,
+          "cpuSeconds": 0.458469,
+          "rssBytes": 1516945408,
+          "arrayBufferBytes": 554391287
+        },
+        {
+          "phase": "session-inference",
+          "elapsedMs": 2776.131875,
+          "cpuSeconds": 13.463382,
+          "rssBytes": 1551679488,
+          "arrayBufferBytes": 21831809
+        },
+        {
+          "phase": "session-io-settle",
+          "elapsedMs": 1003.047958,
+          "cpuSeconds": 0.401335,
+          "rssBytes": 1555054592,
+          "arrayBufferBytes": 553699019
+        },
+        {
+          "phase": "session-dispose",
+          "elapsedMs": 12.023584,
+          "cpuSeconds": 0.012408,
+          "rssBytes": 1452998656,
+          "arrayBufferBytes": 553699019
+        },
+        {
+          "phase": "unlock-open",
+          "elapsedMs": 390.8445,
+          "cpuSeconds": 0.464625,
+          "rssBytes": 1553563648,
+          "arrayBufferBytes": 555139831
+        },
+        {
+          "phase": "unlock-inference",
+          "elapsedMs": 14.02775,
+          "cpuSeconds": 0.056521,
+          "rssBytes": 1553694720,
+          "arrayBufferBytes": 555201679
+        },
+        {
+          "phase": "unlock-io-settle",
+          "elapsedMs": 1002.807125,
+          "cpuSeconds": 0.357685,
+          "rssBytes": 1547649024,
+          "arrayBufferBytes": 553699019
+        },
+        {
+          "phase": "unlock-dispose",
+          "elapsedMs": 12.261583,
+          "cpuSeconds": 0.012477,
+          "rssBytes": 1453654016,
+          "arrayBufferBytes": 553699019
+        }
+      ],
+      "embeddingMs": 2776.131875,
+      "cpuSeconds": 15.915936,
+      "elapsedMs": 6975.733084,
+      "peakRssBytes": 1564622848,
+      "eagerModelStreamBytes": 1642657278,
+      "maximumVectorDifference": 0,
+      "identicalVectors": 200,
+      "identicalFingerprints": 200
+    }
+  ],
+  "baseline": {
+    "profile": "baseline",
+    "peakRssBytes": 1553670144.0,
+    "embeddingMs": 2598.335083,
+    "cpuSeconds": 15.192275500000001,
+    "maximumVectorDifference": 0,
+    "maximumEagerModelStreamBytes": 1642657278,
+    "minimumIdenticalVectors": 200,
+    "minimumIdenticalFingerprints": 200
+  },
+  "candidates": [
+    {
+      "profile": "bounded-cache",
+      "peakRssBytes": 1036173312.0,
+      "embeddingMs": 2472.970229,
+      "cpuSeconds": 13.8261845,
+      "maximumVectorDifference": 0,
+      "maximumEagerModelStreamBytes": 0,
+      "minimumIdenticalVectors": 200,
+      "minimumIdenticalFingerprints": 200,
+      "ratios": {
+        "peakRss": 0.666919755136905,
+        "embeddingTime": 0.9517518526304716,
+        "cpuTime": 0.9100798955363862
+      },
+      "gates": {
+        "compatibility": true,
+        "memoryReduction": true,
+        "latency": true,
+        "cpu": true,
+        "desiredPeakMemory": true,
+        "noEagerModelReads": true
+      },
+      "eligible": true
+    }
+  ],
+  "limitations": [
+    "One host and a small public English fixture; no universal numeric compatibility claim.",
+    "Sequential counterbalanced trials with a warm filesystem cache; no concurrent application or long-input workload.",
+    "Three session lifetimes per child approximate setup, use and unlock; no explicit garbage collection.",
+    "Peak RSS includes model loading; lifecycle CPU excludes module imports and does not measure energy. This evaluator does not change production settings.",
+    "Vector and pilot fingerprint agreement do not fix the separately measured fingerprint privacy or matching-quality failures."
+  ],
+  "summaryStatistic": "median; even sample counts use the midpoint of the two central values"
+}

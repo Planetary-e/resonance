@@ -3,7 +3,7 @@
  * Query is ephemeral (not indexed). Returns top matches.
  */
 
-import { EmbeddingEngine, hashEmbedding, getSharedProjectionMatrix, type ItemType } from '@resonance/core';
+import { EmbeddingEngine, assertEmbeddingText, hashEmbedding, getSharedProjectionMatrix, type ItemType } from '@resonance/core';
 import { createRelayClient } from '../relay-client.js';
 
 export async function searchCommand(
@@ -19,11 +19,13 @@ export async function searchCommand(
     process.exitCode = 1;
     return;
   }
+  assertEmbeddingText(text);
 
   // Embed query and hash (relay only sees binary hash — not the embedding)
   const engine = new EmbeddingEngine();
-  await engine.initialize();
-  const embedding = await engine.embedForMatching(text, queryType);
+  let embedding: Float32Array;
+  try { await engine.initialize(); embedding = await engine.embedForMatching(text, queryType); }
+  finally { await engine.dispose(); }
   const hash = hashEmbedding(embedding, getSharedProjectionMatrix());
 
   const relayUrl = options.relay ?? 'ws://localhost:9090';

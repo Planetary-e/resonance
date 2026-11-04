@@ -1,5 +1,13 @@
 # Planetary Resonance
 
+> **Engineering handover (October 24, 2026): [start at HANDOVER](HANDOVER.md).**
+> v0.4 remains incomplete; all K1–K8 are OPEN. The corrected experimental recovery
+> candidate has local passing evidence and still needs independent critical review.
+> Parent handover verification also passes noEmit over 671 actual source inputs;
+> [the portable record](docs/handover/2026-10-24/portable-typecheck-validation.json) distinguishes this from the historical empty log.
+> It is not selected by CLI/live service. Transfer the matching dirty/untracked
+> working tree; do not assume the local candidate is pushed to GitHub.
+
 **Private, decentralized discovery for complementary needs and offers.**
 
 [Latest release](https://github.com/Planetary-e/resonance/releases/latest) · [Roadmap](ROADMAP.md) · [Protocol v2](docs/developers/protocol-v2.md) · [Open issues](https://github.com/Planetary-e/resonance/issues)
@@ -9,6 +17,14 @@ Planetary Resonance is an open-source protocol and application for helping peopl
 A person writes a need or offer in natural language. Their device turns it into a compact matching fingerprint, publishes it under a key created for that one publication, and keeps the original text and root identity local. A relay compares complementary fingerprints. If two publications match, both people can consent to a fresh pairwise relationship and exchange end-to-end encrypted disclosures through asynchronous mailboxes.
 
 Resonance is currently a **research prototype**, not a production network. The protocol v2 privacy and persistence foundation is implemented, along with configured volunteer-relay replication, bounded relay-to-relay search forwarding, publication and relationship mailbox repair, receipt-authorized batch checks after storage loss, narrow signed state reconciliation, and enforced storage quotas. Private transport and mobile participation remain future milestones. Relationship mailbox replication currently requires connected volunteer links and explicitly configured client fallback URLs for retrieval after an original relay disappears; it does not yet provide a durable receipt minimum.
+
+The inherited public projection/fingerprint path **does not satisfy K5
+confidentiality**, as shown by the [failed real-text privacy screen](docs/evals/scoped-fingerprint-real-2026-10-18.md).
+The inherited transport **does not satisfy K6 observer privacy**: the
+[cooperating-hop screen](docs/evals/private-adversaries-2026-10-18.md) linked all
+32 modeled requests. Those fixture results establish limits of the current
+paths; they are not Internet-wide attack estimates. Replacement and qualification
+remain open in the [handover](HANDOVER.md).
 
 ## The goal
 
@@ -64,8 +80,8 @@ Protocol v2 removes a stable user identifier from relay-visible application mess
 
 Important limits in the current version:
 
-- Similarity matching necessarily reveals that some fingerprints are close. A compact fingerprint reduces exposed data; it is not a proof that semantic membership cannot be inferred.
-- A relay or network observer can still correlate requests by IP address, timing, size, and repeated fingerprints. Two-hop private transport, padding, batching, and route rotation are planned work.
+- Similarity matching reveals that some fingerprints are close. Public projection rotation does not make them unlinkable: a [real-model screening experiment](docs/evals/scoped-fingerprint-real-2026-10-18.md) linked 86–97% of a fixed 100-offer population across scopes using the fingerprints and public matrices. Live clients still use the static pilot matrix. Matching-quality and stronger privacy gates remain open.
+- A relay or network observer can still correlate requests by IP address, timing, size, and repeated fingerprints. The v0.4 branch implements experimental two-hop transport, padding, bounded batching and entry rotation. These do not establish protection during quiet periods or against colluding operators; independent operator verification and network validation remain open.
 - Current clients use one configured relay at a time. That relay can now forward a search across at most two authenticated relay-link hops, consulting up to five connected, group-compatible volunteers per hop when its local index has fewer than the requested number of results. A timeout returns the results available locally and from peers that replied. The relay does not dial unverified peer-exchange hints to answer a search; signed remote scores are relay assertions, not independent match proofs.
 - A relay with configured authenticated relay contacts automatically attempts to place each locally submitted publication or tombstone on up to five live eligible volunteer relays. New selections prefer different observed endpoint failure domains—IPv4 `/24`, IPv6 `/48`, or exact DNS hostname—before using another relay in a domain already selected. This reduces obvious shared-network fate but does not prove independent operators or physical locations. The relay records positive signed receipts durably and retries pending configured targets after reconnect or restart. It retains a disconnected target through a configurable outage grace period, then replaces it only when a connected eligible spare can preserve the placement size. A signed `capacity-exhausted` refusal or a receipt-backed signed graceful retirement also removes that target for the exact operation and seeks another configured volunteer. A signed `stale`, `conflict`, or `terminal` refusal authorizes one read-only state request to that exact target; if it returns an unambiguous newer owner-signed operation, the source adopts it locally without automatically placing it elsewhere. Conflicts, unavailable state, `unsupported-group`, and `invalid` remain quarantined until a newer owner-signed operation is accepted locally. Rate limits and persistence failures retain the target for bounded retry. A later publication revision makes a fresh target decision. Until a record has enough receipts, the local relay may still be its only copy.
 - A signed receipt proves a relay fsynced one exact operation at one point in time. Receipt-holders are periodically checked over their authenticated link in target-scoped batches of up to 64 receipts; one signed bitmap reports which exact operations remain present, and a missing bit causes a fresh placement attempt. Each query still requires the target's prior signed receipt, so it cannot probe arbitrary publication IDs or enumerate the target's full inventory. This is still a relay's assertion at one moment, not proof that it is continuously online or independently operated. A relay that returns with the same infrastructure identity can repair its copy; a relay that remains offline beyond the grace period can be rotated out when a live spare exists.
@@ -89,7 +105,7 @@ Read the full [protocol v2 threat model](docs/developers/protocol-v2.md) and [ro
 | Signed graceful replica handoff | Implemented v0.3 foundation |
 | Journal compaction, bounded query forwarding, publication-mailbox replication, match-notice deduplication, desktop background relay service, and five-relay churn harness | Implemented v0.3 foundation |
 | Pairwise relationship-mailbox placement, broader churn evaluation, and full resource accounting | Remaining v0.3 work |
-| Private two-hop transport and anonymous abuse-control credentials | Planned for v0.4 |
+| Private two-hop transport and anonymous abuse-control credentials | Experimental two-hop transport and blind tokens implemented on v0.4; membership, durable migration and stronger privacy validation remain open |
 | iOS and Android clients | Planned for v0.5 |
 
 The current validation baseline is:
@@ -100,7 +116,7 @@ The current validation baseline is:
 - **2.3 ms p95** for a 10,000-fingerprint Hamming scan on the recorded evaluation machine
 - **42.4 ms** relay publication round trip and **134.1 ms** publication-to-encrypted-match delivery in the recorded run
 
-These are development measurements, not service-level guarantees. See the [latest committed evaluation report](docs/evals/eval-2026-09-16-10-12-37.md) for the dataset, platform, thresholds, informational metrics, and complete results.
+These are development measurements, not service-level guarantees. See the [latest committed evaluation report](docs/evals/eval-2026-09-28-13-43-18.md) for the dataset, platform, thresholds, informational metrics, and complete results.
 
 ## Use Resonance
 
@@ -144,6 +160,8 @@ RELAY_PORT=9090 \
 RELAY_DATA_DIR=.resonance/relay \
 npm run start --workspace=@resonance/relay
 ```
+
+For local v0.4 transport testing, set `RESONANCE_EXPERIMENTAL_PRIVATE_ROUTE_URLS` before starting the app server. Give it a comma-separated list with an **entry relay first** and one or more **destination relays after it**. The client contacts the entry to obtain each destination's signed key and refuses a route when it cannot verify the destination response and a different observed IP domain. For DNS-named destinations, it also checks the entry's IP claim against a fresh lookup by the client's resolver. This lookup does not authenticate DNS or prove distinct relay operators, and it exposes the destination hostname to the resolver. Relays fsync short-lived private request replay evidence before forwarding or applying it and reload that evidence after restart. Public endpoints require `wss://`. This mode is experimental; see the [v0.4 roadmap](ROADMAP.md) for its remaining trust limits.
 
 The relay writes its infrastructure identity and operation journal under `RELAY_DATA_DIR`. Stop it with `Ctrl+C`; accepted operations are replayed on the next start.
 
@@ -370,6 +388,10 @@ See the [contribution guide](docs/developers/contributing.html), [open issues](h
 
 - [Protocol v2 and threat model](docs/developers/protocol-v2.md)
 - [Relay discovery for v0.3](docs/developers/relay-discovery-v0.3.md)
+- [Experimental v0.4 volunteer history operation](docs/developers/v0.4-volunteer-history-operations.md)
+- [Experimental protected-owner recovery](docs/developers/v0.4-owner-history-recovery.md)
+- [Actual v0.4 application exercise and resource limits](docs/evals/v04-real-app-2026-10-18.md)
+- [Fingerprint quality and failed cross-scope privacy gate](docs/developers/v0.4-fingerprint-evaluation.md)
 - [v0.1 to v0.2 upgrade guide](docs/developers/v0.1-to-v0.2-upgrade.md)
 - [Architecture](docs/developers/architecture.html)
 - [How Resonance works](docs/how-it-works.html)

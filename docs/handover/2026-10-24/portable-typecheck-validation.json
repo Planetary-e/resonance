@@ -1,0 +1,13 @@
+{
+  "recordedAt": "2026-10-24T10:40:12.795765+00:00",
+  "command": "./node_modules/.bin/tsc -p docs/handover/2026-10-24/source-tsconfig.json --noEmit",
+  "result": "PASS",
+  "exitCode": 0,
+  "unemitted": true,
+  "selectedFiles": 671,
+  "configurationSha256": "601e905ca58ad6532699ea4623ca7c2969cd99ed99e1e33d5967ba5c2aa44fb2",
+  "sourceIdentitySha256": "973d85aab5fbd0961f0964a21e6e27c536c12e3ce5aa59a74ff4ceae11fc393e",
+  "showConfig": "portable-source-showconfig.json",
+  "typecheckOutput": "empty; exit 0 observed in parent session 77174",
+  "scope": "Parent documentation verification. No code changes; actual relative-source overlay covers core/relay/node. Historical empty noEmit log alone does not establish its selected inputs."
+}

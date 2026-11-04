@@ -29,7 +29,6 @@ import {
 } from '../replica-storage-ledger.js';
 import { createRelayServer, type RelayServer } from '../server.js';
 
-const BASE_PORT = 28_000 + Math.floor(Math.random() * 500);
 const temporaryDirectories: string[] = [];
 
 function publicationWithKeys(marker: number) {
@@ -143,7 +142,7 @@ afterEach(() => {
 
 describe('replica storage quotas', () => {
   it('returns a signed capacity rejection without journaling an over-quota replica', async () => {
-    const port = BASE_PORT;
+    let port = 0;
     const directory = `/tmp/resonance-replica-storage-${Date.now()}-one`;
     temporaryDirectories.push(directory);
     const { keys, operation: first } = publicationWithKeys(0x31);
@@ -153,7 +152,7 @@ describe('replica storage quotas', () => {
     let target = createTarget(port, directory, quotaBytes);
     let tombstoneBytes = 0;
     const source = generateIdentity();
-    await target.start();
+    await target.start(); port = target.getListeningPort()!;
     const link = await connectSource(port, source);
     try {
       const stored = await link.placeReplica(first);
@@ -193,7 +192,7 @@ describe('replica storage quotas', () => {
     }
 
     target = createTarget(port, directory, quotaBytes);
-    await target.start();
+    await target.start(); port = target.getListeningPort()!;
     try {
       expect(target.getStats()).toMatchObject({
         journal_entries: 2,
@@ -210,7 +209,7 @@ describe('replica storage quotas', () => {
   });
 
   it('caps each replica relay independently while allowing another volunteer allocation', async () => {
-    const port = BASE_PORT + 1;
+    let port = 0;
     const directory = `/tmp/resonance-replica-storage-${Date.now()}-two`;
     temporaryDirectories.push(directory);
     const first = publication(0x41);
@@ -225,7 +224,7 @@ describe('replica storage quotas', () => {
     );
     const firstSource = generateIdentity();
     const secondSource = generateIdentity();
-    await target.start();
+    await target.start(); port = target.getListeningPort()!;
     const firstLink = await connectSource(port, firstSource);
     const secondLink = await connectSource(port, secondSource);
     try {
@@ -248,7 +247,7 @@ describe('replica storage quotas', () => {
   });
 
   it('keeps bounded room for a first-seen tombstone when ordinary capacity is full', async () => {
-    const port = BASE_PORT + 10;
+    let port = 0;
     const directory = `/tmp/resonance-replica-storage-${Date.now()}-withdrawal`;
     temporaryDirectories.push(directory);
     const { operation: live } = publicationWithKeys(0x43);
@@ -265,7 +264,7 @@ describe('replica storage quotas', () => {
     const quotaBytes = liveBytes + FIRST_SEEN_TOMBSTONE_RESERVE_BYTES;
     const target = createTarget(port, directory, quotaBytes);
     const source = generateIdentity();
-    await target.start();
+    await target.start(); port = target.getListeningPort()!;
     const link = await connectSource(port, source);
     try {
       expect((await link.placeReplica(live)).status).toBe('stored');
@@ -294,7 +293,7 @@ describe('replica storage quotas', () => {
   });
 
   it('persists the first replica relay as the allocation owner across a forwarded update', async () => {
-    const port = BASE_PORT + 20;
+    let port = 0;
     const directory = `/tmp/resonance-replica-storage-${Date.now()}-owner`;
     const compactedDirectory = `${directory}-compacted`;
     temporaryDirectories.push(directory, compactedDirectory);
@@ -317,7 +316,7 @@ describe('replica storage quotas', () => {
     const sourceA = generateIdentity();
     const sourceB = generateIdentity();
     const target = createTarget(port, directory, quotaBytes, perRelayQuotaBytes);
-    await target.start();
+    await target.start(); port = target.getListeningPort()!;
     const firstLink = await connectSource(port, sourceA);
     const forwardingLink = await connectSource(port, sourceB);
     try {
@@ -347,7 +346,7 @@ describe('replica storage quotas', () => {
     // Startup rewrites the superseded row while retaining A as the durable
     // allocation owner. The compacted journal must replay identically again.
     const restarted = createTarget(port, directory, quotaBytes, perRelayQuotaBytes);
-    await restarted.start();
+    await restarted.start(); port = restarted.getListeningPort()!;
     try {
       expect(new RelayOperationLog(directory).load().map(record => record.entry)).toEqual([latest]);
       expect(restarted.getStats()).toMatchObject({
@@ -364,9 +363,9 @@ describe('replica storage quotas', () => {
     const compactedLog = new RelayOperationLog(compactedDirectory);
     compactedLog.load();
     compactedLog.append(latest);
-    const compacted = createTarget(port + 1, compactedDirectory, quotaBytes, perRelayQuotaBytes);
-    await compacted.start();
-    const retriedForwardingLink = await connectSource(port + 1, sourceB);
+    const compacted = createTarget(0, compactedDirectory, quotaBytes, perRelayQuotaBytes);
+    await compacted.start(); port = compacted.getListeningPort()!;
+    const retriedForwardingLink = await connectSource(port, sourceB);
     try {
       expect((await retriedForwardingLink.placeReplica(another)).status).toBe('stored');
       expect(compacted.getStats()).toMatchObject({
@@ -384,12 +383,12 @@ describe('replica storage quotas', () => {
     const directory = `/tmp/resonance-replica-storage-${Date.now()}-config`;
     temporaryDirectories.push(directory);
     expect(() => createRelayServer({
-      port: BASE_PORT + 30,
+      port: 0,
       host: '127.0.0.1',
       persistDir: directory,
       publicationStorageQuotaBytes: 900_000,
       relayDiscovery: {
-        endpoints: [`ws://127.0.0.1:${BASE_PORT + 30}/`],
+        endpoints: [`ws://127.0.0.1:0/`],
         reachability: 'direct',
         supportedGroups: ['public'],
         storage: { capacityBytes: 1_000_000, availableBytes: 100_000 },
@@ -398,7 +397,7 @@ describe('replica storage quotas', () => {
   });
 
   it('coarsens and rate-limits public capacity updates', async () => {
-    const port = BASE_PORT + 31;
+    let port = 0;
     const directory = `/tmp/resonance-replica-storage-${Date.now()}-descriptor`;
     temporaryDirectories.push(directory);
     const live = publication(0x49);
@@ -408,7 +407,7 @@ describe('replica storage quotas', () => {
     const quotaBytes = liveBytes + (128 * 1024) - 1 + FIRST_SEEN_TOMBSTONE_RESERVE_BYTES;
     const target = createTarget(port, directory, quotaBytes);
     const source = generateIdentity();
-    await target.start();
+    await target.start(); port = target.getListeningPort()!;
     const before = target.getRelayDescriptor();
     const link = await connectSource(port, source);
     try {
@@ -426,7 +425,7 @@ describe('replica storage quotas', () => {
   });
 
   it('immediately signs zero available capacity when the last public bucket is exhausted', async () => {
-    const port = BASE_PORT + 32;
+    let port = 0;
     const directory = `/tmp/resonance-replica-storage-${Date.now()}-full-descriptor`;
     temporaryDirectories.push(directory);
     const live = publication(0x4a);
@@ -434,7 +433,7 @@ describe('replica storage quotas', () => {
     const quotaBytes = liveBytes + (64 * 1024) - 1 + FIRST_SEEN_TOMBSTONE_RESERVE_BYTES;
     const target = createTarget(port, directory, quotaBytes);
     const source = generateIdentity();
-    await target.start();
+    await target.start(); port = target.getListeningPort()!;
     const before = target.getRelayDescriptor()!;
     const link = await connectSource(port, source);
     try {
@@ -453,7 +452,7 @@ describe('replica storage quotas', () => {
   });
 
   it('rejects a full local write before it can journal an orphan placement intent', async () => {
-    const port = BASE_PORT + 2;
+    let port = 0;
     const directory = `/tmp/resonance-replica-storage-${Date.now()}-local`;
     temporaryDirectories.push(directory);
     const target = createRelayServer({
@@ -476,7 +475,7 @@ describe('replica storage quotas', () => {
       relayLinkHeartbeatIntervalMs: 100,
       relayLinkHeartbeatTimeoutMs: 1_500,
     });
-    await target.start();
+    await target.start(); port = target.getListeningPort()!;
     try {
       await expect(submitLocalPublication(port, publication(0x51))).resolves.toMatchObject({
         status: 'error',
@@ -493,14 +492,14 @@ describe('replica storage quotas', () => {
   });
 
   it('rejects a publication before acknowledgement when the journal disk budget is full', async () => {
-    const port = BASE_PORT + 35;
+    let port = 0;
     const directory = `/tmp/resonance-journal-budget-${Date.now()}`;
     temporaryDirectories.push(directory);
     const target = createRelayServer({
       port, host: '127.0.0.1', persistDir: directory,
       maxJournalStorageBytes: 2_048,
     });
-    await target.start();
+    await target.start(); port = target.getListeningPort()!;
     try {
       await expect(submitLocalPublication(port, publication(0x5a))).resolves.toMatchObject({
         status: 'error', message: 'capacity-exhausted',
@@ -516,12 +515,12 @@ describe('replica storage quotas', () => {
   });
 
   it('keeps journal headroom for a previously accepted publication withdrawal', async () => {
-    const port = BASE_PORT + 36;
+    let port = 0;
     const directory = `/tmp/resonance-journal-withdrawal-${Date.now()}`;
     temporaryDirectories.push(directory);
     const { keys, operation: first } = publicationWithKeys(0x5b);
     let target = createRelayServer({ port, host: '127.0.0.1', persistDir: directory });
-    await target.start();
+    await target.start(); port = target.getListeningPort()!;
     expect((await submitLocalPublication(port, first)).status).toBe('ok');
     const firstJournalBytes = target.getStats().journal_bytes;
     await target.stop();
@@ -530,7 +529,7 @@ describe('replica storage quotas', () => {
       port, host: '127.0.0.1', persistDir: directory,
       maxJournalStorageBytes: 2 * (firstJournalBytes + 2_048),
     });
-    await target.start();
+    await target.start(); port = target.getListeningPort()!;
     try {
       expect((await submitLocalPublication(port, publication(0x5c)))).toMatchObject({
         status: 'error', message: 'capacity-exhausted',
@@ -546,14 +545,14 @@ describe('replica storage quotas', () => {
   });
 
   it('records new local allocations without consuming an inbound relay budget', async () => {
-    const port = BASE_PORT + 40;
+    let port = 0;
     const directory = `/tmp/resonance-replica-storage-${Date.now()}-local-owner`;
     temporaryDirectories.push(directory);
     const local = publication(0x52);
     const quotaBytes = publicationStorageReservationBytes(local)
       + FIRST_SEEN_TOMBSTONE_RESERVE_BYTES;
     let target = createTarget(port, directory, quotaBytes, 1);
-    await target.start();
+    await target.start(); port = target.getListeningPort()!;
     const relayId = target.getRelayDescriptor()?.relayId;
     expect(relayId).toBeDefined();
     try {
@@ -579,7 +578,7 @@ describe('replica storage quotas', () => {
     // per-relay budget even after that identity changes.
     rmSync(join(directory, RELAY_IDENTITY_FILENAME), { force: true });
     target = createTarget(port, directory, quotaBytes, 1);
-    await target.start();
+    await target.start(); port = target.getListeningPort()!;
     try {
       expect(target.getRelayDescriptor()?.relayId).not.toBe(relayId);
       expect(target.getStats()).toMatchObject({
@@ -593,7 +592,7 @@ describe('replica storage quotas', () => {
   });
 
   it('conservatively caps and preserves unmarked legacy allocations', async () => {
-    const port = BASE_PORT + 41;
+    let port = 0;
     const directory = `/tmp/resonance-replica-storage-${Date.now()}-legacy`;
     const compactedDirectory = `${directory}-compacted`;
     temporaryDirectories.push(directory, compactedDirectory);
@@ -638,7 +637,7 @@ describe('replica storage quotas', () => {
     const perRelayQuotaBytes = firstBytes + FIRST_SEEN_TOMBSTONE_RESERVE_BYTES;
     const source = generateIdentity();
     let target = createTarget(port, directory, quotaBytes, perRelayQuotaBytes);
-    await target.start();
+    await target.start(); port = target.getListeningPort()!;
     const link = await connectSource(port, source);
     let compactableUpdate: RelayPublicationOperationLogEntry | undefined;
     try {
@@ -692,7 +691,7 @@ describe('replica storage quotas', () => {
     }
 
     target = createTarget(port, directory, quotaBytes, perRelayQuotaBytes);
-    await target.start();
+    await target.start(); port = target.getListeningPort()!;
     try {
       expect(new RelayOperationLog(directory).load().map(record => record.entry)).toEqual([
         { kind: 'publication', operation: compatibleUpdate, allocationOrigin: 'legacy' },
@@ -712,7 +711,7 @@ describe('replica storage quotas', () => {
     // Replay the rewritten file itself, then verify a stale live copy cannot
     // revive the withdrawal after both the first row and its history are gone.
     target = createTarget(port, directory, quotaBytes, perRelayQuotaBytes);
-    await target.start();
+    await target.start(); port = target.getListeningPort()!;
     const staleLink = await connectSource(port, source);
     try {
       expect(target.getStats()).toMatchObject({
@@ -733,8 +732,8 @@ describe('replica storage quotas', () => {
     const compactedLog = new RelayOperationLog(compactedDirectory);
     compactedLog.load();
     compactedLog.append(compactableUpdate);
-    const compacted = createTarget(port + 1, compactedDirectory, quotaBytes, perRelayQuotaBytes);
-    await compacted.start();
+    const compacted = createTarget(0, compactedDirectory, quotaBytes, perRelayQuotaBytes);
+    await compacted.start(); port = compacted.getListeningPort()!;
     try {
       expect(compacted.getStats()).toMatchObject({
         legacy_unattributed_storage_reserved_bytes: compatibleBytes,
@@ -747,11 +746,11 @@ describe('replica storage quotas', () => {
   });
 
   it('does not expose exact allocation statistics without an administrator key', async () => {
-    const port = BASE_PORT + 43;
+    let port = 0;
     const directory = `/tmp/resonance-replica-storage-${Date.now()}-private-stats`;
     temporaryDirectories.push(directory);
     const target = createTarget(port, directory, 1_000_000);
-    await target.start();
+    await target.start(); port = target.getListeningPort()!;
     try {
       const response = await fetch(`http://127.0.0.1:${port}/stats`);
       expect(response.status).toBe(404);

@@ -3,21 +3,38 @@
  * Accepts self-authenticating protocol v2 operations over short connections.
  */
 
+import { isRelayResponseLive, relayResponseDeadline, type RelayResponseDeadline } from './relay-response-deadline.js';
 import { Buffer } from 'node:buffer';
-import { createHash } from 'node:crypto';
-import { createServer, type Server } from 'node:http';
+import type { AdmissionWitness } from './admission-witness.js';
+import { createHash, X509Certificate } from 'node:crypto';
+import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
+import { createServer as createHttpsServer, type Server as HttpsServer } from 'node:https';
+import { isIP, type Socket } from 'node:net';
 import { WebSocket, WebSocketServer } from 'ws';
 import { RelayTrafficMeter, relayDataFileBytes } from './relay-resource-meter.js';
+import { PrivateReplayLog } from './private-replay-log.js';
+import { ADMISSION_POLICY_QUERY_TYPE, ADMISSION_POLICY_QUERY_REPLY_TYPE, ADMISSION_POLICY_QUERY_MAX_BYTES,
+  ADMISSION_POLICY_QUERY_REPLY_MAX_BYTES, type AdmissionPolicyQueryReply } from '@resonance/core/admission-policy-query';
+import { ADMISSION_POLICY_EVIDENCE_TYPE, ADMISSION_POLICY_EVIDENCE_REPLY_TYPE, type AdmissionPolicyEvidenceReply, ADMISSION_POLICY_CHUNK_TYPE, ADMISSION_POLICY_CHUNK_REPLY_TYPE, ADMISSION_POLICY_CHUNK_REQUEST_MAX_BYTES,
+  ADMISSION_POLICY_CHUNK_REPLY_MAX_BYTES, type AdmissionPolicyChunkReply } from '@resonance/core/admission-policy-transfer';
 import { DirectReachabilityObservations } from './direct-reachability.js';
 import {
+  assertSecureRelayTransportEndpoint, relayTlsClientOptions,
+  isPrivateRelayAddress,
   MessageTypes,
   MAILBOX_DEPOSIT_FRAME_TYPE,
   MAILBOX_REQUEST_FRAME_TYPE,
   MAILBOX_RESPONSE_MESSAGE_TYPE,
+  MAX_FRESH_MAILBOX_ACK_IDS,
   MAX_RELAY_DISCOVERY_FRAME_BYTES,
+  MAX_PRIVATE_REQUEST_LIFETIME_MS,
+  MAX_PRIVATE_FRAME_BYTES,
+  RELAY_PRIVATE_FORWARD_FRAME_TYPE,
+  PrivateRequestReplayCacheV1,
   MAX_RELAY_REPLICA_INVENTORY_BATCH_RECEIPTS,
   PUBLICATION_OPERATION_FRAME_TYPE,
   RELAY_LINK_OPEN_FRAME_TYPE,
+  RELAY_LINK_CHALLENGE_REQUEST_FRAME_TYPE,
   RELAY_REPLICA_INVENTORY_BATCH_REQUEST_FRAME_TYPE,
   RELAY_REPLICA_HANDOFF_RESPONSE_FRAME_TYPE,
   RELAY_REPLICA_INVENTORY_REQUEST_FRAME_TYPE,
@@ -26,6 +43,7 @@ import {
   RELATIONSHIP_MAILBOX_DEPOSIT_FRAME_TYPE,
   RELATIONSHIP_MAILBOX_REQUEST_FRAME_TYPE,
   RELAY_PEER_REQUEST_FRAME_TYPE,
+  PRIVATE_DISCOVERY_REQUEST_TYPE,
   SEARCH_REQUEST_FRAME_TYPE,
   SEARCH_RESPONSE_MESSAGE_TYPE,
   RELAY_QUERY_REQUEST_FRAME_TYPE,
@@ -39,6 +57,7 @@ import {
   createMatchNoticeMessage,
   createRelayLinkAcceptFrameV1,
   createRelayLinkAcceptV1,
+  createRelayLinkChallengeV1,
   createRelayReplicaInventoryBatchResponseFrameV1,
   createRelayReplicaInventoryBatchResponseV1,
   createRelayReplicaInventoryResponseFrameV1,
@@ -53,6 +72,11 @@ import {
   createRelayDescriptorV1,
   createRelayPeerResponseFrameV1,
   createRelayPeerResponseV1,
+  createRelayContactHintV1,
+  createPrivateDiscoveryResponseV1,
+  createPrivateResponseV1,
+  createRelayPrivateForwardV1,
+  generateRelayTransportKeyV1,
   createSearchResponsePayloadV2,
   createRelayQueryRequestV1,
   createRelayQueryRequestFrameV1,
@@ -71,6 +95,7 @@ import {
   isRelayReplicaReconciliationRequestActiveV1,
   isRelayReplicaPutActiveV1,
   isRelayPeerRequestActiveV1,
+  isRelayPrivateForwardActiveV1,
   isSearchRequestActiveV2,
   isRelayQueryRequestActiveV1,
   verifyRelayMailboxSyncRequestV1,
@@ -81,12 +106,17 @@ import {
   parseRelationshipMailboxDepositFrameV2,
   parseRelationshipMailboxRequestFrameV2,
   parseRelayLinkOpenFrameV1,
+  parseRelayLinkChallengeRequestV1,
   parseRelayReplicaInventoryBatchRequestFrameV1,
   parseRelayReplicaInventoryRequestFrameV1,
   parseRelayReplicaReconciliationRequestFrameV1,
   parseRelayReplicaPutFrameV1,
   parseRelayReplicaHandoffResponseFrameV1,
   parseRelayPeerRequestFrameV1,
+  parsePrivateDiscoveryRequestV1,
+  parseRelayPrivateForwardV1,
+  parsePrivateRequestLayerV1,
+  parsePrivateResponseV1,
   parseSearchRequestFrameV2,
   parseRelayQueryRequestFrameV1,
   parseRelayQueryResponseFrameV1,
@@ -104,12 +134,16 @@ import {
   serializeRelayReplicaReceiptFrameV1,
   serializeRelayReplicaHandoffRequestFrameV1,
   serializeRelayPeerResponseFrameV1,
+  serializeRelayPrivateForwardV1,
+  serializePrivateResponseV1,
   serializeRelayQueryRequestFrameV1,
   serializeRelayQueryResponseFrameV1,
   serializeRelayMailboxSyncResponseFrameV1,
   serializeRelayRelationshipMailboxSyncResponseFrameV1,
   verifyMatchOperationAgainstPublicationsV2,
   verifyRelayQueryResponseV1,
+  openPrivateEntryRequestV1,
+  openPrivateDestinationRequestV1,
   type AckPayload,
   type AdmissionCapabilityV2,
   type MailboxResponsePayload,
@@ -120,7 +154,10 @@ import {
   type RelationshipMailboxDepositV2,
   type RelationshipMailboxRequestV2,
   type RelayDescriptorV1,
+  type RelayLinkChallengeV1,
   type RelayContactHintV1,
+  type RelayTransportKeyMaterialV1,
+  type PrivateRequestLayerV1,
   type RelayReachability,
   type RelayStorageCapacityV1,
   type RelayReplicaInventoryBatchRequestV1,
@@ -146,7 +183,7 @@ import {
 } from '@resonance/core';
 import { MatchingEngine, type MatchNotification } from './matching-engine.js';
 import { RateLimiter } from './rate-limiter.js';
-import { log } from './logger.js';
+import { log, diagnosticLogStatus } from './logger.js';
 import { PublicationOperationStore, type PublicationApplyStatus } from './publication-store.js';
 import { MailboxStore } from './mailbox-store.js';
 import { MatchOperationStore } from './match-operation-store.js';
@@ -159,7 +196,7 @@ import {
 } from './evidence-journal-compaction.js';
 import {
   RelayOperationLog,
-  RelayJournalCapacityError,
+  RelayJournalCapacityError, RelayJournalRecordSizeError,
   type RelayOperationLogEntry,
   type RelayReconciliationAdoptionLogEntry,
   type RelayPublicationOperationLogEntry,
@@ -194,6 +231,8 @@ import {
 } from './replica-placement.js';
 import { prioritizeReplicaDiversity } from './replica-diversity.js';
 import { ReverseReplicaRequests } from './reverse-replica-link.js';
+import { HISTORY_LINK_FRAME_TYPE } from './history-relay-link.js';
+import type { HistoryRelayRouter } from './history-relay-router.js';
 import {
   FIRST_SEEN_TOMBSTONE_RESERVE_BYTES,
   ReplicaStorageLedger,
@@ -202,6 +241,8 @@ import {
   type PublicationStorageAllocationPrincipal,
 } from './replica-storage-ledger.js';
 import type { AdmissionCapabilityVerifierV2 } from './admission.js';
+import type { RelayHistoryHealth } from './history-health.js';
+import { createPrivateEntryMix, type PrivateEntryMixOptions } from './private-entry-mix.js';
 
 export interface RelayDiscoveryConfig {
   endpoints: string[];
@@ -217,6 +258,10 @@ export interface RelayDiscoveryConfig {
 export interface RelayConfig {
   port: number;
   host: string;
+  /** PEM credentials for a direct HTTPS/WSS listener; omit behind a loopback TLS proxy. */
+  tls?: { cert: string | Buffer; key: string | Buffer };
+  /** Passphrase for the relay infrastructure identity's encrypted keystore. */
+  identityPassphrase?: string;
   persistDir: string;
   persistIntervalMs: number;
   matchThreshold: number;
@@ -231,6 +276,10 @@ export interface RelayConfig {
   maxPeerRequestsPerMin: number;
   maxReplicaRequestsPerMin: number;
   maxInboundRelayLinks: number;
+  /** Total accepted TCP sockets, including incomplete HTTP/TLS openings. */
+  maxInboundConnections: number;
+  /** HTTP/TLS opening and first WebSocket request bounds; never extended by input. */
+  inboundHandshakeTimeoutMs: number;
   relayLinkHeartbeatIntervalMs: number;
   relayLinkHeartbeatTimeoutMs: number;
   /** Desired number of configured, authenticated relay copies per publication. */
@@ -255,24 +304,40 @@ export interface RelayConfig {
   relayDiscovery?: RelayDiscoveryConfig;
   /** Authenticated outbound relay links; requires relayDiscovery. */
   relayLinks?: Omit<RelayLinkManagerOptions, 'onEvent'>;
+  /** Caller-owned history router shared by inbound and outbound authenticated links. */
+  historyLinks?: HistoryRelayRouter;
   /** Explicitly approved inbound-link identities eligible for replica placement. */
   inboundReplicaTargetIds?: string[];
   /** When set, every v2 operation must present an anonymous one-use capability. */
   admissionVerifier?: AdmissionCapabilityVerifierV2;
+  /** Optional fixed-membership witness role; votes contain only request/token digests. */
+  admissionWitness?: AdmissionWitness;
+  /** Public policy metadata, accepted only inside a one-use private request. */
+  policyQuery?: (value: unknown, signal: AbortSignal) => Promise<AdmissionPolicyQueryReply>;
+  policyTransfer?: (value: unknown, signal: AbortSignal) => Promise<AdmissionPolicyChunkReply | AdmissionPolicyEvidenceReply>;
+  /** Shared queue for experimental private forwards; false is an explicit unmixed mode. */
+  privateEntryMix?: PrivateEntryMixOptions | false;
+  /** Independent shared queue for encrypted private replies; enabled by default. */
+  privateReplyMix?: PrivateEntryMixOptions | false;
   /** Decline discretionary first admissions while retaining existing obligations. */
   acceptNewWork?: (ingressBytes: number) => boolean;
   /** Shared meter also used by the standalone owner's total-usage policy. */
   resourceMeter?: RelayTrafficMeter;
+  /** Local aggregate history state; exposed only through authenticated operational stats. */
+  historyHealth?: () => RelayHistoryHealth;
 }
 
 export interface RelayStats {
   relay_id: string;
+  admission_ready: boolean;
+  history: RelayHistoryHealth | null;
   transport_ingress_bytes: number;
   transport_egress_bytes: number;
   lan_ingress_bytes: number;
   lan_egress_bytes: number;
   process_cpu_milliseconds: number;
   data_file_bytes: number;
+  diagnostic_log: ReturnType<typeof diagnosticLogStatus>;
   publication_commitment_floor_bytes: number;
   mailbox_commitment_floor_bytes: number;
   journal_commitment_floor_bytes: number;
@@ -318,6 +383,8 @@ export interface RelayDiscoveryIngestResult extends RelayContactDiscoveryResult 
 export interface RelayServer {
   start(): Promise<void>;
   stop(options?: { graceful?: boolean }): Promise<void>;
+  /** Local listener inspection, including unadvertised outbound-only relays. */
+  getListeningPort(): number | null;
   getStats(): RelayStats;
   getRelayDescriptor(now?: number): RelayDescriptorV1 | null;
   observeRelayDescriptor(value: unknown, now?: number): RelayDescriptorObservation;
@@ -333,7 +400,7 @@ export interface RelayServer {
 
 const DEFAULT_CONFIG: RelayConfig = {
   port: 9090,
-  host: '0.0.0.0',
+  host: '127.0.0.1',
   persistDir: './data',
   persistIntervalMs: 60_000,
   matchThreshold: 0.70,  // Hamming similarity threshold for LSH matching
@@ -347,6 +414,8 @@ const DEFAULT_CONFIG: RelayConfig = {
   maxPeerRequestsPerMin: 60,
   maxReplicaRequestsPerMin: 120,
   maxInboundRelayLinks: 64,
+  maxInboundConnections: 256,
+  inboundHandshakeTimeoutMs: 10_000,
   relayLinkHeartbeatIntervalMs: 30_000,
   relayLinkHeartbeatTimeoutMs: 90_000,
   desiredReplicaCount: DEFAULT_DESIRED_REPLICA_COUNT,
@@ -380,6 +449,36 @@ type PublicationCommitStatus = PublicationApplyStatus | 'capacity-exhausted';
 
 export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   const cfg = { ...DEFAULT_CONFIG, ...config };
+  cfg.relayDiscovery?.endpoints.forEach(assertSecureRelayTransportEndpoint);
+  const advertisedEndpoints = cfg.relayDiscovery?.endpoints ?? [];
+  if (cfg.tls && (!cfg.tls.cert || !cfg.tls.key)) {
+    throw new Error('Relay TLS requires both a certificate and private key');
+  }
+  if (cfg.tls && advertisedEndpoints.some(endpoint => new URL(endpoint).protocol !== 'wss:')) {
+    throw new Error('A TLS relay can advertise only wss:// endpoints');
+  }
+  if (cfg.tls) {
+    let certificate: X509Certificate;
+    try { certificate = new X509Certificate(cfg.tls.cert); }
+    catch { throw new Error('Invalid relay TLS certificate'); }
+    const now = Date.now();
+    if (now < Date.parse(certificate.validFrom) || now >= Date.parse(certificate.validTo)) {
+      throw new Error('Relay TLS certificate is not currently valid');
+    }
+    for (const endpoint of advertisedEndpoints) {
+      const hostname = new URL(endpoint).hostname.replace(/^\[|\]$/g, '');
+      const matched = isIP(hostname) ? certificate.checkIP(hostname) : certificate.checkHost(hostname);
+      if (!matched) throw new Error('Relay TLS certificate does not cover an advertised endpoint');
+    }
+  }
+  if (!cfg.tls && advertisedEndpoints.some(endpoint => new URL(endpoint).protocol === 'wss:')
+    && !['127.0.0.1', '::1', 'localhost'].includes(cfg.host)) {
+    throw new Error('A relay using an external TLS proxy must bind its cleartext backend to loopback');
+  }
+  if ((cfg.tls || advertisedEndpoints.some(endpoint => new URL(endpoint).protocol === 'wss:'))
+    && !cfg.identityPassphrase) {
+    throw new Error('A reachable WSS relay requires an encrypted identity keystore passphrase');
+  }
   const publicationStorageQuotaBytes = config?.publicationStorageQuotaBytes
     ?? cfg.relayDiscovery?.storage.availableBytes
     ?? DEFAULT_PUBLICATION_STORAGE_QUOTA_BYTES;
@@ -412,6 +511,10 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     || cfg.maxInboundRelayLinks < 1
     || cfg.maxInboundRelayLinks > 4_096) {
     throw new Error('Inbound relay link limit must be between 1 and 4096');
+  }
+  if (!Number.isSafeInteger(cfg.maxInboundConnections) || cfg.maxInboundConnections < 1 || cfg.maxInboundConnections > 4096
+    || !Number.isSafeInteger(cfg.inboundHandshakeTimeoutMs) || cfg.inboundHandshakeTimeoutMs < 250 || cfg.inboundHandshakeTimeoutMs > 10_000) {
+    throw new Error('Invalid inbound connection or handshake bounds');
   }
   if (!Number.isSafeInteger(cfg.maxReplicaRequestsPerMin)
     || cfg.maxReplicaRequestsPerMin < 1
@@ -497,7 +600,9 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   const operationLog = new RelayOperationLog(
     cfg.persistDir, maxJournalFileBytes, journalReserveAfter,
   );
-  const relayIdentity = loadOrCreateRelayIdentity(cfg.persistDir);
+  const relayIdentity = loadOrCreateRelayIdentity(cfg.persistDir, cfg.identityPassphrase);
+  try { cfg.historyLinks?.bindLocalIdentity(relayIdentity.did); }
+  catch (error) { relayIdentity.secretKey.fill(0); throw error; }
   const replicaStorageLedger = new ReplicaStorageLedger();
   const trafficMeter = cfg.resourceMeter ?? new RelayTrafficMeter(cfg.persistDir);
 
@@ -520,6 +625,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     targetRelayId: string;
     socket: WebSocket;
     timer: ReturnType<typeof setTimeout>;
+    deadline: RelayResponseDeadline;
     resolve: (response: RelayQueryResponseV1) => void;
     reject: (error: Error) => void;
   }>();
@@ -530,6 +636,26 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   const relationshipMailboxSyncNextAt = new Map<string, number>();
   let relationshipMailboxSyncOffset = 0;
   const seenPeerRequests = new Map<string, number>();
+  const seenPrivateDiscoveryRequests = new Map<string, number>();
+  const privateReplayLog = new PrivateReplayLog(cfg.persistDir);
+  let privateReplay = new PrivateRequestReplayCacheV1();
+  const privateEntryMix = cfg.privateEntryMix === false ? null : createPrivateEntryMix(cfg.privateEntryMix);
+  const privateReplyMix = cfg.privateReplyMix === false ? null : createPrivateEntryMix(cfg.privateReplyMix);
+  const privateForwardControllers = new Set<AbortController>();
+  let activeTransportKey: RelayTransportKeyMaterialV1 | null = null;
+  const transportKeys = new Map<string, RelayTransportKeyMaterialV1>();
+  async function currentTransportKey(now: number): Promise<RelayTransportKeyMaterialV1> {
+    if (!activeTransportKey
+      || activeTransportKey.attestation.expiresAt - now < MAX_PRIVATE_REQUEST_LIFETIME_MS + 5_000) {
+      const generated = await generateRelayTransportKeyV1(relayIdentity, now);
+      activeTransportKey = generated;
+      transportKeys.set(generated.attestation.keyId, generated);
+    }
+    for (const [keyId, material] of transportKeys) {
+      if (material.attestation.expiresAt <= now) transportKeys.delete(keyId);
+    }
+    return activeTransportKey;
+  }
   const seenRelayLinks = new Map<string, number>();
   const seenRelayReplicaRequests = new Map<string, {
     expiresAt: number;
@@ -552,6 +678,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     request: RelayReplicaHandoffRequestV1;
     controllerRelayId: string;
     timer: ReturnType<typeof setTimeout>;
+    deadline: RelayResponseDeadline;
     resolve: (response: RelayReplicaHandoffResponseV1) => void;
     reject: (error: Error) => void;
   }>();
@@ -559,8 +686,10 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   let relayDescriptorSequence = Date.now();
   let relayDescriptorStorageUpdatedAt = 0;
 
-  let httpServer: Server;
+  let httpServer: HttpServer | HttpsServer;
   let wss: WebSocketServer;
+  const inboundSockets = new Set<Socket>();
+  const inboundOperations = new Set<Promise<void>>();
   let publicationExpiryTimer: ReturnType<typeof setTimeout> | null = null;
   let cleanupTimer: ReturnType<typeof setInterval> | null = null;
   let resourceCheckpointTimer: ReturnType<typeof setInterval> | null = null;
@@ -574,7 +703,8 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   let replicaRepairQueued = false;
   let replicaRepairRunning = false;
   let stopping = false;
-  const replicaRefreshes = new Set<string>();
+  let stopPromise: Promise<void> | undefined;
+  const replicaRefreshes = new Map<string, { operationSignature: string; targets: Set<string> }>();
   const startTime = Date.now();
   const placementTracker = new ReplicaPlacementTracker(relayIdentity.did);
   const inventoryScheduler = new ReplicaInventoryScheduler();
@@ -661,6 +791,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       return descriptor;
     }, {
       ...cfg.relayLinks,
+      historyLinks: cfg.historyLinks,
       onTransportSocket: socket => trafficMeter.observe(socket),
       onReplicaHandoffRequest: acceptReplicaHandoffRequest,
       onQueryRequest: request => processForwardedSearch(request, request.senderRelayId),
@@ -783,7 +914,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     if (pendingInboundQueries.size >= MAX_PENDING_INBOUND_QUERIES) {
       return Promise.reject(new Error('Inbound relay query limit reached'));
     }
-    const createdAt = Date.now();
+    const createdAt = Date.now(), began = performance.now();
     const request = createRelayQueryRequestV1(
       search, targetRelayId, relayIdentity, remainingHops,
       admission, createdAt, Math.min(search.expiresAt, createdAt + timeoutMs),
@@ -796,7 +927,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       }, timeoutMs);
       timer.unref?.();
       pendingInboundQueries.set(request.requestId, {
-        request, targetRelayId, socket: link.socket, timer, resolve, reject,
+        request, targetRelayId, socket: link.socket, deadline: relayResponseDeadline(request, timeoutMs, began), timer, resolve, reject,
       });
       link.socket.send(serialized, error => {
         if (!error) return;
@@ -879,9 +1010,10 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     }
     if (seenSearches.has(request.search.searchId)) return { status: 'duplicate', results: [] };
     if (cfg.admissionVerifier) {
+      if (cfg.admissionVerifier.isReady?.() === false) return { status: 'unavailable', results: [] };
       if (!request.admission) return { status: 'admission-required', results: [] };
       try {
-        const decision = cfg.admissionVerifier.verifyAndSpend(request.admission, {
+        const decision = await cfg.admissionVerifier.verifyAndSpend(request.admission, {
           action: 'search',
           requestBinding: createAdmissionRequestBindingV2('search', request.search),
           now,
@@ -1108,9 +1240,9 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     log('info', 'journal_compacted', { before, after: operationLog.length, removed });
   }
 
-  function appendOperation(entry: RelayOperationLogEntry): void {
+  function appendOperation(entry: RelayOperationLogEntry, maxRecordBytes?: number): void {
     try {
-      operationLog.append(entry);
+      operationLog.append(entry, undefined, maxRecordBytes);
     } catch (error) {
       if (!(error instanceof RelayJournalCapacityError)) throw error;
       if (operationLog.length !== lastCapacityCompactionLength
@@ -1122,7 +1254,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           lastCapacityCompactionExpiryCount = mailboxExpiredSinceCompaction;
         }
       }
-      operationLog.append(entry);
+      operationLog.append(entry, undefined, maxRecordBytes);
     }
   }
 
@@ -1155,7 +1287,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   ): number {
     const present = mailboxStore.presentEnvelopeIds(request.mailboxId, request.envelopeIds);
     if (present.length === 0) return 0;
-    appendOperation({ kind: 'mailbox-ack', request });
+    appendOperation({ kind: 'mailbox-ack', request }, present.length * JOURNAL_ACK_RESERVE_BYTES);
     const acknowledged = mailboxStore.acknowledge(request.mailboxId, request.envelopeIds);
     if (acknowledged > 0) {
       mailboxSyncNextAt.clear();
@@ -1652,7 +1784,10 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     // A duplicate client submission is an explicit idempotent retry. Refresh
     // all selected targets so a lost response can become an `already-stored`
     // receipt without turning the periodic repair loop into continuous probes.
-    if (status === 'duplicate') replicaRefreshes.add(operation.publicationId);
+    if (status === 'duplicate') replicaRefreshes.set(operation.publicationId, {
+      operationSignature: operation.signature,
+      targets: new Set(placementTracker.getIntent(operation.publicationId)?.targetRelayIds ?? []),
+    });
     if (status === 'accepted' || status === 'duplicate') queueReplicaRepair();
     return status;
   }
@@ -1836,6 +1971,14 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
 
   async function repairReplicaPlacementsOnce(): Promise<void> {
     if (!outboundRelayLinks && approvedInboundTargets.size === 0) return;
+    for (const [publicationId, refresh] of replicaRefreshes) {
+      const operation = publicationStore.get(publicationId);
+      if (!operation || operation.signature !== refresh.operationSignature
+        || !placementTracker.getIntent(publicationId)
+        || (operation.kind === 'publication' && !isPublicationActive(operation, Date.now()))) {
+        replicaRefreshes.delete(publicationId);
+      }
+    }
     const repairOperations: PublicationOperation[] = [];
     const reconciliationRequirements: ReplicaReconciliationRequirementV1[] = [];
     for (const persistedIntent of placementTracker.listIntents()) {
@@ -1925,8 +2068,17 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         replicaRefreshes.delete(operation.publicationId);
         continue;
       }
-      const refresh = replicaRefreshes.delete(operation.publicationId);
-      const targetRelayIds = refresh ? status.intent.targetRelayIds : status.pendingRelayIds;
+      let refresh = replicaRefreshes.get(operation.publicationId);
+      if (refresh && refresh.operationSignature !== operation.signature) {
+        replicaRefreshes.delete(operation.publicationId); refresh = undefined;
+      }
+      if (refresh) {
+        for (const target of refresh.targets) {
+          if (!status.intent.targetRelayIds.includes(target)) refresh.targets.delete(target);
+        }
+        if (refresh.targets.size === 0) replicaRefreshes.delete(operation.publicationId);
+      }
+      const targetRelayIds = [...new Set([...status.pendingRelayIds, ...(refresh?.targets ?? [])])];
       if (targetRelayIds.length === 0) continue;
       const receipts = [
         ...(outboundRelayLinks
@@ -1953,6 +2105,13 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           reason: receipt.reason,
         });
         if (quarantined || replaced) queueReplicaRepair();
+        refresh?.targets.delete(receipt.responderRelayId);
+      }
+      // Offline targets and lost replies retain their explicit retry. Clear only
+      // answered targets, so one offline volunteer does not repeatedly probe peers
+      // that already answered. A newer client retry may have arrived during I/O.
+      if (refresh?.targets.size === 0 && replicaRefreshes.get(operation.publicationId) === refresh) {
+        replicaRefreshes.delete(operation.publicationId);
       }
     }
 
@@ -2220,7 +2379,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   function resourceMetrics(): Pick<RelayStats,
     'transport_ingress_bytes' | 'transport_egress_bytes' | 'process_cpu_milliseconds'
     | 'lan_ingress_bytes' | 'lan_egress_bytes'
-    | 'data_file_bytes' | 'publication_commitment_floor_bytes'
+    | 'data_file_bytes' | 'diagnostic_log' | 'publication_commitment_floor_bytes'
     | 'mailbox_commitment_floor_bytes' | 'journal_commitment_floor_bytes'> {
     const traffic = trafficMeter.snapshot();
     const hasPublicationObligations = replicaStorageLedger.reservedBytes > 0;
@@ -2235,6 +2394,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       lan_egress_bytes: traffic.lanEgressBytes,
       process_cpu_milliseconds: Math.floor(traffic.cpuMicros / 1_000),
       data_file_bytes: relayDataFileBytes(cfg.persistDir),
+      diagnostic_log: diagnosticLogStatus(),
       publication_commitment_floor_bytes: hasPublicationObligations
         ? replicaStorageLedger.reservedBytes + FIRST_SEEN_TOMBSTONE_RESERVE_BYTES : 0,
       mailbox_commitment_floor_bytes: mailboxStore.commitmentFloorBytes,
@@ -2264,8 +2424,9 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     end: (body?: string) => void;
   }): void {
     if (req.url === '/health' && req.method === 'GET') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: 'ok' }));
+      const ready = !stopping && cfg.admissionVerifier?.isReady?.() !== false;
+      res.writeHead(ready ? 200 : 503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: ready ? 'ok' : 'admission_starting' }));
       return;
     }
     if (req.url === '/relay-descriptor' && req.method === 'GET') {
@@ -2303,6 +2464,8 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         relay_id: relayIdentity.did,
+        admission_ready: !stopping && cfg.admissionVerifier?.isReady?.() !== false,
+        history: cfg.historyHealth?.() ?? null,
         ...resourceMetrics(),
         indexed_embeddings: stats.total,
         stored_publications: publicationStore.size,
@@ -2871,7 +3034,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     if (!link || link.socket.readyState !== WebSocket.OPEN) {
       return Promise.reject(new Error('Replica controller link is unavailable'));
     }
-    const createdAt = Date.now();
+    const createdAt = Date.now(), began = performance.now();
     const request = createRelayReplicaHandoffRequestV1(
       operations,
       controllerRelayId,
@@ -2890,6 +3053,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       timer.unref?.();
       pendingReplicaHandoffs.set(request.requestId, {
         request,
+        deadline: relayResponseDeadline(request, timeoutMs, began),
         controllerRelayId,
         timer,
         resolve,
@@ -2914,12 +3078,16 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     try {
       const { response } = parseRelayReplicaHandoffResponseFrameV1(raw);
       const pending = pendingReplicaHandoffs.get(response.requestId);
-      if (!pending
-        || pending.controllerRelayId !== linkedRelayId
+      if (!pending) return; // A signed reply may outlive its local timer.
+      if (pending.controllerRelayId !== linkedRelayId
         || response.controllerRelayId !== linkedRelayId
         || response.retiringRelayId !== relayIdentity.did
         || !verifyRelayReplicaHandoffResponseV1(response, pending.request)) {
         throw new Error('Replica handoff response is not bound to this request');
+      }
+      if (!isRelayResponseLive(pending.deadline)) {
+        clearTimeout(pending.timer); pendingReplicaHandoffs.delete(response.requestId);
+        pending.reject(new Error('Replica handoff response expired or timed out')); return;
       }
       clearTimeout(pending.timer);
       pendingReplicaHandoffs.delete(response.requestId);
@@ -2983,7 +3151,10 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         || !verifyRelayQueryResponseV1(response, pending.request)) {
         throw new Error('Relay query response is not bound to this link and request');
       }
-      if (Date.now() > pending.request.expiresAt) return;
+      if (!isRelayResponseLive(pending.deadline)) {
+        clearTimeout(pending.timer); pendingInboundQueries.delete(response.requestId);
+        pending.reject(new Error('Inbound relay query expired or timed out')); return;
+      }
       clearTimeout(pending.timer);
       pendingInboundQueries.delete(response.requestId);
       pending.resolve(response);
@@ -3140,18 +3311,179 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     });
   }
 
+  function queuePrivateForward(client: WebSocket, destination: PrivateRequestLayerV1): void {
+    if (client.readyState !== WebSocket.OPEN) return;
+    if (stopping) { client.terminate(); return; }
+    const controller = new AbortController();
+    const cancel = () => controller.abort();
+    privateForwardControllers.add(controller);
+    client.once('close', cancel);
+    const work = (signal: AbortSignal) => forwardPrivateRequest(client, destination, signal);
+    const forwarded = privateEntryMix
+      ? privateEntryMix.schedule({ bytes: Buffer.byteLength(JSON.stringify(destination)),
+        expiresAt: destination.expiresAt, signal: controller.signal }, work)
+      : work(controller.signal);
+    void forwarded.then(reply => {
+      if (!reply) return;
+      const release = (signal: AbortSignal) => sendPrivateReply(client, reply, signal, destination.expiresAt);
+      return privateReplyMix
+        ? privateReplyMix.schedule({ bytes: Buffer.byteLength(reply),
+          expiresAt: destination.expiresAt, signal: controller.signal }, release)
+        : release(controller.signal);
+    }).catch(() => {
+      if (stopping) client.terminate();
+      else if (client.readyState === WebSocket.OPEN) client.close(4008, 'private_mix_unavailable');
+    }).finally(() => {
+      client.off('close', cancel);
+      privateForwardControllers.delete(controller);
+    });
+  }
+
+  function sendPrivateReply(
+    client: WebSocket, reply: string, signal: AbortSignal, expiresAt: number,
+  ): Promise<void> {
+    const remainingMs = expiresAt - Date.now();
+    if (remainingMs <= 0 || signal.aborted || stopping || client.readyState !== WebSocket.OPEN) {
+      return Promise.reject(new Error('Private reply cancelled'));
+    }
+    return new Promise<void>((resolve, reject) => {
+      let done = false;
+      const finish = (error?: Error): void => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        signal.removeEventListener('abort', abort);
+        if (error) { client.terminate(); reject(error); }
+        else { client.close(1000, 'private_request_complete'); resolve(); }
+      };
+      const abort = () => finish(new Error('Private reply cancelled'));
+      // The explicit unmixed mode must also bound a stalled socket write.
+      const timer = setTimeout(() => finish(new Error('Private reply expired')), remainingMs);
+      signal.addEventListener('abort', abort, { once: true });
+      // Keep the reply charged to the queue until the socket write completes.
+      try { client.send(reply, error => finish(error)); }
+      catch (error) { finish(error instanceof Error ? error : new Error(String(error))); }
+    });
+  }
+
+  async function forwardPrivateRequest(
+    client: WebSocket, destination: PrivateRequestLayerV1, signal: AbortSignal,
+  ): Promise<string | undefined> {
+    if (signal.aborted || stopping || client.readyState !== WebSocket.OPEN) return;
+    const now = Date.now();
+    const descriptor = relayDirectory.select({
+      limit: cfg.relayDiscovery?.maxKnownRelays ?? 256, now,
+    }).find(peer => peer.relayId === destination.relayId);
+    const ownDescriptor = getOwnRelayDescriptor(now);
+    if (!descriptor || descriptor.reachability !== 'direct' || !ownDescriptor) {
+      client.close(4004, 'private_destination_unavailable');
+      return;
+    }
+    const endpoint = descriptor.endpoints[0];
+    if (!endpoint) {
+      client.close(4004, 'private_destination_unavailable');
+      return;
+    }
+    try { assertSecureRelayTransportEndpoint(endpoint); }
+    catch { client.close(4004, 'private_destination_unavailable'); return; }
+    const timeoutMs = Math.min(10_000, destination.expiresAt - now);
+    if (timeoutMs <= 0) { client.close(4003, 'private_request_expired'); return; }
+    const request = createRelayPrivateForwardV1(destination, ownDescriptor, relayIdentity, now);
+    return new Promise<string | undefined>(resolveForward => {
+      const downstream = new WebSocket(endpoint, { ...relayTlsClientOptions,
+        handshakeTimeout: timeoutMs,
+        maxPayload: MAX_RELAY_DISCOVERY_FRAME_BYTES,
+        followRedirects: false,
+        perMessageDeflate: false,
+      });
+      let done = false;
+      const finish = (reply?: string): void => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        signal.removeEventListener('abort', abort);
+        resolveForward(reply);
+        if (downstream.readyState === WebSocket.OPEN) {
+          downstream.close(1000, 'private_forward_complete');
+        } else if (downstream.readyState === WebSocket.CONNECTING) {
+          downstream.terminate();
+        }
+        if (!reply && client.readyState === WebSocket.OPEN) client.close(1011, 'private_forward_failed');
+      };
+      const timer = setTimeout(() => finish(), timeoutMs);
+      const abort = (): void => {
+        finish();
+        if (downstream.readyState !== WebSocket.CLOSED) downstream.terminate();
+        if (stopping) client.terminate();
+      };
+      signal.addEventListener('abort', abort, { once: true });
+      downstream.on('upgrade', response => {
+        if (done) return;
+        try { trafficMeter.observe(response.socket); }
+        catch { finish(); }
+      });
+      downstream.on('open', () => {
+        if (done || signal.aborted || stopping) return;
+        try {
+          downstream.send(serializeRelayPrivateForwardV1(request), error => {
+            if (error) finish();
+          });
+        } catch { finish(); }
+      });
+      downstream.on('message', (data, isBinary) => {
+        if (done || signal.aborted) return;
+        if (isBinary) { finish(); return; }
+        const raw = data.toString('utf8');
+        try {
+          const reply = parsePrivateResponseV1(raw);
+          if (reply.destinationRelayId !== descriptor.relayId
+            || reply.requestId !== destination.requestId) throw new Error('Invalid private reply');
+          finish(raw);
+        } catch { finish(); }
+      });
+      downstream.on('error', () => finish());
+      downstream.on('close', () => finish());
+    });
+  }
+
   function handleConnection(ws: WebSocket, req: any): void {
     const ip = req?.socket?.remoteAddress ?? 'unknown';
     let linkedRelayId: string | null = null;
+    let pendingLinkChallenge: RelayLinkChallengeV1 | null = null;
+    let receivedPrivateEntry = false;
+    let privateReply: { responseKey: string; requestId: string } | null = null;
+
+    function sendClientResponse(raw: string, closeReason: string): void {
+      if (!privateReply) {
+        ws.send(raw, () => ws.close(1000, closeReason));
+        return;
+      }
+      void createPrivateResponseV1(
+        Buffer.from(raw, 'utf8'), privateReply.responseKey,
+        privateReply.requestId, relayIdentity.did,
+      ).then(response => {
+        if (ws.readyState !== WebSocket.OPEN) return;
+        ws.send(serializePrivateResponseV1(response), error => {
+          if (error) ws.terminate();
+          else ws.close(1000, closeReason);
+        });
+      }).catch(() => ws.close(4000, 'private_response_failed'));
+    }
 
     const authTimeout = setTimeout(() => {
-      ws.close(4001, 'request_timeout');
-    }, 10_000);
+      ws.terminate();
+    }, cfg.inboundHandshakeTimeoutMs);
 
-    ws.on('message', (data: Buffer, isBinary: boolean) => {
+    let receivedPrivateForward = false;
+    async function handleRawMessage(data: Buffer, isBinary: boolean, internal = false): Promise<void> {
+      if (isBinary) { ws.close(4000, 'message_must_be_json'); return; }
+      if ((receivedPrivateForward || receivedPrivateEntry) && !internal) {
+        ws.close(4000, 'unexpected_private_forward_message');
+        return;
+      }
       let raw: string;
       try {
-        raw = data.toString('utf-8');
+        raw = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(data);
       } catch {
         ws.close(4000, 'invalid_encoding');
         return;
@@ -3160,9 +3492,109 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       // a short connection and never send the user's root identity.
       let frameCandidate: unknown;
       try { frameCandidate = JSON.parse(raw); } catch { /* handled by v1 parser below */ }
+      if (isObject(frameCandidate) && (frameCandidate.type === ADMISSION_POLICY_QUERY_TYPE || frameCandidate.type === ADMISSION_POLICY_CHUNK_TYPE || frameCandidate.type === ADMISSION_POLICY_EVIDENCE_TYPE)) {
+        clearTimeout(authTimeout);
+        const query = frameCandidate.type === ADMISSION_POLICY_QUERY_TYPE;
+        const respond = query ? cfg.policyQuery : cfg.policyTransfer;
+        if (!internal || !privateReply || linkedRelayId || stopping || !respond
+          || data.byteLength > (query ? ADMISSION_POLICY_QUERY_MAX_BYTES : ADMISSION_POLICY_CHUNK_REQUEST_MAX_BYTES)
+          || !rateLimiter.check(`transport:${ip}`, 'discovery') || cfg.acceptNewWork?.(data.byteLength) === false) {
+          ws.close(4008, 'policy_query_unavailable'); return;
+        }
+        const controller = new AbortController(), disconnected = () => controller.abort();
+        ws.once('close', disconnected);
+        try {
+          const reply = await respond(frameCandidate, controller.signal);
+          if (controller.signal.aborted || stopping || ws.readyState !== WebSocket.OPEN) return;
+          if (Buffer.byteLength(JSON.stringify(reply)) > (query ? ADMISSION_POLICY_QUERY_REPLY_MAX_BYTES : ADMISSION_POLICY_CHUNK_REPLY_MAX_BYTES)) throw new Error('Policy metadata reply too large');
+          sendClientResponse(serializeMessage(createMessage(query ? ADMISSION_POLICY_QUERY_REPLY_TYPE : frameCandidate.type === ADMISSION_POLICY_EVIDENCE_TYPE ? ADMISSION_POLICY_EVIDENCE_REPLY_TYPE : ADMISSION_POLICY_CHUNK_REPLY_TYPE, reply, relayIdentity)), 'policy_query_complete');
+        } catch { if (ws.readyState === WebSocket.OPEN) ws.close(4003, 'policy_query_refused'); }
+        finally { ws.removeListener('close', disconnected); controller.abort(); }
+        return;
+      }
+      if (!linkedRelayId && isObject(frameCandidate) && frameCandidate.kind === 'admission-witness-request') {
+        clearTimeout(authTimeout);
+        if (stopping || isBinary || data.byteLength > 4096 || !cfg.admissionWitness
+          || !rateLimiter.check(`witness:${ip}`, 'discovery')) {
+          ws.close(4008, 'admission_witness_unavailable'); return;
+        }
+        try {
+          const vote = await cfg.admissionWitness.vote(frameCandidate,
+            () => !stopping && ws.readyState === WebSocket.OPEN && cfg.acceptNewWork?.(data.byteLength) !== false);
+          if (!stopping && ws.readyState === WebSocket.OPEN) sendClientResponse(JSON.stringify(vote), 'admission_witness_complete');
+        }
+        catch { ws.close(4003, 'admission_witness_refused'); }
+        return;
+      }
+      if (!linkedRelayId && isObject(frameCandidate) && frameCandidate.stage === 'entry') {
+        clearTimeout(authTimeout);
+        if (isBinary || !rateLimiter.check(`transport:${ip}`, 'discovery')) {
+          ws.close(4008, 'private_request_rejected');
+          return;
+        }
+        try {
+          const layer = parsePrivateRequestLayerV1(raw);
+          const material = transportKeys.get(layer.keyId);
+          if (!material || layer.relayId !== relayIdentity.did) throw new Error('Unknown entry key');
+          receivedPrivateEntry = true;
+          void openPrivateEntryRequestV1(layer, material, privateReplay, Date.now())
+            .then(destination => queuePrivateForward(ws, destination))
+            .catch(() => ws.close(4003, 'invalid_private_entry'));
+        } catch { ws.close(4000, 'invalid_private_entry'); }
+        return;
+      }
+      if (!linkedRelayId && isObject(frameCandidate)
+        && frameCandidate.type === RELAY_PRIVATE_FORWARD_FRAME_TYPE) {
+        clearTimeout(authTimeout);
+        if (isBinary || !rateLimiter.check(`transport:${ip}`, 'discovery')) {
+          ws.close(4008, 'private_forward_rejected');
+          return;
+        }
+        try {
+          const frame = parseRelayPrivateForwardV1(raw);
+          if (!isRelayPrivateForwardActiveV1(frame, Date.now())
+            || frame.destination.relayId !== relayIdentity.did) {
+            throw new Error('Invalid or wrongly addressed private forward');
+          }
+          const material = transportKeys.get(frame.destination.keyId);
+          if (!material) throw new Error('Unknown destination key');
+          receivedPrivateForward = true;
+          await openPrivateDestinationRequestV1(
+            frame.destination, material, privateReplay, Date.now(),
+          ).then(async opened => {
+            if (stopping || ws.readyState !== WebSocket.OPEN) throw new Error('Private destination stopped');
+            const payload = Buffer.from(opened.data);
+            if (payload.length > MAX_PRIVATE_FRAME_BYTES) throw new Error('Private payload too large');
+            let operation: unknown;
+            try { operation = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(payload)); } catch { /* rejected below */ }
+            if (!isObject(operation) || !new Set<string>([
+              PUBLICATION_OPERATION_FRAME_TYPE,
+              SEARCH_REQUEST_FRAME_TYPE,
+              MAILBOX_REQUEST_FRAME_TYPE,
+              MAILBOX_DEPOSIT_FRAME_TYPE,
+              RELATIONSHIP_MAILBOX_REQUEST_FRAME_TYPE,
+              RELATIONSHIP_MAILBOX_DEPOSIT_FRAME_TYPE,
+              ADMISSION_POLICY_QUERY_TYPE,
+              ADMISSION_POLICY_CHUNK_TYPE,
+              ADMISSION_POLICY_EVIDENCE_TYPE,
+            ]).has(operation.type as string)) throw new Error('Unsupported private operation');
+            privateReply = {
+              responseKey: opened.responseKey,
+              requestId: frame.destination.requestId,
+            };
+            await handleRawMessage(payload, false, true).catch(() => ws.close(4000, 'private_operation_failed'));
+          }).catch(() => ws.close(4000, 'invalid_private_destination'));
+        } catch { ws.close(4000, 'invalid_private_forward'); }
+        return;
+      }
       if (linkedRelayId) {
         if (isBinary) {
           ws.close(4000, 'relay_message_must_be_json');
+          return;
+        }
+        if (isObject(frameCandidate) && frameCandidate.type === HISTORY_LINK_FRAME_TYPE) {
+          if (!cfg.historyLinks) ws.close(4003, 'history_link_disabled');
+          else cfg.historyLinks.handle(raw, linkedRelayId, ws);
           return;
         }
         if (reverseReplicaRequests.handleResponse(raw, linkedRelayId, ws)) return;
@@ -3194,6 +3626,18 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         }
         return;
       }
+      if (isObject(frameCandidate) && frameCandidate.type === RELAY_LINK_CHALLENGE_REQUEST_FRAME_TYPE) {
+        if (!cfg.relayDiscovery || pendingLinkChallenge
+          || !rateLimiter.check(`transport:${ip}`, 'discovery')) {
+          ws.close(4008, 'relay_link_challenge_rejected');
+          return;
+        }
+        try { parseRelayLinkChallengeRequestV1(raw); }
+        catch { ws.close(4000, 'invalid_relay_link_challenge'); return; }
+        pendingLinkChallenge = createRelayLinkChallengeV1();
+        ws.send(JSON.stringify(pendingLinkChallenge));
+        return;
+      }
       if (isObject(frameCandidate) && frameCandidate.type === RELAY_LINK_OPEN_FRAME_TYPE) {
         clearTimeout(authTimeout);
         if (!cfg.relayDiscovery) {
@@ -3209,6 +3653,12 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         }
         const request = frame.request;
         const now = Date.now();
+        if (!pendingLinkChallenge || pendingLinkChallenge.expiresAt <= now
+          || request.serverNonce !== pendingLinkChallenge.nonce) {
+          ws.close(4003, 'relay_link_challenge_mismatch');
+          return;
+        }
+        pendingLinkChallenge = null;
         if (!isRelayLinkOpenActiveV1(request, now)) {
           ws.close(4003, 'expired_relay_link');
           return;
@@ -3251,6 +3701,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           createRelayLinkAcceptFrameV1(acceptance),
         );
         linkedRelayId = remoteRelayId;
+        cfg.historyLinks?.attach(remoteRelayId, ws);
         inboundRelayLinks.set(remoteRelayId, {
           socket: ws,
           descriptor: request.descriptor,
@@ -3268,6 +3719,49 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         log('info', 'relay_link_accepted', { relayId: remoteRelayId, reachability: request.descriptor.reachability });
         replicaTargetOfflineSince.delete(remoteRelayId);
         queueReplicaRepair();
+        return;
+      }
+      if (isObject(frameCandidate) && frameCandidate.type === PRIVATE_DISCOVERY_REQUEST_TYPE) {
+        clearTimeout(authTimeout);
+        if (!cfg.relayDiscovery || isBinary || !rateLimiter.check(`transport:${ip}`, 'discovery')) {
+          ws.close(4008, 'private_discovery_unavailable');
+          return;
+        }
+        let request: ReturnType<typeof parsePrivateDiscoveryRequestV1>;
+        try { request = parsePrivateDiscoveryRequestV1(raw); }
+        catch { ws.close(4000, 'invalid_private_discovery'); return; }
+        if (seenPrivateDiscoveryRequests.size >= 65_536
+          || seenPrivateDiscoveryRequests.has(request.requestId)) {
+          ws.close(4003, 'replayed_private_discovery');
+          return;
+        }
+        const candidates = relayDirectory.select({
+          limit: cfg.relayDiscovery.maxKnownRelays ?? 256, now: Date.now(),
+        }).filter(descriptor => descriptor.reachability === 'direct'
+          && descriptor.relayId !== relayIdentity.did
+          // Forwarding uses the first signed endpoint, so the preflight must
+          // observe that same socket destination.
+          && descriptor.endpoints[0] === request.targetEndpoint);
+        if (candidates.length !== 1) {
+          ws.close(4004, 'private_destination_unavailable');
+          return;
+        }
+        seenPrivateDiscoveryRequests.set(request.requestId, request.expiresAt);
+        let remoteAddress = '';
+        void discoverRelayContactV1(
+          createRelayContactHintV1('peer-exchange', request.targetEndpoint, candidates[0].relayId),
+          { request: request.peerRequest, timeoutMs: 5_000,
+            onTransportSocket: socket => { remoteAddress = socket.remoteAddress ?? ''; } },
+        ).then(contact => {
+          if (ws.readyState !== WebSocket.OPEN) return;
+          const response = createPrivateDiscoveryResponseV1(
+            request, remoteAddress, contact.response, relayIdentity,
+          );
+          ws.send(response, error => {
+            if (error) ws.terminate();
+            else ws.close(1000, 'private_discovery_complete');
+          });
+        }).catch(() => ws.close(4004, 'private_destination_unavailable'));
         return;
       }
       if (isObject(frameCandidate) && frameCandidate.type === RELAY_PEER_REQUEST_FRAME_TYPE) {
@@ -3306,15 +3800,26 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         }
         descriptors.push(...relayDirectory.select({
           supportedGroups: request.supportedGroups,
-          limit: request.maxPeers - descriptors.length,
+          limit: Math.min(
+            request.maxPeers - descriptors.length,
+            cfg.relayDiscovery?.maxKnownRelays ?? 256,
+          ),
           now,
         }));
-        const response = createRelayPeerResponseV1(request, descriptors, relayIdentity, now);
-        const responseFrame = createRelayPeerResponseFrameV1(response);
-        ws.send(serializeRelayPeerResponseFrameV1(responseFrame), () => {
-          ws.close(1000, 'peer_exchange_complete');
+        void currentTransportKey(now).then(material => {
+          if (ws.readyState !== WebSocket.OPEN) return;
+          const response = createRelayPeerResponseV1(
+            request, descriptors, relayIdentity, now, material.attestation,
+          );
+          const responseFrame = createRelayPeerResponseFrameV1(response);
+          ws.send(serializeRelayPeerResponseFrameV1(responseFrame), () => {
+            ws.close(1000, 'peer_exchange_complete');
+          });
+          log('info', 'relay_peer_exchange', { resultCount: descriptors.length });
+        }).catch(error => {
+          log('warn', 'relay_peer_exchange_failed', { error: String(error) });
+          ws.close(4000, 'peer_exchange_failed');
         });
-        log('info', 'relay_peer_exchange', { resultCount: descriptors.length });
         return;
       }
       if (isObject(frameCandidate) && frameCandidate.type === SEARCH_REQUEST_FRAME_TYPE) {
@@ -3337,7 +3842,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           sendOperationAck(ws, request.searchId, 'error', 'replayed_search');
           return;
         }
-        if (!authorizeAdmission(ws, request.searchId, frame.admission, 'search', request, now)) return;
+        if (!await authorizeAdmission(ws, request.searchId, frame.admission, 'search', request, now)) return;
         if (cfg.acceptNewWork?.(Buffer.byteLength(raw, 'utf8')) === false) {
           sendOperationAck(ws, request.searchId, 'error', 'owner_limited');
           return;
@@ -3360,7 +3865,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
             createSearchResponsePayloadV2(request.searchId, results),
             relayIdentity,
           );
-          ws.send(serializeMessage(response), () => ws.close(1000, 'search_complete'));
+          sendClientResponse(serializeMessage(response), 'search_complete');
           log('info', 'search_v2', { resultCount: results.length });
         }).catch(error => {
           log('error', 'search_v2_failed', { error: String(error) });
@@ -3387,7 +3892,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           sendOperationAck(ws, operation.publicationId, 'error', 'expired');
           return;
         }
-        if (!authorizeAdmission(
+        if (!await authorizeAdmission(
           ws, operation.publicationId, frame.admission, 'publication-write', operation,
         )) return;
         if (operation.kind === 'publication'
@@ -3438,12 +3943,11 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           sendOperationAck(ws, request.requestId, 'error', 'stale_timestamp');
           return;
         }
-        if (!authorizeAdmission(
-          ws,
-          request.requestId,
-          frame.admission,
-          request.action === 'fetch' ? 'mailbox-fetch' : 'mailbox-acknowledge',
-          request,
+        // Owner-signed ACKs only retire accepted envelopes. Their complete journal
+        // proof must fit the space prepaid by the IDs actually present here.
+        // Keep this maintenance available when admission histories are offline.
+        if (request.action === 'fetch' && !await authorizeAdmission(
+          ws, request.requestId, frame.admission, 'mailbox-fetch', request,
         )) return;
         if (!rateLimiter.check(`transport:${ip}`, 'search')) {
           sendOperationAck(ws, request.requestId, 'error', 'rate_limited');
@@ -3455,13 +3959,25 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
             mailboxId: request.mailboxId,
             envelopes: mailboxStore.fetch(request.mailboxId),
           }, relayIdentity);
-          ws.send(serializeMessage(response), () => ws.close(1000, 'relationship_mailbox_fetch_complete'));
+          sendClientResponse(serializeMessage(response), 'relationship_mailbox_fetch_complete');
+          return;
+        }
+        // Fresh proofs must remain portable to a replica with just one ID
+        // present. Historical repair proofs retain their original parser and
+        // independent per-present-envelope byte guard in the commit helper.
+        if (request.envelopeIds.length > MAX_FRESH_MAILBOX_ACK_IDS
+          && mailboxStore.presentEnvelopeIds(request.mailboxId, request.envelopeIds).length > 0) {
+          sendOperationAck(ws, request.requestId, 'error', 'acknowledgement_batch_too_large');
           return;
         }
         let acknowledged: number;
         try {
           acknowledged = commitMailboxAcknowledgement(request);
         } catch (err) {
+          if (err instanceof RelayJournalRecordSizeError) {
+            sendOperationAck(ws, request.requestId, 'error', 'acknowledgement_batch_too_large');
+            return;
+          }
           log('error', 'operation_commit_failed', { error: String(err) });
           sendOperationAck(ws, request.requestId, 'error', 'persistence_failed');
           return;
@@ -3484,7 +4000,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           sendOperationAck(ws, request.requestId, 'error', 'stale_timestamp');
           return;
         }
-        if (!authorizeAdmission(
+        if (!await authorizeAdmission(
           ws, request.requestId, frame.admission, 'mailbox-deposit', request,
         )) return;
         if (!rateLimiter.check(`transport:${ip}`, 'publish')) {
@@ -3525,12 +4041,11 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           sendOperationAck(ws, request.requestId, 'error', 'stale_timestamp');
           return;
         }
-        if (!authorizeAdmission(
-          ws,
-          request.requestId,
-          frame.admission,
-          request.action === 'fetch' ? 'mailbox-fetch' : 'mailbox-acknowledge',
-          request,
+        // Owner-signed ACKs only retire accepted envelopes. Their complete journal
+        // proof must fit the space prepaid by the IDs actually present here.
+        // Keep this maintenance available when admission histories are offline.
+        if (request.action === 'fetch' && !await authorizeAdmission(
+          ws, request.requestId, frame.admission, 'mailbox-fetch', request,
         )) return;
         if (!rateLimiter.check(`transport:${ip}`, 'search')) {
           sendOperationAck(ws, request.requestId, 'error', 'rate_limited');
@@ -3551,14 +4066,25 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
             mailboxId: request.mailboxId,
             envelopes: mailboxStore.fetch(request.mailboxId),
           }, relayIdentity);
-          ws.send(serializeMessage(response), () => ws.close(1000, 'mailbox_fetch_complete'));
+          sendClientResponse(serializeMessage(response), 'mailbox_fetch_complete');
           return;
         }
 
+        // Enforce the same fresh-proof limit for publication mailboxes. A
+        // fully acknowledged/unknown retry still returns zero without writing.
+        if (request.envelopeIds.length > MAX_FRESH_MAILBOX_ACK_IDS
+          && mailboxStore.presentEnvelopeIds(request.mailboxId, request.envelopeIds).length > 0) {
+          sendOperationAck(ws, request.requestId, 'error', 'acknowledgement_batch_too_large');
+          return;
+        }
         let acknowledged: number;
         try {
           acknowledged = commitMailboxAcknowledgement(request);
         } catch (err) {
+          if (err instanceof RelayJournalRecordSizeError) {
+            sendOperationAck(ws, request.requestId, 'error', 'acknowledgement_batch_too_large');
+            return;
+          }
           log('error', 'operation_commit_failed', { error: String(err) });
           sendOperationAck(ws, request.requestId, 'error', 'persistence_failed');
           return;
@@ -3581,7 +4107,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
           sendOperationAck(ws, request.requestId, 'error', 'stale_timestamp');
           return;
         }
-        if (!authorizeAdmission(
+        if (!await authorizeAdmission(
           ws, request.requestId, frame.admission, 'mailbox-deposit', request,
         )) return;
         if (!rateLimiter.check(`transport:${ip}`, 'publish')) {
@@ -3662,6 +4188,20 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       }
       clearTimeout(authTimeout);
       sendOperationAck(ws, msg.type, 'error', 'unknown_message_type');
+    }
+    let clientMessageInFlight = false;
+    ws.on('message', (data, isBinary) => {
+      if (ws.readyState !== WebSocket.OPEN || (stopping && !linkedRelayId)) { ws.terminate(); return; }
+      const clientMessage = !linkedRelayId;
+      if (clientMessage && clientMessageInFlight) {
+        ws.close(4008, 'concurrent_client_message');
+        return;
+      }
+      if (clientMessage) clientMessageInFlight = true;
+      const operation = handleRawMessage(data as Buffer, isBinary)
+        .catch(() => ws.close(4000, 'request_failed'))
+        .finally(() => { if (clientMessage) clientMessageInFlight = false; inboundOperations.delete(operation); });
+      inboundOperations.add(operation);
     });
 
     ws.on('close', () => {
@@ -3687,21 +4227,24 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       log('error', 'ws_error', { error: String(err) });
     });
 
-    function authorizeAdmission(
+    async function authorizeAdmission(
       socket: WebSocket,
       ref: string,
       capability: AdmissionCapabilityV2 | undefined,
       action: RelayAdmissionActionV2,
       request: unknown,
       now = Date.now(),
-    ): boolean {
+    ): Promise<boolean> {
       if (!cfg.admissionVerifier) return true;
+      if (cfg.admissionVerifier.isReady?.() === false) {
+        sendOperationAck(socket, ref, 'error', 'admission_unavailable'); return false;
+      }
       if (!capability) {
         sendOperationAck(socket, ref, 'error', 'admission_required');
         return false;
       }
       try {
-        const decision = cfg.admissionVerifier.verifyAndSpend(capability, {
+        const decision = await cfg.admissionVerifier.verifyAndSpend(capability, {
           action,
           requestBinding: createAdmissionRequestBindingV2(action, request),
           now,
@@ -3724,14 +4267,19 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       message: string,
     ): void {
       const ack = createMessage<AckPayload>(MessageTypes.ACK, { ref, status, message }, relayIdentity);
-      socket.send(serializeMessage(ack), () => socket.close(1000, 'operation_complete'));
+      if (socket === ws) sendClientResponse(serializeMessage(ack), 'operation_complete');
+      else socket.send(serializeMessage(ack), () => socket.close(1000, 'operation_complete'));
     }
 
   }
 
   return {
     async start(): Promise<void> {
+      if (stopPromise) { await stopPromise; stopPromise = undefined; }
       stopping = false;
+      privateReplay = new PrivateRequestReplayCacheV1(
+        4096, privateReplayLog.load(), record => privateReplayLog.append(record),
+      );
       const records = operationLog.load();
       for (const record of records) replayOperation(record.entry);
       for (const record of records) replayPlacementOperation(record.entry);
@@ -3747,6 +4295,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       // ledger was empty. Reissue it with the rebuilt allocation before any
       // socket or descriptor endpoint can expose a capacity claim.
       relayDescriptor = null;
+      await currentTransportKey(Date.now());
 
       // The search index is a derived cache. Rebuilding it from authoritative
       // signed operations also repairs a publication whose match commit was
@@ -3763,19 +4312,61 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       scheduleNextPublicationExpiry(now);
       log('info', 'journal_replayed', { dir: cfg.persistDir, entries: operationLog.length });
 
-      httpServer = createServer(handleHttpRequest);
-      httpServer.on('connection', socket => trafficMeter.observe(socket));
+      const httpBounds = { maxHeaderSize: 8192, headersTimeout: cfg.inboundHandshakeTimeoutMs,
+        requestTimeout: cfg.inboundHandshakeTimeoutMs, connectionsCheckingInterval: Math.min(1000, cfg.inboundHandshakeTimeoutMs) };
+      httpServer = cfg.tls
+        ? createHttpsServer({ ...cfg.tls, ...httpBounds, handshakeTimeout: cfg.inboundHandshakeTimeoutMs }, handleHttpRequest)
+        : createHttpServer(httpBounds, handleHttpRequest);
+      httpServer.maxConnections = cfg.maxInboundConnections;
+      // ws clears this HTTP idle timeout when it takes ownership of an upgraded
+      // socket; its first-frame deadline and authenticated heartbeat then apply.
+      httpServer.setTimeout(cfg.inboundHandshakeTimeoutMs, socket => socket.destroy());
+      httpServer.on('connection', socket => {
+        inboundSockets.add(socket);
+        socket.once('close', () => inboundSockets.delete(socket));
+        // A wildcard-bound development/LAN listener must not become a public
+        // cleartext relay if a port is forwarded or a firewall is relaxed.
+        if (!cfg.tls && !isPrivateRelayAddress(socket.remoteAddress)) {
+          socket.destroy();
+          return;
+        }
+        try { trafficMeter.observe(socket); }
+        catch { socket.destroy(); }
+      });
       wss = new WebSocketServer({
         server: httpServer,
         maxPayload: MAX_RELAY_DISCOVERY_FRAME_BYTES,
+        perMessageDeflate: false,
       });
       wss.on('connection', handleConnection);
 
-      await new Promise<void>((resolve) => {
+      await new Promise<void>((resolve, reject) => {
+        // ws forwards HTTP listener errors. Handle both emitters so a bind
+        // failure rejects startup instead of crashing or leaving it pending.
+        const failed = (error: Error) => reject(error);
+        httpServer.once('error', failed);
+        wss.once('error', failed);
         httpServer.listen(cfg.port, cfg.host, () => {
-          log('info', 'started', { port: cfg.port, host: cfg.host, did: relayIdentity.did });
+          httpServer.removeListener('error', failed);
+          wss.removeListener('error', failed);
+          const address = httpServer.address();
+          const boundPort = address && typeof address !== 'string' ? address.port : cfg.port;
+          if (cfg.port === 0 && cfg.relayDiscovery) {
+            // A port-zero listener lets the OS reserve the port atomically. Resolve
+            // matching advertised placeholders only after that listener is bound.
+            cfg.relayDiscovery = { ...cfg.relayDiscovery, endpoints: advertisedEndpoints.map(endpoint => {
+              const url = new URL(endpoint);
+              if (url.port === '0') url.port = String(boundPort);
+              return url.href;
+            }) };
+            relayDescriptor = null;
+          }
+          log('info', 'started', { port: boundPort, host: cfg.host, did: relayIdentity.did });
           resolve();
         });
+      }).catch(async error => {
+        await this.stop({ graceful: false });
+        throw error;
       });
 
       // Periodic cleanup
@@ -3786,6 +4377,9 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         }
         for (const [requestId, expiresAt] of seenPeerRequests) {
           if (expiresAt <= Date.now()) seenPeerRequests.delete(requestId);
+        }
+        for (const [requestId, expiresAt] of seenPrivateDiscoveryRequests) {
+          if (expiresAt <= Date.now()) seenPrivateDiscoveryRequests.delete(requestId);
         }
         for (const [linkId, expiresAt] of seenRelayLinks) {
           if (expiresAt <= Date.now()) seenRelayLinks.delete(linkId);
@@ -3826,39 +4420,58 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
     },
 
     async stop(options = {}): Promise<void> {
-      stopping = true;
-      if (publicationExpiryTimer) clearTimeout(publicationExpiryTimer);
-      if (cleanupTimer) clearInterval(cleanupTimer);
-      if (resourceCheckpointTimer) clearInterval(resourceCheckpointTimer);
-      if (relayLinkHeartbeatTimer) clearInterval(relayLinkHeartbeatTimer);
-      if (replicaRepairTimer) clearInterval(replicaRepairTimer);
-      if (replicaRepairWakeupTimer) clearTimeout(replicaRepairWakeupTimer);
-      replicaRepairTimer = null;
-      replicaRepairWakeupTimer = null;
-      replicaRepairQueued = false;
-      if (options.graceful !== false) await handoffHostedReplicas();
-      for (const pending of pendingReplicaHandoffs.values()) {
-        clearTimeout(pending.timer);
-        pending.reject(new Error('Relay stopped before replica handoff completed'));
-      }
-      pendingReplicaHandoffs.clear();
-      for (const pending of pendingInboundQueries.values()) {
-        clearTimeout(pending.timer);
-        pending.reject(new Error('Relay stopped before query response'));
-      }
-      pendingInboundQueries.clear();
-      outboundRelayLinks?.stop();
-      for (const link of inboundRelayLinks.values()) link.socket.close(1001, 'relay_stopping');
-      inboundRelayLinks.clear();
+      if (stopPromise) return stopPromise;
+      stopPromise = (async () => {
+        stopping = true;
+        privateEntryMix?.cancelAll();
+        privateReplyMix?.cancelAll();
+        for (const controller of privateForwardControllers) controller.abort();
+        if (publicationExpiryTimer) clearTimeout(publicationExpiryTimer);
+        if (cleanupTimer) clearInterval(cleanupTimer);
+        if (resourceCheckpointTimer) clearInterval(resourceCheckpointTimer);
+        if (relayLinkHeartbeatTimer) clearInterval(relayLinkHeartbeatTimer);
+        if (replicaRepairTimer) clearInterval(replicaRepairTimer);
+        if (replicaRepairWakeupTimer) clearTimeout(replicaRepairWakeupTimer);
+        replicaRepairTimer = null;
+        replicaRepairWakeupTimer = null;
+        replicaRepairQueued = false;
+        if (options.graceful !== false) await handoffHostedReplicas();
+        for (const pending of pendingReplicaHandoffs.values()) {
+          clearTimeout(pending.timer);
+          pending.reject(new Error('Relay stopped before replica handoff completed'));
+        }
+        pendingReplicaHandoffs.clear();
+        for (const pending of pendingInboundQueries.values()) {
+          clearTimeout(pending.timer);
+          pending.reject(new Error('Relay stopped before query response'));
+        }
+        pendingInboundQueries.clear();
+        outboundRelayLinks?.stop();
+        for (const link of inboundRelayLinks.values()) link.socket.close(1001, 'relay_stopping');
+        inboundRelayLinks.clear();
 
-      wss?.close();
-      await new Promise<void>((resolve) => {
-        httpServer?.close(() => resolve());
-      });
+        wss?.close();
+        // Admission/persistence already in progress must finish before the owner
+        // closes its stores. Socket closure cannot roll back an accepted decision.
+        for (const socket of wss?.clients ?? []) socket.terminate();
+        for (const socket of inboundSockets) socket.destroy();
+        await Promise.allSettled([...inboundOperations]);
+        // Group startup can fail before this relay reaches listen(). Cleanup must
+        // still settle for members that were constructed but never started.
+        if (httpServer) await new Promise<void>((resolve) => {
+          httpServer.close(() => resolve());
+        });
 
-      trafficMeter.checkpoint();
+        trafficMeter.checkpoint();
 
-      log('info', 'stopped');
+        log('info', 'stopped');
+      })();
+      return stopPromise;
+    },
+
+    getListeningPort(): number | null {
+      const address = httpServer?.address();
+      return address && typeof address !== 'string' ? address.port : null;
     },
 
     getStats(): RelayStats {
@@ -3867,6 +4480,8 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       const placement = replicaPlacementMetrics();
       return {
         relay_id: relayIdentity.did,
+        admission_ready: !stopping && cfg.admissionVerifier?.isReady?.() !== false,
+        history: cfg.historyHealth?.() ?? null,
         ...resourceMetrics(),
         indexed_embeddings: stats.total,
         stored_publications: publicationStore.size,

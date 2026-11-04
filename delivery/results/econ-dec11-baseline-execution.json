@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "authorization_id": "DEC-011",
+  "command": "node scripts/rso5-dec11-baseline.mjs",
+  "started_at": "2026-10-31T06:41:52.701Z",
+  "completed_at": "2026-10-31T07:48:19.259Z",
+  "completed": [
+    {
+      "run_id": "idle-dec11-baseline",
+      "scenario": "full-smoke",
+      "outcome": "passed",
+      "workers": 52,
+      "clean_stops": 52,
+      "messages": 459,
+      "frame_bytes": 5200877
+    },
+    {
+      "run_id": "sustained-dec11-max-envelope",
+      "scenario": "full-smoke",
+      "outcome": "passed",
+      "workers": 52,
+      "clean_stops": 52,
+      "messages": 1887817,
+      "frame_bytes": 3413095379
+    }
+  ],
+  "matrix_runs_executed": 0,
+  "sustained_windows_executed": true,
+  "acceptance_evaluation": "not_run"
+}

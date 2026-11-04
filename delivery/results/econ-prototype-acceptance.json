@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "run_id": "RUN-009",
+  "feature_id": "FEAT-001",
+  "evaluation_ids": [],
+  "decision_id": "DEC-009",
+  "status": "accepted_bounded_research_prototype",
+  "accepted_at": "2026-10-30T10:44:34Z",
+  "accepted": {
+    "functional_lifecycle": true,
+    "unified_20_run_matrix": true,
+    "bounded_correctness_and_recovery_evidence": true
+  },
+  "not_accepted": {
+    "state_of_the_art": false,
+    "production": false,
+    "complete_v04": false,
+    "r1_r2": false,
+    "k1_k8": false,
+    "economic_affordability": false
+  },
+  "evidence": {
+    "lifecycle": "delivery/results/RUN-RSO5-001.json",
+    "unified_matrix": "delivery/results/econ-unified-baseline-final.json",
+    "baseline_blocked": "delivery/results/econ-baseline-windows-execution.json"
+  },
+  "limitations": [
+    "Original per-operation and cumulative work thresholds fail",
+    "Physical power is unmeasured",
+    "Sustained-window finalization is incomplete",
+    "Physical network and independent operator costs are unmeasured",
+    "Production, architecture, AI/privacy, compliance and release approvals remain pending"
+  ],
+  "next_action": "Await an owner decision on production requirements/deployment or continued bounded research; no SOTA or release claim"
+}

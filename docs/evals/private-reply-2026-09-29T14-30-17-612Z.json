@@ -1,0 +1,2731 @@
+{
+  "timestamp": "2026-09-29T14:30:17.612Z",
+  "sourceBase": "08e7e33de61e950fa1897838dc1557ef3ec2b91b",
+  "node": "v24.19.0",
+  "platform": "darwin/arm64",
+  "processIds": [
+    70329,
+    70330,
+    70331
+  ],
+  "parentPid": 70327,
+  "comparison": "reply-mixing",
+  "clientsPerTrial": 8,
+  "trials": 3,
+  "summaries": [
+    {
+      "profile": "loopback",
+      "workload": "burst-20ms",
+      "mode": "request-mix-only",
+      "requests": 24,
+      "forwardCorrect": 1,
+      "replyCorrect": 24,
+      "transitP50Ms": 960.1,
+      "transitP95Ms": 1365.7,
+      "returnP50Ms": 1.9,
+      "returnP95Ms": 2.8,
+      "completionP95Ms": 3324.3,
+      "distinctEntrySizes": 1,
+      "distinctReplySizes": 1
+    },
+    {
+      "profile": "loopback",
+      "workload": "burst-20ms",
+      "mode": "request-and-reply-mix",
+      "requests": 24,
+      "forwardCorrect": 8,
+      "replyCorrect": 2,
+      "transitP50Ms": 604.9,
+      "transitP95Ms": 1067.7,
+      "returnP50Ms": 759.5,
+      "returnP95Ms": 767.9,
+      "completionP95Ms": 3841.9,
+      "distinctEntrySizes": 1,
+      "distinctReplySizes": 1
+    },
+    {
+      "profile": "loopback",
+      "workload": "sparse-1000ms",
+      "mode": "request-mix-only",
+      "requests": 24,
+      "forwardCorrect": 24,
+      "replyCorrect": 24,
+      "transitP50Ms": 830,
+      "transitP95Ms": 923.7,
+      "returnP50Ms": 3.8,
+      "returnP95Ms": 114.6,
+      "completionP95Ms": 2099.7,
+      "distinctEntrySizes": 1,
+      "distinctReplySizes": 1
+    },
+    {
+      "profile": "loopback",
+      "workload": "sparse-1000ms",
+      "mode": "request-and-reply-mix",
+      "requests": 24,
+      "forwardCorrect": 24,
+      "replyCorrect": 24,
+      "transitP50Ms": 800.5,
+      "transitP95Ms": 868.7,
+      "returnP50Ms": 775.4,
+      "returnP95Ms": 914.1,
+      "completionP95Ms": 2631.6,
+      "distinctEntrySizes": 1,
+      "distinctReplySizes": 1
+    },
+    {
+      "profile": "frame-delay-20-60ms",
+      "workload": "burst-20ms",
+      "mode": "request-mix-only",
+      "requests": 24,
+      "forwardCorrect": 6,
+      "replyCorrect": 5,
+      "transitP50Ms": 966.6,
+      "transitP95Ms": 1128.3,
+      "returnP50Ms": 82.5,
+      "returnP95Ms": 120.1,
+      "completionP95Ms": 4790.7,
+      "distinctEntrySizes": 1,
+      "distinctReplySizes": 1
+    },
+    {
+      "profile": "frame-delay-20-60ms",
+      "workload": "burst-20ms",
+      "mode": "request-and-reply-mix",
+      "requests": 24,
+      "forwardCorrect": 6,
+      "replyCorrect": 6,
+      "transitP50Ms": 951.8,
+      "transitP95Ms": 1170.1,
+      "returnP50Ms": 814.8,
+      "returnP95Ms": 833.4,
+      "completionP95Ms": 5633.3,
+      "distinctEntrySizes": 1,
+      "distinctReplySizes": 1
+    },
+    {
+      "profile": "frame-delay-20-60ms",
+      "workload": "sparse-1000ms",
+      "mode": "request-mix-only",
+      "requests": 24,
+      "forwardCorrect": 22,
+      "replyCorrect": 20,
+      "transitP50Ms": 852.1,
+      "transitP95Ms": 927.4,
+      "returnP50Ms": 87.6,
+      "returnP95Ms": 178.4,
+      "completionP95Ms": 2357.2,
+      "distinctEntrySizes": 1,
+      "distinctReplySizes": 1
+    },
+    {
+      "profile": "frame-delay-20-60ms",
+      "workload": "sparse-1000ms",
+      "mode": "request-and-reply-mix",
+      "requests": 24,
+      "forwardCorrect": 24,
+      "replyCorrect": 24,
+      "transitP50Ms": 867.2,
+      "transitP95Ms": 942,
+      "returnP50Ms": 837.3,
+      "returnP95Ms": 871,
+      "completionP95Ms": 2969.1,
+      "distinctEntrySizes": 1,
+      "distinctReplySizes": 1
+    }
+  ],
+  "results": [
+    {
+      "profile": "loopback",
+      "workload": "burst-20ms",
+      "mode": "request-mix-only",
+      "trial": 1,
+      "traces": [
+        {
+          "id": "client-1",
+          "actionAt": 1.889892578125,
+          "entryAt": 2203.634765625,
+          "destinationAt": 2928.822021484375,
+          "destinationReplyAt": 3171.51025390625,
+          "clientReplyAt": 3173.9052734375,
+          "completedAt": 3195.6005859375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-2",
+          "actionAt": 21.258544921875,
+          "entryAt": 2004.54931640625,
+          "destinationAt": 2848.268310546875,
+          "destinationReplyAt": 3168.109375,
+          "clientReplyAt": 3170.33251953125,
+          "completedAt": 3183.603515625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-3",
+          "actionAt": 41.440673828125,
+          "entryAt": 1994.503173828125,
+          "destinationAt": 2954.60595703125,
+          "destinationReplyAt": 3172.44677734375,
+          "clientReplyAt": 3174.719482421875,
+          "completedAt": 3199.21044921875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-4",
+          "actionAt": 62.186279296875,
+          "entryAt": 1999.68115234375,
+          "destinationAt": 2980.705322265625,
+          "destinationReplyAt": 3173.49365234375,
+          "clientReplyAt": 3176.124755859375,
+          "completedAt": 3203.04052734375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-5",
+          "actionAt": 82.347412109375,
+          "entryAt": 1938.053466796875,
+          "destinationAt": 2901.8515625,
+          "destinationReplyAt": 3170.37255859375,
+          "clientReplyAt": 3172.71533203125,
+          "completedAt": 3190.90283203125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-6",
+          "actionAt": 101.69482421875,
+          "entryAt": 2147.120849609375,
+          "destinationAt": 3032.2666015625,
+          "destinationReplyAt": 3175.06689453125,
+          "clientReplyAt": 3178.181640625,
+          "completedAt": 3211.259765625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-7",
+          "actionAt": 121.165771484375,
+          "entryAt": 2009.27734375,
+          "destinationAt": 2875.438720703125,
+          "destinationReplyAt": 3169.296630859375,
+          "clientReplyAt": 3171.8212890625,
+          "completedAt": 3187.242919921875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-8",
+          "actionAt": 141.470947265625,
+          "entryAt": 2209.659423828125,
+          "destinationAt": 3006.359375,
+          "destinationReplyAt": 3174.285400390625,
+          "clientReplyAt": 3177.11328125,
+          "completedAt": 3206.743408203125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        }
+      ],
+      "forward": {
+        "correct": 0,
+        "total": 8,
+        "accuracy": 0,
+        "randomPairingAccuracy": 0.125
+      },
+      "reply": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      }
+    },
+    {
+      "profile": "loopback",
+      "workload": "burst-20ms",
+      "mode": "request-and-reply-mix",
+      "trial": 1,
+      "traces": [
+        {
+          "id": "client-1",
+          "actionAt": 1.405517578125,
+          "entryAt": 2219.624267578125,
+          "destinationAt": 2675.771728515625,
+          "destinationReplyAt": 2983.616943359375,
+          "clientReplyAt": 3746.973876953125,
+          "completedAt": 3774.4169921875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-2",
+          "actionAt": 21.189453125,
+          "entryAt": 2158.046630859375,
+          "destinationAt": 2752.27783203125,
+          "destinationReplyAt": 2986.861328125,
+          "clientReplyAt": 3748.40283203125,
+          "completedAt": 3778.763427734375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-3",
+          "actionAt": 40.975341796875,
+          "entryAt": 1768.447021484375,
+          "destinationAt": 2726.484130859375,
+          "destinationReplyAt": 2985.72216796875,
+          "clientReplyAt": 3743.048095703125,
+          "completedAt": 3770.21875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-4",
+          "actionAt": 61.121826171875,
+          "entryAt": 2352.68359375,
+          "destinationAt": 2827.517578125,
+          "destinationReplyAt": 2989.508544921875,
+          "clientReplyAt": 3751.218017578125,
+          "completedAt": 3786.33154296875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-5",
+          "actionAt": 81.1015625,
+          "entryAt": 1776.26904296875,
+          "destinationAt": 2700.642822265625,
+          "destinationReplyAt": 2984.83837890625,
+          "clientReplyAt": 3745.38134765625,
+          "completedAt": 3765.689208984375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-6",
+          "actionAt": 101.064208984375,
+          "entryAt": 2214.2607421875,
+          "destinationAt": 2777.748046875,
+          "destinationReplyAt": 2987.634521484375,
+          "clientReplyAt": 3753.679443359375,
+          "completedAt": 3789.9072265625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-7",
+          "actionAt": 121.039794921875,
+          "entryAt": 2358.4287109375,
+          "destinationAt": 2852.96435546875,
+          "destinationReplyAt": 2990.279296875,
+          "clientReplyAt": 3749.788818359375,
+          "completedAt": 3782.704345703125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-8",
+          "actionAt": 141.333251953125,
+          "entryAt": 2224.403076171875,
+          "destinationAt": 2802.721435546875,
+          "destinationReplyAt": 2988.716552734375,
+          "clientReplyAt": 3740.264892578125,
+          "completedAt": 3761.2939453125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        }
+      ],
+      "forward": {
+        "correct": 4,
+        "total": 8,
+        "accuracy": 0.5,
+        "randomPairingAccuracy": 0.125
+      },
+      "reply": {
+        "correct": 1,
+        "total": 8,
+        "accuracy": 0.125,
+        "randomPairingAccuracy": 0.125
+      }
+    },
+    {
+      "profile": "loopback",
+      "workload": "burst-20ms",
+      "mode": "request-and-reply-mix",
+      "trial": 2,
+      "traces": [
+        {
+          "id": "client-1",
+          "actionAt": 1.318115234375,
+          "entryAt": 1530.787109375,
+          "destinationAt": 2593.66064453125,
+          "destinationReplyAt": 2839.236083984375,
+          "clientReplyAt": 3593.8125,
+          "completedAt": 3615.64404296875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-2",
+          "actionAt": 21.146484375,
+          "entryAt": 1700.021728515625,
+          "destinationAt": 2541.929931640625,
+          "destinationReplyAt": 2837.447021484375,
+          "clientReplyAt": 3591.228759765625,
+          "completedAt": 3611.42724609375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-3",
+          "actionAt": 40.870361328125,
+          "entryAt": 2057.467041015625,
+          "destinationAt": 2568.520263671875,
+          "destinationReplyAt": 2838.400390625,
+          "clientReplyAt": 3599.90966796875,
+          "completedAt": 3633.427734375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-4",
+          "actionAt": 61.042236328125,
+          "entryAt": 2041.264404296875,
+          "destinationAt": 2619.085205078125,
+          "destinationReplyAt": 2840.5048828125,
+          "clientReplyAt": 3595.902099609375,
+          "completedAt": 3619.70849609375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-5",
+          "actionAt": 81.230712890625,
+          "entryAt": 2205.194580078125,
+          "destinationAt": 2671.569091796875,
+          "destinationReplyAt": 2842.124267578125,
+          "clientReplyAt": 3597.17138671875,
+          "completedAt": 3623.724853515625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-6",
+          "actionAt": 101.3193359375,
+          "entryAt": 2211.260498046875,
+          "destinationAt": 2697.81103515625,
+          "destinationReplyAt": 2842.929443359375,
+          "clientReplyAt": 3602.961669921875,
+          "completedAt": 3641.608154296875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-7",
+          "actionAt": 120.697509765625,
+          "entryAt": 2046.3916015625,
+          "destinationAt": 2515.126708984375,
+          "destinationReplyAt": 2836.346923828125,
+          "clientReplyAt": 3601.481689453125,
+          "completedAt": 3637.57470703125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-8",
+          "actionAt": 140.883544921875,
+          "entryAt": 1984.261962890625,
+          "destinationAt": 2645.411865234375,
+          "destinationReplyAt": 2841.3212890625,
+          "clientReplyAt": 3598.703369140625,
+          "completedAt": 3627.870361328125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        }
+      ],
+      "forward": {
+        "correct": 3,
+        "total": 8,
+        "accuracy": 0.375,
+        "randomPairingAccuracy": 0.125
+      },
+      "reply": {
+        "correct": 1,
+        "total": 8,
+        "accuracy": 0.125,
+        "randomPairingAccuracy": 0.125
+      }
+    },
+    {
+      "profile": "loopback",
+      "workload": "burst-20ms",
+      "mode": "request-mix-only",
+      "trial": 2,
+      "traces": [
+        {
+          "id": "client-1",
+          "actionAt": 1.3740234375,
+          "entryAt": 2171.74951171875,
+          "destinationAt": 3004.825439453125,
+          "destinationReplyAt": 3325.189697265625,
+          "clientReplyAt": 3327.21435546875,
+          "completedAt": 3337.918212890625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-2",
+          "actionAt": 21.347900390625,
+          "entryAt": 1679.4267578125,
+          "destinationAt": 3055.2099609375,
+          "destinationReplyAt": 3327.126953125,
+          "clientReplyAt": 3328.90234375,
+          "completedAt": 3345.6123046875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-3",
+          "actionAt": 41.36572265625,
+          "entryAt": 1754.456787109375,
+          "destinationAt": 3107.121337890625,
+          "destinationReplyAt": 3328.93896484375,
+          "clientReplyAt": 3330.559326171875,
+          "completedAt": 3355.056396484375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-4",
+          "actionAt": 61.772216796875,
+          "entryAt": 2115.518798828125,
+          "destinationAt": 3029.956298828125,
+          "destinationReplyAt": 3326.24560546875,
+          "clientReplyAt": 3328.138671875,
+          "completedAt": 3341.79541015625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-5",
+          "actionAt": 81.599365234375,
+          "entryAt": 2161.910888671875,
+          "destinationAt": 3158.16845703125,
+          "destinationReplyAt": 3330.77587890625,
+          "clientReplyAt": 3332.19677734375,
+          "completedAt": 3363.31494140625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-6",
+          "actionAt": 101.609130859375,
+          "entryAt": 2166.95849609375,
+          "destinationAt": 3183.259033203125,
+          "destinationReplyAt": 3331.55078125,
+          "clientReplyAt": 3333.031494140625,
+          "completedAt": 3367.039306640625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-7",
+          "actionAt": 121.386474609375,
+          "entryAt": 2104.777587890625,
+          "destinationAt": 3081.488037109375,
+          "destinationReplyAt": 3328.167236328125,
+          "clientReplyAt": 3329.766357421875,
+          "completedAt": 3350.155517578125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-8",
+          "actionAt": 141.89599609375,
+          "entryAt": 2177.65625,
+          "destinationAt": 3132.872802734375,
+          "destinationReplyAt": 3329.957763671875,
+          "clientReplyAt": 3331.345947265625,
+          "completedAt": 3358.90771484375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        }
+      ],
+      "forward": {
+        "correct": 0,
+        "total": 8,
+        "accuracy": 0,
+        "randomPairingAccuracy": 0.125
+      },
+      "reply": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      }
+    },
+    {
+      "profile": "loopback",
+      "workload": "burst-20ms",
+      "mode": "request-mix-only",
+      "trial": 3,
+      "traces": [
+        {
+          "id": "client-1",
+          "actionAt": 1.361572265625,
+          "entryAt": 2074.851806640625,
+          "destinationAt": 2995.8779296875,
+          "destinationReplyAt": 3254.2607421875,
+          "clientReplyAt": 3255.993896484375,
+          "completedAt": 3279.76904296875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-2",
+          "actionAt": 21.147216796875,
+          "entryAt": 2068.822265625,
+          "destinationAt": 3104.6875,
+          "destinationReplyAt": 3257.083740234375,
+          "clientReplyAt": 3258.994140625,
+          "completedAt": 3294.24853515625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-3",
+          "actionAt": 41.014404296875,
+          "entryAt": 1933.294189453125,
+          "destinationAt": 2911.205810546875,
+          "destinationReplyAt": 3249.357421875,
+          "clientReplyAt": 3251.48681640625,
+          "completedAt": 3263.75048828125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-4",
+          "actionAt": 61.0634765625,
+          "entryAt": 1658.15673828125,
+          "destinationAt": 3023.83447265625,
+          "destinationReplyAt": 3256.163818359375,
+          "clientReplyAt": 3258.0673828125,
+          "completedAt": 3290.195556640625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-5",
+          "actionAt": 81.07177734375,
+          "entryAt": 2063.987060546875,
+          "destinationAt": 3076.97509765625,
+          "destinationReplyAt": 3255.19384765625,
+          "clientReplyAt": 3257.063720703125,
+          "completedAt": 3285.456298828125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-6",
+          "actionAt": 100.21142578125,
+          "entryAt": 2210.80078125,
+          "destinationAt": 3050.404296875,
+          "destinationReplyAt": 3253.2421875,
+          "clientReplyAt": 3254.9462890625,
+          "completedAt": 3276.01220703125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-7",
+          "actionAt": 121.3310546875,
+          "entryAt": 2006.921630859375,
+          "destinationAt": 2967.0380859375,
+          "destinationReplyAt": 3251.41796875,
+          "clientReplyAt": 3253.5712890625,
+          "completedAt": 3271.58349609375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-8",
+          "actionAt": 141.325439453125,
+          "entryAt": 2205.275146484375,
+          "destinationAt": 2938.319580078125,
+          "destinationReplyAt": 3250.37158203125,
+          "clientReplyAt": 3252.691162109375,
+          "completedAt": 3267.655029296875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        }
+      ],
+      "forward": {
+        "correct": 1,
+        "total": 8,
+        "accuracy": 0.125,
+        "randomPairingAccuracy": 0.125
+      },
+      "reply": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      }
+    },
+    {
+      "profile": "loopback",
+      "workload": "burst-20ms",
+      "mode": "request-and-reply-mix",
+      "trial": 3,
+      "traces": [
+        {
+          "id": "client-1",
+          "actionAt": 1.281982421875,
+          "entryAt": 2122.490234375,
+          "destinationAt": 2836.848876953125,
+          "destinationReplyAt": 3068.70849609375,
+          "clientReplyAt": 3819.255615234375,
+          "completedAt": 3843.142578125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-2",
+          "actionAt": 21.326416015625,
+          "entryAt": 2115.476318359375,
+          "destinationAt": 2727.654541015625,
+          "destinationReplyAt": 3063.61669921875,
+          "clientReplyAt": 3834.457763671875,
+          "completedAt": 3889.3623046875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-3",
+          "actionAt": 41.12158203125,
+          "entryAt": 2173.6865234375,
+          "destinationAt": 2863.970458984375,
+          "destinationReplyAt": 3071.473388671875,
+          "clientReplyAt": 3831.112548828125,
+          "completedAt": 3869.901123046875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-4",
+          "actionAt": 61.048095703125,
+          "entryAt": 1688.6591796875,
+          "destinationAt": 2756.328125,
+          "destinationReplyAt": 3064.754638671875,
+          "clientReplyAt": 3832.627685546875,
+          "completedAt": 3881.093994140625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-5",
+          "actionAt": 81.169189453125,
+          "entryAt": 2178.56298828125,
+          "destinationAt": 2783.429443359375,
+          "destinationReplyAt": 3065.7080078125,
+          "clientReplyAt": 3829.266845703125,
+          "completedAt": 3861.679931640625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-6",
+          "actionAt": 101.5390625,
+          "entryAt": 1694.3720703125,
+          "destinationAt": 2917.599365234375,
+          "destinationReplyAt": 3069.527587890625,
+          "clientReplyAt": 3827.438720703125,
+          "completedAt": 3857.35791015625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-7",
+          "actionAt": 120.73828125,
+          "entryAt": 2183.236328125,
+          "destinationAt": 2890.49853515625,
+          "destinationReplyAt": 3070.60791015625,
+          "clientReplyAt": 3825.230224609375,
+          "completedAt": 3852.96484375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-8",
+          "actionAt": 140.5537109375,
+          "entryAt": 2189.45361328125,
+          "destinationAt": 2809.771484375,
+          "destinationReplyAt": 3067.731201171875,
+          "clientReplyAt": 3822.45751953125,
+          "completedAt": 3848.38671875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        }
+      ],
+      "forward": {
+        "correct": 1,
+        "total": 8,
+        "accuracy": 0.125,
+        "randomPairingAccuracy": 0.125
+      },
+      "reply": {
+        "correct": 0,
+        "total": 8,
+        "accuracy": 0,
+        "randomPairingAccuracy": 0.125
+      }
+    },
+    {
+      "profile": "loopback",
+      "workload": "sparse-1000ms",
+      "mode": "request-mix-only",
+      "trial": 1,
+      "traces": [
+        {
+          "id": "client-1",
+          "actionAt": 1.610107421875,
+          "entryAt": 880.3798828125,
+          "destinationAt": 1750.61279296875,
+          "destinationReplyAt": 1796.0302734375,
+          "clientReplyAt": 1803.271240234375,
+          "completedAt": 1808.358154296875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-2",
+          "actionAt": 1001.365966796875,
+          "entryAt": 1812.953857421875,
+          "destinationAt": 2603.25,
+          "destinationReplyAt": 2721.230224609375,
+          "clientReplyAt": 2851.570068359375,
+          "completedAt": 2856.90234375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-3",
+          "actionAt": 2000.0478515625,
+          "entryAt": 2860.870849609375,
+          "destinationAt": 3652.75634765625,
+          "destinationReplyAt": 3698.602294921875,
+          "clientReplyAt": 3700.36865234375,
+          "completedAt": 3705.59326171875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-4",
+          "actionAt": 3000.82763671875,
+          "entryAt": 3679.57666015625,
+          "destinationAt": 4552.498291015625,
+          "destinationReplyAt": 4606.564208984375,
+          "clientReplyAt": 4634.43115234375,
+          "completedAt": 4643.80224609375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-5",
+          "actionAt": 4001.750732421875,
+          "entryAt": 4871.73583984375,
+          "destinationAt": 5664.341064453125,
+          "destinationReplyAt": 5714.865966796875,
+          "clientReplyAt": 5719.188232421875,
+          "completedAt": 5724.62060546875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-6",
+          "actionAt": 5001.77392578125,
+          "entryAt": 5927.54345703125,
+          "destinationAt": 6785.787841796875,
+          "destinationReplyAt": 6831.1220703125,
+          "clientReplyAt": 6838.70703125,
+          "completedAt": 6843.4990234375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-7",
+          "actionAt": 6001.529052734375,
+          "entryAt": 6847.205810546875,
+          "destinationAt": 7636.019287109375,
+          "destinationReplyAt": 7747.873779296875,
+          "clientReplyAt": 7862.460693359375,
+          "completedAt": 7867.475830078125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-8",
+          "actionAt": 7001.220947265625,
+          "entryAt": 7872.01416015625,
+          "destinationAt": 8669.83642578125,
+          "destinationReplyAt": 8716.794189453125,
+          "clientReplyAt": 8718.599365234375,
+          "completedAt": 8724.072021484375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        }
+      ],
+      "forward": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      },
+      "reply": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      }
+    },
+    {
+      "profile": "loopback",
+      "workload": "sparse-1000ms",
+      "mode": "request-and-reply-mix",
+      "trial": 1,
+      "traces": [
+        {
+          "id": "client-1",
+          "actionAt": 1.350341796875,
+          "entryAt": 907.4013671875,
+          "destinationAt": 1776.117919921875,
+          "destinationReplyAt": 1820.882568359375,
+          "clientReplyAt": 2574.638671875,
+          "completedAt": 2580.1640625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-2",
+          "actionAt": 1001.348876953125,
+          "entryAt": 1833.404541015625,
+          "destinationAt": 2694.42138671875,
+          "destinationReplyAt": 2740.67822265625,
+          "clientReplyAt": 3645.14697265625,
+          "completedAt": 3661.814453125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-3",
+          "actionAt": 2001.364501953125,
+          "entryAt": 2735.350341796875,
+          "destinationAt": 3600.138671875,
+          "destinationReplyAt": 3649.41796875,
+          "clientReplyAt": 4563.514404296875,
+          "completedAt": 4568.89208984375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-4",
+          "actionAt": 3001.453369140625,
+          "entryAt": 3942.045654296875,
+          "destinationAt": 4754.642578125,
+          "destinationReplyAt": 4808.493408203125,
+          "clientReplyAt": 5622.954345703125,
+          "completedAt": 5630.5966796875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-5",
+          "actionAt": 4000.232421875,
+          "entryAt": 4797.339599609375,
+          "destinationAt": 5587.361083984375,
+          "destinationReplyAt": 5633.2021484375,
+          "clientReplyAt": 6401.31591796875,
+          "completedAt": 6412.2724609375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-6",
+          "actionAt": 5001.241943359375,
+          "entryAt": 5857.12060546875,
+          "destinationAt": 6646.771484375,
+          "destinationReplyAt": 6692.008544921875,
+          "clientReplyAt": 7477.806640625,
+          "completedAt": 7485.519775390625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-7",
+          "actionAt": 6001.117919921875,
+          "entryAt": 6922.325927734375,
+          "destinationAt": 7823.433837890625,
+          "destinationReplyAt": 7867.329345703125,
+          "clientReplyAt": 8621.080078125,
+          "completedAt": 8632.75830078125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-8",
+          "actionAt": 7001.318603515625,
+          "entryAt": 7879.21728515625,
+          "destinationAt": 8679.31787109375,
+          "destinationReplyAt": 8722.2744140625,
+          "clientReplyAt": 9478.003662109375,
+          "completedAt": 9489.480712890625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        }
+      ],
+      "forward": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      },
+      "reply": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      }
+    },
+    {
+      "profile": "loopback",
+      "workload": "sparse-1000ms",
+      "mode": "request-and-reply-mix",
+      "trial": 2,
+      "traces": [
+        {
+          "id": "client-1",
+          "actionAt": 1.452392578125,
+          "entryAt": 772.888916015625,
+          "destinationAt": 1629.8154296875,
+          "destinationReplyAt": 1677.36083984375,
+          "clientReplyAt": 2482.541259765625,
+          "completedAt": 2489.623291015625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-2",
+          "actionAt": 1001.727294921875,
+          "entryAt": 1772.405517578125,
+          "destinationAt": 2616.447021484375,
+          "destinationReplyAt": 2664.555908203125,
+          "clientReplyAt": 3461.38623046875,
+          "completedAt": 3466.617431640625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-3",
+          "actionAt": 2001.40185546875,
+          "entryAt": 2899.384521484375,
+          "destinationAt": 3689.693115234375,
+          "destinationReplyAt": 3732.942626953125,
+          "clientReplyAt": 4559.748779296875,
+          "completedAt": 4566.476318359375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-4",
+          "actionAt": 3001.40234375,
+          "entryAt": 3690.996826171875,
+          "destinationAt": 4516.201416015625,
+          "destinationReplyAt": 4559.800537109375,
+          "clientReplyAt": 5314.657470703125,
+          "completedAt": 5324.648193359375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-5",
+          "actionAt": 4001.08203125,
+          "entryAt": 4787.720703125,
+          "destinationAt": 5577.5517578125,
+          "destinationReplyAt": 5689.5966796875,
+          "clientReplyAt": 6524.401123046875,
+          "completedAt": 6529.84521484375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-6",
+          "actionAt": 5001.785400390625,
+          "entryAt": 5826.501708984375,
+          "destinationAt": 6688.68994140625,
+          "destinationReplyAt": 6736.2568359375,
+          "clientReplyAt": 7490.1630859375,
+          "completedAt": 7499.955810546875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-7",
+          "actionAt": 6001.510009765625,
+          "entryAt": 6746.119140625,
+          "destinationAt": 7543.601318359375,
+          "destinationReplyAt": 7589.644287109375,
+          "clientReplyAt": 8403.671875,
+          "completedAt": 8413.958251953125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-8",
+          "actionAt": 7001.12158203125,
+          "entryAt": 7954.70166015625,
+          "destinationAt": 8754.488037109375,
+          "destinationReplyAt": 8798.2587890625,
+          "clientReplyAt": 9553.012939453125,
+          "completedAt": 9565.275390625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        }
+      ],
+      "forward": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      },
+      "reply": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      }
+    },
+    {
+      "profile": "loopback",
+      "workload": "sparse-1000ms",
+      "mode": "request-mix-only",
+      "trial": 2,
+      "traces": [
+        {
+          "id": "client-1",
+          "actionAt": 0.383544921875,
+          "entryAt": 882.03662109375,
+          "destinationAt": 1727.06982421875,
+          "destinationReplyAt": 1772.414794921875,
+          "clientReplyAt": 1775.343994140625,
+          "completedAt": 1780.490966796875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-2",
+          "actionAt": 1001.044921875,
+          "entryAt": 1768.606201171875,
+          "destinationAt": 2649.9560546875,
+          "destinationReplyAt": 2695.458740234375,
+          "clientReplyAt": 2716.573974609375,
+          "completedAt": 2722.277587890625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-3",
+          "actionAt": 2000.744873046875,
+          "entryAt": 2921.5185546875,
+          "destinationAt": 3746.125,
+          "destinationReplyAt": 3789.0556640625,
+          "clientReplyAt": 3793.790283203125,
+          "completedAt": 3798.630126953125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-4",
+          "actionAt": 3000.513427734375,
+          "entryAt": 3787.142578125,
+          "destinationAt": 4710.80810546875,
+          "destinationReplyAt": 4756.130859375,
+          "clientReplyAt": 4765.104248046875,
+          "completedAt": 4769.826904296875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-5",
+          "actionAt": 4000.9267578125,
+          "entryAt": 4773.971923828125,
+          "destinationAt": 5625.156494140625,
+          "destinationReplyAt": 5669.919921875,
+          "clientReplyAt": 5672.0380859375,
+          "completedAt": 5677.270263671875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-6",
+          "actionAt": 5001.0107421875,
+          "entryAt": 5897.516357421875,
+          "destinationAt": 6729.95166015625,
+          "destinationReplyAt": 6774.3583984375,
+          "clientReplyAt": 6777.096435546875,
+          "completedAt": 6782.17333984375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-7",
+          "actionAt": 6000.55029296875,
+          "entryAt": 6770.158447265625,
+          "destinationAt": 7660.9833984375,
+          "destinationReplyAt": 7705.798095703125,
+          "clientReplyAt": 7715.9345703125,
+          "completedAt": 7721.127197265625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-8",
+          "actionAt": 7001.422119140625,
+          "entryAt": 7725.110107421875,
+          "destinationAt": 8530.171142578125,
+          "destinationReplyAt": 8578.647705078125,
+          "clientReplyAt": 8580.225830078125,
+          "completedAt": 8585.34716796875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        }
+      ],
+      "forward": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      },
+      "reply": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      }
+    },
+    {
+      "profile": "loopback",
+      "workload": "sparse-1000ms",
+      "mode": "request-mix-only",
+      "trial": 3,
+      "traces": [
+        {
+          "id": "client-1",
+          "actionAt": 1.355224609375,
+          "entryAt": 884.3076171875,
+          "destinationAt": 1714.3447265625,
+          "destinationReplyAt": 1758.03369140625,
+          "clientReplyAt": 1761.7978515625,
+          "completedAt": 1766.354736328125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-2",
+          "actionAt": 1001.291748046875,
+          "entryAt": 1755.28125,
+          "destinationAt": 2576.77734375,
+          "destinationReplyAt": 2621.6552734375,
+          "clientReplyAt": 2623.33740234375,
+          "completedAt": 2629.384033203125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-3",
+          "actionAt": 2001.576904296875,
+          "entryAt": 2847.69140625,
+          "destinationAt": 3717.149658203125,
+          "destinationReplyAt": 3760.691650390625,
+          "clientReplyAt": 3771.518798828125,
+          "completedAt": 3776.523193359375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-4",
+          "actionAt": 3001.701904296875,
+          "entryAt": 3780.08642578125,
+          "destinationAt": 4647.0859375,
+          "destinationReplyAt": 4689.16455078125,
+          "clientReplyAt": 4690.639404296875,
+          "completedAt": 4696.3740234375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-5",
+          "actionAt": 4002.10888671875,
+          "entryAt": 4905.8544921875,
+          "destinationAt": 5730.8232421875,
+          "destinationReplyAt": 5773.039794921875,
+          "clientReplyAt": 5778.569091796875,
+          "completedAt": 5783.3173828125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-6",
+          "actionAt": 5001.85693359375,
+          "entryAt": 5771.330322265625,
+          "destinationAt": 7021.013671875,
+          "destinationReplyAt": 7092.1748046875,
+          "clientReplyAt": 7095.497314453125,
+          "completedAt": 7101.56396484375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-7",
+          "actionAt": 6001.49951171875,
+          "entryAt": 7335.279296875,
+          "destinationAt": 8140.6923828125,
+          "destinationReplyAt": 8226.63671875,
+          "clientReplyAt": 8228.458251953125,
+          "completedAt": 8234.38232421875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-8",
+          "actionAt": 7089.077880859375,
+          "entryAt": 8032.26123046875,
+          "destinationAt": 8168.634521484375,
+          "destinationReplyAt": 8227.694580078125,
+          "clientReplyAt": 8229.4345703125,
+          "completedAt": 8238.45849609375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        }
+      ],
+      "forward": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      },
+      "reply": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      }
+    },
+    {
+      "profile": "loopback",
+      "workload": "sparse-1000ms",
+      "mode": "request-and-reply-mix",
+      "trial": 3,
+      "traces": [
+        {
+          "id": "client-1",
+          "actionAt": 1.3583984375,
+          "entryAt": 704.07958984375,
+          "destinationAt": 1513.8876953125,
+          "destinationReplyAt": 1555.04638671875,
+          "clientReplyAt": 2451.54296875,
+          "completedAt": 2456.42724609375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-2",
+          "actionAt": 1001.050048828125,
+          "entryAt": 1903.40966796875,
+          "destinationAt": 2689.095947265625,
+          "destinationReplyAt": 2733.1904296875,
+          "clientReplyAt": 3508.596435546875,
+          "completedAt": 3515.372314453125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-3",
+          "actionAt": 2001.42919921875,
+          "entryAt": 2689.003662109375,
+          "destinationAt": 3476.177978515625,
+          "destinationReplyAt": 3521.27685546875,
+          "clientReplyAt": 4282.922119140625,
+          "completedAt": 4288.266845703125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-4",
+          "actionAt": 3001.7197265625,
+          "entryAt": 3736.576904296875,
+          "destinationAt": 4537.1220703125,
+          "destinationReplyAt": 4581.921630859375,
+          "clientReplyAt": 5496.8251953125,
+          "completedAt": 5505.678466796875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-5",
+          "actionAt": 4001.319091796875,
+          "entryAt": 4940.391357421875,
+          "destinationAt": 5729.597412109375,
+          "destinationReplyAt": 5775.115234375,
+          "clientReplyAt": 6532.13525390625,
+          "completedAt": 6537.3486328125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-6",
+          "actionAt": 5001.397216796875,
+          "entryAt": 5742.22509765625,
+          "destinationAt": 6531.379638671875,
+          "destinationReplyAt": 6643.845947265625,
+          "clientReplyAt": 7460.449462890625,
+          "completedAt": 7468.356201171875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-7",
+          "actionAt": 6001.316162109375,
+          "entryAt": 6763.79541015625,
+          "destinationAt": 7590.3486328125,
+          "destinationReplyAt": 7631.958984375,
+          "clientReplyAt": 8387.217529296875,
+          "completedAt": 8399.00146484375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-8",
+          "actionAt": 7000.811279296875,
+          "entryAt": 7864.225341796875,
+          "destinationAt": 8665.950439453125,
+          "destinationReplyAt": 8707.737060546875,
+          "clientReplyAt": 9463.312255859375,
+          "completedAt": 9473.794189453125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        }
+      ],
+      "forward": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      },
+      "reply": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      }
+    },
+    {
+      "profile": "frame-delay-20-60ms",
+      "workload": "burst-20ms",
+      "mode": "request-mix-only",
+      "trial": 1,
+      "traces": [
+        {
+          "id": "client-1",
+          "actionAt": 0.265869140625,
+          "entryAt": 2590.159912109375,
+          "destinationAt": 3651.9814453125,
+          "destinationReplyAt": 3909.1796875,
+          "clientReplyAt": 3971.179931640625,
+          "completedAt": 3980.078857421875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-2",
+          "actionAt": 20.823486328125,
+          "entryAt": 2727.3271484375,
+          "destinationAt": 3706.55908203125,
+          "destinationReplyAt": 3911.787109375,
+          "clientReplyAt": 3980.68505859375,
+          "completedAt": 3985.54541015625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-3",
+          "actionAt": 40.8134765625,
+          "entryAt": 2717.093994140625,
+          "destinationAt": 3597.662353515625,
+          "destinationReplyAt": 3907.32080078125,
+          "clientReplyAt": 3997.071044921875,
+          "completedAt": 4001.53955078125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-4",
+          "actionAt": 60.5341796875,
+          "entryAt": 2711.709228515625,
+          "destinationAt": 3678.297119140625,
+          "destinationReplyAt": 3910.912353515625,
+          "clientReplyAt": 3958.676025390625,
+          "completedAt": 3964.8232421875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-5",
+          "actionAt": 80.363037109375,
+          "entryAt": 2722.193603515625,
+          "destinationAt": 3570.88623046875,
+          "destinationReplyAt": 3908.18994140625,
+          "clientReplyAt": 3970.279541015625,
+          "completedAt": 3976.118896484375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-6",
+          "actionAt": 100.290771484375,
+          "entryAt": 2777.863037109375,
+          "destinationAt": 3624.569091796875,
+          "destinationReplyAt": 3909.9375,
+          "clientReplyAt": 4022.768798828125,
+          "completedAt": 4027.5849609375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-7",
+          "actionAt": 121.01708984375,
+          "entryAt": 2595.64599609375,
+          "destinationAt": 3734.786376953125,
+          "destinationReplyAt": 3912.562744140625,
+          "clientReplyAt": 4002.158447265625,
+          "completedAt": 4006.903564453125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-8",
+          "actionAt": 141.04931640625,
+          "entryAt": 2795.15234375,
+          "destinationAt": 3762.3828125,
+          "destinationReplyAt": 3913.3046875,
+          "clientReplyAt": 4033.431396484375,
+          "completedAt": 4038.088623046875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        }
+      ],
+      "forward": {
+        "correct": 2,
+        "total": 8,
+        "accuracy": 0.25,
+        "randomPairingAccuracy": 0.125
+      },
+      "reply": {
+        "correct": 3,
+        "total": 8,
+        "accuracy": 0.375,
+        "randomPairingAccuracy": 0.125
+      }
+    },
+    {
+      "profile": "frame-delay-20-60ms",
+      "workload": "burst-20ms",
+      "mode": "request-and-reply-mix",
+      "trial": 1,
+      "traces": [
+        {
+          "id": "client-1",
+          "actionAt": 1.34619140625,
+          "entryAt": 2320.926513671875,
+          "destinationAt": 3245.70458984375,
+          "destinationReplyAt": 3318.51904296875,
+          "clientReplyAt": 4133.319580078125,
+          "completedAt": 4139.258056640625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-2",
+          "actionAt": 20.7138671875,
+          "entryAt": 2315.71044921875,
+          "destinationAt": 3189.6376953125,
+          "destinationReplyAt": 3316.9541015625,
+          "clientReplyAt": 4149.857177734375,
+          "completedAt": 4155.07373046875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-3",
+          "actionAt": 41.166015625,
+          "entryAt": 2310.531494140625,
+          "destinationAt": 3218.032470703125,
+          "destinationReplyAt": 3317.7939453125,
+          "clientReplyAt": 4123.026611328125,
+          "completedAt": 4129.421142578125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-4",
+          "actionAt": 61.45947265625,
+          "entryAt": 3189.59716796875,
+          "destinationAt": 4157.1962890625,
+          "destinationReplyAt": 4317.66015625,
+          "clientReplyAt": 5130.95654296875,
+          "completedAt": 5139.499755859375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-5",
+          "actionAt": 81.56396484375,
+          "entryAt": 3172.759521484375,
+          "destinationAt": 4099.828125,
+          "destinationReplyAt": 4315.95166015625,
+          "clientReplyAt": 5116.7666015625,
+          "completedAt": 5129.634765625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-6",
+          "actionAt": 101.473388671875,
+          "entryAt": 3183.41162109375,
+          "destinationAt": 4185.325927734375,
+          "destinationReplyAt": 4318.49853515625,
+          "clientReplyAt": 5148.047607421875,
+          "completedAt": 5154.815673828125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-7",
+          "actionAt": 121.118408203125,
+          "entryAt": 3178.134033203125,
+          "destinationAt": 4128.40576171875,
+          "destinationReplyAt": 4316.74853515625,
+          "clientReplyAt": 5149.180908203125,
+          "completedAt": 5159.000244140625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-8",
+          "actionAt": 141.915283203125,
+          "entryAt": 3194.640380859375,
+          "destinationAt": 4213.347412109375,
+          "destinationReplyAt": 4319.337158203125,
+          "clientReplyAt": 5140.519775390625,
+          "completedAt": 5147.180908203125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        }
+      ],
+      "forward": {
+        "correct": 4,
+        "total": 8,
+        "accuracy": 0.5,
+        "randomPairingAccuracy": 0.125
+      },
+      "reply": {
+        "correct": 2,
+        "total": 8,
+        "accuracy": 0.25,
+        "randomPairingAccuracy": 0.125
+      }
+    },
+    {
+      "profile": "frame-delay-20-60ms",
+      "workload": "burst-20ms",
+      "mode": "request-and-reply-mix",
+      "trial": 2,
+      "traces": [
+        {
+          "id": "client-1",
+          "actionAt": 1.3349609375,
+          "entryAt": 3501.276611328125,
+          "destinationAt": 4477.001220703125,
+          "destinationReplyAt": 4813.4140625,
+          "clientReplyAt": 5615.916015625,
+          "completedAt": 5638.722412109375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-2",
+          "actionAt": 21.34033203125,
+          "entryAt": 3463.391845703125,
+          "destinationAt": 4666.085205078125,
+          "destinationReplyAt": 4819.205810546875,
+          "clientReplyAt": 5622.7822265625,
+          "completedAt": 5654.68603515625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-3",
+          "actionAt": 41.404541015625,
+          "entryAt": 3490.70703125,
+          "destinationAt": 4529.852294921875,
+          "destinationReplyAt": 4814.92333984375,
+          "clientReplyAt": 5628.7021484375,
+          "completedAt": 5672.077392578125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-4",
+          "actionAt": 60.599365234375,
+          "entryAt": 3485.4267578125,
+          "destinationAt": 4504.259033203125,
+          "destinationReplyAt": 4814.184814453125,
+          "clientReplyAt": 5620.431884765625,
+          "completedAt": 5649.118896484375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-5",
+          "actionAt": 80.078857421875,
+          "entryAt": 3496.200439453125,
+          "destinationAt": 4584.453857421875,
+          "destinationReplyAt": 4816.76611328125,
+          "clientReplyAt": 5624.28271484375,
+          "completedAt": 5658.78173828125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-6",
+          "actionAt": 101.456787109375,
+          "entryAt": 3468.98583984375,
+          "destinationAt": 4639.067138671875,
+          "destinationReplyAt": 4818.40966796875,
+          "clientReplyAt": 5618.28564453125,
+          "completedAt": 5644.375244140625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-7",
+          "actionAt": 120.9169921875,
+          "entryAt": 3480.516845703125,
+          "destinationAt": 4556.99462890625,
+          "destinationReplyAt": 4815.66064453125,
+          "clientReplyAt": 5627.393798828125,
+          "completedAt": 5668.22998046875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-8",
+          "actionAt": 141.467041015625,
+          "entryAt": 3474.43310546875,
+          "destinationAt": 4611.508544921875,
+          "destinationReplyAt": 4817.607666015625,
+          "clientReplyAt": 5625.555908203125,
+          "completedAt": 5663.949951171875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        }
+      ],
+      "forward": {
+        "correct": 1,
+        "total": 8,
+        "accuracy": 0.125,
+        "randomPairingAccuracy": 0.125
+      },
+      "reply": {
+        "correct": 3,
+        "total": 8,
+        "accuracy": 0.375,
+        "randomPairingAccuracy": 0.125
+      }
+    },
+    {
+      "profile": "frame-delay-20-60ms",
+      "workload": "burst-20ms",
+      "mode": "request-mix-only",
+      "trial": 2,
+      "traces": [
+        {
+          "id": "client-1",
+          "actionAt": 1.3505859375,
+          "entryAt": 2710.38671875,
+          "destinationAt": 3838.687744140625,
+          "destinationReplyAt": 4064.739990234375,
+          "clientReplyAt": 4141.287109375,
+          "completedAt": 4148.4267578125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-2",
+          "actionAt": 21.312744140625,
+          "entryAt": 2848.921630859375,
+          "destinationAt": 3808.809326171875,
+          "destinationReplyAt": 4063.721435546875,
+          "clientReplyAt": 4116.118896484375,
+          "completedAt": 4122.178955078125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-3",
+          "actionAt": 41.255615234375,
+          "entryAt": 2891.85302734375,
+          "destinationAt": 3752.98583984375,
+          "destinationReplyAt": 4061.777587890625,
+          "clientReplyAt": 4107.605224609375,
+          "completedAt": 4113.594970703125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-4",
+          "actionAt": 61.2392578125,
+          "entryAt": 2838.9169921875,
+          "destinationAt": 3696.375,
+          "destinationReplyAt": 4060.03564453125,
+          "clientReplyAt": 4142.5283203125,
+          "completedAt": 4153.001220703125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-5",
+          "actionAt": 81.46826171875,
+          "entryAt": 2832.852294921875,
+          "destinationAt": 3896.684326171875,
+          "destinationReplyAt": 4066.29638671875,
+          "clientReplyAt": 4117.03955078125,
+          "completedAt": 4126.2958984375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-6",
+          "actionAt": 101.349365234375,
+          "entryAt": 2854.17919921875,
+          "destinationAt": 3780.193603515625,
+          "destinationReplyAt": 4062.614990234375,
+          "clientReplyAt": 4157.818603515625,
+          "completedAt": 4167.36376953125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-7",
+          "actionAt": 121.21337890625,
+          "entryAt": 2897.90380859375,
+          "destinationAt": 3724.589599609375,
+          "destinationReplyAt": 4060.96240234375,
+          "clientReplyAt": 4156.849609375,
+          "completedAt": 4163.41796875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-8",
+          "actionAt": 141.509521484375,
+          "entryAt": 2843.964111328125,
+          "destinationAt": 3867.84033203125,
+          "destinationReplyAt": 4065.549072265625,
+          "clientReplyAt": 4135.30078125,
+          "completedAt": 4140.62353515625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        }
+      ],
+      "forward": {
+        "correct": 1,
+        "total": 8,
+        "accuracy": 0.125,
+        "randomPairingAccuracy": 0.125
+      },
+      "reply": {
+        "correct": 0,
+        "total": 8,
+        "accuracy": 0,
+        "randomPairingAccuracy": 0.125
+      }
+    },
+    {
+      "profile": "frame-delay-20-60ms",
+      "workload": "burst-20ms",
+      "mode": "request-mix-only",
+      "trial": 3,
+      "traces": [
+        {
+          "id": "client-1",
+          "actionAt": 0.882080078125,
+          "entryAt": 3463.041259765625,
+          "destinationAt": 4397.77099609375,
+          "destinationReplyAt": 4717.7392578125,
+          "clientReplyAt": 4817.2177734375,
+          "completedAt": 4826.871826171875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-2",
+          "actionAt": 21.223388671875,
+          "entryAt": 3441.892333984375,
+          "destinationAt": 4537.45263671875,
+          "destinationReplyAt": 4723.784423828125,
+          "clientReplyAt": 4806.27734375,
+          "completedAt": 4811.8818359375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-3",
+          "actionAt": 40.521484375,
+          "entryAt": 3473.6953125,
+          "destinationAt": 4482.04736328125,
+          "destinationReplyAt": 4722.09326171875,
+          "clientReplyAt": 4816.37841796875,
+          "completedAt": 4821.624267578125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-4",
+          "actionAt": 61.06787109375,
+          "entryAt": 3468.513671875,
+          "destinationAt": 4566.692138671875,
+          "destinationReplyAt": 4724.51220703125,
+          "clientReplyAt": 4827.4658203125,
+          "completedAt": 4832.172119140625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-5",
+          "actionAt": 81.53466796875,
+          "entryAt": 2201.54052734375,
+          "destinationAt": 3104.63720703125,
+          "destinationReplyAt": 3146.17041015625,
+          "clientReplyAt": 3392.13330078125,
+          "completedAt": 3403.55908203125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-6",
+          "actionAt": 101.85986328125,
+          "entryAt": 3478.764404296875,
+          "destinationAt": 4509.3994140625,
+          "destinationReplyAt": 4722.868896484375,
+          "clientReplyAt": 4800.32470703125,
+          "completedAt": 4805.698974609375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-7",
+          "actionAt": 121.02587890625,
+          "entryAt": 3484.48291015625,
+          "destinationAt": 4453.71875,
+          "destinationReplyAt": 4719.73095703125,
+          "clientReplyAt": 4776.829833984375,
+          "completedAt": 4782.277099609375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-8",
+          "actionAt": 141.04541015625,
+          "entryAt": 3489.56640625,
+          "destinationAt": 4426.211181640625,
+          "destinationReplyAt": 4718.753662109375,
+          "clientReplyAt": 4807.064697265625,
+          "completedAt": 4815.795654296875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        }
+      ],
+      "forward": {
+        "correct": 3,
+        "total": 8,
+        "accuracy": 0.375,
+        "randomPairingAccuracy": 0.125
+      },
+      "reply": {
+        "correct": 2,
+        "total": 8,
+        "accuracy": 0.25,
+        "randomPairingAccuracy": 0.125
+      }
+    },
+    {
+      "profile": "frame-delay-20-60ms",
+      "workload": "burst-20ms",
+      "mode": "request-and-reply-mix",
+      "trial": 3,
+      "traces": [
+        {
+          "id": "client-1",
+          "actionAt": 1.279541015625,
+          "entryAt": 3368.734130859375,
+          "destinationAt": 4318.189208984375,
+          "destinationReplyAt": 4441.502685546875,
+          "clientReplyAt": 5268.74267578125,
+          "completedAt": 5292.20556640625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-2",
+          "actionAt": 20.4599609375,
+          "entryAt": 2535.114501953125,
+          "destinationAt": 3383.36865234375,
+          "destinationReplyAt": 3477.90869140625,
+          "clientReplyAt": 4311.32568359375,
+          "completedAt": 4316.280517578125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-3",
+          "actionAt": 40.544189453125,
+          "entryAt": 2523.873291015625,
+          "destinationAt": 3408.416259765625,
+          "destinationReplyAt": 3478.78173828125,
+          "clientReplyAt": 4294.831787109375,
+          "completedAt": 4301.751953125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-4",
+          "actionAt": 60.63232421875,
+          "entryAt": 3363.51171875,
+          "destinationAt": 4237.9248046875,
+          "destinationReplyAt": 4439.03125,
+          "clientReplyAt": 5273.373046875,
+          "completedAt": 5301.09912109375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-5",
+          "actionAt": 79.80419921875,
+          "entryAt": 2501.760009765625,
+          "destinationAt": 3357.175537109375,
+          "destinationReplyAt": 3477.09765625,
+          "clientReplyAt": 4305.12744140625,
+          "completedAt": 4310.71875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-6",
+          "actionAt": 100.788818359375,
+          "entryAt": 3357.118408203125,
+          "destinationAt": 4264.141845703125,
+          "destinationReplyAt": 4439.81298828125,
+          "clientReplyAt": 5267.121826171875,
+          "completedAt": 5287.145751953125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-7",
+          "actionAt": 120.731201171875,
+          "entryAt": 3352.0166015625,
+          "destinationAt": 4342.988525390625,
+          "destinationReplyAt": 4442.241455078125,
+          "clientReplyAt": 5264.831298828125,
+          "completedAt": 5281.177978515625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-8",
+          "actionAt": 140.63818359375,
+          "entryAt": 3336.89013671875,
+          "destinationAt": 4288.733154296875,
+          "destinationReplyAt": 4440.646484375,
+          "clientReplyAt": 5271.1318359375,
+          "completedAt": 5296.90771484375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        }
+      ],
+      "forward": {
+        "correct": 1,
+        "total": 8,
+        "accuracy": 0.125,
+        "randomPairingAccuracy": 0.125
+      },
+      "reply": {
+        "correct": 1,
+        "total": 8,
+        "accuracy": 0.125,
+        "randomPairingAccuracy": 0.125
+      }
+    },
+    {
+      "profile": "frame-delay-20-60ms",
+      "workload": "sparse-1000ms",
+      "mode": "request-mix-only",
+      "trial": 1,
+      "traces": [
+        {
+          "id": "client-1",
+          "actionAt": 1.283935546875,
+          "entryAt": 1213.66748046875,
+          "destinationAt": 2082.864013671875,
+          "destinationReplyAt": 2147.3115234375,
+          "clientReplyAt": 2212.675048828125,
+          "completedAt": 2268.19677734375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-2",
+          "actionAt": 1000.68310546875,
+          "entryAt": 1942.78369140625,
+          "destinationAt": 2056.296630859375,
+          "destinationReplyAt": 2146.513427734375,
+          "clientReplyAt": 2231.616943359375,
+          "completedAt": 2306.152099609375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-3",
+          "actionAt": 2000.63818359375,
+          "entryAt": 3166.387451171875,
+          "destinationAt": 4012.678466796875,
+          "destinationReplyAt": 4057.235107421875,
+          "clientReplyAt": 4134.953125,
+          "completedAt": 4140.568603515625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-4",
+          "actionAt": 2999.984375,
+          "entryAt": 3970.220703125,
+          "destinationAt": 5178.08837890625,
+          "destinationReplyAt": 5237.171875,
+          "clientReplyAt": 5341.8203125,
+          "completedAt": 5357.14990234375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-5",
+          "actionAt": 4001.044677734375,
+          "entryAt": 5635.68798828125,
+          "destinationAt": 6536.714111328125,
+          "destinationReplyAt": 6629.412841796875,
+          "clientReplyAt": 6821.82421875,
+          "completedAt": 6826.574462890625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-6",
+          "actionAt": 5001.43115234375,
+          "entryAt": 6210.044921875,
+          "destinationAt": 6563.2333984375,
+          "destinationReplyAt": 6630.197509765625,
+          "clientReplyAt": 6712.516357421875,
+          "completedAt": 6718.119384765625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-7",
+          "actionAt": 5999.99169921875,
+          "entryAt": 6946.36279296875,
+          "destinationAt": 7798.185546875,
+          "destinationReplyAt": 7927.6484375,
+          "clientReplyAt": 8055.465576171875,
+          "completedAt": 8062.582275390625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-8",
+          "actionAt": 7001.22265625,
+          "entryAt": 8245.49755859375,
+          "destinationAt": 9075.6494140625,
+          "destinationReplyAt": 9122.755859375,
+          "clientReplyAt": 9197.51513671875,
+          "completedAt": 9217.7802734375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        }
+      ],
+      "forward": {
+        "correct": 6,
+        "total": 8,
+        "accuracy": 0.75,
+        "randomPairingAccuracy": 0.125
+      },
+      "reply": {
+        "correct": 4,
+        "total": 8,
+        "accuracy": 0.5,
+        "randomPairingAccuracy": 0.125
+      }
+    },
+    {
+      "profile": "frame-delay-20-60ms",
+      "workload": "sparse-1000ms",
+      "mode": "request-and-reply-mix",
+      "trial": 1,
+      "traces": [
+        {
+          "id": "client-1",
+          "actionAt": 1.529541015625,
+          "entryAt": 1252.03515625,
+          "destinationAt": 2075.17041015625,
+          "destinationReplyAt": 2118.260498046875,
+          "clientReplyAt": 2956.658447265625,
+          "completedAt": 2962.892578125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-2",
+          "actionAt": 1000.892333984375,
+          "entryAt": 2113.582763671875,
+          "destinationAt": 2956.049560546875,
+          "destinationReplyAt": 3003.515625,
+          "clientReplyAt": 3838.5048828125,
+          "completedAt": 3843.8662109375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-3",
+          "actionAt": 2001.563232421875,
+          "entryAt": 3198.8466796875,
+          "destinationAt": 4087.825439453125,
+          "destinationReplyAt": 4130.9794921875,
+          "clientReplyAt": 4965.2099609375,
+          "completedAt": 4970.657470703125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-4",
+          "actionAt": 3001.19140625,
+          "entryAt": 4167.618408203125,
+          "destinationAt": 4991.4609375,
+          "destinationReplyAt": 5034.01708984375,
+          "clientReplyAt": 5892.923828125,
+          "completedAt": 5899.202880859375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-5",
+          "actionAt": 4001.675048828125,
+          "entryAt": 4995.05712890625,
+          "destinationAt": 5860.546142578125,
+          "destinationReplyAt": 5905.701171875,
+          "clientReplyAt": 6771.837158203125,
+          "completedAt": 6777.34228515625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-6",
+          "actionAt": 5001.693115234375,
+          "entryAt": 5953.243896484375,
+          "destinationAt": 6787.061767578125,
+          "destinationReplyAt": 6831.163818359375,
+          "clientReplyAt": 7700.745361328125,
+          "completedAt": 7706.43115234375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-7",
+          "actionAt": 6001.12109375,
+          "entryAt": 7135.27880859375,
+          "destinationAt": 8006.402587890625,
+          "destinationReplyAt": 8051.339111328125,
+          "clientReplyAt": 8868.316162109375,
+          "completedAt": 8873.8154296875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-8",
+          "actionAt": 7001.62744140625,
+          "entryAt": 8078.661865234375,
+          "destinationAt": 8936.655517578125,
+          "destinationReplyAt": 8984.61572265625,
+          "clientReplyAt": 9799.259033203125,
+          "completedAt": 9809.23486328125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        }
+      ],
+      "forward": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      },
+      "reply": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      }
+    },
+    {
+      "profile": "frame-delay-20-60ms",
+      "workload": "sparse-1000ms",
+      "mode": "request-and-reply-mix",
+      "trial": 2,
+      "traces": [
+        {
+          "id": "client-1",
+          "actionAt": 0.240478515625,
+          "entryAt": 1060.693359375,
+          "destinationAt": 1927.9384765625,
+          "destinationReplyAt": 1971.006103515625,
+          "clientReplyAt": 2804.498779296875,
+          "completedAt": 2810.572998046875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-2",
+          "actionAt": 1004.6689453125,
+          "entryAt": 2091.61767578125,
+          "destinationAt": 2967.71044921875,
+          "destinationReplyAt": 3011.056640625,
+          "clientReplyAt": 3839.336669921875,
+          "completedAt": 3844.60791015625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-3",
+          "actionAt": 2027.896728515625,
+          "entryAt": 3103.255859375,
+          "destinationAt": 3974.50146484375,
+          "destinationReplyAt": 4018.070556640625,
+          "clientReplyAt": 4889.0849609375,
+          "completedAt": 4894.61669921875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-4",
+          "actionAt": 3051.278076171875,
+          "entryAt": 4078.064697265625,
+          "destinationAt": 4949.708984375,
+          "destinationReplyAt": 4992.82568359375,
+          "clientReplyAt": 5855.26953125,
+          "completedAt": 5861.65283203125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-5",
+          "actionAt": 4025.096435546875,
+          "entryAt": 5076.00927734375,
+          "destinationAt": 5951.11669921875,
+          "destinationReplyAt": 6000.4365234375,
+          "clientReplyAt": 6846.79541015625,
+          "completedAt": 6853.192626953125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-6",
+          "actionAt": 5006.51220703125,
+          "entryAt": 6221.060546875,
+          "destinationAt": 7044.04150390625,
+          "destinationReplyAt": 7089.06298828125,
+          "clientReplyAt": 7958.701904296875,
+          "completedAt": 7964.266357421875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-7",
+          "actionAt": 6001.72314453125,
+          "entryAt": 7138.9833984375,
+          "destinationAt": 7969.275146484375,
+          "destinationReplyAt": 8012.772216796875,
+          "clientReplyAt": 8849.791259765625,
+          "completedAt": 8856.26953125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-8",
+          "actionAt": 7000.552490234375,
+          "entryAt": 8060.9384765625,
+          "destinationAt": 8880.066162109375,
+          "destinationReplyAt": 8931.248046875,
+          "clientReplyAt": 9741.526611328125,
+          "completedAt": 9752.39404296875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        }
+      ],
+      "forward": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      },
+      "reply": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      }
+    },
+    {
+      "profile": "frame-delay-20-60ms",
+      "workload": "sparse-1000ms",
+      "mode": "request-mix-only",
+      "trial": 2,
+      "traces": [
+        {
+          "id": "client-1",
+          "actionAt": 1.450927734375,
+          "entryAt": 1066.801513671875,
+          "destinationAt": 1918.859130859375,
+          "destinationReplyAt": 1966.610595703125,
+          "clientReplyAt": 2119.944580078125,
+          "completedAt": 2125.41796875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-2",
+          "actionAt": 1013.173583984375,
+          "entryAt": 2182.498291015625,
+          "destinationAt": 2999.563720703125,
+          "destinationReplyAt": 3043.970458984375,
+          "clientReplyAt": 3150.466064453125,
+          "completedAt": 3155.895263671875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-3",
+          "actionAt": 2001.08935546875,
+          "entryAt": 3104.748046875,
+          "destinationAt": 4032.141845703125,
+          "destinationReplyAt": 4076.51806640625,
+          "clientReplyAt": 4142.338623046875,
+          "completedAt": 4147.7392578125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-4",
+          "actionAt": 3052.38134765625,
+          "entryAt": 4165.59814453125,
+          "destinationAt": 5014.424072265625,
+          "destinationReplyAt": 5057.53662109375,
+          "clientReplyAt": 5152.208251953125,
+          "completedAt": 5158.038818359375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-5",
+          "actionAt": 4001.76025390625,
+          "entryAt": 5056.44921875,
+          "destinationAt": 5915.19677734375,
+          "destinationReplyAt": 5957.166015625,
+          "clientReplyAt": 6037.86767578125,
+          "completedAt": 6042.753173828125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-6",
+          "actionAt": 5000.52978515625,
+          "entryAt": 5989.10595703125,
+          "destinationAt": 6880.182373046875,
+          "destinationReplyAt": 6924.094970703125,
+          "clientReplyAt": 6992.472900390625,
+          "completedAt": 7000.29150390625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-7",
+          "actionAt": 6001.13623046875,
+          "entryAt": 7068.54443359375,
+          "destinationAt": 7947.487060546875,
+          "destinationReplyAt": 7990.70654296875,
+          "clientReplyAt": 8102.033935546875,
+          "completedAt": 8107.162109375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-8",
+          "actionAt": 7000.576904296875,
+          "entryAt": 8017.1240234375,
+          "destinationAt": 8860.935791015625,
+          "destinationReplyAt": 8909.613525390625,
+          "clientReplyAt": 8981.4736328125,
+          "completedAt": 8986.317138671875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        }
+      ],
+      "forward": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      },
+      "reply": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      }
+    },
+    {
+      "profile": "frame-delay-20-60ms",
+      "workload": "sparse-1000ms",
+      "mode": "request-mix-only",
+      "trial": 3,
+      "traces": [
+        {
+          "id": "client-1",
+          "actionAt": 1.2490234375,
+          "entryAt": 1092.598876953125,
+          "destinationAt": 1963.382080078125,
+          "destinationReplyAt": 2007.07080078125,
+          "clientReplyAt": 2094.686767578125,
+          "completedAt": 2099.852783203125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-2",
+          "actionAt": 1056.26953125,
+          "entryAt": 2111.188720703125,
+          "destinationAt": 2933.276611328125,
+          "destinationReplyAt": 2976.7041015625,
+          "clientReplyAt": 3078.9541015625,
+          "completedAt": 3084.375244140625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-3",
+          "actionAt": 2053.666748046875,
+          "entryAt": 2996.18505859375,
+          "destinationAt": 3904.26025390625,
+          "destinationReplyAt": 3945.281982421875,
+          "clientReplyAt": 4039.046875,
+          "completedAt": 4043.65478515625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-4",
+          "actionAt": 3000.4931640625,
+          "entryAt": 4033.259765625,
+          "destinationAt": 4902.68896484375,
+          "destinationReplyAt": 4943.3671875,
+          "clientReplyAt": 5015.342529296875,
+          "completedAt": 5020.70263671875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-5",
+          "actionAt": 4000.09912109375,
+          "entryAt": 5020.966796875,
+          "destinationAt": 5897.29833984375,
+          "destinationReplyAt": 5942.9775390625,
+          "clientReplyAt": 6121.368896484375,
+          "completedAt": 6126.6591796875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-6",
+          "actionAt": 5001.237060546875,
+          "entryAt": 6165.64306640625,
+          "destinationAt": 6990.312744140625,
+          "destinationReplyAt": 7033.638427734375,
+          "clientReplyAt": 7123.982666015625,
+          "completedAt": 7129.2744140625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-7",
+          "actionAt": 6001.536865234375,
+          "entryAt": 7052.078369140625,
+          "destinationAt": 7939.126953125,
+          "destinationReplyAt": 7979.7060546875,
+          "clientReplyAt": 8061.60791015625,
+          "completedAt": 8066.631591796875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-8",
+          "actionAt": 7014.855712890625,
+          "entryAt": 8118.06005859375,
+          "destinationAt": 8941.8125,
+          "destinationReplyAt": 9000.13916015625,
+          "clientReplyAt": 9103.973876953125,
+          "completedAt": 9109.744873046875,
+          "bytes": 15495,
+          "replyBytes": 11213
+        }
+      ],
+      "forward": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      },
+      "reply": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      }
+    },
+    {
+      "profile": "frame-delay-20-60ms",
+      "workload": "sparse-1000ms",
+      "mode": "request-and-reply-mix",
+      "trial": 3,
+      "traces": [
+        {
+          "id": "client-1",
+          "actionAt": 1.2880859375,
+          "entryAt": 999.4140625,
+          "destinationAt": 1913.77880859375,
+          "destinationReplyAt": 1955.069091796875,
+          "clientReplyAt": 2796.126953125,
+          "completedAt": 2828.754150390625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-2",
+          "actionAt": 1000.237548828125,
+          "entryAt": 1987.980224609375,
+          "destinationAt": 3032.1611328125,
+          "destinationReplyAt": 3075.494873046875,
+          "clientReplyAt": 3904.44482421875,
+          "completedAt": 3911.025634765625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-3",
+          "actionAt": 2000.828125,
+          "entryAt": 3170.95849609375,
+          "destinationAt": 4012.65478515625,
+          "destinationReplyAt": 4056.19580078125,
+          "clientReplyAt": 4956.696044921875,
+          "completedAt": 4980.921630859375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-4",
+          "actionAt": 3001.201416015625,
+          "entryAt": 4046.26123046875,
+          "destinationAt": 4922.13916015625,
+          "destinationReplyAt": 4974.810791015625,
+          "clientReplyAt": 5812.12451171875,
+          "completedAt": 5816.87548828125,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-5",
+          "actionAt": 4006.17236328125,
+          "entryAt": 5036.181396484375,
+          "destinationAt": 5915.443115234375,
+          "destinationReplyAt": 5957.32763671875,
+          "clientReplyAt": 6763.831298828125,
+          "completedAt": 6769.644287109375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-6",
+          "actionAt": 5000.54296875,
+          "entryAt": 6044.008056640625,
+          "destinationAt": 6922.036865234375,
+          "destinationReplyAt": 6963.21728515625,
+          "clientReplyAt": 7800.965087890625,
+          "completedAt": 7806.482666015625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-7",
+          "actionAt": 6001.027099609375,
+          "entryAt": 7059.955078125,
+          "destinationAt": 8001.931884765625,
+          "destinationReplyAt": 8044.279052734375,
+          "clientReplyAt": 8869.174072265625,
+          "completedAt": 8879.786865234375,
+          "bytes": 15495,
+          "replyBytes": 11213
+        },
+        {
+          "id": "client-8",
+          "actionAt": 7026.359375,
+          "entryAt": 8184.3427734375,
+          "destinationAt": 9021.097412109375,
+          "destinationReplyAt": 9072.38134765625,
+          "clientReplyAt": 9935.8876953125,
+          "completedAt": 9947.310791015625,
+          "bytes": 15495,
+          "replyBytes": 11213
+        }
+      ],
+      "forward": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      },
+      "reply": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      }
+    }
+  ]
+}

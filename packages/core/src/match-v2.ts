@@ -171,16 +171,18 @@ export function verifyMatchOperationAgainstPublicationsV2(
   threshold: number,
 ): boolean {
   return verifyMatchOperationV2(operation)
+    && verifyPublicationRecord(first)
+    && verifyPublicationRecord(second)
     && verifyMatchOperationAgainstPublicationsBody(operation, first, second, threshold);
 }
 
+/** Both callers authenticate the publications before checking their binding. */
 function verifyMatchOperationAgainstPublicationsBody(
   operation: MatchOperationBodyV2,
   first: PublicationRecord,
   second: PublicationRecord,
   threshold: number,
 ): boolean {
-  if (!verifyPublicationRecord(first) || !verifyPublicationRecord(second)) return false;
   if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1) return false;
   if (!isCompatiblePair(first, second)) return false;
 

@@ -1,0 +1,1265 @@
+{
+  "timestamp": "2026-09-29T13:48:27.722Z",
+  "sourceBase": "f2c857cd519789f082f10ca6f7be274c8674f899",
+  "platform": "darwin/arm64",
+  "node": "v24.19.0",
+  "clientsPerTrial": 8,
+  "trialCount": 3,
+  "randomPairingAccuracy": 0.125,
+  "summaries": [
+    {
+      "workload": "burst-20ms",
+      "mode": "minimal-10ms-no-jitter",
+      "trials": 3,
+      "requests": 24,
+      "actionToDiscoveryCorrect": 24,
+      "entryToDestinationCorrect": 24,
+      "colludingRequestIdLinks": 24,
+      "releaseDelayP50Ms": 508.3,
+      "releaseDelayP95Ms": 1295.4,
+      "completionP95Ms": 4018.4,
+      "distinctEntryFrameSizes": 1
+    },
+    {
+      "workload": "burst-20ms",
+      "mode": "default-250ms-batch-jitter",
+      "trials": 3,
+      "requests": 24,
+      "actionToDiscoveryCorrect": 4,
+      "entryToDestinationCorrect": 24,
+      "colludingRequestIdLinks": 24,
+      "releaseDelayP50Ms": 891.9,
+      "releaseDelayP95Ms": 1631.2,
+      "completionP95Ms": 4558.7,
+      "distinctEntryFrameSizes": 1
+    },
+    {
+      "workload": "sparse-1000ms",
+      "mode": "minimal-10ms-no-jitter",
+      "trials": 3,
+      "requests": 24,
+      "actionToDiscoveryCorrect": 24,
+      "entryToDestinationCorrect": 24,
+      "colludingRequestIdLinks": 24,
+      "releaseDelayP50Ms": 36.2,
+      "releaseDelayP95Ms": 45.4,
+      "completionP95Ms": 718.9,
+      "distinctEntryFrameSizes": 1
+    },
+    {
+      "workload": "sparse-1000ms",
+      "mode": "default-250ms-batch-jitter",
+      "trials": 3,
+      "requests": 24,
+      "actionToDiscoveryCorrect": 24,
+      "entryToDestinationCorrect": 24,
+      "colludingRequestIdLinks": 24,
+      "releaseDelayP50Ms": 372.9,
+      "releaseDelayP95Ms": 510.9,
+      "completionP95Ms": 1073.9,
+      "distinctEntryFrameSizes": 1
+    }
+  ],
+  "results": [
+    {
+      "trial": 1,
+      "mode": "minimal-10ms-no-jitter",
+      "workload": "burst-20ms",
+      "traces": [
+        {
+          "action": "client-1",
+          "actionAtMs": 1.4712920000000054,
+          "discoveryAtMs": 51.043875000000014,
+          "entryAtMs": 3376.5845,
+          "destinationAtMs": 3457.8407500000003,
+          "completedAtMs": 4037.9445000000005,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-2",
+          "actionAtMs": 38.11683400000004,
+          "discoveryAtMs": 398.81325,
+          "entryAtMs": 3419.659042,
+          "destinationAtMs": 3606.818542,
+          "completedAtMs": 4056.5061670000005,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-3",
+          "actionAtMs": 44.567834000000005,
+          "discoveryAtMs": 507.99075,
+          "entryAtMs": 3428.524125,
+          "destinationAtMs": 3666.986417,
+          "completedAtMs": 4062.0622920000005,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-4",
+          "actionAtMs": 177.74712500000004,
+          "discoveryAtMs": 686.035625,
+          "entryAtMs": 3437.1352500000003,
+          "destinationAtMs": 3732.532,
+          "completedAtMs": 4067.022959,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-5",
+          "actionAtMs": 182.94770899999997,
+          "discoveryAtMs": 875.451542,
+          "entryAtMs": 3452.4811250000002,
+          "destinationAtMs": 3790.215792,
+          "completedAtMs": 4071.0409170000003,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-6",
+          "actionAtMs": 187.508125,
+          "discoveryAtMs": 1118.6095,
+          "entryAtMs": 3484.686542,
+          "destinationAtMs": 3817.50425,
+          "completedAtMs": 4074.9871249999997,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-7",
+          "actionAtMs": 191.52466700000008,
+          "discoveryAtMs": 1365.5798340000001,
+          "entryAtMs": 3490.525709,
+          "destinationAtMs": 3853.286292,
+          "completedAtMs": 4079.010125,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-8",
+          "actionAtMs": 195.72770900000006,
+          "discoveryAtMs": 1602.007709,
+          "entryAtMs": 3496.4649170000002,
+          "destinationAtMs": 3888.9876670000003,
+          "completedAtMs": 4083.968959,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        }
+      ],
+      "actionToDiscovery": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      },
+      "entryToDestination": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      },
+      "colludingRequestIdLinks": 8
+    },
+    {
+      "trial": 1,
+      "mode": "default-250ms-batch-jitter",
+      "workload": "burst-20ms",
+      "traces": [
+        {
+          "action": "client-1",
+          "actionAtMs": 1.435707999999977,
+          "discoveryAtMs": 725.5127079999993,
+          "entryAtMs": 3665.2048749999994,
+          "destinationAtMs": 3935.372458,
+          "completedAtMs": 4329.339125,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-2",
+          "actionAtMs": 21.468582999999853,
+          "discoveryAtMs": 913.3399579999996,
+          "entryAtMs": 3673.3523750000004,
+          "destinationAtMs": 3991.7324580000004,
+          "completedAtMs": 4338.218583,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-3",
+          "actionAtMs": 41.05741699999999,
+          "discoveryAtMs": 368.29199999999946,
+          "entryAtMs": 3643.3743329999998,
+          "destinationAtMs": 3757.0933750000004,
+          "completedAtMs": 4321.032499999999,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-4",
+          "actionAtMs": 61.281833000000006,
+          "discoveryAtMs": 622.0122919999994,
+          "entryAtMs": 3657.2271249999994,
+          "destinationAtMs": 3906.949917,
+          "completedAtMs": 4333.599042,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-5",
+          "actionAtMs": 79.78233300000011,
+          "discoveryAtMs": 1179.0896669999993,
+          "entryAtMs": 3680.5907499999994,
+          "destinationAtMs": 4031.6248749999995,
+          "completedAtMs": 4342.3255420000005,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-6",
+          "actionAtMs": 100.90679199999977,
+          "discoveryAtMs": 1452.283708,
+          "entryAtMs": 3715.3290830000005,
+          "destinationAtMs": 4125.9209169999995,
+          "completedAtMs": 4350.414792,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-7",
+          "actionAtMs": 121.27224999999999,
+          "discoveryAtMs": 1282.7921669999996,
+          "entryAtMs": 3709.5757080000003,
+          "destinationAtMs": 4080.473582999999,
+          "completedAtMs": 4346.425958,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-8",
+          "actionAtMs": 140.6460419999994,
+          "discoveryAtMs": 1624.598583,
+          "entryAtMs": 3721.5512500000004,
+          "destinationAtMs": 4164.276875,
+          "completedAtMs": 4355.911833,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        }
+      ],
+      "actionToDiscovery": {
+        "correct": 2,
+        "total": 8,
+        "accuracy": 0.25,
+        "randomPairingAccuracy": 0.125
+      },
+      "entryToDestination": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      },
+      "colludingRequestIdLinks": 8
+    },
+    {
+      "trial": 2,
+      "mode": "default-250ms-batch-jitter",
+      "workload": "burst-20ms",
+      "traces": [
+        {
+          "action": "client-1",
+          "actionAtMs": 1.3155000000006112,
+          "discoveryAtMs": 539.6684580000001,
+          "entryAtMs": 3885.4419159999998,
+          "destinationAtMs": 4148.045375,
+          "completedAtMs": 4574.500582999999,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-2",
+          "actionAtMs": 20.629375000000437,
+          "discoveryAtMs": 742.7782910000005,
+          "entryAtMs": 3891.7891660000005,
+          "destinationAtMs": 4176.944583,
+          "completedAtMs": 4579.359790999999,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-3",
+          "actionAtMs": 40.234457999998995,
+          "discoveryAtMs": 424.7605829999993,
+          "entryAtMs": 3874.6331659999996,
+          "destinationAtMs": 4052.5421659999993,
+          "completedAtMs": 4568.032916,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-4",
+          "actionAtMs": 60.79487499999959,
+          "discoveryAtMs": 1159.0091250000005,
+          "entryAtMs": 3905.4323750000003,
+          "destinationAtMs": 4254.8841250000005,
+          "completedAtMs": 4589.816375,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-5",
+          "actionAtMs": 81.18170800000007,
+          "discoveryAtMs": 972.3751659999998,
+          "entryAtMs": 3898.235708,
+          "destinationAtMs": 4216.126708,
+          "completedAtMs": 4584.713125,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-6",
+          "actionAtMs": 99.62866600000052,
+          "discoveryAtMs": 1640.7196249999997,
+          "entryAtMs": 3916.7871250000007,
+          "destinationAtMs": 4355.607082999999,
+          "completedAtMs": 4598.604165999999,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-7",
+          "actionAtMs": 120.69379099999969,
+          "discoveryAtMs": 1751.9412499999999,
+          "entryAtMs": 3946.3839160000007,
+          "destinationAtMs": 4409.396375,
+          "completedAtMs": 4604.360208,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-8",
+          "actionAtMs": 141.22841599999992,
+          "discoveryAtMs": 1344.3558329999996,
+          "entryAtMs": 3911.1974580000006,
+          "destinationAtMs": 4315.792665999999,
+          "completedAtMs": 4594.222166,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        }
+      ],
+      "actionToDiscovery": {
+        "correct": 0,
+        "total": 8,
+        "accuracy": 0,
+        "randomPairingAccuracy": 0.125
+      },
+      "entryToDestination": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      },
+      "colludingRequestIdLinks": 8
+    },
+    {
+      "trial": 2,
+      "mode": "minimal-10ms-no-jitter",
+      "workload": "burst-20ms",
+      "traces": [
+        {
+          "action": "client-1",
+          "actionAtMs": 1.407375000000684,
+          "discoveryAtMs": 36.51433399999951,
+          "entryAtMs": 3342.1187919999993,
+          "destinationAtMs": 3421.9600420000006,
+          "completedAtMs": 4019.784125,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-2",
+          "actionAtMs": 31.8354589999999,
+          "discoveryAtMs": 363.1488339999996,
+          "entryAtMs": 3358.087625000002,
+          "destinationAtMs": 3549.8406669999986,
+          "completedAtMs": 4035.4275,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-3",
+          "actionAtMs": 147.00558400000045,
+          "discoveryAtMs": 472.12387500000114,
+          "entryAtMs": 3386.236084000002,
+          "destinationAtMs": 3616.929750000001,
+          "completedAtMs": 4039.9591249999994,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-4",
+          "actionAtMs": 150.9404169999998,
+          "discoveryAtMs": 639.1476249999996,
+          "entryAtMs": 3395.629708999999,
+          "destinationAtMs": 3690.0357920000006,
+          "completedAtMs": 4044.5867500000004,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-5",
+          "actionAtMs": 154.91362500000105,
+          "discoveryAtMs": 810.6213339999995,
+          "entryAtMs": 3411.4672090000004,
+          "destinationAtMs": 3746.953292,
+          "completedAtMs": 4049.1855000000014,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-6",
+          "actionAtMs": 158.65883399999984,
+          "discoveryAtMs": 977.1268749999999,
+          "entryAtMs": 3416.572542,
+          "destinationAtMs": 3781.917041999999,
+          "completedAtMs": 4053.2844170000008,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-7",
+          "actionAtMs": 163.1803749999999,
+          "discoveryAtMs": 1219.160084000001,
+          "entryAtMs": 3454.492458999999,
+          "destinationAtMs": 3821.3001249999998,
+          "completedAtMs": 4057.3997499999987,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-8",
+          "actionAtMs": 168.20308400000067,
+          "discoveryAtMs": 1463.640125,
+          "entryAtMs": 3462.6442499999994,
+          "destinationAtMs": 3858.969167000001,
+          "completedAtMs": 4061.704584000001,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        }
+      ],
+      "actionToDiscovery": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      },
+      "entryToDestination": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      },
+      "colludingRequestIdLinks": 8
+    },
+    {
+      "trial": 3,
+      "mode": "minimal-10ms-no-jitter",
+      "workload": "burst-20ms",
+      "traces": [
+        {
+          "action": "client-1",
+          "actionAtMs": 0.6661249999997381,
+          "discoveryAtMs": 34.80225000000064,
+          "entryAtMs": 3254.3522080000002,
+          "destinationAtMs": 3329.7869169999976,
+          "completedAtMs": 3904.4795830000003,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-2",
+          "actionAtMs": 30.319374999999127,
+          "discoveryAtMs": 344.38937499999884,
+          "entryAtMs": 3290.1256670000002,
+          "destinationAtMs": 3497.672957999999,
+          "completedAtMs": 3923.943041999999,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-3",
+          "actionAtMs": 136.2075420000001,
+          "discoveryAtMs": 344.5986249999987,
+          "entryAtMs": 3297.675041999999,
+          "destinationAtMs": 3554.362000000001,
+          "completedAtMs": 3928.860916999998,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-4",
+          "actionAtMs": 140.08679199999824,
+          "discoveryAtMs": 545.1621249999989,
+          "entryAtMs": 3303.2514999999985,
+          "destinationAtMs": 3597.006458,
+          "completedAtMs": 3933.0788329999996,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-5",
+          "actionAtMs": 143.7313749999994,
+          "discoveryAtMs": 778.0817079999979,
+          "entryAtMs": 3310.0904579999988,
+          "destinationAtMs": 3655.7767079999976,
+          "completedAtMs": 3937.102583,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-6",
+          "actionAtMs": 147.54287499999919,
+          "discoveryAtMs": 949.3366249999999,
+          "entryAtMs": 3324.492374999998,
+          "destinationAtMs": 3690.123166999998,
+          "completedAtMs": 3940.9852079999982,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-7",
+          "actionAtMs": 151.2560420000009,
+          "discoveryAtMs": 1179.287042,
+          "entryAtMs": 3355.8791249999995,
+          "destinationAtMs": 3727.267541999998,
+          "completedAtMs": 3944.753499999999,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-8",
+          "actionAtMs": 230.04395799999838,
+          "discoveryAtMs": 1416.2242079999996,
+          "entryAtMs": 3364.2774580000005,
+          "destinationAtMs": 3765.638082999998,
+          "completedAtMs": 3948.720207999999,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        }
+      ],
+      "actionToDiscovery": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      },
+      "entryToDestination": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      },
+      "colludingRequestIdLinks": 8
+    },
+    {
+      "trial": 3,
+      "mode": "default-250ms-batch-jitter",
+      "workload": "burst-20ms",
+      "traces": [
+        {
+          "action": "client-1",
+          "actionAtMs": 1.2790419999982987,
+          "discoveryAtMs": 314.6690419999977,
+          "entryAtMs": 3569.4039169999996,
+          "destinationAtMs": 3647.749749999999,
+          "completedAtMs": 4204.818292,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-2",
+          "actionAtMs": 22.01433299999917,
+          "discoveryAtMs": 1212.532041999999,
+          "entryAtMs": 3625.713667,
+          "destinationAtMs": 4003.181499999999,
+          "completedAtMs": 4233.5639169999995,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-3",
+          "actionAtMs": 42.22379199999705,
+          "discoveryAtMs": 545.0059169999986,
+          "entryAtMs": 3581.773874999999,
+          "destinationAtMs": 3794.1797499999993,
+          "completedAtMs": 4217.476541999997,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-4",
+          "actionAtMs": 61.422999999998865,
+          "discoveryAtMs": 864.7658749999973,
+          "entryAtMs": 3615.1218329999974,
+          "destinationAtMs": 3923.7432499999995,
+          "completedAtMs": 4225.784582999997,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-5",
+          "actionAtMs": 81.97545799999716,
+          "discoveryAtMs": 1828.4159579999978,
+          "entryAtMs": 3672.4852919999976,
+          "destinationAtMs": 4066.7934579999965,
+          "completedAtMs": 4241.029707999998,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-6",
+          "actionAtMs": 101.8972079999985,
+          "discoveryAtMs": 1445.2803329999988,
+          "entryAtMs": 3642.439542,
+          "destinationAtMs": 4028.7564999999995,
+          "completedAtMs": 4237.283791999998,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-7",
+          "actionAtMs": 122.03458299999693,
+          "discoveryAtMs": 1039.2219579999983,
+          "entryAtMs": 3620.181666999997,
+          "destinationAtMs": 3959.877375,
+          "completedAtMs": 4229.560666999998,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-8",
+          "actionAtMs": 142.18324999999822,
+          "discoveryAtMs": 746.3465419999993,
+          "entryAtMs": 3608.913457999999,
+          "destinationAtMs": 3862.4331249999996,
+          "completedAtMs": 4221.809249999998,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        }
+      ],
+      "actionToDiscovery": {
+        "correct": 2,
+        "total": 8,
+        "accuracy": 0.25,
+        "randomPairingAccuracy": 0.125
+      },
+      "entryToDestination": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      },
+      "colludingRequestIdLinks": 8
+    },
+    {
+      "trial": 1,
+      "mode": "minimal-10ms-no-jitter",
+      "workload": "sparse-1000ms",
+      "traces": [
+        {
+          "action": "client-1",
+          "actionAtMs": 0.7683750000032887,
+          "discoveryAtMs": 28.77887499999997,
+          "entryAtMs": 419.6904160000013,
+          "destinationAtMs": 458.2098330000008,
+          "completedAtMs": 504.7737080000006,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-2",
+          "actionAtMs": 1000.190208,
+          "discoveryAtMs": 1033.231208000001,
+          "entryAtMs": 1448.9067080000023,
+          "destinationAtMs": 1489.2915410000023,
+          "completedAtMs": 1541.2462080000005,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-3",
+          "actionAtMs": 2000.9409160000032,
+          "discoveryAtMs": 2032.0865830000002,
+          "entryAtMs": 2432.3014580000017,
+          "destinationAtMs": 2469.8488749999997,
+          "completedAtMs": 2521.097958000002,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-4",
+          "actionAtMs": 3001.4629999999997,
+          "discoveryAtMs": 3045.183000000001,
+          "entryAtMs": 3442.7798330000005,
+          "destinationAtMs": 3479.8646660000013,
+          "completedAtMs": 3533.010000000002,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-5",
+          "actionAtMs": 4001.8242500000015,
+          "discoveryAtMs": 4047.194083000002,
+          "entryAtMs": 4445.738166000003,
+          "destinationAtMs": 4483.691916,
+          "completedAtMs": 4534.219791000003,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-6",
+          "actionAtMs": 5001.319208000001,
+          "discoveryAtMs": 5042.449625000001,
+          "entryAtMs": 5458.883958000002,
+          "destinationAtMs": 5496.421083000001,
+          "completedAtMs": 5549.212083000002,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-7",
+          "actionAtMs": 6001.234791000003,
+          "discoveryAtMs": 6036.295041000001,
+          "entryAtMs": 6432.784458000002,
+          "destinationAtMs": 6469.375625000001,
+          "completedAtMs": 6520.040416,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-8",
+          "actionAtMs": 7001.5036660000005,
+          "discoveryAtMs": 7046.214583000001,
+          "entryAtMs": 7436.738540999999,
+          "destinationAtMs": 7475.853415999998,
+          "completedAtMs": 7522.277999999998,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        }
+      ],
+      "actionToDiscovery": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      },
+      "entryToDestination": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      },
+      "colludingRequestIdLinks": 8
+    },
+    {
+      "trial": 1,
+      "mode": "default-250ms-batch-jitter",
+      "workload": "sparse-1000ms",
+      "traces": [
+        {
+          "action": "client-1",
+          "actionAtMs": 0.7761660000032862,
+          "discoveryAtMs": 395.0394579999993,
+          "entryAtMs": 785.5216660000006,
+          "destinationAtMs": 822.2568749999991,
+          "completedAtMs": 872.6206250000032,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-2",
+          "actionAtMs": 1000.8395410000012,
+          "discoveryAtMs": 1474.892915999997,
+          "entryAtMs": 1872.814624999999,
+          "destinationAtMs": 1911.7856660000034,
+          "completedAtMs": 1964.0588330000028,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-3",
+          "actionAtMs": 2000.825208000002,
+          "discoveryAtMs": 2490.945541000001,
+          "entryAtMs": 2883.2397500000006,
+          "destinationAtMs": 2921.655458000001,
+          "completedAtMs": 2968.7089160000032,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-4",
+          "actionAtMs": 2999.880624999998,
+          "discoveryAtMs": 3334.446708000003,
+          "entryAtMs": 3728.3267080000005,
+          "destinationAtMs": 3766.9075410000005,
+          "completedAtMs": 3816.2425829999993,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-5",
+          "actionAtMs": 4001.6560000000027,
+          "discoveryAtMs": 4526.399916000002,
+          "entryAtMs": 4918.824957999997,
+          "destinationAtMs": 4954.954458,
+          "completedAtMs": 5010.887625000003,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-6",
+          "actionAtMs": 5000.381625000002,
+          "discoveryAtMs": 5382.426207999997,
+          "entryAtMs": 5776.622000000003,
+          "destinationAtMs": 5817.619624999999,
+          "completedAtMs": 5866.000666,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-7",
+          "actionAtMs": 6001.057165999999,
+          "discoveryAtMs": 6376.724083000001,
+          "entryAtMs": 6786.533125000002,
+          "destinationAtMs": 6825.158791000002,
+          "completedAtMs": 6878.922458000001,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-8",
+          "actionAtMs": 7001.096582999999,
+          "discoveryAtMs": 7506.115166000003,
+          "entryAtMs": 7903.0090409999975,
+          "destinationAtMs": 7944.357333,
+          "completedAtMs": 8000.397958000001,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        }
+      ],
+      "actionToDiscovery": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      },
+      "entryToDestination": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      },
+      "colludingRequestIdLinks": 8
+    },
+    {
+      "trial": 2,
+      "mode": "default-250ms-batch-jitter",
+      "workload": "sparse-1000ms",
+      "traces": [
+        {
+          "action": "client-1",
+          "actionAtMs": 1.7797500000015134,
+          "discoveryAtMs": 367.0476669999989,
+          "entryAtMs": 766.2807499999981,
+          "destinationAtMs": 802.2216249999983,
+          "completedAtMs": 851.2885000000024,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-2",
+          "actionAtMs": 1001.4973339999997,
+          "discoveryAtMs": 1444.419458999997,
+          "entryAtMs": 1856.6898749999964,
+          "destinationAtMs": 1895.8616249999977,
+          "completedAtMs": 1946.8632500000022,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-3",
+          "actionAtMs": 2000.7823340000032,
+          "discoveryAtMs": 2272.7048339999965,
+          "entryAtMs": 2677.8986250000016,
+          "destinationAtMs": 2715.733,
+          "completedAtMs": 2767.2712089999986,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-4",
+          "actionAtMs": 3001.6185419999965,
+          "discoveryAtMs": 3322.4414590000015,
+          "entryAtMs": 3726.235625000001,
+          "destinationAtMs": 3765.665208999999,
+          "completedAtMs": 3820.8875839999964,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-5",
+          "actionAtMs": 4001.151334000002,
+          "discoveryAtMs": 4286.408334,
+          "entryAtMs": 4690.696624999997,
+          "destinationAtMs": 4733.405208999997,
+          "completedAtMs": 4781.494124999997,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-6",
+          "actionAtMs": 5001.602250000004,
+          "discoveryAtMs": 5380.885042000002,
+          "entryAtMs": 5789.376458999999,
+          "destinationAtMs": 5831.15625,
+          "completedAtMs": 5886.562708999998,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-7",
+          "actionAtMs": 6000.742208999996,
+          "discoveryAtMs": 6454.931624999997,
+          "entryAtMs": 6877.981,
+          "destinationAtMs": 6919.647917000002,
+          "completedAtMs": 6986.974875,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-8",
+          "actionAtMs": 7001.1294169999965,
+          "discoveryAtMs": 7279.214166999998,
+          "entryAtMs": 7690.623249999997,
+          "destinationAtMs": 7734.860374999997,
+          "completedAtMs": 7785.464749999999,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        }
+      ],
+      "actionToDiscovery": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      },
+      "entryToDestination": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      },
+      "colludingRequestIdLinks": 8
+    },
+    {
+      "trial": 2,
+      "mode": "minimal-10ms-no-jitter",
+      "workload": "sparse-1000ms",
+      "traces": [
+        {
+          "action": "client-1",
+          "actionAtMs": 1.4006250000020373,
+          "discoveryAtMs": 30.597292000005837,
+          "entryAtMs": 434.8367920000019,
+          "destinationAtMs": 471.02020900000207,
+          "completedAtMs": 521.6189590000067,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-2",
+          "actionAtMs": 1002.3815840000025,
+          "discoveryAtMs": 1041.5662920000032,
+          "entryAtMs": 1490.4349590000056,
+          "destinationAtMs": 1530.9828750000015,
+          "completedAtMs": 1583.5496249999997,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-3",
+          "actionAtMs": 2001.8106670000052,
+          "discoveryAtMs": 2036.2169170000052,
+          "entryAtMs": 2433.5163750000065,
+          "destinationAtMs": 2473.1868750000067,
+          "completedAtMs": 2522.606292000004,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-4",
+          "actionAtMs": 3001.759917000003,
+          "discoveryAtMs": 3075.2996670000066,
+          "entryAtMs": 3624.1421670000054,
+          "destinationAtMs": 3667.6382920000033,
+          "completedAtMs": 3720.7085420000003,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-5",
+          "actionAtMs": 4002.228375000006,
+          "discoveryAtMs": 4040.6504170000044,
+          "entryAtMs": 4453.1387500000055,
+          "destinationAtMs": 4493.134250000003,
+          "completedAtMs": 4541.483625000001,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-6",
+          "actionAtMs": 5001.668750000004,
+          "discoveryAtMs": 5030.516000000003,
+          "entryAtMs": 5632.018459000006,
+          "destinationAtMs": 5675.661709,
+          "completedAtMs": 5738.693917000004,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-7",
+          "actionAtMs": 6001.845125,
+          "discoveryAtMs": 6034.292334000005,
+          "entryAtMs": 6436.4957920000015,
+          "destinationAtMs": 6474.262584000004,
+          "completedAtMs": 6521.911292000004,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-8",
+          "actionAtMs": 7002.143875000002,
+          "discoveryAtMs": 7044.967459000007,
+          "entryAtMs": 7468.457125000001,
+          "destinationAtMs": 7518.851084000002,
+          "completedAtMs": 7571.034167000005,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        }
+      ],
+      "actionToDiscovery": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      },
+      "entryToDestination": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      },
+      "colludingRequestIdLinks": 8
+    },
+    {
+      "trial": 3,
+      "mode": "minimal-10ms-no-jitter",
+      "workload": "sparse-1000ms",
+      "traces": [
+        {
+          "action": "client-1",
+          "actionAtMs": 1.2057090000016615,
+          "discoveryAtMs": 34.5211249999993,
+          "entryAtMs": 435.6670000000013,
+          "destinationAtMs": 473.97920899999735,
+          "completedAtMs": 520.4696249999979,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-2",
+          "actionAtMs": 1001.2553750000006,
+          "discoveryAtMs": 1035.4595840000038,
+          "entryAtMs": 1445.8424169999998,
+          "destinationAtMs": 1487.4735,
+          "completedAtMs": 1538.2044170000008,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-3",
+          "actionAtMs": 2002.1106250000012,
+          "discoveryAtMs": 2039.525625000002,
+          "entryAtMs": 2444.8417090000003,
+          "destinationAtMs": 2484.397541999999,
+          "completedAtMs": 2535.9672500000015,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-4",
+          "actionAtMs": 3002.2187919999997,
+          "discoveryAtMs": 3042.1424590000024,
+          "entryAtMs": 3443.5962500000023,
+          "destinationAtMs": 3482.6572920000035,
+          "completedAtMs": 3530.1268750000017,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-5",
+          "actionAtMs": 4000.8302919999987,
+          "discoveryAtMs": 4035.4602500000037,
+          "entryAtMs": 4429.457500000004,
+          "destinationAtMs": 4469.509624999999,
+          "completedAtMs": 4517.643209000002,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-6",
+          "actionAtMs": 5001.901834000004,
+          "discoveryAtMs": 5045.421209,
+          "entryAtMs": 5447.002584000002,
+          "destinationAtMs": 5487.684625000002,
+          "completedAtMs": 5544.590209000002,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-7",
+          "actionAtMs": 6002.307667000001,
+          "discoveryAtMs": 6042.632125000004,
+          "entryAtMs": 6443.233042,
+          "destinationAtMs": 6482.848834000004,
+          "completedAtMs": 6529.054750000003,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-8",
+          "actionAtMs": 7002.304209000002,
+          "discoveryAtMs": 7038.4571670000005,
+          "entryAtMs": 7443.210749999998,
+          "destinationAtMs": 7483.970208999999,
+          "completedAtMs": 7537.6651249999995,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        }
+      ],
+      "actionToDiscovery": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      },
+      "entryToDestination": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      },
+      "colludingRequestIdLinks": 8
+    },
+    {
+      "trial": 3,
+      "mode": "default-250ms-batch-jitter",
+      "workload": "sparse-1000ms",
+      "traces": [
+        {
+          "action": "client-1",
+          "actionAtMs": 1.1617089999999735,
+          "discoveryAtMs": 335.77345900000364,
+          "entryAtMs": 1059.1722500000033,
+          "destinationAtMs": 1098.6329590000023,
+          "completedAtMs": 1156.4017500000045,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-2",
+          "actionAtMs": 1049.4091670000053,
+          "discoveryAtMs": 1400.9824590000062,
+          "entryAtMs": 1867.9983340000035,
+          "destinationAtMs": 1905.9695420000062,
+          "completedAtMs": 1951.155958999996,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-3",
+          "actionAtMs": 2000.544584000003,
+          "discoveryAtMs": 2288.0429589999985,
+          "entryAtMs": 2699.8599590000085,
+          "destinationAtMs": 2739.0963340000017,
+          "completedAtMs": 2788.434792,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-4",
+          "actionAtMs": 3001.887917,
+          "discoveryAtMs": 3374.758541999996,
+          "entryAtMs": 3771.675417000006,
+          "destinationAtMs": 3809.1803749999963,
+          "completedAtMs": 3860.0650000000023,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-5",
+          "actionAtMs": 4001.3337089999986,
+          "discoveryAtMs": 4430.711792000002,
+          "entryAtMs": 4823.6443750000035,
+          "destinationAtMs": 4862.423042000009,
+          "completedAtMs": 4912.939459000001,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-6",
+          "actionAtMs": 5002.151209000003,
+          "discoveryAtMs": 5328.945250000004,
+          "entryAtMs": 5742.257874999996,
+          "destinationAtMs": 5777.554709000004,
+          "completedAtMs": 5824.199166999999,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-7",
+          "actionAtMs": 6001.42370900001,
+          "discoveryAtMs": 6512.352874999997,
+          "entryAtMs": 6960.510042000009,
+          "destinationAtMs": 7016.546917,
+          "completedAtMs": 7075.304791999995,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        },
+        {
+          "action": "client-8",
+          "actionAtMs": 7010.130499999999,
+          "discoveryAtMs": 7353.314874999996,
+          "entryAtMs": 7787.169500000004,
+          "destinationAtMs": 7828.378959000009,
+          "completedAtMs": 7880.869500000001,
+          "entryBytes": 15495,
+          "destinationBytes": 12120
+        }
+      ],
+      "actionToDiscovery": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      },
+      "entryToDestination": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1,
+        "randomPairingAccuracy": 0.125
+      },
+      "colludingRequestIdLinks": 8
+    }
+  ]
+}

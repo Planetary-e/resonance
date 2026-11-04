@@ -1,0 +1,56 @@
+{
+  "measuredAt": "2026-10-18T04:00:40.914Z",
+  "checkpoints": [
+    "Two actual app processes initialized and unlocked with the cached FP32 model; blinded issuance completed through authenticated APIs",
+    "Three real-text publications accepted; two offers from one account have separate publication keys and IDs",
+    "Real-text private search retrieves the complementary offer",
+    "Both applications decrypt and retain match notices; lock/unlock plus another mailbox check does not duplicate them",
+    "Protected observer history quorum loss refuses an actual app search before reserving or redeeming another token",
+    "No root account identifier, plaintext item text or spent token appears in captured network frames; distinct request bindings use distinct tokens"
+  ],
+  "model": "nomic-ai/nomic-embed-text-v1",
+  "dtype": "fp32",
+  "remoteModelDownloads": false,
+  "applicationProcesses": 2,
+  "published": 3,
+  "mailboxMatchCounts": [
+    1,
+    2
+  ],
+  "distinctRequestBindings": 10,
+  "distinctSpentTokens": 10,
+  "protectedPolicy": {
+    "observers": 5,
+    "durableHistories": 25,
+    "privateQueries": 10,
+    "issuerAndRelayFreshness": true,
+    "quorumLossRefusedBeforeSpend": true
+  },
+  "actions": {
+    "publication-write": 3,
+    "search": 1,
+    "mailbox-fetch": 4,
+    "mailbox-acknowledge": 2
+  },
+  "resources": {
+    "durationMs": 55913,
+    "websocketPayloadBytes": 2361088,
+    "parentPeakRssBytes": 418529280,
+    "applicationPeakRssBytes": [
+      2029748224,
+      1645756416
+    ],
+    "cpuSeconds": 25.549715,
+    "node": "v24.19.0",
+    "platform": "darwin",
+    "architecture": "arm64"
+  },
+  "limitations": [
+    "Local IPv4/IPv6 loopback domains on one computer; not independent operators, Internet or TLS deployment.",
+    "Actual desktop backend APIs and embeddings; no graphical user interaction or native installer is certified.",
+    "Five protected observers with 25 local durable histories, issuer/relay freshness and private wallet checks are composed here; spend-witness quorum durability and eligibility distribution remain separate.",
+    "Account/credential-field separation is not timing or content unlinkability; static fingerprints and match relationships remain observable to the destination.",
+    "Wire payload counts exclude TCP/TLS/WebSocket headers; per-process peak RSS values are not simultaneous total memory and CPU time is not energy.",
+    "Two concurrent model processes on this host; representative hardware and cold first-download experience remain unmeasured."
+  ]
+}

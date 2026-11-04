@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "run_id": "matrix-local-04-retry-2",
+  "status": "complete",
+  "post_new_view_startup_complete": true,
+  "durable_serving_readiness": true,
+  "groups": [
+    {
+      "view": 1,
+      "readiness": [
+        {
+          "role": "runtime-old-0",
+          "sequence": 1,
+          "digest": "sha256:8aaf209ea07b56f3c02e714f315d8ebfc91446d31e89284874075d3d649cfbb7"
+        },
+        {
+          "role": "runtime-old-1",
+          "sequence": 1,
+          "digest": "sha256:8aaf209ea07b56f3c02e714f315d8ebfc91446d31e89284874075d3d649cfbb7"
+        },
+        {
+          "role": "runtime-old-2",
+          "sequence": 1,
+          "digest": "sha256:8aaf209ea07b56f3c02e714f315d8ebfc91446d31e89284874075d3d649cfbb7"
+        },
+        {
+          "role": "runtime-old-3",
+          "sequence": 1,
+          "digest": "sha256:8aaf209ea07b56f3c02e714f315d8ebfc91446d31e89284874075d3d649cfbb7"
+        }
+      ]
+    },
+    {
+      "view": 1,
+      "readiness": [
+        {
+          "role": "runtime-new-0",
+          "sequence": 6,
+          "digest": "sha256:261a43bcc8952c4d895ab0a062acc2068df587244a0b58a8161cf964fea455ec"
+        },
+        {
+          "role": "runtime-new-1",
+          "sequence": 6,
+          "digest": "sha256:261a43bcc8952c4d895ab0a062acc2068df587244a0b58a8161cf964fea455ec"
+        },
+        {
+          "role": "runtime-new-2",
+          "sequence": 6,
+          "digest": "sha256:261a43bcc8952c4d895ab0a062acc2068df587244a0b58a8161cf964fea455ec"
+        },
+        {
+          "role": "runtime-new-3",
+          "sequence": 6,
+          "digest": "sha256:261a43bcc8952c4d895ab0a062acc2068df587244a0b58a8161cf964fea455ec"
+        }
+      ]
+    }
+  ]
+}

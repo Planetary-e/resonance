@@ -1,0 +1,30 @@
+{
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": {
+    "composite": false,
+    "incremental": false,
+    "noEmit": true,
+    "rootDir": "../../..",
+    "baseUrl": "../../..",
+    "paths": {
+      "@resonance/core": [
+        "packages/core/src/index.ts"
+      ],
+      "@resonance/core/*": [
+        "packages/core/src/*"
+      ],
+      "@resonance/relay": [
+        "packages/relay/src/index.ts"
+      ],
+      "@resonance/relay/*": [
+        "packages/relay/src/*"
+      ]
+    }
+  },
+  "references": [],
+  "include": [
+    "../../../packages/core/src/**/*",
+    "../../../packages/relay/src/**/*",
+    "../../../packages/node/src/**/*"
+  ]
+}

@@ -1,0 +1,200 @@
+{
+  "scope": "Changed/new documentation and selected evidence; excludes this self-referential manifest. Source identity is separately defined.",
+  "paths": [
+    {
+      "path": "AGENTS.md",
+      "bytes": 9581,
+      "sha256": "5d9b4d3daa7668bc93b7b099aa13619476d7ef86282a3c39ed671a7031367184"
+    },
+    {
+      "path": "HANDOVER.md",
+      "bytes": 11262,
+      "sha256": "850e73e071d57411fb4545356711d15c1243451c1247af0a666b10ce74d024c5"
+    },
+    {
+      "path": "README.md",
+      "bytes": 33012,
+      "sha256": "9a1bf280079f013d4eed643ae84e3eaecf572ca8cdfdadc0c0567869abf68ba5"
+    },
+    {
+      "path": "ROADMAP.md",
+      "bytes": 96453,
+      "sha256": "d0c46759b9b499386ff817b58c4b121bd81957fb3a744b44d2a43489372e20aa"
+    },
+    {
+      "path": "docs/developers/README.md",
+      "bytes": 1274,
+      "sha256": "b83fc76113b84db0430f5e68785cd2d76849b6a32fdaf5a23b028aacef58abe1"
+    },
+    {
+      "path": "docs/developers/architecture.html",
+      "bytes": 18498,
+      "sha256": "8147fd8252b36275031761e718d2800f5894a5721891d0fd807652f383250ddf"
+    },
+    {
+      "path": "docs/developers/contributing.html",
+      "bytes": 16029,
+      "sha256": "bec3eee0ccb60d51cc1de32cf21ceab84844196b29527b7314fdafabcb4b8cfa"
+    },
+    {
+      "path": "docs/developers/v0.4-acceptance-kpis.md",
+      "bytes": 19586,
+      "sha256": "c3534a34230dcafa7d0af66b9d1e2d4c1fc137f50458c7abc7aa60fbde87121f"
+    },
+    {
+      "path": "docs/developers/v0.4-architecture-reassessment-2026-10-23.md",
+      "bytes": 21288,
+      "sha256": "405b3f7cdc0e1dcb73fe8ca05e2909a74901bcb145ba5a82933e4f7eead9eb3c"
+    },
+    {
+      "path": "docs/developers/v0.4-completion-plan.md",
+      "bytes": 4561,
+      "sha256": "39039c252b406a4d0708ed2ddffe32447cf1fbb37cb3e036d2e09113a63a8553"
+    },
+    {
+      "path": "docs/developers/v0.4-execution-roadmap.md",
+      "bytes": 7481,
+      "sha256": "dbb3f0d8fb55be28787ececdd88a15c0ab8f1c7a51610d7d713ea4d245843ebf"
+    },
+    {
+      "path": "docs/developers/v0.4-recovery-resource-budget.md",
+      "bytes": 24305,
+      "sha256": "5fbc36c09604c002d4e579754710d26edabc5200eb66b0929d497dc10a42b12d"
+    },
+    {
+      "path": "docs/developers/v0.4-sustainable-recovery-design.md",
+      "bytes": 31452,
+      "sha256": "1e2b0584b1ee555a6dc97d8112b1a0aec3b45097dae4720599b0e8e8147721ff"
+    },
+    {
+      "path": "docs/evals/v04-sustainable-recovery-implementation-2026-10-23.md",
+      "bytes": 22839,
+      "sha256": "35d9bbd93169ffa3fb4c8d28a21009d1872128d356c460f710696b2a50e2a695"
+    },
+    {
+      "path": "docs/handover/2026-10-24/README.md",
+      "bytes": 3796,
+      "sha256": "2b3075bc9b7b7208ce17f03bfc117549bef081dd90d3408ed97cdcd4d95d501d"
+    },
+    {
+      "path": "docs/handover/2026-10-24/REVIEW.md",
+      "bytes": 2085,
+      "sha256": "da042f04f36ea2ceb4414eb050dddf0a78d737f9ac4ba616292ab8e5d4d43553"
+    },
+    {
+      "path": "docs/handover/2026-10-24/archive-hashes.json",
+      "bytes": 350,
+      "sha256": "2501f285cb60b81f9b7cf6f2eb7fceaec8588a33363db61deb9595febcadacba"
+    },
+    {
+      "path": "docs/handover/2026-10-24/closing-path-hashes.json",
+      "bytes": 2382,
+      "sha256": "c173e8ddc5624ff7fd4f90fb1ad0f0f546f7f5f4e0523e9705d1a1345e45df48"
+    },
+    {
+      "path": "docs/handover/2026-10-24/completion-plan-before-handover.md",
+      "bytes": 318340,
+      "sha256": "2a34cce9e03b0b6cb6267a2d02c93a29e96915221c4de36fbd155647a90a0fef"
+    },
+    {
+      "path": "docs/handover/2026-10-24/composed-unreviewed.log",
+      "bytes": 249,
+      "sha256": "83243d7b44f987aecfb89fdf6ebbaa14c9bac2fc7f8c67f8336a36725d8064d4"
+    },
+    {
+      "path": "docs/handover/2026-10-24/correction.patch",
+      "bytes": 93152,
+      "sha256": "3bbdae719d43dac2cb32d4e4a64d3adfef8a9b7d4c958416561be1fe7f2b4602"
+    },
+    {
+      "path": "docs/handover/2026-10-24/evidence-hashes.json",
+      "bytes": 4511,
+      "sha256": "8c0d42435bbb4fb6cbcd0d590fceebfd2dba84d677fc23a9b6673559305bb866"
+    },
+    {
+      "path": "docs/handover/2026-10-24/execution-roadmap-before-handover.md",
+      "bytes": 16701,
+      "sha256": "d0dcdbdb5c729b75e8fe0ec8730f9a16d259da05e7511ea2c6192ffc08a60578"
+    },
+    {
+      "path": "docs/handover/2026-10-24/final-path-hashes.json",
+      "bytes": 2196,
+      "sha256": "f994a1484c6925c0586906cd6ef72100619453a485ce7805445a2e93f0842371"
+    },
+    {
+      "path": "docs/handover/2026-10-24/frozen-focused.log",
+      "bytes": 249,
+      "sha256": "fc84f6fbe02957f9d3de3e6dd2466acacba380120030d740434de1965cde5bb5"
+    },
+    {
+      "path": "docs/handover/2026-10-24/handover-changed-paths.txt",
+      "bytes": 1751,
+      "sha256": "9fad2ace474d17ce9df699494b8985cd3d16f147018ce32f54daf350b5c07f2a"
+    },
+    {
+      "path": "docs/handover/2026-10-24/historical-equivocation-regression-receipt.json",
+      "bytes": 2912,
+      "sha256": "1f191a2fd7ee07b2e8d9306171a15e4b9a6a2e793e01295f8e3d8bc7b6288788"
+    },
+    {
+      "path": "docs/handover/2026-10-24/historical-equivocation-regression.log",
+      "bytes": 1815,
+      "sha256": "1fc893bc601abc9965897c7bd4fc280ddac9760ffedd0b44ddd26426a3eae92b"
+    },
+    {
+      "path": "docs/handover/2026-10-24/historical-vertical-final-diagnostic.log",
+      "bytes": 2017,
+      "sha256": "4f4309086c7d7396e7fa8ca4525ba38bf4ba433572fda0df00f8e314a82522d9"
+    },
+    {
+      "path": "docs/handover/2026-10-24/local-git-status.txt",
+      "bytes": 5997,
+      "sha256": "cde90362c9f22ab39402fb7cb4368fc3b7185a15b54063074f890486ed91c589"
+    },
+    {
+      "path": "docs/handover/2026-10-24/portable-source-showconfig.json",
+      "bytes": 52861,
+      "sha256": "1b3b5f3d01b9e55db0568794fdfe29e5264a0d3b96e02417e6ffd253ba769254"
+    },
+    {
+      "path": "docs/handover/2026-10-24/portable-typecheck-validation.json",
+      "bytes": 739,
+      "sha256": "221353e1fbd2c3dad89c24b42d08e38c0b65ac953e584e8c7166e404832634d0"
+    },
+    {
+      "path": "docs/handover/2026-10-24/result.json",
+      "bytes": 531,
+      "sha256": "e514c9a5c8c797ca9ed021a7d6d68eded3df0d585cd9f0da66bca36d4ed17de4"
+    },
+    {
+      "path": "docs/handover/2026-10-24/review-candidate-hashes.json",
+      "bytes": 1649,
+      "sha256": "210db54e90bc699f351553bf4ce435c131d0d57e4beb337c7c19d8ddf65189bc"
+    },
+    {
+      "path": "docs/handover/2026-10-24/source-identity.json",
+      "bytes": 175712,
+      "sha256": "973d85aab5fbd0961f0964a21e6e27c536c12e3ce5aa59a74ff4ceae11fc393e"
+    },
+    {
+      "path": "docs/handover/2026-10-24/source-tsc-final.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "docs/handover/2026-10-24/source-tsconfig.json",
+      "bytes": 657,
+      "sha256": "601e905ca58ad6532699ea4623ca7c2969cd99ed99e1e33d5967ba5c2aa44fb2"
+    },
+    {
+      "path": "docs/handover/2026-10-24/validation.json",
+      "bytes": 989,
+      "sha256": "7105d9f97444d583ef92b3bef30d823c591e282a8ecd4bca59a7585fcd63b1f1"
+    },
+    {
+      "path": "docs/index.html",
+      "bytes": 13467,
+      "sha256": "82f5fe760ef28d8a711df58ac1b4b676dde3b33bc5a315861874ee6d8050e437"
+    }
+  ]
+}

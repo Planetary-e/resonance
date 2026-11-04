@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "authorization_id": "DEC-010",
+  "command": "node scripts/rso5-production-baseline.mjs",
+  "started_at": "2026-10-30T15:33:17.033Z",
+  "failed_at": "2026-10-30T16:38:40.664Z",
+  "completed": [
+    {
+      "run_id": "idle-production-baseline",
+      "scenario": "full-smoke",
+      "outcome": "passed",
+      "workers": 52,
+      "clean_stops": 52,
+      "messages": 459,
+      "frame_bytes": 5201400
+    }
+  ],
+  "error": "Maximum call stack size exceeded",
+  "matrix_runs_executed": 0,
+  "sustained_windows_executed": false,
+  "acceptance_evaluation": "not_run"
+}

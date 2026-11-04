@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "run_id": "dec11-finalization-smoke",
+  "scenario": "full-smoke",
+  "outcome": "passed",
+  "diagnostic_only": true,
+  "source_manifest": "delivery/results/econ-dec11-baseline-manifest.json",
+  "workers": 52,
+  "clean_stops": 52,
+  "window": {
+    "runId": "dec11-finalization-smoke",
+    "seed": "0xE007B011",
+    "kind": "sustained",
+    "durationMs": 1000,
+    "warmupMs": 100,
+    "cooldownMs": 100,
+    "phases": [
+      {
+        "phase": "warmup",
+        "at": "2026-10-31T06:40:24.159Z",
+        "monotonic_ms": 25027.766333
+      },
+      {
+        "phase": "baseline",
+        "at": "2026-10-31T06:41:06.150Z",
+        "monotonic_ms": 67019.123625
+      },
+      {
+        "phase": "cooldown",
+        "at": "2026-10-31T06:41:07.327Z",
+        "monotonic_ms": 68195.978
+      }
+    ],
+    "sustained_operations": {
+      "reads": 12,
+      "retries": 24
+    }
+  },
+  "predecessor_runtime_and_replicas_stopped_before_recovery": true,
+  "recovered_proofs": 164,
+  "post_new_view_startup_groups": 2,
+  "post_new_view_durable_readiness": true,
+  "logical_process_held_copy_audits": 164,
+  "copy_model": "logical process-held copies; not physical devices or crash-durability proof",
+  "exact_traffic_accounting": true,
+  "private_leakage_detected": false,
+  "work_bytes_separate_metric": 705594043,
+  "energy": "blocked",
+  "network_scope": "loopback_only",
+  "E2": "blocked",
+  "acceptance_evaluation": "not_run",
+  "failure_error": null
+}

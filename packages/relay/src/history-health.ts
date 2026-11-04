@@ -1,0 +1,94 @@
+/** Local aggregate telemetry. None of these observations establishes a live quorum. */
+export interface HistoryOwnerHealth {
+  initialized: boolean; busy: boolean; pending: boolean;
+  retainedBlocks: number; retainedCiphertextBytes: number;
+  maximumBlocks: number; maximumCiphertextBytes: number;
+}
+export interface PolicyObserverHealth extends Omit<HistoryOwnerHealth, 'initialized' | 'busy'> {
+  listening: boolean; policyCurrent: boolean; blocked: boolean; fenced: boolean;
+}
+export interface HistoryVolunteerHealth {
+  /** Omitted by older single-history runtimes. Collection limits are sums. */
+  histories?: number;
+  generations: number; maximumGenerations: number;
+  retainedBlocks: number; stagedBlocks: number; retainedCiphertextBytes: number;
+  manifestReserveBytes: number; reservedBytes: number;
+  currentGenerationReservedBytes: number; currentGenerationBlocks: number;
+  maximumGenerationBytes: number; maximumGenerationBlocks: number; maximumAncestryBytes: number;
+}
+export interface HistoryTransportHealth {
+  /** A configured in-process route; it does not establish current durability. */
+  configuredLocalMembers?: number;
+  configuredMembers: number; connectedDirectMembers: number;
+  configuredOwnerBridges: number; connectedOwnerBridges: number;
+  configuredBridgeRoutes: number; connectedBridgeTargets: number;
+  configuredControllers: number; connectedControllers: number;
+  operations: number; maximumOperations: number; bufferBytes: number; maximumBufferBytes: number;
+}
+export type HistoryRoleHealth<T> = { state: 'available'; usage: T } | { state: 'starting' | 'unavailable' };
+export interface RelayHistoryHealth {
+  observer?: HistoryRoleHealth<PolicyObserverHealth> | null;
+  owner: HistoryRoleHealth<HistoryOwnerHealth> | null;
+  volunteer: HistoryRoleHealth<HistoryVolunteerHealth> | null;
+  transport: HistoryRoleHealth<HistoryTransportHealth> | null;
+}
+function observe<T>(configured: boolean, read?: () => T): HistoryRoleHealth<T> | null {
+  if (!configured) return null;
+  if (!read) return { state: 'starting' };
+  try { return { state: 'available', usage: read() }; }
+  catch { return { state: 'unavailable' }; }
+}
+/** Never return errors, pins, roots, payloads, keys, request bindings or peer lists. */
+export function readRelayHistoryHealth(options: {
+  ownerConfigured: boolean; owner?: () => HistoryOwnerHealth;
+  observerConfigured?: boolean; observer?: () => PolicyObserverHealth;
+  volunteer?: () => HistoryVolunteerHealth; transport?: () => HistoryTransportHealth;
+}): RelayHistoryHealth {
+  return parseRelayHistoryHealth({ ...(options.observerConfigured ? { observer: observe(true, options.observer) } : {}),
+    owner: observe(options.ownerConfigured, options.owner), volunteer: observe(!!options.volunteer, options.volunteer),
+    transport: observe(!!options.transport, options.transport) })!;
+}
+
+/** Project an untrusted stats response onto the public aggregate fields only. */
+export function parseRelayHistoryHealth(value: unknown): RelayHistoryHealth | null {
+  const object = (raw: unknown): raw is Record<string, unknown> => !!raw && typeof raw === 'object' && !Array.isArray(raw);
+  if (!object(value)) return null;
+  function role<T>(raw: unknown, numbers: string[], booleans: string[] = []): HistoryRoleHealth<T> | null {
+    if (raw === null) return null;
+    if (!object(raw)) return { state: 'unavailable' };
+    if (raw.state === 'starting' || raw.state === 'unavailable') return { state: raw.state };
+    if (raw.state !== 'available' || !object(raw.usage)) return { state: 'unavailable' };
+    const usage: Record<string, number | boolean> = {};
+    for (const key of numbers) {
+      const n = raw.usage[key];
+      if (typeof n !== 'number' || !Number.isSafeInteger(n) || n < 0) return { state: 'unavailable' };
+      usage[key] = n;
+    }
+    for (const key of booleans) {
+      const b = raw.usage[key]; if (typeof b !== 'boolean') return { state: 'unavailable' }; usage[key] = b;
+    }
+    return { state: 'available', usage: usage as T };
+  }
+  let volunteer = role<HistoryVolunteerHealth>(value.volunteer, ['generations', 'maximumGenerations', 'retainedBlocks', 'stagedBlocks', 'retainedCiphertextBytes',
+    'manifestReserveBytes', 'reservedBytes', 'currentGenerationReservedBytes', 'currentGenerationBlocks', 'maximumGenerationBytes', 'maximumGenerationBlocks', 'maximumAncestryBytes']);
+  if (volunteer?.state === 'available' && object(value.volunteer) && object(value.volunteer.usage) && Object.hasOwn(value.volunteer.usage, 'histories')) {
+    const count = value.volunteer.usage.histories;
+    if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 1 || count > 8) volunteer = { state: 'unavailable' };
+    else volunteer.usage.histories = count;
+  }
+  let transport = role<HistoryTransportHealth>(value.transport, ['configuredMembers', 'connectedDirectMembers', 'configuredOwnerBridges', 'connectedOwnerBridges',
+    'configuredBridgeRoutes', 'connectedBridgeTargets', 'configuredControllers', 'connectedControllers', 'operations', 'maximumOperations', 'bufferBytes', 'maximumBufferBytes']);
+  if (transport?.state === 'available' && object(value.transport) && object(value.transport.usage) && Object.hasOwn(value.transport.usage, 'configuredLocalMembers')) {
+    const count = value.transport.usage.configuredLocalMembers;
+    if (count !== 1 || transport.usage.configuredMembers < count) transport = { state: 'unavailable' };
+    else transport.usage.configuredLocalMembers = count;
+  }
+  return {
+    ...(Object.hasOwn(value, 'observer') ? { observer: role<PolicyObserverHealth>(value.observer,
+      ['retainedBlocks', 'retainedCiphertextBytes', 'maximumBlocks', 'maximumCiphertextBytes'],
+      ['pending', 'listening', 'policyCurrent', 'blocked', 'fenced']) } : {}),
+    owner: role(value.owner, ['retainedBlocks', 'retainedCiphertextBytes', 'maximumBlocks', 'maximumCiphertextBytes'], ['initialized', 'busy', 'pending']),
+    volunteer,
+    transport,
+  };
+}

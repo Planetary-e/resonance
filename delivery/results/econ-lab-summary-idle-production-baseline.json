@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "run_id": "idle-production-baseline",
+  "scenario": "full-smoke",
+  "outcome": "passed",
+  "diagnostic_only": true,
+  "source_manifest": "delivery/results/econ-production-baseline-manifest.json",
+  "workers": 52,
+  "clean_stops": 52,
+  "window": {
+    "run_id": "idle-production-baseline",
+    "scenario": "full-smoke",
+    "seed": "0xE007B001",
+    "kind": "idle",
+    "duration_ms": 1800000,
+    "warmup_ms": 60000,
+    "cooldown_ms": 60000,
+    "runId": "idle-production-baseline",
+    "durationMs": 1800000,
+    "warmupMs": 60000,
+    "cooldownMs": 60000,
+    "phases": [
+      {
+        "phase": "warmup",
+        "at": "2026-10-30T15:33:39.825Z",
+        "monotonic_ms": 23338.361833
+      },
+      {
+        "phase": "baseline",
+        "at": "2026-10-30T15:34:39.827Z",
+        "monotonic_ms": 83340.4185
+      },
+      {
+        "phase": "cooldown",
+        "at": "2026-10-30T16:04:39.827Z",
+        "monotonic_ms": 1883350.998708
+      }
+    ],
+    "sustained_operations": {
+      "reads": 0,
+      "retries": 0
+    }
+  },
+  "predecessor_runtime_and_replicas_stopped_before_recovery": true,
+  "recovered_proofs": 0,
+  "post_new_view_startup_groups": 0,
+  "post_new_view_durable_readiness": null,
+  "logical_process_held_copy_audits": 0,
+  "copy_model": "logical process-held copies; not physical devices or crash-durability proof",
+  "exact_traffic_accounting": true,
+  "private_leakage_detected": false,
+  "work_bytes_separate_metric": 384324,
+  "energy": "blocked",
+  "network_scope": "loopback_only",
+  "E2": "blocked",
+  "acceptance_evaluation": "not_run",
+  "failure_error": null
+}
