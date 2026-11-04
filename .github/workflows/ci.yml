@@ -249,6 +249,54 @@ jobs:
           packages/node/src/__tests__/private-policy-proof.integration.test.ts
           packages/app/src/server/__tests__/relay-loader-path.test.ts
 
+  rso5-baseline-windows:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npx vitest run --maxWorkers=1 packages/relay/src/__tests__/sustainable-rso5-baseline-windows.integration.test.ts
+
+  rso5-dec11-baseline:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npx vitest run --maxWorkers=1 packages/relay/src/__tests__/sustainable-rso5-dec11-baseline.integration.test.ts
+
+  rso5-production-baseline:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npx vitest run --maxWorkers=1 packages/relay/src/__tests__/sustainable-rso5-production-baseline.integration.test.ts
+
+  rso5-matrix:
+    runs-on: macos-latest
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npx vitest run --maxWorkers=1 packages/relay/src/__tests__/sustainable-rso5-matrix-execution.integration.test.ts
+
   test:
     runs-on: macos-latest
 
@@ -270,7 +318,13 @@ jobs:
         run: npm run build
 
       - name: Run tests
-        run: npx vitest run --maxWorkers=1 --exclude packages/relay/src/__tests__/policy-observer-65-rotations.integration.test.ts
+        run: >-
+          npx vitest run --maxWorkers=1
+          --exclude packages/relay/src/__tests__/policy-observer-65-rotations.integration.test.ts
+          --exclude packages/relay/src/__tests__/sustainable-rso5-baseline-windows.integration.test.ts
+          --exclude packages/relay/src/__tests__/sustainable-rso5-dec11-baseline.integration.test.ts
+          --exclude packages/relay/src/__tests__/sustainable-rso5-production-baseline.integration.test.ts
+          --exclude packages/relay/src/__tests__/sustainable-rso5-matrix-execution.integration.test.ts
 
       - name: Report owner-loss collection timing
         if: always()
