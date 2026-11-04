@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "authorization_id": "DEC-011",
+  "status": "diagnostic_evidence_complete",
+  "baseline_artifact": "delivery/results/econ-dec11-baseline-baseline.json",
+  "dec010_blocked_artifact": "delivery/results/econ-production-baseline-baseline.json",
+  "unified_matrix_artifact": "delivery/results/econ-unified-baseline-final.json",
+  "independent_budget_review": "may_proceed",
+  "required_analysis": [
+    "mandatory measured maxima",
+    "complete failure history",
+    "uncertainty margins",
+    "owner prices/budget/value"
+  ],
+  "revised_budget_approval": "pending_separate_owner_approval",
+  "E2": "blocked",
+  "E2_reasons": [
+    "Physical power blocked"
+  ],
+  "E3": "pending_separate_owner_authorization",
+  "D4": "prototype-only",
+  "economic_affordability": "pending",
+  "production_approval": "not_granted",
+  "deployment": "not_run",
+  "acceptance_evaluation": "not_run"
+}

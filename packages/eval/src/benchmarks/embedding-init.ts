@@ -4,7 +4,9 @@ import { timeAsync } from '../utils.js';
 /** Benchmark: model initialization / bootstrap time. Target: <30s */
 export async function benchmarkEmbeddingInit(): Promise<BenchmarkResult> {
   const engine = new EmbeddingEngine();
-  const { durationMs } = await timeAsync(() => engine.initialize());
+  let durationMs: number;
+  try { ({ durationMs } = await timeAsync(() => engine.initialize())); }
+  finally { await engine.dispose(); }
   const seconds = durationMs / 1000;
 
   return {

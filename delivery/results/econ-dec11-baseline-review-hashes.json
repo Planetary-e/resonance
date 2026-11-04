@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "authorization_id": "DEC-011",
+  "hashes": {
+    "delivery/results/econ-dec11-baseline-hashes.json": "sha256:5e236a28241c0fe35f3581c3116b3be9e28064c00ec2c828d8bd309a9e2d950a",
+    "docs/evals/v04-dec11-full-warmup-baseline-2026-10-31.md": "sha256:6b2590a449e3eb96778bf5efb460e7bf886b5931390e9acf8b7f2ce4f21ba61a",
+    "scripts/rso5-dec11-baseline-receipt.mjs": "sha256:db63c178df6e5b05fbfe9755a1c1e2b4654f5f7d121c8585867bd6b7014dc106"
+  }
+}

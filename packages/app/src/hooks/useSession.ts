@@ -14,7 +14,7 @@ export interface UseSession {
   token: string | null;
   refresh: () => Promise<StatusResponse | null>;
   unlock: (password: string) => Promise<{ error?: string; token?: string }>;
-  init: (password: string) => Promise<{ error?: string }>;
+  init: (password: string) => Promise<{ error?: string; token?: string }>;
   lock: () => Promise<void>;
 }
 
@@ -42,7 +42,7 @@ export function useSession(): UseSession {
       setAuthToken(unlockResult.token);
     }
     await refresh();
-    return {};
+    return { token: unlockResult.token };
   }, [refresh]);
 
   const unlockFn = useCallback(async (password: string) => {
@@ -60,7 +60,10 @@ export function useSession(): UseSession {
     await lockApi();
     setAuthToken(null);
     setToken(null);
-    setStatus(null);
+    // Locking does not remove the identity. Keep that fact so Login offers Unlock,
+    // while removing information from the previously unlocked session.
+    setStatus(previous => previous ? { ...previous, unlocked: false, did: null,
+      relayConnected: false, relayActivity: 'not-checked', items: 0, matches: 0 } : null);
   }, []);
 
   return {

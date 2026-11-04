@@ -1,0 +1,147 @@
+/** Lazy, explicitly pinned outbound transport for reviewed operator workflows.
+ * Offline review/status never opens a connection or reads an infrastructure key. */
+import { dirname, resolve } from 'node:path';
+import { createRelayDescriptorV1, type Identity } from '@resonance/core';
+import { exactWitnessFields } from '@resonance/core/admission-witness';
+import type { HistoryCheckpointContext } from '@resonance/core/history-checkpoint';
+import type { HistoryCheckpointTransport } from './history-checkpoint-exchange.js';
+import type { AdmissionHistoryProtection } from './protected-admission-history.js';
+import { exchangeHistoryAgreement, exchangeHistoryAgreementData, exchangeHistoryProvision, exchangeHistoryCompaction, exchangeHistoryCompactionControl, exchangeHistoryFrontier } from './history-agreement-exchange.js';
+import { exchangeHistoryCheckpoint } from './history-checkpoint-exchange.js';
+import type { HistoryAgreementTransport, HistoryAgreementDataTransport, HistoryProvisionTransport, HistoryCompactionTransport, HistoryCompactionControlTransport, HistoryFrontierTransport } from './history-agreement-exchange.js';
+import { readOperatorJson } from './admission-operator-files.js';
+import { readAdmissionHistoryLinksFile } from './admission-history-config.js';
+import { parseHistoryBridgeContact } from './history-bridge-config.js';
+import { isHistoryRelayId } from './history-relay-bridge.js';
+import { HistoryRelayRouter } from './history-relay-router.js';
+import { RelayLinkManager, type RelayLinkManagerEvent } from './relay-link-client.js';
+import { loadExistingRelayIdentity } from './relay-identity-store.js';
+import { readRelayIdentityPassphrase } from './relay-identity-config.js';
+
+/** Exact local messages only: never copy peer-controlled text into diagnostics. */
+export function historyOperatorConnectionDetail(error: string) {
+  const message = error.startsWith('Error: ') ? error.slice(7) : error;
+  switch (message) {
+    case 'Invalid or expired relay link challenge': return 'challenge-invalid-or-expired';
+    case 'Relay link acceptance is invalid or inactive': return 'acceptance-invalid-or-inactive';
+    case 'Relay link responder does not match the pinned relay identity': return 'identity-pin-mismatch';
+    case 'Relay link responder descriptor does not bind the contacted endpoint': return 'endpoint-binding-mismatch';
+    case 'Relay link acceptance must be UTF-8 JSON': return 'acceptance-encoding';
+    case 'Invalid relay link acceptance frame': return 'acceptance-frame';
+    case 'Relay link handshake send failed': return 'handshake-send';
+    default: return 'unspecified';
+  }
+}
+
+export function readHistoryOperatorTransportFile(path: string, context: HistoryCheckpointContext) {
+  const value = readOperatorJson(path, 64 * 1024);
+  if (!exactWitnessFields(value, ['version', 'identityDirectory', 'identityPassphraseFile', 'expectedRelayId', 'linksFile', 'contacts', 'deadlineMs'])
+    || value.version !== 1 || !isHistoryRelayId(value.expectedRelayId)
+    || !Number.isSafeInteger(value.deadlineMs) || (value.deadlineMs as number) < 100 || (value.deadlineMs as number) > 300000
+    || !Array.isArray(value.contacts) || value.contacts.length > 5) throw new Error('Invalid operator history transport configuration');
+  const file = (raw: unknown) => {
+    if (typeof raw !== 'string' || !raw.length || raw.length > 4096 || /[\x00-\x1f\x7f]/.test(raw)) throw new Error('Invalid operator transport file path');
+    return resolve(dirname(resolve(path)), raw);
+  };
+  const identityDirectory = file(value.identityDirectory), identityPassphraseFile = file(value.identityPassphraseFile);
+  const links = readAdmissionHistoryLinksFile(file(value.linksFile), context);
+  const supplied = value.contacts.map(parseHistoryBridgeContact);
+  // Bridge endpoints come only from the separately pinned links file. Direct
+  // operation needs a reachable, pinned contact for every member; no listener.
+  const targets = links.contacts.length ? links.contacts : supplied;
+  if ((links.contacts.length && supplied.length) || (!links.contacts.length && supplied.length !== 5)
+    || new Set(targets.map(t => t.endpoint)).size !== targets.length
+    || new Set(targets.map(t => t.expectedRelayId)).size !== targets.length
+    || (!links.contacts.length && supplied.some(t => !links.members.some(m => m.relayId === t.expectedRelayId)))
+    || links.members.some(m => m.relayId === value.expectedRelayId)
+    || targets.some(t => t.expectedRelayId === value.expectedRelayId)) throw new Error('Operator transport contacts do not match the retained routing pins');
+  return { identityDirectory, identityPassphraseFile, expectedRelayId: value.expectedRelayId,
+    deadlineMs: value.deadlineMs as number, members: links.members, targets };
+}
+
+export function createHistoryOperatorTransport(protection: AdmissionHistoryProtection, path: string | undefined, signal?: AbortSignal) {
+  return createPinnedHistoryOperatorTransport(protection, path, signal);
+}
+export function createPinnedHistoryOperatorTransport<P extends { context: HistoryCheckpointContext; transport?: HistoryCheckpointTransport }>(protection: P, path: string | undefined, signal?: AbortSignal) {
+  // Parsing is offline. A supplied but invalid file must never select direct fallback.
+  const config = path === undefined ? undefined : readHistoryOperatorTransportFile(path, protection.context);
+  let router: HistoryRelayRouter | undefined, manager: RelayLinkManager | undefined, identity: Identity | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined, closed = false;
+  // Only finite metadata is retained. Peer-provided text, identities and routing
+  // pins must never enter the command's connection diagnostic.
+  let started: number | undefined;
+  let stage: 'identity' | 'connecting' | 'connected' = 'identity';
+  let failure: 'none' | 'identity' | 'rejected' | 'timeout' | 'cancelled' | 'connection' | 'protocol' | 'other' = 'none';
+  let detail: ReturnType<typeof historyOperatorConnectionDetail> = 'unspecified';
+  let failures = 0;
+  function connectionEvent(event: RelayLinkManagerEvent) {
+    if (closed) return;
+    if (event.kind === 'connected') { stage = 'connected'; return; }
+    failures = Math.min(1_000_000, failures + 1);
+    const error = event.error ?? '';
+    detail = historyOperatorConnectionDetail(error);
+    failure = /^Error: Relay link closed before acceptance \(4\d{3}:/.test(error) ? 'rejected'
+      : /timed out|\bETIMEDOUT\b/.test(error) ? 'timeout'
+      : /cancelled/.test(error) ? 'cancelled'
+      : /\b(?:ECONNREFUSED|ECONNRESET|ENOTFOUND|EHOSTUNREACH)\b|closed before acceptance/.test(error) ? 'connection'
+      : /Invalid relay link/.test(error) ? 'protocol' : 'other';
+  }
+  function commandFailure(error: unknown) {
+    if (!config || started === undefined) return error;
+    const diagnostic = { stage, failure, detail, failures, elapsedMs: Math.min(300_000, Math.max(0, Math.round(performance.now() - started))) };
+    return new Error(`${error instanceof Error ? error.message : 'Operator history command failed'}; operator connection: ${JSON.stringify(diagnostic)}`, { cause: error });
+  }
+  const lifetime = new AbortController();
+  function close() {
+    if (closed) return; closed = true;
+    signal?.removeEventListener('abort', close);
+    if (timer) clearTimeout(timer);
+    router?.close(); lifetime.abort(); manager?.stop(); identity?.secretKey.fill(0);
+  }
+  signal?.addEventListener('abort', close, { once: true });
+  if (signal?.aborted) close();
+  function combined(request: AbortSignal) {
+    const joined = AbortSignal.any([request, lifetime.signal]);
+    if (joined.aborted) throw new Error('Operator history request cancelled');
+    return joined;
+  }
+  function session(signal: AbortSignal) {
+    if (signal.aborted) throw new Error('Operator history request cancelled');
+    if (closed || !config) throw new Error('Operator history transport is unavailable');
+    if (router) return router;
+    try {
+      started = performance.now();
+      identity = loadExistingRelayIdentity(config.identityDirectory, readRelayIdentityPassphrase(undefined, config.identityPassphraseFile)!);
+      if (identity.did !== config.expectedRelayId) throw new Error('Operator infrastructure identity does not match its retained pin');
+      router = new HistoryRelayRouter({ members: config.members, waitForConnection: true, serializeRequests: true });
+      stage = 'connecting';
+      let sequence = Date.now();
+      manager = new RelayLinkManager(identity, () => {
+        const now = Date.now(); sequence = Math.max(sequence + 1, now);
+        return createRelayDescriptorV1({ sequence, issuedAt: now, expiresAt: now + 120000,
+          reachability: 'outbound-only', endpoints: [], supportedGroups: [],
+          capabilities: { storesPublications: false, storesMailboxes: false, answersQueries: false, forwardsQueries: false, replicaExchange: false },
+          storage: { capacityBytes: 0, availableBytes: 0 } }, identity!);
+      }, { targets: config.targets, maxConnections: 5, historyLinks: router, signal: lifetime.signal,
+        handshakeTimeoutMs: Math.min(15000, config.deadlineMs), reconnectBaseMs: 250, reconnectMaxMs: 1000, onEvent: connectionEvent });
+      timer = setTimeout(() => { if (failure === 'none') failure = 'timeout'; close(); }, config.deadlineMs); manager.start();
+      return router;
+    } catch (error) { failure = stage === 'identity' ? 'identity' : 'other'; close(); throw error; }
+  }
+  const agreementTransport: HistoryAgreementTransport = (member, frame, signal) => config ? session(signal).agreement(member, frame, combined(signal)) : exchangeHistoryAgreement(member, frame, combined(signal));
+  const dataTransport: HistoryAgreementDataTransport = (member, frame, signal) => config ? session(signal).transfer(member, frame, combined(signal)) : exchangeHistoryAgreementData(member, frame, combined(signal));
+  const provisionTransport: HistoryProvisionTransport = (member, frame, signal) => config ? session(signal).provision(member, frame, combined(signal)) : exchangeHistoryProvision(member, frame, combined(signal));
+  const compactionTransport: HistoryCompactionTransport = (member, frame, signal) => config ? session(signal).compaction(member, frame, combined(signal)) : exchangeHistoryCompaction(member, frame, combined(signal));
+  const compactionControlTransport: HistoryCompactionControlTransport = (member, frame, signal) => config ? session(signal).compactionControl(member, frame, combined(signal)) : exchangeHistoryCompactionControl(member, frame, combined(signal));
+  const frontierTransport: HistoryFrontierTransport = (member, request, signal) => config ? session(signal).frontier(member, request, combined(signal)) : exchangeHistoryFrontier(member, request, combined(signal));
+  return {
+    // Explicit finite maintenance may include identity opening, a cold relay
+    // handshake and durable root repair. Personal observations keep their own
+    // short challenge window; this allowance is only for operator commands.
+    maintenanceTimeoutMs: config ? Math.min(30000, config.deadlineMs) : undefined,
+    protection: { ...protection, transport: ((member, frame, signal) => config
+      ? session(signal).checkpoint(member, frame, combined(signal))
+      : (protection.transport ?? exchangeHistoryCheckpoint)(member, frame, combined(signal))) as HistoryCheckpointTransport } as Omit<P, 'transport'> & { transport: HistoryCheckpointTransport },
+    agreementTransport, dataTransport, provisionTransport, compactionTransport, compactionControlTransport, frontierTransport, close, failure: commandFailure,
+  };
+}

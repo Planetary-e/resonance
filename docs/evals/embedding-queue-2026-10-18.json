@@ -1,0 +1,25 @@
+{
+  "measuredAt": "2026-10-18T05:42:54.063Z",
+  "model": "nomic-ai/nomic-embed-text-v1",
+  "dtype": "fp32",
+  "tokens": 512,
+  "submitted": 9,
+  "completed": 8,
+  "refusedBeforeInference": 1,
+  "identicalVectors": 8,
+  "elapsedMs": 2236.8583750000003,
+  "cpuSeconds": 11.140721,
+  "disposal": {
+    "completedActive": 1,
+    "rejectedQueued": 7
+  },
+  "peakRssBytes": 1070268416,
+  "finalRssBytes": 955629568,
+  "node": "v24.19.0",
+  "platform": "darwin",
+  "architecture": "arm64",
+  "limitations": [
+    "One host, one engine and repeated public words at the configured maximum length.",
+    "No application, network or device-energy certification. Already-running native inference cannot be forcibly cancelled."
+  ]
+}

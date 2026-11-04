@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "command": "node scripts/rso5-economic-matrix-driver.mjs --retry=2",
+  "execution_attempt": 2,
+  "started_at": "2026-10-29T08:47:45.914Z",
+  "previous_entry_failure": "EEXIST: file already exists, open 'delivery/results/econ-matrix-driver-final-smoke.json'",
+  "previous_failure_phase": "selection-only entrypoint; no matrix lifecycle executed",
+  "matrix_runs_executed": 1,
+  "completed": [
+    {
+      "runId": "local-04",
+      "scenario": "local-loss",
+      "seed": "0xE0070204",
+      "orderIndex": 0,
+      "manifestPath": "delivery/results/econ-lab-manifest-local-04.json",
+      "executionRunId": "matrix-local-04-retry-2",
+      "executionManifestPath": "delivery/results/econ-lab-manifest-matrix-local-04-retry-2.json",
+      "readiness": "installed",
+      "status": "selected",
+      "outcome": "passed_diagnostic_run"
+    }
+  ],
+  "sustained_windows_executed": false,
+  "acceptance_evaluation": "not_run",
+  "outcome": "failed",
+  "failed_at": "2026-10-29T08:50:04.223Z",
+  "error": "Laboratory WebSocket accounting differs: sent=6135 received=6134 missing=1244 unexpected=1243"
+}

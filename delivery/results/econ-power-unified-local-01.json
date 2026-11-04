@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "run_id": "unified-local-01",
+  "status": "blocked",
+  "reason": "powermetrics requires superuser; no calibrated external AC meter authorized",
+  "samples": [],
+  "energy_joules": null,
+  "energy_kwh": null,
+  "limitations": [
+    "No power samples collected",
+    "CPU/work bytes cannot be converted to energy"
+  ]
+}

@@ -4,6 +4,7 @@
 # Produces:
 #   src-tauri/binaries/node-<triple>       — Node.js binary (sidecar)
 #   src-tauri/resources/server/server.mjs  — Bundled server code
+#   src-tauri/resources/server/relay.mjs   — Independent relay service code
 #   src-tauri/resources/server/node_modules/  — Native modules only (slim)
 #
 # Usage: bash scripts/bundle-server.sh
@@ -69,6 +70,19 @@ npx esbuild src/server/start.ts \
 
 echo "  server.mjs: $(du -sh "$RESOURCES/server.mjs" | cut -f1)"
 
+echo "==> Bundling relay.mjs..."
+npx esbuild ../relay/src/main.ts \
+  --bundle \
+  --platform=node \
+  --format=esm \
+  --outfile="$RESOURCES/relay.mjs" \
+  --external:ws \
+  --external:hash-wasm \
+  --external:tweetnacl \
+  --external:tweetnacl-util \
+  --target=node20 \
+  2>&1
+
 # ── 2. Copy runtime modules (slim — no caches, no sources, no types) ──
 echo "==> Copying runtime modules..."
 
@@ -100,25 +114,44 @@ copy_slim() {
   echo "  + $mod ($(du -sh "$dest" | cut -f1))"
 }
 
-# Core native modules
-copy_slim "onnxruntime-node"
-copy_slim "onnxruntime-common"
-copy_slim "@huggingface/transformers"
-copy_slim "sharp"
+# Copy the complete production dependency closure of modules left external by
+# esbuild.  A local run can otherwise succeed by resolving a missing package
+# from the repository's parent node_modules, while an installed app fails.
+RUNTIME_ROOTS=(
+  "onnxruntime-node" "onnxruntime-common" "@huggingface/transformers"
+  "sharp" "sql.js" "ws" "hash-wasm" "tweetnacl"
+  "tweetnacl-util" "protobufjs" "long" "flatbuffers"
+)
+RUNTIME_MODULES="$(node - "$NM" "${RUNTIME_ROOTS[@]}" <<'NODE'
+const fs = require('node:fs');
+const path = require('node:path');
+const [moduleRoot, ...roots] = process.argv.slice(2);
+const visited = new Set();
+function visit(name) {
+  if (visited.has(name)) return;
+  const manifest = path.join(moduleRoot, name, 'package.json');
+  if (!fs.existsSync(manifest)) throw new Error(`Missing runtime package ${name}`);
+  visited.add(name);
+  const pkg = JSON.parse(fs.readFileSync(manifest, 'utf8'));
+  for (const dependency of Object.keys(pkg.dependencies || {})) visit(dependency);
+}
+roots.forEach(visit);
+for (const name of [...visited].sort()) console.log(name);
+NODE
+)"
+while IFS= read -r module; do
+  copy_slim "$module"
+done <<< "$RUNTIME_MODULES"
+
+# Native Sharp packages are optional dependencies selected for each platform.
 copy_slim "@img/sharp-darwin-arm64"
 copy_slim "@img/sharp-darwin-x64"
 copy_slim "@img/sharp-linux-x64"
 copy_slim "@img/sharp-win32-x64"
-
-# Pure JS dependencies that are externalized
-copy_slim "sql.js"
-copy_slim "ws"
-copy_slim "hash-wasm"
-copy_slim "tweetnacl"
-copy_slim "tweetnacl-util"
-copy_slim "protobufjs"
-copy_slim "long"
-copy_slim "flatbuffers"
+copy_slim "@img/sharp-libvips-darwin-arm64"
+copy_slim "@img/sharp-libvips-darwin-x64"
+copy_slim "@img/sharp-libvips-linux-x64"
+copy_slim "@img/sharp-libvips-win32-x64"
 
 # Strip ONNX runtime binaries for other platforms to save space
 echo "==> Stripping non-target platform binaries..."
@@ -129,6 +162,9 @@ case "$TARGET" in
     rm -rf "$RESOURCES/node_modules/@img/sharp-linux-x64" 2>/dev/null
     rm -rf "$RESOURCES/node_modules/@img/sharp-win32-x64" 2>/dev/null
     rm -rf "$RESOURCES/node_modules/@img/sharp-darwin-x64" 2>/dev/null
+    rm -rf "$RESOURCES/node_modules/@img/sharp-libvips-linux-x64" 2>/dev/null
+    rm -rf "$RESOURCES/node_modules/@img/sharp-libvips-win32-x64" 2>/dev/null
+    rm -rf "$RESOURCES/node_modules/@img/sharp-libvips-darwin-x64" 2>/dev/null
     ;;
   x86_64-apple-darwin)
     rm -rf "$RESOURCES/node_modules/onnxruntime-node/bin/napi-v3/linux" 2>/dev/null
@@ -136,6 +172,9 @@ case "$TARGET" in
     rm -rf "$RESOURCES/node_modules/@img/sharp-linux-x64" 2>/dev/null
     rm -rf "$RESOURCES/node_modules/@img/sharp-win32-x64" 2>/dev/null
     rm -rf "$RESOURCES/node_modules/@img/sharp-darwin-arm64" 2>/dev/null
+    rm -rf "$RESOURCES/node_modules/@img/sharp-libvips-linux-x64" 2>/dev/null
+    rm -rf "$RESOURCES/node_modules/@img/sharp-libvips-win32-x64" 2>/dev/null
+    rm -rf "$RESOURCES/node_modules/@img/sharp-libvips-darwin-arm64" 2>/dev/null
     ;;
   x86_64-unknown-linux-gnu)
     rm -rf "$RESOURCES/node_modules/onnxruntime-node/bin/napi-v3/darwin" 2>/dev/null
@@ -143,6 +182,9 @@ case "$TARGET" in
     rm -rf "$RESOURCES/node_modules/@img/sharp-darwin-arm64" 2>/dev/null
     rm -rf "$RESOURCES/node_modules/@img/sharp-darwin-x64" 2>/dev/null
     rm -rf "$RESOURCES/node_modules/@img/sharp-win32-x64" 2>/dev/null
+    rm -rf "$RESOURCES/node_modules/@img/sharp-libvips-darwin-arm64" 2>/dev/null
+    rm -rf "$RESOURCES/node_modules/@img/sharp-libvips-darwin-x64" 2>/dev/null
+    rm -rf "$RESOURCES/node_modules/@img/sharp-libvips-win32-x64" 2>/dev/null
     ;;
   x86_64-pc-windows-msvc)
     rm -rf "$RESOURCES/node_modules/onnxruntime-node/bin/napi-v3/darwin" 2>/dev/null
@@ -150,6 +192,9 @@ case "$TARGET" in
     rm -rf "$RESOURCES/node_modules/@img/sharp-darwin-arm64" 2>/dev/null
     rm -rf "$RESOURCES/node_modules/@img/sharp-darwin-x64" 2>/dev/null
     rm -rf "$RESOURCES/node_modules/@img/sharp-linux-x64" 2>/dev/null
+    rm -rf "$RESOURCES/node_modules/@img/sharp-libvips-darwin-arm64" 2>/dev/null
+    rm -rf "$RESOURCES/node_modules/@img/sharp-libvips-darwin-x64" 2>/dev/null
+    rm -rf "$RESOURCES/node_modules/@img/sharp-libvips-linux-x64" 2>/dev/null
     ;;
 esac
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   createDeterministicMatchId,
+  createMailboxEnvelopeId,
   createMailboxRequest,
   createMailboxRequestFrame,
   createMatchOperationV2,
@@ -14,6 +15,7 @@ import {
   serializeMailboxRequestFrame,
   verifyMailboxRequest,
   verifyMatchNoticeMessage,
+  verifyMatchOperationAgainstPublicationsV2,
 } from '../index.js';
 
 const NOW = 1_800_000_000_000;
@@ -70,6 +72,40 @@ describe('protocol v2 match mailboxes', () => {
     expect(() => decryptMatchNotice(envelope, partner.keys)).toThrow('does not belong');
   });
 
+  it('uses one delivery ID for independent relay attestations of the same pair', () => {
+    const recipient = publication('need', 1);
+    const partner = publication('offer', 2);
+    const firstRelay = generateIdentity();
+    const secondRelay = generateIdentity();
+    const firstOperation = createMatchOperationV2(
+      recipient.record, partner.record, firstRelay,
+      { createdAt: NOW + 1, expiresAt: NOW + 60_000 },
+    );
+    const secondOperation = createMatchOperationV2(
+      recipient.record, partner.record, secondRelay,
+      { createdAt: NOW + 2, expiresAt: NOW + 59_000 },
+    );
+    const first = encryptMatchNotice(
+      createMatchNoticeMessage(recipient.record, partner.record, firstOperation, firstRelay),
+      recipient.record,
+    );
+    const second = encryptMatchNotice(
+      createMatchNoticeMessage(recipient.record, partner.record, secondOperation, secondRelay),
+      recipient.record,
+    );
+
+    expect(firstOperation.operationId).not.toBe(secondOperation.operationId);
+    expect(first.envelopeId).toBe(second.envelopeId);
+    expect(decryptMatchNotice(first, recipient.keys).payload.matchId)
+      .toBe(decryptMatchNotice(second, recipient.keys).payload.matchId);
+    const legacy = {
+      ...first,
+      envelopeId: createMailboxEnvelopeId(firstOperation.operationId, recipient.record.mailbox.id),
+    };
+    expect(decryptMatchNotice(legacy, recipient.keys).payload.matchId)
+      .toBe(firstOperation.matchId);
+  });
+
   it('rejects modified ciphertext', () => {
     const recipient = publication('need', 1);
     const partner = publication('offer', 2);
@@ -83,6 +119,25 @@ describe('protocol v2 match mailboxes', () => {
     const envelope = encryptMatchNotice(notice, recipient.record);
     envelope.ciphertext = `${envelope.ciphertext.slice(0, -4)}AAAA`;
     expect(() => decryptMatchNotice(envelope, recipient.keys)).toThrow();
+  });
+
+  it('refuses changed publications even when their IDs, signatures and match references are unchanged', () => {
+    const recipient = publication('need', 1);
+    const partner = publication('offer', 2);
+    const relay = generateIdentity();
+    const operation = createMatchOperationV2(recipient.record, partner.record, relay, {
+      createdAt: NOW + 1, expiresAt: NOW + 60_000,
+    });
+    // Expanding this date leaves the match's binding/expiry constraints satisfied,
+    // but invalidates the original publication signature. Check both positions.
+    for (const pair of [
+      [{ ...recipient.record, expiresAt: recipient.record.expiresAt + 1 }, partner.record],
+      [recipient.record, { ...partner.record, expiresAt: partner.record.expiresAt + 1 }],
+    ]) {
+      expect(() => createMatchOperationV2(pair[0], pair[1], relay)).toThrow('invalid publication');
+      expect(verifyMatchOperationAgainstPublicationsV2(operation, pair[0], pair[1], 0)).toBe(false);
+      expect(() => createMatchNoticeMessage(pair[0], pair[1], operation, relay)).toThrow('invalid publication');
+    }
   });
 });
 

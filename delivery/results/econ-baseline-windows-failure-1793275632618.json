@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "command": "node scripts/rso5-baseline-windows.mjs",
+  "started_at": "2026-10-29T11:33:29.718Z",
+  "failed_at": "2026-10-29T12:07:12.618Z",
+  "completed": [
+    {
+      "scenario": "full-smoke",
+      "outcome": "passed",
+      "workers": 52,
+      "clean_stops": 52,
+      "messages": 563,
+      "frame_bytes": 5336319
+    }
+  ],
+  "error": "EEXIST: file already exists, open 'delivery/results/econ-cleanup-undefined.json'",
+  "matrix_runs_executed": 0,
+  "sustained_windows_executed": false,
+  "acceptance_evaluation": "not_run"
+}

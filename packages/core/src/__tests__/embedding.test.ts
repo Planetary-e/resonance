@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { EmbeddingEngine } from '../embedding.js';
 import { l2Norm, cosineSimilarity } from '../vectors.js';
 import { EMBEDDING_CONFIG } from '../types.js';
@@ -9,6 +9,7 @@ describe('EmbeddingEngine', () => {
   beforeAll(async () => {
     await engine.initialize();
   }, 300_000); // Allow a fresh CI runner up to 5 min for the first model download
+  afterAll(() => engine.dispose());
 
   it('is initialized after init', () => {
     expect(engine.isInitialized()).toBe(true);

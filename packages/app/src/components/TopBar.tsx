@@ -8,11 +8,13 @@ function truncateDID(did: string | null | undefined): string {
 
 interface TopBarProps {
   did: string | null;
-  relayConnected: boolean;
+  relayActivity: 'not-checked' | 'succeeded' | 'failed';
   onLock: () => void;
 }
 
-export default function TopBar({ did, relayConnected, onLock }: TopBarProps) {
+export default function TopBar({ did, relayActivity, onLock }: TopBarProps) {
+  const relayLabel = relayActivity === 'succeeded' ? 'Last relay request worked'
+    : relayActivity === 'failed' ? 'Last relay request failed' : 'Relay not checked';
   return (
     <div className="topbar">
       <div className="topbar-left">
@@ -27,8 +29,8 @@ export default function TopBar({ did, relayConnected, onLock }: TopBarProps) {
 
       <div className="topbar-right">
         <div className="relay-status">
-          <span className={`status-dot ${relayConnected ? 'connected' : 'disconnected'}`} />
-          <span>{relayConnected ? 'Connected' : 'Disconnected'}</span>
+          <span className={`status-dot ${relayActivity === 'succeeded' ? 'connected' : relayActivity === 'failed' ? 'disconnected' : 'pending'}`} />
+          <span>{relayLabel}</span>
         </div>
         <button className="btn btn-ghost btn-sm" onClick={onLock} title="Lock session">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

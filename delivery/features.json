@@ -1,0 +1,458 @@
+{
+  "schema_version": "1.0",
+  "release": {
+    "name": "v0.4 complete owner-approved scope",
+    "objective": "Qualify one frozen integrated candidate against every K1-K8 threshold with required independent, platform, compliance and owner approvals; all gates are currently open.",
+    "completion_decision_id": null
+  },
+  "milestones": [
+    {
+      "id": "R1",
+      "title": "Executable recovery architecture decision",
+      "outcome": "A genuinely different, owner-authorized and independently reviewed recovery model defines semantic state, certified boundaries, bounded suffixes, continuity and decisive positive/negative schedules without changing accepted limits."
+    },
+    {
+      "id": "R2",
+      "title": "Sustainable recovery vertical and lifecycle qualification",
+      "outcome": "The reviewed recovery path integrates real authenticated durable roles and exact retries, then passes the K2 fault matrix and 100-transition/>64-configuration K3 qualification on the unchanged limits."
+    },
+    {
+      "id": "R3",
+      "title": "Confidential matching with explicit access model",
+      "outcome": "A reviewed confidential publication/query design meets bilingual K5 quality and separate privacy attacks jointly with K1/K7 costs and safe epoch migration."
+    },
+    {
+      "id": "R4",
+      "title": "Bounded observer-private transport",
+      "outcome": "A reviewed published mixing design meets K6 activity/source-linking targets separately in busy, sparse and colluding scenarios jointly with K1/K7 budgets."
+    },
+    {
+      "id": "R5",
+      "title": "One coherent service candidate",
+      "outcome": "Accepted recovery, matching and transport compose with fair admission, exact user journeys, production boundaries and sustainable resources under one candidate identity."
+    },
+    {
+      "id": "R6",
+      "title": "Independent qualification and release decision",
+      "outcome": "The same candidate completes the 14-day independent pilot, supported-platform/supply-chain/compliance evidence and full K1-K8 review for an explicit owner release decision."
+    }
+  ],
+  "features": [
+    {
+      "id": "FEAT-001",
+      "title": "Genuinely different recovery architecture decision",
+      "milestone_id": "R1",
+      "priority": 1,
+      "status": "in_progress",
+      "requirement_ids": [
+        "PRD-002",
+        "PRD-003",
+        "PRD-011"
+      ],
+      "control_ids": [
+        "ARCH-001",
+        "ARCH-002",
+        "ARCH-005",
+        "ARCH-006",
+        "ARCH-007",
+        "CMP-004"
+      ],
+      "evaluation_ids": [
+        "EVL-003",
+        "EVL-004",
+        "EVL-005",
+        "EVL-015"
+      ],
+      "dependency_ids": [],
+      "human_gate_decision_ids": [
+        "DEC-001",
+        "DEC-002",
+        "DEC-003",
+        "DEC-004",
+        "DEC-005",
+        "DEC-006",
+        "DEC-007",
+        "DEC-008",
+        "DEC-009",
+        "DEC-010",
+        "DEC-011",
+        "DEC-012"
+      ],
+      "work_contract": "delivery/work/FEAT-001.md",
+      "evidence_result_ids": ["RUN-009", "RUN-012"],
+      "notes": "DEC-009 accepts RSO5 only as a bounded research prototype. DEC-012's normal bounded lifecycle independently passes revised-budget research with complete inventory: 677,973,227 B cumulative and 17,741,154 B maximum operation, within research limits 1,016,959,841 B and 26,611,731 B. Original-cap failures remain preserved. Physical power, real network, labor, representative-maxima, E3 and all production/K1–K8 gates remain open; FEAT-001 remains blocked for full acceptance."
+    },
+    {
+      "id": "FEAT-002",
+      "title": "Sustainable recovery vertical",
+      "milestone_id": "R2",
+      "priority": 2,
+      "status": "not_ready",
+      "requirement_ids": [
+        "PRD-002",
+        "PRD-003",
+        "PRD-009"
+      ],
+      "control_ids": [
+        "ARCH-001",
+        "ARCH-002",
+        "ARCH-003",
+        "ARCH-005",
+        "ARCH-006"
+      ],
+      "evaluation_ids": [
+        "EVL-002",
+        "EVL-003",
+        "EVL-004",
+        "EVL-005",
+        "EVL-016"
+      ],
+      "dependency_ids": [
+        "FEAT-001"
+      ],
+      "human_gate_decision_ids": [],
+      "work_contract": null,
+      "evidence_result_ids": [],
+      "notes": "Requires accepted FEAT-001 plus separate owner authorization for implementation and independent protocol review. Integrate actual issuer/wallet/witness/coordinator state, durable barriers, interrupted-intent resume and committed-floor catch-up; no parallel incompatible state machine."
+    },
+    {
+      "id": "FEAT-003",
+      "title": "Lifecycle 100 and fault qualification",
+      "milestone_id": "R2",
+      "priority": 3,
+      "status": "not_ready",
+      "requirement_ids": [
+        "PRD-002",
+        "PRD-003"
+      ],
+      "control_ids": [
+        "ARCH-002",
+        "ARCH-005",
+        "ARCH-006",
+        "ARCH-007"
+      ],
+      "evaluation_ids": [
+        "EVL-003",
+        "EVL-004",
+        "EVL-005"
+      ],
+      "dependency_ids": [
+        "FEAT-002"
+      ],
+      "human_gate_decision_ids": [],
+      "work_contract": null,
+      "evidence_result_ids": [],
+      "notes": "Requires a complete preflighted independently reviewed new path and explicit campaign authorization. Never rerun the stopped frozen100 body. Independent reviewer accepts K2/K3 evidence; finite local tests do not qualify this feature."
+    },
+    {
+      "id": "FEAT-004",
+      "title": "Confidential matching",
+      "milestone_id": "R3",
+      "priority": 4,
+      "status": "not_ready",
+      "requirement_ids": [
+        "PRD-001",
+        "PRD-005",
+        "PRD-007"
+      ],
+      "control_ids": [
+        "ARCH-001",
+        "ARCH-006",
+        "ARCH-007",
+        "AI-001",
+        "AI-002",
+        "AI-003",
+        "AI-004"
+      ],
+      "evaluation_ids": [
+        "EVL-001",
+        "EVL-008",
+        "EVL-009",
+        "EVL-010",
+        "EVL-019"
+      ],
+      "dependency_ids": [
+        "FEAT-003"
+      ],
+      "human_gate_decision_ids": [],
+      "work_contract": null,
+      "evidence_result_ids": [],
+      "notes": "Choose and independently review an established actively secure computation/access model before integration. Existing real-text reconstruction 86-97% and known-text 100% failures block confidential claims. AI/privacy approval remains pending."
+    },
+    {
+      "id": "FEAT-005",
+      "title": "Observer transport",
+      "milestone_id": "R4",
+      "priority": 5,
+      "status": "not_ready",
+      "requirement_ids": [
+        "PRD-001",
+        "PRD-006",
+        "PRD-007"
+      ],
+      "control_ids": [
+        "ARCH-001",
+        "ARCH-002",
+        "ARCH-006",
+        "ARCH-007",
+        "AI-003"
+      ],
+      "evaluation_ids": [
+        "EVL-001",
+        "EVL-011",
+        "EVL-013"
+      ],
+      "dependency_ids": [
+        "FEAT-003"
+      ],
+      "human_gate_decision_ids": [],
+      "work_contract": null,
+      "evidence_result_ids": [],
+      "notes": "Use a reviewed published mixing design with explicit honest independent middle role and sparse envelope. Existing cooperating-hop 32/32 linkage and unqualified experimental two-hop HPKE block observer-privacy claims. Independent protocol/privacy approval required."
+    },
+    {
+      "id": "FEAT-006",
+      "title": "Fair admission",
+      "milestone_id": "R5",
+      "priority": 6,
+      "status": "not_ready",
+      "requirement_ids": [
+        "PRD-004",
+        "PRD-009"
+      ],
+      "control_ids": [
+        "ARCH-002",
+        "ARCH-006",
+        "AI-002",
+        "CMP-001",
+        "CMP-002"
+      ],
+      "evaluation_ids": [
+        "EVL-006",
+        "EVL-007",
+        "EVL-018"
+      ],
+      "dependency_ids": [
+        "FEAT-004",
+        "FEAT-005"
+      ],
+      "human_gate_decision_ids": [],
+      "work_contract": null,
+      "evidence_result_ids": [],
+      "notes": "Define eligibility provenance, independent labels, attacker/claim costs and equal-rights groups before measurement. No AI eligibility decisions. Community governance, legal/privacy and independent fairness review are human gates."
+    },
+    {
+      "id": "FEAT-007",
+      "title": "Integrated useful service",
+      "milestone_id": "R5",
+      "priority": 7,
+      "status": "not_ready",
+      "requirement_ids": [
+        "PRD-001",
+        "PRD-009"
+      ],
+      "control_ids": [
+        "ARCH-001",
+        "ARCH-002",
+        "ARCH-003",
+        "ARCH-005",
+        "ARCH-006",
+        "ARCH-007"
+      ],
+      "evaluation_ids": [
+        "EVL-001",
+        "EVL-002",
+        "EVL-015",
+        "EVL-016"
+      ],
+      "dependency_ids": [
+        "FEAT-002",
+        "FEAT-003",
+        "FEAT-004",
+        "FEAT-005",
+        "FEAT-006"
+      ],
+      "human_gate_decision_ids": [],
+      "work_contract": null,
+      "evidence_result_ids": [],
+      "notes": "Compose one publish/search/mailbox/consent/recovery dependency graph with exact user-visible retries/notices and accepted roles; no helper component qualifies K1. Independent integration/security review required."
+    },
+    {
+      "id": "FEAT-008",
+      "title": "Device resource envelope",
+      "milestone_id": "R5",
+      "priority": 8,
+      "status": "not_ready",
+      "requirement_ids": [
+        "PRD-007"
+      ],
+      "control_ids": [
+        "ARCH-001",
+        "ARCH-004",
+        "ARCH-007",
+        "AI-001",
+        "AI-004"
+      ],
+      "evaluation_ids": [
+        "EVL-012",
+        "EVL-013",
+        "EVL-019"
+      ],
+      "dependency_ids": [
+        "FEAT-007"
+      ],
+      "human_gate_decision_ids": [],
+      "work_contract": null,
+      "evidence_result_ids": [],
+      "notes": "Measure complete process trees, cold/warm model lifecycle, 30-minute sustained/idle windows, physical power and every edge without concurrent workloads. Resource qualification and reference-hardware review remain human acceptance gates."
+    },
+    {
+      "id": "FEAT-009",
+      "title": "Independent 14-day pilot",
+      "milestone_id": "R6",
+      "priority": 9,
+      "status": "not_ready",
+      "requirement_ids": [
+        "PRD-008"
+      ],
+      "control_ids": [
+        "ARCH-002",
+        "ARCH-003",
+        "ARCH-007",
+        "CMP-001",
+        "CMP-002",
+        "CMP-004"
+      ],
+      "evaluation_ids": [
+        "EVL-014"
+      ],
+      "dependency_ids": [
+        "FEAT-003",
+        "FEAT-004",
+        "FEAT-005",
+        "FEAT-006",
+        "FEAT-007",
+        "FEAT-008"
+      ],
+      "human_gate_decision_ids": [],
+      "work_contract": null,
+      "evidence_result_ids": [],
+      "notes": "Requires >=5 genuinely independent operators and >=3 networks, approved handling/deployment guidance, frozen candidate and explicit pilot authorization. Independent K8 acceptance includes every wall-clock window and supported OS family."
+    },
+    {
+      "id": "FEAT-010",
+      "title": "Platform SBOM and compliance evidence",
+      "milestone_id": "R6",
+      "priority": 10,
+      "status": "not_ready",
+      "requirement_ids": [
+        "PRD-010",
+        "PRD-011"
+      ],
+      "control_ids": [
+        "ARCH-001",
+        "ARCH-002",
+        "ARCH-003",
+        "ARCH-004",
+        "ARCH-006",
+        "ARCH-007",
+        "AI-001",
+        "AI-002",
+        "AI-003",
+        "CMP-001",
+        "CMP-002",
+        "CMP-003",
+        "CMP-004"
+      ],
+      "evaluation_ids": [
+        "EVL-015",
+        "EVL-017",
+        "EVL-018",
+        "EVL-020"
+      ],
+      "dependency_ids": [
+        "FEAT-007",
+        "FEAT-008"
+      ],
+      "human_gate_decision_ids": [],
+      "work_contract": null,
+      "evidence_result_ids": [],
+      "notes": "Human legal/privacy/deployment/retention, security, accessibility, supply-chain/license and release-engineering reviews are required. Packaged LICENSE deletion and mixed notices are unresolved. No inferred legal compliance or package/release approval."
+    },
+    {
+      "id": "FEAT-011",
+      "title": "Integrated K1-K8 release decision",
+      "milestone_id": "R6",
+      "priority": 11,
+      "status": "not_ready",
+      "requirement_ids": [
+        "PRD-001",
+        "PRD-002",
+        "PRD-003",
+        "PRD-004",
+        "PRD-005",
+        "PRD-006",
+        "PRD-007",
+        "PRD-008",
+        "PRD-009",
+        "PRD-010",
+        "PRD-011"
+      ],
+      "control_ids": [
+        "ARCH-001",
+        "ARCH-002",
+        "ARCH-003",
+        "ARCH-004",
+        "ARCH-005",
+        "ARCH-006",
+        "ARCH-007",
+        "AI-001",
+        "AI-002",
+        "AI-003",
+        "AI-004",
+        "CMP-001",
+        "CMP-002",
+        "CMP-003",
+        "CMP-004"
+      ],
+      "evaluation_ids": [
+        "EVL-001",
+        "EVL-002",
+        "EVL-003",
+        "EVL-004",
+        "EVL-005",
+        "EVL-006",
+        "EVL-007",
+        "EVL-008",
+        "EVL-009",
+        "EVL-010",
+        "EVL-011",
+        "EVL-012",
+        "EVL-013",
+        "EVL-014",
+        "EVL-015",
+        "EVL-016",
+        "EVL-017",
+        "EVL-018",
+        "EVL-019",
+        "EVL-020"
+      ],
+      "dependency_ids": [
+        "FEAT-001",
+        "FEAT-002",
+        "FEAT-003",
+        "FEAT-004",
+        "FEAT-005",
+        "FEAT-006",
+        "FEAT-007",
+        "FEAT-008",
+        "FEAT-009",
+        "FEAT-010"
+      ],
+      "human_gate_decision_ids": [],
+      "work_contract": null,
+      "evidence_result_ids": [],
+      "notes": "Final owner production-release decision is mandatory and currently pending. Requires all prior features, full cases on the same frozen candidate, independent protocol/privacy/security acceptance, K8 pilot and CMP approvals. Product-scope approval is not release approval; all K gates remain open."
+    }
+  ]
+}

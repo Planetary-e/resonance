@@ -7,6 +7,7 @@
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { guardUnmanagedExport } from './unmanaged-export.js';
 import { createDeterministicMatchId, type ItemType } from '@resonance/core';
 import { ComplementaryHammingIndex, type HashMetadata } from './hamming-index.js';
 
@@ -36,6 +37,7 @@ export interface MatchingEngineConfig {
 const DEFAULT_HAMMING_THRESHOLD = 0.70;
 
 export class MatchingEngine {
+  private readonly assertExportAllowed = guardUnmanagedExport();
   private index = new ComplementaryHammingIndex();
   private notifiedPairs = new Set<string>();
   private withdrawnItems = new Set<string>();
@@ -178,6 +180,7 @@ export class MatchingEngine {
 
   /** Save index + state to disk. */
   save(dir: string): void {
+    this.assertExportAllowed();
     mkdirSync(dir, { recursive: true });
     this.index.save(dir);
     writeFileSync(join(dir, 'dedup.json'), JSON.stringify(Array.from(this.notifiedPairs)));

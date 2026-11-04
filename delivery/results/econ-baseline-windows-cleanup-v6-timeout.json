@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "status": "complete",
+  "reason": "v6 baseline test timed out at 75 minutes; parent processes exited before final sustained artifacts were written",
+  "orphan_pid": 98966,
+  "orphan_parent_pid": 1,
+  "escalated_sigkill": 1,
+  "remaining_live_workers": 0,
+  "acceptance_evaluation": "not_run"
+}

@@ -229,7 +229,7 @@ function ChannelView({
 
       {/* Actions */}
       <div className="channel-actions">
-        {isOpen && channel.protocolVersion !== 2 && (
+        {isOpen && (
           <form className="disclose-form" onSubmit={handleDisclose}>
             <select value={level} onChange={e => setLevel(e.target.value)}>
               <option value="general">General</option>
@@ -252,7 +252,7 @@ function ChannelView({
           </form>
         )}
 
-        {isOpen && (
+        {isOpen && channel.protocolVersion !== 2 && (
           <div className="channel-btns">
             <button className="btn btn-success btn-sm" onClick={handleAccept}>
               Accept
@@ -260,6 +260,13 @@ function ChannelView({
             <button className="btn btn-danger btn-sm" onClick={handleReject}>
               Reject
             </button>
+            <button className="btn btn-secondary btn-sm" onClick={handleClose}>
+              Close
+            </button>
+          </div>
+        )}
+        {isOpen && channel.protocolVersion === 2 && (
+          <div className="channel-btns">
             <button className="btn btn-secondary btn-sm" onClick={handleClose}>
               Close
             </button>

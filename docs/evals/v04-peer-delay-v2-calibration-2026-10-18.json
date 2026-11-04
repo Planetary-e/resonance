@@ -1,0 +1,147 @@
+{
+  "measuredAt": "2026-10-18T08:00:31.736Z",
+  "rows": [
+    {
+      "oneWayDelayMs": 0,
+      "openingMs": 8.694250000000011,
+      "roundTripsMs": [
+        0.9618340000000103,
+        0.8372500000000116,
+        4.016458999999998,
+        0.711749999999995,
+        0.4837079999999787,
+        1.6064580000000035,
+        0.19133399999998346,
+        0.19974999999999454,
+        0.1812919999999849,
+        0.2674169999999947
+      ],
+      "burstRoundTripsMs": [
+        0.36366700000002083,
+        0.3373749999999802,
+        0.29195799999999394,
+        0.3467500000000143,
+        0.23720800000000963,
+        0.23083299999998985,
+        0.22091699999998582,
+        0.2362500000000125,
+        0.2852919999999983,
+        0.31341699999998696
+      ],
+      "largeRoundTripsMs": [
+        2.531666999999999,
+        2.004917000000006,
+        1.9608340000000055,
+        9.927084000000008,
+        2.2014580000000024,
+        1.8272499999999923,
+        1.8283330000000149,
+        2.1218330000000094,
+        2.3747920000000136,
+        1.608666999999997
+      ],
+      "transport": {
+        "encrypted": true,
+        "tcpNoDelay": true,
+        "simulatedOneWayDelayMs": 0,
+        "scope": "all-exposed-peer-endpoints",
+        "categories": [
+          {
+            "category": "policy-observer",
+            "endpoints": 1,
+            "connections": 1,
+            "clientToServerBytes": 2675004,
+            "serverToClientBytes": 2675302
+          }
+        ],
+        "stages": [],
+        "activeStages": 0,
+        "droppedStages": 0,
+        "connections": 1,
+        "tcpStreamBytes": 5350306
+      }
+    },
+    {
+      "oneWayDelayMs": 25,
+      "openingMs": 108.33379200000002,
+      "roundTripsMs": [
+        53.03595899999999,
+        52.09516699999995,
+        52.353999999999985,
+        52.55424999999997,
+        53.955916,
+        53.85191700000007,
+        52.587958999999955,
+        53.426000000000045,
+        53.01254199999994,
+        53.8916670000001
+      ],
+      "burstRoundTripsMs": [
+        53.865999999999985,
+        52.735000000000014,
+        54.57712499999991,
+        54.50570800000003,
+        54.516000000000076,
+        52.905915999999934,
+        53.174584000000095,
+        53.78383299999996,
+        54.11958299999992,
+        53.46920900000009
+      ],
+      "largeRoundTripsMs": [
+        57.76470799999993,
+        59.974333000000115,
+        60.09108400000014,
+        56.79995800000006,
+        54.42904199999998,
+        54.383583000000044,
+        57.207582999999886,
+        59.52391699999998,
+        60.340167000000065,
+        61.483167000000094
+      ],
+      "transport": {
+        "encrypted": true,
+        "tcpNoDelay": true,
+        "simulatedOneWayDelayMs": 25,
+        "delayModel": "bounded-byte-fifo-v2",
+        "delayWindowBytes": 1048576,
+        "scope": "all-exposed-peer-endpoints",
+        "categories": [
+          {
+            "category": "policy-observer",
+            "endpoints": 1,
+            "connections": 1,
+            "clientToServerBytes": 2675004,
+            "serverToClientBytes": 2675259
+          }
+        ],
+        "stages": [],
+        "activeStages": 0,
+        "droppedStages": 0,
+        "connections": 1,
+        "tcpStreamBytes": 5350263
+      }
+    }
+  ],
+  "addedMedianRoundTripMs": 52.42652149999998,
+  "checks": [
+    {
+      "scenario": "sequential-200-5000-byte",
+      "addedMedianRoundTripMs": 52.42652149999998,
+      "passed": true
+    },
+    {
+      "scenario": "burst-eight-256-byte-frames",
+      "addedMedianRoundTripMs": 53.536291499999976,
+      "passed": true
+    },
+    {
+      "scenario": "single-256-KiB-frame",
+      "addedMedianRoundTripMs": 56.58093749999995,
+      "passed": true
+    }
+  ],
+  "passed": true,
+  "scope": "Real WSS; two 25 ms ordered stream delays. TCP_NODELAY on fixture hops. Ten samples per scenario. Calibration bursts fit the bounded fixture window. No packet loss, TCP setup latency, sustained bandwidth or Internet claim."
+}

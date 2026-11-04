@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "authorization_id": "DEC-010",
+  "hashes": {
+    "delivery/results/econ-production-baseline-hashes.json": "sha256:ca049c2d5d2ce1836bfec5d95849f2d11752488178eda2e3bd3b7872cf5404fc",
+    "docs/evals/v04-production-evaluation-baseline-2026-10-30.md": "sha256:519ab5affbe7971bc757cfd8f79e83440743c5f7e0a875ab888a787314ddd55f",
+    "scripts/rso5-production-baseline-receipt.mjs": "sha256:f449a4e0f9574529fcb736cd3ba88ff4816f39e902035c78fd2e4b67e3e99476"
+  }
+}

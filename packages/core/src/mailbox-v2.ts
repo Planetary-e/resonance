@@ -41,6 +41,9 @@ export const MATCH_NOTICE_MESSAGE_TYPE = 'match_notice_v2' as const;
 export const MAILBOX_REQUEST_FRAME_TYPE = 'mailbox_request' as const;
 export const MAILBOX_DEPOSIT_FRAME_TYPE = 'mailbox_deposit' as const;
 export const MAILBOX_RESPONSE_MESSAGE_TYPE = 'mailbox_response' as const;
+/** Fresh owner ACK proofs must fit one envelope's prepaid journal space on any
+ * replica. Historical signed requests remain parseable/creatable up to 100 IDs. */
+export const MAX_FRESH_MAILBOX_ACK_IDS = 16;
 
 const MAILBOX_REQUEST_SIGNATURE_DOMAIN = 'resonance:discovery:v2:mailbox-request';
 const MAILBOX_DEPOSIT_SIGNATURE_DOMAIN = 'resonance:discovery:v2:mailbox-deposit';
@@ -144,9 +147,8 @@ export function createMatchNoticeMessage(
   matchOperation: MatchOperationV2,
   relayIdentity: Identity,
 ): Message<MatchNoticePayload> {
-  if (!verifyPublicationRecord(recipient)
-    || !verifyPublicationRecord(partner)
-    || !verifyMatchOperationAgainstPublicationsV2(matchOperation, recipient, partner, 0)
+  // This verifier authenticates both publications as well as their signed match.
+  if (!verifyMatchOperationAgainstPublicationsV2(matchOperation, recipient, partner, 0)
     || matchOperation.relayId !== relayIdentity.did
     || matchOperation.relayKey !== encodeBase64(relayIdentity.publicKey)) {
     throw new Error('Cannot create a match notice for an invalid publication');
@@ -203,7 +205,9 @@ export function encryptMatchNotice(
     version: PROTOCOL_V2_VERSION,
     kind: 'mailbox-envelope',
     payloadType: 'match-notice',
-    envelopeId: createMailboxEnvelopeId(message.payload.matchOperation.operationId, recipient.mailbox.id),
+    // Every relay attesting the same publication pair uses one delivery key.
+    // The signed attestation can differ, but the recipient sees one match.
+    envelopeId: createMailboxEnvelopeId(message.payload.matchId, recipient.mailbox.id),
     mailboxId: recipient.mailbox.id,
     ephemeralKey: encodeBase64(ephemeral.publicKey),
     nonce: encodeBase64(encrypted.nonce),
@@ -257,7 +261,9 @@ export function decryptMatchNotice(
   if (!verifyMatchNoticeMessage(message)) throw new Error('Mailbox match notice signature is invalid');
   if (message.payload.recipientPublicationId !== keys.publicationId
     || message.payload.recipientMailboxId !== keys.mailboxId
-    || createMailboxEnvelopeId(message.payload.matchOperation.operationId, keys.mailboxId) !== envelope.envelopeId
+    || (createMailboxEnvelopeId(message.payload.matchId, keys.mailboxId) !== envelope.envelopeId
+      // Accept notices written before pair-scoped delivery IDs were introduced.
+      && createMailboxEnvelopeId(message.payload.matchOperation.operationId, keys.mailboxId) !== envelope.envelopeId)
     || message.payload.createdAt !== envelope.createdAt
     || message.payload.expiresAt !== envelope.expiresAt) {
     throw new Error('Mailbox envelope metadata does not match its encrypted notice');

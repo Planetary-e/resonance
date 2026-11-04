@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-10-29T06:41:16Z",
+  "successful_smoke_clean_stops": 52,
+  "early_invalid_attempt_orphaned_workers_found": 168,
+  "states_before_cleanup": {
+    "S": 168
+  },
+  "action": "Unprivileged SIGTERM followed by SIGKILL only for exact lab-worker process paths that remained live",
+  "matching_workers_after_cleanup": 0,
+  "remaining_live_workers": 0,
+  "matrix_review_risk": "Failed-attempt cleanup allowed orphaned workers in early harness revisions; successful smoke shutdown passed, but failure cleanup requires independent review before matrix execution.",
+  "acceptance_evaluation": "not_run"
+}

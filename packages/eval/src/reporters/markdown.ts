@@ -112,6 +112,18 @@ export function writeMarkdownReport(results: BenchmarkResult[], projectRoot: str
     }
   }
 
+  const hnswMemory = results.find(r => r.name.startsWith('HNSW process peak RSS'));
+  if (hnswMemory?.details) {
+    const d = hnswMemory.details;
+    lines.push('### Isolated HNSW process memory', '',
+      `- **Peak RSS:** ${hnswMemory.actual} (OS high-water mark through search completion).`,
+      `- **Baseline / initialized / inserted / final RSS:** ${['baselineRssBytes', 'initializedRssBytes', 'insertedRssBytes', 'finalRssBytes'].map(key => `${(Number(d[key]) / 1048576).toFixed(1)} MiB`).join(' / ')}.`,
+      `- **Workload:** ${d.vectorCount} vectors, ${d.dimensions} dimensions, ${d.searchCount} queries, vector seed ${d.seed}.`,
+      `- **Child runtime:** ${d.nodeVersion}, ${d.platform} ${d.arch}.`,
+      '- Includes the child runtime, imported modules and native index allocations. No heap subtraction is used.',
+      '- This is neither index-only allocation nor the full application/device memory budget; concurrent histories, embedding inference and power remain separate measurements.', '');
+  }
+
   // FPR detail
   const fpr = results.find(r => r.name.includes('False positive'));
   if (fpr) {

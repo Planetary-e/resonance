@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "run_id": "unified-local-02",
+  "status": "complete",
+  "post_new_view_startup_complete": true,
+  "durable_serving_readiness": true,
+  "groups": [
+    {
+      "view": 1,
+      "readiness": [
+        {
+          "role": "runtime-old-0",
+          "sequence": 1,
+          "digest": "sha256:a6374d475a3bd3098980b3e8a24b8fce49744a99ffe2a7ff636b17fafb5256fa"
+        },
+        {
+          "role": "runtime-old-1",
+          "sequence": 1,
+          "digest": "sha256:a6374d475a3bd3098980b3e8a24b8fce49744a99ffe2a7ff636b17fafb5256fa"
+        },
+        {
+          "role": "runtime-old-2",
+          "sequence": 1,
+          "digest": "sha256:a6374d475a3bd3098980b3e8a24b8fce49744a99ffe2a7ff636b17fafb5256fa"
+        },
+        {
+          "role": "runtime-old-3",
+          "sequence": 1,
+          "digest": "sha256:a6374d475a3bd3098980b3e8a24b8fce49744a99ffe2a7ff636b17fafb5256fa"
+        }
+      ]
+    },
+    {
+      "view": 1,
+      "readiness": [
+        {
+          "role": "runtime-new-0",
+          "sequence": 6,
+          "digest": "sha256:08d7f68591cd5992612e1d34f0bb0ddaf5ed5a49e79b394298ccfde2365310c2"
+        },
+        {
+          "role": "runtime-new-1",
+          "sequence": 6,
+          "digest": "sha256:08d7f68591cd5992612e1d34f0bb0ddaf5ed5a49e79b394298ccfde2365310c2"
+        },
+        {
+          "role": "runtime-new-2",
+          "sequence": 6,
+          "digest": "sha256:08d7f68591cd5992612e1d34f0bb0ddaf5ed5a49e79b394298ccfde2365310c2"
+        },
+        {
+          "role": "runtime-new-3",
+          "sequence": 6,
+          "digest": "sha256:08d7f68591cd5992612e1d34f0bb0ddaf5ed5a49e79b394298ccfde2365310c2"
+        }
+      ]
+    }
+  ]
+}

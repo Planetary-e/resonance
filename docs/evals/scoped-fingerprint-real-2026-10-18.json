@@ -1,0 +1,2285 @@
+{
+  "measuredAt": "2026-10-18T03:36:31.843Z",
+  "model": "nomic-ai/nomic-embed-text-v1",
+  "dtype": "fp32",
+  "modelArtifacts": [
+    {
+      "file": "config.json",
+      "sha256": "913351bb022df8c2b332dc955145dea342380b162d532af756b3bdba3b3a1cfb"
+    },
+    {
+      "file": "tokenizer.json",
+      "sha256": "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66"
+    },
+    {
+      "file": "tokenizer_config.json",
+      "sha256": "d7e0000bcc80134debd2222220427e6bf5fa20a669f40a0d0d1409cc18e0a9bc"
+    },
+    {
+      "file": "onnx/model.onnx",
+      "sha256": "347440e93b5ec979fdcf6041b72721aade7b9680c16022e2830db7115ff6fd9f"
+    }
+  ],
+  "datasetSha256": "1264c9dcd68ff19c69cfa35e86177b7a189b8a871df145a3587b1199df621112",
+  "positivePairs": 50,
+  "negativePairs": 50,
+  "uniqueNeedTexts": 100,
+  "uniqueOfferTexts": 100,
+  "threshold": 0.65,
+  "targets": {
+    "maximumRecallDrop": 0.05,
+    "maximumFalsePositiveIncrease": 0.05,
+    "maximumLinkAccuracy": 0.05
+  },
+  "gates": {
+    "qualityRelativeToPilot": true,
+    "crossScopeLinking": false
+  },
+  "quality": [
+    {
+      "scope": "pilot-static-v1",
+      "truePositives": 50,
+      "positiveCount": 50,
+      "falsePositives": 48,
+      "negativeCount": 50,
+      "recall": 1,
+      "falsePositiveRate": 0.96,
+      "balancedFixturePrecision": 0.510204,
+      "recallAt5": 0.96,
+      "retrieval": [
+        {
+          "id": "pos-001",
+          "similarity": 0.802734375,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-002",
+          "similarity": 0.798828125,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-003",
+          "similarity": 0.8125,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-004",
+          "similarity": 0.83203125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-005",
+          "similarity": 0.83984375,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-006",
+          "similarity": 0.796875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-007",
+          "similarity": 0.794921875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-008",
+          "similarity": 0.81640625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-009",
+          "similarity": 0.849609375,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-010",
+          "similarity": 0.8515625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-011",
+          "similarity": 0.81640625,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-012",
+          "similarity": 0.77734375,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-013",
+          "similarity": 0.841796875,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-014",
+          "similarity": 0.828125,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-015",
+          "similarity": 0.849609375,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-016",
+          "similarity": 0.859375,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-017",
+          "similarity": 0.775390625,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-018",
+          "similarity": 0.85546875,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-019",
+          "similarity": 0.837890625,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-020",
+          "similarity": 0.791015625,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-021",
+          "similarity": 0.791015625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-022",
+          "similarity": 0.87109375,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-023",
+          "similarity": 0.73828125,
+          "rank": 5,
+          "found": true
+        },
+        {
+          "id": "pos-024",
+          "similarity": 0.830078125,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-025",
+          "similarity": 0.814453125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-026",
+          "similarity": 0.833984375,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-027",
+          "similarity": 0.794921875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-028",
+          "similarity": 0.78125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-029",
+          "similarity": 0.845703125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-030",
+          "similarity": 0.77734375,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-031",
+          "similarity": 0.765625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-032",
+          "similarity": 0.828125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-033",
+          "similarity": 0.822265625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-034",
+          "similarity": 0.80078125,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-035",
+          "similarity": 0.853515625,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-036",
+          "similarity": 0.765625,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-037",
+          "similarity": 0.740234375,
+          "rank": 14,
+          "found": false
+        },
+        {
+          "id": "pos-038",
+          "similarity": 0.833984375,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-039",
+          "similarity": 0.875,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-040",
+          "similarity": 0.791015625,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-041",
+          "similarity": 0.8359375,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-042",
+          "similarity": 0.7890625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-043",
+          "similarity": 0.7734375,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-044",
+          "similarity": 0.802734375,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-045",
+          "similarity": 0.84375,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-046",
+          "similarity": 0.78125,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-047",
+          "similarity": 0.849609375,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-048",
+          "similarity": 0.810546875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-049",
+          "similarity": 0.86328125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-050",
+          "similarity": 0.71484375,
+          "rank": 30,
+          "found": false
+        }
+      ]
+    },
+    {
+      "scope": "public/2026-09",
+      "truePositives": 50,
+      "positiveCount": 50,
+      "falsePositives": 39,
+      "negativeCount": 50,
+      "recall": 1,
+      "falsePositiveRate": 0.78,
+      "balancedFixturePrecision": 0.561798,
+      "recallAt5": 0.92,
+      "retrieval": [
+        {
+          "id": "pos-001",
+          "similarity": 0.83203125,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-002",
+          "similarity": 0.78125,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-003",
+          "similarity": 0.76171875,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-004",
+          "similarity": 0.830078125,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-005",
+          "similarity": 0.841796875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-006",
+          "similarity": 0.83203125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-007",
+          "similarity": 0.7890625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-008",
+          "similarity": 0.82421875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-009",
+          "similarity": 0.83203125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-010",
+          "similarity": 0.869140625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-011",
+          "similarity": 0.7890625,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-012",
+          "similarity": 0.796875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-013",
+          "similarity": 0.78515625,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-014",
+          "similarity": 0.814453125,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-015",
+          "similarity": 0.806640625,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-016",
+          "similarity": 0.876953125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-017",
+          "similarity": 0.78125,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-018",
+          "similarity": 0.873046875,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-019",
+          "similarity": 0.80859375,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-020",
+          "similarity": 0.7890625,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-021",
+          "similarity": 0.779296875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-022",
+          "similarity": 0.8203125,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-023",
+          "similarity": 0.734375,
+          "rank": 6,
+          "found": false
+        },
+        {
+          "id": "pos-024",
+          "similarity": 0.791015625,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-025",
+          "similarity": 0.828125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-026",
+          "similarity": 0.8515625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-027",
+          "similarity": 0.755859375,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-028",
+          "similarity": 0.732421875,
+          "rank": 6,
+          "found": false
+        },
+        {
+          "id": "pos-029",
+          "similarity": 0.794921875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-030",
+          "similarity": 0.77734375,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-031",
+          "similarity": 0.8046875,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-032",
+          "similarity": 0.818359375,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-033",
+          "similarity": 0.8046875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-034",
+          "similarity": 0.82421875,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-035",
+          "similarity": 0.837890625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-036",
+          "similarity": 0.775390625,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-037",
+          "similarity": 0.720703125,
+          "rank": 7,
+          "found": false
+        },
+        {
+          "id": "pos-038",
+          "similarity": 0.8203125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-039",
+          "similarity": 0.869140625,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-040",
+          "similarity": 0.806640625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-041",
+          "similarity": 0.8046875,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-042",
+          "similarity": 0.80078125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-043",
+          "similarity": 0.734375,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-044",
+          "similarity": 0.814453125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-045",
+          "similarity": 0.8359375,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-046",
+          "similarity": 0.80078125,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-047",
+          "similarity": 0.814453125,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-048",
+          "similarity": 0.81640625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-049",
+          "similarity": 0.845703125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-050",
+          "similarity": 0.681640625,
+          "rank": 58,
+          "found": false
+        }
+      ]
+    },
+    {
+      "scope": "community-comparison/2026-09",
+      "truePositives": 50,
+      "positiveCount": 50,
+      "falsePositives": 47,
+      "negativeCount": 50,
+      "recall": 1,
+      "falsePositiveRate": 0.94,
+      "balancedFixturePrecision": 0.515464,
+      "recallAt5": 0.92,
+      "retrieval": [
+        {
+          "id": "pos-001",
+          "similarity": 0.796875,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-002",
+          "similarity": 0.763671875,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-003",
+          "similarity": 0.8203125,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-004",
+          "similarity": 0.81640625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-005",
+          "similarity": 0.791015625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-006",
+          "similarity": 0.82421875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-007",
+          "similarity": 0.798828125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-008",
+          "similarity": 0.84765625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-009",
+          "similarity": 0.8515625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-010",
+          "similarity": 0.84375,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-011",
+          "similarity": 0.783203125,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-012",
+          "similarity": 0.779296875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-013",
+          "similarity": 0.7890625,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-014",
+          "similarity": 0.8359375,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-015",
+          "similarity": 0.845703125,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-016",
+          "similarity": 0.873046875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-017",
+          "similarity": 0.798828125,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-018",
+          "similarity": 0.85546875,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-019",
+          "similarity": 0.845703125,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-020",
+          "similarity": 0.818359375,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-021",
+          "similarity": 0.77734375,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-022",
+          "similarity": 0.81640625,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-023",
+          "similarity": 0.708984375,
+          "rank": 37,
+          "found": false
+        },
+        {
+          "id": "pos-024",
+          "similarity": 0.87109375,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-025",
+          "similarity": 0.81640625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-026",
+          "similarity": 0.8203125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-027",
+          "similarity": 0.7421875,
+          "rank": 5,
+          "found": true
+        },
+        {
+          "id": "pos-028",
+          "similarity": 0.740234375,
+          "rank": 8,
+          "found": false
+        },
+        {
+          "id": "pos-029",
+          "similarity": 0.818359375,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-030",
+          "similarity": 0.775390625,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-031",
+          "similarity": 0.837890625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-032",
+          "similarity": 0.8515625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-033",
+          "similarity": 0.767578125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-034",
+          "similarity": 0.80859375,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-035",
+          "similarity": 0.857421875,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-036",
+          "similarity": 0.845703125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-037",
+          "similarity": 0.748046875,
+          "rank": 15,
+          "found": false
+        },
+        {
+          "id": "pos-038",
+          "similarity": 0.80859375,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-039",
+          "similarity": 0.884765625,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-040",
+          "similarity": 0.794921875,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-041",
+          "similarity": 0.798828125,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-042",
+          "similarity": 0.783203125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-043",
+          "similarity": 0.79296875,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-044",
+          "similarity": 0.810546875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-045",
+          "similarity": 0.791015625,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-046",
+          "similarity": 0.76953125,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-047",
+          "similarity": 0.822265625,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-048",
+          "similarity": 0.822265625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-049",
+          "similarity": 0.81640625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-050",
+          "similarity": 0.728515625,
+          "rank": 19,
+          "found": false
+        }
+      ]
+    },
+    {
+      "scope": "public/2026-10",
+      "truePositives": 50,
+      "positiveCount": 50,
+      "falsePositives": 49,
+      "negativeCount": 50,
+      "recall": 1,
+      "falsePositiveRate": 0.98,
+      "balancedFixturePrecision": 0.505051,
+      "recallAt5": 0.94,
+      "retrieval": [
+        {
+          "id": "pos-001",
+          "similarity": 0.826171875,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-002",
+          "similarity": 0.80859375,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-003",
+          "similarity": 0.798828125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-004",
+          "similarity": 0.837890625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-005",
+          "similarity": 0.826171875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-006",
+          "similarity": 0.783203125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-007",
+          "similarity": 0.79296875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-008",
+          "similarity": 0.841796875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-009",
+          "similarity": 0.865234375,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-010",
+          "similarity": 0.8671875,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-011",
+          "similarity": 0.828125,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-012",
+          "similarity": 0.794921875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-013",
+          "similarity": 0.80859375,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-014",
+          "similarity": 0.822265625,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-015",
+          "similarity": 0.849609375,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-016",
+          "similarity": 0.85546875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-017",
+          "similarity": 0.783203125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-018",
+          "similarity": 0.826171875,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-019",
+          "similarity": 0.845703125,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-020",
+          "similarity": 0.794921875,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-021",
+          "similarity": 0.78515625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-022",
+          "similarity": 0.86328125,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-023",
+          "similarity": 0.728515625,
+          "rank": 47,
+          "found": false
+        },
+        {
+          "id": "pos-024",
+          "similarity": 0.853515625,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-025",
+          "similarity": 0.826171875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-026",
+          "similarity": 0.841796875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-027",
+          "similarity": 0.775390625,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-028",
+          "similarity": 0.765625,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-029",
+          "similarity": 0.849609375,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-030",
+          "similarity": 0.783203125,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-031",
+          "similarity": 0.810546875,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-032",
+          "similarity": 0.83203125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-033",
+          "similarity": 0.8203125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-034",
+          "similarity": 0.8203125,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-035",
+          "similarity": 0.849609375,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-036",
+          "similarity": 0.837890625,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-037",
+          "similarity": 0.78125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-038",
+          "similarity": 0.8046875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-039",
+          "similarity": 0.876953125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-040",
+          "similarity": 0.83203125,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-041",
+          "similarity": 0.822265625,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-042",
+          "similarity": 0.79296875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-043",
+          "similarity": 0.744140625,
+          "rank": 6,
+          "found": false
+        },
+        {
+          "id": "pos-044",
+          "similarity": 0.841796875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-045",
+          "similarity": 0.80859375,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-046",
+          "similarity": 0.818359375,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-047",
+          "similarity": 0.826171875,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-048",
+          "similarity": 0.83203125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-049",
+          "similarity": 0.822265625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-050",
+          "similarity": 0.75390625,
+          "rank": 6,
+          "found": false
+        }
+      ]
+    },
+    {
+      "scope": "community-comparison/2026-10",
+      "truePositives": 50,
+      "positiveCount": 50,
+      "falsePositives": 39,
+      "negativeCount": 50,
+      "recall": 1,
+      "falsePositiveRate": 0.78,
+      "balancedFixturePrecision": 0.561798,
+      "recallAt5": 0.94,
+      "retrieval": [
+        {
+          "id": "pos-001",
+          "similarity": 0.841796875,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-002",
+          "similarity": 0.763671875,
+          "rank": 4,
+          "found": true
+        },
+        {
+          "id": "pos-003",
+          "similarity": 0.794921875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-004",
+          "similarity": 0.837890625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-005",
+          "similarity": 0.82421875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-006",
+          "similarity": 0.826171875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-007",
+          "similarity": 0.810546875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-008",
+          "similarity": 0.833984375,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-009",
+          "similarity": 0.87109375,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-010",
+          "similarity": 0.859375,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-011",
+          "similarity": 0.826171875,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-012",
+          "similarity": 0.810546875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-013",
+          "similarity": 0.802734375,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-014",
+          "similarity": 0.8359375,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-015",
+          "similarity": 0.82421875,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-016",
+          "similarity": 0.861328125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-017",
+          "similarity": 0.8125,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-018",
+          "similarity": 0.8359375,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-019",
+          "similarity": 0.810546875,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-020",
+          "similarity": 0.79296875,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-021",
+          "similarity": 0.771484375,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-022",
+          "similarity": 0.84375,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-023",
+          "similarity": 0.736328125,
+          "rank": 5,
+          "found": true
+        },
+        {
+          "id": "pos-024",
+          "similarity": 0.814453125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-025",
+          "similarity": 0.810546875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-026",
+          "similarity": 0.8203125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-027",
+          "similarity": 0.765625,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-028",
+          "similarity": 0.712890625,
+          "rank": 14,
+          "found": false
+        },
+        {
+          "id": "pos-029",
+          "similarity": 0.8125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-030",
+          "similarity": 0.7421875,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-031",
+          "similarity": 0.771484375,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-032",
+          "similarity": 0.81640625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-033",
+          "similarity": 0.806640625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-034",
+          "similarity": 0.8203125,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-035",
+          "similarity": 0.83203125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-036",
+          "similarity": 0.794921875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-037",
+          "similarity": 0.759765625,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-038",
+          "similarity": 0.806640625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-039",
+          "similarity": 0.880859375,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-040",
+          "similarity": 0.787109375,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-041",
+          "similarity": 0.830078125,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-042",
+          "similarity": 0.791015625,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-043",
+          "similarity": 0.734375,
+          "rank": 6,
+          "found": false
+        },
+        {
+          "id": "pos-044",
+          "similarity": 0.833984375,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-045",
+          "similarity": 0.810546875,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-046",
+          "similarity": 0.818359375,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-047",
+          "similarity": 0.822265625,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-048",
+          "similarity": 0.767578125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-049",
+          "similarity": 0.822265625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-050",
+          "similarity": 0.71484375,
+          "rank": 20,
+          "found": false
+        }
+      ]
+    },
+    {
+      "scope": "public/2026-11",
+      "truePositives": 50,
+      "positiveCount": 50,
+      "falsePositives": 47,
+      "negativeCount": 50,
+      "recall": 1,
+      "falsePositiveRate": 0.94,
+      "balancedFixturePrecision": 0.515464,
+      "recallAt5": 0.94,
+      "retrieval": [
+        {
+          "id": "pos-001",
+          "similarity": 0.818359375,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-002",
+          "similarity": 0.759765625,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-003",
+          "similarity": 0.794921875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-004",
+          "similarity": 0.853515625,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-005",
+          "similarity": 0.8125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-006",
+          "similarity": 0.796875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-007",
+          "similarity": 0.80078125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-008",
+          "similarity": 0.78125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-009",
+          "similarity": 0.82421875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-010",
+          "similarity": 0.822265625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-011",
+          "similarity": 0.80859375,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-012",
+          "similarity": 0.8125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-013",
+          "similarity": 0.80859375,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-014",
+          "similarity": 0.78125,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-015",
+          "similarity": 0.82421875,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-016",
+          "similarity": 0.84375,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-017",
+          "similarity": 0.759765625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-018",
+          "similarity": 0.833984375,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-019",
+          "similarity": 0.810546875,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-020",
+          "similarity": 0.751953125,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-021",
+          "similarity": 0.7890625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-022",
+          "similarity": 0.873046875,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-023",
+          "similarity": 0.708984375,
+          "rank": 23,
+          "found": false
+        },
+        {
+          "id": "pos-024",
+          "similarity": 0.8203125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-025",
+          "similarity": 0.822265625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-026",
+          "similarity": 0.806640625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-027",
+          "similarity": 0.759765625,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-028",
+          "similarity": 0.7421875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-029",
+          "similarity": 0.8359375,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-030",
+          "similarity": 0.744140625,
+          "rank": 4,
+          "found": true
+        },
+        {
+          "id": "pos-031",
+          "similarity": 0.771484375,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-032",
+          "similarity": 0.822265625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-033",
+          "similarity": 0.7890625,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-034",
+          "similarity": 0.80859375,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-035",
+          "similarity": 0.833984375,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-036",
+          "similarity": 0.771484375,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-037",
+          "similarity": 0.736328125,
+          "rank": 8,
+          "found": false
+        },
+        {
+          "id": "pos-038",
+          "similarity": 0.76171875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-039",
+          "similarity": 0.857421875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-040",
+          "similarity": 0.791015625,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-041",
+          "similarity": 0.841796875,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-042",
+          "similarity": 0.83203125,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-043",
+          "similarity": 0.732421875,
+          "rank": 4,
+          "found": true
+        },
+        {
+          "id": "pos-044",
+          "similarity": 0.80078125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-045",
+          "similarity": 0.810546875,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-046",
+          "similarity": 0.8046875,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-047",
+          "similarity": 0.818359375,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-048",
+          "similarity": 0.78515625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-049",
+          "similarity": 0.841796875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-050",
+          "similarity": 0.720703125,
+          "rank": 8,
+          "found": false
+        }
+      ]
+    },
+    {
+      "scope": "community-comparison/2026-11",
+      "truePositives": 50,
+      "positiveCount": 50,
+      "falsePositives": 47,
+      "negativeCount": 50,
+      "recall": 1,
+      "falsePositiveRate": 0.94,
+      "balancedFixturePrecision": 0.515464,
+      "recallAt5": 0.92,
+      "retrieval": [
+        {
+          "id": "pos-001",
+          "similarity": 0.8125,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-002",
+          "similarity": 0.76171875,
+          "rank": 4,
+          "found": true
+        },
+        {
+          "id": "pos-003",
+          "similarity": 0.796875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-004",
+          "similarity": 0.828125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-005",
+          "similarity": 0.814453125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-006",
+          "similarity": 0.79296875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-007",
+          "similarity": 0.796875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-008",
+          "similarity": 0.830078125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-009",
+          "similarity": 0.82421875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-010",
+          "similarity": 0.908203125,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-011",
+          "similarity": 0.845703125,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-012",
+          "similarity": 0.791015625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-013",
+          "similarity": 0.806640625,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-014",
+          "similarity": 0.845703125,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-015",
+          "similarity": 0.87890625,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-016",
+          "similarity": 0.841796875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-017",
+          "similarity": 0.7890625,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-018",
+          "similarity": 0.845703125,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-019",
+          "similarity": 0.8203125,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-020",
+          "similarity": 0.8125,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-021",
+          "similarity": 0.78125,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-022",
+          "similarity": 0.845703125,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-023",
+          "similarity": 0.7265625,
+          "rank": 12,
+          "found": false
+        },
+        {
+          "id": "pos-024",
+          "similarity": 0.84765625,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-025",
+          "similarity": 0.828125,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-026",
+          "similarity": 0.833984375,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-027",
+          "similarity": 0.78125,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-028",
+          "similarity": 0.736328125,
+          "rank": 7,
+          "found": false
+        },
+        {
+          "id": "pos-029",
+          "similarity": 0.8515625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-030",
+          "similarity": 0.78515625,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-031",
+          "similarity": 0.80859375,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-032",
+          "similarity": 0.833984375,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-033",
+          "similarity": 0.796875,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-034",
+          "similarity": 0.83203125,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-035",
+          "similarity": 0.841796875,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-036",
+          "similarity": 0.833984375,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-037",
+          "similarity": 0.75,
+          "rank": 18,
+          "found": false
+        },
+        {
+          "id": "pos-038",
+          "similarity": 0.82421875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-039",
+          "similarity": 0.865234375,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-040",
+          "similarity": 0.81640625,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-041",
+          "similarity": 0.826171875,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-042",
+          "similarity": 0.81640625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-043",
+          "similarity": 0.787109375,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-044",
+          "similarity": 0.81640625,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-045",
+          "similarity": 0.82421875,
+          "rank": 3,
+          "found": true
+        },
+        {
+          "id": "pos-046",
+          "similarity": 0.82421875,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-047",
+          "similarity": 0.826171875,
+          "rank": 1,
+          "found": true
+        },
+        {
+          "id": "pos-048",
+          "similarity": 0.810546875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-049",
+          "similarity": 0.82421875,
+          "rank": 2,
+          "found": true
+        },
+        {
+          "id": "pos-050",
+          "similarity": 0.72265625,
+          "rank": 16,
+          "found": false
+        }
+      ]
+    }
+  ],
+  "attacks": [
+    {
+      "from": "public/2026-09",
+      "to": "public/2026-10",
+      "candidates": 100,
+      "chanceTop1": 0.01,
+      "rawEqualityCount": 0,
+      "meanDirectSimilarity": 0.497461,
+      "reconstructedTop1": 0.97,
+      "reconstructedTop5": 1,
+      "dictionaryUniqueIdentification": 1
+    },
+    {
+      "from": "public/2026-09",
+      "to": "community-comparison/2026-09",
+      "candidates": 100,
+      "chanceTop1": 0.01,
+      "rawEqualityCount": 0,
+      "meanDirectSimilarity": 0.487578,
+      "reconstructedTop1": 0.95,
+      "reconstructedTop5": 1,
+      "dictionaryUniqueIdentification": 1
+    },
+    {
+      "from": "public/2026-10",
+      "to": "public/2026-11",
+      "candidates": 100,
+      "chanceTop1": 0.01,
+      "rawEqualityCount": 0,
+      "meanDirectSimilarity": 0.488867,
+      "reconstructedTop1": 0.86,
+      "reconstructedTop5": 1,
+      "dictionaryUniqueIdentification": 1
+    }
+  ],
+  "resources": {
+    "initializationMs": 513.60625,
+    "embeddingMs": 2890.122792,
+    "totalMs": 4132.230833,
+    "cpuSeconds": 15.349001,
+    "peakRssBytes": 1075838976,
+    "node": "v24.19.0",
+    "platform": "darwin",
+    "architecture": "arm64"
+  },
+  "limitations": [
+    "Fixed small English labeled fixture, not a representative deployment or multilingual quality study.",
+    "Relative quality preservation is not absolute matching adequacy: the current threshold admits many labeled negative candidates, before any later confirmation.",
+    "Balanced-fixture precision is not estimated real-network precision; unannotated cross-pairs are not labeled negatives.",
+    "Dictionary linking requires unique identification in both scopes and assumes the exact text is in the candidate corpus; it does not estimate arbitrary-world guessing probability.",
+    "Reconstruction attack uses only fingerprints/public matrices and the same candidate population at both scopes; churn is not modeled.",
+    "CPU time and process RSS do not measure device energy, full-app memory or Internet traffic.",
+    "Scopes are public deterministic transforms, not encryption or differential privacy. No live protocol behavior is changed."
+  ]
+}

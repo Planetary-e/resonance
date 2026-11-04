@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "status": "pending",
+  "currency": null,
+  "accounting_period": null,
+  "electricity_prices": null,
+  "network_prices": null,
+  "labor_prices": null,
+  "hardware_lifetime": null,
+  "recovery_arrival_rates": null,
+  "maximum_envelope_margin": null,
+  "budget": null,
+  "value": null,
+  "affordability_verdict": "pending"
+}

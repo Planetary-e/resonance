@@ -49,6 +49,26 @@ describe('MailboxStore', () => {
     expect(store.fetch(value.mailboxId, NOW + 2)).toEqual([value]);
     expect(store.acknowledge(value.mailboxId, [value.envelopeId])).toBe(1);
     expect(store.fetch(value.mailboxId, NOW + 2)).toEqual([]);
+    expect(store.enqueue(value)).toBe('duplicate');
+    expect(store.hasAcknowledgedEnvelope(value.mailboxId, value.envelopeId, NOW + 2)).toBe(true);
+    expect(store.retainedBytes).toBeGreaterThan(0);
+  });
+
+  it('charges pending envelopes and acknowledged IDs to one retained-state budget', () => {
+    const value = envelope();
+    const store = new MailboxStore();
+    const size = Buffer.byteLength(JSON.stringify(value), 'utf8');
+    expect(store.canEnqueue([value], size - 1)).toBe(false);
+    expect(store.canEnqueue([value], size)).toBe(true);
+    store.enqueue(value);
+    expect(store.retainedBytes).toBe(size);
+    expect(store.canEnqueue([value], size)).toBe(true);
+    store.acknowledge(value.mailboxId, [value.envelopeId]);
+    expect(store.retainedBytes).toBeLessThan(size);
+    expect(store.canEnqueue([value], store.retainedBytes)).toBe(true);
+    expect(store.purgeExpired(value.expiresAt)).toBe(1);
+    expect(store.retainedBytes).toBe(0);
+    expect(store.hasAcknowledgedEnvelope(value.mailboxId, value.envelopeId, value.expiresAt)).toBe(false);
   });
 
   it('expires undelivered envelopes by their own TTL', () => {
@@ -69,6 +89,63 @@ describe('MailboxStore', () => {
     const restored = new MailboxStore();
     restored.load(directory);
     expect(restored.fetch(value.mailboxId, NOW + 2)).toEqual([value]);
+  });
+
+  it('persists acknowledgement deduplication through a store restart', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'resonance-mailboxes-'));
+    temporaryDirectories.push(directory);
+    const value = envelope();
+    const store = new MailboxStore();
+    store.enqueue(value);
+    store.acknowledge(value.mailboxId, [value.envelopeId]);
+    store.save(directory);
+
+    const restored = new MailboxStore();
+    restored.load(directory);
+    expect(restored.retainedBytes).toBe(store.retainedBytes);
+    expect(restored.enqueue(value)).toBe('duplicate');
+    expect(restored.fetch(value.mailboxId, NOW + 2)).toEqual([]);
+  });
+
+  it('keeps a replicated acknowledgement that arrives before its encrypted envelope', () => {
+    const value = envelope();
+    const store = new MailboxStore();
+    expect(store.canApplyReplicatedAcknowledgement(
+      value.mailboxId, value.envelopeId, value.expiresAt, 1_000,
+    )).toBe(true);
+    expect(store.applyReplicatedAcknowledgement(
+      value.mailboxId, value.envelopeId, value.expiresAt,
+    )).toBe(true);
+    expect(store.events(value.mailboxId, NOW + 2)).toEqual([{
+      kind: 'ack', mailboxId: value.mailboxId,
+      envelopeId: value.envelopeId, expiresAt: value.expiresAt,
+    }]);
+    expect(store.enqueue(value)).toBe('duplicate');
+    expect(store.fetch(value.mailboxId, NOW + 2)).toEqual([]);
+    expect(store.applyReplicatedAcknowledgement(
+      value.mailboxId, value.envelopeId, value.expiresAt,
+    )).toBe(false);
+  });
+
+  it('removes a same-ID notice from another relay with a later expiry', () => {
+    const first = envelope();
+    const later = { ...first, expiresAt: first.expiresAt + 1_000 };
+    const store = new MailboxStore();
+    store.enqueue(later);
+    expect(store.canApplyReplicatedAcknowledgement(
+      first.mailboxId, first.envelopeId, first.expiresAt, 1_000,
+    )).toBe(true);
+    expect(store.applyReplicatedAcknowledgement(
+      first.mailboxId, first.envelopeId, first.expiresAt,
+    )).toBe(true);
+    expect(store.fetch(first.mailboxId, NOW + 2)).toEqual([]);
+    expect(store.acknowledgementExpiry(first.mailboxId, first.envelopeId))
+      .toBe(later.expiresAt);
+    expect(store.applyReplicatedAcknowledgement(
+      first.mailboxId, first.envelopeId, later.expiresAt + 1_000,
+    )).toBe(true);
+    expect(store.acknowledgementExpiry(first.mailboxId, first.envelopeId))
+      .toBe(later.expiresAt + 1_000);
   });
 
   it('bounds one fetch so the result can be acknowledged in one request', () => {

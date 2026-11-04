@@ -1,0 +1,842 @@
+--- before/packages/relay/src/sustainable-recovery-runtime.ts
++++ candidate/packages/relay/src/sustainable-recovery-runtime.ts
+@@ -9,7 +9,8 @@
+ import { recoveryDigest, type SustainableProtectedArena } from './sustainable-recovery-protected-arena.js';
+ import { prepareProtectedWitnessTransfer, type WitnessTerminalEvidence, type WitnessTerminalPins } from './protected-witness-handoff.js';
+ import type { WitnessHandoffProposal } from '@resonance/core/admission-witness-handoff';
+-import { compileSustainableRecoveryManifest, type RecoveryAllocationManifest } from './sustainable-recovery-manifest.js';
++import { admissionKeyFingerprint } from '@resonance/core/admission-policy';
++import { compileSustainableRecoveryManifest, type RecoveryAllocationManifest, type RecoveryProofKind } from './sustainable-recovery-manifest.js';
+ 
+ const ZERO=`sha256:${'0'.repeat(64)}`;
+ const json=(v:unknown)=>Buffer.from(JSON.stringify(v));
+@@ -27,8 +28,9 @@
+ export interface RecoveryProposal { header:RecoveryHeader; leader:string; signature:string; command:RecoveryBusinessCommand }
+ interface Prepared { proposal:RecoveryProposal; certificate:RecoveryCertificate|null }
+ interface Journal { version:1;layout:string;state:RecoveryBusinessState;configuration:AdmissionWitnessSet;view:number;sequence:number;head:string;
+-  prepared:Prepared|null;committed:RecoveryCertificate|null;stable:RecoveryCertificate|null;suffix:number;fenced:boolean;locked?:Prepared;lastViewChange?:RecoveryViewChange;stage?:'ready' }
+-export interface RecoveryTransfer { cut:RecoveryCertificate;state:RecoveryBusinessState;objects:Array<{id:string;bytes:string}> }
++  prepared:Prepared|null;committed:RecoveryCertificate|null;stable:RecoveryCertificate|null;suffix:number;fenced:boolean;locked?:Prepared;lastViewChange?:RecoveryViewChange;stage?:'reserved'|'ready';installPolicyShape?:string;installedNewView?:{view:number;identity:string} }
++export interface RecoveryTransfer { cut:RecoveryCertificate;state:RecoveryBusinessState;objects:Array<{id:string;bytes:string;kind:RecoveryProofKind}> }
++export interface RecoveryFundingReceipt {version:1;cut:string;proposal:string;layout:string;signer:string;signature:string}
+ export interface RecoveryViewChange { view:number;signer:string;base:RecoveryCertificate;floor:{configuration:string;sequence:number;digest:string};prepared:Prepared|null;signature:string }
+ 
+ /** Versioned fixed binary header. Digests are 32 bytes and integers u64. */
+@@ -47,6 +49,26 @@
+   for(const signature of certificate.signatures)if(!set.members.some(m=>m.publicKey===signature.signer)
+     || !verify(signedBytes(phase,certificate.header),Buffer.from(signature.signature,'base64url'),Buffer.from(signature.signer,'base64url')))throw new Error('Unauthenticated executed-state certificate');
+   return certificate;
++}
++function installPolicyShape(policy:SignedAdmissionPolicy,proposal:WitnessHandoffProposal){
++  const {revision,signature,...body}=policy;
++  return digest({...body,keys:body.keys.map(k=>admissionKeyFingerprint(k.profile.issuerPublicKey)===proposal.issuerKey?{...k,witnesses:proposal.newSet,witnessHandoff:null}:k)});
++}
++/** All future signatures/digests are fixed-length encodings. Bound the complete
++ * activation and next policy from the authenticated finite policy/proposal,
++ * before the first freeze. Unknown policy changes need a new reservation. */
++function installationMaximum(policy:SignedAdmissionPolicy,proposal:WitnessHandoffProposal){
++  const signature='x'.repeat(86),base={version:1,proposal:ZERO};
++  const activation={version:1,kind:'witness-handoff-activation',proposal,manifest:ZERO,
++    freezes:proposal.oldSet.members.slice(0,4).map(m=>({...base,kind:'witness-freeze',witness:m.publicKey,evidence:ZERO,head:ZERO,signature})),
++    drained:proposal.context.members.slice(0,4).map(m=>({...base,kind:'witness-drained',manifest:ZERO,observer:m.publicKey,signature})),
++    ready:proposal.newSet.members.slice(0,4).map(m=>({...base,kind:'witness-ready',manifest:ZERO,drain:ZERO,witness:m.publicKey,signature})),authority:proposal.authority,signature};
++  const next={...policy,revision:Number.MAX_SAFE_INTEGER,signature,keys:policy.keys.map(k=>admissionKeyFingerprint(k.profile.issuerPublicKey)===proposal.issuerKey?{...k,witnesses:proposal.newSet,witnessHandoff:activation}:k)};
++  return {policy:json(next).length,activation:json(activation).length};
++}
++export function assertSustainableRetryKey(policy:SignedAdmissionPolicy,request:Pick<AdmissionWitnessRequest,'issuerKey'|'setId'>,now:number){
++  const entry=policy.keys.find(k=>admissionKeyFingerprint(k.profile.issuerPublicKey)===request.issuerKey&&k.witnesses&&admissionWitnessSetId(k.witnesses)===request.setId);
++  if(!entry||now<entry.notBefore||now>=entry.retryUntil)throw new Error('Current admission retry key is retired');return entry;
+ }
+ const bootstrapCapabilities=new WeakMap<object,RecoveryBusinessState>();
+ /** The original reducer, signatures, independent pins and terminal barrier are
+@@ -83,7 +105,7 @@
+       ||!Number.isSafeInteger(journal.sequence)||journal.sequence<0||journal.suffix>32)throw new Error('Wrong recovery original trust/funding/floor');return journal;}
+   const knownSet=(state:RecoveryBusinessState,id:string)=>state.evidence.sets.find(set=>admissionWitnessSetId(set)===id);
+   async function write(journal:Journal){await options.storage.write(json(journal));}
+-  async function proof(bytes:Buffer){return options.storage.put(bytes);}
++  async function proof(bytes:Buffer,kind:RecoveryProofKind='original'){return options.storage.put(bytes,kind);}
+   function materializedEvidence(state:RecoveryBusinessState):WitnessInheritedEvidence {
+     const votes=(state.voteProofs??[]).map(id=>JSON.parse(options.storage.arena.get(id).toString()).vote as AdmissionWitnessVote);
+     const certificates=(state.certificateProofs??[]).map(id=>JSON.parse(options.storage.arena.get(id).toString()).certificate as AdmissionSpendCertificate);
+@@ -135,6 +157,7 @@
+       previousCut:journal.stable?headerId(journal.stable.header):ZERO,terminal:state.transition?witnessHandoffProposalId(state.transition):journal.head,funding:compiled.digest,genesis:state.originalGenesis,context:state.context};
+   }
+   function validateProposal(journal:Journal,proposal:RecoveryProposal) {
++    if(journal.view>0&&journal.installedNewView?.view!==journal.view)throw new Error('New view must be durably installed before PREPARE');
+     const header=expected(journal,proposal.command),leader=journal.configuration.members[journal.view%5].publicKey;
+     if(proposal.leader!==leader||headerId(proposal.header)!==headerId(header)
+       ||!verify(signedBytes('proposal',proposal.header),Buffer.from(proposal.signature,'base64url'),Buffer.from(leader,'base64url')))throw new Error('Invalid executed recovery leader/proposal/endpoint');
+@@ -148,6 +171,10 @@
+       const state=bootstrapCapabilities.get(capability);if(!state)throw new Error('Bootstrap requires complete original verification capability');
+       if(options.storage.read())throw new Error('Executed bootstrap cannot reset existing state');
+       if(!options.configuration.members.some(m=>m.publicKey===signer)||!knownSet(state,admissionWitnessSetId(options.configuration)))throw new Error('Wrong original role scope');
++      const bootstrapObjects=[...capability.objects.map(o=>({bytes:Buffer.from(o.bytes,'base64url'),kind:'original' as const})),
++        ...state.evidence.votes.map(vote=>({bytes:json({kind:'vote',vote}),kind:'original' as const})),...state.evidence.certificates.map(certificate=>({bytes:json({kind:'certificate',certificate}),kind:'original' as const}))];
++      for(const object of bootstrapObjects)if(!options.storage.arena.originalDeclarations.some(d=>d.id===recoveryDigest(object.bytes)&&d.bytes===object.bytes.length))throw new Error('UNKNOWN undeclared complete bootstrap original obligation');
++      await options.storage.preflight(bootstrapObjects,json(state).length+4096);
+       for(const object of capability.objects)if(await proof(Buffer.from(object.bytes,'base64url'))!==object.id)throw new Error('Changed original bootstrap bytes');
+       const compact=structuredClone(state);compact.voteProofs=[];compact.certificateProofs=[];
+       for(const vote of compact.evidence.votes)compact.voteProofs.push(await proof(json({kind:'vote',vote})));
+@@ -158,48 +185,84 @@
+     propose(command:RecoveryBusinessCommand):RecoveryProposal {const journal=read();if(journal.configuration.members[journal.view%5].publicKey!==signer)throw new Error('Only deterministic view leader proposes');
+       const header=expected(journal,command);return {header,leader:signer,signature:signHeader('proposal',header,options.key).signature,command:structuredClone(command)};},
+     async prepare(proposal:RecoveryProposal){return exclusive(async()=>{const journal=read();validateProposal(journal,proposal);
++      if(journal.prepared&&headerId(journal.prepared.proposal.header)===headerId(proposal.header))return signHeader('prepare',proposal.header,options.key);
++      const phases=proposal.command.kind==='cut'?['prepare','commit','cut']:['prepare','commit'];
++      const completion:Array<{bytes:Buffer;kind:RecoveryProofKind}>=phases.map(phase=>({bytes:json({phase,header:proposal.header,signatures:journal.configuration.members.slice(0,4).map(m=>({signer:m.publicKey,signature:'x'.repeat(86)}))}),kind:'frame' as const}));
++      const commandKind=proposal.command.kind==='cut'||proposal.command.kind==='reconfigure'?'frame' as const:'original' as const;
++      completion.push({bytes:json(proposal.command),kind:commandKind});
++      const certified={proposal,certificate:JSON.parse(completion[0].bytes.toString()) as RecoveryCertificate};
++      const committed=JSON.parse(completion[1].bytes.toString()) as RecoveryCertificate;
++      const preparedJournal={...journal,prepared:{proposal,certificate:null},locked:journal.prepared?.certificate?journal.prepared:journal.locked?.certificate?journal.locked:{proposal,certificate:null}};
++      const commitJournal={...journal,prepared:certified,locked:certified};
++      const executedJournal={...commitJournal,state:nextState(journal,proposal.command),sequence:proposal.header.sequence,head:headerId(proposal.header),committed,suffix:journal.suffix+1};
++      const finishedJournal={...executedJournal,prepared:null,committed:null,...(proposal.command.kind==='cut'?{stable:JSON.parse(completion[2].bytes.toString()),suffix:0}:{})};
++      await options.storage.preflight(completion,Math.max(...[preparedJournal,commitJournal,executedJournal,finishedJournal].map(j=>json(j).length)));
+       if(proposal.command.kind==='accept')await options.freshPolicy(journal.state.policy,performance.now()+3000);
+-      await proof(json(proposal.command));await write({...journal,...(journal.prepared?.certificate?{locked:journal.prepared}:{}),prepared:{proposal:structuredClone(proposal),certificate:null}});
++      const prepared={proposal:structuredClone(proposal),certificate:null};await proof(json(proposal.command),commandKind);await write({...journal,prepared,locked:journal.prepared?.certificate?journal.prepared:journal.locked?.certificate?journal.locked:prepared});
+       return signHeader('prepare',proposal.header,options.key);});},
+     async commit(certificate:RecoveryCertificate){return exclusive(async()=>{const journal=read();verifyRecoveryCertificate(certificate,journal.configuration,'prepare');
+       if(!journal.prepared||headerId(journal.prepared.proposal.header)!==headerId(certificate.header))throw new Error('Commit lost durable prepared value');
+-      const prepared={...journal.prepared,certificate:structuredClone(certificate)};await proof(json(certificate));await write({...journal,prepared,locked:prepared});
++      const prepared={...journal.prepared,certificate:structuredClone(certificate)};await proof(json(certificate),'frame');await write({...journal,prepared,locked:prepared});
+       return signHeader('commit',certificate.header,options.key);});},
+     async execute(certificate:RecoveryCertificate){return exclusive(async()=>{const journal=read();verifyRecoveryCertificate(certificate,journal.configuration,'commit');
+       if(journal.sequence===certificate.header.sequence&&journal.head===headerId(certificate.header))return signHeader(journal.prepared?.proposal.command.kind==='cut'?'cut':'executed',certificate.header,options.key);
+       const prepared=journal.prepared;if(!prepared?.certificate||headerId(prepared.proposal.header)!==headerId(certificate.header))throw new Error('Execution lost prepared proof');
+-      validateProposal(journal,prepared.proposal);const state=nextState(journal,prepared.proposal.command);await proof(json(certificate));
++      validateProposal(journal,prepared.proposal);const state=nextState(journal,prepared.proposal.command);await proof(json(certificate),'frame');
+       const next={...journal,state,sequence:certificate.header.sequence,head:headerId(certificate.header),committed:structuredClone(certificate),suffix:journal.suffix+1};
+       await write(next);return signHeader(prepared.proposal.command.kind==='cut'?'cut':'executed',certificate.header,options.key);});},
+     async finish(certificate?:RecoveryCertificate){return exclusive(async()=>{const journal=read();if(!journal.committed)throw new Error('No durable executed completion');
+-      if(certificate){verifyRecoveryCertificate(certificate,journal.configuration,'cut');if(journal.head!==headerId(certificate.header)||journal.prepared?.proposal.command.kind!=='cut')throw new Error('Cut differs from durable executed endpoint');await proof(json(certificate));}
++      if(certificate){verifyRecoveryCertificate(certificate,journal.configuration,'cut');if(journal.head!==headerId(certificate.header)||journal.prepared?.proposal.command.kind!=='cut')throw new Error('Cut differs from durable executed endpoint');await proof(json(certificate),'frame');}
+       await write({...journal,prepared:null,committed:null,...(certificate?{stable:structuredClone(certificate),suffix:0}:{})});
+     });},
+-    async freeze(){return exclusive(async()=>{const journal=read();if(!journal.stable||journal.head!==headerId(journal.stable.header)||journal.prepared||!journal.state.transition)throw new Error('Freeze requires committed ordered successor and terminal cut');
++    async freeze(receipts:RecoveryFundingReceipt[]){return exclusive(async()=>{const journal=read();if(!journal.stable||journal.head!==headerId(journal.stable.header)||journal.prepared||!journal.state.transition)throw new Error('Freeze requires committed ordered successor and terminal cut');
++      if(!Array.isArray(receipts)||receipts.length!==4||new Set(receipts.map(r=>r.signer)).size!==4)throw new Error('Freeze requires four durable prospective completion reservations');
++      for(const receipt of receipts){const {signature,...body}=receipt;if(receipt.version!==1||receipt.cut!==journal.head||receipt.proposal!==witnessHandoffProposalId(journal.state.transition)||receipt.layout!==compiled.digest
++        ||!journal.state.transition.newSet.members.some(m=>m.publicKey===receipt.signer)||!verify(Buffer.concat([Buffer.from('resonance:recovery-funding:v1\n'),json(canonical(body))]),Buffer.from(signature,'base64url'),Buffer.from(receipt.signer,'base64url')))throw new Error('Unauthenticated successor completion reservation');}
+       await write({...journal,fenced:true});options.storage.assertReady();
+       return createWitnessFreezeReport(journal.state.transition,journal.stable.header.proofRoot,journal.head,options.key);
+     });},
+     transfer():RecoveryTransfer {const journal=read();if(!journal.stable||journal.head!==headerId(journal.stable.header)||journal.prepared)throw new Error('Transfer requires stable executed terminal cut');
+-      return {cut:journal.stable,state:journal.state,objects:journal.state.proofs.map(id=>({id,bytes:options.storage.arena.get(id).toString('base64url')}))};},
+-    async prepareInstall(transfer:RecoveryTransfer,proposalValue:WitnessHandoffProposal,drainedValue:WitnessDrainReport[]){return exclusive(async()=>{
+-      const proposal=parseWitnessHandoffProposal(proposalValue),cutId=headerId(transfer.cut.header),drained=parseWitnessDrainCertificate(drainedValue,proposal,cutId);
++      return {cut:journal.stable,state:journal.state,objects:journal.state.proofs.map(id=>({id,bytes:options.storage.arena.get(id).toString('base64url'),kind:options.storage.arena.proofKind(id)}))};},
++    async reserveInstall(transfer:RecoveryTransfer,proposalValue:WitnessHandoffProposal){return exclusive(async()=>{
++      const proposal=parseWitnessHandoffProposal(proposalValue),cutId=headerId(transfer.cut.header);
++      if(transfer.state.evidence.activations.length>=compiled.manifest.transitions)throw new Error('Finite future installation allowance exhausted');
+       verifyRecoveryCertificate(transfer.cut,proposal.oldSet,'cut');
+       if(!proposal.newSet.members.some(m=>m.publicKey===signer)||!transfer.state.transition||witnessHandoffProposalId(transfer.state.transition)!==witnessHandoffProposalId(proposal)
+         ||transfer.cut.header.terminal!==witnessHandoffProposalId(proposal)||digest(transfer.state)!==transfer.cut.header.state||digest(transfer.state.proofs)!==transfer.cut.header.proofRoot
+         ||transfer.state.originalGenesis!==`sha256:${admissionPolicyDigest(options.originalGenesis)}`||transfer.cut.header.funding!==compiled.digest)throw new Error('Unverified successor readiness state/authority/layout');
++      await options.storage.startup();
+       const old=options.storage.read()?read():undefined;
+       if(old&&(old.sequence>transfer.cut.header.sequence||old.sequence===transfer.cut.header.sequence&&old.head!==cutId
+         ||old.prepared&&old.prepared.proposal.header.sequence>transfer.cut.header.sequence||old.state.proofs.some(id=>!transfer.state.proofs.includes(id))))throw new Error('Successor readiness lost original/pending floor');
+       const objects=new Map(transfer.objects.map(o=>[o.id,Buffer.from(o.bytes,'base64url')]));
+       for(const id of transfer.state.proofs){const bytes=objects.get(id);if(!bytes||recoveryDigest(bytes)!==id)throw new Error('Missing readiness original proof');}
+-      for(const id of transfer.state.proofs)await proof(objects.get(id)!);
++      const items=transfer.state.proofs.map(id=>({bytes:objects.get(id)!,kind:transfer.objects.find(o=>o.id===id)!.kind}));
++      const draft:Journal={version:1,layout:compiled.digest,state:structuredClone(transfer.state),configuration:proposal.newSet,view:0,sequence:transfer.cut.header.sequence,head:cutId,prepared:null,committed:null,stable:transfer.cut,suffix:0,fenced:false,stage:'reserved'};
++      const closure=options.storage.arena.proofClosure,maxima=installationMaximum(transfer.state.policy,proposal);
++      if(maxima.policy>closure.policy.maximumBytes||maxima.activation>closure.activation.maximumBytes)throw new Error('Complete prospective policy/activation encoding exceeds reserved maxima');
++      draft.installPolicyShape=installPolicyShape(transfer.state.policy,proposal);
++      const futureState=structuredClone(transfer.state);delete futureState.transition;
++      futureState.policy={reserved:'x'.repeat(closure.policy.maximumBytes)} as unknown as SignedAdmissionPolicy;
++      futureState.evidence.sets=[...futureState.evidence.sets,proposal.newSet];
++      futureState.evidence.activations=[...futureState.evidence.activations,{reserved:'x'.repeat(closure.activation.maximumBytes)} as unknown as WitnessHandoffActivation];
++      futureState.proofs=[...futureState.proofs,`sha256:${'1'.repeat(64)}`,`sha256:${'2'.repeat(64)}`];
++      const futureBytes=json({...draft,state:futureState,stage:undefined,installPolicyShape:undefined}).length;
++      await options.storage.preflight([...items,{bytes:Buffer.alloc(closure.policy.maximumBytes,1),kind:'policy'},{bytes:Buffer.alloc(closure.activation.maximumBytes,2),kind:'activation'}],Math.max(json(draft).length,futureBytes));
++      options.storage.arena.assertImageSize('suffix',closure.policy.maximumBytes+128);
++      options.storage.arena.assertImageSize('pending',512);
++      for(const item of items)await proof(item.bytes,item.kind);
+       options.storage.arena.write('pending',json({cut:cutId,proposal:witnessHandoffProposalId(proposal)}));
+       options.storage.arena.write('suffix',json({policy:transfer.state.policy,cut:cutId}));
+-      await write({version:1,layout:compiled.digest,state:structuredClone(transfer.state),configuration:proposal.newSet,view:0,sequence:transfer.cut.header.sequence,
+-        head:cutId,prepared:null,committed:null,stable:transfer.cut,suffix:0,fenced:false,stage:'ready'});
++      await write(draft);
+       const mirror=JSON.parse(options.storage.arena.read('suffix')!.bytes.toString());
+       if(admissionPolicyDigest(mirror.policy)!==admissionPolicyDigest(read().state.policy))throw new Error('Readiness policy mirror/owner mismatch');
+-      serving=false;return createWitnessReadyReport(proposal,cutId,drained,options.key);
++      serving=false;const body={version:1 as const,cut:cutId,proposal:witnessHandoffProposalId(proposal),layout:compiled.digest,signer};
++      return {...body,signature:Buffer.from(sign(Buffer.concat([Buffer.from('resonance:recovery-funding:v1\n'),json(canonical(body))]),options.key.secretKey)).toString('base64url')};
++    });},
++    async prepareInstall(transfer:RecoveryTransfer,proposalValue:WitnessHandoffProposal,drainedValue:WitnessDrainReport[]){return exclusive(async()=>{
++      await options.storage.startup();const proposal=parseWitnessHandoffProposal(proposalValue),cutId=headerId(transfer.cut.header),drained=parseWitnessDrainCertificate(drainedValue,proposal,cutId),journal=read();
++      if(journal.stage!=='reserved'&&journal.stage!=='ready'||journal.head!==cutId||!journal.state.transition||witnessHandoffProposalId(journal.state.transition)!==witnessHandoffProposalId(proposal))throw new Error('Readiness requires previously durable complete funding reservation');
++      await write({...journal,stage:'ready'});serving=false;return createWitnessReadyReport(proposal,cutId,drained,options.key);
+     });},
+     async install(transfer:RecoveryTransfer,activation:WitnessHandoffActivation,currentPolicy:SignedAdmissionPolicy){return exclusive(async()=>{
+       const installed=options.storage.read()?read():undefined;
+@@ -208,6 +271,7 @@
+       const parsed=parseWitnessHandoffActivation(activation),old=parsed.proposal.oldSet,next=parsed.proposal.newSet;
+       verifyRecoveryCertificate(transfer.cut,old,'cut');const cutId=headerId(transfer.cut.header);
+       const policy=await verifyAdmissionPolicy(currentPolicy,options.originalGenesis.authority);
++      if(installed.installPolicyShape!==installPolicyShape(policy,parsed.proposal))throw new Error('Policy differs from the prospectively funded installation plan');
+       if(parsed.manifest!==cutId||!policy.keys.some(k=>k.witnessHandoff&&digest(k.witnessHandoff)===digest(parsed))
+         ||!next.members.some(m=>m.publicKey===signer)||transfer.state.originalGenesis!==`sha256:${admissionPolicyDigest(options.originalGenesis)}`
+         ||digest(transfer.state)!==transfer.cut.header.state||digest(transfer.state.proofs)!==transfer.cut.header.proofRoot
+@@ -217,9 +281,9 @@
+         ||installed.state.proofs.some(id=>!transfer.state.proofs.includes(id))))throw new Error('Install violates durable/pending evidence floor');
+       const objects=new Map(transfer.objects.map(object=>[object.id,Buffer.from(object.bytes,'base64url')]));
+       for(const id of transfer.state.proofs){const bytes=objects.get(id);if(!bytes||recoveryDigest(bytes)!==id)throw new Error('Missing exact original/proof');}
+-      for(const id of transfer.state.proofs)await proof(objects.get(id)!);
++      for(const id of transfer.state.proofs)await proof(objects.get(id)!,transfer.objects.find(o=>o.id===id)!.kind);
+       const state=structuredClone(transfer.state);delete state.transition;state.policy=policy;state.evidence=mergeWitnessEvidence([state.evidence,{sets:[next],activations:[parsed],votes:[],certificates:[],accepted:[],denials:[]}]);
+-      state.proofs=[...new Set([...state.proofs,await proof(json(policy)),await proof(json(parsed))])].sort();
++      state.proofs=[...new Set([...state.proofs,await proof(json(policy),'policy'),await proof(json(parsed),'activation')])].sort();
+       // One funded recoverable installation intent, then independently encoded
+       // mirror and owner state. Reopen both before readiness/service.
+       const intent=json({cut:cutId,policy:admissionPolicyDigest(policy),state:digest(state)});options.storage.arena.write('pending',intent);
+@@ -231,13 +295,13 @@
+     });},
+     async startup(){return exclusive(async()=>{serving=false;await options.storage.startup();const journal=read();
+       for(const id of journal.state.proofs)options.storage.arena.get(id);
+-      if(journal.prepared||journal.committed||journal.fenced||journal.stage==='ready')throw new Error('Recovery must complete durable pending/prepared floor before service');
++      if(journal.prepared||journal.committed||journal.fenced||journal.stage)throw new Error('Recovery must complete durable pending/prepared floor before service');
+       await options.freshPolicy(journal.state.policy,performance.now()+3000);serving=true;return {sequence:journal.sequence,digest:journal.head};
+     });},
+     /** Real accepted-spend lookup: original attribution survives imports. */
+     async retry(request:AdmissionWitnessRequest){live();if(!serving)throw new Error('Executed recovery service not ready');options.storage.assertReady();const journal=read();
+       await options.freshPolicy(journal.state.policy,performance.now()+3000);options.storage.assertReady();if(read().head!==journal.head)throw new Error('Business endpoint changed during fresh authorization');
+-      const entry=journal.state.policy.keys.find(k=>k.witnesses&&admissionWitnessSetId(k.witnesses)===request.setId);if(!entry||now()<entry.notBefore||now()>=entry.retryUntil)throw new Error('Current admission retry key is retired');
++      assertSustainableRetryKey(journal.state.policy,request,now());
+       if(!verifyAdmissionWitnessRequest(request,journal.configuration))throw new Error('Unauthenticated current admission request');
+       const rows=journal.state.evidence.accepted.filter(r=>r.issuerKey===request.issuerKey&&r.spend===request.spend);
+       if(rows.some(r=>r.action!==request.action||r.binding!==request.requestBinding))throw new Error('Conflicting original retry');
+@@ -245,16 +309,20 @@
+       return rows.length?structuredClone(rows[0]):undefined;
+     },
+     async viewChange(view:number):Promise<RecoveryViewChange>{return exclusive(async()=>{const journal=read();if(journal.lastViewChange?.view===view)return structuredClone(journal.lastViewChange);if(!journal.stable||!Number.isSafeInteger(view)||view<=journal.view)throw new Error('View change requires authenticated stable cut and increasing view');
+-      const body={view,signer,base:journal.stable,floor:{configuration:admissionWitnessSetId(journal.configuration),sequence:journal.sequence,digest:journal.head},prepared:journal.prepared?.certificate?journal.prepared:journal.locked??null};
++      const body={view,signer,base:journal.stable,floor:{configuration:admissionWitnessSetId(journal.configuration),sequence:journal.sequence,digest:journal.head},prepared:journal.prepared?.certificate?journal.prepared:journal.locked?.certificate?journal.locked:null};
+       const record={...body,signature:Buffer.from(sign(Buffer.concat([Buffer.from('resonance:executed-recovery:view-change:v1\n'),json(canonical(body))]),options.key.secretKey)).toString('base64url')};await write({...journal,view,lastViewChange:record});return record;});},
+     async newView(records:RecoveryViewChange[],transfer:RecoveryTransfer){return exclusive(async()=>{
+       const journal=read();if(records.length!==4||new Set(records.map(r=>r.signer)).size!==4)throw new Error('New view requires four distinct authenticated records');
+-      const view=records[0].view;if(view<journal.view)throw new Error('Stale new view');
++      const view=records[0].view;if(!Number.isSafeInteger(view)||view<=0||view<journal.view)throw new Error('Stale new view');
++      const identity=digest({records:[...records].sort((a,b)=>a.signer.localeCompare(b.signer)),cut:transfer.cut});
++      if(journal.installedNewView?.view===view){if(journal.installedNewView.identity!==identity)throw new Error('Different same-view NEW_VIEW identity');return;}
+       for(const record of records){const {signature,...body}=record;
+         if(record.view!==view||!journal.configuration.members.some(m=>m.publicKey===record.signer)
+           ||!verify(Buffer.concat([Buffer.from('resonance:executed-recovery:view-change:v1\n'),json(canonical(body))]),Buffer.from(signature,'base64url'),Buffer.from(record.signer,'base64url')))throw new Error('Unauthenticated new-view record');
+         const baseSet=knownSet(journal.state,record.base.header.configuration);if(!baseSet)throw new Error('Unauthenticated stable cut base');verifyRecoveryCertificate(record.base,baseSet,'cut');
+-        if(record.prepared?.certificate){const set=knownSet(journal.state,record.prepared.certificate.header.configuration);if(!set)throw new Error('Prepared certificate scope differs');verifyRecoveryCertificate(record.prepared.certificate,set,'prepare');
++        if(record.base.header.view>=view||record.floor.configuration!==admissionWitnessSetId(journal.configuration))throw new Error('Ineligible new-view base/floor');
++        if(record.prepared&&!record.prepared.certificate)throw new Error('New view prepared value lacks certificate');
++        if(record.prepared?.certificate){if(record.prepared.proposal.header.view>=view||record.prepared.proposal.header.configuration!==admissionWitnessSetId(journal.configuration))throw new Error('Ineligible prepared-certificate view/configuration');const set=knownSet(journal.state,record.prepared.certificate.header.configuration);if(!set)throw new Error('Prepared certificate scope differs');verifyRecoveryCertificate(record.prepared.certificate,set,'prepare');
+           if(headerId(record.prepared.proposal.header)!==headerId(record.prepared.certificate.header)||recoveryDigest(json(record.prepared.proposal.command))!==record.prepared.proposal.header.command)throw new Error('Prepared value differs from certificate');}
+       }
+       const bases=records.map(r=>r.base).sort((a,b)=>b.header.sequence-a.header.sequence),base=bases[0];
+@@ -268,10 +336,11 @@
+         .sort((a,b)=>b.proposal.header.view-a.proposal.header.view);
+       if(prepared.some(p=>p.proposal.header.sequence!==base.header.sequence+1))throw new Error('New view cannot skip committed predecessor');
+       if(prepared.length&&prepared.some(p=>p.proposal.header.view===prepared[0].proposal.header.view&&p.proposal.header.command!==prepared[0].proposal.header.command))throw new Error('Conflicting highest-view prepared certificates');
+-      if(journal.prepared?.certificate&&journal.prepared.proposal.header.sequence>base.header.sequence
+-        &&(!prepared.length||prepared[0].proposal.header.view<journal.prepared.proposal.header.view))throw new Error('New view omitted protected prepared lock');
+-      for(const id of transfer.state.proofs)await proof(objects.get(id)!);
+-      await write({...journal,state:structuredClone(transfer.state),sequence:base.header.sequence,head:headerId(base.header),stable:structuredClone(base),view,prepared:prepared[0]??null,...(prepared[0]?{locked:prepared[0]}:{}),committed:null,suffix:0});
++      const lock=journal.prepared?.certificate?journal.prepared:journal.locked?.certificate?journal.locked:undefined;
++      if(lock&&lock.proposal.header.sequence>base.header.sequence){const selected=prepared[0];if(!selected||selected.proposal.header.view<lock.proposal.header.view
++        ||selected.proposal.header.view===lock.proposal.header.view&&(selected.proposal.header.command!==lock.proposal.header.command||selected.proposal.header.state!==lock.proposal.header.state||selected.proposal.header.previous!==lock.proposal.header.previous))throw new Error('New view omitted/conflicted protected prepared lock');}
++      for(const id of transfer.state.proofs)await proof(objects.get(id)!,transfer.objects.find(o=>o.id===id)!.kind);
++      await write({...journal,state:structuredClone(transfer.state),sequence:base.header.sequence,head:headerId(base.header),stable:structuredClone(base),view,installedNewView:{view,identity},prepared:null,locked:prepared[0],committed:null,suffix:0});
+       serving=false;
+     });},
+     close(){closed=true;serving=false;options.storage.close();},
+--- before/packages/relay/src/sustainable-recovery-manifest.ts
++++ candidate/packages/relay/src/sustainable-recovery-manifest.ts
+@@ -6,10 +6,18 @@
+ 
+ export const SUSTAINABLE_RECOVERY_LIMITS = Object.freeze({ bytes: 2 * 1024 ** 3, entries: 512,
+   metadata: 1024 ** 2, work: 256 * 1024 ** 2, liveMs: 3000, offlineMs: 30000 });
++export type RecoveryProofKind = 'original' | 'frame' | 'policy' | 'activation';
++export interface RecoveryProofClosure {
++  original:{count:number;bytes:number}; frame:{count:number;bytes:number};
++  policy:{count:number;maximumBytes:number}; activation:{count:number;maximumBytes:number};
++}
++// Binary signed opaque object + both AEAD envelopes + archive header, including
++// longest kind-qualified scope. This is an upper bound, never logical bytes alone.
++export const RECOVERY_OBJECT_OVERHEAD = 600;
+ export interface RecoveryOwnerEnvelope {
+   owner: string; role: 'observer' | 'witness' | 'issuer' | 'wallet';
+   /** Complete physical encoded maxima, including encryption/framing. */
+-  L: number; D: number; P: number; C: number; F: number;
++  L: number; D: number; P: number; C: number; F: number; closure:RecoveryProofClosure;
+ }
+ export interface RecoveryOriginal {
+   /** Exact immutable encoded bytes, including original signature domain. */
+@@ -39,9 +47,18 @@
+   const requests: StorageReservationRequest[] = [];
+   let witness = 0;
+   for (const row of value.owners) {
+-    if (!fields(row, ['owner','role','L','D','P','C','F']) || typeof row.owner !== 'string' || !/^[a-zA-Z0-9_-]{1,64}$/.test(row.owner)
++    if (!fields(row, ['owner','role','L','D','P','C','F','closure']) || typeof row.owner !== 'string' || !/^[a-zA-Z0-9_-]{1,64}$/.test(row.owner)
+       || names.has(row.owner) || !Object.hasOwn(byRole,row.role) || ![row.L,row.D,row.P,row.C,row.F].every(safe)
+       || row.D < 32 * 16384) throw new Error('Unknown or invalid owner physical maxima');
++    if(!fields(row.closure,['original','frame','policy','activation']))throw new Error('UNKNOWN prospective proof closure');
++    for(const kind of ['original','frame','policy','activation'] as const){const budget=row.closure[kind];
++      if(!fields(budget,['count',kind==='original'||kind==='frame'?'bytes':'maximumBytes'])||!Object.values(budget).every(safe))throw new Error('UNKNOWN prospective proof closure');}
++    if(row.closure.policy.count<value.transitions||row.closure.activation.count<value.transitions
++      ||row.closure.policy.maximumBytes<1||row.closure.activation.maximumBytes<1)throw new Error('Incomplete future installation closure');
++    const physical=add(row.closure.original.bytes,row.closure.frame.bytes,
++      row.closure.policy.count*row.closure.policy.maximumBytes,row.closure.activation.count*row.closure.activation.maximumBytes,
++      RECOVERY_OBJECT_OVERHEAD*add(...(['original','frame','policy','activation'] as const).map(k=>row.closure[k].count)));
++    if(physical>row.C)throw new Error(`Complete prospective opaque proof closure exceeds C: owner=${row.owner} required=${physical} limit=${row.C}`);
+     names.add(row.owner); byRole[row.role]++;
+     const returning = row.role === 'witness' && witness++ < 5 ? value.returns / 5 : 0;
+     const K = 16384 * add(value.transitions, returning, 2);
+@@ -55,15 +72,15 @@
+     maximumBytes: add(8192, value.operatorCopies, 16384 * add(value.transitions,value.returns,2)) });
+   if (requests.length !== 98) throw new Error('Invalid recovery scope inventory');
+   if(requests.some(request=>Buffer.byteLength(JSON.stringify(request))>1024))throw new Error('Recovery scope metadata exceeds declared 1024-byte bound');
+-  const objects = new Set<string>(), perOwner = new Map<string, number>();
++  const objects = new Set<string>(), perOwner = new Map<string, number>(), originalCounts=new Map<string,number>();
+   for (const object of value.originals) {
+     if (!fields(object,['id','owner','privacyScope','bytes']) || !/^sha256:[a-f0-9]{64}$/.test(object.id) || !names.has(object.owner)
+       || typeof object.privacyScope !== 'string' || !/^[a-zA-Z0-9_-]{1,64}$/.test(object.privacyScope) || !safe(object.bytes) || object.bytes < 1) throw new Error('Unknown original proof obligation');
+     const identity = `${object.owner}:${object.privacyScope}:${object.id}`;
+     if (objects.has(identity)) throw new Error('Original must be stored exactly once per physical privacy scope');
+-    objects.add(identity); perOwner.set(object.owner, add(perOwner.get(object.owner) ?? 0, object.bytes, 284));
++    objects.add(identity); perOwner.set(object.owner, add(perOwner.get(object.owner) ?? 0, object.bytes)); originalCounts.set(object.owner,(originalCounts.get(object.owner)??0)+1);
+   }
+-  for (const owner of value.owners) if ((perOwner.get(owner.owner) ?? 0) > owner.C) throw new Error('Complete original proof closure exceeds declared C');
++  for (const owner of value.owners) if ((perOwner.get(owner.owner) ?? 0) > owner.closure.original.bytes || (originalCounts.get(owner.owner)??0)>owner.closure.original.count) throw new Error(`Complete original proof closure exceeds declared C: owner=${owner.owner} bytes=${perOwner.get(owner.owner)} count=${originalCounts.get(owner.owner)} budget=${JSON.stringify(owner.closure.original)}`);
+   const paths = new Set(requests.map(r=>r.path));
+   for (const outside of value.outside) {
+     if (!fields(outside,['path','component','scope','maximumBytes']) || typeof outside.path !== 'string' || !isAbsolute(outside.path)
+--- before/packages/relay/src/sustainable-recovery-arena.ts
++++ candidate/packages/relay/src/sustainable-recovery-arena.ts
+@@ -1,11 +1,11 @@
+ /** Fixed partitions in ONE encrypted arena per physical privacy scope. All
+  * children, both state images and immutable interrupted frames stay charged. */
+ import { closeSync, constants, existsSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readSync, writeSync } from 'node:fs';
+-import { join, dirname } from 'node:path';
++import { join } from 'node:path';
+ import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from 'node:crypto';
+ import { acquireLocalStateLock } from '@resonance/core/local-state';
+ import type { openStorageReservationAuthority } from '@resonance/core/storage-reservations';
+-import { preflightSustainableRecoveryManifest, type RecoveryAllocationManifest } from './sustainable-recovery-manifest.js';
++import { preflightSustainableRecoveryManifest, type RecoveryAllocationManifest, type RecoveryProofKind } from './sustainable-recovery-manifest.js';
+ 
+ const hash = (bytes: Uint8Array) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+ const HEADER = 256;
+@@ -38,10 +38,12 @@
+     pending:[2*owner.L+2*owner.D,owner.P] as const };
+   const archiveStart=2*owner.L+2*owner.D+2*owner.P;
+   const maximum=archiveStart+owner.C;
+-  const archive=new Map<string,{ offset:number; bytes:number }>();
+-  let archiveUsed=0;
++  const archive=new Map<string,{ offset:number; bytes:number;kind:RecoveryProofKind }>();
++  const kinds:RecoveryProofKind[]=['original','frame','policy','activation'];
++  const consumed=Object.fromEntries(kinds.map(k=>[k,{count:0,bytes:0}])) as Record<RecoveryProofKind,{count:number;bytes:number}>;
++  let archiveUsed=0,uncertainArchive=false;
+   function usable() {
+-    if(closed) throw new Error('Recovery arena closed'); lease.assertWritable();
++    if(closed) throw new Error('Recovery arena closed');if(uncertainArchive)throw new Error('Uncertain immutable append; preserve failed bytes for recovery'); lease.assertWritable();
+     const st=fstatSync(fd), named=lstatSync(file);
+     if(!st.isFile() || st.nlink!==1 || named.isSymbolicLink() || st.ino!==named.ino || st.dev!==named.dev || st.size>request.maximumBytes-8192)
+       throw new Error('Recovery arena physical scope changed');
+@@ -55,15 +57,26 @@
+     const decipher=createDecipheriv('aes-256-gcm',key,data.subarray(0,12)); decipher.setAAD(Buffer.concat([aad,Buffer.from(tag)]));
+     decipher.setAuthTag(data.subarray(-16)); return Buffer.concat([decipher.update(data.subarray(12,-16)),decipher.final()]);
+   }
++  const headerMac=(header:Buffer,tag:string)=>createHmac('sha256',key).update(aad).update(tag).update(header.subarray(0,48)).digest();
+   function image(region: keyof typeof regions, slot: number) {
+     const [start,capacity]=regions[region], offset=start+slot*capacity, head=read(fd,HEADER,offset);
+     if(head.length===0 || head.every(b=>b===0)) return undefined;
+-    if(head.length!==HEADER || head.toString('ascii',0,4)!=='RSC1') throw new Error('Interrupted arena image requires recovery');
++    if(head.length!==HEADER || head.toString('ascii',0,4)!=='RSC1'||!headerMac(head,region).equals(head.subarray(48,80))) throw new Error('Interrupted arena image requires recovery');
+     const bytes=head.readUInt32BE(4), generation=Number(head.readBigUInt64BE(8));
+     if(!Number.isSafeInteger(generation) || bytes+HEADER>capacity || bytes<28) throw new Error('Arena image exceeds partition');
+     const encoded=read(fd,bytes,offset+HEADER), digest=head.subarray(16,48);
+     if(encoded.length!==bytes || !createHash('sha256').update(encoded).digest().equals(digest)) throw new Error('Interrupted arena image requires recovery');
+     return {generation,bytes:decrypt(encoded,`${region}:${generation}`)};
++  }
++  function account(kind:RecoveryProofKind,bytes:number,counters=consumed){
++    const budget=owner!.closure[kind], next=counters[kind];next.count++;next.bytes+=bytes;
++    if(next.count>budget.count||('bytes' in budget?next.bytes>budget.bytes:bytes>budget.maximumBytes))throw new Error(`Recovery ${kind} prospective proof allowance exhausted`);
++  }
++  function preflight(items:Array<{bytes:Uint8Array;kind:RecoveryProofKind;logicalBytes?:number}>){
++    usable();const counters=structuredClone(consumed),seen=new Set(archive.keys());let used=archiveUsed;
++    for(const item of items){if(!kinds.includes(item.kind))throw new Error('Unknown proof obligation');const id=hash(item.bytes);if(seen.has(id))continue;seen.add(id);
++      const charged=item.logicalBytes??item.bytes.length;if(!Number.isSafeInteger(charged)||charged<0||item.bytes.length<charged||item.bytes.length>charged+316)throw new Error('Unbounded opaque encoding');account(item.kind,charged,counters);used+=HEADER+28+item.bytes.length;}
++    if(used>owner!.C)throw new Error(`Recovery complete proof archive exhausted before effects: required=${used} limit=${owner!.C}`);
+   }
+   // Immutable archive records are self-delimiting. An interrupted final record is
+   // retained as F; it is never treated as an available original or reused space.
+@@ -71,18 +84,48 @@
+     const size=fstatSync(fd).size;
+     while(archiveStart+archiveUsed<size && archiveUsed<owner!.C) {
+       const offset=archiveStart+archiveUsed, header=read(fd,HEADER,offset);
+-      if(header.length===0 || header.every(b=>b===0)) break;
+-      if(header.length!==HEADER || header.toString('ascii',0,4)!=='RSO1') throw new Error('Uncertain immutable recovery append; preserve arena');
++      if(header.length===0 || header.every(b=>b===0)){if(read(fd,Math.min(size-offset,owner!.C-archiveUsed),offset).some(b=>b!==0))throw new Error('Interrupted immutable archive tail; preserve failed bytes');break;}
++      if(header.length!==HEADER || header.toString('ascii',0,4)!=='RSO1'||!headerMac(header,'archive').equals(header.subarray(48,80))) throw new Error('Uncertain immutable recovery append; preserve arena');
+       const bytes=header.readUInt32BE(4), id=`sha256:${header.subarray(8,40).toString('hex')}`;
+       if(bytes<28 || HEADER+bytes>owner!.C-archiveUsed || archive.has(id)) throw new Error('Invalid immutable recovery archive');
+       const payload=read(fd,bytes,offset+HEADER), decoded=decrypt(payload,id);
+       if(payload.length!==bytes || hash(decoded)!==id) throw new Error('Missing original recovery proof');
+-      archive.set(id,{offset:offset+HEADER,bytes}); archiveUsed+=HEADER+bytes;
++      const kind=kinds[header[40]];if(!kind)throw new Error('Unknown recovery archive obligation class');
++      const charged=header.readUInt32BE(44);if(charged>decoded.length||decoded.length>charged+316)throw new Error('Unbounded retained opaque proof');account(kind,charged);archive.set(id,{offset:offset+HEADER,bytes,kind}); archiveUsed+=HEADER+bytes;
+     }
+   }
+   try { usable(); scanArchive(); } catch(error) {closeSync(fd);release();key.fill(0);throw error;}
++  /** Explicit recovery for the payload-before-header crash window only. A
++   * surviving adjacent generation establishes the local durable floor. Unknown
++   * header corruption, a newer damaged header or exhausted F still refuse. */
++  function recover(region:keyof typeof regions='state'){
++    usable();const slots=[0,1].map(slot=>{try{return {slot,value:image(region,slot)};}catch(error){return {slot,error};}});
++    const broken=slots.filter(s=>'error' in s),survivors=slots.filter(s=>s.value);
++    if(!broken.length)return;
++    if(broken.length!==1||survivors.length!==1)throw new Error('Ambiguous arena damage; authenticated recovery required');
++    const bad=broken[0],good=survivors[0].value!,[start,capacity]=regions[region],offset=start+bad.slot*capacity,raw=read(fd,capacity,offset);
++    if(raw.length<HEADER||raw.toString('ascii',0,4)!=='RSC1'||!headerMac(raw,region).equals(raw.subarray(48,80))||Number(raw.readBigUInt64BE(8))!==good.generation-1
++      ||raw.readUInt32BE(4)+HEADER>capacity)throw new Error('Damaged arena may exceed surviving protected floor');
++    let end=raw.length;while(end>HEADER&&raw[end-1]===0)end--;
++    const retained=raw.subarray(0,Math.max(end,Math.min(raw.length,HEADER+raw.readUInt32BE(4)))),id=hash(retained);
++    const failedPath=join(path,'failed.bin'),failedFd=openSync(failedPath,constants.O_CREAT|constants.O_RDWR|constants.O_NOFOLLOW,0o600);
++    try{
++      const st=fstatSync(failedFd);if(!st.isFile()||st.nlink!==1||st.size>owner!.F)throw new Error('Failed-byte preservation scope differs');
++      let used=0,found=false;
++      while(used<st.size){const header=read(failedFd,HEADER,used);if(header.length!==HEADER||header.toString('ascii',0,4)!=='RSF1')throw new Error('Interrupted failed-byte retention');
++        const length=header.readUInt32BE(4),bytes=read(failedFd,length,used+HEADER);if(bytes.length!==length||hash(bytes)!==`sha256:${header.subarray(8,40).toString('hex')}`)throw new Error('Corrupt retained failed bytes');
++        if(hash(bytes)===id)found=true;used+=HEADER+length;}
++      if(!found){if(used+HEADER+retained.length>owner!.F)throw new Error('Failed-byte F allowance exhausted; preserve both images');
++        const header=Buffer.alloc(HEADER);header.write('RSF1');header.writeUInt32BE(retained.length,4);Buffer.from(id.slice(7),'hex').copy(header,8);
++        all(failedFd,Buffer.concat([header,retained]),used);fsyncSync(failedFd);}
++      // Only after the exact damaged bytes are durable in F is the obsolete
++      // slot made reusable. The surviving image is never touched.
++      all(fd,Buffer.alloc(HEADER),offset);fsyncSync(fd);
++    }finally{closeSync(failedFd);}
++  }
+   return {
+-    path, layout:compiled.digest, authorityId:compiled.authorityId,
++    path, layout:compiled.digest, authorityId:compiled.authorityId, ownerName:owner.owner, proofClosure:structuredClone(owner.closure),
++    originalDeclarations:compiled.manifest.originals.filter(o=>o.owner===owner.owner),
+     seal(bytes: Uint8Array) {usable();return encrypt(Buffer.from(bytes),'owner-opaque-state');},
+     sealObject(bytes: Uint8Array, id:string) {usable();if(hash(bytes)!==id)throw new Error('Changed opaque object identity');return encrypt(Buffer.from(bytes),'owner-opaque-state',id);},
+     unseal(bytes: Uint8Array) {usable();return decrypt(Buffer.from(bytes),'owner-opaque-state');},
+@@ -97,24 +140,27 @@
+       const encoded=encrypt(Buffer.from(bytes),`${region}:${generation}`), [start,capacity]=regions[region];
+       if(encoded.length+HEADER>capacity) throw new Error('Recovery aggregate child partition exhausted');
+       const slot=generation%2,offset=start+slot*capacity,header=Buffer.alloc(HEADER);
+-      header.write('RSC1');header.writeUInt32BE(encoded.length,4);header.writeBigUInt64BE(BigInt(generation),8);createHash('sha256').update(encoded).digest().copy(header,16);
++      header.write('RSC1');header.writeUInt32BE(encoded.length,4);header.writeBigUInt64BE(BigInt(generation),8);createHash('sha256').update(encoded).digest().copy(header,16);headerMac(header,region).copy(header,48);
+       // A partially replaced old slot may be invalid; the other image remains
+       // durable. Readers refuse ambiguity rather than interpreting torn bytes.
+       all(fd,encoded,offset+HEADER);fsyncSync(fd);all(fd,header,offset);fsyncSync(fd);
+       return generation;
+     },
+-    put(bytes: Uint8Array) {
++    preflight,recover,
++    proofKind(id:string){usable();const item=archive.get(id);if(!item)throw new Error('Missing proof class');return item.kind;},
++    assertImageSize(region:keyof typeof regions,bytes:number){usable();if(bytes+HEADER+28>regions[region][1])throw new Error('Prospective recovery image closure exceeds partition');},
++    put(bytes: Uint8Array,kind:RecoveryProofKind='original',logicalBytes=bytes.length) {
+       usable();const data=Buffer.from(bytes),id=hash(data),old=archive.get(id);
+       if(old) {if(!decrypt(read(fd,old.bytes,old.offset),id).equals(data))throw new Error('Original identity collision');return id;}
+-      const encoded=encrypt(data,id),size=HEADER+encoded.length;
++      preflight([{bytes:data,kind,logicalBytes}]);const encoded=encrypt(data,id),size=HEADER+encoded.length;
+       if(size>owner.C-archiveUsed)throw new Error(`Recovery complete proof archive exhausted: owner=${owner.owner} copy=${options.copy} retained=${archiveUsed} incoming=${size} limit=${owner.C}`);
+-      const offset=archiveStart+archiveUsed,header=Buffer.alloc(HEADER);header.write('RSO1');header.writeUInt32BE(encoded.length,4);Buffer.from(id.slice(7),'hex').copy(header,8);
+-      all(fd,encoded,offset+HEADER);fsyncSync(fd);all(fd,header,offset);fsyncSync(fd);
+-      archive.set(id,{offset:offset+HEADER,bytes:encoded.length});archiveUsed+=size;return id;
++      const offset=archiveStart+archiveUsed,header=Buffer.alloc(HEADER);header.write('RSO1');header.writeUInt32BE(encoded.length,4);Buffer.from(id.slice(7),'hex').copy(header,8);header[40]=kinds.indexOf(kind);header.writeUInt32BE(logicalBytes,44);headerMac(header,'archive').copy(header,48);
++      try{all(fd,encoded,offset+HEADER);fsyncSync(fd);all(fd,header,offset);fsyncSync(fd);}catch(error){uncertainArchive=true;throw error;}
++      account(kind,logicalBytes);archive.set(id,{offset:offset+HEADER,bytes:encoded.length,kind});archiveUsed+=size;return id;
+     },
+     ids() {usable();return [...archive.keys()];},
+     get(id: string) {usable();const item=archive.get(id);if(!item)throw new Error('Missing exact original recovery proof');const bytes=decrypt(read(fd,item.bytes,item.offset),id);if(hash(bytes)!==id)throw new Error('Changed exact original recovery proof');return bytes;},
+-    usage() {usable();return {archiveBytes:archiveUsed,archiveMaximum:owner.C,physicalBytes:fstatSync(fd).size,maximum,aggregateReserved:request.maximumBytes};},
++    usage() {usable();return {proofCounts:structuredClone(consumed),archiveBytes:archiveUsed,archiveMaximum:owner.C,physicalBytes:fstatSync(fd).size,maximum,aggregateReserved:request.maximumBytes};},
+     close() {if(!closed){closed=true;try{fsyncSync(fd);closeSync(fd);}finally{key.fill(0);release();}}},
+   };
+ }
+--- before/packages/relay/src/sustainable-recovery-protected-arena.ts
++++ candidate/packages/relay/src/sustainable-recovery-protected-arena.ts
+@@ -2,13 +2,14 @@
+  * encrypted record was flushed; it never certifies business interpretation. */
+ import { randomBytes, createHash } from 'node:crypto';
+ import { sign, verify, type SigningKeyPair } from '@resonance/core';
++import type { RecoveryProofKind } from './sustainable-recovery-manifest.js';
+ import type { SustainableRecoveryArena } from './sustainable-recovery-arena.js';
+ 
+ export const recoveryDigest = (value: Uint8Array) => `sha256:${createHash('sha256').update(value).digest('hex')}`;
+ const pub = (key: SigningKeyPair) => Buffer.from(key.publicKey).toString('base64url');
+ const json = (v: unknown) => Buffer.from(JSON.stringify(v));
+ export interface OpaqueRecoveryRecord { version: 1; scope: string; owner: string; revision: number; ciphertext: string; signature: string }
+-export interface OpaqueRecoveryRequest { action: 'head' | 'write' | 'object'; scope: string; challenge: string; record?: OpaqueRecoveryRecord }
++export interface OpaqueRecoveryRequest { action: 'head' | 'write' | 'object' | 'preflight'; scope: string; challenge: string; record?: OpaqueRecoveryRecord; objects?:OpaqueRecoveryRecord[]; stateBytes?:number }
+ export interface OpaqueRecoveryReply { scope: string; challenge: string; replica: string; record: OpaqueRecoveryRecord | null; signature: string }
+ function recordBytes(record: OpaqueRecoveryRecord) {return json([record.version,record.scope,record.owner,record.revision,record.ciphertext]);}
+ function validRecord(record: OpaqueRecoveryRecord, scope: string, owner: string) {
+@@ -19,18 +20,35 @@
+     && verify(Buffer.concat([Buffer.from('resonance:recovery-opaque:v1\n'),recordBytes(record)]),Buffer.from(record.signature,'base64url'),Buffer.from(owner,'base64url'));
+ }
+ function replyBytes(reply: OpaqueRecoveryReply) {return Buffer.concat([Buffer.from('resonance:recovery-opaque-reply:v1\n'),json([reply.scope,reply.challenge,reply.replica,reply.record])]);}
++/** The signed JSON wire domain is unchanged. Disk uses a lossless binary
++ * representation so base64 is not nested inside another encrypted archive. */
++export function opaqueRecoveryObjectBytes(record:OpaqueRecoveryRecord){
++  const scope=Buffer.from(record.scope),ciphertext=Buffer.from(record.ciphertext,'base64url'),header=Buffer.alloc(18);
++  header.write('RSB1');header.writeUInt16BE(scope.length,4);header.writeBigUInt64BE(BigInt(record.revision),6);header.writeUInt32BE(ciphertext.length,14);
++  return Buffer.concat([header,scope,Buffer.from(record.owner,'base64url'),Buffer.from(record.signature,'base64url'),ciphertext]);
++}
++function objectKind(record:OpaqueRecoveryRecord,scope:string):RecoveryProofKind{
++  const suffix=record.scope.slice(scope.length),match=/^:object:(original|frame|policy|activation):sha256:[a-f0-9]{64}$/.exec(suffix);
++  if(!match)throw new Error('Unknown opaque proof class');return match[1] as RecoveryProofKind;
++}
++function opaqueItem(record:OpaqueRecoveryRecord,scope:string){return {bytes:opaqueRecoveryObjectBytes(record),kind:objectKind(record,scope),logicalBytes:Buffer.from(record.ciphertext,'base64url').length-28};}
++function stateRecordMaximum(scope:string,owner:string,bytes:number){if(!Number.isSafeInteger(bytes)||bytes<0||bytes>1024*1024)throw new Error('Unknown bounded state image');return json({version:1,scope,owner,revision:Number.MAX_SAFE_INTEGER,ciphertext:'x'.repeat(Math.ceil((bytes+28)*4/3)),signature:'x'.repeat(86)}).length;}
+ export function createSustainableRecoveryReplica(options: { arena: SustainableRecoveryArena; scope: string; owner: string; signingKey: SigningKeyPair }) {
+   const replica=pub(options.signingKey);
+   function current() {const image=options.arena.read();return image?JSON.parse(image.bytes.toString()) as OpaqueRecoveryRecord:null;}
+-  const initial=current();if(initial&&!validRecord(initial,options.scope,options.owner))throw new Error('Wrong opaque replica scope/authentication');
++  options.arena.recover();const initial=current();if(initial&&!validRecord(initial,options.scope,options.owner))throw new Error('Wrong opaque replica scope/authentication');
+   return {
+     replica,
+     async exchange(request: OpaqueRecoveryRequest): Promise<OpaqueRecoveryReply> {
+       if(request.scope!==options.scope || !/^[A-Za-z0-9_-]{43}$/.test(request.challenge))throw new Error('Wrong opaque recovery scope/challenge');
+       let record=current();
+-      if(request.action==='object') {
++      if(request.action==='preflight'){
++        if(!Array.isArray(request.objects)||request.objects.length>Object.values(options.arena.proofClosure).reduce((n,b)=>n+b.count,0)||!Number.isSafeInteger(request.stateBytes)||request.stateBytes!<0)throw new Error('Unknown prospective physical closure');
++        const items=request.objects.map(r=>{if(!validRecord(r,r.scope,options.owner))throw new Error('Unauthenticated prospective object');return opaqueItem(r,options.scope);});
++        options.arena.preflight(items);options.arena.assertImageSize('state',stateRecordMaximum(options.scope,options.owner,request.stateBytes!));
++      } else if(request.action==='object') {
+         if(!request.record||!request.record.scope.startsWith(options.scope+':object:')||!validRecord(request.record,request.record.scope,options.owner))throw new Error('Unauthenticated opaque proof object');
+-        options.arena.put(json(request.record));record=request.record;
++        const item=opaqueItem(request.record,options.scope);options.arena.put(item.bytes,item.kind,item.logicalBytes);record=request.record;
+       } else if(request.action==='write') {
+         if(!request.record || !validRecord(request.record,options.scope,options.owner))throw new Error('Unauthenticated opaque recovery record');
+         if(record&&(request.record.revision<record.revision || request.record.revision===record.revision&& !recordBytes(record).equals(recordBytes(request.record))))throw new Error('Opaque recovery record regresses or equivocates');
+@@ -52,8 +70,8 @@
+   const local=()=>{const image=options.arena.read();const record=image?JSON.parse(image.bytes.toString()) as OpaqueRecoveryRecord:undefined;
+     if(record&&!validRecord(record,options.scope,owner))throw new Error('Local recovery scope/authentication differs');return record;};
+   function live(){if(closed)throw new Error('Protected recovery closed');}
+-  async function exchange(action:'head'|'write'|'object',record?:OpaqueRecoveryRecord) {
+-    live();const challenge=randomBytes(32).toString('base64url'),request={action,scope:options.scope,challenge,...(record?{record}:{})};
++  async function exchange(action:'head'|'write'|'object'|'preflight',record?:OpaqueRecoveryRecord,objects?:OpaqueRecoveryRecord[],stateBytes?:number) {
++    live();const challenge=randomBytes(32).toString('base64url'),request={action,scope:options.scope,challenge,...(record?{record}:{}),...(objects?{objects,stateBytes}:{})};
+     const responses=await Promise.allSettled(options.replicas.map(async replica=> {
+       const reply=await options.transport(replica,request);live();
+       if(reply.scope!==options.scope || reply.challenge!==challenge || reply.replica!==replica
+@@ -65,13 +83,18 @@
+     if(replies.length<4)throw new Error('Four authenticated opaque recovery acknowledgments unavailable: '+[...new Set(responses.flatMap(r=>r.status==='rejected'?[r.reason instanceof Error?r.reason.message:String(r.reason)]:[]))].join('; '));return replies;
+   }
+   async function complete(record:OpaqueRecoveryRecord) {await exchange('write',record);ready=true;}
+-  const initial=local();
++  function object(bytes:Uint8Array,kind:RecoveryProofKind){
++    const id=recoveryDigest(bytes),scope=options.scope+':object:'+kind+':'+id;
++    const record:OpaqueRecoveryRecord={version:1,scope,owner,revision:0,ciphertext:options.arena.sealObject(bytes,id).toString('base64url'),signature:''};
++    record.signature=Buffer.from(sign(Buffer.concat([Buffer.from('resonance:recovery-opaque:v1\n'),recordBytes(record)]),options.signingKey.secretKey)).toString('base64url');return record;
++  }
++  let initial:OpaqueRecoveryRecord|undefined;
+   return {
+     arena:options.arena, owner, scope:options.scope,
+     async startup() {
+       live();if(active)throw new Error('Recovery operation in progress');active=true;ready=false;
+       try {
+-        const before=local(),replies=await exchange('head');
++        options.arena.recover();const before=local(),replies=await exchange('head');initial??=before;
+         let selected=before;
+         for(const reply of replies)if(reply.record) {
+           const candidate=reply.record;
+@@ -88,10 +111,12 @@
+         ready=true;return undefined;
+       } finally{active=false;}
+     },
+-    async put(bytes:Uint8Array) {
+-      live();const id=options.arena.put(bytes),scope=options.scope+':object:'+id;
+-      const record:OpaqueRecoveryRecord={version:1,scope,owner,revision:0,ciphertext:options.arena.sealObject(bytes,id).toString('base64url'),signature:''};
+-      record.signature=Buffer.from(sign(Buffer.concat([Buffer.from('resonance:recovery-opaque:v1\n'),recordBytes(record)]),options.signingKey.secretKey)).toString('base64url');
++    async preflight(items:Array<{bytes:Uint8Array;kind:RecoveryProofKind}>,stateBytes:number){
++      live();options.arena.preflight(items);options.arena.assertImageSize('state',stateRecordMaximum(options.scope,owner,stateBytes));
++      await exchange('preflight',undefined,items.map(i=>object(i.bytes,i.kind)),stateBytes);
++    },
++    async put(bytes:Uint8Array,kind:RecoveryProofKind='original') {
++      live();const id=options.arena.put(bytes,kind),record=object(bytes,options.arena.proofKind(id));
+       await exchange('object',record);return id;
+     },
+     read() {live();const record=local();return record?options.arena.unseal(Buffer.from(record.ciphertext,'base64url')):undefined;},
+--- before/packages/relay/src/__tests__/sustainable-recovery-runtime.integration.test.ts
++++ candidate/packages/relay/src/__tests__/sustainable-recovery-runtime.integration.test.ts
+@@ -16,8 +16,8 @@
+ import {createPolicyObserverHistoryRoot,openProtectedPolicyObserver} from '../protected-policy-observer.js';
+ import {createHistoryCheckpointReplica} from '../history-checkpoint-exchange.js';
+ import {openHistoryCheckpointStore} from '../history-checkpoint-store.js';
+-import {sustainableLegacyFixture} from './sustainable-recovery-fixture.js';
+-import {finiteRecoveryManifest} from './sustainable-recovery-manifest.test.js';
++import {sustainableLegacyFixture,declareSustainableOriginals} from './sustainable-recovery-fixture.js';
++import {finiteRecoveryManifest} from './sustainable-recovery-fixture.js';
+ const cleanup:Array<()=>unknown|Promise<unknown>>=[];afterEach(async()=>{for(const close of cleanup.splice(0).reverse())await close();});
+ const pub=(key:SigningKeyPair)=>Buffer.from(key.publicKey).toString('base64url');
+ 
+@@ -28,10 +28,12 @@
+   const originals=f.actors.slice(0,4),cohort=f.actors.slice(4,8),accepted=f.row();await originals[0].history.write(accepted);
+   const claim:AdmissionSpendClaim={setId:admissionWitnessSetId(f.proposal.oldSet),issuerKey:f.policy.activeKey,spend:randomBytes(32).toString('base64url'),action:'search',requestBinding:`admreq_${'p'.repeat(86)}`};
+   const votes=originals.map(a=>createAdmissionWitnessVote(claim,a.key));
+-  for(let i=0;i<4;i++)await originals[i].history.writeRoleDecision({kind:'witness-vote',vote:votes[i]});
++  const retainedVotes=votes.map((vote,i)=>i===3?createAdmissionWitnessVote({...claim,requestBinding:`admreq_${'q'.repeat(86)}`},originals[i].key):vote);
++  for(let i=0;i<4;i++)await originals[i].history.writeRoleDecision({kind:'witness-vote',vote:retainedVotes[i]});
+   for(const actor of originals)await freezeProtectedWitness(actor.history,f.proposal,actor.key,actor.encryptionKey);
+   const pins=originals.map(a=>({context:a.context,genesisId:historyCheckpointEnvelopeId(a.root),rootId:historyCheckpointEnvelopeId(a.history.read().root),generation:0,nextGeneration:1,head:{...a.history.read().applied!}}));
+   const pairs=[];for(const actor of originals)pairs.push(await prepareTerminalProtectedWitness(actor.history,f.proposal,{mode:'create-new',nextGeneration:1}));
++  declareSustainableOriginals(manifest,pairs,f.policy,retainedVotes);
+   const observers:Array<Awaited<ReturnType<typeof openProtectedPolicyObserver>>>=[];let currentHead=f.observerContext.genesis;
+   for(let i=0;i<4;i++){
+    const encryptionKey=randomBytes(32),enrolled=await createPolicyObserverHistoryRoot({context:f.observerContext,signingKey:f.observerKeys[i],encryptionKey,policy:f.policy,writerStateBytes:3*4*1024**2+65536});
+@@ -40,15 +42,20 @@
+    const observer=await openProtectedPolicyObserver({directory:join(f.directory,`compact-observer-${i}`),encryptionKey,context:f.observerContext,signingKey:f.observerKeys[i],historyContext:enrolled.context,root:enrolled.root,members:enrolled.context.members.map((publicKey,j)=>({publicKey,endpoint:`ws://127.0.0.1:${49000+j}/`})),transport:async(member,frame)=>roles[enrolled.context.members.indexOf(member.publicKey)].exchange(frame),mode:'create-new',maxArchiveBytes:4*1024**2});cleanup.push(observer.close);await observer.ready();observers.push(observer);
+   }
+   const fresh=async(policy:SignedAdmissionPolicy,deadline:number)=>{const request=createAdmissionPolicyHeadRequest(f.observerContext,Date.now(),3000);const cert=parseAdmissionPolicyHeadCertificate({version:1,kind:'admission-policy-head-certificate',votes:await Promise.all(observers.map(o=>o.observe(request)))},request,f.observerContext,currentHead,Date.now());expect(cert.votes[0].head.digest).toBe(admissionPolicyDigest(policy));if(performance.now()>deadline)throw new Error('Live policy deadline exceeded');};
++  const reopeners=new Map<SustainableRecoveryRuntime,()=>Promise<SustainableRecoveryRuntime>>();
+   async function node(actor:(typeof f.actors)[number],index:number){
+    const arena=openSustainableRecoveryArena({authority:f.funding,manifest,owner:`witness-${index}`,copy:0,key:actor.encryptionKey,mode:'new'});
+    const storageKeys=Array.from({length:5},generateSigningKeyPair),replicaArenas=storageKeys.map((_,j)=>openSustainableRecoveryArena({authority:f.funding,manifest,owner:`witness-${index}`,copy:j+1,key:randomBytes(32),mode:'new'}));replicaArenas.forEach(a=>cleanup.push(a.close));
+    const scope=recoveryDigest(Buffer.from(`actual-admission-witness:${pub(actor.key)}`)),replicas=storageKeys.map((key,j)=>createSustainableRecoveryReplica({arena:replicaArenas[j],scope,owner:pub(actor.key),signingKey:key}));
+    const storage=openSustainableProtectedArena({arena,scope,signingKey:actor.key,replicas:replicas.map(r=>r.replica),transport:async(key,request)=>replicas.find(r=>r.replica===key)!.exchange(request)});
+-   const runtime=openSustainableRecoveryRuntime({storage,key:actor.key,manifest,originalGenesis:f.policy,configuration:f.proposal.oldSet,freshPolicy:fresh});cleanup.push(runtime.close);return runtime;
++   const runtime=openSustainableRecoveryRuntime({storage,key:actor.key,manifest,originalGenesis:f.policy,configuration:f.proposal.oldSet,freshPolicy:fresh});cleanup.push(runtime.close);
++   reopeners.set(runtime,async()=>{runtime.close();const reopenedArena=openSustainableRecoveryArena({authority:f.funding,manifest,owner:`witness-${index}`,copy:0,key:actor.encryptionKey,mode:'existing'});
++     const reopenedStorage=openSustainableProtectedArena({arena:reopenedArena,scope,signingKey:actor.key,replicas:replicas.map(r=>r.replica),transport:async(key,request)=>replicas.find(r=>r.replica===key)!.exchange(request)});
++     const reopened=openSustainableRecoveryRuntime({storage:reopenedStorage,key:actor.key,manifest,originalGenesis:f.policy,configuration:f.proposal.oldSet,freshPolicy:fresh});cleanup.push(reopened.close);await reopened.startup();return reopened;});return runtime;
+   }
+   const oldNodes:SustainableRecoveryRuntime[]=[];for(let i=0;i<4;i++){const runtime=await node(originals[i],i);const cap=await prepareSustainableRecoveryBootstrap({manifest,proposal:f.proposal,originals:pairs,pins,genesis:f.policy});await runtime.bootstrap(cap);oldNodes.push(runtime);}
+   const newNodes:SustainableRecoveryRuntime[]=[];for(let i=0;i<4;i++)newNodes.push(await node(cohort[i],i+5));
++  const funded=f.funding.status();f.funding.reserve({path:join(f.directory,'all-remaining-byte-allowance'),component:'finite-test-exhaustion',scope:'file',maximumBytes:funded.availableBytes});expect(f.funding.status().availableBytes).toBe(0);
+   async function execute(nodes:SustainableRecoveryRuntime[],command:RecoveryBusinessCommand){const members=nodes[0].read().configuration.members;const leader=nodes.find(n=>n.read().configuration.members[n.read().view%5].publicKey===n.read().state.evidence.sets.flatMap(s=>s.members).find(m=>m.publicKey===members[n.read().view%5].publicKey)?.publicKey&&pub((nodes===oldNodes?originals:cohort)[nodes.indexOf(n)].key)===members[n.read().view%5].publicKey);
+    // The unavailable fifth member is never elected for this frozen view.
+    if(!leader)throw new Error('Frozen fixture lacks deterministic leader');const proposal=leader.propose(command),prepares=await Promise.all(nodes.map(n=>n.prepare(proposal)));
+@@ -60,7 +67,8 @@
+   expect(await oldNodes[0].retry(request)).toMatchObject({owner:pub(originals[0].key),...accepted});
+   await execute(oldNodes,{kind:'reconfigure',proposal:f.proposal});await execute(oldNodes,{kind:'cut'});
+   async function transfer(from:SustainableRecoveryRuntime[],to:SustainableRecoveryRuntime[],proposal:typeof f.proposal,current:SignedAdmissionPolicy,revision:number){
+-   const snapshot=from[0].transfer(),freezes=await Promise.all(from.map(n=>n.freeze())),cutId=recoveryDigest((await import('../sustainable-recovery-runtime.js')).recoveryHeaderBytes(snapshot.cut.header));
++   const snapshot=from[0].transfer();await expect(from[0].freeze([])).rejects.toThrow('reservations');expect(from[0].read().fenced).toBe(false);
++   const reservations=await Promise.all(to.map(n=>n.reserveInstall(snapshot,proposal))),freezes=await Promise.all(from.map(n=>n.freeze(reservations))),cutId=recoveryDigest((await import('../sustainable-recovery-runtime.js')).recoveryHeaderBytes(snapshot.cut.header));
+    const seal={version:1 as const,proposal,manifest:cutId,freezes,activation:null};const started=performance.now(),drained=await Promise.all(observers.map(o=>o.drainWitnessHandoff(seal)));expect(performance.now()-started).toBeGreaterThanOrEqual(3000);
+    const ready=await Promise.all(to.map(n=>n.prepareInstall(snapshot,proposal,drained))),activation=createWitnessHandoffActivation({proposal,manifest:cutId,freezes,drained,ready},f.authorityKey);
+    const {authority,signature,...body}=current;const policy=await signAdmissionPolicy({...body,revision,keys:body.keys.map(k=>({...k,witnesses:proposal.newSet,witnessHandoff:activation}))},authority,f.authorityKey.secretKey);
+@@ -69,10 +77,16 @@
+   }
+   const first=await transfer(oldNodes,newNodes,f.proposal,f.policy,2);
+   const retryNew=createAdmissionWitnessRequest({...request,setId:admissionWitnessSetId(f.proposal.newSet)},f.coordinator);expect(await newNodes[0].retry(retryNew)).toEqual(oldNodes[0].read().state.evidence.accepted[0]);
++  const unresolved=createAdmissionWitnessRequest({...claim,setId:admissionWitnessSetId(f.proposal.newSet)},f.coordinator);
++  await expect(newNodes[0].retry(unresolved)).rejects.toThrow('uncertainty');
+   await execute(newNodes,{kind:'certificate',certificate:{version:1,votes}});
++  expect(await newNodes[0].retry(unresolved)).toBeUndefined();
+   const returning=createWitnessHandoffProposal({...f.proposal,id:randomBytes(32).toString('base64url'),previous:first.advance.commitment.next,oldSet:f.proposal.newSet,newSet:{...f.proposal.oldSet,epoch:randomBytes(32).toString('base64url')}},f.authorityKey);
+   await execute(newNodes,{kind:'reconfigure',proposal:returning});await execute(newNodes,{kind:'cut'});await transfer(newNodes,oldNodes,returning,first.policy,3);
++  oldNodes[0]=await reopeners.get(oldNodes[0])!();
+   const retryReturned=createAdmissionWitnessRequest({...request,setId:admissionWitnessSetId(returning.newSet)},f.coordinator);expect(await oldNodes[0].retry(retryReturned)).toMatchObject({owner:pub(originals[0].key),...accepted});
++  await expect(oldNodes[0].retry(createAdmissionWitnessRequest({...claim,setId:admissionWitnessSetId(returning.newSet),requestBinding:`admreq_${'q'.repeat(86)}`},f.coordinator))).rejects.toThrow('Retained denial');
++  expect(f.funding.status().availableBytes).toBe(0);
+   await expect(oldNodes[0].retry(createAdmissionWitnessRequest({...retryReturned,requestBinding:`admreq_${'z'.repeat(86)}`},f.coordinator))).rejects.toThrow('Conflicting');
+  });
+ },120000);
+--- before/packages/relay/src/__tests__/sustainable-recovery-manifest.test.ts
++++ candidate/packages/relay/src/__tests__/sustainable-recovery-manifest.test.ts
+@@ -1,20 +1,19 @@
+ import {afterEach,expect,it} from 'vitest';
+-import {mkdtempSync,rmSync,readFileSync,mkdirSync} from 'node:fs';
++import {mkdtempSync,rmSync,readFileSync,mkdirSync,openSync,writeSync,closeSync,existsSync,copyFileSync} from 'node:fs';
+ import {tmpdir} from 'node:os';
+ import {join} from 'node:path';
+-import {randomBytes} from 'node:crypto';
++import {randomBytes,generateKeyPairSync} from 'node:crypto';
+ import {generateSigningKeyPair} from '@resonance/core';
+ import {openStorageReservationAuthority} from '@resonance/core/storage-reservations';
++import {signAdmissionPolicy,admissionKeyFingerprint} from '@resonance/core/admission-policy';
++import {parseAdmissionWitnessSet,admissionWitnessSetId} from '@resonance/core/admission-witness';
++import {assertSustainableRetryKey} from '../sustainable-recovery-runtime.js';
+ import {compileSustainableRecoveryManifest,preflightSustainableRecoveryManifest,type RecoveryAllocationManifest} from '../sustainable-recovery-manifest.js';
+ import {openSustainableRecoveryArena} from '../sustainable-recovery-arena.js';
+ import {createSustainableRecoveryReplica,openSustainableProtectedArena,recoveryDigest} from '../sustainable-recovery-protected-arena.js';
+ 
+ const cleanup:Array<()=>void>=[];afterEach(()=>{for(const close of cleanup.splice(0).reverse())close();});
+-export function finiteRecoveryManifest(root:string):RecoveryAllocationManifest {
+- const owners:Array<{owner:string;role:'observer'|'witness'|'issuer'|'wallet'}>=[...Array.from({length:5},(_,i)=>({owner:`observer-${i}`,role:'observer' as const})),
+-  ...Array.from({length:10},(_,i)=>({owner:`witness-${i}`,role:'witness' as const})),{owner:'issuer',role:'issuer'},{owner:'wallet',role:'wallet'}];
+- return {version:1,root,transitions:2,returns:5,owners:owners.map(o=>({...o,L:65536,D:524288,P:65536,C:262144,F:32768})),operatorCopies:0,originals:[],outside:[],work:{L:65536,D:524288,V:262144,H:65536,J:262144}};
+-}
++import {finiteRecoveryManifest} from './sustainable-recovery-fixture.js';
+ function setup(){const directory=mkdtempSync(join(tmpdir(),'sustainable-resources-'));cleanup.push(()=>rmSync(directory,{recursive:true,force:true}));
+  const authority=openStorageReservationAuthority({directory:join(directory,'funding'),mode:'create-new',limitBytes:2*1024**3});cleanup.push(authority.close);
+  return {directory,authority,manifest:finiteRecoveryManifest(join(directory,'arenas'))};}
+@@ -61,3 +60,59 @@
+  expect((await protectedArena.startup())!.toString()).toBe('accepted completion promise');expect(f.authority.status().availableBytes).toBe(0);
+  const original=Buffer.from('original exact proof');const id=await protectedArena.put(original);const sizes=arenas.map(a=>a.usage().archiveBytes);expect(await protectedArena.put(original)).toBe(id);expect(arenas.map(a=>a.usage().archiveBytes)).toEqual(sizes);
+ });
++
++it('sustainable recovery refuses UNKNOWN and overloaded prospective closure before funding or arena effects',()=>{
++ const f=setup(),ledger=readFileSync(join(f.directory,'funding','reservations.json')),old=structuredClone(f.manifest);
++ delete (old.owners[0] as any).closure;
++ expect(()=>preflightSustainableRecoveryManifest(f.authority,old,'new')).toThrow();
++ const overloaded=structuredClone(f.manifest);
++ // Retained original failing witness telemetry: 255346 + 14138 = 269484,
++ // already 7340 over C before any following activation bytes.
++ overloaded.owners[5].closure.original.bytes=255346+14138;
++ expect(()=>preflightSustainableRecoveryManifest(f.authority,overloaded,'new')).toThrow('prospective opaque proof closure exceeds C');
++ expect(readFileSync(join(f.directory,'funding','reservations.json'))).toEqual(ledger);expect(existsSync(f.manifest.root)).toBe(false);
++});
++it('sustainable recovery explicitly preserves torn payload bytes and the adjacent surviving generation',()=>{
++ const f=setup(),key=randomBytes(32),options={authority:f.authority,manifest:f.manifest,owner:'witness-0',copy:0,key};
++ let arena=openSustainableRecoveryArena({...options,mode:'new'});arena.write('state',Buffer.from('generation zero'));arena.write('state',Buffer.from('durable generation one'));
++ const file=join(arena.path,'arena.bin'),torn=Buffer.from('crash replacement payload never got its header'),fd=openSync(file,'r+');writeSync(fd,torn,0,torn.length,256);closeSync(fd);
++ expect(()=>arena.read()).toThrow('Interrupted');arena.close();
++ arena=openSustainableRecoveryArena({...options,mode:'existing'});cleanup.push(arena.close);
++ expect(()=>arena.read()).toThrow('Interrupted');arena.recover();expect(arena.read()!.generation).toBe(1);expect(arena.read()!.bytes.toString()).toBe('durable generation one');
++ expect(readFileSync(join(arena.path,'failed.bin')).includes(torn)).toBe(true);
++ const retained=readFileSync(join(arena.path,'failed.bin'));arena.write('state',Buffer.from('resumed generation two'));expect(arena.read()!.generation).toBe(2);expect(readFileSync(join(arena.path,'failed.bin'))).toEqual(retained);
++});
++it('sustainable recovery refuses ambiguous header corruption instead of ignoring damaged images',()=>{
++ const f=setup(),arena=openSustainableRecoveryArena({authority:f.authority,manifest:f.manifest,owner:'witness-0',copy:0,key:randomBytes(32),mode:'new'});cleanup.push(arena.close);
++ arena.write('state',Buffer.from('zero'));arena.write('state',Buffer.from('one'));const fd=openSync(join(arena.path,'arena.bin'),'r+');writeSync(fd,Buffer.from('BADC'),0,4,0);closeSync(fd);
++ expect(()=>arena.recover()).toThrow('protected floor');expect(()=>arena.read()).toThrow('Interrupted');
++});
++it('sustainable recovery selects the authenticated remote r+1 before making a replacement r+2',async()=>{
++ const f=setup(),owner=generateSigningKeyPair(),keys=Array.from({length:5},generateSigningKeyPair),localKey=randomBytes(32),scope=recoveryDigest(Buffer.from('lagging returning owner'));
++ const localOptions={authority:f.authority,manifest:f.manifest,owner:'witness-0',copy:0,key:localKey};let local=openSustainableRecoveryArena({...localOptions,mode:'new'});
++ const arenas=keys.map((_,i)=>openSustainableRecoveryArena({authority:f.authority,manifest:f.manifest,owner:'witness-0',copy:i+1,key:randomBytes(32),mode:'new'}));arenas.forEach(a=>cleanup.push(a.close));
++ const replicas=keys.map((key,i)=>createSustainableRecoveryReplica({arena:arenas[i],scope,owner:Buffer.from(owner.publicKey).toString('base64url'),signingKey:key})),transport=async(key:string,request:any)=>replicas.find(r=>r.replica===key)!.exchange(request);
++ let storage=openSustainableProtectedArena({arena:local,scope,signingKey:owner,replicas:replicas.map(r=>r.replica),transport});
++ await storage.write(Buffer.from('r0'));const snapshot=join(f.directory,'stale-local.bin');copyFileSync(join(local.path,'arena.bin'),snapshot);await storage.write(Buffer.from('r1'));storage.close();
++ copyFileSync(snapshot,join(local.path,'arena.bin'));local=openSustainableRecoveryArena({...localOptions,mode:'existing'});storage=openSustainableProtectedArena({arena:local,scope,signingKey:owner,replicas:replicas.map(r=>r.replica),transport});cleanup.push(storage.close);
++ expect((await storage.startup())!.toString()).toBe('r1');await storage.write(Buffer.from('r2'));expect(storage.read()!.toString()).toBe('r2');
++});
++
++it('sustainable recovery binds retry cutoff to authenticated issuer fingerprint as well as a shared witness set',async()=>{
++ const authority=generateSigningKeyPair(),members=Array.from({length:5},generateSigningKeyPair),pub=(k:ReturnType<typeof generateSigningKeyPair>)=>Buffer.from(k.publicKey).toString('base64url');
++ const set=parseAdmissionWitnessSet({version:1,quorum:4,members:members.map((k,i)=>({publicKey:pub(k),endpoint:`ws://127.0.0.1:${45000+i}/`})),coordinators:[pub(authority)]});
++ const issuer=()=>generateKeyPairSync('rsa',{modulusLength:2048}).publicKey.export({format:'pem',type:'spki'}).toString(),one=issuer(),two=issuer(),now=Date.now();
++ const entry=(issuerPublicKey:string,retryUntil:number)=>({profile:{version:1 as const,scope:{issuer:'shared-set',community:'public',epoch:'one'},issuerPublicKey,relayUrls:['ws://127.0.0.1:33000/']},notBefore:now-10000,issueUntil:now-8000,spendUntil:now-6000,retryUntil,witnesses:set});
++ const policy=await signAdmissionPolicy({version:1,kind:'admission-policy',revision:1,issuedAt:now-10000,expiresAt:now+10000,activeKey:admissionKeyFingerprint(one),keys:[entry(one,now+5000),entry(two,now-1000)]},pub(authority),authority.secretKey);
++ expect(assertSustainableRetryKey(policy,{issuerKey:admissionKeyFingerprint(one),setId:admissionWitnessSetId(set)},now).profile.issuerPublicKey).toBe(one);
++ expect(()=>assertSustainableRetryKey(policy,{issuerKey:admissionKeyFingerprint(two),setId:admissionWitnessSetId(set)},now)).toThrow('retired');
++ expect(()=>assertSustainableRetryKey({...policy,keys:[...policy.keys].reverse()},{issuerKey:admissionKeyFingerprint(two),setId:admissionWitnessSetId(set)},now)).toThrow('retired');
++});
++
++it('sustainable recovery preserves an interrupted archive tail and refuses to reuse it as empty space',()=>{
++ const f=setup(),key=randomBytes(32),options={authority:f.authority,manifest:f.manifest,owner:'witness-0',copy:0,key};
++ const arena=openSustainableRecoveryArena({...options,mode:'new'}),file=join(arena.path,'arena.bin'),fd=openSync(file,'r+');
++ const row=f.manifest.owners.find(o=>o.owner==='witness-0')!,start=2*row.L+2*row.D+2*row.P;
++ writeSync(fd,Buffer.from('interrupted object payload without commit header'),0,47,start+256);closeSync(fd);arena.close();
++ const before=readFileSync(file);expect(()=>openSustainableRecoveryArena({...options,mode:'existing'})).toThrow('archive tail');expect(readFileSync(file)).toEqual(before);
++});
+--- before/packages/relay/src/__tests__/sustainable-recovery-equivocation.integration.test.ts
++++ candidate/packages/relay/src/__tests__/sustainable-recovery-equivocation.integration.test.ts
+@@ -16,8 +16,8 @@
+ import {createPolicyObserverHistoryRoot,openProtectedPolicyObserver} from '../protected-policy-observer.js';
+ import {createHistoryCheckpointReplica} from '../history-checkpoint-exchange.js';
+ import {openHistoryCheckpointStore} from '../history-checkpoint-store.js';
+-import {sustainableLegacyFixture} from './sustainable-recovery-fixture.js';
+-import {finiteRecoveryManifest} from './sustainable-recovery-manifest.test.js';
++import {sustainableLegacyFixture,declareSustainableOriginals} from './sustainable-recovery-fixture.js';
++import {finiteRecoveryManifest} from './sustainable-recovery-fixture.js';
+ const cleanup:Array<()=>unknown|Promise<unknown>>=[];afterEach(async()=>{for(const close of cleanup.splice(0).reverse())await close();});
+ const pub=(key:SigningKeyPair)=>Buffer.from(key.publicKey).toString('base64url');
+ 
+@@ -34,13 +34,19 @@
+   const pins=originals.map(a=>({context:a.context,genesisId:historyCheckpointEnvelopeId(a.root),rootId:historyCheckpointEnvelopeId(a.history.read().root),generation:0,nextGeneration:1,head:{...a.history.read().applied!}}));
+   const pairs=[];for(const actor of originals)pairs.push(await prepareTerminalProtectedWitness(actor.history,f.proposal,{mode:'create-new',nextGeneration:1}));
+ 
++  declareSustainableOriginals(manifest,pairs,f.policy,votes);
+   const fresh=async()=>{throw new Error('This agreement-only regression must not call a policy authorization oracle');};
++  const reopeners=new Map<SustainableRecoveryRuntime,()=>Promise<SustainableRecoveryRuntime>>();
+   async function node(actor:(typeof f.actors)[number],index:number){
+    const arena=openSustainableRecoveryArena({authority:f.funding,manifest,owner:`witness-${index}`,copy:0,key:actor.encryptionKey,mode:'new'});
+    const storageKeys=Array.from({length:5},generateSigningKeyPair),replicaArenas=storageKeys.map((_,j)=>openSustainableRecoveryArena({authority:f.funding,manifest,owner:`witness-${index}`,copy:j+1,key:randomBytes(32),mode:'new'}));replicaArenas.forEach(a=>cleanup.push(a.close));
+    const scope=recoveryDigest(Buffer.from(`actual-admission-witness:${pub(actor.key)}`)),replicas=storageKeys.map((key,j)=>createSustainableRecoveryReplica({arena:replicaArenas[j],scope,owner:pub(actor.key),signingKey:key}));
+    const storage=openSustainableProtectedArena({arena,scope,signingKey:actor.key,replicas:replicas.map(r=>r.replica),transport:async(key,request)=>replicas.find(r=>r.replica===key)!.exchange(request)});
+-   const runtime=openSustainableRecoveryRuntime({storage,key:actor.key,manifest,originalGenesis:f.policy,configuration:f.proposal.oldSet,freshPolicy:fresh});cleanup.push(runtime.close);return runtime;
++   const runtime=openSustainableRecoveryRuntime({storage,key:actor.key,manifest,originalGenesis:f.policy,configuration:f.proposal.oldSet,freshPolicy:fresh});cleanup.push(runtime.close);
++   reopeners.set(runtime,async()=>{runtime.close();const reopenedArena=openSustainableRecoveryArena({authority:f.funding,manifest,owner:`witness-${index}`,copy:0,key:actor.encryptionKey,mode:'existing'});
++     const reopenedStorage=openSustainableProtectedArena({arena:reopenedArena,scope,signingKey:actor.key,replicas:replicas.map(r=>r.replica),transport:async(key,request)=>replicas.find(r=>r.replica===key)!.exchange(request)});
++     const nextRuntime=openSustainableRecoveryRuntime({storage:reopenedStorage,key:actor.key,manifest,originalGenesis:f.policy,configuration:f.proposal.oldSet,freshPolicy:fresh});cleanup.push(nextRuntime.close);
++     await expect(nextRuntime.startup()).rejects.toThrow('pending/prepared');return nextRuntime;});return runtime;
+   }
+   const oldNodes:SustainableRecoveryRuntime[]=[];for(let i=0;i<4;i++){const runtime=await node(originals[i],i);const cap=await prepareSustainableRecoveryBootstrap({manifest,proposal:f.proposal,originals:pairs,pins,genesis:f.policy});await runtime.bootstrap(cap);oldNodes.push(runtime);}
+ 
+@@ -65,13 +71,35 @@
+   // The attacker replays the identical already accepted authenticated new-view
+   // quorum. No invented signature, journal write, authority reset or new key.
+   await Promise.all(oldNodes.map(n=>n.newView(records,transfer)));
+-  const preparedB:RecoveryCertificate={phase:'prepare',header:proposalB.header,signatures:await Promise.all(oldNodes.map(n=>n.prepare(proposalB)))};
+-  verifyRecoveryCertificate(preparedB,f.proposal.oldSet,'prepare');
++  const preparedB:RecoveryCertificate={phase:'prepare',header:proposalB.header,signatures:(await Promise.allSettled(oldNodes.map(n=>n.prepare(proposalB)))).flatMap(r=>r.status==='fulfilled'?[r.value]:[])};
++  expect(()=>verifyRecoveryCertificate(preparedB,f.proposal.oldSet,'prepare')).toThrow('four');
++  expect(oldNodes.map(n=>n.read().prepared?.proposal.header.command)).toEqual(oldNodes.map(()=>proposalA.header.command));
+   expect(preparedA.header.view).toBe(preparedB.header.view);
+   expect(preparedA.header.sequence).toBe(preparedB.header.sequence);
+   expect(preparedA.header.command).not.toBe(preparedB.header.command);
+   const byzantine=pub(originals[1].key),honestDoubleSigners=preparedA.signatures.map(s=>s.signer).filter(key=>key!==byzantine&&preparedB.signatures.some(s=>s.signer===key));
+   console.info(JSON.stringify({kind:'same-view-runtime-equivocation',view:preparedA.header.view,sequence:preparedA.header.sequence,commandA:preparedA.header.command,commandB:preparedB.header.command,prepareQuorumA:preparedA.signatures.length,prepareQuorumB:preparedB.signatures.length,honestDoubleSigners:honestDoubleSigners.length}));
+   expect(honestDoubleSigners,'An honest member must never sign PREPARE for different values at the same view/sequence').toEqual([]);
++  await Promise.all(oldNodes.map(n=>n.commit(preparedA)));
++  // A same-value retransmission cannot erase the certified prepared lock.
++  await Promise.all(oldNodes.map(n=>n.prepare(proposalA)));
++  expect(oldNodes.every(n=>n.read().prepared?.certificate?.phase==='prepare')).toBe(true);
++  oldNodes[0]=await reopeners.get(oldNodes[0])!();
++  await expect(oldNodes[0].prepare(proposalB)).rejects.toThrow('lock');
++  const records2=await Promise.all(oldNodes.map(n=>n.viewChange(2)));
++  await Promise.all(oldNodes.map(n=>n.newView(records2,transfer)));
++  const carried=oldNodes[2].propose(commandA);
++  const carriedCertificate:RecoveryCertificate={phase:'prepare',header:carried.header,signatures:await Promise.all(oldNodes.map(n=>n.prepare(carried)))};
++  verifyRecoveryCertificate(carriedCertificate,f.proposal.oldSet,'prepare');
++  expect(oldNodes.every(n=>n.read().locked?.certificate?.header.view===1)).toBe(true);
++  const records3=await Promise.all(oldNodes.map(n=>n.viewChange(3)));
++  expect(records3.every(r=>r.prepared?.certificate?.header.view===1)).toBe(true);
++  await Promise.all(oldNodes.map(n=>n.newView(records3,transfer)));
++  const blocked=oldNodes[3].propose(commandB);
++  await expect(oldNodes[0].prepare(blocked)).rejects.toThrow('lock');
++  const carriedAgain=oldNodes[3].propose(commandA);
++  const carriedAgainCertificate:RecoveryCertificate={phase:'prepare',header:carriedAgain.header,signatures:await Promise.all(oldNodes.map(n=>n.prepare(carriedAgain)))};
++  verifyRecoveryCertificate(carriedAgainCertificate,f.proposal.oldSet,'prepare');
++  await expect(oldNodes[0].newView(records,transfer)).rejects.toThrow('Stale');
+  });
+ },60000);
+--- before/packages/relay/src/__tests__/sustainable-recovery-fixture.ts
++++ candidate/packages/relay/src/__tests__/sustainable-recovery-fixture.ts
+@@ -1,5 +1,5 @@
+ import { afterEach, expect, it } from 'vitest';
+-import { randomBytes } from 'node:crypto';
++import { randomBytes, createHash } from 'node:crypto';
+ import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+ import { tmpdir } from 'node:os';
+ import { join } from 'node:path';
+@@ -23,6 +23,14 @@
+ const cleanup: Array<() => unknown | Promise<unknown>> = [];
+ afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
+ const pub = (key: SigningKeyPair) => Buffer.from(key.publicKey).toString('base64url');
++
++import type {RecoveryAllocationManifest} from '../sustainable-recovery-manifest.js';
++
++export function finiteRecoveryManifest(root:string):RecoveryAllocationManifest {
++ const owners:Array<{owner:string;role:'observer'|'witness'|'issuer'|'wallet'}>=[...Array.from({length:5},(_,i)=>({owner:`observer-${i}`,role:'observer' as const})),
++  ...Array.from({length:10},(_,i)=>({owner:`witness-${i}`,role:'witness' as const})),{owner:'issuer',role:'issuer'},{owner:'wallet',role:'wallet'}];
++ return {version:1,root,transitions:2,returns:5,owners:owners.map(o=>({...o,L:65536,D:524288,P:65536,C:262144,F:32768,closure:{original:{count:40,bytes:136000},frame:{count:28,bytes:22000},policy:{count:2,maximumBytes:16384},activation:{count:2,maximumBytes:12288}}})),operatorCopies:0,originals:[],outside:[],work:{L:65536,D:524288,V:262144,H:65536,J:262144}};
++}
+ 
+ interface TerminalFixture {
+   actor: { key: SigningKeyPair; encryptionKey: Uint8Array; context: HistoryCheckpointContext;
+@@ -110,3 +118,13 @@
+   return withStorageReservationAuthority<Promise<TerminalFixture>>(funding, setup);
+ }
+ 
++
++/** Declare exact current original bytes; future signed objects use the enforced
++ * finite prospective quotas. Every prospective recipient retains all originals. */
++export function declareSustainableOriginals(manifest:import('../sustainable-recovery-manifest.js').RecoveryAllocationManifest,
++  originals:WitnessTerminalEvidence[],genesis:unknown,votes:unknown[]=[]){
++  const objects=new Map<string,Buffer>(),add=(value:unknown)=>{const bytes=Buffer.from(JSON.stringify(value));objects.set(`sha256:${createHash('sha256').update(bytes).digest('hex')}`,bytes);};
++  for(const pair of originals)for(const block of pair.evidence.blocks)add(block);add(genesis);
++  for(const vote of votes)add({kind:'vote',vote});
++  manifest.originals=manifest.owners.filter(o=>o.role==='witness').flatMap(owner=>[...objects].map(([id,bytes])=>({id,owner:owner.owner,privacyScope:owner.owner,bytes:bytes.length})));
++}

@@ -36,9 +36,13 @@ describe('PublicationOperationStore', () => {
     const { record } = fixture();
     const store = new PublicationOperationStore();
 
+    expect(store.evaluate(record).status).toBe('accepted');
+    expect(store.liveRecordCount).toBe(0);
     expect(store.apply(record).status).toBe('accepted');
+    expect(store.liveRecordCount).toBe(1);
     expect(store.apply(structuredClone(record)).status).toBe('duplicate');
     expect(store.size).toBe(1);
+    expect(store.liveRecordCount).toBe(1);
   });
 
   it('rejects stale and conflicting signed revisions', () => {
@@ -87,6 +91,31 @@ describe('PublicationOperationStore', () => {
     expect(store.apply(future).status).toBe('terminal');
     expect(store.get(record.publicationId)).toEqual(tombstone);
     expect(store.getRecord(record.publicationId)).toEqual(record);
+    expect(store.liveRecordCount).toBe(0);
+  });
+
+  it('lets a valid tombstone absorb a higher live revision received first', () => {
+    const { keys, record } = fixture();
+    const newerLive = createPublicationRecord({
+      groupId: 'public',
+      fingerprintEpoch: 'pilot-static-v1',
+      fingerprint: new Uint8Array(64).fill(0xa6),
+      itemType: 'offer',
+      createdAt: record.createdAt + 2,
+      expiresAt: record.expiresAt + 2,
+      sequence: 2,
+    }, keys);
+    const earlierTombstone = createPublicationTombstone(
+      record,
+      'withdrawn',
+      keys.signingKeyPair,
+      record.createdAt + 1,
+    );
+    const store = new PublicationOperationStore();
+
+    expect(store.apply(newerLive).status).toBe('accepted');
+    expect(store.apply(earlierTombstone).status).toBe('accepted');
+    expect(store.get(record.publicationId)).toEqual(earlierTombstone);
   });
 
   it('persists and verifies the latest operation', () => {

@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "status": "mixed-version invalid diagnostic history; not a unified baseline",
+  "reasons": [
+    "Seven distinct source_hash sets existed across the 20 runs",
+    "Traffic was not reset per lifecycle and refused-message counts accumulated across retries",
+    "Network summaries used inconsistent request versus request+response semantics",
+    "Hash manifests omitted disk, authorization, owner-assumption, power CSV and some readiness artifacts"
+  ],
+  "preservation": "Existing matrix/retry artifacts and hashes are retained unchanged; new unified-* runs must not reuse them",
+  "acceptance_evaluation": "not_run"
+}

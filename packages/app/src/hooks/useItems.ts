@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import {
   getItems,
+  outboxAction as outboxApi,
   publishItem as publishApi,
   withdrawItem as withdrawApi,
   type Item,
@@ -10,7 +11,8 @@ import {
 export interface UseItems {
   items: Item[];
   refresh: () => Promise<void>;
-  publish: (text: string, type: 'need' | 'offer', privacy: 'low' | 'medium' | 'high') => Promise<PublishResult & { error?: string }>;
+  publish: (text: string, type: 'need' | 'offer', privacy: 'low' | 'medium' | 'high', delivery?: 'send' | 'hold') => Promise<PublishResult & { error?: string }>;
+  outboxAction: (id: string, action: 'release' | 'cancel' | 'remove') => Promise<{ error?: string }>;
   withdraw: (id: string) => Promise<{ error?: string }>;
 }
 
@@ -26,8 +28,9 @@ export function useItems(): UseItems {
     text: string,
     type: 'need' | 'offer',
     privacy: 'low' | 'medium' | 'high',
+    delivery: 'send' | 'hold' = 'send',
   ) => {
-    const result = await publishApi(text, type, privacy);
+    const result = await publishApi(text, type, privacy, delivery);
     if (!result.error) {
       await refresh();
     }
@@ -42,5 +45,11 @@ export function useItems(): UseItems {
     return result;
   }, [refresh]);
 
-  return { items, refresh, publish, withdraw };
+  const outboxAction = useCallback(async (id: string, action: 'release' | 'cancel' | 'remove') => {
+    const result = await outboxApi(id, action);
+    await refresh(); // Failed delivery still changes held/unknown state.
+    return result;
+  }, [refresh]);
+
+  return { items, refresh, publish, withdraw, outboxAction };
 }

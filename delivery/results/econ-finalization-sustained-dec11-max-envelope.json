@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "run_id": "sustained-dec11-max-envelope",
+  "status": "complete",
+  "phase": "cleanup",
+  "phases": [
+    {
+      "phase": "startup",
+      "at": "2026-10-31T07:14:44.238Z"
+    },
+    {
+      "phase": "warmup",
+      "at": "2026-10-31T07:15:08.480Z"
+    },
+    {
+      "phase": "baseline",
+      "at": "2026-10-31T07:16:50.718Z"
+    },
+    {
+      "phase": "cooldown",
+      "at": "2026-10-31T07:46:50.795Z"
+    },
+    {
+      "phase": "metrics",
+      "at": "2026-10-31T07:47:51.215Z"
+    },
+    {
+      "phase": "host-tools",
+      "at": "2026-10-31T07:48:00.065Z"
+    },
+    {
+      "phase": "stop-workers",
+      "at": "2026-10-31T07:48:00.101Z"
+    },
+    {
+      "phase": "network-evidence",
+      "at": "2026-10-31T07:48:15.038Z"
+    },
+    {
+      "phase": "artifacts",
+      "at": "2026-10-31T07:48:18.832Z"
+    },
+    {
+      "phase": "summary",
+      "at": "2026-10-31T07:48:19.124Z"
+    },
+    {
+      "phase": "cleanup",
+      "at": "2026-10-31T07:48:19.230Z"
+    }
+  ],
+  "window": {
+    "run_id": "sustained-dec11-max-envelope",
+    "scenario": "full-smoke",
+    "seed": "0xE007B002",
+    "kind": "sustained",
+    "duration_ms": 1800000,
+    "warmup_ms": 60000,
+    "cooldown_ms": 60000,
+    "runId": "sustained-dec11-max-envelope",
+    "durationMs": 1800000,
+    "warmupMs": 60000,
+    "cooldownMs": 60000,
+    "phases": [
+      {
+        "phase": "warmup",
+        "at": "2026-10-31T07:15:08.480Z",
+        "monotonic_ms": 1996367.615583
+      },
+      {
+        "phase": "baseline",
+        "at": "2026-10-31T07:16:50.717Z",
+        "monotonic_ms": 2098605.449458
+      },
+      {
+        "phase": "cooldown",
+        "at": "2026-10-31T07:46:50.793Z",
+        "monotonic_ms": 3898687.2485
+      }
+    ],
+    "sustained_operations": {
+      "reads": 18252,
+      "retries": 36504
+    }
+  },
+  "error": null,
+  "acceptance_evaluation": "not_run"
+}

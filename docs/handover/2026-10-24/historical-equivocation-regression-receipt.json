@@ -1,0 +1,74 @@
+{
+  "kind": "independent-review-stop-reproduction",
+  "productionFixed": false,
+  "capsChanged": false,
+  "oldVerticalRerun": false,
+  "status": "EXPECTED_INVARIANT_FAILED",
+  "testFile": "packages/relay/src/__tests__/sustainable-recovery-equivocation.integration.test.ts",
+  "sha256": "4f154cde851d5971a4559583216bdb612e7de032dd930b8e1de2d8b7707196c8",
+  "result": "1 failed, 5 skipped; 18.002s test / 18.62s total",
+  "actual": {
+    "view": 1,
+    "sequence": 2,
+    "prepareQuorumA": 4,
+    "prepareQuorumB": 4,
+    "distinctCommandDigests": true,
+    "honestDoubleSigners": 3
+  },
+  "command": "node_modules/.bin/vitest run packages/relay/src/__tests__/sustainable-recovery-equivocation.integration.test.ts --maxWorkers=1 -t 'same-view replay'",
+  "priorBlockCapActiveMinutes": 45,
+  "additionalReviewReproductionCapActiveMinutes": 5,
+  "noBudgetReset": true,
+  "frozenCandidateChecks": [
+    {
+      "path": "packages/core/src/storage-reservations.ts",
+      "unchanged": true,
+      "sha256": "673886e219ee56bd2611cf5c73238a5c7fd27d2907dce48dcae4f3c63543a133"
+    },
+    {
+      "path": "packages/relay/src/sustainable-recovery-manifest.ts",
+      "unchanged": true,
+      "sha256": "0ec417ab7e8a587bd61f4e8b4551a73668f0a45ea54304459e9245afa9c0750b"
+    },
+    {
+      "path": "packages/relay/src/sustainable-recovery-arena.ts",
+      "unchanged": true,
+      "sha256": "9dfcb52a34ef7ad806f16b6c945171f5796889c93c94d7ca5e4de2e9246d73c8"
+    },
+    {
+      "path": "packages/relay/src/sustainable-recovery-protected-arena.ts",
+      "unchanged": true,
+      "sha256": "ea73fddf2209d0af3890a5737044f5aaaf26644b84a643d384e0baa4ccd66dcd"
+    },
+    {
+      "path": "packages/relay/src/sustainable-recovery-runtime.ts",
+      "unchanged": true,
+      "sha256": "d139a3e18c095f63363cd7158bb38c4c09373787c5f85329831010c2a8af6fe7"
+    },
+    {
+      "path": "packages/relay/src/__tests__/sustainable-recovery-manifest.test.ts",
+      "unchanged": true,
+      "sha256": "fc5fd0714da11acf0aa0e326584da35536a98fe326d288505a491b6fb6966ab2"
+    },
+    {
+      "path": "packages/relay/src/__tests__/sustainable-recovery-runtime.integration.test.ts",
+      "unchanged": true,
+      "sha256": "fe441a5fdc30ed28c16b95ee05aa8b0daa38bc39a80502b727e0928c6b3f88d4"
+    },
+    {
+      "path": "packages/relay/src/__tests__/sustainable-recovery-fixture.ts",
+      "unchanged": true,
+      "sha256": "d8695129a78dbbb66726a2ac090855fae1d3f11940a55ed044ec402e1a242ca9"
+    },
+    {
+      "path": "docs/evals/v04-sustainable-recovery-implementation-2026-10-23.md",
+      "unchanged": true,
+      "sha256": "c4798c555e7a87611dc8cbe2d68c08048a6ee6f23bd9d45e3e7f4b82a8a88395"
+    }
+  ],
+  "finalTimestamp": 1792762791.904107,
+  "observedWallSecondsFromFirstToolClockToCompletion": 192,
+  "additionalActiveMinutesChargedConservatively": 4,
+  "cumulativeActiveMinutesChargedWithPriorBlock": 49,
+  "existingPlusReviewCeilingMinutes": 50
+}

@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "run_id": "sustained-production-max-envelope",
+  "forged_cross_runtime_role_refused": true,
+  "privileged_replica_runtime_read_refused": true,
+  "credentials": "per-run/per-sender/per-recipient/per-channel",
+  "method_authorization": "explicit"
+}

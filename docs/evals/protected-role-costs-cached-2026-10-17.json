@@ -1,0 +1,411 @@
+{
+  "generatedAt": "2026-10-17T20:31:16.433Z",
+  "sourceBase": "ac16215efe1277af85e3a0a7aa00fed170a5e195",
+  "sourceSha256": {
+    "packages/eval/src/protected-role-costs.ts": "a231e28e5b133136cbc3baa20bf9aa72f06bbd6feca126781a271f7dd072abd5",
+    "packages/relay/src/protected-admission-roles.ts": "cdb74773dbb60fd7c4e7d4a8b078750fdb37505b4b36451ff73eace0560dbdcf",
+    "packages/relay/src/admission-role-history.ts": "5aedf291c9ff8cfdc516d0c9a30de48c5a14e7a963fdfbf236170c429d3da1a8",
+    "packages/relay/src/admission-role-verification.ts": "0dbc51e6025d6d47e485ed7d6ce7f86d0ac929ec9cfeed458679b4222c773498",
+    "packages/relay/src/protected-admission-history.ts": "646bedc903ed0484350c62831e3626bc447681a6e910a4fae6fafd495b9b0ec1",
+    "packages/relay/src/admission-history-records.ts": "94133cb80883bac2b8db7f4094406d1aeb6a7d2ec0ef725e679078836a212772"
+  },
+  "environment": {
+    "node": "v24.19.0",
+    "platform": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Pro",
+    "logicalCpus": 11
+  },
+  "scope": "Five real loopback history sockets in one process; four local durable witness peers; no independent operators, Internet, TLS or energy measurement.",
+  "accounting": "JSON application request/reply bytes across all history members, excluding witness transport, WebSocket/TCP/TLS framing. CPU is process-wide. Peak RSS is process lifetime, not per-operation allocation. Reopen retains this process signature cache and is not a cold process restart.",
+  "seeded": "Existing signed local votes/certificates are extended offline, then captured through the production reviewed/fenced four-copy workflow. Seeding is not sequential admission throughput.",
+  "near": "90% of the 8 MiB complete application checkpoint bound, with both witness and coordinator rows; row limits also apply.",
+  "deadlineMs": 3000,
+  "trials": 1,
+  "results": [
+    {
+      "requested": "1",
+      "retainedRowsPerRole": 1,
+      "checkpointPlaintextBytes": 5540,
+      "operations": [
+        {
+          "name": "capture",
+          "ok": true,
+          "error": null,
+          "wallMs": 467.971,
+          "cpuMs": 410.496,
+          "requestBytes": 66115,
+          "replyBytes": 17486,
+          "exchanges": 20,
+          "rssMiB": 156.640625,
+          "lifetimePeakRssMiB": 156.640625
+        },
+        {
+          "name": "witness-new-0",
+          "ok": true,
+          "error": null,
+          "wallMs": 261.221041,
+          "cpuMs": 200.287,
+          "requestBytes": 12245,
+          "replyBytes": 8743,
+          "exchanges": 10,
+          "rssMiB": 157.25,
+          "lifetimePeakRssMiB": 157.25
+        },
+        {
+          "name": "witness-retry-0",
+          "ok": true,
+          "error": null,
+          "wallMs": 2.9523340000000644,
+          "cpuMs": 3.087,
+          "requestBytes": 0,
+          "replyBytes": 0,
+          "exchanges": 0,
+          "rssMiB": 157.265625,
+          "lifetimePeakRssMiB": 157.265625
+        },
+        {
+          "name": "coordinator-new-0",
+          "ok": true,
+          "error": null,
+          "wallMs": 320.52408300000025,
+          "cpuMs": 243.358,
+          "requestBytes": 23645,
+          "replyBytes": 8743,
+          "exchanges": 10,
+          "rssMiB": 157.703125,
+          "lifetimePeakRssMiB": 157.703125
+        },
+        {
+          "name": "coordinator-retry-0",
+          "ok": true,
+          "error": null,
+          "wallMs": 11.818958000000293,
+          "cpuMs": 15.661,
+          "requestBytes": 0,
+          "replyBytes": 0,
+          "exchanges": 0,
+          "rssMiB": 157.78125,
+          "lifetimePeakRssMiB": 157.78125
+        },
+        {
+          "name": "concurrent-witness-outcomes",
+          "accepted": 1,
+          "refused": 1
+        },
+        {
+          "name": "concurrent-witness-burst",
+          "ok": true,
+          "error": null,
+          "wallMs": 309.94016699999975,
+          "cpuMs": 253.033,
+          "requestBytes": 12245,
+          "replyBytes": 8743,
+          "exchanges": 10,
+          "rssMiB": 158.265625,
+          "lifetimePeakRssMiB": 158.265625
+        },
+        {
+          "name": "reopen-and-readiness-warm-cache",
+          "ok": true,
+          "error": null,
+          "wallMs": 203.91841699999986,
+          "cpuMs": 204.579,
+          "requestBytes": 12245,
+          "replyBytes": 8743,
+          "exchanges": 10,
+          "rssMiB": 158.8125,
+          "lifetimePeakRssMiB": 158.8125
+        }
+      ]
+    },
+    {
+      "requested": "100",
+      "retainedRowsPerRole": 100,
+      "checkpointPlaintextBytes": 283136,
+      "operations": [
+        {
+          "name": "capture",
+          "ok": true,
+          "error": null,
+          "wallMs": 1565.8098329999993,
+          "cpuMs": 1710.026,
+          "requestBytes": 1916765,
+          "replyBytes": 17486,
+          "exchanges": 20,
+          "rssMiB": 312.6875,
+          "lifetimePeakRssMiB": 312.6875
+        },
+        {
+          "name": "witness-new-0",
+          "ok": true,
+          "error": null,
+          "wallMs": 291.577542,
+          "cpuMs": 266.819,
+          "requestBytes": 389050,
+          "replyBytes": 8743,
+          "exchanges": 10,
+          "rssMiB": 285.125,
+          "lifetimePeakRssMiB": 313.234375
+        },
+        {
+          "name": "witness-retry-0",
+          "ok": true,
+          "error": null,
+          "wallMs": 11.513875000000553,
+          "cpuMs": 11.633,
+          "requestBytes": 0,
+          "replyBytes": 0,
+          "exchanges": 0,
+          "rssMiB": 285.65625,
+          "lifetimePeakRssMiB": 313.234375
+        },
+        {
+          "name": "coordinator-new-0",
+          "ok": true,
+          "error": null,
+          "wallMs": 345.86183300000084,
+          "cpuMs": 291.207,
+          "requestBytes": 398170,
+          "replyBytes": 8743,
+          "exchanges": 10,
+          "rssMiB": 357.140625,
+          "lifetimePeakRssMiB": 357.140625
+        },
+        {
+          "name": "coordinator-retry-0",
+          "ok": true,
+          "error": null,
+          "wallMs": 22.05633299999954,
+          "cpuMs": 22.145,
+          "requestBytes": 0,
+          "replyBytes": 0,
+          "exchanges": 0,
+          "rssMiB": 375.15625,
+          "lifetimePeakRssMiB": 375.15625
+        },
+        {
+          "name": "concurrent-witness-outcomes",
+          "accepted": 1,
+          "refused": 1
+        },
+        {
+          "name": "concurrent-witness-burst",
+          "ok": true,
+          "error": null,
+          "wallMs": 318.7960830000002,
+          "cpuMs": 281.174,
+          "requestBytes": 12250,
+          "replyBytes": 8743,
+          "exchanges": 10,
+          "rssMiB": 378.234375,
+          "lifetimePeakRssMiB": 383.5625
+        },
+        {
+          "name": "reopen-and-readiness-warm-cache",
+          "ok": true,
+          "error": null,
+          "wallMs": 238.21604200000002,
+          "cpuMs": 238.7,
+          "requestBytes": 14530,
+          "replyBytes": 8743,
+          "exchanges": 10,
+          "rssMiB": 377.984375,
+          "lifetimePeakRssMiB": 383.5625
+        }
+      ]
+    },
+    {
+      "requested": "1000",
+      "retainedRowsPerRole": 1000,
+      "checkpointPlaintextBytes": 2806736,
+      "operations": [
+        {
+          "name": "capture",
+          "ok": true,
+          "error": null,
+          "wallMs": 11639.810458999998,
+          "cpuMs": 13345.702,
+          "requestBytes": 18740770,
+          "replyBytes": 17486,
+          "exchanges": 20,
+          "rssMiB": 622.53125,
+          "lifetimePeakRssMiB": 697.015625
+        },
+        {
+          "name": "witness-new-0",
+          "ok": true,
+          "error": null,
+          "wallMs": 547.8887500000019,
+          "cpuMs": 510.168,
+          "requestBytes": 12255,
+          "replyBytes": 8743,
+          "exchanges": 10,
+          "rssMiB": 611.4375,
+          "lifetimePeakRssMiB": 697.015625
+        },
+        {
+          "name": "witness-retry-0",
+          "ok": true,
+          "error": null,
+          "wallMs": 88.03966600000058,
+          "cpuMs": 99.774,
+          "requestBytes": 0,
+          "replyBytes": 0,
+          "exchanges": 0,
+          "rssMiB": 616.34375,
+          "lifetimePeakRssMiB": 697.015625
+        },
+        {
+          "name": "coordinator-new-0",
+          "ok": true,
+          "error": null,
+          "wallMs": 560.4759169999998,
+          "cpuMs": 515.16,
+          "requestBytes": 23655,
+          "replyBytes": 8743,
+          "exchanges": 10,
+          "rssMiB": 651.84375,
+          "lifetimePeakRssMiB": 697.015625
+        },
+        {
+          "name": "coordinator-retry-0",
+          "ok": true,
+          "error": null,
+          "wallMs": 99.37220800000068,
+          "cpuMs": 119.048,
+          "requestBytes": 0,
+          "replyBytes": 0,
+          "exchanges": 0,
+          "rssMiB": 663.984375,
+          "lifetimePeakRssMiB": 697.015625
+        },
+        {
+          "name": "concurrent-witness-outcomes",
+          "accepted": 1,
+          "refused": 1
+        },
+        {
+          "name": "concurrent-witness-burst",
+          "ok": true,
+          "error": null,
+          "wallMs": 520.4352920000019,
+          "cpuMs": 469.651,
+          "requestBytes": 12255,
+          "replyBytes": 8743,
+          "exchanges": 10,
+          "rssMiB": 666.578125,
+          "lifetimePeakRssMiB": 697.015625
+        },
+        {
+          "name": "reopen-and-readiness-warm-cache",
+          "ok": true,
+          "error": null,
+          "wallMs": 266.16033400000015,
+          "cpuMs": 284.377,
+          "requestBytes": 12255,
+          "replyBytes": 8743,
+          "exchanges": 10,
+          "rssMiB": 665.046875,
+          "lifetimePeakRssMiB": 697.015625
+        }
+      ]
+    },
+    {
+      "requested": "near",
+      "retainedRowsPerRole": 2691,
+      "checkpointPlaintextBytes": 7548300,
+      "operations": [
+        {
+          "name": "capture",
+          "ok": true,
+          "error": null,
+          "wallMs": 30810.685250000002,
+          "cpuMs": 35921.023,
+          "requestBytes": 50351200,
+          "replyBytes": 17486,
+          "exchanges": 20,
+          "rssMiB": 1170.84375,
+          "lifetimePeakRssMiB": 1252.078125
+        },
+        {
+          "name": "witness-new-0",
+          "ok": true,
+          "error": null,
+          "wallMs": 1148.8163330000098,
+          "cpuMs": 1272.805,
+          "requestBytes": 10075945,
+          "replyBytes": 8743,
+          "exchanges": 10,
+          "rssMiB": 1155.0625,
+          "lifetimePeakRssMiB": 1252.078125
+        },
+        {
+          "name": "witness-retry-0",
+          "ok": true,
+          "error": null,
+          "wallMs": 245.8633339999942,
+          "cpuMs": 288.62,
+          "requestBytes": 0,
+          "replyBytes": 0,
+          "exchanges": 0,
+          "rssMiB": 1140.390625,
+          "lifetimePeakRssMiB": 1252.078125
+        },
+        {
+          "name": "coordinator-new-0",
+          "ok": true,
+          "error": null,
+          "wallMs": 1098.745624999996,
+          "cpuMs": 1144.446,
+          "requestBytes": 10085065,
+          "replyBytes": 8743,
+          "exchanges": 10,
+          "rssMiB": 1220.15625,
+          "lifetimePeakRssMiB": 1281.984375
+        },
+        {
+          "name": "coordinator-retry-0",
+          "ok": true,
+          "error": null,
+          "wallMs": 255.5999579999916,
+          "cpuMs": 293.972,
+          "requestBytes": 0,
+          "replyBytes": 0,
+          "exchanges": 0,
+          "rssMiB": 1208.640625,
+          "lifetimePeakRssMiB": 1281.984375
+        },
+        {
+          "name": "concurrent-witness-outcomes",
+          "accepted": 1,
+          "refused": 1
+        },
+        {
+          "name": "concurrent-witness-burst",
+          "ok": true,
+          "error": null,
+          "wallMs": 1031.8192500000005,
+          "cpuMs": 1091.753,
+          "requestBytes": 10075945,
+          "replyBytes": 8743,
+          "exchanges": 10,
+          "rssMiB": 1203.84375,
+          "lifetimePeakRssMiB": 1281.984375
+        },
+        {
+          "name": "reopen-and-readiness-warm-cache",
+          "ok": true,
+          "error": null,
+          "wallMs": 440.5560420000111,
+          "cpuMs": 491.843,
+          "requestBytes": 10075945,
+          "replyBytes": 8743,
+          "exchanges": 10,
+          "rssMiB": 1251.84375,
+          "lifetimePeakRssMiB": 1281.984375
+        }
+      ]
+    }
+  ]
+}

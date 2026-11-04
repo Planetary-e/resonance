@@ -130,9 +130,16 @@ describe('protocol v2 publication storage', () => {
       expiresAt: record.createdAt + 60_000,
     });
     const notice = createMatchNoticeMessage(record, partner, operation, relay);
+    const otherRelay = generateIdentity();
+    const otherOperation = createMatchOperationV2(record, partner, otherRelay, {
+      createdAt: record.createdAt + 2,
+      expiresAt: record.createdAt + 59_000,
+    });
+    const otherNotice = createMatchNoticeMessage(record, partner, otherOperation, otherRelay);
 
     expect(store.insertMailboxMatch('item-1', notice)).toBe(true);
     expect(store.insertMailboxMatch('item-1', notice)).toBe(false);
+    expect(store.insertMailboxMatch('item-1', otherNotice)).toBe(false);
     store.close();
 
     const bytes = readFileSync(path).toString('utf8');
@@ -140,10 +147,39 @@ describe('protocol v2 publication storage', () => {
     expect(bytes).not.toContain(partner.mailbox.id);
 
     const reopened = await openStoreAsync(path, key);
+    expect(reopened.insertMailboxMatch('item-1', otherNotice)).toBe(false);
     const matches = reopened.listMailboxMatches();
     expect(matches).toHaveLength(1);
     expect(matches[0].notice).toEqual(notice);
     expect(matches[0].partnerPublicationId).toBe(partner.publicationId);
     reopened.close();
+  });
+
+  it('does not surface a match between two publications owned by this device', async () => {
+    const { store, record } = await insertItemAndPublication(temporaryDatabase(), randomKey());
+    const partnerKeys = generatePublicationKeyMaterial();
+    const partner = createPublicationRecord({
+      groupId: 'public',
+      fingerprintEpoch: 'pilot-static-v1',
+      fingerprint: new Uint8Array(64).fill(0x5a),
+      itemType: 'offer',
+      createdAt: record.createdAt,
+      expiresAt: record.expiresAt,
+    }, partnerKeys);
+    store.insertItem({
+      id: 'item-2', type: 'offer', rawText: 'Can repair a bicycle',
+      embedding: new Float32Array([0.25, 0.75]), privacyLevel: 'medium',
+    });
+    store.insertPublication('item-2', partner, partnerKeys);
+    const relay = generateIdentity();
+    const operation = createMatchOperationV2(record, partner, relay, {
+      createdAt: record.createdAt + 1,
+      expiresAt: record.createdAt + 60_000,
+    });
+
+    expect(store.insertMailboxMatch('item-1', createMatchNoticeMessage(record, partner, operation, relay)))
+      .toBe(false);
+    expect(store.listMailboxMatches()).toHaveLength(0);
+    store.close();
   });
 });

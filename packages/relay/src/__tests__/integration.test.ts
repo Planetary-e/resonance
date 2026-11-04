@@ -2,26 +2,44 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import WebSocket from 'ws';
+import { publicVerif } from '@cloudflare/privacypass-ts';
 import {
   MessageTypes,
   createAdmissionRequestBindingV2,
+  createBlindAdmissionRequestV2,
   createMailboxRequest,
   createMailboxRequestFrame,
+  createMailboxDepositRequest,
+  createMailboxDepositFrame,
+  createConsentOfferV2,
+  createDeterministicMatchId,
   createMessage,
+  createRelayDescriptorV1,
+  createRelayPeerRequestFrameV1,
+  createRelayPeerRequestV1,
   createSearchRequestFrameV2,
   createSearchRequestV2,
   createPublicationOperationFrame,
   createPublicationRecord,
+  issueBlindAdmissionRequestV2,
+  presentBlindAdmissionTokenV2,
   createPublicationTombstone,
   generateIdentity,
   generatePublicationKeyMaterial,
+  generateRelationshipKeyMaterial,
+  encryptRelationshipMessage,
   parseMessage,
+  parseRelayPeerResponseFrameV1,
   serializeMessage,
   serializeMailboxRequestFrame,
+  serializeMailboxDepositFrame,
   serializePublicationOperationFrame,
+  serializeRelayPeerRequestFrameV1,
   serializeSearchRequestFrameV2,
   verifyMessage,
   verifyMatchOperationV2,
+  verifyRelayDescriptorV1,
+  verifyRelayPeerResponseV1,
   type AckPayload,
   type AdmissionCapabilityV2,
   type Message,
@@ -29,10 +47,12 @@ import {
 } from '@resonance/core';
 import { createRelayServer, type RelayServer } from '../server.js';
 import type { AdmissionCapabilityVerifierV2 } from '../admission.js';
+import { createLocalBlindAdmissionVerifierV2 } from '../blind-admission-verifier.js';
 import { RELAY_OPERATION_LOG_FILENAME } from '../operation-log.js';
 
-const PORT = 19090 + Math.floor(Math.random() * 1000);
+let PORT = 0;
 const PERSIST_DIR = `/tmp/resonance-integration-test-${Date.now()}`;
+const ADMIN_API_KEY = 'integration-admin-key';
 let server: RelayServer;
 
 function record(itemType: 'need' | 'offer', fill: number, groupId = 'public') {
@@ -69,13 +89,22 @@ function recordWithKeys(
   };
 }
 
-function createServer(): RelayServer {
+function createServer(maxMailboxStorageBytes?: number): RelayServer {
   return createRelayServer({
     port: PORT,
     host: '127.0.0.1',
     maxAuthAttemptsPerMin: 100,
+    adminApiKey: ADMIN_API_KEY,
     persistDir: PERSIST_DIR,
     persistIntervalMs: 999_999,
+    maxMailboxStorageBytes,
+    relayDiscovery: {
+      endpoints: [`ws://127.0.0.1:${PORT}`],
+      reachability: 'direct',
+      supportedGroups: ['public'],
+      storage: { capacityBytes: 1_000_000, availableBytes: 900_000 },
+      maxKnownRelays: 8,
+    },
   });
 }
 
@@ -115,9 +144,23 @@ function sendFrameToPort(port: number, raw: string): Promise<Message> {
   });
 }
 
+function sendRawFrame(raw: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(`ws://localhost:${PORT}`);
+    const timeout = setTimeout(() => reject(new Error('raw frame response timeout')), 5_000);
+    ws.on('open', () => ws.send(raw));
+    ws.on('message', (data: Buffer) => {
+      clearTimeout(timeout);
+      ws.close();
+      resolve(data.toString('utf8'));
+    });
+    ws.on('error', reject);
+  });
+}
+
 beforeAll(async () => {
   server = createServer();
-  await server.start();
+  await server.start(); PORT = server.getListeningPort()!;
 });
 
 afterAll(async () => {
@@ -193,7 +236,7 @@ describe('Relay protocol v2 integration', () => {
   });
 
   it('enforces one-use admission while allowing an exact operation retry', async () => {
-    const admissionPort = PORT + 1100;
+    let admissionPort = 0;
     const admissionDir = `${PERSIST_DIR}-admission`;
     const spent = new Map<string, string>();
     const verifier: AdmissionCapabilityVerifierV2 = {
@@ -217,7 +260,7 @@ describe('Relay protocol v2 integration', () => {
       persistDir: admissionDir,
       admissionVerifier: verifier,
     });
-    await admissionServer.start();
+    await admissionServer.start(); admissionPort = admissionServer.getListeningPort()!;
     try {
       const first = record('offer', 0x31, `admission-${Date.now()}`);
       const missing = await sendFrameToPort(
@@ -255,6 +298,48 @@ describe('Relay protocol v2 integration', () => {
     }
   });
 
+  it('redeems a real blind token on a relay and preserves its spend across restart', async () => {
+    let port = 0;
+    const directory = `${PERSIST_DIR}-blind-admission`;
+    const scope = { issuer: 'community-test', community: 'test', epoch: '2026-09' };
+    const mode = publicVerif.BlindRSAMode.PSS;
+    const keys = await publicVerif.Issuer.generateKey(mode, {
+      modulusLength: 2048, publicExponent: Uint8Array.from([1, 0, 1]),
+    });
+    const issuer = new publicVerif.Issuer(mode, scope.issuer, keys.privateKey, keys.publicKey);
+    const blinded = await createBlindAdmissionRequestV2(scope, keys.publicKey);
+    const token = await blinded.finalize(await issueBlindAdmissionRequestV2(issuer, blinded.request));
+    const first = record('offer', 0x36, 'test');
+    const binding = createAdmissionRequestBindingV2('publication-write', first);
+    const capability = await presentBlindAdmissionTokenV2(token, scope, 'publication-write', binding);
+    let verifier = createLocalBlindAdmissionVerifierV2({ directory, scope, issuerPublicKey: keys.publicKey });
+    let relay = createRelayServer({ port, host: '127.0.0.1', persistDir: directory, admissionVerifier: verifier });
+    await relay.start(); port = relay.getListeningPort()!;
+    try {
+      const frame = serializePublicationOperationFrame(createPublicationOperationFrame(first, capability));
+      expect((await sendFrameToPort(port, frame) as Message<AckPayload>).payload.message).toBe('accepted');
+      await relay.stop();
+      verifier.close();
+      verifier = createLocalBlindAdmissionVerifierV2({ directory, scope, issuerPublicKey: keys.publicKey });
+      relay = createRelayServer({ port, host: '127.0.0.1', persistDir: directory, admissionVerifier: verifier });
+      await relay.start(); port = relay.getListeningPort()!;
+      expect((await sendFrameToPort(port, frame) as Message<AckPayload>).payload.message).toBe('duplicate');
+      const second = record('offer', 0x37, 'test');
+      const different = await presentBlindAdmissionTokenV2(
+        token, scope, 'publication-write', createAdmissionRequestBindingV2('publication-write', second),
+      );
+      const rejected = await sendFrameToPort(
+        port, serializePublicationOperationFrame(createPublicationOperationFrame(second, different)),
+      ) as Message<AckPayload>;
+      expect(rejected.payload.message).toBe('admission_rejected');
+      expect(relay.getStats().stored_publications).toBe(1);
+    } finally {
+      await relay.stop();
+      verifier.close();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it('rejects legacy root-DID authentication and discovery routes', async () => {
     const identity = generateIdentity();
     const auth = await sendFrame(serializeMessage(createMessage(MessageTypes.AUTH, {}, identity))) as Message<AckPayload>;
@@ -288,7 +373,10 @@ describe('Relay protocol v2 integration', () => {
     expect(health.status).toBe(200);
     expect(await health.json()).toEqual({ status: 'ok' });
 
-    const response = await fetch(`http://localhost:${PORT}/stats`);
+    const denied = await fetch(`http://localhost:${PORT}/stats`);
+    expect(denied.status).toBe(401);
+
+    const response = await fetch(`http://localhost:${PORT}/stats?key=${ADMIN_API_KEY}`);
     const stats = await response.json() as Record<string, unknown>;
     expect(response.status).toBe(200);
     expect(stats).toHaveProperty('stored_publications');
@@ -299,6 +387,58 @@ describe('Relay protocol v2 integration', () => {
     expect(stats).toHaveProperty('mailbox_envelopes');
     expect(stats).toHaveProperty('stored_matches');
     expect(stats).toHaveProperty('journal_entries');
+    expect(stats).toHaveProperty('known_relays');
+    expect(stats).toHaveProperty('connected_relays');
+    expect(stats).toHaveProperty('inbound_authenticated_relays', 0);
+    expect(stats).toHaveProperty('outbound_authenticated_relays', 0);
+    expect(stats).toHaveProperty('connected_query_peers', 0);
+    expect(stats).toHaveProperty('peer_confirmed_direct_endpoints', 0);
+    expect(stats).not.toHaveProperty('connected_relay_ids');
+    expect(stats).toHaveProperty('durability_receipts');
+  });
+
+  it('publishes its signed descriptor and answers bounded signed peer exchange', async () => {
+    const descriptorResponse = await fetch(`http://localhost:${PORT}/relay-descriptor`);
+    const ownDescriptor = await descriptorResponse.json();
+    expect(descriptorResponse.status).toBe(200);
+    expect(verifyRelayDescriptorV1(ownDescriptor)).toBe(true);
+
+    const peerIdentity = generateIdentity();
+    const now = Date.now();
+    const peerDescriptor = createRelayDescriptorV1({
+      sequence: 1,
+      endpoints: ['wss://community-relay.example.net'],
+      reachability: 'direct',
+      capabilities: {
+        storesPublications: true,
+        storesMailboxes: true,
+        answersQueries: true,
+        forwardsQueries: false,
+        replicaExchange: false,
+      },
+      supportedGroups: ['public'],
+      storage: { capacityBytes: 2_000_000, availableBytes: 1_500_000 },
+      issuedAt: now,
+      expiresAt: now + 60_000,
+    }, peerIdentity);
+    expect(server.observeRelayDescriptor(peerDescriptor, now)).toBe('accepted');
+
+    const request = createRelayPeerRequestV1({
+      supportedGroups: ['public'],
+      maxPeers: 2,
+      createdAt: now,
+      expiresAt: now + 30_000,
+    });
+    const rawResponse = await sendRawFrame(serializeRelayPeerRequestFrameV1(
+      createRelayPeerRequestFrameV1(request),
+    ));
+    const frame = parseRelayPeerResponseFrameV1(rawResponse);
+
+    expect(verifyRelayPeerResponseV1(frame.response, request)).toBe(true);
+    expect(frame.response.descriptors).toHaveLength(2);
+    expect(frame.response.descriptors.map(value => value.relayId)).toContain(peerIdentity.did);
+    expect(frame.response.descriptors.map(value => value.relayId)).toContain((ownDescriptor as { relayId: string }).relayId);
+    expect(server.getStats().known_relays).toBe(1);
   });
 
   it('removes each publication at its signed expiry before further matching', async () => {
@@ -337,7 +477,7 @@ describe('Relay protocol v2 integration', () => {
     const statsBeforeRestart = server.getStats();
     await server.stop();
     server = createServer();
-    await server.start();
+    await server.start(); PORT = server.getListeningPort()!;
 
     expect(server.getStats().stored_publications).toBe(statsBeforeRestart.stored_publications);
     expect(server.getStats().stored_matches).toBe(statsBeforeRestart.stored_matches);
@@ -368,6 +508,58 @@ describe('Relay protocol v2 integration', () => {
     expect(emptyAfterAck.payload.envelopes).toEqual([]);
   });
 
+  it('rejects over-quota deposits and never redelivers an acknowledged retry after restart', async () => {
+    const groupId = `mailbox-budget-${Date.now()}`;
+    const alice = recordWithKeys('offer', 0x73, groupId);
+    const bob = recordWithKeys('need', 0x73, groupId);
+    expect((await submit(alice.record)).payload.status).toBe('ok');
+    expect((await submit(bob.record)).payload.status).toBe('ok');
+    const occupiedBytes = server.getStats().mailbox_storage_reserved_bytes;
+    expect(occupiedBytes).toBeGreaterThan(0);
+
+    const matchId = createDeterministicMatchId(alice.record.publicationId, bob.record.publicationId);
+    const offer = createConsentOfferV2(
+      matchId, alice.record, bob.record, alice.keys, generateRelationshipKeyMaterial(),
+      Date.now(), Date.now() + 60_000,
+    );
+    const envelope = encryptRelationshipMessage(offer, bob.record);
+    const deposit = createMailboxDepositRequest(
+      matchId, alice.record, bob.record, alice.keys, envelope, Date.now(),
+    );
+    const frame = serializeMailboxDepositFrame(createMailboxDepositFrame(deposit));
+
+    await server.stop();
+    server = createServer(occupiedBytes);
+    await server.start(); PORT = server.getListeningPort()!;
+    const before = server.getStats().journal_entries;
+    const rejected = await sendFrame(frame) as Message<AckPayload>;
+    expect(rejected.payload).toMatchObject({ status: 'error', message: 'capacity-exhausted' });
+    expect(server.getStats().journal_entries).toBe(before);
+
+    await server.stop();
+    server = createServer();
+    await server.start(); PORT = server.getListeningPort()!;
+    const accepted = await sendFrame(frame) as Message<AckPayload>;
+    expect(accepted.payload).toMatchObject({ status: 'ok', message: 'accepted' });
+    const acknowledgement = createMailboxRequest(
+      'ack', bob.record, bob.keys, [envelope.envelopeId], Date.now(),
+    );
+    const acknowledged = await sendFrame(serializeMailboxRequestFrame(
+      createMailboxRequestFrame(acknowledgement),
+    )) as Message<AckPayload>;
+    expect(acknowledged.payload.message).toBe('acknowledged:1');
+
+    await server.stop();
+    server = createServer();
+    await server.start(); PORT = server.getListeningPort()!;
+    const repeated = await sendFrame(frame) as Message<AckPayload>;
+    expect(repeated.payload).toMatchObject({ status: 'ok', message: 'duplicate' });
+    const fetched = await sendFrame(serializeMailboxRequestFrame(createMailboxRequestFrame(
+      createMailboxRequest('fetch', bob.record, bob.keys, [], Date.now()),
+    ))) as Message<{ envelopes: Array<{ envelopeId: string }> }>;
+    expect(fetched.payload.envelopes.map(value => value.envelopeId)).not.toContain(envelope.envelopeId);
+  }, 15_000); // Three cold relay restarts plus seven exchanges; each exchange retains its 5s timeout.
+
   it('retains owner-signed tombstones across restart and prevents resurrection', async () => {
     const retainedBefore = server.getStats().retained_tombstones;
     const publication = recordWithKeys('offer', 0x27, `tombstone-${Date.now()}`);
@@ -383,7 +575,7 @@ describe('Relay protocol v2 integration', () => {
 
     await server.stop();
     server = createServer();
-    await server.start();
+    await server.start(); PORT = server.getListeningPort()!;
 
     const now = Date.now();
     const attemptedResurrection = createPublicationRecord({

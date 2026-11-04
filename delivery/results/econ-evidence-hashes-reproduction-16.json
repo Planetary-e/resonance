@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "run_id": "reproduction-16",
+  "hashes": {
+    "delivery/results/econ-lab-manifest-reproduction-16.json": "sha256:6a5a1fbde096b1fca854558edecc00783f4577df08d2f91d48fc5c69fa26f259",
+    "delivery/results/econ-lab-summary-reproduction-16.json": "sha256:e0dac11b960608df429db46438a2e9c209945974f2311e29c65b5b93396c8abb",
+    "delivery/results/econ-process-reproduction-16.json": "sha256:fbf9dd608dd0abdc101ca7ee2bb65f91429c20c377d6784469623fd8cf38bb09",
+    "delivery/results/econ-disk-reproduction-16.json": "sha256:d6b6533a8df7f81c2468b601e1b17949225fc977bf90319c0c007c75debecaee",
+    "delivery/results/econ-network-reproduction-16.json": "sha256:667b9976919b3f452e3e41b40fdf23af95c50dcb427cf4e324ebe0e7d16ed6d1",
+    "delivery/results/econ-work-reproduction-16.json": "sha256:d4187539c5388cfa2c1856cc5ed537ecaf7073403dabbfa8a84dc42834c73f76",
+    "delivery/results/econ-power-reproduction-16.json": "sha256:da0689ade5fd21c93a69aa563d6006d990e1e2f35c6bc52d811a932bf6e2445b",
+    "delivery/results/econ-power-reproduction-16.csv": "sha256:a49d5317c8c285874d1cf1de69bfc0b76be440d91dd8a2799b4c6587ce6c978a",
+    "delivery/results/econ-cleanup-reproduction-16.json": "sha256:14d0ca6fe8dc9e51255eb9132f5a16e97f971afddf264b16ac4d2735029d2b1b",
+    "delivery/results/econ-authorization-reproduction-16.json": "sha256:075632838636f4377d367ab79950012ccf6451dc421a0d8240283071b32c25f8",
+    "delivery/results/econ-owner-assumptions-reproduction-16.json": "sha256:c9bd2146a7627886cb4759ea258cb2287b68437526f01b03672e2dd562619667",
+    "delivery/results/econ-decision-reproduction-16.json": "sha256:e1d8cf3d8344394f0dc9db9dc5ac25a987f57d6c97a993e9067d3173c51d71a4",
+    "delivery/results/econ-matrix-driver-smoke.json": "sha256:212d8fce587d7a752c91657fafa6dc87afedb47b4d03b29caea755679c3747cf",
+    "delivery/results/econ-lab-attempts.json": "sha256:c97ecbe36753ab327cd873e35de7852d59b2806ac9ae8f76a045944be1250648",
+    "docs/evals/v04-recovery-economic-evidence-2026-10-28.md": "sha256:cb69b13e74c0fededeaba67808f7db9f0b698fcd04a55c5802ceefae8419e1a3"
+  }
+}

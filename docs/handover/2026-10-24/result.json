@@ -1,0 +1,22 @@
+{
+  "review": "UNAVAILABLE_PLATFORM_CLASSIFICATION_ERROR_NO_RESULT",
+  "focused": {
+    "tests": 13,
+    "passed": 13,
+    "seconds": 73
+  },
+  "composedUnreviewed": {
+    "tests": 46,
+    "passed": 46,
+    "seconds": 79.85
+  },
+  "sourceNoEmit": "PASS",
+  "chargedAdditionalExecutorMinutes": 36,
+  "priorExecutorMinutes": 49,
+  "cumulativeChargedExecutorMinutes": 85,
+  "priorReviewSeconds": 229,
+  "newReviewEffort": "unavailable_not_zero",
+  "olderEffort": "unknown_not_zero",
+  "sourceHashMatch": true,
+  "activeCommands": 0
+}

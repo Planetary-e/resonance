@@ -1,0 +1,644 @@
+{
+  "schema_version": 1,
+  "authorization_id": "DEC-008",
+  "created_at": "2026-10-29T10:33:40.401Z",
+  "execution_scope": {
+    "matrix_driver": "implemented_selection_smoke_only",
+    "matrix_status": "not_executed",
+    "matrix_execution_guard": "independentReviewApproved required",
+    "active_run_id": "unified-local-03",
+    "active_scenario": "local-loss",
+    "active_seed": "0xE0070203",
+    "sustained_windows_status": "not_executed",
+    "stopped_campaign": false,
+    "acceptance_evaluation": "not_run",
+    "preregistered_run_id": "local-03",
+    "matrix_execution": true,
+    "execution_attempt": 0,
+    "identity_prefix": "unified",
+    "retry_of": null
+  },
+  "host": {
+    "sanitized_id": "sha256:0b3047a590306151e4b41744f50801ba018798e61dfc7cccab2aba1d5818b4db",
+    "model": "Mac15,6",
+    "chip": "Apple M3 Pro",
+    "architecture": "arm64",
+    "memory_bytes": 19327352832,
+    "os": "macOS 27.0",
+    "os_build": "26A428",
+    "node": "v24.19.0",
+    "isolation": "single-host independent Node processes; no whole-host isolation claim"
+  },
+  "source_hashes": {
+    "docs/handover/2026-10-24/source-tsconfig.json": "sha256:601e905ca58ad6532699ea4623ca7c2969cd99ed99e1e33d5967ba5c2aa44fb2",
+    "packages/relay/src/sustainable-rso5-lab-transport.ts": "sha256:a595e76afc0ad25de966d6ba50082cb296d1bd1c20f1494c61616e5fab9bca1b",
+    "packages/relay/src/sustainable-rso5-lab-worker.ts": "sha256:9d3ec8452cecfaa77f566e5e8650a32fa3fc7972b8a88660727f2aa84b334646",
+    "packages/relay/src/sustainable-rso5-lab.ts": "sha256:dec40bf7b17baa6b69782218ab2aac0cbd9e04c7c85174961ad5561abb5f0d60",
+    "packages/relay/src/__tests__/sustainable-rso5-independent-lab.integration.test.ts": "sha256:cd7bf40dc7da15ad4f3a14d9ed53d95dcace04a5d43aa62f25efcfddd430f292",
+    "packages/relay/src/__tests__/sustainable-rso5-matrix-driver.integration.test.ts": "sha256:729718fe51c96702674d5abda86fc754499b3db0c1857e15413bc6c11c9e14ba",
+    "packages/relay/src/__tests__/sustainable-rso5-matrix-execution.integration.test.ts": "sha256:db6a730d917ef2a4f4cc37b2fe90d25d4d19ebd0c2467382707e20271d565ab3",
+    "packages/relay/src/__tests__/sustainable-rso5-lab-evidence.test.ts": "sha256:cc7ec3c483ebfb68ee50628d59b78879a7ddad68112b0bbc80634cd8cb17963c",
+    "packages/relay/src/__tests__/sustainable-rso5-runtime.integration.test.ts": "sha256:b1f2bfaaf5c6161b899cf7435248f81455de42463ded42a7884c3aa38aefa41a",
+    "packages/relay/src/__tests__/sustainable-recovery-fixture.ts": "sha256:93b2df3d5c350f9c41fc8955d9d2611bd32cfa0f66d157e9d4d2edacb91e9199",
+    "packages/relay/src/sustainable-rso5-arena.ts": "sha256:b19c5cba4c085757a0b1bf1d4770e55253602e5ea67ccbed5a07de60c671f982",
+    "packages/relay/src/sustainable-rso5-codec.ts": "sha256:f20f841e31d0610c6707aef7f521acb0b571252c56197a2e3af66bc17a62cb72",
+    "packages/relay/src/sustainable-rso5-manifest.ts": "sha256:ac98127fcf7e7c8cfd86fde30c8c26a685626fa4a8652c9e773266ab9733d6f3",
+    "packages/relay/src/sustainable-rso5-opaque.ts": "sha256:799b4be4d88eccc15863d9ec8da3ef95f2f543c092a0bc42fe7a546d92ea54b8",
+    "packages/relay/src/sustainable-rso5-protected-arena.ts": "sha256:7a446e2e35eb433de421aa64cf6bef32d2efea588cf102380793e4726618632d",
+    "packages/relay/src/sustainable-rso5-runtime.ts": "sha256:48b1d68f2d1438c2c2bcee5a7ead31ec3c95d8d3adaff70817d140751c2aaf10",
+    "packages/relay/src/sustainable-recovery-work.ts": "sha256:d123ec73672a8922408ab401db4ffb0f1cb46914dc9805c1c0f07ad1fa7ab5a3",
+    "scripts/rso5-finalize-evidence.mjs": "sha256:edcfdb2c5b66650a4344be196b4acb1f1f0059122cd712874cb7e0d61ca67262",
+    "scripts/rso5-independent-lab-smoke.mjs": "sha256:2e82db74c7e6b0a3e38cb8093c0dad35a538e7a02c8f77ef790e4ea147fc5c3e",
+    "scripts/rso5-economic-lab-manifest.mjs": "sha256:ee44a9e27f1cdbaee8484ddc7c624d1eaefac21ce561aba3d55037ebbb709667",
+    "scripts/rso5-economic-matrix-driver.mjs": "sha256:173e80aea23650398596f41d6c54df42654078974cea1b11ab8ac1382bbde0c4",
+    "scripts/rso5-economic-receipt.mjs": "sha256:742bcc0f47c097a85f638e90c779d7339920da7cd7629a56a8998de53b084b19",
+    "scripts/rso5-matrix-evidence.mjs": "sha256:f05633b8b5cb3aa2e8d041443ff4f2ac6d6974cf29119210d1b4ddee66e40f7a"
+  },
+  "order_seed": "0xE0072026",
+  "order_algorithm": "sort by lowercase hex SHA256(order_seed + \":\" + run_id), then assign zero-based order_index",
+  "runs": [
+    {
+      "run_id": "local-04",
+      "scenario": "local-loss",
+      "repetition": 4,
+      "seed": "0xE0070204",
+      "order_digest": "sha256:060424e959f6f006221f179d4fc8e76d31cf26a8dfd024f545d9ba9aad95ec4d",
+      "order_index": 0
+    },
+    {
+      "run_id": "new-view-04",
+      "scenario": "new-view",
+      "repetition": 4,
+      "seed": "0xE0070304",
+      "order_digest": "sha256:26619f162171f6cdbd16e14c3effeea58701844a56cf1973f0f8dba4a5a76fea",
+      "order_index": 1
+    },
+    {
+      "run_id": "local-05",
+      "scenario": "local-loss",
+      "repetition": 5,
+      "seed": "0xE0070205",
+      "order_digest": "sha256:33f19a2d73358c7352962f24e2e81756d6cdb6f364a8a1948fa108a806b87409",
+      "order_index": 2
+    },
+    {
+      "run_id": "return-04",
+      "scenario": "returning",
+      "repetition": 4,
+      "seed": "0xE0070104",
+      "order_digest": "sha256:403980d12e8745750b891218b428cff05ad19b334b68232da67a22ad6d2ccb14",
+      "order_index": 3
+    },
+    {
+      "run_id": "return-03",
+      "scenario": "returning",
+      "repetition": 3,
+      "seed": "0xE0070103",
+      "order_digest": "sha256:460983f1ed3fe5c2ac55992f6bbfca1d0cdf459f47d8405bfe5a585499f619d5",
+      "order_index": 4
+    },
+    {
+      "run_id": "new-view-03",
+      "scenario": "new-view",
+      "repetition": 3,
+      "seed": "0xE0070303",
+      "order_digest": "sha256:47724c7f956e5f58ff81c6d0303e2efa79d1aa99cbbc395628e07d0a9766ae60",
+      "order_index": 5
+    },
+    {
+      "run_id": "new-view-05",
+      "scenario": "new-view",
+      "repetition": 5,
+      "seed": "0xE0070305",
+      "order_digest": "sha256:4a583062d5e98b809e3bee2895915c7c2cdae387a56ed879bc1df67527a448b9",
+      "order_index": 6
+    },
+    {
+      "run_id": "local-02",
+      "scenario": "local-loss",
+      "repetition": 2,
+      "seed": "0xE0070202",
+      "order_digest": "sha256:592d2f25eb48d4ff6ccc445802109512e59a8323f3dd6ebe73e274340b1e38b6",
+      "order_index": 7
+    },
+    {
+      "run_id": "cold-05",
+      "scenario": "cold",
+      "repetition": 5,
+      "seed": "0xE0070005",
+      "order_digest": "sha256:60038b9e2746bc82f4e763b503d3088d9364121eae82a4dd0fc2706e66fea934",
+      "order_index": 8
+    },
+    {
+      "run_id": "return-02",
+      "scenario": "returning",
+      "repetition": 2,
+      "seed": "0xE0070102",
+      "order_digest": "sha256:6d0fb3686cbedaff553e9000520ffa6dd3141a3f1d253427994ae713049027a3",
+      "order_index": 9
+    },
+    {
+      "run_id": "local-03",
+      "scenario": "local-loss",
+      "repetition": 3,
+      "seed": "0xE0070203",
+      "order_digest": "sha256:6ffb03626653e3c822f83cd4c99d2b885861faca10c63007bed266e1ead098fb",
+      "order_index": 10
+    },
+    {
+      "run_id": "cold-04",
+      "scenario": "cold",
+      "repetition": 4,
+      "seed": "0xE0070004",
+      "order_digest": "sha256:701382cf300c2b68dc377b4320c75f2bdef03200908e54b5d1b2c2cb8e0c26e4",
+      "order_index": 11
+    },
+    {
+      "run_id": "cold-03",
+      "scenario": "cold",
+      "repetition": 3,
+      "seed": "0xE0070003",
+      "order_digest": "sha256:768171ce3048d0711a5b3079560a5fc613207cd80e561891e4ac1743ade9fac3",
+      "order_index": 12
+    },
+    {
+      "run_id": "return-05",
+      "scenario": "returning",
+      "repetition": 5,
+      "seed": "0xE0070105",
+      "order_digest": "sha256:7830425e1347ec824995ea4dc6cd1270e7a92f1839353946c1516aaaff92e98b",
+      "order_index": 13
+    },
+    {
+      "run_id": "cold-02",
+      "scenario": "cold",
+      "repetition": 2,
+      "seed": "0xE0070002",
+      "order_digest": "sha256:86f67f5719fe09ee91404abb0b2f7bdeba8c5b8de00ee148cc17bd0cdf53582b",
+      "order_index": 14
+    },
+    {
+      "run_id": "new-view-02",
+      "scenario": "new-view",
+      "repetition": 2,
+      "seed": "0xE0070302",
+      "order_digest": "sha256:929f9a5d2e29ea5769ca7be5048e80fa40476d9732c159a9fa19cd260e50336b",
+      "order_index": 15
+    },
+    {
+      "run_id": "return-01",
+      "scenario": "returning",
+      "repetition": 1,
+      "seed": "0xE0070101",
+      "order_digest": "sha256:99de1b2fbc9d86eb5ebd528af739da612c0ce8cbca4605b32caf785284f3e72d",
+      "order_index": 16
+    },
+    {
+      "run_id": "new-view-01",
+      "scenario": "new-view",
+      "repetition": 1,
+      "seed": "0xE0070301",
+      "order_digest": "sha256:9e2a262e0e6d99fb76049f2f62f1830a83b35927118e208e1429ace0442f7564",
+      "order_index": 17
+    },
+    {
+      "run_id": "cold-01",
+      "scenario": "cold",
+      "repetition": 1,
+      "seed": "0xE0070001",
+      "order_digest": "sha256:b18d4be665ae43cf5c8cca61baa6beb70efa37fabd722dbbb9113cb98d0f6389",
+      "order_index": 18
+    },
+    {
+      "run_id": "local-01",
+      "scenario": "local-loss",
+      "repetition": 1,
+      "seed": "0xE0070201",
+      "order_digest": "sha256:b800e5379f2e0dda72a3f4556133647055ecf1e817b4ca468b8ecb5c10f8a156",
+      "order_index": 19
+    }
+  ],
+  "roles": [
+    {
+      "role": "observer-0",
+      "kind": "policy-observer",
+      "process": "independent-node-worker",
+      "internal_history_replicas": 5
+    },
+    {
+      "role": "observer-1",
+      "kind": "policy-observer",
+      "process": "independent-node-worker",
+      "internal_history_replicas": 5
+    },
+    {
+      "role": "observer-2",
+      "kind": "policy-observer",
+      "process": "independent-node-worker",
+      "internal_history_replicas": 5
+    },
+    {
+      "role": "observer-3",
+      "kind": "policy-observer",
+      "process": "independent-node-worker",
+      "internal_history_replicas": 5
+    },
+    {
+      "role": "runtime-old-0",
+      "kind": "rso5-runtime",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-old-0-1",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-old-0-2",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-old-0-3",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-old-0-4",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-old-0-5",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "runtime-old-1",
+      "kind": "rso5-runtime",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-old-1-1",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-old-1-2",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-old-1-3",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-old-1-4",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-old-1-5",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "runtime-old-2",
+      "kind": "rso5-runtime",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-old-2-1",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-old-2-2",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-old-2-3",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-old-2-4",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-old-2-5",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "runtime-old-3",
+      "kind": "rso5-runtime",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-old-3-1",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-old-3-2",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-old-3-3",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-old-3-4",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-old-3-5",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "runtime-new-0",
+      "kind": "rso5-runtime",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-new-0-1",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-new-0-2",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-new-0-3",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-new-0-4",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-new-0-5",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "runtime-new-1",
+      "kind": "rso5-runtime",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-new-1-1",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-new-1-2",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-new-1-3",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-new-1-4",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-new-1-5",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "runtime-new-2",
+      "kind": "rso5-runtime",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-new-2-1",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-new-2-2",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-new-2-3",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-new-2-4",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-new-2-5",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "runtime-new-3",
+      "kind": "rso5-runtime",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-new-3-1",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-new-3-2",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-new-3-3",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-new-3-4",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    },
+    {
+      "role": "replica-new-3-5",
+      "kind": "rso5-replica",
+      "process": "independent-node-worker",
+      "arena": "per-process",
+      "keys": "role-local"
+    }
+  ],
+  "role_count": 52,
+  "transport": {
+    "protocol": "WebSocket",
+    "scope": "loopback",
+    "authentication": "per-run/per-sender/per-recipient/per-channel HMAC-SHA256 plus explicit method authorization and existing RSO5/history signatures",
+    "serialization": "JSON text frames with per-message identities; perMessageDeflate disabled",
+    "direct_function_transport": false,
+    "internet_evidence": false,
+    "byte_scope": "application WebSocket payload/frame only; handshake/control/TCP/IP excluded"
+  },
+  "seed_application": "Run identity and per-channel credential derivation; legacy fixture randomBytes is not deterministic",
+  "randomness": {
+    "source": "node:crypto.randomBytes",
+    "deterministic": false,
+    "exact_business_replay": false,
+    "values": "All fixture keys, evidence values, identities, nonces and other draws are nondeterministic",
+    "seed_retrofit_forbidden": true,
+    "discard_draws_forbidden": true
+  },
+  "analysis_freeze": {
+    "frozen_before_results": [
+      "source_hashes",
+      "seeds",
+      "scenarios",
+      "run_count",
+      "analysis"
+    ],
+    "run_count": 20,
+    "analysis": "Frozen scenario order and lifecycle gates; retain every draw/invalid run; per-role work sum; application WebSocket payload/frame accounting; descriptive evidence only",
+    "post_result_changes_forbidden": true
+  },
+  "scenario_readiness": {
+    "new-view": "runtime:newView followed by runtime:startup for every member, with durable serving sequence/digest evidence"
+  },
+  "artifact_identity": "run-specific manifests and artifacts with exclusive-create semantics",
+  "instruments": {
+    "process_cpu_rss_lifecycle": "worker process.cpuUsage/memoryUsage plus recursive unprivileged ps parent-link enumeration",
+    "process_disk": "logical arena usage only; physical per-process counters unavailable in Node.js/macOS harness",
+    "network_application": "actual serialized WebSocket payload/frame bytes per edge/direction/purpose with sent/received reconciliation",
+    "nettop": "unprivileged nettop -P -n -x -L 1 reconciliation when supported; separate host view only",
+    "iostat": "unprivileged iostat -d -c 1 when supported; whole-host only",
+    "power": {
+      "status": "blocked",
+      "reason": "powermetrics requires superuser; no calibrated external AC meter authorized",
+      "samples": []
+    }
+  },
+  "sanitization": {
+    "host_serial_or_uuid": "excluded",
+    "ip_addresses": "excluded from artifacts",
+    "keys_and_plaintext": "excluded from artifacts",
+    "roles": "sanitized logical identifiers only",
+    "raw_worker_logs": "not published"
+  },
+  "gates": {
+    "E1": "complete_for_local_planning_only",
+    "E2": "blocked",
+    "E3": "pending_separate_owner_authorization",
+    "D4": "prototype-only",
+    "economic_affordability": "pending"
+  }
+}

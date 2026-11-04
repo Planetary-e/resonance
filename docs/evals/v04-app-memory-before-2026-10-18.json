@@ -1,0 +1,537 @@
+{
+  "measuredAt": "2026-10-18T05:19:52.570Z",
+  "checkpoints": [
+    "Two actual app processes initialized and unlocked with the cached FP32 model; blinded issuance completed through authenticated APIs",
+    "Three real-text publications accepted; two offers from one account have separate publication keys and IDs",
+    "Real-text private search retrieves the complementary offer",
+    "Both applications decrypt and retain match notices; lock/unlock plus another mailbox check does not duplicate them",
+    "No root account identifier, plaintext item text or spent token appears in captured network frames; distinct request bindings use distinct tokens"
+  ],
+  "applicationMemory": [
+    {
+      "application": "alice",
+      "operation": "server-start",
+      "rss": 287965184,
+      "heapTotal": 171851776,
+      "heapUsed": 60796480,
+      "external": 15233386,
+      "arrayBuffers": 5662759,
+      "peakRssBytes": 292044800
+    },
+    {
+      "application": "alice",
+      "operation": "/api/init",
+      "rss": 967966720,
+      "heapTotal": 189743104,
+      "heapUsed": 52074640,
+      "external": 115064009,
+      "arrayBuffers": 18998322,
+      "peakRssBytes": 1027424256
+    },
+    {
+      "application": "alice",
+      "operation": "/api/unlock",
+      "rss": 1086980096,
+      "heapTotal": 196804608,
+      "heapUsed": 75222736,
+      "external": 120216385,
+      "arrayBuffers": 24150698,
+      "peakRssBytes": 1086980096
+    },
+    {
+      "application": "alice",
+      "operation": "/api/admission-wallet/configure",
+      "rss": 1092632576,
+      "heapTotal": 196804608,
+      "heapUsed": 75817400,
+      "external": 131833356,
+      "arrayBuffers": 35752711,
+      "peakRssBytes": 1092632576
+    },
+    {
+      "application": "alice",
+      "operation": "/api/admission-wallet/request",
+      "rss": 1136836608,
+      "heapTotal": 197591040,
+      "heapUsed": 107151352,
+      "external": 162696736,
+      "arrayBuffers": 66609179,
+      "peakRssBytes": 1136836608
+    },
+    {
+      "application": "alice",
+      "operation": "/api/admission-wallet/complete",
+      "rss": 2109915136,
+      "heapTotal": 197951488,
+      "heapUsed": 63488616,
+      "external": 1130711070,
+      "arrayBuffers": 1102201655,
+      "peakRssBytes": 2109915136
+    },
+    {
+      "application": "bob",
+      "operation": "server-start",
+      "rss": 288948224,
+      "heapTotal": 171589632,
+      "heapUsed": 60680688,
+      "external": 15233386,
+      "arrayBuffers": 5662759,
+      "peakRssBytes": 292995072
+    },
+    {
+      "application": "bob",
+      "operation": "/api/init",
+      "rss": 837779456,
+      "heapTotal": 188956672,
+      "heapUsed": 51849008,
+      "external": 107789513,
+      "arrayBuffers": 11723826,
+      "peakRssBytes": 845168640
+    },
+    {
+      "application": "bob",
+      "operation": "/api/unlock",
+      "rss": 963231744,
+      "heapTotal": 196018176,
+      "heapUsed": 73649072,
+      "external": 115759935,
+      "arrayBuffers": 19694248,
+      "peakRssBytes": 963231744
+    },
+    {
+      "application": "bob",
+      "operation": "/api/admission-wallet/configure",
+      "rss": 970981376,
+      "heapTotal": 196018176,
+      "heapUsed": 74286720,
+      "external": 128949770,
+      "arrayBuffers": 32869125,
+      "peakRssBytes": 970981376
+    },
+    {
+      "application": "bob",
+      "operation": "/api/admission-wallet/request",
+      "rss": 1008566272,
+      "heapTotal": 197066752,
+      "heapUsed": 105485296,
+      "external": 155552286,
+      "arrayBuffers": 59464729,
+      "peakRssBytes": 1008566272
+    },
+    {
+      "application": "bob",
+      "operation": "/api/admission-wallet/complete",
+      "rss": 1025343488,
+      "heapTotal": 196902912,
+      "heapUsed": 63361256,
+      "external": 1130711070,
+      "arrayBuffers": 1102201655,
+      "peakRssBytes": 1556840448
+    },
+    {
+      "application": "alice",
+      "operation": "/api/items",
+      "rss": 786087936,
+      "heapTotal": 198737920,
+      "heapUsed": 77464568,
+      "external": 1136805743,
+      "arrayBuffers": 1108247532,
+      "peakRssBytes": 2109915136
+    },
+    {
+      "application": "alice",
+      "operation": "/api/items",
+      "rss": 800620544,
+      "heapTotal": 198737920,
+      "heapUsed": 86874152,
+      "external": 1141085751,
+      "arrayBuffers": 1112498995,
+      "peakRssBytes": 2109915136
+    },
+    {
+      "application": "bob",
+      "operation": "/api/items",
+      "rss": 903987200,
+      "heapTotal": 197951488,
+      "heapUsed": 76570160,
+      "external": 1136780726,
+      "arrayBuffers": 1108222515,
+      "peakRssBytes": 1556840448
+    },
+    {
+      "application": "bob",
+      "operation": "/api/search",
+      "rss": 817807360,
+      "heapTotal": 198737920,
+      "heapUsed": 85330624,
+      "external": 1139974660,
+      "arrayBuffers": 1111387904,
+      "peakRssBytes": 1556840448
+    },
+    {
+      "application": "alice",
+      "operation": "/api/private-requests/hold-mailbox",
+      "rss": 800915456,
+      "heapTotal": 198737920,
+      "heapUsed": 87295864,
+      "external": 1142138227,
+      "arrayBuffers": 1113551471,
+      "peakRssBytes": 2109915136
+    },
+    {
+      "application": "alice",
+      "operation": "/api/private-requests/:id/release",
+      "rss": 805978112,
+      "heapTotal": 197689344,
+      "heapUsed": 69418568,
+      "external": 38717140,
+      "arrayBuffers": 10133584,
+      "peakRssBytes": 2109915136
+    },
+    {
+      "application": "alice",
+      "operation": "/api/matches",
+      "rss": 806354944,
+      "heapTotal": 197689344,
+      "heapUsed": 69796432,
+      "external": 38731567,
+      "arrayBuffers": 10148011,
+      "peakRssBytes": 2109915136
+    },
+    {
+      "application": "alice",
+      "operation": "/api/lock",
+      "rss": 811008000,
+      "heapTotal": 197689344,
+      "heapUsed": 69869736,
+      "external": 39034682,
+      "arrayBuffers": 10451126,
+      "peakRssBytes": 2109915136
+    },
+    {
+      "application": "alice",
+      "operation": "/api/unlock",
+      "rss": 1006321664,
+      "heapTotal": 198639616,
+      "heapUsed": 70975904,
+      "external": 107700912,
+      "arrayBuffers": 11606702,
+      "peakRssBytes": 2109915136
+    },
+    {
+      "application": "alice",
+      "operation": "/api/private-requests/hold-mailbox",
+      "rss": 1006469120,
+      "heapTotal": 195330048,
+      "heapUsed": 56272568,
+      "external": 113928990,
+      "arrayBuffers": 17649044,
+      "peakRssBytes": 2109915136
+    },
+    {
+      "application": "alice",
+      "operation": "/api/private-requests/:id/release",
+      "rss": 1355661312,
+      "heapTotal": 197689344,
+      "heapUsed": 65381400,
+      "external": 584845281,
+      "arrayBuffers": 556290206,
+      "peakRssBytes": 2109915136
+    },
+    {
+      "application": "alice",
+      "operation": "/api/matches",
+      "rss": 1355677696,
+      "heapTotal": 197689344,
+      "heapUsed": 65765488,
+      "external": 584859708,
+      "arrayBuffers": 556304633,
+      "peakRssBytes": 2109915136
+    },
+    {
+      "application": "bob",
+      "operation": "/api/private-requests/hold-mailbox",
+      "rss": 818003968,
+      "heapTotal": 198737920,
+      "heapUsed": 85496600,
+      "external": 1141024908,
+      "arrayBuffers": 1112438152,
+      "peakRssBytes": 1556840448
+    },
+    {
+      "application": "bob",
+      "operation": "/api/private-requests/:id/release",
+      "rss": 826441728,
+      "heapTotal": 197951488,
+      "heapUsed": 63269032,
+      "external": 37403090,
+      "arrayBuffers": 8848015,
+      "peakRssBytes": 1556840448
+    },
+    {
+      "application": "bob",
+      "operation": "/api/matches",
+      "rss": 826441728,
+      "heapTotal": 197951488,
+      "heapUsed": 63787360,
+      "external": 37428644,
+      "arrayBuffers": 8873569,
+      "peakRssBytes": 1556840448
+    },
+    {
+      "application": "bob",
+      "operation": "/api/lock",
+      "rss": 826376192,
+      "heapTotal": 197951488,
+      "heapUsed": 63863856,
+      "external": 37715375,
+      "arrayBuffers": 9160300,
+      "peakRssBytes": 1556840448
+    },
+    {
+      "application": "bob",
+      "operation": "/api/unlock",
+      "rss": 1013710848,
+      "heapTotal": 198639616,
+      "heapUsed": 71021784,
+      "external": 107889317,
+      "arrayBuffers": 11795107,
+      "peakRssBytes": 1556840448
+    },
+    {
+      "application": "bob",
+      "operation": "/api/private-requests/hold-mailbox",
+      "rss": 1011040256,
+      "heapTotal": 195330048,
+      "heapUsed": 56320808,
+      "external": 113396498,
+      "arrayBuffers": 17110920,
+      "peakRssBytes": 1556840448
+    },
+    {
+      "application": "bob",
+      "operation": "/api/private-requests/:id/release",
+      "rss": 1469759488,
+      "heapTotal": 197689344,
+      "heapUsed": 65358064,
+      "external": 584836918,
+      "arrayBuffers": 556281843,
+      "peakRssBytes": 1556840448
+    },
+    {
+      "application": "bob",
+      "operation": "/api/matches",
+      "rss": 1469775872,
+      "heapTotal": 197689344,
+      "heapUsed": 65871016,
+      "external": 584862472,
+      "arrayBuffers": 556307397,
+      "peakRssBytes": 1556840448
+    }
+  ],
+  "model": "nomic-ai/nomic-embed-text-v1",
+  "dtype": "fp32",
+  "remoteModelDownloads": false,
+  "applicationProcesses": 2,
+  "published": 3,
+  "mailboxMatchCounts": [
+    1,
+    2
+  ],
+  "distinctRequestBindings": 10,
+  "distinctSpentTokens": 10,
+  "protectedPolicy": null,
+  "protectedAdmission": null,
+  "apiTimings": [
+    {
+      "operation": "/api/init",
+      "status": 200,
+      "durationMs": 554
+    },
+    {
+      "operation": "/api/unlock",
+      "status": 200,
+      "durationMs": 506
+    },
+    {
+      "operation": "/api/admission-wallet/configure",
+      "status": 200,
+      "durationMs": 46
+    },
+    {
+      "operation": "/api/admission-wallet/request",
+      "status": 200,
+      "durationMs": 284
+    },
+    {
+      "operation": "/api/admission-wallet/complete",
+      "status": 200,
+      "durationMs": 72
+    },
+    {
+      "operation": "/api/init",
+      "status": 200,
+      "durationMs": 859
+    },
+    {
+      "operation": "/api/unlock",
+      "status": 200,
+      "durationMs": 535
+    },
+    {
+      "operation": "/api/admission-wallet/configure",
+      "status": 200,
+      "durationMs": 47
+    },
+    {
+      "operation": "/api/admission-wallet/request",
+      "status": 200,
+      "durationMs": 286
+    },
+    {
+      "operation": "/api/admission-wallet/complete",
+      "status": 200,
+      "durationMs": 72
+    },
+    {
+      "operation": "/api/items",
+      "status": 200,
+      "durationMs": 1521
+    },
+    {
+      "operation": "/api/items",
+      "status": 200,
+      "durationMs": 1457
+    },
+    {
+      "operation": "/api/items",
+      "status": 200,
+      "durationMs": 1722
+    },
+    {
+      "operation": "/api/search",
+      "status": 200,
+      "durationMs": 1604
+    },
+    {
+      "operation": "/api/private-requests/hold-mailbox",
+      "status": 200,
+      "durationMs": 14
+    },
+    {
+      "operation": "/api/private-requests/:id/release",
+      "status": 200,
+      "durationMs": 3079
+    },
+    {
+      "operation": "/api/matches",
+      "status": 200,
+      "durationMs": 5
+    },
+    {
+      "operation": "/api/lock",
+      "status": 200,
+      "durationMs": 4
+    },
+    {
+      "operation": "/api/unlock",
+      "status": 200,
+      "durationMs": 612
+    },
+    {
+      "operation": "/api/private-requests/hold-mailbox",
+      "status": 200,
+      "durationMs": 11
+    },
+    {
+      "operation": "/api/private-requests/:id/release",
+      "status": 200,
+      "durationMs": 1391
+    },
+    {
+      "operation": "/api/matches",
+      "status": 200,
+      "durationMs": 6
+    },
+    {
+      "operation": "/api/private-requests/hold-mailbox",
+      "status": 200,
+      "durationMs": 14
+    },
+    {
+      "operation": "/api/private-requests/:id/release",
+      "status": 200,
+      "durationMs": 2875
+    },
+    {
+      "operation": "/api/matches",
+      "status": 200,
+      "durationMs": 7
+    },
+    {
+      "operation": "/api/lock",
+      "status": 200,
+      "durationMs": 5
+    },
+    {
+      "operation": "/api/unlock",
+      "status": 200,
+      "durationMs": 665
+    },
+    {
+      "operation": "/api/private-requests/hold-mailbox",
+      "status": 200,
+      "durationMs": 12
+    },
+    {
+      "operation": "/api/private-requests/:id/release",
+      "status": 200,
+      "durationMs": 1471
+    },
+    {
+      "operation": "/api/matches",
+      "status": 200,
+      "durationMs": 8
+    }
+  ],
+  "faultCooldownMs": 0,
+  "concurrentSearches": null,
+  "capture": {
+    "complete": true,
+    "parentFrameCount": 70,
+    "applicationFrameCounts": [
+      15,
+      15
+    ],
+    "parentFrameLimit": 10000,
+    "applicationFrameLimit": 10000,
+    "byteLimitPerProcess": 33554432
+  },
+  "actions": {
+    "publication-write": 3,
+    "search": 1,
+    "mailbox-fetch": 4,
+    "mailbox-acknowledge": 2
+  },
+  "resources": {
+    "durationMs": 27765,
+    "websocketPayloadBytes": 568280,
+    "parentPeakRssBytes": 380829696,
+    "applicationPeakRssBytes": [
+      2109915136,
+      1556840448
+    ],
+    "cpuSeconds": 17.829638,
+    "node": "v24.19.0",
+    "platform": "darwin",
+    "architecture": "arm64"
+  },
+  "limitations": [
+    "Local IPv4/IPv6 loopback domains on one computer; not independent operators, Internet or TLS deployment.",
+    "Actual desktop backend APIs and embeddings; no graphical user interaction or native installer is certified.",
+    "Signed manual policy and real blinded tokens with a durable local issuer; observer freshness, quorum spends and eligibility distribution are tested separately, not composed here.",
+    "Account/credential-field separation is not timing or content unlinkability; static fingerprints and match relationships remain observable to the destination.",
+    "Wire payload counts exclude TCP/TLS/WebSocket headers; per-process peak RSS values are not simultaneous total memory and CPU time is not energy.",
+    "Two concurrent model processes on this host; representative hardware and cold first-download experience remain unmeasured."
+  ]
+}

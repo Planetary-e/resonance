@@ -8,6 +8,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { guardUnmanagedExport } from './unmanaged-export.js';
 import {
   isPublicationActive,
   verifyPublicationRecord,
@@ -32,35 +33,49 @@ interface PublicationState {
 }
 
 export class PublicationOperationStore {
+  private readonly assertExportAllowed = guardUnmanagedExport();
   private publications = new Map<string, PublicationState>();
+  private liveRecords = 0;
+  private firstSeenTombstones = 0;
 
   evaluate(operation: unknown): PublicationApplyResult {
     if (!verifyPublicationOperation(operation)) return { status: 'invalid' };
+    return this.evaluateVerified(operation);
+  }
 
+  private evaluateVerified(operation: PublicationOperation): PublicationApplyResult {
     const state = this.publications.get(operation.publicationId);
     const current = state?.current;
     if (!current) {
       return { status: 'accepted', current: operation };
     }
 
-    if (current.sequence === operation.sequence) {
-      if (current.kind === operation.kind && current.signature === operation.signature) {
-        return { status: 'duplicate', current };
-      }
-      return { status: 'conflict', current };
+    if (current.kind === operation.kind && current.signature === operation.signature) {
+      return { status: 'duplicate', current };
     }
 
-    if (operation.sequence < current.sequence) return { status: 'stale', current };
+    // A signed withdrawal is irreversible for this publication identity. It
+    // must therefore dominate a live operation even if relays received those
+    // two valid owner-signed records in opposite sequence order.
     if (current.kind === 'publication-tombstone') return { status: 'terminal', current };
+    if (operation.kind === 'publication-tombstone') return { status: 'accepted', current };
+
+    if (current.sequence === operation.sequence) return { status: 'conflict', current };
+
+    if (operation.sequence < current.sequence) return { status: 'stale', current };
 
     return { status: 'accepted', current: operation };
   }
 
   apply(operation: unknown): PublicationApplyResult {
-    const result = this.evaluate(operation);
-    if (result.status !== 'accepted' || !verifyPublicationOperation(operation)) return result;
+    if (!verifyPublicationOperation(operation)) return { status: 'invalid' };
+    const result = this.evaluateVerified(operation);
+    if (result.status !== 'accepted') return result;
 
     const state = this.publications.get(operation.publicationId);
+    if (state?.current.kind !== 'publication' && operation.kind === 'publication') this.liveRecords++;
+    if (state?.current.kind === 'publication' && operation.kind === 'publication-tombstone') this.liveRecords--;
+    if (!state && operation.kind === 'publication-tombstone') this.firstSeenTombstones++;
 
     this.publications.set(operation.publicationId, {
       current: operation,
@@ -118,7 +133,16 @@ export class PublicationOperationStore {
     return this.publications.size;
   }
 
+  get liveRecordCount(): number {
+    return this.liveRecords;
+  }
+
+  get firstSeenTombstoneCount(): number {
+    return this.firstSeenTombstones;
+  }
+
   save(dir: string): void {
+    this.assertExportAllowed();
     mkdirSync(dir, { recursive: true });
     const publications = Array.from(this.publications.values())
       .sort((a, b) => a.current.publicationId.localeCompare(b.current.publicationId));
@@ -140,6 +164,10 @@ export class PublicationOperationStore {
       restored.set(state.current.publicationId, state);
     }
     this.publications = restored;
+    this.liveRecords = Array.from(restored.values())
+      .filter(state => state.current.kind === 'publication').length;
+    this.firstSeenTombstones = Array.from(restored.values())
+      .filter(state => state.current.kind === 'publication-tombstone' && !state.record).length;
   }
 }
 

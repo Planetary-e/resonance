@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "authorization_id": "DEC-010",
+  "status": "blocked_window_gate",
+  "gate_failures": [
+    {
+      "run_id": "sustained-production-max-envelope-v2",
+      "gate": "window_duration",
+      "warmup_ms": 42613.75366699998,
+      "baseline_ms": 1800046.339125,
+      "cooldown_ms": 69797,
+      "required_warmup_ms": 60000,
+      "required_baseline_ms": 1800000,
+      "required_cooldown_ms": 60000
+    }
+  ],
+  "baseline_artifact": "delivery/results/econ-production-baseline-baseline.json",
+  "unified_matrix_artifact": "delivery/results/econ-unified-baseline-final.json",
+  "budget_evaluation": "blocked_window_gate",
+  "required_analysis": [
+    "mandatory measured maxima",
+    "complete failure history",
+    "uncertainty margins",
+    "owner prices/budget/value"
+  ],
+  "revised_budget_approval": "pending_separate_owner_approval",
+  "E2": "blocked",
+  "E2_reasons": [
+    "sustained-production-max-envelope-v2 duration gate",
+    "Physical power blocked"
+  ],
+  "E3": "pending_separate_owner_authorization",
+  "D4": "prototype-only",
+  "economic_affordability": "pending",
+  "production_approval": "not_granted",
+  "deployment": "not_run",
+  "acceptance_evaluation": "not_run"
+}
