@@ -65,6 +65,7 @@ npx esbuild src/server/start.ts \
   --external:protobufjs \
   --external:long \
   --external:flatbuffers \
+  --external:hnswlib-node \
   --target=node20 \
   2>&1
 
@@ -120,7 +121,7 @@ copy_slim() {
 RUNTIME_ROOTS=(
   "onnxruntime-node" "onnxruntime-common" "@huggingface/transformers"
   "sharp" "sql.js" "ws" "hash-wasm" "tweetnacl"
-  "tweetnacl-util" "protobufjs" "long" "flatbuffers"
+  "tweetnacl-util" "protobufjs" "long" "flatbuffers" "hnswlib-node"
 )
 RUNTIME_MODULES="$(node - "$NM" "${RUNTIME_ROOTS[@]}" <<'NODE'
 const fs = require('node:fs');
