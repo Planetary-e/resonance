@@ -187,17 +187,20 @@ async function samplerProcess(rawPath, durationMs = 0) {
   const chunks = [], errors = [];
   child.stdout.on('data', chunk => chunks.push(chunk));
   child.stderr.on('data', chunk => errors.push(chunk));
-  let exited;
-  const exit = new Promise(resolve => { exited = resolve; child.once('exit', (code, signal) => resolve({ code, signal })); });
+  const processExit = new Promise(resolve => child.once('exit', (code, signal) => resolve({ code, signal })));
+  const completion = (async () => {
+    const result = await processExit;
+    const text = `${Buffer.concat(chunks)}`;
+    writeFileSync(rawPath, text, { mode: 0o600 });
+    if (result.code !== 0 && result.signal !== 'SIGTERM') throw new Error(`powermetrics failed: ${result.code ?? result.signal} ${Buffer.concat(errors).toString().slice(-512)}`);
+    return result;
+  })();
   if (durationMs) {
     await new Promise(resolve => setTimeout(resolve, durationMs));
     child.kill('SIGTERM');
+    await completion;
   }
-  const result = await exit;
-  const text = `${Buffer.concat(chunks)}`;
-  writeFileSync(rawPath, text, { mode: 0o600 });
-  if (result.code !== 0 && result.signal !== 'SIGTERM') throw new Error(`powermetrics failed: ${result.code ?? result.signal} ${Buffer.concat(errors).toString().slice(-512)}`);
-  return { child, exit };
+  return { child, exit: completion };
 }
 
 async function runSmoke() {

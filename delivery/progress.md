@@ -235,3 +235,11 @@
 - **Verification:** Actual-source noEmit and wrapper syntax checks pass. All 28 manifest source hashes match. No full `econ-power-lab-execution.json`, decision or hash set exists, and no privileged action was run by this agent.
 - **Files changed:** Power wrapper, full-lab integration test, frozen manifest and delivery work/state/progress. All previous evidence and original-cap histories are preserved.
 - **Next action:** Owner runs `sudo node scripts/rso5-power-lab.mjs --full`; independent physical-evidence review follows. E3, economic affordability and production approval remain separate decisions.
+
+## 2026-11-07T07:15:18Z — DEC-013 continuous-sampler startup correction
+
+- **Observed failure:** Two owner-invoked full-lab attempts appeared unresponsive and were interrupted. The wrapper awaited the continuous `powermetrics` process before spawning Vitest, so the test could never start while sampling continued. No sampler or lab process survived the interruptions, and no full execution, decision or hash artifacts were created.
+- **Correction:** Continuous mode now returns the running sampler immediately and retains one completion promise that writes the raw temporary log after termination. Three-second smoke mode retains its original wait/stop behavior. Scenarios, seeds, windows, budgets and analysis are unchanged; the manifest was rebound to the corrected wrapper and five test files already changed by the merged RSO5 CI repairs before any full execution.
+- **Verification:** An unprivileged isolated rehearsal used a fake continuous sampler and fake Vitest executable with the actual wrapper. Vitest started while sampling continued, the wrapper exited cleanly in 4.226 seconds, and it produced the expected joined decision structure. Offline parser/energy smoke and `node --check` also passed. Rehearsal artifacts are outside the delivery evidence and make no physical-measurement claim.
+- **Evidence identity:** Corrected wrapper SHA-256 `90b66c0496a2e1598098070114e51516a663cd406962070c50c82bea66d62c53`; all 28 manifest source hashes now match the actual current files. No full physical run has occurred.
+- **Next action:** Owner reruns `sudo node scripts/rso5-power-lab.mjs --full`; independent physical-evidence review follows. E3, economic affordability and production approval remain separate decisions.
