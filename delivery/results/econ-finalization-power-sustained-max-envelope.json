@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "run_id": "power-sustained-max-envelope",
+  "status": "failed",
+  "phase": "cleanup",
+  "phases": [
+    {
+      "phase": "startup",
+      "at": "2026-11-07T09:48:22.761Z"
+    },
+    {
+      "phase": "warmup",
+      "at": "2026-11-07T09:48:46.592Z"
+    },
+    {
+      "phase": "baseline",
+      "at": "2026-11-07T09:50:29.806Z"
+    },
+    {
+      "phase": "metrics",
+      "at": "2026-11-07T09:51:38.987Z"
+    },
+    {
+      "phase": "host-tools",
+      "at": "2026-11-07T09:51:39.016Z"
+    },
+    {
+      "phase": "stop-workers",
+      "at": "2026-11-07T09:51:39.045Z"
+    },
+    {
+      "phase": "network-evidence",
+      "at": "2026-11-07T09:51:47.809Z"
+    },
+    {
+      "phase": "artifacts",
+      "at": "2026-11-07T09:51:47.923Z"
+    },
+    {
+      "phase": "summary",
+      "at": "2026-11-07T09:51:47.934Z"
+    },
+    {
+      "phase": "cleanup",
+      "at": "2026-11-07T09:51:48.040Z"
+    }
+  ],
+  "window": {
+    "runId": "power-sustained-max-envelope",
+    "seed": "0xE007B002",
+    "kind": "sustained",
+    "durationMs": 1800000,
+    "warmupMs": 60000,
+    "cooldownMs": 60000,
+    "phases": [
+      {
+        "phase": "warmup",
+        "at": "2026-11-07T09:48:46.592Z",
+        "monotonic_ms": 7978114.030792
+      },
+      {
+        "phase": "baseline",
+        "at": "2026-11-07T09:50:29.806Z",
+        "monotonic_ms": 8081328.158292
+      }
+    ],
+    "sustained_operations": {
+      "reads": 736,
+      "retries": 1470
+    }
+  },
+  "error": "runtime-old-3 runtime:retry: Laboratory request refused: Laboratory request refused: Four current history heads unavailable: observer:observe: runtime:retry oratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory channel refusal runtime-old-3: Laboratory request refused: Four current history heads unavailable: observer:observe\n",
+  "acceptance_evaluation": "not_run"
+}

@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "authorization_id": "DEC-013",
+  "scope": "sustained failure finalization, cleanup, summary, decision, owner assumptions, authorization and post-new-view readiness; separate from the original 375-artifact hash set",
+  "hashes": {
+    "delivery/results/econ-finalization-power-sustained-max-envelope.json": "sha256:4be649500e18c9596a7a13b25d72cd122a56da1814d66097f0a2f8d1079203b2",
+    "delivery/results/econ-cleanup-power-sustained-max-envelope.json": "sha256:9c88bdbc5909b60e1ddc5c23e97ebf3919156f8559a135cf9a30772940273bb4",
+    "delivery/results/econ-lab-summary-power-sustained-max-envelope.json": "sha256:ef211998c3dc0a9489a6efaa117b7ca7809f92ca29e464dc33996af8bb1edb3c",
+    "delivery/results/econ-decision-power-sustained-max-envelope.json": "sha256:73f22f321ca7244258476d5e403309197b14c7219da7e6c0fe6ca9f998dfa5b3",
+    "delivery/results/econ-owner-assumptions-power-sustained-max-envelope.json": "sha256:9c9b985d501caec6c4144e84055880b43d3a90a4a0f04807816ce4c1f4436597",
+    "delivery/results/econ-authorization-power-sustained-max-envelope.json": "sha256:2348436e5de1bf7c2477a08bea0d8902d289e6f661dbb4668923c53beee1d416",
+    "delivery/results/econ-new-view-readiness-power-sustained-max-envelope.json": "sha256:de3c2a01dee5f0dcdd4a738fcf068852bc7149b8b35f60cd3f42acf2d1b77c7b"
+  }
+}

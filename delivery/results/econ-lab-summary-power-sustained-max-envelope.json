@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "run_id": "power-sustained-max-envelope",
+  "scenario": "full-smoke",
+  "outcome": "failed",
+  "diagnostic_only": true,
+  "source_manifest": "delivery/results/econ-power-lab-manifest.json",
+  "workers": 52,
+  "clean_stops": 39,
+  "window": {
+    "runId": "power-sustained-max-envelope",
+    "seed": "0xE007B002",
+    "kind": "sustained",
+    "durationMs": 1800000,
+    "warmupMs": 60000,
+    "cooldownMs": 60000,
+    "phases": [
+      {
+        "phase": "warmup",
+        "at": "2026-11-07T09:48:46.592Z",
+        "monotonic_ms": 7978114.030792
+      },
+      {
+        "phase": "baseline",
+        "at": "2026-11-07T09:50:29.806Z",
+        "monotonic_ms": 8081328.158292
+      }
+    ],
+    "sustained_operations": {
+      "reads": 736,
+      "retries": 1470
+    }
+  },
+  "predecessor_runtime_and_replicas_stopped_before_recovery": true,
+  "recovered_proofs": 164,
+  "post_new_view_startup_groups": 2,
+  "post_new_view_durable_readiness": true,
+  "logical_process_held_copy_audits": 0,
+  "copy_model": "logical process-held copies; not physical devices or crash-durability proof",
+  "exact_traffic_accounting": false,
+  "private_leakage_detected": false,
+  "work_bytes_separate_metric": 1401886686,
+  "energy": "blocked",
+  "network_scope": "loopback_only",
+  "E2": "blocked",
+  "acceptance_evaluation": "not_run",
+  "failure_error": "runtime-old-3 runtime:retry: Laboratory request refused: Laboratory request refused: Four current history heads unavailable: observer:observe: runtime:retry oratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory socket close runtime-old-3: 1006 \nLaboratory channel refusal runtime-old-3: Laboratory request refused: Four current history heads unavailable: observer:observe\n"
+}

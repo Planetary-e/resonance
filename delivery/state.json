@@ -12,12 +12,12 @@
   "worktree": {
     "path": "/Users/marcos/Documents/Codex/2026-09-15/i-x20/resonance-v04",
     "branch": "development",
-    "head": "aeaf044",
+    "head": "f604ddf",
     "dirty_tree_preserved": true,
     "session_only_installation": true
   },
   "current_feature_id": "FEAT-001",
-  "next_action": "Make the remaining DEC-013 ancillary failure-finalization artifacts readable and complete failure triage; a fresh controlled-host physical run requires a separate owner decision. No production/E2/economic/K/R acceptance.",
+  "next_action": "Preserve DEC-013 as failed/partial with complete finalization triage but an unclassified triggering error; add per-member observer diagnostics and define a controlled-host plan before any separately owner-authorized rerun. No production/E2/economic/K/R acceptance.",
   "pending_decision_ids": [],
   "approvals": {
     "product_scope": "approved",
@@ -29,6 +29,6 @@
   "session": {
     "id": "kimi-resonance-v04-20261025T190412Z",
     "started_at": "2026-10-25T19:04:12Z",
-    "updated_at": "2026-11-09T16:34:53Z"
+    "updated_at": "2026-11-09T17:54:12Z"
   }
 }

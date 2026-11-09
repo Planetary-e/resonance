@@ -25,7 +25,7 @@ The error `Four current history heads unavailable: observer:observe` and repeate
 
 Classify this as an **unclassified functional/qualification failure**. It must not be dismissed as environmental, but the retained evidence does not justify a product-runtime fix.
 
-The ancillary `econ-finalization-power-sustained-max-envelope.json`, `econ-cleanup-power-sustained-max-envelope.json`, `econ-lab-summary-power-sustained-max-envelope.json`, `econ-decision-power-sustained-max-envelope.json`, `econ-owner-assumptions-power-sustained-max-envelope.json`, `econ-authorization-power-sustained-max-envelope.json`, and `econ-new-view-readiness-power-sustained-max-envelope.json` remain root-owned mode 0600 and unreadable to the reviewer. They are outside the 375-artifact hash set. Their preservation and review are required before failure triage is complete.
+The seven ancillary failure artifacts were subsequently made readable and reviewed. They confirm that metrics, host tools, worker stopping, network evidence, artifact writing, summary and cleanup all finalized. The cleanup record has 39 clean exits, 13 escalated stops and **zero remaining workers**; its exact-path sweep found no remaining live PIDs. Post-new-view startup and durable readiness completed for both groups. The decision remains `baseline_window_failed`, E1 incomplete and E2 blocked. These records complete the available failure-finalization evidence but do not identify the triggering member error. Their hashes are separately preserved in `delivery/results/econ-power-lab-ancillary-hashes.json`.
 
 ## Power evidence scope and coverage
 
@@ -63,4 +63,4 @@ Verification:
 
 ## Next action
 
-Preserve the failed/partial package and revised instrumentation. Obtain read access to the ancillary failure-finalization artifacts, then complete failure triage. A fresh physical run requires a separate owner decision after a credible controlled-host measurement plan; it is not authorized by this review. E3, economic affordability, production and K/R acceptance remain open.
+Preserve the failed/partial package, revised instrumentation and separately hashed ancillary evidence. Available finalization and cleanup triage is complete, but the triggering member error is still unclassified. Before any fresh run, add diagnostic capture that retains per-member observer errors and define a controlled-host measurement plan. A fresh physical run requires a separate owner decision; it is not authorized by this review. E3, economic affordability, production and K/R acceptance remain open.

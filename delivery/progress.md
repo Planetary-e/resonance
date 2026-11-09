@@ -253,3 +253,11 @@
 - **Verification:** Ten focused tests and actual-source noEmit pass. Offline recomputation over all 62 files produced zero energy differences, zero missing CSV samples and zero false initial markers. Genuine gaps remain and no acceptance is claimed.
 - **Receipt:** `docs/evals/v04-dec013-physical-evidence-review-2026-11-09.md`.
 - **Next action:** Make the remaining ancillary failure-finalization artifacts readable and complete triage. A controlled-host rerun requires a separate owner decision; E3, economic affordability and production/K/R acceptance remain open.
+
+## 2026-11-09T17:54:12Z — DEC-013 ancillary failure triage complete
+
+- **Finalization:** All seven sustained-run ancillary artifacts are now readable and reviewed. Metrics, host tools, worker stopping, network evidence, artifact writing, summary and cleanup finalized despite the failed baseline.
+- **Cleanup:** Thirty-nine workers exited cleanly and thirteen required escalation; the exact-path sweep and `remaining_live_workers` confirm zero survivors. Both post-new-view groups completed startup and durable serving readiness.
+- **Classification:** The triggering observer/member error remains unclassified because per-member failures were not retained. Available failure-finalization triage is complete; no product-runtime fix is inferred.
+- **Preservation:** The seven artifacts and their new independent hash record are saved as `delivery/results/econ-power-lab-ancillary-hashes.json`.
+- **Next action:** Add per-member observer diagnostics and define a controlled-host plan before any separately owner-authorized rerun. No production, E2, economic or K/R acceptance.
