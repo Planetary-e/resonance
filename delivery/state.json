@@ -5,19 +5,19 @@
     "mode": "existing",
     "release": "v0.4 complete owner-approved scope"
   },
-  "status": "active",
+  "status": "paused",
   "onboarding": {
     "phase": "done"
   },
   "worktree": {
     "path": "/Users/marcos/Documents/Codex/2026-09-15/i-x20/resonance-v04",
     "branch": "development",
-    "head": "8a981f57d292c538eb2ea80d630b194ba7486782",
+    "head": "aeaf044",
     "dirty_tree_preserved": true,
     "session_only_installation": true
   },
   "current_feature_id": "FEAT-001",
-  "next_action": "Owner reruns the corrected `sudo node scripts/rso5-power-lab.mjs --full` for the frozen DEC-013 laboratory, then independent physical-evidence review. Full runs remain pending; no production/E2/economic/K/R acceptance.",
+  "next_action": "Make the remaining DEC-013 ancillary failure-finalization artifacts readable and complete failure triage; a fresh controlled-host physical run requires a separate owner decision. No production/E2/economic/K/R acceptance.",
   "pending_decision_ids": [],
   "approvals": {
     "product_scope": "approved",
@@ -29,6 +29,6 @@
   "session": {
     "id": "kimi-resonance-v04-20261025T190412Z",
     "started_at": "2026-10-25T19:04:12Z",
-    "updated_at": "2026-11-07T07:15:18Z"
+    "updated_at": "2026-11-09T16:34:53Z"
   }
 }

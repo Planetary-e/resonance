@@ -1,0 +1,453 @@
+{
+  "schema_version": 1,
+  "run_id": "power-pre-new-view-01",
+  "scenario": "full-smoke",
+  "roles": [
+    {
+      "role": "observer-0",
+      "used_bytes": 96081,
+      "operation_count": 8,
+      "operations": [
+        {
+          "label": "observer:root",
+          "usedBytes": 3507
+        },
+        {
+          "label": "observer:open",
+          "usedBytes": 12780
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:ready",
+          "usedBytes": 79794
+        }
+      ]
+    },
+    {
+      "role": "observer-1",
+      "used_bytes": 96081,
+      "operation_count": 8,
+      "operations": [
+        {
+          "label": "observer:root",
+          "usedBytes": 3507
+        },
+        {
+          "label": "observer:open",
+          "usedBytes": 12780
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:ready",
+          "usedBytes": 79794
+        }
+      ]
+    },
+    {
+      "role": "observer-2",
+      "used_bytes": 96081,
+      "operation_count": 8,
+      "operations": [
+        {
+          "label": "observer:root",
+          "usedBytes": 3507
+        },
+        {
+          "label": "observer:open",
+          "usedBytes": 12780
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:ready",
+          "usedBytes": 79794
+        }
+      ]
+    },
+    {
+      "role": "observer-3",
+      "used_bytes": 96081,
+      "operation_count": 8,
+      "operations": [
+        {
+          "label": "observer:root",
+          "usedBytes": 3507
+        },
+        {
+          "label": "observer:open",
+          "usedBytes": 12780
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:ready",
+          "usedBytes": 79794
+        }
+      ]
+    },
+    {
+      "role": "replica-old-0-1",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-old-0-2",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-old-0-3",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-old-0-4",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-old-0-5",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-old-1-1",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-old-1-2",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-old-1-3",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-old-1-4",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-old-1-5",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-old-2-1",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-old-2-2",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-old-2-3",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-old-2-4",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-old-2-5",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-old-3-1",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-old-3-2",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-old-3-3",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-old-3-4",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-old-3-5",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-new-0-1",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-new-0-2",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-new-0-3",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-new-0-4",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-new-0-5",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-new-1-1",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-new-1-2",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-new-1-3",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-new-1-4",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-new-1-5",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-new-2-1",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-new-2-2",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-new-2-3",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-new-2-4",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-new-2-5",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-new-3-1",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-new-3-2",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-new-3-3",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-new-3-4",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "replica-new-3-5",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "runtime-old-0",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "runtime-old-1",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "runtime-old-2",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "runtime-old-3",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "runtime-new-0",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "runtime-new-1",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "runtime-new-2",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    },
+    {
+      "role": "runtime-new-3",
+      "used_bytes": 0,
+      "operation_count": 0,
+      "operations": []
+    }
+  ],
+  "total_work_bytes": 384324,
+  "recompute_rule": "sum roles.used_bytes; operations are retained per role for independent review"
+}

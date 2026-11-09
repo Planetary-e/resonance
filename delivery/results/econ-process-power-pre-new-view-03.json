@@ -1,0 +1,2181 @@
+{
+  "schema_version": 1,
+  "run_id": "power-pre-new-view-03",
+  "authorization_id": "DEC-013",
+  "status": "complete",
+  "transport": "independent-node-processes",
+  "window": {
+    "runId": "power-pre-new-view-03",
+    "seed": "0xE007C00a",
+    "kind": "idle",
+    "durationMs": 60000,
+    "warmupMs": 0,
+    "cooldownMs": 0,
+    "phases": [
+      {
+        "phase": "warmup",
+        "at": "2026-11-07T08:02:07.398Z",
+        "monotonic_ms": 1578915.109834
+      },
+      {
+        "phase": "baseline",
+        "at": "2026-11-07T08:02:07.398Z",
+        "monotonic_ms": 1578915.233209
+      },
+      {
+        "phase": "cooldown",
+        "at": "2026-11-07T08:03:07.401Z",
+        "monotonic_ms": 1638919.388667
+      }
+    ],
+    "sustained_operations": {
+      "reads": 0,
+      "retries": 0
+    }
+  },
+  "worker_count": 52,
+  "runtime_count": 8,
+  "replica_count": 40,
+  "observer_count": 4,
+  "roles": [
+    {
+      "role": "observer-0",
+      "pid": 6174,
+      "peak_tree_rss_bytes": 115048448,
+      "cpu": {
+        "userMicros": 109979,
+        "systemMicros": 71881
+      },
+      "memory": {
+        "rss": 37601280,
+        "heapTotal": 55541760,
+        "heapUsed": 29021808,
+        "external": 7468433,
+        "arrayBuffers": 3348804
+      },
+      "elapsed_ms": 102705,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:01:52.626Z"
+        },
+        {
+          "event": "observer-ready",
+          "at": "2026-11-07T08:01:53.659Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:34.828Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:35.330Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "observer-1",
+      "pid": 6192,
+      "peak_tree_rss_bytes": 117309440,
+      "cpu": {
+        "userMicros": 188644,
+        "systemMicros": 99639
+      },
+      "memory": {
+        "rss": 37879808,
+        "heapTotal": 59211776,
+        "heapUsed": 26389872,
+        "external": 7402801,
+        "arrayBuffers": 3283172
+      },
+      "elapsed_ms": 102001,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:01:52.810Z"
+        },
+        {
+          "event": "observer-ready",
+          "at": "2026-11-07T08:01:54.180Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:34.308Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:34.811Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "observer-2",
+      "pid": 6201,
+      "peak_tree_rss_bytes": 116375552,
+      "cpu": {
+        "userMicros": 204926,
+        "systemMicros": 108322
+      },
+      "memory": {
+        "rss": 37634048,
+        "heapTotal": 58949632,
+        "heapUsed": 26553248,
+        "external": 7402929,
+        "arrayBuffers": 3283300
+      },
+      "elapsed_ms": 101297,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:01:52.992Z"
+        },
+        {
+          "event": "observer-ready",
+          "at": "2026-11-07T08:01:54.735Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:33.786Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:34.289Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "observer-3",
+      "pid": 6218,
+      "peak_tree_rss_bytes": 116506624,
+      "cpu": {
+        "userMicros": 170623,
+        "systemMicros": 105717
+      },
+      "memory": {
+        "rss": 37715968,
+        "heapTotal": 55803904,
+        "heapUsed": 28982704,
+        "external": 7468337,
+        "arrayBuffers": 3348708
+      },
+      "elapsed_ms": 100589,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:01:53.169Z"
+        },
+        {
+          "event": "observer-ready",
+          "at": "2026-11-07T08:01:55.259Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:33.256Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:33.758Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-old-0-1",
+      "pid": 6276,
+      "peak_tree_rss_bytes": 105529344,
+      "cpu": {
+        "userMicros": 39147,
+        "systemMicros": 25251
+      },
+      "memory": {
+        "rss": 36110336,
+        "heapTotal": 54820864,
+        "heapUsed": 25035712,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 97762,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:01:55.466Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:04.615Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:32.725Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:33.228Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-old-0-2",
+      "pid": 6297,
+      "peak_tree_rss_bytes": 105365504,
+      "cpu": {
+        "userMicros": 33419,
+        "systemMicros": 22544
+      },
+      "memory": {
+        "rss": 36634624,
+        "heapTotal": 54296576,
+        "heapUsed": 24758048,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 97032,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:01:55.674Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:04.671Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:32.202Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:32.705Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-old-0-3",
+      "pid": 6308,
+      "peak_tree_rss_bytes": 105758720,
+      "cpu": {
+        "userMicros": 38158,
+        "systemMicros": 22965
+      },
+      "memory": {
+        "rss": 36552704,
+        "heapTotal": 54296576,
+        "heapUsed": 24874472,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 96314,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:01:55.862Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:04.728Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:31.674Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:32.175Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-old-0-4",
+      "pid": 6325,
+      "peak_tree_rss_bytes": 105267200,
+      "cpu": {
+        "userMicros": 35592,
+        "systemMicros": 20819
+      },
+      "memory": {
+        "rss": 37617664,
+        "heapTotal": 54034432,
+        "heapUsed": 24894016,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 95603,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:01:56.045Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:04.786Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:31.144Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:31.647Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-old-0-5",
+      "pid": 6335,
+      "peak_tree_rss_bytes": 106643456,
+      "cpu": {
+        "userMicros": 36198,
+        "systemMicros": 21817
+      },
+      "memory": {
+        "rss": 36405248,
+        "heapTotal": 54558720,
+        "heapUsed": 24787712,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 94881,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:01:56.235Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:04.842Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:30.612Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:31.114Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-old-1-1",
+      "pid": 6344,
+      "peak_tree_rss_bytes": 106496000,
+      "cpu": {
+        "userMicros": 43540,
+        "systemMicros": 30038
+      },
+      "memory": {
+        "rss": 37814272,
+        "heapTotal": 54558720,
+        "heapUsed": 25048064,
+        "external": 8745034,
+        "arrayBuffers": 4662042
+      },
+      "elapsed_ms": 94163,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:01:56.422Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:04.973Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:30.081Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:30.584Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-old-1-2",
+      "pid": 6361,
+      "peak_tree_rss_bytes": 106184704,
+      "cpu": {
+        "userMicros": 36755,
+        "systemMicros": 25808
+      },
+      "memory": {
+        "rss": 36388864,
+        "heapTotal": 54558720,
+        "heapUsed": 24749832,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 93443,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:01:56.608Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:05.026Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:29.548Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:30.050Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-old-1-3",
+      "pid": 6375,
+      "peak_tree_rss_bytes": 105578496,
+      "cpu": {
+        "userMicros": 36466,
+        "systemMicros": 22335
+      },
+      "memory": {
+        "rss": 36339712,
+        "heapTotal": 54820864,
+        "heapUsed": 24714616,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 92725,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:01:56.794Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:05.081Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:29.014Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:29.517Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-old-1-4",
+      "pid": 6384,
+      "peak_tree_rss_bytes": 106332160,
+      "cpu": {
+        "userMicros": 34310,
+        "systemMicros": 23412
+      },
+      "memory": {
+        "rss": 36864000,
+        "heapTotal": 54034432,
+        "heapUsed": 24682096,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 92004,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:01:56.981Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:05.140Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:28.481Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:28.984Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-old-1-5",
+      "pid": 6401,
+      "peak_tree_rss_bytes": 105840640,
+      "cpu": {
+        "userMicros": 37382,
+        "systemMicros": 23654
+      },
+      "memory": {
+        "rss": 36667392,
+        "heapTotal": 54296576,
+        "heapUsed": 24835312,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 91285,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:01:57.171Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:05.194Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:27.953Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:28.455Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-old-2-1",
+      "pid": 6411,
+      "peak_tree_rss_bytes": 107626496,
+      "cpu": {
+        "userMicros": 37074,
+        "systemMicros": 21878
+      },
+      "memory": {
+        "rss": 36487168,
+        "heapTotal": 54820864,
+        "heapUsed": 24698896,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 90544,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:01:57.383Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:05.314Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:27.424Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:27.926Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-old-2-2",
+      "pid": 6433,
+      "peak_tree_rss_bytes": 106397696,
+      "cpu": {
+        "userMicros": 38769,
+        "systemMicros": 25145
+      },
+      "memory": {
+        "rss": 37076992,
+        "heapTotal": 54820864,
+        "heapUsed": 24625520,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 89822,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:01:57.571Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:05.376Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:26.890Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:27.392Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-old-2-3",
+      "pid": 6442,
+      "peak_tree_rss_bytes": 105873408,
+      "cpu": {
+        "userMicros": 37290,
+        "systemMicros": 19598
+      },
+      "memory": {
+        "rss": 37126144,
+        "heapTotal": 54820864,
+        "heapUsed": 24737720,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 89100,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:01:57.763Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:05.433Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:26.358Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:26.861Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-old-2-4",
+      "pid": 6451,
+      "peak_tree_rss_bytes": 105938944,
+      "cpu": {
+        "userMicros": 36365,
+        "systemMicros": 20431
+      },
+      "memory": {
+        "rss": 37404672,
+        "heapTotal": 54558720,
+        "heapUsed": 24720224,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 88374,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:01:57.956Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:05.484Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:25.827Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:26.329Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-old-2-5",
+      "pid": 6468,
+      "peak_tree_rss_bytes": 106102784,
+      "cpu": {
+        "userMicros": 35691,
+        "systemMicros": 20128
+      },
+      "memory": {
+        "rss": 35897344,
+        "heapTotal": 54820864,
+        "heapUsed": 24680816,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 87651,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:01:58.152Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:05.546Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:25.299Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:25.802Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-old-3-1",
+      "pid": 6477,
+      "peak_tree_rss_bytes": 106283008,
+      "cpu": {
+        "userMicros": 34310,
+        "systemMicros": 17808
+      },
+      "memory": {
+        "rss": 37748736,
+        "heapTotal": 54034432,
+        "heapUsed": 24590048,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 86947,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:01:58.334Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:05.663Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:24.779Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:25.281Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-old-3-2",
+      "pid": 6486,
+      "peak_tree_rss_bytes": 105906176,
+      "cpu": {
+        "userMicros": 34518,
+        "systemMicros": 18401
+      },
+      "memory": {
+        "rss": 37568512,
+        "heapTotal": 54820864,
+        "heapUsed": 24456096,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 86248,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:01:58.517Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:05.713Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:24.262Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:24.764Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-old-3-3",
+      "pid": 6503,
+      "peak_tree_rss_bytes": 106414080,
+      "cpu": {
+        "userMicros": 34709,
+        "systemMicros": 18442
+      },
+      "memory": {
+        "rss": 37388288,
+        "heapTotal": 54820864,
+        "heapUsed": 24781880,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 85526,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:01:58.720Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:05.767Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:23.744Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:24.246Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-old-3-4",
+      "pid": 6512,
+      "peak_tree_rss_bytes": 105676800,
+      "cpu": {
+        "userMicros": 32304,
+        "systemMicros": 20392
+      },
+      "memory": {
+        "rss": 38617088,
+        "heapTotal": 54820864,
+        "heapUsed": 24604912,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 84803,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:01:58.918Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:05.821Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:23.217Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:23.720Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-old-3-5",
+      "pid": 6529,
+      "peak_tree_rss_bytes": 106364928,
+      "cpu": {
+        "userMicros": 36326,
+        "systemMicros": 21486
+      },
+      "memory": {
+        "rss": 38486016,
+        "heapTotal": 54558720,
+        "heapUsed": 25280432,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 84072,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:01:59.120Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:05.876Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:22.689Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:23.192Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-new-0-1",
+      "pid": 6538,
+      "peak_tree_rss_bytes": 106430464,
+      "cpu": {
+        "userMicros": 36638,
+        "systemMicros": 22754
+      },
+      "memory": {
+        "rss": 38174720,
+        "heapTotal": 54296576,
+        "heapUsed": 24855488,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 83351,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:01:59.311Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:06.001Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:22.158Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:22.661Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-new-0-2",
+      "pid": 6547,
+      "peak_tree_rss_bytes": 106741760,
+      "cpu": {
+        "userMicros": 36433,
+        "systemMicros": 20656
+      },
+      "memory": {
+        "rss": 38617088,
+        "heapTotal": 54296576,
+        "heapUsed": 24693112,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 82631,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:01:59.500Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:06.059Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:21.628Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:22.130Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-new-0-3",
+      "pid": 6564,
+      "peak_tree_rss_bytes": 105709568,
+      "cpu": {
+        "userMicros": 37653,
+        "systemMicros": 22452
+      },
+      "memory": {
+        "rss": 37814272,
+        "heapTotal": 54296576,
+        "heapUsed": 24913296,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 81909,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:01:59.692Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:06.120Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:21.098Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:21.600Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-new-0-4",
+      "pid": 6573,
+      "peak_tree_rss_bytes": 105283584,
+      "cpu": {
+        "userMicros": 32380,
+        "systemMicros": 21541
+      },
+      "memory": {
+        "rss": 38469632,
+        "heapTotal": 54034432,
+        "heapUsed": 24608608,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 81189,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:01:59.880Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:06.180Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:20.565Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:21.068Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-new-0-5",
+      "pid": 6590,
+      "peak_tree_rss_bytes": 106627072,
+      "cpu": {
+        "userMicros": 36411,
+        "systemMicros": 27620
+      },
+      "memory": {
+        "rss": 38289408,
+        "heapTotal": 54296576,
+        "heapUsed": 25007264,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 80467,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:02:00.071Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:06.241Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:20.034Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:20.537Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-new-1-1",
+      "pid": 6599,
+      "peak_tree_rss_bytes": 105709568,
+      "cpu": {
+        "userMicros": 33106,
+        "systemMicros": 33129
+      },
+      "memory": {
+        "rss": 39108608,
+        "heapTotal": 54558720,
+        "heapUsed": 24931432,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 79741,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:02:00.265Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:06.367Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:19.503Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:20.006Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-new-1-2",
+      "pid": 6608,
+      "peak_tree_rss_bytes": 105496576,
+      "cpu": {
+        "userMicros": 36111,
+        "systemMicros": 20623
+      },
+      "memory": {
+        "rss": 38780928,
+        "heapTotal": 54558720,
+        "heapUsed": 24766016,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 79001,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:02:00.473Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:06.424Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:18.972Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:19.474Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-new-1-3",
+      "pid": 6626,
+      "peak_tree_rss_bytes": 105644032,
+      "cpu": {
+        "userMicros": 35993,
+        "systemMicros": 20876
+      },
+      "memory": {
+        "rss": 38207488,
+        "heapTotal": 54820864,
+        "heapUsed": 24774872,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 78268,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:02:00.676Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:06.479Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:18.442Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:18.944Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-new-1-4",
+      "pid": 6635,
+      "peak_tree_rss_bytes": 105938944,
+      "cpu": {
+        "userMicros": 30550,
+        "systemMicros": 21138
+      },
+      "memory": {
+        "rss": 38305792,
+        "heapTotal": 54034432,
+        "heapUsed": 24881240,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 77540,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:02:00.870Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:06.539Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:17.907Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:18.410Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-new-1-5",
+      "pid": 6652,
+      "peak_tree_rss_bytes": 106283008,
+      "cpu": {
+        "userMicros": 38091,
+        "systemMicros": 20947
+      },
+      "memory": {
+        "rss": 38895616,
+        "heapTotal": 54820864,
+        "heapUsed": 24847800,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 76810,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:02:01.067Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:06.604Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:17.374Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:17.876Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-new-2-1",
+      "pid": 6661,
+      "peak_tree_rss_bytes": 106528768,
+      "cpu": {
+        "userMicros": 37479,
+        "systemMicros": 30103
+      },
+      "memory": {
+        "rss": 39256064,
+        "heapTotal": 54558720,
+        "heapUsed": 24585384,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 76086,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:02:01.261Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:06.734Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:16.842Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:17.346Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-new-2-2",
+      "pid": 6670,
+      "peak_tree_rss_bytes": 106168320,
+      "cpu": {
+        "userMicros": 36826,
+        "systemMicros": 23269
+      },
+      "memory": {
+        "rss": 38273024,
+        "heapTotal": 54296576,
+        "heapUsed": 24563552,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 75365,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:02:01.446Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:06.788Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:16.309Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:16.811Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-new-2-3",
+      "pid": 6687,
+      "peak_tree_rss_bytes": 105807872,
+      "cpu": {
+        "userMicros": 32204,
+        "systemMicros": 20193
+      },
+      "memory": {
+        "rss": 38502400,
+        "heapTotal": 54558720,
+        "heapUsed": 25031640,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 74633,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:02:01.651Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:06.845Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:15.781Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:16.283Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-new-2-4",
+      "pid": 6697,
+      "peak_tree_rss_bytes": 106528768,
+      "cpu": {
+        "userMicros": 38312,
+        "systemMicros": 20213
+      },
+      "memory": {
+        "rss": 38322176,
+        "heapTotal": 54034432,
+        "heapUsed": 24507720,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 73909,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:02:01.852Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:06.909Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:15.258Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:15.760Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-new-2-5",
+      "pid": 6706,
+      "peak_tree_rss_bytes": 105955328,
+      "cpu": {
+        "userMicros": 38183,
+        "systemMicros": 18623
+      },
+      "memory": {
+        "rss": 38633472,
+        "heapTotal": 54296576,
+        "heapUsed": 24303928,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 73184,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:02:02.048Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:06.968Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:14.729Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:15.231Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-new-3-1",
+      "pid": 6723,
+      "peak_tree_rss_bytes": 106168320,
+      "cpu": {
+        "userMicros": 35247,
+        "systemMicros": 27292
+      },
+      "memory": {
+        "rss": 38666240,
+        "heapTotal": 54558720,
+        "heapUsed": 24480360,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 72477,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:02:02.234Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:07.099Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:14.208Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:14.710Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-new-3-2",
+      "pid": 6732,
+      "peak_tree_rss_bytes": 106463232,
+      "cpu": {
+        "userMicros": 38033,
+        "systemMicros": 26862
+      },
+      "memory": {
+        "rss": 39108608,
+        "heapTotal": 54296576,
+        "heapUsed": 24480864,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 71765,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:02:02.422Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:07.159Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:13.683Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:14.186Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-new-3-3",
+      "pid": 6749,
+      "peak_tree_rss_bytes": 106414080,
+      "cpu": {
+        "userMicros": 35141,
+        "systemMicros": 20684
+      },
+      "memory": {
+        "rss": 38731776,
+        "heapTotal": 54820864,
+        "heapUsed": 24311472,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 71031,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:02:02.621Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:07.216Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:13.148Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:13.651Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-new-3-4",
+      "pid": 6758,
+      "peak_tree_rss_bytes": 106577920,
+      "cpu": {
+        "userMicros": 37486,
+        "systemMicros": 20873
+      },
+      "memory": {
+        "rss": 38715392,
+        "heapTotal": 54558720,
+        "heapUsed": 24406552,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 70308,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:02:02.813Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:07.270Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:12.617Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:13.120Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "replica-new-3-5",
+      "pid": 6768,
+      "peak_tree_rss_bytes": 106414080,
+      "cpu": {
+        "userMicros": 33120,
+        "systemMicros": 30827
+      },
+      "memory": {
+        "rss": 39026688,
+        "heapTotal": 54558720,
+        "heapUsed": 24391216,
+        "external": 8744140,
+        "arrayBuffers": 4661148
+      },
+      "elapsed_ms": 69577,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:02:03.011Z"
+        },
+        {
+          "event": "replica-ready",
+          "at": "2026-11-07T08:02:07.332Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:12.085Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:12.587Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "runtime-old-0",
+      "pid": 6785,
+      "peak_tree_rss_bytes": 108036096,
+      "cpu": {
+        "userMicros": 51946,
+        "systemMicros": 22134
+      },
+      "memory": {
+        "rss": 40501248,
+        "heapTotal": 59359232,
+        "heapUsed": 22813840,
+        "external": 6969687,
+        "arrayBuffers": 2851055
+      },
+      "elapsed_ms": 68858,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:02:03.198Z"
+        },
+        {
+          "event": "runtime-ready",
+          "at": "2026-11-07T08:02:04.899Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:11.553Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:12.056Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "runtime-old-1",
+      "pid": 6794,
+      "peak_tree_rss_bytes": 105922560,
+      "cpu": {
+        "userMicros": 52790,
+        "systemMicros": 27163
+      },
+      "memory": {
+        "rss": 39862272,
+        "heapTotal": 58228736,
+        "heapUsed": 22180072,
+        "external": 6629032,
+        "arrayBuffers": 2510400
+      },
+      "elapsed_ms": 68143,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:02:03.378Z"
+        },
+        {
+          "event": "runtime-ready",
+          "at": "2026-11-07T08:02:05.255Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:11.019Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:11.520Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "runtime-old-2",
+      "pid": 6803,
+      "peak_tree_rss_bytes": 106332160,
+      "cpu": {
+        "userMicros": 39911,
+        "systemMicros": 19446
+      },
+      "memory": {
+        "rss": 39223296,
+        "heapTotal": 54640640,
+        "heapUsed": 27201016,
+        "external": 9145509,
+        "arrayBuffers": 5026877
+      },
+      "elapsed_ms": 67428,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:02:03.560Z"
+        },
+        {
+          "event": "runtime-ready",
+          "at": "2026-11-07T08:02:05.604Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:10.486Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:10.988Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "runtime-old-3",
+      "pid": 6820,
+      "peak_tree_rss_bytes": 106020864,
+      "cpu": {
+        "userMicros": 36435,
+        "systemMicros": 20309
+      },
+      "memory": {
+        "rss": 38649856,
+        "heapTotal": 55427072,
+        "heapUsed": 26758000,
+        "external": 9145509,
+        "arrayBuffers": 5026877
+      },
+      "elapsed_ms": 66702,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:02:03.747Z"
+        },
+        {
+          "event": "runtime-ready",
+          "at": "2026-11-07T08:02:05.933Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:09.945Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:10.448Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "runtime-new-0",
+      "pid": 6829,
+      "peak_tree_rss_bytes": 106184704,
+      "cpu": {
+        "userMicros": 39615,
+        "systemMicros": 21389
+      },
+      "memory": {
+        "rss": 39075840,
+        "heapTotal": 55427072,
+        "heapUsed": 26974152,
+        "external": 9145509,
+        "arrayBuffers": 5026877
+      },
+      "elapsed_ms": 65975,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:02:03.938Z"
+        },
+        {
+          "event": "runtime-ready",
+          "at": "2026-11-07T08:02:06.303Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:09.410Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:09.913Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "runtime-new-1",
+      "pid": 6846,
+      "peak_tree_rss_bytes": 108265472,
+      "cpu": {
+        "userMicros": 54065,
+        "systemMicros": 27632
+      },
+      "memory": {
+        "rss": 40665088,
+        "heapTotal": 58753024,
+        "heapUsed": 22177440,
+        "external": 6612700,
+        "arrayBuffers": 2494068
+      },
+      "elapsed_ms": 65247,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:02:04.133Z"
+        },
+        {
+          "event": "runtime-ready",
+          "at": "2026-11-07T08:02:06.665Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:08.876Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:09.379Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "runtime-new-2",
+      "pid": 6856,
+      "peak_tree_rss_bytes": 106086400,
+      "cpu": {
+        "userMicros": 40241,
+        "systemMicros": 19117
+      },
+      "memory": {
+        "rss": 39092224,
+        "heapTotal": 54902784,
+        "heapUsed": 27094032,
+        "external": 9145509,
+        "arrayBuffers": 5026877
+      },
+      "elapsed_ms": 64516,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:02:04.320Z"
+        },
+        {
+          "event": "runtime-ready",
+          "at": "2026-11-07T08:02:07.031Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:08.332Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:08.835Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    },
+    {
+      "role": "runtime-new-3",
+      "pid": 6865,
+      "peak_tree_rss_bytes": 109543424,
+      "cpu": {
+        "userMicros": 50011,
+        "systemMicros": 20137
+      },
+      "memory": {
+        "rss": 39387136,
+        "heapTotal": 59621376,
+        "heapUsed": 22843224,
+        "external": 6969895,
+        "arrayBuffers": 2851263
+      },
+      "elapsed_ms": 63784,
+      "lifecycle": [
+        {
+          "event": "started",
+          "at": "2026-11-07T08:02:04.523Z"
+        },
+        {
+          "event": "runtime-ready",
+          "at": "2026-11-07T08:02:07.393Z"
+        },
+        {
+          "event": "stop-requested",
+          "at": "2026-11-07T08:03:07.805Z"
+        },
+        {
+          "event": "stopped",
+          "at": "2026-11-07T08:03:08.307Z"
+        },
+        {
+          "event": "exit",
+          "code": 0
+        }
+      ],
+      "child_processes": [],
+      "process_tree_observation": "recursive ps parent-link enumeration"
+    }
+  ],
+  "clean_stops": 52,
+  "failure_error": null,
+  "isolation_limitations": [
+    "Same physical host; no whole-host isolation",
+    "Loopback IPC only",
+    "Peak RSS sampled with ps; shared-memory attribution unavailable"
+  ]
+}

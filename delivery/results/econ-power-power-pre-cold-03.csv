@@ -1,0 +1,4 @@
+at,cpu_mw,gpu_mw,ane_mw,combined_mw,status
+2026-11-07T08:37:00.000Z,,,,,sampling gap exceeds 1.5 seconds
+2026-11-07T08:37:55.000Z,,,,,sampling gap exceeds 1.5 seconds
+2026-11-07T08:36:12.553Z,,,,,no initial sample within 1 second

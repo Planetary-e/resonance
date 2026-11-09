@@ -1,0 +1,320 @@
+{
+  "schema_version": 1,
+  "authorization_id": "DEC-013",
+  "status": "power_evidence_partial",
+  "execution": "delivery/results/econ-power-lab-execution.json",
+  "sampler": {
+    "command": "powermetrics --samplers cpu_power,gpu_power,ane_power -i 1000",
+    "interval_ms": 1000,
+    "units": "mW",
+    "component_scope": "CPU+GPU+ANE combined only; not whole-system energy",
+    "integration": "trapezoidal combined mW over actual timestamps; missing/censored intervals excluded and explicit",
+    "matched_idle": "incremental energy only when all matched idle windows are valid; otherwise null",
+    "sanitization": "raw sampler logs excluded; only timestamps, units and power values retained"
+  },
+  "absolute_energy_joules": {
+    "power-pre-local-04": 1926.5549999999996,
+    "power-local-04": 1242.7585000000004,
+    "power-post-local-04": 1287.3614999999995,
+    "power-pre-new-view-04": 462.8815,
+    "power-new-view-04": 233.99699999999999,
+    "power-post-new-view-04": 330.6704999999999,
+    "power-pre-local-05": 335.9189999999999,
+    "power-local-05": 336.5785000000001,
+    "power-post-local-05": 340.76549999999986,
+    "power-pre-return-04": 326.73000000000013,
+    "power-return-04": 289.5925,
+    "power-post-return-04": 434.9,
+    "power-pre-return-03": 463.5855,
+    "power-return-03": 383.1425,
+    "power-post-return-03": 478.9435000000001,
+    "power-pre-new-view-03": 364.757,
+    "power-new-view-03": 234.8615000000001,
+    "power-post-new-view-03": 290.35949999999985,
+    "power-pre-new-view-05": 340.3645000000001,
+    "power-new-view-05": 168.5520000000001,
+    "power-post-new-view-05": 226.006,
+    "power-pre-local-02": 143.51,
+    "power-local-02": 212.5085000000001,
+    "power-post-local-02": 118.59799999999991,
+    "power-pre-cold-05": 127.75649999999997,
+    "power-cold-05": 155.80300000000003,
+    "power-post-cold-05": 136.16749999999996,
+    "power-pre-return-02": 160.68000000000004,
+    "power-return-02": 171.36399999999998,
+    "power-post-return-02": 136.8954999999999,
+    "power-pre-local-03": 150.2095,
+    "power-local-03": 198.07299999999995,
+    "power-post-local-03": 133.09499999999994,
+    "power-pre-cold-04": 121.74249999999995,
+    "power-cold-04": 140.61349999999996,
+    "power-post-cold-04": 181.88399999999996,
+    "power-pre-cold-03": 171.13600000000002,
+    "power-cold-03": 159.93549999999996,
+    "power-post-cold-03": 121.96450000000006,
+    "power-pre-return-05": 201.90550000000005,
+    "power-return-05": 185.17649999999998,
+    "power-post-return-05": 133.754,
+    "power-pre-cold-02": 143.31199999999998,
+    "power-cold-02": 131.24449999999993,
+    "power-post-cold-02": 119.63599999999998,
+    "power-pre-new-view-02": 115.5295,
+    "power-new-view-02": 123.33749999999999,
+    "power-post-new-view-02": 128.74600000000004,
+    "power-pre-return-01": 133.98799999999991,
+    "power-return-01": 186.5914999999999,
+    "power-post-return-01": 164.5479999999999,
+    "power-pre-new-view-01": 126.89549999999998,
+    "power-new-view-01": 141.54450000000003,
+    "power-post-new-view-01": 158.67449999999997,
+    "power-pre-cold-01": 133.72400000000002,
+    "power-cold-01": 141.33299999999994,
+    "power-post-cold-01": 146.9190000000001,
+    "power-pre-local-01": 146.79300000000003,
+    "power-local-01": 202.593,
+    "power-post-local-01": 183.85199999999995,
+    "power-idle-baseline": 996.5829999999997,
+    "power-sustained-max-envelope": 587.5294999999998
+  },
+  "failure_energy_joules": {
+    "power-sustained-max-envelope": 587.5294999999998
+  },
+  "incremental_energy": {
+    "power-local-04": {
+      "run_ids": [
+        "power-pre-local-04",
+        "power-post-local-04"
+      ],
+      "valid": false,
+      "mean_power_watts": null,
+      "incremental_energy_joules": null,
+      "incremental_energy_kwh": null,
+      "reason": "matched idle evidence missing or censored"
+    },
+    "power-new-view-04": {
+      "run_ids": [
+        "power-pre-new-view-04",
+        "power-post-new-view-04"
+      ],
+      "valid": false,
+      "mean_power_watts": null,
+      "incremental_energy_joules": null,
+      "incremental_energy_kwh": null,
+      "reason": "matched idle evidence missing or censored"
+    },
+    "power-local-05": {
+      "run_ids": [
+        "power-pre-local-05",
+        "power-post-local-05"
+      ],
+      "valid": false,
+      "mean_power_watts": null,
+      "incremental_energy_joules": null,
+      "incremental_energy_kwh": null,
+      "reason": "matched idle evidence missing or censored"
+    },
+    "power-return-04": {
+      "run_ids": [
+        "power-pre-return-04",
+        "power-post-return-04"
+      ],
+      "valid": false,
+      "mean_power_watts": null,
+      "incremental_energy_joules": null,
+      "incremental_energy_kwh": null,
+      "reason": "matched idle evidence missing or censored"
+    },
+    "power-return-03": {
+      "run_ids": [
+        "power-pre-return-03",
+        "power-post-return-03"
+      ],
+      "valid": false,
+      "mean_power_watts": null,
+      "incremental_energy_joules": null,
+      "incremental_energy_kwh": null,
+      "reason": "matched idle evidence missing or censored"
+    },
+    "power-new-view-03": {
+      "run_ids": [
+        "power-pre-new-view-03",
+        "power-post-new-view-03"
+      ],
+      "valid": false,
+      "mean_power_watts": null,
+      "incremental_energy_joules": null,
+      "incremental_energy_kwh": null,
+      "reason": "matched idle evidence missing or censored"
+    },
+    "power-new-view-05": {
+      "run_ids": [
+        "power-pre-new-view-05",
+        "power-post-new-view-05"
+      ],
+      "valid": false,
+      "mean_power_watts": null,
+      "incremental_energy_joules": null,
+      "incremental_energy_kwh": null,
+      "reason": "matched idle evidence missing or censored"
+    },
+    "power-local-02": {
+      "run_ids": [
+        "power-pre-local-02",
+        "power-post-local-02"
+      ],
+      "valid": false,
+      "mean_power_watts": null,
+      "incremental_energy_joules": null,
+      "incremental_energy_kwh": null,
+      "reason": "matched idle evidence missing or censored"
+    },
+    "power-cold-05": {
+      "run_ids": [
+        "power-pre-cold-05",
+        "power-post-cold-05"
+      ],
+      "valid": false,
+      "mean_power_watts": null,
+      "incremental_energy_joules": null,
+      "incremental_energy_kwh": null,
+      "reason": "matched idle evidence missing or censored"
+    },
+    "power-return-02": {
+      "run_ids": [
+        "power-pre-return-02",
+        "power-post-return-02"
+      ],
+      "valid": false,
+      "mean_power_watts": null,
+      "incremental_energy_joules": null,
+      "incremental_energy_kwh": null,
+      "reason": "matched idle evidence missing or censored"
+    },
+    "power-local-03": {
+      "run_ids": [
+        "power-pre-local-03",
+        "power-post-local-03"
+      ],
+      "valid": false,
+      "mean_power_watts": null,
+      "incremental_energy_joules": null,
+      "incremental_energy_kwh": null,
+      "reason": "matched idle evidence missing or censored"
+    },
+    "power-cold-04": {
+      "run_ids": [
+        "power-pre-cold-04",
+        "power-post-cold-04"
+      ],
+      "valid": false,
+      "mean_power_watts": null,
+      "incremental_energy_joules": null,
+      "incremental_energy_kwh": null,
+      "reason": "matched idle evidence missing or censored"
+    },
+    "power-cold-03": {
+      "run_ids": [
+        "power-pre-cold-03",
+        "power-post-cold-03"
+      ],
+      "valid": false,
+      "mean_power_watts": null,
+      "incremental_energy_joules": null,
+      "incremental_energy_kwh": null,
+      "reason": "matched idle evidence missing or censored"
+    },
+    "power-return-05": {
+      "run_ids": [
+        "power-pre-return-05",
+        "power-post-return-05"
+      ],
+      "valid": false,
+      "mean_power_watts": null,
+      "incremental_energy_joules": null,
+      "incremental_energy_kwh": null,
+      "reason": "matched idle evidence missing or censored"
+    },
+    "power-cold-02": {
+      "run_ids": [
+        "power-pre-cold-02",
+        "power-post-cold-02"
+      ],
+      "valid": false,
+      "mean_power_watts": null,
+      "incremental_energy_joules": null,
+      "incremental_energy_kwh": null,
+      "reason": "matched idle evidence missing or censored"
+    },
+    "power-new-view-02": {
+      "run_ids": [
+        "power-pre-new-view-02",
+        "power-post-new-view-02"
+      ],
+      "valid": false,
+      "mean_power_watts": null,
+      "incremental_energy_joules": null,
+      "incremental_energy_kwh": null,
+      "reason": "matched idle evidence missing or censored"
+    },
+    "power-return-01": {
+      "run_ids": [
+        "power-pre-return-01",
+        "power-post-return-01"
+      ],
+      "valid": false,
+      "mean_power_watts": null,
+      "incremental_energy_joules": null,
+      "incremental_energy_kwh": null,
+      "reason": "matched idle evidence missing or censored"
+    },
+    "power-new-view-01": {
+      "run_ids": [
+        "power-pre-new-view-01",
+        "power-post-new-view-01"
+      ],
+      "valid": false,
+      "mean_power_watts": null,
+      "incremental_energy_joules": null,
+      "incremental_energy_kwh": null,
+      "reason": "matched idle evidence missing or censored"
+    },
+    "power-cold-01": {
+      "run_ids": [
+        "power-pre-cold-01",
+        "power-post-cold-01"
+      ],
+      "valid": false,
+      "mean_power_watts": null,
+      "incremental_energy_joules": null,
+      "incremental_energy_kwh": null,
+      "reason": "matched idle evidence missing or censored"
+    },
+    "power-local-01": {
+      "run_ids": [
+        "power-pre-local-01",
+        "power-post-local-01"
+      ],
+      "valid": false,
+      "mean_power_watts": null,
+      "incremental_energy_joules": null,
+      "incremental_energy_kwh": null,
+      "reason": "matched idle evidence missing or censored"
+    }
+  },
+  "sustained_incremental_energy": {
+    "run_ids": [
+      "power-idle-baseline"
+    ],
+    "valid": false,
+    "mean_power_watts": null,
+    "incremental_energy_joules": null,
+    "incremental_energy_kwh": null,
+    "reason": "matched idle evidence missing or censored"
+  },
+  "artifact_join": "One continuous sampler partitioned by run timestamps; no per-run sampler energy is summed twice",
+  "E2": "pending_independent_physical_evidence_review",
+  "E3": "pending_separate_owner_authorization",
+  "economic_affordability": "pending",
+  "production_approval": "not_granted",
+  "acceptance_evaluation": "not_run"
+}

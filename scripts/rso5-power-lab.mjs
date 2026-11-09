@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const manifestPath = 'delivery/results/econ-power-lab-manifest.json';
 const json = path => JSON.parse(readFileSync(path, 'utf8'));
@@ -96,11 +97,13 @@ function parsePowerSamples(text) {
   return samples.filter(sample => Number.isFinite(sample.atMs));
 }
 
-function integratePower(samples, startAt, endAt) {
+export function integratePower(samples, startAt, endAt) {
   const startMs = Date.parse(startAt), endMs = Date.parse(endAt), censored = [];
   if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
     return { energy_joules: null, energy_kwh: null, average_power_watts: null, peak_power_watts: null,
-      duration_ms: Number.isFinite(endMs - startMs) ? endMs - startMs : null, censored: [{ reason: 'invalid window timestamps' }], validity: 'invalid' };
+      retained_seconds: 0, coverage_ratio: null,
+      duration_ms: Number.isFinite(endMs - startMs) ? endMs - startMs : null, censored: [{ reason: 'invalid window timestamps' }],
+      censored_interval_count: 1, validity: 'invalid', sample_count: 0 };
   }
   let energy = 0, validSeconds = 0, peak = 0;
   const bounded = samples.filter(sample => sample.atMs >= startMs && sample.atMs <= endMs);
@@ -114,7 +117,7 @@ function integratePower(samples, startAt, endAt) {
     const watts = (left.combined_mw + right.combined_mw) / 2000;
     energy += watts * dt; validSeconds += dt; peak = Math.max(peak, left.combined_mw / 1000, right.combined_mw / 1000);
   }
-  const expectedStart = startMs - 1000, expectedEnd = endMs + 1000;
+  const expectedStart = startMs + 1000;
   if (!bounded.length || bounded[0].atMs > expectedStart) censored.push({ start: new Date(startMs).toISOString(), reason: 'no initial sample within 1 second' });
   if (!bounded.length || bounded.at(-1).atMs < endMs - 1000) censored.push({ end: new Date(endMs).toISOString(), reason: 'no final sample within 1 second' });
   const durationSeconds = (endMs - startMs) / 1000;
@@ -122,23 +125,25 @@ function integratePower(samples, startAt, endAt) {
     energy_joules: energy, energy_kwh: energy / 3600000,
     average_power_watts: validSeconds ? energy / validSeconds : null,
     peak_power_watts: bounded.length ? peak : null,
+    retained_seconds: validSeconds, coverage_ratio: validSeconds / durationSeconds,
     duration_ms: endMs - startMs,
     censored,
+    censored_interval_count: censored.length,
     validity: censored.length ? 'partial' : 'valid',
     sample_count: bounded.length,
   };
 }
 
-function csvForRun(runId, samples, censored) {
+export function csvForRun(runId, samples, censored) {
   const lines = ['at,cpu_mw,gpu_mw,ane_mw,combined_mw,status'];
-  for (const sample of samples.filter(sample => sample.atMs >= 0)) {
+  for (const sample of samples.filter(sample => Number.isFinite(Date.parse(sample.at)))) {
     lines.push(`${sample.at},${sample.cpu_mw ?? ''},${sample.gpu_mw ?? ''},${sample.ane_mw ?? ''},${sample.combined_mw ?? ''},sample`);
   }
   for (const marker of censored) lines.push(`${marker.start ?? marker.end ?? ''},,,,,${marker.reason}`);
   return `${lines.join('\n')}\n`;
 }
 
-function powerEvidence(run, samples) {
+export function powerEvidence(run, samples) {
   const integrated = integratePower(samples, run.started_at, run.completed_at);
   return {
     schema_version: 1, authorization_id: 'DEC-013', run_id: run.run_id, scenario: run.scenario, kind: run.kind,
@@ -148,14 +153,27 @@ function powerEvidence(run, samples) {
     samples: samples.filter(sample => sample.atMs >= Date.parse(run.started_at) && sample.atMs <= Date.parse(run.completed_at))
       .map(sample => ({ at: sample.at, cpu_mw: sample.cpu_mw, gpu_mw: sample.gpu_mw, ane_mw: sample.ane_mw, combined_mw: sample.combined_mw })),
     censored_samples: integrated.censored,
+    censored_interval_count: integrated.censored_interval_count,
     sample_count: integrated.sample_count,
     energy_joules: integrated.energy_joules, energy_kwh: integrated.energy_kwh,
     average_power_watts: integrated.average_power_watts, peak_power_watts: integrated.peak_power_watts,
+    retained_seconds: integrated.retained_seconds, coverage_ratio: integrated.coverage_ratio,
     duration_ms: integrated.duration_ms,
     matched_idle: null,
     thermal_state: 'unavailable', battery_state: 'unavailable',
     artifacts: artifactPaths(run.run_id),
     acceptance_evaluation: 'not_run',
+  };
+}
+
+export function energyCoverage(evidence) {
+  return {
+    status: evidence.status,
+    retained_seconds: evidence.retained_seconds,
+    coverage_ratio: evidence.coverage_ratio,
+    duration_ms: evidence.duration_ms,
+    sample_count: evidence.sample_count,
+    censored_interval_count: evidence.censored_interval_count,
   };
 }
 
@@ -262,6 +280,7 @@ async function runFull() {
       sampler: manifest.power_instrument,
       absolute_energy_joules: Object.fromEntries(execution.completed.map(run => [run.run_id, json(powerPaths(run.run_id).json).energy_joules])),
       failure_energy_joules: Object.fromEntries(execution.completed.filter(run => run.outcome !== 'passed').map(run => [run.run_id, json(powerPaths(run.run_id).json).energy_joules])),
+      energy_coverage: Object.fromEntries(execution.completed.map(run => [run.run_id, energyCoverage(json(powerPaths(run.run_id).json))])),
       incremental_energy: Object.fromEntries(manifest.power_scenarios.map(run => [run.run.run_id, json(powerPaths(run.run.run_id).json).matched_idle])),
       sustained_incremental_energy: sustained.matched_idle,
       artifact_join: 'One continuous sampler partitioned by run timestamps; no per-run sampler energy is summed twice',
@@ -283,10 +302,12 @@ async function runFull() {
   }
 }
 
-if (process.argv.includes('--freeze')) await freezeManifest();
-else if (process.argv.includes('--smoke')) await runSmoke();
-else if (process.argv.includes('--full')) await runFull();
-else {
-  console.error('Usage: node scripts/rso5-power-lab.mjs --freeze | --smoke [--sample-file=path] | --full (owner uses sudo for full)');
-  process.exitCode = 1;
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  if (process.argv.includes('--freeze')) await freezeManifest();
+  else if (process.argv.includes('--smoke')) await runSmoke();
+  else if (process.argv.includes('--full')) await runFull();
+  else {
+    console.error('Usage: node scripts/rso5-power-lab.mjs --freeze | --smoke [--sample-file=path] | --full (owner uses sudo for full)');
+    process.exitCode = 1;
+  }
 }

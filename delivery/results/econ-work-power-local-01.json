@@ -1,0 +1,5129 @@
+{
+  "schema_version": 1,
+  "run_id": "power-local-01",
+  "scenario": "local-loss",
+  "roles": [
+    {
+      "role": "observer-0",
+      "used_bytes": 2900158,
+      "operation_count": 244,
+      "operations": [
+        {
+          "label": "observer:root",
+          "usedBytes": 3507
+        },
+        {
+          "label": "observer:open",
+          "usedBytes": 12780
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:ready",
+          "usedBytes": 79794
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:drain",
+          "usedBytes": 527111
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:advance",
+          "usedBytes": 438176
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:drain",
+          "usedBytes": 669324
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:advance",
+          "usedBytes": 470842
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        }
+      ]
+    },
+    {
+      "role": "observer-1",
+      "used_bytes": 2900158,
+      "operation_count": 244,
+      "operations": [
+        {
+          "label": "observer:root",
+          "usedBytes": 3507
+        },
+        {
+          "label": "observer:open",
+          "usedBytes": 12780
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:ready",
+          "usedBytes": 79794
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:drain",
+          "usedBytes": 527111
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:advance",
+          "usedBytes": 438176
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:drain",
+          "usedBytes": 669324
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:advance",
+          "usedBytes": 470842
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        }
+      ]
+    },
+    {
+      "role": "observer-2",
+      "used_bytes": 2900158,
+      "operation_count": 244,
+      "operations": [
+        {
+          "label": "observer:root",
+          "usedBytes": 3507
+        },
+        {
+          "label": "observer:open",
+          "usedBytes": 12780
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:ready",
+          "usedBytes": 79794
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:drain",
+          "usedBytes": 527111
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:advance",
+          "usedBytes": 438176
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:drain",
+          "usedBytes": 669324
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:advance",
+          "usedBytes": 470842
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        }
+      ]
+    },
+    {
+      "role": "observer-3",
+      "used_bytes": 2900158,
+      "operation_count": 244,
+      "operations": [
+        {
+          "label": "observer:root",
+          "usedBytes": 3507
+        },
+        {
+          "label": "observer:open",
+          "usedBytes": 12780
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:ready",
+          "usedBytes": 79794
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:drain",
+          "usedBytes": 527111
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:advance",
+          "usedBytes": 438176
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:drain",
+          "usedBytes": 669324
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:advance",
+          "usedBytes": 470842
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:0",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:1",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:2",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:history:3",
+          "usedBytes": 0
+        },
+        {
+          "label": "observer:observe",
+          "usedBytes": 21832
+        },
+        {
+          "label": "observer:history:4",
+          "usedBytes": 0
+        }
+      ]
+    },
+    {
+      "role": "replica-old-0-1",
+      "used_bytes": 10974931,
+      "operation_count": 253,
+      "operations": []
+    },
+    {
+      "role": "replica-old-0-2",
+      "used_bytes": 10974931,
+      "operation_count": 253,
+      "operations": []
+    },
+    {
+      "role": "replica-old-0-3",
+      "used_bytes": 10974931,
+      "operation_count": 253,
+      "operations": []
+    },
+    {
+      "role": "replica-old-0-4",
+      "used_bytes": 10974931,
+      "operation_count": 253,
+      "operations": []
+    },
+    {
+      "role": "replica-old-0-5",
+      "used_bytes": 10974931,
+      "operation_count": 253,
+      "operations": []
+    },
+    {
+      "role": "replica-old-1-1",
+      "used_bytes": 10974931,
+      "operation_count": 253,
+      "operations": []
+    },
+    {
+      "role": "replica-old-1-2",
+      "used_bytes": 10974931,
+      "operation_count": 253,
+      "operations": []
+    },
+    {
+      "role": "replica-old-1-3",
+      "used_bytes": 10974931,
+      "operation_count": 253,
+      "operations": []
+    },
+    {
+      "role": "replica-old-1-4",
+      "used_bytes": 10974931,
+      "operation_count": 253,
+      "operations": []
+    },
+    {
+      "role": "replica-old-1-5",
+      "used_bytes": 10974931,
+      "operation_count": 253,
+      "operations": []
+    },
+    {
+      "role": "replica-old-2-1",
+      "used_bytes": 10974931,
+      "operation_count": 253,
+      "operations": []
+    },
+    {
+      "role": "replica-old-2-2",
+      "used_bytes": 10974931,
+      "operation_count": 253,
+      "operations": []
+    },
+    {
+      "role": "replica-old-2-3",
+      "used_bytes": 10974931,
+      "operation_count": 253,
+      "operations": []
+    },
+    {
+      "role": "replica-old-2-4",
+      "used_bytes": 10974931,
+      "operation_count": 253,
+      "operations": []
+    },
+    {
+      "role": "replica-old-2-5",
+      "used_bytes": 10974931,
+      "operation_count": 253,
+      "operations": []
+    },
+    {
+      "role": "replica-old-3-1",
+      "used_bytes": 10974931,
+      "operation_count": 253,
+      "operations": []
+    },
+    {
+      "role": "replica-old-3-2",
+      "used_bytes": 10974931,
+      "operation_count": 253,
+      "operations": []
+    },
+    {
+      "role": "replica-old-3-3",
+      "used_bytes": 10974931,
+      "operation_count": 253,
+      "operations": []
+    },
+    {
+      "role": "replica-old-3-4",
+      "used_bytes": 10974931,
+      "operation_count": 253,
+      "operations": []
+    },
+    {
+      "role": "replica-old-3-5",
+      "used_bytes": 10974931,
+      "operation_count": 253,
+      "operations": []
+    },
+    {
+      "role": "replica-new-0-1",
+      "used_bytes": 8032287,
+      "operation_count": 147,
+      "operations": []
+    },
+    {
+      "role": "replica-new-0-2",
+      "used_bytes": 8032287,
+      "operation_count": 147,
+      "operations": []
+    },
+    {
+      "role": "replica-new-0-3",
+      "used_bytes": 8032287,
+      "operation_count": 147,
+      "operations": []
+    },
+    {
+      "role": "replica-new-0-4",
+      "used_bytes": 8032287,
+      "operation_count": 147,
+      "operations": []
+    },
+    {
+      "role": "replica-new-0-5",
+      "used_bytes": 8032287,
+      "operation_count": 147,
+      "operations": []
+    },
+    {
+      "role": "replica-new-1-1",
+      "used_bytes": 8032287,
+      "operation_count": 147,
+      "operations": []
+    },
+    {
+      "role": "replica-new-1-2",
+      "used_bytes": 8032287,
+      "operation_count": 147,
+      "operations": []
+    },
+    {
+      "role": "replica-new-1-3",
+      "used_bytes": 8032287,
+      "operation_count": 147,
+      "operations": []
+    },
+    {
+      "role": "replica-new-1-4",
+      "used_bytes": 8032287,
+      "operation_count": 147,
+      "operations": []
+    },
+    {
+      "role": "replica-new-1-5",
+      "used_bytes": 8032287,
+      "operation_count": 147,
+      "operations": []
+    },
+    {
+      "role": "replica-new-2-1",
+      "used_bytes": 8032287,
+      "operation_count": 147,
+      "operations": []
+    },
+    {
+      "role": "replica-new-2-2",
+      "used_bytes": 8032287,
+      "operation_count": 147,
+      "operations": []
+    },
+    {
+      "role": "replica-new-2-3",
+      "used_bytes": 8032287,
+      "operation_count": 147,
+      "operations": []
+    },
+    {
+      "role": "replica-new-2-4",
+      "used_bytes": 8032287,
+      "operation_count": 147,
+      "operations": []
+    },
+    {
+      "role": "replica-new-2-5",
+      "used_bytes": 8032287,
+      "operation_count": 147,
+      "operations": []
+    },
+    {
+      "role": "replica-new-3-1",
+      "used_bytes": 8032287,
+      "operation_count": 147,
+      "operations": []
+    },
+    {
+      "role": "replica-new-3-2",
+      "used_bytes": 8032287,
+      "operation_count": 147,
+      "operations": []
+    },
+    {
+      "role": "replica-new-3-3",
+      "used_bytes": 8032287,
+      "operation_count": 147,
+      "operations": []
+    },
+    {
+      "role": "replica-new-3-4",
+      "used_bytes": 8032287,
+      "operation_count": 147,
+      "operations": []
+    },
+    {
+      "role": "replica-new-3-5",
+      "used_bytes": 8032287,
+      "operation_count": 147,
+      "operations": []
+    },
+    {
+      "role": "runtime-old-0",
+      "used_bytes": 48675924,
+      "operation_count": 46,
+      "operations": [
+        {
+          "label": "runtime:legacy-prepare",
+          "usedBytes": 1706557
+        },
+        {
+          "label": "runtime:bootstrap",
+          "usedBytes": 1813974
+        },
+        {
+          "label": "runtime:read",
+          "usedBytes": 39461
+        },
+        {
+          "label": "runtime:propose",
+          "usedBytes": 65210
+        },
+        {
+          "label": "runtime:prepare",
+          "usedBytes": 624213
+        },
+        {
+          "label": "runtime:commit",
+          "usedBytes": 792377
+        },
+        {
+          "label": "runtime:execute",
+          "usedBytes": 1009821
+        },
+        {
+          "label": "runtime:finish",
+          "usedBytes": 777922
+        },
+        {
+          "label": "runtime:startup",
+          "usedBytes": 656855
+        },
+        {
+          "label": "runtime:retry",
+          "usedBytes": 186705
+        },
+        {
+          "label": "runtime:viewChange",
+          "usedBytes": 1059426
+        },
+        {
+          "label": "runtime:read",
+          "usedBytes": 120911
+        },
+        {
+          "label": "runtime:transfer",
+          "usedBytes": 451577
+        },
+        {
+          "label": "runtime:transfer",
+          "usedBytes": 451577
+        },
+        {
+          "label": "runtime:transfer",
+          "usedBytes": 451577
+        },
+        {
+          "label": "runtime:transfer",
+          "usedBytes": 451577
+        },
+        {
+          "label": "runtime:newView",
+          "usedBytes": 1948283
+        },
+        {
+          "label": "runtime:startup",
+          "usedBytes": 814996
+        },
+        {
+          "label": "runtime:read",
+          "usedBytes": 95725
+        },
+        {
+          "label": "runtime:prepare",
+          "usedBytes": 1826856
+        },
+        {
+          "label": "runtime:commit",
+          "usedBytes": 1973383
+        },
+        {
+          "label": "runtime:execute",
+          "usedBytes": 2213607
+        },
+        {
+          "label": "runtime:finish",
+          "usedBytes": 1597183
+        },
+        {
+          "label": "runtime:read",
+          "usedBytes": 174314
+        },
+        {
+          "label": "runtime:prepare",
+          "usedBytes": 1771999
+        },
+        {
+          "label": "runtime:commit",
+          "usedBytes": 1480626
+        },
+        {
+          "label": "runtime:execute",
+          "usedBytes": 1608069
+        },
+        {
+          "label": "runtime:finish",
+          "usedBytes": 1255633
+        },
+        {
+          "label": "runtime:read",
+          "usedBytes": 134124
+        },
+        {
+          "label": "runtime:transfer",
+          "usedBytes": 474858
+        },
+        {
+          "label": "runtime:transfer",
+          "usedBytes": 474858
+        },
+        {
+          "label": "runtime:transfer",
+          "usedBytes": 474858
+        },
+        {
+          "label": "runtime:transfer",
+          "usedBytes": 474858
+        },
+        {
+          "label": "runtime:freeze:failed",
+          "usedBytes": 135500
+        },
+        {
+          "label": "runtime:freeze",
+          "usedBytes": 1155040
+        },
+        {
+          "label": "runtime:read",
+          "usedBytes": 134124
+        },
+        {
+          "label": "runtime:reserveInstall",
+          "usedBytes": 3231790
+        },
+        {
+          "label": "runtime:prepareInstall",
+          "usedBytes": 969341
+        },
+        {
+          "label": "runtime:install",
+          "usedBytes": 2166098
+        },
+        {
+          "label": "runtime:startup",
+          "usedBytes": 613241
+        },
+        {
+          "label": "runtime:retry",
+          "usedBytes": 459498
+        },
+        {
+          "label": "runtime:retry:failed",
+          "usedBytes": 469179
+        },
+        {
+          "label": "runtime:retry:failed",
+          "usedBytes": 433277
+        },
+        {
+          "label": "runtime:retry",
+          "usedBytes": 469179
+        },
+        {
+          "label": "runtime:local-C-recovery",
+          "usedBytes": 8035034
+        },
+        {
+          "label": "runtime:local-C-recovery-startup",
+          "usedBytes": 950653
+        }
+      ]
+    },
+    {
+      "role": "runtime-old-1",
+      "used_bytes": 42703572,
+      "operation_count": 27,
+      "operations": [
+        {
+          "label": "runtime:legacy-prepare",
+          "usedBytes": 1706557
+        },
+        {
+          "label": "runtime:bootstrap",
+          "usedBytes": 1813974
+        },
+        {
+          "label": "runtime:prepare",
+          "usedBytes": 624213
+        },
+        {
+          "label": "runtime:commit",
+          "usedBytes": 792377
+        },
+        {
+          "label": "runtime:execute",
+          "usedBytes": 1009821
+        },
+        {
+          "label": "runtime:finish",
+          "usedBytes": 777922
+        },
+        {
+          "label": "runtime:startup",
+          "usedBytes": 656855
+        },
+        {
+          "label": "runtime:viewChange",
+          "usedBytes": 1059426
+        },
+        {
+          "label": "runtime:newView",
+          "usedBytes": 1948315
+        },
+        {
+          "label": "runtime:startup",
+          "usedBytes": 814996
+        },
+        {
+          "label": "runtime:propose",
+          "usedBytes": 131696
+        },
+        {
+          "label": "runtime:prepare",
+          "usedBytes": 1826856
+        },
+        {
+          "label": "runtime:commit",
+          "usedBytes": 1973383
+        },
+        {
+          "label": "runtime:execute",
+          "usedBytes": 2213607
+        },
+        {
+          "label": "runtime:finish",
+          "usedBytes": 1597183
+        },
+        {
+          "label": "runtime:propose",
+          "usedBytes": 204532
+        },
+        {
+          "label": "runtime:prepare",
+          "usedBytes": 1771999
+        },
+        {
+          "label": "runtime:commit",
+          "usedBytes": 1480626
+        },
+        {
+          "label": "runtime:execute",
+          "usedBytes": 1608069
+        },
+        {
+          "label": "runtime:finish",
+          "usedBytes": 1255633
+        },
+        {
+          "label": "runtime:freeze",
+          "usedBytes": 1155040
+        },
+        {
+          "label": "runtime:reserveInstall",
+          "usedBytes": 3231790
+        },
+        {
+          "label": "runtime:prepareInstall",
+          "usedBytes": 969341
+        },
+        {
+          "label": "runtime:install",
+          "usedBytes": 2166098
+        },
+        {
+          "label": "runtime:startup",
+          "usedBytes": 613241
+        },
+        {
+          "label": "runtime:local-C-recovery",
+          "usedBytes": 8349369
+        },
+        {
+          "label": "runtime:local-C-recovery-startup",
+          "usedBytes": 950653
+        }
+      ]
+    },
+    {
+      "role": "runtime-old-2",
+      "used_bytes": 42367344,
+      "operation_count": 25,
+      "operations": [
+        {
+          "label": "runtime:legacy-prepare",
+          "usedBytes": 1706557
+        },
+        {
+          "label": "runtime:bootstrap",
+          "usedBytes": 1813974
+        },
+        {
+          "label": "runtime:prepare",
+          "usedBytes": 624213
+        },
+        {
+          "label": "runtime:commit",
+          "usedBytes": 792377
+        },
+        {
+          "label": "runtime:execute",
+          "usedBytes": 1009821
+        },
+        {
+          "label": "runtime:finish",
+          "usedBytes": 777922
+        },
+        {
+          "label": "runtime:startup",
+          "usedBytes": 656855
+        },
+        {
+          "label": "runtime:viewChange",
+          "usedBytes": 1059426
+        },
+        {
+          "label": "runtime:newView",
+          "usedBytes": 1948315
+        },
+        {
+          "label": "runtime:startup",
+          "usedBytes": 814996
+        },
+        {
+          "label": "runtime:prepare",
+          "usedBytes": 1826856
+        },
+        {
+          "label": "runtime:commit",
+          "usedBytes": 1973383
+        },
+        {
+          "label": "runtime:execute",
+          "usedBytes": 2213607
+        },
+        {
+          "label": "runtime:finish",
+          "usedBytes": 1597183
+        },
+        {
+          "label": "runtime:prepare",
+          "usedBytes": 1771999
+        },
+        {
+          "label": "runtime:commit",
+          "usedBytes": 1480626
+        },
+        {
+          "label": "runtime:execute",
+          "usedBytes": 1608069
+        },
+        {
+          "label": "runtime:finish",
+          "usedBytes": 1255633
+        },
+        {
+          "label": "runtime:freeze",
+          "usedBytes": 1155040
+        },
+        {
+          "label": "runtime:reserveInstall",
+          "usedBytes": 3231790
+        },
+        {
+          "label": "runtime:prepareInstall",
+          "usedBytes": 969341
+        },
+        {
+          "label": "runtime:install",
+          "usedBytes": 2166098
+        },
+        {
+          "label": "runtime:startup",
+          "usedBytes": 613241
+        },
+        {
+          "label": "runtime:local-C-recovery",
+          "usedBytes": 8349369
+        },
+        {
+          "label": "runtime:local-C-recovery-startup",
+          "usedBytes": 950653
+        }
+      ]
+    },
+    {
+      "role": "runtime-old-3",
+      "used_bytes": 42367344,
+      "operation_count": 25,
+      "operations": [
+        {
+          "label": "runtime:legacy-prepare",
+          "usedBytes": 1706557
+        },
+        {
+          "label": "runtime:bootstrap",
+          "usedBytes": 1813974
+        },
+        {
+          "label": "runtime:prepare",
+          "usedBytes": 624213
+        },
+        {
+          "label": "runtime:commit",
+          "usedBytes": 792377
+        },
+        {
+          "label": "runtime:execute",
+          "usedBytes": 1009821
+        },
+        {
+          "label": "runtime:finish",
+          "usedBytes": 777922
+        },
+        {
+          "label": "runtime:startup",
+          "usedBytes": 656855
+        },
+        {
+          "label": "runtime:viewChange",
+          "usedBytes": 1059426
+        },
+        {
+          "label": "runtime:newView",
+          "usedBytes": 1948315
+        },
+        {
+          "label": "runtime:startup",
+          "usedBytes": 814996
+        },
+        {
+          "label": "runtime:prepare",
+          "usedBytes": 1826856
+        },
+        {
+          "label": "runtime:commit",
+          "usedBytes": 1973383
+        },
+        {
+          "label": "runtime:execute",
+          "usedBytes": 2213607
+        },
+        {
+          "label": "runtime:finish",
+          "usedBytes": 1597183
+        },
+        {
+          "label": "runtime:prepare",
+          "usedBytes": 1771999
+        },
+        {
+          "label": "runtime:commit",
+          "usedBytes": 1480626
+        },
+        {
+          "label": "runtime:execute",
+          "usedBytes": 1608069
+        },
+        {
+          "label": "runtime:finish",
+          "usedBytes": 1255633
+        },
+        {
+          "label": "runtime:freeze",
+          "usedBytes": 1155040
+        },
+        {
+          "label": "runtime:reserveInstall",
+          "usedBytes": 3231790
+        },
+        {
+          "label": "runtime:prepareInstall",
+          "usedBytes": 969341
+        },
+        {
+          "label": "runtime:install",
+          "usedBytes": 2166098
+        },
+        {
+          "label": "runtime:startup",
+          "usedBytes": 613241
+        },
+        {
+          "label": "runtime:local-C-recovery",
+          "usedBytes": 8349369
+        },
+        {
+          "label": "runtime:local-C-recovery-startup",
+          "usedBytes": 950653
+        }
+      ]
+    },
+    {
+      "role": "runtime-new-0",
+      "used_bytes": 36640861,
+      "operation_count": 40,
+      "operations": [
+        {
+          "label": "runtime:reserveInstall",
+          "usedBytes": 2496721
+        },
+        {
+          "label": "runtime:prepareInstall",
+          "usedBytes": 827804
+        },
+        {
+          "label": "runtime:install",
+          "usedBytes": 1817188
+        },
+        {
+          "label": "runtime:startup",
+          "usedBytes": 538802
+        },
+        {
+          "label": "runtime:retry",
+          "usedBytes": 345715
+        },
+        {
+          "label": "runtime:retry:failed",
+          "usedBytes": 345715
+        },
+        {
+          "label": "runtime:read",
+          "usedBytes": 154646
+        },
+        {
+          "label": "runtime:propose",
+          "usedBytes": 188828
+        },
+        {
+          "label": "runtime:prepare",
+          "usedBytes": 1334288
+        },
+        {
+          "label": "runtime:commit",
+          "usedBytes": 1525697
+        },
+        {
+          "label": "runtime:execute",
+          "usedBytes": 1762392
+        },
+        {
+          "label": "runtime:finish",
+          "usedBytes": 1185729
+        },
+        {
+          "label": "runtime:retry",
+          "usedBytes": 480525
+        },
+        {
+          "label": "runtime:read",
+          "usedBytes": 212370
+        },
+        {
+          "label": "runtime:propose",
+          "usedBytes": 268487
+        },
+        {
+          "label": "runtime:prepare",
+          "usedBytes": 1676562
+        },
+        {
+          "label": "runtime:commit",
+          "usedBytes": 1676835
+        },
+        {
+          "label": "runtime:execute",
+          "usedBytes": 1943593
+        },
+        {
+          "label": "runtime:finish",
+          "usedBytes": 1287661
+        },
+        {
+          "label": "runtime:read",
+          "usedBytes": 233879
+        },
+        {
+          "label": "runtime:propose",
+          "usedBytes": 284243
+        },
+        {
+          "label": "runtime:prepare",
+          "usedBytes": 1455878
+        },
+        {
+          "label": "runtime:commit",
+          "usedBytes": 1171032
+        },
+        {
+          "label": "runtime:execute",
+          "usedBytes": 1337983
+        },
+        {
+          "label": "runtime:finish",
+          "usedBytes": 946039
+        },
+        {
+          "label": "runtime:viewChange",
+          "usedBytes": 1200125
+        },
+        {
+          "label": "runtime:read",
+          "usedBytes": 235337
+        },
+        {
+          "label": "runtime:transfer",
+          "usedBytes": 638902
+        },
+        {
+          "label": "runtime:transfer",
+          "usedBytes": 638902
+        },
+        {
+          "label": "runtime:transfer",
+          "usedBytes": 638902
+        },
+        {
+          "label": "runtime:transfer",
+          "usedBytes": 638902
+        },
+        {
+          "label": "runtime:newView",
+          "usedBytes": 2295461
+        },
+        {
+          "label": "runtime:startup",
+          "usedBytes": 962404
+        },
+        {
+          "label": "runtime:read",
+          "usedBytes": 210145
+        },
+        {
+          "label": "runtime:transfer",
+          "usedBytes": 613998
+        },
+        {
+          "label": "runtime:transfer",
+          "usedBytes": 613998
+        },
+        {
+          "label": "runtime:transfer",
+          "usedBytes": 613998
+        },
+        {
+          "label": "runtime:transfer",
+          "usedBytes": 613998
+        },
+        {
+          "label": "runtime:freeze:failed",
+          "usedBytes": 211521
+        },
+        {
+          "label": "runtime:freeze",
+          "usedBytes": 1015656
+        }
+      ]
+    },
+    {
+      "role": "runtime-new-1",
+      "used_bytes": 28457882,
+      "operation_count": 20,
+      "operations": [
+        {
+          "label": "runtime:reserveInstall",
+          "usedBytes": 2496721
+        },
+        {
+          "label": "runtime:prepareInstall",
+          "usedBytes": 827804
+        },
+        {
+          "label": "runtime:install",
+          "usedBytes": 1817188
+        },
+        {
+          "label": "runtime:startup",
+          "usedBytes": 538802
+        },
+        {
+          "label": "runtime:prepare",
+          "usedBytes": 1334288
+        },
+        {
+          "label": "runtime:commit",
+          "usedBytes": 1525697
+        },
+        {
+          "label": "runtime:execute",
+          "usedBytes": 1762392
+        },
+        {
+          "label": "runtime:finish",
+          "usedBytes": 1185729
+        },
+        {
+          "label": "runtime:prepare",
+          "usedBytes": 1676562
+        },
+        {
+          "label": "runtime:commit",
+          "usedBytes": 1676835
+        },
+        {
+          "label": "runtime:execute",
+          "usedBytes": 1943593
+        },
+        {
+          "label": "runtime:finish",
+          "usedBytes": 1287661
+        },
+        {
+          "label": "runtime:prepare",
+          "usedBytes": 1455878
+        },
+        {
+          "label": "runtime:commit",
+          "usedBytes": 1171032
+        },
+        {
+          "label": "runtime:execute",
+          "usedBytes": 1337983
+        },
+        {
+          "label": "runtime:finish",
+          "usedBytes": 946039
+        },
+        {
+          "label": "runtime:viewChange",
+          "usedBytes": 1200125
+        },
+        {
+          "label": "runtime:newView",
+          "usedBytes": 2295493
+        },
+        {
+          "label": "runtime:startup",
+          "usedBytes": 962404
+        },
+        {
+          "label": "runtime:freeze",
+          "usedBytes": 1015656
+        }
+      ]
+    },
+    {
+      "role": "runtime-new-2",
+      "used_bytes": 28457882,
+      "operation_count": 20,
+      "operations": [
+        {
+          "label": "runtime:reserveInstall",
+          "usedBytes": 2496721
+        },
+        {
+          "label": "runtime:prepareInstall",
+          "usedBytes": 827804
+        },
+        {
+          "label": "runtime:install",
+          "usedBytes": 1817188
+        },
+        {
+          "label": "runtime:startup",
+          "usedBytes": 538802
+        },
+        {
+          "label": "runtime:prepare",
+          "usedBytes": 1334288
+        },
+        {
+          "label": "runtime:commit",
+          "usedBytes": 1525697
+        },
+        {
+          "label": "runtime:execute",
+          "usedBytes": 1762392
+        },
+        {
+          "label": "runtime:finish",
+          "usedBytes": 1185729
+        },
+        {
+          "label": "runtime:prepare",
+          "usedBytes": 1676562
+        },
+        {
+          "label": "runtime:commit",
+          "usedBytes": 1676835
+        },
+        {
+          "label": "runtime:execute",
+          "usedBytes": 1943593
+        },
+        {
+          "label": "runtime:finish",
+          "usedBytes": 1287661
+        },
+        {
+          "label": "runtime:prepare",
+          "usedBytes": 1455878
+        },
+        {
+          "label": "runtime:commit",
+          "usedBytes": 1171032
+        },
+        {
+          "label": "runtime:execute",
+          "usedBytes": 1337983
+        },
+        {
+          "label": "runtime:finish",
+          "usedBytes": 946039
+        },
+        {
+          "label": "runtime:viewChange",
+          "usedBytes": 1200125
+        },
+        {
+          "label": "runtime:newView",
+          "usedBytes": 2295493
+        },
+        {
+          "label": "runtime:startup",
+          "usedBytes": 962404
+        },
+        {
+          "label": "runtime:freeze",
+          "usedBytes": 1015656
+        }
+      ]
+    },
+    {
+      "role": "runtime-new-3",
+      "used_bytes": 28457882,
+      "operation_count": 20,
+      "operations": [
+        {
+          "label": "runtime:reserveInstall",
+          "usedBytes": 2496721
+        },
+        {
+          "label": "runtime:prepareInstall",
+          "usedBytes": 827804
+        },
+        {
+          "label": "runtime:install",
+          "usedBytes": 1817188
+        },
+        {
+          "label": "runtime:startup",
+          "usedBytes": 538802
+        },
+        {
+          "label": "runtime:prepare",
+          "usedBytes": 1334288
+        },
+        {
+          "label": "runtime:commit",
+          "usedBytes": 1525697
+        },
+        {
+          "label": "runtime:execute",
+          "usedBytes": 1762392
+        },
+        {
+          "label": "runtime:finish",
+          "usedBytes": 1185729
+        },
+        {
+          "label": "runtime:prepare",
+          "usedBytes": 1676562
+        },
+        {
+          "label": "runtime:commit",
+          "usedBytes": 1676835
+        },
+        {
+          "label": "runtime:execute",
+          "usedBytes": 1943593
+        },
+        {
+          "label": "runtime:finish",
+          "usedBytes": 1287661
+        },
+        {
+          "label": "runtime:prepare",
+          "usedBytes": 1455878
+        },
+        {
+          "label": "runtime:commit",
+          "usedBytes": 1171032
+        },
+        {
+          "label": "runtime:execute",
+          "usedBytes": 1337983
+        },
+        {
+          "label": "runtime:finish",
+          "usedBytes": 946039
+        },
+        {
+          "label": "runtime:viewChange",
+          "usedBytes": 1200125
+        },
+        {
+          "label": "runtime:newView",
+          "usedBytes": 2295493
+        },
+        {
+          "label": "runtime:startup",
+          "usedBytes": 962404
+        },
+        {
+          "label": "runtime:freeze",
+          "usedBytes": 1015656
+        }
+      ]
+    }
+  ],
+  "total_work_bytes": 689873683,
+  "recompute_rule": "sum roles.used_bytes; operations are retained per role for independent review"
+}

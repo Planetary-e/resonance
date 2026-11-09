@@ -1,0 +1,4630 @@
+{
+  "schema_version": 1,
+  "run_id": "power-post-return-01",
+  "status": "complete",
+  "scope": "authenticated-websocket-loopback",
+  "internet_evidence": false,
+  "wifi_evidence": false,
+  "last_mile_evidence": false,
+  "message_count": 459,
+  "total_payload_bytes": 5193632,
+  "total_frame_bytes": 5196436,
+  "edges": [
+    {
+      "source": "coordinator",
+      "destination": "observer-0",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 171,
+      "websocket_frame_bytes": 179
+    },
+    {
+      "source": "coordinator",
+      "destination": "observer-0",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 4224,
+      "websocket_frame_bytes": 4232
+    },
+    {
+      "source": "coordinator",
+      "destination": "observer-0",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 168,
+      "websocket_frame_bytes": 176
+    },
+    {
+      "source": "coordinator",
+      "destination": "observer-0",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 212,
+      "websocket_frame_bytes": 220
+    },
+    {
+      "source": "coordinator",
+      "destination": "observer-1",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 171,
+      "websocket_frame_bytes": 179
+    },
+    {
+      "source": "coordinator",
+      "destination": "observer-1",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 4224,
+      "websocket_frame_bytes": 4232
+    },
+    {
+      "source": "coordinator",
+      "destination": "observer-1",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 168,
+      "websocket_frame_bytes": 176
+    },
+    {
+      "source": "coordinator",
+      "destination": "observer-1",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 212,
+      "websocket_frame_bytes": 220
+    },
+    {
+      "source": "coordinator",
+      "destination": "observer-2",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 171,
+      "websocket_frame_bytes": 179
+    },
+    {
+      "source": "coordinator",
+      "destination": "observer-2",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 4224,
+      "websocket_frame_bytes": 4232
+    },
+    {
+      "source": "coordinator",
+      "destination": "observer-2",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 168,
+      "websocket_frame_bytes": 176
+    },
+    {
+      "source": "coordinator",
+      "destination": "observer-2",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 212,
+      "websocket_frame_bytes": 220
+    },
+    {
+      "source": "coordinator",
+      "destination": "observer-3",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 171,
+      "websocket_frame_bytes": 179
+    },
+    {
+      "source": "coordinator",
+      "destination": "observer-3",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 4224,
+      "websocket_frame_bytes": 4232
+    },
+    {
+      "source": "coordinator",
+      "destination": "observer-3",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 168,
+      "websocket_frame_bytes": 176
+    },
+    {
+      "source": "coordinator",
+      "destination": "observer-3",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 212,
+      "websocket_frame_bytes": 220
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-0-1",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-0-1",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-0-1",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-0-1",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-0-2",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-0-2",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-0-2",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-0-2",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-0-3",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-0-3",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-0-3",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-0-3",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-0-4",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-0-4",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-0-4",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-0-4",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-0-5",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-0-5",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-0-5",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-0-5",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-1-1",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-1-1",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-1-1",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-1-1",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-1-2",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-1-2",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-1-2",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-1-2",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-1-3",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-1-3",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-1-3",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-1-3",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-1-4",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-1-4",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-1-4",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-1-4",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-1-5",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-1-5",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-1-5",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-1-5",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-2-1",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-2-1",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-2-1",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-2-1",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-2-2",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-2-2",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-2-2",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-2-2",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-2-3",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-2-3",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-2-3",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-2-3",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-2-4",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-2-4",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-2-4",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-2-4",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-2-5",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-2-5",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-2-5",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-2-5",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-3-1",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-3-1",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-3-1",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-3-1",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-3-2",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-3-2",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-3-2",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-3-2",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-3-3",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-3-3",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-3-3",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-3-3",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-3-4",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-3-4",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-3-4",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-3-4",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-3-5",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-3-5",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-3-5",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-new-3-5",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-0-1",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-0-1",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-0-1",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-0-1",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-0-2",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-0-2",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-0-2",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-0-2",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-0-3",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-0-3",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-0-3",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-0-3",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-0-4",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-0-4",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-0-4",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-0-4",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-0-5",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-0-5",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-0-5",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-0-5",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-1-1",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-1-1",
+      "direction": "outbound",
+      "purpose": "runtime:read",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 181,
+      "websocket_frame_bytes": 189
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-1-1",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-1-1",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-1-1",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-1-2",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-1-2",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-1-2",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-1-2",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-1-3",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-1-3",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-1-3",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-1-3",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-1-4",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-1-4",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-1-4",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-1-4",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-1-5",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-1-5",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-1-5",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-1-5",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-2-1",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-2-1",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-2-1",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-2-1",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-2-2",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-2-2",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-2-2",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-2-2",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-2-3",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-2-3",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-2-3",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-2-3",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-2-4",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-2-4",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-2-4",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-2-4",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-2-5",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-2-5",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-2-5",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-2-5",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-3-1",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-3-1",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-3-1",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-3-1",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-3-2",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-3-2",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-3-2",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-3-2",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-3-3",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-3-3",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-3-3",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-3-3",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-3-4",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-3-4",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-3-4",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-3-4",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-3-5",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 176,
+      "websocket_frame_bytes": 184
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-3-5",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 53339,
+      "websocket_frame_bytes": 53347
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-3-5",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 173,
+      "websocket_frame_bytes": 181
+    },
+    {
+      "source": "coordinator",
+      "destination": "replica-old-3-5",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 217,
+      "websocket_frame_bytes": 225
+    },
+    {
+      "source": "coordinator",
+      "destination": "runtime-new-0",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 174,
+      "websocket_frame_bytes": 182
+    },
+    {
+      "source": "coordinator",
+      "destination": "runtime-new-0",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 340573,
+      "websocket_frame_bytes": 340587
+    },
+    {
+      "source": "coordinator",
+      "destination": "runtime-new-0",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 171,
+      "websocket_frame_bytes": 179
+    },
+    {
+      "source": "coordinator",
+      "destination": "runtime-new-0",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 215,
+      "websocket_frame_bytes": 223
+    },
+    {
+      "source": "coordinator",
+      "destination": "runtime-new-1",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 174,
+      "websocket_frame_bytes": 182
+    },
+    {
+      "source": "coordinator",
+      "destination": "runtime-new-1",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 340573,
+      "websocket_frame_bytes": 340587
+    },
+    {
+      "source": "coordinator",
+      "destination": "runtime-new-1",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 171,
+      "websocket_frame_bytes": 179
+    },
+    {
+      "source": "coordinator",
+      "destination": "runtime-new-1",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 215,
+      "websocket_frame_bytes": 223
+    },
+    {
+      "source": "coordinator",
+      "destination": "runtime-new-2",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 174,
+      "websocket_frame_bytes": 182
+    },
+    {
+      "source": "coordinator",
+      "destination": "runtime-new-2",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 340573,
+      "websocket_frame_bytes": 340587
+    },
+    {
+      "source": "coordinator",
+      "destination": "runtime-new-2",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 171,
+      "websocket_frame_bytes": 179
+    },
+    {
+      "source": "coordinator",
+      "destination": "runtime-new-2",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 215,
+      "websocket_frame_bytes": 223
+    },
+    {
+      "source": "coordinator",
+      "destination": "runtime-new-3",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 174,
+      "websocket_frame_bytes": 182
+    },
+    {
+      "source": "coordinator",
+      "destination": "runtime-new-3",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 340573,
+      "websocket_frame_bytes": 340587
+    },
+    {
+      "source": "coordinator",
+      "destination": "runtime-new-3",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 171,
+      "websocket_frame_bytes": 179
+    },
+    {
+      "source": "coordinator",
+      "destination": "runtime-new-3",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 215,
+      "websocket_frame_bytes": 223
+    },
+    {
+      "source": "coordinator",
+      "destination": "runtime-old-0",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 174,
+      "websocket_frame_bytes": 182
+    },
+    {
+      "source": "coordinator",
+      "destination": "runtime-old-0",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 340573,
+      "websocket_frame_bytes": 340587
+    },
+    {
+      "source": "coordinator",
+      "destination": "runtime-old-0",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 171,
+      "websocket_frame_bytes": 179
+    },
+    {
+      "source": "coordinator",
+      "destination": "runtime-old-0",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 215,
+      "websocket_frame_bytes": 223
+    },
+    {
+      "source": "coordinator",
+      "destination": "runtime-old-1",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 174,
+      "websocket_frame_bytes": 182
+    },
+    {
+      "source": "coordinator",
+      "destination": "runtime-old-1",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 340573,
+      "websocket_frame_bytes": 340587
+    },
+    {
+      "source": "coordinator",
+      "destination": "runtime-old-1",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 171,
+      "websocket_frame_bytes": 179
+    },
+    {
+      "source": "coordinator",
+      "destination": "runtime-old-1",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 215,
+      "websocket_frame_bytes": 223
+    },
+    {
+      "source": "coordinator",
+      "destination": "runtime-old-2",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 174,
+      "websocket_frame_bytes": 182
+    },
+    {
+      "source": "coordinator",
+      "destination": "runtime-old-2",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 340573,
+      "websocket_frame_bytes": 340587
+    },
+    {
+      "source": "coordinator",
+      "destination": "runtime-old-2",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 171,
+      "websocket_frame_bytes": 179
+    },
+    {
+      "source": "coordinator",
+      "destination": "runtime-old-2",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 215,
+      "websocket_frame_bytes": 223
+    },
+    {
+      "source": "coordinator",
+      "destination": "runtime-old-3",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 174,
+      "websocket_frame_bytes": 182
+    },
+    {
+      "source": "coordinator",
+      "destination": "runtime-old-3",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 340573,
+      "websocket_frame_bytes": 340587
+    },
+    {
+      "source": "coordinator",
+      "destination": "runtime-old-3",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 171,
+      "websocket_frame_bytes": 179
+    },
+    {
+      "source": "coordinator",
+      "destination": "runtime-old-3",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 215,
+      "websocket_frame_bytes": 223
+    },
+    {
+      "source": "observer-0-history-0",
+      "destination": "observer-0",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1257,
+      "websocket_frame_bytes": 1261
+    },
+    {
+      "source": "observer-0-history-1",
+      "destination": "observer-0",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1257,
+      "websocket_frame_bytes": 1261
+    },
+    {
+      "source": "observer-0-history-2",
+      "destination": "observer-0",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1257,
+      "websocket_frame_bytes": 1261
+    },
+    {
+      "source": "observer-0-history-3",
+      "destination": "observer-0",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1257,
+      "websocket_frame_bytes": 1261
+    },
+    {
+      "source": "observer-0-history-4",
+      "destination": "observer-0",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1257,
+      "websocket_frame_bytes": 1261
+    },
+    {
+      "source": "observer-0",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1104,
+      "websocket_frame_bytes": 1108
+    },
+    {
+      "source": "observer-0",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 239,
+      "websocket_frame_bytes": 243
+    },
+    {
+      "source": "observer-0",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 254,
+      "websocket_frame_bytes": 258
+    },
+    {
+      "source": "observer-0",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 6763,
+      "websocket_frame_bytes": 6767
+    },
+    {
+      "source": "observer-0",
+      "destination": "observer-0-history-0",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 3865,
+      "websocket_frame_bytes": 3873
+    },
+    {
+      "source": "observer-0",
+      "destination": "observer-0-history-1",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 3865,
+      "websocket_frame_bytes": 3873
+    },
+    {
+      "source": "observer-0",
+      "destination": "observer-0-history-2",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 3865,
+      "websocket_frame_bytes": 3873
+    },
+    {
+      "source": "observer-0",
+      "destination": "observer-0-history-3",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 3865,
+      "websocket_frame_bytes": 3873
+    },
+    {
+      "source": "observer-0",
+      "destination": "observer-0-history-4",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 3865,
+      "websocket_frame_bytes": 3873
+    },
+    {
+      "source": "observer-1-history-0",
+      "destination": "observer-1",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1257,
+      "websocket_frame_bytes": 1261
+    },
+    {
+      "source": "observer-1-history-1",
+      "destination": "observer-1",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1257,
+      "websocket_frame_bytes": 1261
+    },
+    {
+      "source": "observer-1-history-2",
+      "destination": "observer-1",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1257,
+      "websocket_frame_bytes": 1261
+    },
+    {
+      "source": "observer-1-history-3",
+      "destination": "observer-1",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1257,
+      "websocket_frame_bytes": 1261
+    },
+    {
+      "source": "observer-1-history-4",
+      "destination": "observer-1",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1257,
+      "websocket_frame_bytes": 1261
+    },
+    {
+      "source": "observer-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1105,
+      "websocket_frame_bytes": 1109
+    },
+    {
+      "source": "observer-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 239,
+      "websocket_frame_bytes": 243
+    },
+    {
+      "source": "observer-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 254,
+      "websocket_frame_bytes": 258
+    },
+    {
+      "source": "observer-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 6763,
+      "websocket_frame_bytes": 6767
+    },
+    {
+      "source": "observer-1",
+      "destination": "observer-1-history-0",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 3865,
+      "websocket_frame_bytes": 3873
+    },
+    {
+      "source": "observer-1",
+      "destination": "observer-1-history-1",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 3865,
+      "websocket_frame_bytes": 3873
+    },
+    {
+      "source": "observer-1",
+      "destination": "observer-1-history-2",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 3865,
+      "websocket_frame_bytes": 3873
+    },
+    {
+      "source": "observer-1",
+      "destination": "observer-1-history-3",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 3865,
+      "websocket_frame_bytes": 3873
+    },
+    {
+      "source": "observer-1",
+      "destination": "observer-1-history-4",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 3865,
+      "websocket_frame_bytes": 3873
+    },
+    {
+      "source": "observer-2-history-0",
+      "destination": "observer-2",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1257,
+      "websocket_frame_bytes": 1261
+    },
+    {
+      "source": "observer-2-history-1",
+      "destination": "observer-2",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1257,
+      "websocket_frame_bytes": 1261
+    },
+    {
+      "source": "observer-2-history-2",
+      "destination": "observer-2",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1257,
+      "websocket_frame_bytes": 1261
+    },
+    {
+      "source": "observer-2-history-3",
+      "destination": "observer-2",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1257,
+      "websocket_frame_bytes": 1261
+    },
+    {
+      "source": "observer-2-history-4",
+      "destination": "observer-2",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1257,
+      "websocket_frame_bytes": 1261
+    },
+    {
+      "source": "observer-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1105,
+      "websocket_frame_bytes": 1109
+    },
+    {
+      "source": "observer-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 239,
+      "websocket_frame_bytes": 243
+    },
+    {
+      "source": "observer-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 254,
+      "websocket_frame_bytes": 258
+    },
+    {
+      "source": "observer-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 6763,
+      "websocket_frame_bytes": 6767
+    },
+    {
+      "source": "observer-2",
+      "destination": "observer-2-history-0",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 3865,
+      "websocket_frame_bytes": 3873
+    },
+    {
+      "source": "observer-2",
+      "destination": "observer-2-history-1",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 3865,
+      "websocket_frame_bytes": 3873
+    },
+    {
+      "source": "observer-2",
+      "destination": "observer-2-history-2",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 3865,
+      "websocket_frame_bytes": 3873
+    },
+    {
+      "source": "observer-2",
+      "destination": "observer-2-history-3",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 3865,
+      "websocket_frame_bytes": 3873
+    },
+    {
+      "source": "observer-2",
+      "destination": "observer-2-history-4",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 3865,
+      "websocket_frame_bytes": 3873
+    },
+    {
+      "source": "observer-3-history-0",
+      "destination": "observer-3",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1257,
+      "websocket_frame_bytes": 1261
+    },
+    {
+      "source": "observer-3-history-1",
+      "destination": "observer-3",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1257,
+      "websocket_frame_bytes": 1261
+    },
+    {
+      "source": "observer-3-history-2",
+      "destination": "observer-3",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1257,
+      "websocket_frame_bytes": 1261
+    },
+    {
+      "source": "observer-3-history-3",
+      "destination": "observer-3",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1257,
+      "websocket_frame_bytes": 1261
+    },
+    {
+      "source": "observer-3-history-4",
+      "destination": "observer-3",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1257,
+      "websocket_frame_bytes": 1261
+    },
+    {
+      "source": "observer-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1105,
+      "websocket_frame_bytes": 1109
+    },
+    {
+      "source": "observer-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 239,
+      "websocket_frame_bytes": 243
+    },
+    {
+      "source": "observer-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 254,
+      "websocket_frame_bytes": 258
+    },
+    {
+      "source": "observer-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 6763,
+      "websocket_frame_bytes": 6767
+    },
+    {
+      "source": "observer-3",
+      "destination": "observer-3-history-0",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 3865,
+      "websocket_frame_bytes": 3873
+    },
+    {
+      "source": "observer-3",
+      "destination": "observer-3-history-1",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 3865,
+      "websocket_frame_bytes": 3873
+    },
+    {
+      "source": "observer-3",
+      "destination": "observer-3-history-2",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 3865,
+      "websocket_frame_bytes": 3873
+    },
+    {
+      "source": "observer-3",
+      "destination": "observer-3-history-3",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 3865,
+      "websocket_frame_bytes": 3873
+    },
+    {
+      "source": "observer-3",
+      "destination": "observer-3-history-4",
+      "direction": "outbound",
+      "purpose": "observer-history:append",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 3865,
+      "websocket_frame_bytes": 3873
+    },
+    {
+      "source": "replica-new-0-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-new-0-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-new-0-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-new-0-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-new-0-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-new-0-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-new-0-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-new-0-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-new-0-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-new-0-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-new-0-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-new-0-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-new-0-4",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-new-0-4",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-new-0-4",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-new-0-4",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-new-0-5",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-new-0-5",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-new-0-5",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-new-0-5",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-new-1-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-new-1-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-new-1-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-new-1-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-new-1-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-new-1-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-new-1-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-new-1-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-new-1-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-new-1-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-new-1-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-new-1-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-new-1-4",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-new-1-4",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-new-1-4",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-new-1-4",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-new-1-5",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-new-1-5",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-new-1-5",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-new-1-5",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-new-2-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-new-2-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-new-2-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-new-2-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-new-2-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-new-2-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-new-2-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-new-2-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-new-2-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-new-2-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-new-2-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-new-2-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-new-2-4",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-new-2-4",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-new-2-4",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-new-2-4",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-new-2-5",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-new-2-5",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-new-2-5",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-new-2-5",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-new-3-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-new-3-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-new-3-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-new-3-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-new-3-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-new-3-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-new-3-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-new-3-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-new-3-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-new-3-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-new-3-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-new-3-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-new-3-4",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-new-3-4",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-new-3-4",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-new-3-4",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-new-3-5",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-new-3-5",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-new-3-5",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-new-3-5",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-old-0-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-old-0-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-old-0-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-old-0-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-old-0-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-old-0-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-old-0-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-old-0-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-old-0-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-old-0-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-old-0-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-old-0-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-old-0-4",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-old-0-4",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-old-0-4",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-old-0-4",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-old-0-5",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-old-0-5",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-old-0-5",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-old-0-5",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-old-1-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-old-1-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "runtime:read",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 323,
+      "websocket_frame_bytes": 327
+    },
+    {
+      "source": "replica-old-1-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-old-1-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-old-1-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 2221,
+      "websocket_frame_bytes": 2225
+    },
+    {
+      "source": "replica-old-1-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-old-1-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-old-1-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-old-1-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-old-1-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-old-1-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-old-1-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-old-1-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-old-1-4",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-old-1-4",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-old-1-4",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-old-1-4",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-old-1-5",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-old-1-5",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-old-1-5",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-old-1-5",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-old-2-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-old-2-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-old-2-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-old-2-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-old-2-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-old-2-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-old-2-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-old-2-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-old-2-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-old-2-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-old-2-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-old-2-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-old-2-4",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-old-2-4",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-old-2-4",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-old-2-4",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-old-2-5",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-old-2-5",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-old-2-5",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-old-2-5",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-old-3-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-old-3-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-old-3-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-old-3-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-old-3-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-old-3-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-old-3-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-old-3-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-old-3-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-old-3-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-old-3-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-old-3-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-old-3-4",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-old-3-4",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-old-3-4",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-old-3-4",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "replica-old-3-5",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1119,
+      "websocket_frame_bytes": 1123
+    },
+    {
+      "source": "replica-old-3-5",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 305,
+      "websocket_frame_bytes": 309
+    },
+    {
+      "source": "replica-old-3-5",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 264,
+      "websocket_frame_bytes": 268
+    },
+    {
+      "source": "replica-old-3-5",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1484,
+      "websocket_frame_bytes": 1488
+    },
+    {
+      "source": "runtime-new-0",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1115,
+      "websocket_frame_bytes": 1119
+    },
+    {
+      "source": "runtime-new-0",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 265,
+      "websocket_frame_bytes": 269
+    },
+    {
+      "source": "runtime-new-0",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 260,
+      "websocket_frame_bytes": 264
+    },
+    {
+      "source": "runtime-new-0",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1474,
+      "websocket_frame_bytes": 1478
+    },
+    {
+      "source": "runtime-new-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1115,
+      "websocket_frame_bytes": 1119
+    },
+    {
+      "source": "runtime-new-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 265,
+      "websocket_frame_bytes": 269
+    },
+    {
+      "source": "runtime-new-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 260,
+      "websocket_frame_bytes": 264
+    },
+    {
+      "source": "runtime-new-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1474,
+      "websocket_frame_bytes": 1478
+    },
+    {
+      "source": "runtime-new-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1115,
+      "websocket_frame_bytes": 1119
+    },
+    {
+      "source": "runtime-new-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 265,
+      "websocket_frame_bytes": 269
+    },
+    {
+      "source": "runtime-new-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 260,
+      "websocket_frame_bytes": 264
+    },
+    {
+      "source": "runtime-new-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1474,
+      "websocket_frame_bytes": 1478
+    },
+    {
+      "source": "runtime-new-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1115,
+      "websocket_frame_bytes": 1119
+    },
+    {
+      "source": "runtime-new-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 265,
+      "websocket_frame_bytes": 269
+    },
+    {
+      "source": "runtime-new-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 260,
+      "websocket_frame_bytes": 264
+    },
+    {
+      "source": "runtime-new-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1474,
+      "websocket_frame_bytes": 1478
+    },
+    {
+      "source": "runtime-old-0",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1115,
+      "websocket_frame_bytes": 1119
+    },
+    {
+      "source": "runtime-old-0",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 265,
+      "websocket_frame_bytes": 269
+    },
+    {
+      "source": "runtime-old-0",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 260,
+      "websocket_frame_bytes": 264
+    },
+    {
+      "source": "runtime-old-0",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1474,
+      "websocket_frame_bytes": 1478
+    },
+    {
+      "source": "runtime-old-0",
+      "destination": "replica-old-1-1",
+      "direction": "outbound",
+      "purpose": "rso5:status",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 352,
+      "websocket_frame_bytes": 360
+    },
+    {
+      "source": "runtime-old-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1115,
+      "websocket_frame_bytes": 1119
+    },
+    {
+      "source": "runtime-old-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 265,
+      "websocket_frame_bytes": 269
+    },
+    {
+      "source": "runtime-old-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 260,
+      "websocket_frame_bytes": 264
+    },
+    {
+      "source": "runtime-old-1",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1474,
+      "websocket_frame_bytes": 1478
+    },
+    {
+      "source": "runtime-old-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1115,
+      "websocket_frame_bytes": 1119
+    },
+    {
+      "source": "runtime-old-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 265,
+      "websocket_frame_bytes": 269
+    },
+    {
+      "source": "runtime-old-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 260,
+      "websocket_frame_bytes": 264
+    },
+    {
+      "source": "runtime-old-2",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1474,
+      "websocket_frame_bytes": 1478
+    },
+    {
+      "source": "runtime-old-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "metrics",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1115,
+      "websocket_frame_bytes": 1119
+    },
+    {
+      "source": "runtime-old-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "setup",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 265,
+      "websocket_frame_bytes": 269
+    },
+    {
+      "source": "runtime-old-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "stop",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 260,
+      "websocket_frame_bytes": 264
+    },
+    {
+      "source": "runtime-old-3",
+      "destination": "coordinator",
+      "direction": "outbound",
+      "purpose": "traffic-page",
+      "transport": "websocket-loopback",
+      "messages": 1,
+      "payload_bytes": 1474,
+      "websocket_frame_bytes": 1478
+    }
+  ],
+  "envelope_semantics": "request+response envelopes; refused messages are separate and have no response envelope",
+  "reconciliation": {
+    "basis": "authenticated client request/response linkage with recorded authentication refusals; server snapshots supplemental",
+    "exact": true,
+    "edge_envelopes_match": true,
+    "sent_messages": 230,
+    "received_messages": 229,
+    "refused_messages": 1,
+    "missing_received": [],
+    "unexpected_received": [],
+    "mismatched": [],
+    "server_snapshot_records": 229,
+    "missing_received_details": [],
+    "unexpected_received_details": []
+  },
+  "nettop": {
+    "status": "observed",
+    "matching_process_rows": 0,
+    "sample_sha256": "sha256:8a75dcdf0bd90cf2e95500005811c639c3f05a99f1dcb78d89bd8421ffc43aa9",
+    "reconciliation": "Separate whole-process host view; no byte total inferred or added to WebSocket accounting"
+  },
+  "limitations": [
+    "Application WebSocket payload/frame bytes only; handshake/control frames and TCP/IP bytes excluded",
+    "nettop is a separate host view and is not added to application counters",
+    "No external traffic"
+  ]
+}

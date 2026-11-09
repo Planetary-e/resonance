@@ -176,6 +176,16 @@ Freeze existing scenario seeds/order and analysis before execution. Full runs mu
 
 Outcome: wrapper and full-lab integration are implemented with 28 matching source hashes; actual-source noEmit and syntax checks pass. Offline smoke used only the authorized manual sample and proves actual mW parsing (CPU 412, GPU 1, ANE 0, combined 413 at `2026-11-02T06:07:54.000Z`) plus a separately labeled 1 J arithmetic check. No full scenario ran, and no execution/decision/hash artifacts exist. Full owner command is `sudo node scripts/rso5-power-lab.mjs --full`; independent review follows complete evidence. No privileged action was run by this agent and no production, E2, economic or K/R acceptance follows.
 
+## DEC-013 completed run and independent physical-evidence review
+
+The owner-invoked full laboratory completed all 62 entries in frozen order. Sixty-one passed with 52/52 clean stops; the sustained window failed after 205.311 seconds and remains an unclassified functional/qualification failure. All 28 source hashes and 375 artifact hashes verify. No laboratory process remains.
+
+Host CPU+GPU+ANE sampling retained 8,009 samples, with 149 genuine two-second gaps totaling 298 seconds and one legitimate final censor. Retained integration covers 7,798.0/8,158.504 seconds (95.5812487%). Every run is partial, every matched-idle increment is null, and absolute values are retained-subinterval diagnostics rather than complete run energies. The owner reported no Unreal process, but other host activity was uncontrolled and per-process/whole-system attribution is unavailable.
+
+Independent review returned **REVISE**, not acceptance. It also found an unavoidable initial-sample censor predicate and CSV sample omission. Offline-only corrections preserve the original result files and manifest while fixing those defects and adding retained seconds, coverage ratio and censor metadata. Revised wrapper SHA-256 is `e42b1455c210403860ad0cf6221e58406adb23c4c70f9afdfe9c07aa6afcc8fd`. Ten focused tests and actual-source noEmit pass; recomputation over all retained JSON produces zero energy differences and restores every CSV sample without changing genuine gaps.
+
+See `docs/evals/v04-dec013-physical-evidence-review-2026-11-09.md`. Ancillary finalization/cleanup/summary evidence remains root-owned and unreadable. Complete failure triage before considering a controlled-host rerun, which requires a separate owner decision. No production, E2, economic or K/R acceptance follows.
+
 ## Change history and related DEC/ADR IDs
 
 - v1, 2026-10-25: created the work contract as blocked under DEC-001.
@@ -205,3 +215,4 @@ Outcome: wrapper and full-lab integration are implemented with 28 matching sourc
 - v25, 2026-10-31: DEC-011 enforces sustained warmup before bootstrap. Both runs pass all timing, finalization, work, traffic, authorization, power and cleanup gates with 52/52 clean stops and zero survivors. Actual aggregate work is 24,600,898,343 B; 50 evidence hashes validate. Independent budget review may proceed, with revised-budget, E2/E3, production, economic and K/R decisions still open.
 - v26, 2026-10-31: DEC-012 normal bounded lifecycle passes with complete inventory and zero operation/cumulative crossings: 678,000,451 B total and 17,741,154 B maximum operation, within the research contract. Original-cap history is preserved. Result/summary/candidate/receipt and 23 hashes validate; independent review may follow, with production, E3, economic and K/R acceptance still open.
 - v27, 2026-11-02: DEC-013 power wrapper and frozen full-lab test implemented. Offline smoke parses actual 413 mW combined and verifies 1 J arithmetic; no full scenario or privileged action ran. Twenty scenarios, two baselines and 40 paired idle windows remain pending under 28 matching source hashes. Owner command is `sudo node scripts/rso5-power-lab.mjs --full`; no production, E2, economic or K/R acceptance.
+- v28, 2026-11-09: DEC-013 completed 62 entries with 61 passes and one unclassified sustained failure. Independent REVISE confirms 375 artifact hashes and 95.5812487% retained power coverage, but no complete/attributable energy or acceptance. Offline reporting corrections and ten focused tests pass; ancillary failure evidence remains unreadable and a controlled-host rerun needs a separate owner decision.
