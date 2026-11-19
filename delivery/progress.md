@@ -271,6 +271,15 @@
 - **Receipts:** `docs/developers/v0.4-rso7-recovery-architecture.md` and `docs/evals/v04-dec014-architecture-review-2026-11-19.md`.
 - **Next action:** Owner decides whether to authorize one bounded materially complete RSO7 revision and review. No implementation, campaign or production/K/R acceptance.
 
+## 2026-11-19T10:49:50Z — DEC-015 RSO7 rejection independently confirmed
+
+- **Finite revisions:** Digest-directed restoration, explicit view/stable schemas, paged snapshots and complete operation equations produced cold 4,587,515 B and cumulative 230,579,193 B forecasts, both within original work limits for the finite 72-proof fixture. These are diagnostic forecasts only.
+- **Decisive physical rejection:** The original reducer permits 10,000 retained accepted/denied/conflict-relevant rows. Even at 100 B per row, one generation requires 1,000,000 B against D=524,288 B. Actual binary search rows are at least 276 B. Current+pending accepted-row-only D is 2,302,864 B; no page sharing or externalization into C/L/P rescues the model.
+- **Residual defects:** New-view local-lock union and newViewQ semantics remain incomplete, and returning reserve omits PolicyHistory=114,688 B. Neither changes rejection.
+- **Verdict:** CONFIRM REJECTION. No further RSO7 revision or implementation spike is justified. The finite accounting is reusable evidence for a genuinely different architecture only.
+- **Receipt:** `docs/evals/v04-dec015-rso7-followup-review-2026-11-19.md`.
+- **Next action:** Owner decides whether to explore a genuinely different state/recovery architecture or reconsider resource partitions. No production/K/R acceptance or campaign.
+
 ## 2026-11-19T08:08:53Z — DEC-014 production recovery alternatives authorized
 
 - **Owner authorization:** Continue the production recovery feature and explore alternatives rather than treating the original-cap result as an unresolved endpoint.
