@@ -261,3 +261,20 @@
 - **Classification:** The triggering observer/member error remains unclassified because per-member failures were not retained. Available failure-finalization triage is complete; no product-runtime fix is inferred.
 - **Preservation:** The seven artifacts and their new independent hash record are saved as `delivery/results/econ-power-lab-ancillary-hashes.json`.
 - **Next action:** Add per-member observer diagnostics and define a controlled-host plan before any separately owner-authorized rerun. No production, E2, economic or K/R acceptance.
+
+## 2026-11-19T09:22:55Z — DEC-014 comparison complete; RSO7 independent REVISE
+
+- **Alternatives:** Candidate A proposed per-voter single-evaluation certified state cuts. Candidate B full BFT-SMaRt adoption was rejected for its Java business-runtime migration, custom durability/recovery obligations and lack of a demonstrated resource advantage.
+- **Initial RSO7 forecast:** 214,492,899 B cumulative against 268,435,456 B and all listed operations below W, but this was never measured closure.
+- **Independent blocker:** Mandatory cold delegation restoration raises cold reserve to 4,751,898 B, exceeding W=4,718,592 by 33,306 B. The scenario cut mix is also wrong, pending T/M exceeds its physical allowance, maximum torn snapshots exceed F, several view-change/stable schemas and operation derivations are incomplete, and historical RSO5 provenance differs by 34,556 B.
+- **Decision:** RSO7 receives REVISE and no implementation spike is justified. The intended quorum design is not proven impossible, but essential transition rules, physical bounds and complete accounting are missing.
+- **Receipts:** `docs/developers/v0.4-rso7-recovery-architecture.md` and `docs/evals/v04-dec014-architecture-review-2026-11-19.md`.
+- **Next action:** Owner decides whether to authorize one bounded materially complete RSO7 revision and review. No implementation, campaign or production/K/R acceptance.
+
+## 2026-11-19T08:08:53Z — DEC-014 production recovery alternatives authorized
+
+- **Owner authorization:** Continue the production recovery feature and explore alternatives rather than treating the original-cap result as an unresolved endpoint.
+- **Active comparison:** At most two candidates: a single-evaluation authenticated state machine with certified state cuts, and full adoption of an established BFT engine rather than the rejected CometBFT sidecar. One recommended design and one independent review follow.
+- **Preserved contract:** Original production physical/work/deadline limits, exact business semantics, four-copy availability, five/quorum-four/one-Byzantine trust, role privacy and prospective funding remain unchanged. DEC-012 remains research-only; historical alternatives and stopped campaigns are not reset or rerun.
+- **Scope:** Design and primary-source research only. No implementation, dependency installation, product test, campaign, deployment or acceptance follows from this authorization.
+- **Next action:** Complete the comparison, bottom-up closure forecast and independent review; implementation needs a separate owner decision.
