@@ -287,3 +287,12 @@
 - **Preserved contract:** Original production physical/work/deadline limits, exact business semantics, four-copy availability, five/quorum-four/one-Byzantine trust, role privacy and prospective funding remain unchanged. DEC-012 remains research-only; historical alternatives and stopped campaigns are not reset or rerun.
 - **Scope:** Design and primary-source research only. No implementation, dependency installation, product test, campaign, deployment or acceptance follows from this authorization.
 - **Next action:** Complete the comparison, bottom-up closure forecast and independent review; implementation needs a separate owner decision.
+
+## 2026-11-20T10:35:57Z — DEC-016 RSO8-Range32 rejection confirmed
+
+- **Physical falsifiers:** Fixed-five four-copy current+pending storage averages 4,416,000 B per node against D=524,288 B; at least 43 storage volunteers are a plaintext lower bound, not a sufficiency claim. A legal 10,000-reference hot-key shard needs 640,000 B for current+pending references alone, exceeding D by 115,712 B.
+- **Work and aggregate:** Cold/NEW_VIEW/local-C forecasts exceed W by 602,862/488,174/455,639 B. Two all-shard terminal cuts forecast 448,502,720 B against cumulative 268,435,456 B. The additive entry model reaches 604/512, conditionally exceeding by 92 before control state.
+- **Original-semantics defect:** Legacy attribution removes all rows for attributed issuer keys, not only explicitly listed spends. Its participant shards therefore cannot be derived only from the spend list.
+- **Verdict:** Independent review CONFIRMS REJECTION. Spend routing and Atomix-style certificate shapes are qualitatively sound in narrow scope, but no candidate in this pass is viable and no implementation follows.
+- **Receipts:** `docs/developers/v0.4-rso8-recovery-architecture.md` and `docs/evals/v04-dec016-rso8-rejection-review-2026-11-20.md`.
+- **Next action:** Owner decides whether to explore sparse/stateless semantic verification, reconsider resource partitions or suspend production recovery. No implementation, campaign or acceptance.
