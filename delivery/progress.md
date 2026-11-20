@@ -296,3 +296,12 @@
 - **Verdict:** Independent review CONFIRMS REJECTION. Spend routing and Atomix-style certificate shapes are qualitatively sound in narrow scope, but no candidate in this pass is viable and no implementation follows.
 - **Receipts:** `docs/developers/v0.4-rso8-recovery-architecture.md` and `docs/evals/v04-dec016-rso8-rejection-review-2026-11-20.md`.
 - **Next action:** Owner decides whether to explore sparse/stateless semantic verification, reconsider resource partitions or suspend production recovery. No implementation, campaign or acceptance.
+
+## 2026-11-20T13:16:47Z — DEC-017 RSO9 rejection confirmed; requirements decision reached
+
+- **Evidence failure:** A legal 10,000-row accept-generated history requires at least 10,240,000 B of signed certificate material per copy before encoding against C=262,144 B; encoded forecast is 15,455,739 B per copy. Compact roots cannot remove original evidence.
+- **Prover and transition failures:** Minimal dual accepted-row indexes need 640,000 B against D=524,288 B. Legal issuer-wide deletion creates a 980,252 B pending mutation, 14,703,780 B materialization forecast and linear network/recovery work. Cold/returning/local-loss forecasts also exceed W.
+- **Review correction:** Other-leaf non-inclusion must prove the queried path through divergence. Ordinary summary arithmetic is coherent but remains an optimistic schema, not differential reducer proof.
+- **Decision:** Independent review CONFIRMS REJECTION. RSO7 global state, RSO8 ranges and RSO9 compact roots are closed as routine representation alternatives. No further ordinary variant is justified under the stop policy.
+- **Receipts:** `docs/developers/v0.4-rso9-recovery-architecture.md` and `docs/evals/v04-dec017-rso9-rejection-review-2026-11-20.md`.
+- **Next action:** Owner explicitly reconsiders resource/evidence requirements or suspends production recovery. No cap change, implementation, campaign or acceptance is inferred.
