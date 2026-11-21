@@ -305,3 +305,12 @@
 - **Decision:** Independent review CONFIRMS REJECTION. RSO7 global state, RSO8 ranges and RSO9 compact roots are closed as routine representation alternatives. No further ordinary variant is justified under the stop policy.
 - **Receipts:** `docs/developers/v0.4-rso9-recovery-architecture.md` and `docs/evals/v04-dec017-rso9-rejection-review-2026-11-20.md`.
 - **Next action:** Owner explicitly reconsiders resource/evidence requirements or suspends production recovery. No cap change, implementation, campaign or acceptance is inferred.
+
+## 2026-11-21T18:30:23Z — DEC-018 resource rebaseline receives independent REVISE
+
+- **Proposal analyzed:** C=256 MiB, D=512 MiB, P/F=32 MiB, W=4 GiB, cumulative qualification work=8 TiB, aggregate=8 GiB, 16,384 entries, metadata=32 MiB, ordinary network=2 MiB and exceptional network=4 GiB per completion. No values are approved.
+- **Arithmetic:** Source object sizes and most physical/work/network totals verify after corrections. A claim that two recovery attempts exceed 2 GiB was false in binary units; they leave 99,160,576 B. Actual cold completeness, delegation cardinality, failures, migration and lifetime schedules remain unresolved.
+- **Operational result:** The model describes provisioned infrastructure, not lightweight personal volunteers. A 4 GiB transfer needs 1.145 Gb/s at 30 seconds or 114.5 Mb/s at five minutes before overhead. Memory, power, labor, recruitment, correlated availability and economics remain unmeasured.
+- **Decision:** Do not adopt the contract or revive RSO7/RSO8/RSO9. First choose the product/deployment direction.
+- **Receipts:** `docs/developers/v0.4-production-resource-rebaseline.md` and `docs/evals/v04-dec018-resource-rebaseline-review-2026-11-21.md`.
+- **Next action:** Owner chooses provisioned-infrastructure evaluation, lightweight-volunteer scope change or suspension. No implementation, campaign or acceptance.

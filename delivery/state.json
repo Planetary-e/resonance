@@ -12,12 +12,12 @@
   "worktree": {
     "path": "/Users/marcos/Documents/Codex/2026-09-15/i-x20/resonance-v04",
     "branch": "development",
-    "head": "67f7e0b",
+    "head": "37a4f02",
     "dirty_tree_preserved": true,
     "session_only_installation": true
   },
   "current_feature_id": "FEAT-001",
-  "next_action": "RSO9 is confirmed rejected; RSO7/RSO8/RSO9 representation alternatives are closed. Await an explicit owner decision on resource/evidence requirements or suspension. No implementation, campaign or acceptance.",
+  "next_action": "DEC-018 rebaseline receives REVISE and is not approved. Owner must choose provisioned-infrastructure evaluation, lightweight-volunteer product-scope change, or suspension before further recovery work. No implementation, campaign or acceptance.",
   "pending_decision_ids": [],
   "approvals": {
     "product_scope": "approved",
@@ -29,6 +29,6 @@
   "session": {
     "id": "kimi-resonance-v04-20261025T190412Z",
     "started_at": "2026-10-25T19:04:12Z",
-    "updated_at": "2026-11-20T13:16:47Z"
+    "updated_at": "2026-11-21T18:30:23Z"
   }
 }
