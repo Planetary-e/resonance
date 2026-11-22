@@ -314,3 +314,13 @@
 - **Decision:** Do not adopt the contract or revive RSO7/RSO8/RSO9. First choose the product/deployment direction.
 - **Receipts:** `docs/developers/v0.4-production-resource-rebaseline.md` and `docs/evals/v04-dec018-resource-rebaseline-review-2026-11-21.md`.
 - **Next action:** Owner chooses provisioned-infrastructure evaluation, lightweight-volunteer scope change or suspension. No implementation, campaign or acceptance.
+
+## 2026-11-22T11:20:25Z — DEC-020 client-held discovery exploration reviewed on dedicated branch
+
+- **Architecture:** Original content and exact signed indexes remain client-held; local summary/intent, existing Nomic embeddings and LSH produce leased discovery records; authorized online clients deliver originals; bounded encrypted mailboxes hold requests while recipients are offline. This changes the content plane, not FEAT-001 control-plane recovery.
+- **Independent verdict:** REVISE. Fix refreshed-generation mailbox redeposit/ACK semantics, lease-refresh notification dedup, inclusive 512-KiB quota accounting, conflict/fork retention and complete crash/drain/withdrawal schedules before considering implementation.
+- **Privacy and product gates:** Stable `clientLeaseId` creates a linkability/quota tradeoff requiring an owner decision. Existing K5/K6 failures remain open; local generation, HMAC commitments and encrypted mailboxes do not establish confidentiality. Client offline/loss and discovery-versus-fulfillment denominators must be explicit.
+- **Model evaluation:** Qwen2.5 1.5B/3B/0.5B remain unselected. 3B has separate research/commercial license constraints. Strict JSON validation, exact cache/replay, bilingual quality, faithfulness, cold resource and physical measurements are specified without execution.
+- **Receipts:** `docs/developers/v0.4-client-held-discovery-architecture.md` and `docs/evals/v04-dec020-client-held-discovery-review-2026-11-22.md`.
+- **Branch:** `feature/client-held-discovery` created from `development`; no implementation, model download, campaign or acceptance occurred.
+- **Next action:** Owner decides whether to authorize one bounded specification revision and follow-up review. Any implementation spike needs separate approval.

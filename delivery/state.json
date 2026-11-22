@@ -11,13 +11,13 @@
   },
   "worktree": {
     "path": "/Users/marcos/Documents/Codex/2026-09-15/i-x20/resonance-v04",
-    "branch": "development",
-    "head": "37a4f02",
+    "branch": "feature/client-held-discovery",
+    "head": "8f456ac",
     "dirty_tree_preserved": true,
     "session_only_installation": true
   },
   "current_feature_id": "FEAT-001",
-  "next_action": "DEC-018 rebaseline receives REVISE and is not approved. Owner must choose provisioned-infrastructure evaluation, lightweight-volunteer product-scope change, or suspension before further recovery work. No implementation, campaign or acceptance.",
+  "next_action": "DEC-020 client-held discovery receives REVISE. Await an owner decision on one bounded specification revision; any implementation spike needs separate approval. FEAT-001 control-plane recovery and all K/R gates remain open.",
   "pending_decision_ids": [],
   "approvals": {
     "product_scope": "approved",
@@ -29,6 +29,6 @@
   "session": {
     "id": "kimi-resonance-v04-20261025T190412Z",
     "started_at": "2026-10-25T19:04:12Z",
-    "updated_at": "2026-11-21T18:30:23Z"
+    "updated_at": "2026-11-22T11:20:25Z"
   }
 }
