@@ -363,3 +363,13 @@
 - **Verification:** Twenty-seven focused/affected tests across eight files pass, including loopback private forwarding and relationship replication. Actual-source noEmit and diff checks pass. Closed clients perform no work, and original responses are not journaled as offline content.
 - **Integration boundary:** Content store is not wired into PairwiseChannelManagerV2 or live relay-client methods; tests compose real encrypted operations between in-process client stores. No process-kill campaign, UI, model or external network was added.
 - **Next action:** Run a composed end-to-end prototype, resource evidence and independent code review across all four stages. No production/K/R acceptance.
+
+## 2026-11-22T15:30:20Z — DEC-022 bounded in-process prototype complete and independently accepted
+
+- **Composed evidence:** Actual local/relay stores complete publication, offline-owner repair, refresh without duplicate notice, encrypted refreshed redeposit, three signed queued receipts, recipient restart/inbox-before-ACK, generation-scoped ACK, authorized channel-encrypted original delivery, withdrawal and composed quota checks.
+- **Defects corrected:** Exact replay after withdrawal, foreign-signer withdrawal on direct/sync/restart, and changed-ciphertext-after-ACK conflict handling. A nondeterministic negative fixture was also corrected and repeatedly validated.
+- **Final validation:** 173/173 tests across 29 files, actual-source noEmit, build and diff checks pass. Independent code review returns ACCEPT BOUNDED IN-PROCESS PROTOTYPE.
+- **Local process facts:** Isolated composed run: 2.11 seconds wall, 1.63 seconds user CPU, 0.32 seconds system CPU, 208,257,024 B maximum RSS. These are not physical-power, real-network or K7 qualification.
+- **Boundaries:** No live server RPC/network-client/UI integration, process-kill campaign, relay-global quota, external deployment or model arm. Client-loss, privacy, FEAT-001 recovery and all production/K/R gates remain open.
+- **Receipt:** `docs/evals/v04-dec022-prototype-review-2026-11-22.md`.
+- **Next action:** Owner decides whether to authorize live integration or further qualification; no acceptance is inherited from the in-process prototype.

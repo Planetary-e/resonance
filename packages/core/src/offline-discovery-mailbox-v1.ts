@@ -138,6 +138,7 @@ export type OfflineDiscoverySyncEventV1 =
   | {
     kind: 'withdrawal';
     withdrawal: LeasedIndexWithdrawalV1;
+    index: LeasedIndexV1;
   };
 
 export function encryptOfflineDiscoveryRequestV1(

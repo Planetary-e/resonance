@@ -23,6 +23,7 @@ import {
   parseLeasedIndexOperationV1,
   parseOfflineDiscoveryAckV1,
   parseOfflineDiscoveryDepositV1,
+  serializeLeasedIndexOperationV1,
   serializeOfflineDiscoveryDepositV1,
   verifyLeasedIndexV1,
   verifyLeasedIndexWithdrawalV1,
@@ -95,6 +96,7 @@ interface LeaseRecord {
   quota: OfflineDiscoveryQuotaLedgerV1;
   requests: Map<string, RequestRecord>;
   withdrawal?: LeasedIndexWithdrawalV1;
+  withdrawalIndex?: LeasedIndexV1;
 }
 
 type JournalEntry =
@@ -102,7 +104,7 @@ type JournalEntry =
   | { kind: 'deposit'; record: AdmissionRecord }
   | { kind: 'conflict'; record: AdmissionRecord }
   | { kind: 'ack'; ack: OfflineDiscoveryAckV1; evidence: AdmissionRecord }
-  | { kind: 'withdrawal'; withdrawal: LeasedIndexWithdrawalV1 };
+  | { kind: 'withdrawal'; withdrawal: LeasedIndexWithdrawalV1; index: LeasedIndexV1 };
 
 interface JournalRecord {
   sequence: number;
@@ -113,10 +115,12 @@ export interface MailboxGenerationStoreOptions {
   directory: string;
   relayIdentity: Identity;
   currentIndex(clientLeaseId: string): LeasedIndexV1 | undefined;
+  authorizedIndex?(clientLeaseId: string): LeasedIndexV1 | undefined;
   indexForGeneration(generationId: string): LeasedIndexV1 | undefined;
   verifyAdmission(capability: AdmissionCapabilityV2, binding: string): boolean;
 }
 
+/** Quota limits are per selected replica per clientLeaseId; no relay-global quota is represented. */
 export class MailboxGenerationStore {
   private readonly directory: string;
   private readonly journalPath: string;
@@ -153,6 +157,7 @@ export class MailboxGenerationStore {
     const lease = this.leases.get(deposit.clientLeaseId);
     const request = lease?.requests.get(deposit.requestId);
     const prior = request?.generations.get(deposit.generationId);
+    if (lease?.withdrawal) return { status: 'withdrawn' };
     if (prior?.depositBytes === raw) {
       return {
         status: 'duplicate',
@@ -162,8 +167,6 @@ export class MailboxGenerationStore {
       };
     }
     if (prior?.conflictBytes === raw) return { status: 'conflicting_request', conflictBytes: raw };
-    if (lease?.withdrawal) return { status: 'withdrawn' };
-    if (prior?.ack) return { status: 'duplicate' };
     if (!Number.isSafeInteger(now) || now < deposit.createdAt) return { status: 'invalid' };
     if (now >= deposit.expiresAt) return { status: 'expired' };
     const index = this.options.indexForGeneration(deposit.generationId);
@@ -172,7 +175,7 @@ export class MailboxGenerationStore {
     const current = this.options.currentIndex(deposit.clientLeaseId);
     const currentMatches = current && createLeasedIndexGenerationIdV1(current) === deposit.generationId
       && isLeasedIndexActiveV1(current, now);
-    if (!replicated && !currentMatches) return { status: 'stale_index' };
+    if (!replicated && !currentMatches && !prior?.ack) return { status: 'stale_index' };
 
     if (prior) {
       if (prior.conflictBytes) {
@@ -264,7 +267,7 @@ export class MailboxGenerationStore {
     if (event.kind === 'deposit') {
       return this.deposit(serializeOfflineDiscoveryDepositV1(event.deposit), event.admission, now, true);
     }
-    if (event.kind === 'withdrawal') return this.withdraw(event.withdrawal);
+    if (event.kind === 'withdrawal') return this.withdrawReplica(event.withdrawal, event.index);
     if (!verifyOfflineDiscoveryAckV1(event.ack)
       || !verifyOfflineDiscoveryDepositV1(event.deposit)) return { status: 'invalid' };
     const generation = this.findGeneration(
@@ -340,12 +343,49 @@ export class MailboxGenerationStore {
   withdraw(withdrawal: LeasedIndexWithdrawalV1): GenerationMailboxAckResult {
     this.ensureWritable();
     if (!verifyLeasedIndexWithdrawalV1(withdrawal)) return { status: 'invalid' };
-    const lease = this.leases.get(withdrawal.clientLeaseId) ?? this.newLease(withdrawal.clientLeaseId);
-    if (lease.withdrawal) return { status: 'duplicate' };
-    this.append({ kind: 'withdrawal', withdrawal });
+    const retained = this.leases.get(withdrawal.clientLeaseId)?.withdrawalIndex;
+    const index = retained ?? this.options.currentIndex(withdrawal.clientLeaseId)
+      ?? this.options.authorizedIndex?.(withdrawal.clientLeaseId);
+    if (!index || !withdrawalMatchesIndex(withdrawal, index)) return { status: 'invalid' };
+    return this.commitWithdrawal(withdrawal, index);
+  }
+
+  private withdrawReplica(
+    withdrawal: LeasedIndexWithdrawalV1,
+    evidence: LeasedIndexV1,
+  ): GenerationMailboxAckResult {
+    this.ensureWritable();
+    if (!verifyLeasedIndexWithdrawalV1(withdrawal) || !verifyLeasedIndexV1(evidence)
+      || !withdrawalMatchesIndex(withdrawal, evidence)) return { status: 'invalid' };
+    const retained = this.leases.get(withdrawal.clientLeaseId)?.withdrawalIndex;
+    const current = retained ?? this.options.currentIndex(withdrawal.clientLeaseId)
+      ?? this.options.authorizedIndex?.(withdrawal.clientLeaseId);
+    const historical = this.options.indexForGeneration(createLeasedIndexGenerationIdV1(evidence));
+    const authorized = [current, historical].find(index => index
+      && serializeLeasedIndexOperationV1(index) === serializeLeasedIndexOperationV1(evidence));
+    if (!authorized) return { status: 'invalid' };
+    return this.commitWithdrawal(withdrawal, evidence);
+  }
+
+  private commitWithdrawal(
+    withdrawal: LeasedIndexWithdrawalV1,
+    index: LeasedIndexV1,
+  ): GenerationMailboxAckResult {
+    const existing = this.leases.get(withdrawal.clientLeaseId);
+    if (existing?.withdrawal) {
+      if (serializeLeasedIndexOperationV1(existing.withdrawal) === serializeLeasedIndexOperationV1(withdrawal)
+        && existing.withdrawalIndex
+        && serializeLeasedIndexOperationV1(existing.withdrawalIndex) === serializeLeasedIndexOperationV1(index)) {
+        return { status: 'duplicate' };
+      }
+      return { status: 'invalid' };
+    }
+    const lease = existing ?? this.newLease(withdrawal.clientLeaseId);
+    this.append({ kind: 'withdrawal', withdrawal, index });
     lease.withdrawal = withdrawal;
+    lease.withdrawalIndex = index;
     for (const request of lease.requests.values()) lease.quota.withdraw(request.requestId);
-    if (!this.leases.has(withdrawal.clientLeaseId)) this.leases.set(withdrawal.clientLeaseId, lease);
+    if (!existing) this.leases.set(withdrawal.clientLeaseId, lease);
     return { status: 'acknowledged' };
   }
 
@@ -539,8 +579,13 @@ export class MailboxGenerationStore {
       return;
     }
     if (entry.kind === 'withdrawal') {
+      if (!withdrawalMatchesIndex(entry.withdrawal, entry.index)) {
+        throw new Error('Invalid journaled withdrawal authorization');
+      }
       const lease = this.leases.get(entry.withdrawal.clientLeaseId) ?? this.newLease(entry.withdrawal.clientLeaseId);
       lease.withdrawal = entry.withdrawal;
+      lease.withdrawalIndex = entry.index;
+      for (const request of lease.requests.values()) lease.quota.withdraw(request.requestId);
       if (!this.leases.has(entry.withdrawal.clientLeaseId)) this.leases.set(entry.withdrawal.clientLeaseId, lease);
       return;
     }
@@ -626,6 +671,19 @@ export class MailboxGenerationStore {
   }
 }
 
+function withdrawalMatchesIndex(
+  withdrawal: LeasedIndexWithdrawalV1,
+  index: LeasedIndexV1,
+): boolean {
+  return verifyLeasedIndexWithdrawalV1(withdrawal)
+    && verifyLeasedIndexV1(index)
+    && withdrawal.publicationId === index.publicationId
+    && withdrawal.publicationKey === index.publicationKey
+    && withdrawal.clientLeaseId === index.clientLeaseId
+    && withdrawal.leaseSequence <= index.leaseSequence + 1
+    && withdrawal.semanticRevision <= index.semanticRevision;
+}
+
 function matchesIndex(deposit: OfflineDiscoveryDepositV1, index: LeasedIndexV1): boolean {
   return deposit.generationId === createLeasedIndexGenerationIdV1(index)
     && deposit.clientLeaseId === index.clientLeaseId
@@ -672,7 +730,9 @@ function syncEvent(record: JournalRecord): OfflineDiscoverySyncEventV1 | undefin
     const deposit = parseOfflineDiscoveryDepositV1(record.entry.evidence.depositBytes);
     return { kind: 'ack', ack: record.entry.ack, deposit, admission: record.entry.evidence.admission };
   }
-  if (record.entry.kind === 'withdrawal') return { kind: 'withdrawal', withdrawal: record.entry.withdrawal };
+  if (record.entry.kind === 'withdrawal') {
+    return { kind: 'withdrawal', withdrawal: record.entry.withdrawal, index: record.entry.index };
+  }
   return undefined;
 }
 

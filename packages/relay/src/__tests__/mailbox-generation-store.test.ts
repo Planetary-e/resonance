@@ -24,6 +24,7 @@ import {
   serializeLeasedIndexOperationV1,
   serializeOfflineDiscoveryAckV1,
   serializeOfflineDiscoveryDepositV1,
+  verifyLeasedIndexWithdrawalV1,
   verifyOfflineDiscoveryReceiptForDepositV1,
   OFFLINE_DISCOVERY_FIXED_RESERVE_BYTES,
   OFFLINE_DISCOVERY_REQUEST_RESERVE_BYTES,
@@ -240,6 +241,31 @@ describe('generation drain and observed-remove ACKs', () => {
     expect(env.store.fetch(env.indexes[0].mailbox.id, NOW + 2_000).sort()).toEqual([second.raw, third.raw].sort());
   });
 
+  it('retains changed ciphertext as a bounded conflict after ACK without resurrection', () => {
+    const env = environment();
+    const first = depositFor(env.indexes[0], env.sender, env.input);
+    const changed = depositFor(env.indexes[0], env.sender, env.input);
+    expect(env.store.deposit(first.raw, ADMISSION, NOW).status).toBe('stored');
+    const ack = createOfflineDiscoveryAckV1(first.request, env.indexes[0], env.keys, NOW + 1);
+    expect(env.store.acknowledge(serializeOfflineDiscoveryAckV1(ack), NOW + 1).status).toBe('acknowledged');
+    const before = env.store.quota(env.indexes[0].clientLeaseId);
+
+    const conflict = env.store.deposit(changed.raw, ADMISSION, NOW + 1);
+    expect(conflict.status).toBe('conflicting_request');
+    expect(conflict.conflictBytes).toBe(changed.raw);
+    expect(env.store.fetch(env.indexes[0].mailbox.id, NOW + 1)).toEqual([]);
+    const retained = env.store.quota(env.indexes[0].clientLeaseId);
+    expect(retained.actualBytes).toBeGreaterThan(before.actualBytes);
+    expect(retained.logicalRequests).toBe(before.logicalRequests);
+    expect(env.store.deposit(changed.raw, ADMISSION, NOW + 1).status).toBe('conflicting_request');
+    expect(env.store.quota(env.indexes[0].clientLeaseId)).toEqual(retained);
+
+    const reopened = new MailboxGenerationStore(env.options);
+    expect(reopened.deposit(changed.raw, ADMISSION, NOW + 1).status).toBe('conflicting_request');
+    expect(reopened.fetch(env.indexes[0].mailbox.id, NOW + 1)).toEqual([]);
+    expect(reopened.quota(env.indexes[0].clientLeaseId)).toEqual(retained);
+  });
+
   it('refuses unknown ACKs but accepts signed ACK-before-deposit replica evidence', () => {
     const env = environment();
     const value = depositFor(env.indexes[0], env.sender, env.input);
@@ -275,6 +301,63 @@ describe('generation drain and observed-remove ACKs', () => {
     const reopened = new MailboxGenerationStore(env.options);
     expect(reopened.fetch(env.indexes[0].mailbox.id, NOW)).toEqual([]);
     expect(reopened.deposit(value.raw, ADMISSION, NOW).status).toBe('withdrawn');
+  });
+
+  it('fences exact replay after a stored generation is withdrawn', () => {
+    const env = environment();
+    const value = depositFor(env.indexes[0], env.sender, env.input);
+    expect(env.store.deposit(value.raw, ADMISSION, NOW).status).toBe('stored');
+    const withdrawal = createLeasedIndexWithdrawalV1(env.indexes[0], env.keys, NOW + 1);
+    expect(env.store.withdraw(withdrawal).status).toBe('acknowledged');
+    expect(env.store.deposit(value.raw, ADMISSION, NOW).status).toBe('withdrawn');
+    const reopened = new MailboxGenerationStore(env.options);
+    expect(reopened.deposit(value.raw, ADMISSION, NOW).status).toBe('withdrawn');
+  });
+
+  it('rejects foreign direct and replicated withdrawals without mutating terminal state', () => {
+    const env = environment();
+    const attacker = generateLeasedIndexKeyMaterialV1();
+    const foreignKeys = { ...attacker, clientLeaseId: env.keys.clientLeaseId };
+    const foreignIndex = createLeasedIndexV1({
+      groupId: 'public',
+      itemType: 'need',
+      derivationId: 'fixed-v1',
+      fingerprintEpoch: 'epoch-1',
+      fingerprint: new Uint8Array(64).fill(9),
+      originalCommitment: env.indexes[0].original.commitment,
+      createdAt: NOW,
+      expiresAt: NOW + 7 * DAY,
+    }, foreignKeys);
+    const foreign = createLeasedIndexWithdrawalV1(foreignIndex, foreignKeys, NOW + 1);
+
+    expect(verifyLeasedIndexWithdrawalV1(foreign)).toBe(true);
+    expect(env.store.withdraw(foreign).status).toBe('invalid');
+    expect(env.store.applySyncEvent({
+      kind: 'withdrawal',
+      withdrawal: foreign,
+      index: foreignIndex,
+    }, NOW).status).toBe('invalid');
+    const afterRejection = new MailboxGenerationStore(env.options);
+    expect(afterRejection.deposit(
+      depositFor(env.indexes[0], env.sender, env.input).raw,
+      ADMISSION,
+      NOW,
+    ).status).toBe('stored');
+
+    const genuine = createLeasedIndexWithdrawalV1(env.indexes[0], env.keys, NOW + 2);
+    expect(afterRejection.applySyncEvent({
+      kind: 'withdrawal',
+      withdrawal: genuine,
+      index: env.indexes[0],
+    }, NOW).status).toBe('acknowledged');
+    expect(afterRejection.withdraw(genuine).status).toBe('duplicate');
+    expect(afterRejection.withdraw(foreign).status).toBe('invalid');
+    const reopened = new MailboxGenerationStore(env.options);
+    expect(reopened.deposit(
+      depositFor(env.indexes[0], env.sender, env.input).raw,
+      ADMISSION,
+      NOW,
+    ).status).toBe('withdrawn');
   });
 });
 
