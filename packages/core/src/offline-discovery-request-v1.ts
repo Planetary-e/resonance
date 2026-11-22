@@ -146,6 +146,15 @@ export interface OfflineDiscoveryQuotaAdmissionV1 {
   replayBytes: Uint8Array;
   actualBytes: number;
   ackIds: readonly string[];
+  generationId?: string;
+}
+
+export interface OfflineDiscoveryQuotaGenerationV1 {
+  requestId: string;
+  generationId: string;
+  ackId: string;
+  replayBytes: Uint8Array;
+  actualBytes: number;
 }
 
 export interface OfflineDiscoveryQuotaSnapshotV1 extends OfflineDiscoveryQuotaLimitsV1 {
@@ -162,7 +171,9 @@ export type OfflineDiscoveryQuotaAdmissionStatusV1 =
   | 'duplicate'
   | 'conflict'
   | 'request_limit'
-  | 'byte_limit';
+  | 'byte_limit'
+  | 'drain_required'
+  | 'unknown_request';
 
 export interface OfflineDiscoveryQuotaAdmissionResultV1 {
   status: OfflineDiscoveryQuotaAdmissionStatusV1;
@@ -174,12 +185,26 @@ export interface OfflineDiscoveryMaintenanceResultV1 {
   snapshot: OfflineDiscoveryQuotaSnapshotV1;
 }
 
+interface QuotaGenerationRecord {
+  generationId: string;
+  ackId: string;
+  replayBytes: Uint8Array;
+  actualBytes: number;
+}
+
+interface QuotaConflictRecord {
+  generationId: string;
+  replayBytes: Uint8Array;
+}
+
 interface QuotaReservation {
   replayBytes: Uint8Array;
   actualBytes: number;
-  ackIds: readonly string[];
+  ackIds: string[];
   acknowledgedAckIds: Set<string>;
   withdrawn: boolean;
+  generations: QuotaGenerationRecord[];
+  conflicts: QuotaConflictRecord[];
 }
 
 export function createOfflineDiscoveryRequestV1(
@@ -319,7 +344,12 @@ export function createOfflineDiscoveryReplicaKeyV1(
 }
 
 export function createOfflineDiscoveryAckIdV1(request: OfflineDiscoveryRequestV1): string {
-  const replicaKey = createOfflineDiscoveryReplicaKeyV1(request);
+  return createOfflineDiscoveryAckIdForReplicaKeyV1(createOfflineDiscoveryReplicaKeyV1(request));
+}
+
+export function createOfflineDiscoveryAckIdForReplicaKeyV1(
+  replicaKey: OfflineDiscoveryReplicaKeyV1,
+): string {
   return derivedId('oack', `${ACK_ID_DOMAIN}\n${canonicalize(replicaKey)}`);
 }
 
@@ -392,10 +422,19 @@ export class OfflineDiscoveryQuotaLedgerV1 {
     this.limits = { ...limits };
   }
 
-  admit(input: OfflineDiscoveryQuotaAdmissionV1): OfflineDiscoveryQuotaAdmissionResultV1 {
+  checkAdmission(input: OfflineDiscoveryQuotaAdmissionV1): OfflineDiscoveryQuotaAdmissionResultV1 {
     validateAdmission(input);
     const prior = this.reservations.get(input.requestId);
     if (prior) {
+      if (input.generationId !== undefined) {
+        const generation = prior.generations.find(item => item.generationId === input.generationId);
+        if (generation) {
+          const duplicate = generation.actualBytes === input.actualBytes
+            && generation.ackId === input.ackIds[0]
+            && bytesEqual(generation.replayBytes, input.replayBytes);
+          return { status: duplicate ? 'duplicate' : 'conflict', snapshot: this.snapshot() };
+        }
+      }
       const duplicate = bytesEqual(prior.replayBytes, input.replayBytes)
         && prior.actualBytes === input.actualBytes
         && sameStrings(prior.ackIds, input.ackIds);
@@ -408,19 +447,85 @@ export class OfflineDiscoveryQuotaLedgerV1 {
       || this.actualBytes + input.actualBytes > this.limits.maxInclusiveBytes) {
       return { status: 'byte_limit', snapshot: this.snapshot() };
     }
+    return { status: 'admitted', snapshot: this.snapshot() };
+  }
+
+  admit(input: OfflineDiscoveryQuotaAdmissionV1): OfflineDiscoveryQuotaAdmissionResultV1 {
+    const checked = this.checkAdmission(input);
+    if (checked.status !== 'admitted') return checked;
     const replayBytes = Uint8Array.from(input.replayBytes);
     const ackIds = [...input.ackIds];
+    const generations = input.generationId === undefined ? [] : [{
+      generationId: input.generationId,
+      ackId: ackIds[0],
+      replayBytes,
+      actualBytes: input.actualBytes,
+    }];
     this.reservations.set(input.requestId, {
       replayBytes,
       actualBytes: input.actualBytes,
       ackIds,
       acknowledgedAckIds: new Set(),
       withdrawn: false,
+      generations,
+      conflicts: [],
     });
     for (const ackId of ackIds) this.ackOwners.set(ackId, input.requestId);
     this.reservedBytes += OFFLINE_DISCOVERY_REQUEST_RESERVE_BYTES;
     this.actualBytes += input.actualBytes;
     return { status: 'admitted', snapshot: this.snapshot() };
+  }
+
+  checkRedeposit(input: OfflineDiscoveryQuotaGenerationV1): OfflineDiscoveryQuotaAdmissionResultV1 {
+    validateGeneration(input);
+    const prior = this.reservations.get(input.requestId);
+    if (!prior) return { status: 'unknown_request', snapshot: this.snapshot() };
+    const generation = prior.generations.find(item => item.generationId === input.generationId);
+    if (generation) {
+      const duplicate = generation.ackId === input.ackId
+        && generation.actualBytes === input.actualBytes
+        && bytesEqual(generation.replayBytes, input.replayBytes);
+      return { status: duplicate ? 'duplicate' : 'conflict', snapshot: this.snapshot() };
+    }
+    const active = prior.generations.filter(item => !prior.acknowledgedAckIds.has(item.ackId)).length;
+    if (active >= 2) return { status: 'drain_required', snapshot: this.snapshot() };
+    if (this.actualBytes + input.actualBytes > this.limits.maxInclusiveBytes) {
+      return { status: 'byte_limit', snapshot: this.snapshot() };
+    }
+    return { status: 'admitted', snapshot: this.snapshot() };
+  }
+
+  redeposit(input: OfflineDiscoveryQuotaGenerationV1): OfflineDiscoveryQuotaAdmissionResultV1 {
+    const checked = this.checkRedeposit(input);
+    if (checked.status !== 'admitted') return checked;
+    const prior = this.reservations.get(input.requestId)!;
+    prior.generations.push({
+      generationId: input.generationId,
+      ackId: input.ackId,
+      replayBytes: Uint8Array.from(input.replayBytes),
+      actualBytes: input.actualBytes,
+    });
+    prior.ackIds.push(input.ackId);
+    this.ackOwners.set(input.ackId, input.requestId);
+    this.actualBytes += input.actualBytes;
+    return { status: 'admitted', snapshot: this.snapshot() };
+  }
+
+  chargeConflict(input: OfflineDiscoveryQuotaGenerationV1): OfflineDiscoveryQuotaAdmissionResultV1 {
+    validateGeneration(input);
+    const prior = this.reservations.get(input.requestId);
+    if (!prior) return { status: 'unknown_request', snapshot: this.snapshot() };
+    if (!prior.generations.some(item => item.generationId === input.generationId)) {
+      return { status: 'unknown_request', snapshot: this.snapshot() };
+    }
+    const conflict = prior.conflicts.find(item => item.generationId === input.generationId);
+    if (conflict) return { status: 'conflict', snapshot: this.snapshot() };
+    if (this.actualBytes + input.actualBytes > this.limits.maxInclusiveBytes) {
+      return { status: 'byte_limit', snapshot: this.snapshot() };
+    }
+    prior.conflicts.push({ generationId: input.generationId, replayBytes: Uint8Array.from(input.replayBytes) });
+    this.actualBytes += input.actualBytes;
+    return { status: 'conflict', snapshot: this.snapshot() };
   }
 
   acknowledge(ackId: string): OfflineDiscoveryMaintenanceResultV1 {
@@ -543,7 +648,11 @@ function validateLimits(limits: OfflineDiscoveryQuotaLimitsV1): void {
 
 function validateAdmission(input: OfflineDiscoveryQuotaAdmissionV1): void {
   if (!isObject(input)
-    || !hasOnlyKeys(input, ['ackIds', 'actualBytes', 'replayBytes', 'requestId'])
+    || !hasOnlyKeys(input, [
+      'ackIds', 'actualBytes', 'replayBytes', 'requestId',
+      ...(input.generationId !== undefined ? ['generationId'] : []),
+    ])
+    || (input.generationId !== undefined && (!isOpaqueId(input.generationId, 'gen') || input.ackIds.length !== 1))
     || !isOpaqueId(input.requestId, 'oreq')
     || !(input.replayBytes instanceof Uint8Array)
     || input.replayBytes.byteLength === 0
@@ -557,6 +666,19 @@ function validateAdmission(input: OfflineDiscoveryQuotaAdmissionV1): void {
     || new Set(input.ackIds).size !== input.ackIds.length) {
     throw new Error('Invalid offline discovery quota admission');
   }
+}
+
+function validateGeneration(input: OfflineDiscoveryQuotaGenerationV1): void {
+  if (!isObject(input)
+    || !hasOnlyKeys(input, ['ackId', 'actualBytes', 'generationId', 'replayBytes', 'requestId'])
+    || !isOpaqueId(input.requestId, 'oreq')
+    || !isOpaqueId(input.generationId, 'gen')
+    || !isOpaqueId(input.ackId, 'oack')
+    || !(input.replayBytes instanceof Uint8Array)
+    || input.replayBytes.byteLength === 0
+    || input.replayBytes.byteLength > MAX_OFFLINE_DISCOVERY_STORED_ENVELOPE_BYTES
+    || !Number.isSafeInteger(input.actualBytes)
+    || input.actualBytes < 0) throw new Error('Invalid offline discovery generation charge');
 }
 
 function sameStrings(first: readonly string[], second: readonly string[]): boolean {

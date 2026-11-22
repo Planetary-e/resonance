@@ -76,3 +76,15 @@ export {
   type ReviseLeasedIndexInputV1,
   type LeaseWriterReconciliationResultV1,
 } from './leased-index-store.js';
+
+export {
+  OfflineRequestStore,
+  type OfflineRequestDeliveryState,
+  type OfflineRequestGenerationStateV1,
+  type OfflineRequestOutboxStateV1,
+  type OfflineInboxStateV1,
+  type OfflineMailboxGenerationStateV1,
+  type OfflineRequestLocalStateV1,
+  type OfflineRequestDepositResultV1,
+  type OfflineRequestReceiveResultV1,
+} from './offline-request-store.js';

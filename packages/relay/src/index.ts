@@ -5,6 +5,13 @@ export {
   type LeasedIndexApplyResult,
   type LeasedIndexApplyStatus,
 } from './leased-index-store.js';
+export {
+  MailboxGenerationStore,
+  type MailboxGenerationStoreOptions,
+  type GenerationMailboxDepositResult,
+  type GenerationMailboxDepositStatus,
+  type GenerationMailboxAckResult,
+} from './mailbox-generation-store.js';
 export { RateLimiter, type RateLimiterConfig } from './rate-limiter.js';
 export {
   createRelayServer,

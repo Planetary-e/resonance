@@ -120,7 +120,10 @@ describe('offline request schema and generation identities', () => {
 
     expect(verifyOfflineDiscoveryRequestV1({ ...request, privateContact: 'address' })).toBe(false);
     expect(verifyOfflineDiscoveryRequestV1({ ...request, generationId: refreshed.generationId })).toBe(false);
-    expect(verifyOfflineDiscoveryRequestV1({ ...request, requestId: refreshed.requestId.slice(0, -1) + 'A' })).toBe(false);
+    expect(verifyOfflineDiscoveryRequestV1({
+      ...request,
+      requestId: refreshed.requestId.slice(0, -1) + (refreshed.requestId.endsWith('A') ? 'B' : 'A'),
+    })).toBe(false);
     expect(verifyOfflineDiscoveryRequestV1({ ...request, signature: wrongSignature.signature })).toBe(false);
     expect(() => parseOfflineDiscoveryRequestV1(JSON.stringify({ ...request, extra: true })))
       .toThrow('Invalid offline discovery request');

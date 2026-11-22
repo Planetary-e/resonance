@@ -349,3 +349,10 @@
 - **Verification:** Forty-two focused/affected core/relay/node tests and portable actual-source noEmit pass, including restart, atomic-rename failure, repair and notification cases.
 - **Integration boundary:** New stores are not yet wired into relay RPC/CLI; mailbox and original-content delivery are not implemented. Multi-device concurrent writing remains excluded.
 - **Next action:** Implement the generation-aware offline mailbox, receipts, drain/withdrawal, admission evidence and crash/compaction controls. No production/K/R acceptance.
+
+## 2026-11-22T14:14:31Z — DEC-022 prototype stage 3 encrypted generation-aware mailbox
+
+- **Implemented:** Real fixed-padding NaCl envelopes, exact encrypted replay, signed generation/ciphertext receipts, admission replay, refreshed redeposit, active+draining generations, recipient encrypted inbox/dedup before ACK, observed-remove generation ACKs, withdrawal/ACK-before-deposit controls, stored/queued distinction, quota integration, anti-entropy and causal compaction.
+- **Verification:** Implementation agent's 103 affected tests across 15 files pass, including real local-network mailbox replication. Parent then ran the four new focused suites ten consecutive times after fixing a nondeterministic negative fixture; all repetitions and portable actual-source noEmit pass. No process-kill campaign or new three-relay network transport was run.
+- **Integration boundary:** Stores are not wired into relay server RPC/network client; original-content delivery and UI remain absent.
+- **Next action:** Implement scoped online original-content grants and commitment verification, then composed validation and independent code review. No production/K/R acceptance.
