@@ -333,3 +333,11 @@
 - **Prototype boundary:** Fixed derivation/embedding fixtures; no generative model or new queue dependency is required for the first protocol spike. Source changes, staged fault/resource controls and stop criteria are mapped. Model evaluation and licensing remain separate.
 - **Receipt:** `docs/evals/v04-dec021-implementation-feasibility-review-2026-11-22.md`.
 - **Next action:** Owner separately decides whether to authorize the bounded protocol prototype. No production/K/R acceptance or release.
+
+## 2026-11-22T12:22:54Z — DEC-022 prototype stage 1 canonical schemas and quota
+
+- **Authorization and scope:** Owner accepted the bounded protocol prototype. Stage 1 adds real Ed25519-signed leased indexes, HMAC original commitments, stable logical offline-request IDs, generation-scoped storage/ACK identities, exact full-byte replay/conflict handling and the inclusive quota ledger. Fixed fixtures only; no model or new dependency.
+- **Verification:** Twenty-three focused core tests pass, plus core and portable actual-source noEmit. No relay/node integration has occurred yet.
+- **Quota:** Sixteen-request active+draining model remains 3,624,960 B with 569,344 B headroom under 4 MiB. Count/actual-byte overflow refuse independently; full-quota duplicate/ACK/withdrawal maintenance and lowering-refusal are covered.
+- **Files:** New core leased-index/offline-request modules and focused tests; core exports updated.
+- **Next action:** Implement leased-index state and stable notification identity, then the generation-aware mailbox. No production/K/R acceptance.
