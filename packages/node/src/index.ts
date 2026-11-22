@@ -88,3 +88,11 @@ export {
   type OfflineRequestDepositResultV1,
   type OfflineRequestReceiveResultV1,
 } from './offline-request-store.js';
+
+export {
+  ContentGrantStore,
+  type ContentChannelContextV1,
+  type ContentOperationPreparationV1,
+  type ContentGrantResultV1,
+  type ContentReceiptResultV1,
+} from './content-grant-store.js';

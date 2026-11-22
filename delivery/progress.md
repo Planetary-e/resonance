@@ -356,3 +356,10 @@
 - **Verification:** Implementation agent's 103 affected tests across 15 files pass, including real local-network mailbox replication. Parent then ran the four new focused suites ten consecutive times after fixing a nondeterministic negative fixture; all repetitions and portable actual-source noEmit pass. No process-kill campaign or new three-relay network transport was run.
 - **Integration boundary:** Stores are not wired into relay server RPC/network client; original-content delivery and UI remain absent.
 - **Next action:** Implement scoped online original-content grants and commitment verification, then composed validation and independent code review. No production/K/R acceptance.
+
+## 2026-11-22T14:43:25Z — DEC-022 prototype stage 4 authorized online content delivery
+
+- **Implemented:** Strict signed content request/single-use grant/response records; explicit owner grant separate from relationship consent; real channel encryption; exact original+commitment-key response; recipient signature/channel/sequence/grant/expiry/HMAC verification before durable commit; exact replay, supersession and withdrawal behavior.
+- **Verification:** Twenty-seven focused/affected tests across eight files pass, including loopback private forwarding and relationship replication. Actual-source noEmit and diff checks pass. Closed clients perform no work, and original responses are not journaled as offline content.
+- **Integration boundary:** Content store is not wired into PairwiseChannelManagerV2 or live relay-client methods; tests compose real encrypted operations between in-process client stores. No process-kill campaign, UI, model or external network was added.
+- **Next action:** Run a composed end-to-end prototype, resource evidence and independent code review across all four stages. No production/K/R acceptance.
