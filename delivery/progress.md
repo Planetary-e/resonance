@@ -324,3 +324,12 @@
 - **Receipts:** `docs/developers/v0.4-client-held-discovery-architecture.md` and `docs/evals/v04-dec020-client-held-discovery-review-2026-11-22.md`.
 - **Branch:** `feature/client-held-discovery` created from `development`; no implementation, model download, campaign or acceptance occurred.
 - **Next action:** Owner decides whether to authorize one bounded specification revision and follow-up review. Any implementation spike needs separate approval.
+
+## 2026-11-22T11:46:07Z — DEC-021 client-held discovery prototype is plausible
+
+- **Final verdict:** ACCEPT FOR BOUNDED PROTOTYPE EVALUATION. Independent follow-up found the revised protocol plausible for implementation evaluation, with no specified duplicate-spend/notice, lost-acknowledgment within the declared two-of-three replica-loss envelope, or stale-resurrection schedule remaining.
+- **Corrections closed:** Generation-scoped mailbox redeposit/ACK, lease-vs-semantic revision notification identity, conflict/quarantine, one-writer reconciliation, exact replay, crash/drain/withdrawal/compaction and client-loss boundaries are specified. Stable lease pseudonymity is an explicit prototype choice; K5/K6 and FEAT-001 remain open.
+- **Inclusive quota:** Both active and draining generations are charged. Per-request 223,232 B plus fixed 53,248 B gives 3,624,960 B for 16 requests, leaving 569,344 B under the independent 4-MiB byte cap. The 17th request and actual byte overflow are rejected; full-quota maintenance remains mandatory.
+- **Prototype boundary:** Fixed derivation/embedding fixtures; no generative model or new queue dependency is required for the first protocol spike. Source changes, staged fault/resource controls and stop criteria are mapped. Model evaluation and licensing remain separate.
+- **Receipt:** `docs/evals/v04-dec021-implementation-feasibility-review-2026-11-22.md`.
+- **Next action:** Owner separately decides whether to authorize the bounded protocol prototype. No production/K/R acceptance or release.

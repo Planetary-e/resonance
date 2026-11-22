@@ -12,12 +12,12 @@
   "worktree": {
     "path": "/Users/marcos/Documents/Codex/2026-09-15/i-x20/resonance-v04",
     "branch": "feature/client-held-discovery",
-    "head": "8f456ac",
+    "head": "8ed3e36",
     "dirty_tree_preserved": true,
     "session_only_installation": true
   },
   "current_feature_id": "FEAT-001",
-  "next_action": "DEC-020 client-held discovery receives REVISE. Await an owner decision on one bounded specification revision; any implementation spike needs separate approval. FEAT-001 control-plane recovery and all K/R gates remain open.",
+  "next_action": "DEC-021 client-held discovery is accepted as plausible for bounded prototype evaluation. Await separate owner authorization before implementation. FEAT-001 recovery and all production/K/R gates remain open.",
   "pending_decision_ids": [],
   "approvals": {
     "product_scope": "approved",
@@ -29,6 +29,6 @@
   "session": {
     "id": "kimi-resonance-v04-20261025T190412Z",
     "started_at": "2026-10-25T19:04:12Z",
-    "updated_at": "2026-11-22T11:20:25Z"
+    "updated_at": "2026-11-22T11:46:07Z"
   }
 }
