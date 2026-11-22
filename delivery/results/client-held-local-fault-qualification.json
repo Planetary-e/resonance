@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "authorization_id": "DEC-023",
+  "recorded_at": "2026-11-22T18:52:31Z",
+  "candidate_branch": "feature/client-held-discovery",
+  "evidence_scope": "local macOS forked-process SIGKILL and ordered loopback TCP latency/reset evidence; no below-TCP impairment, external deployment or production acceptance",
+  "source_log_sha256": "f8af441810a2b0a16e525d52b236b64f1657923331b40eb2ad7c7816373c87b5",
+  "process_death": {
+    "tests_passed": 9,
+    "confirmed_sigkill_exits": 15,
+    "count_note": "The implementation agent's earlier 14-exit narrative was incorrect. The current nine-test source and parent run log contain 15 exits: 4 publication/refresh/withdrawal/repair, 1 deposit, 3 recipient/relay ACK, 1 sync, 2 queued-copy loss and 4 online content.",
+    "records": [
+      { "test": "publication", "sigkills": 1, "pid": 41326, "barrier": "index-save", "exactRetry": "ok", "duplicateSpend": false },
+      { "test": "refresh", "sigkills": 1, "pid": 41328, "barrier": "index-save", "exactRetry": "ok", "duplicateSpend": false },
+      { "test": "withdrawal", "sigkills": 1, "pid": 41330, "barrier": "index-save", "exactRetry": "ok", "duplicateSpend": false },
+      { "test": "repair", "sigkills": 1, "pid": 41332, "barrier": "index-save", "exactRetry": "ok", "duplicateSpend": false },
+      { "test": "mailbox-deposit", "sigkills": 1, "pid": 41336, "barrier": "deposit-append", "exactRetry": "duplicate", "outboxEntries": 1, "generations": 1, "duplicateSpend": false },
+      { "test": "recipient-and-relay-ack", "sigkills": 3, "pids": [41340, 41341, 41339], "barriers": ["inbox-commit", "offline-ack-commit", "ack-append"], "inboxEntries": 1, "pendingAcksAfterReplay": 0, "exactAckRetry": "ok" },
+      { "test": "mailbox-sync", "sigkills": 1, "pid": 41345, "barrier": "deposit-append", "exactRetryEvents": 1, "fetchedCopies": 1, "duplicateSpend": false },
+      { "test": "queued-copy-loss-and-repair", "sigkills": 2, "pids": [41348, 41349], "receiptStates": ["stored", "stored", "queued"], "uniqueReceipts": 3, "repairedCopies": 2 },
+      { "test": "online-content", "sigkills": 4, "pids": [41354, 41353, 41356, 41357], "barriers": ["content-request-commit", "content-poll-inflight", "content-response-commit", "content-receive-commit"], "exactRequestRetry": true, "exactResponseRetry": true, "duplicateRequest": true, "duplicateResponse": true }
+    ]
+  },
+  "network_fault": {
+    "tests_passed": 2,
+    "profile": "ordered TCP byte stream with backpressure, 5ms forwarding latency and connection reset; no below-TCP impairment",
+    "lookup_exact_retry": { "connections": 4, "failures": 1, "successfulCalls": 3, "clientBytes": 3882, "relayBytes": 3608, "latencyMs": { "cold": 50.6335, "warmClientNewConnection": 44.13075, "interrupted": 21.442542, "exactRetry": 27.24725 } },
+    "warm_content_poll_reset": { "connections": 5, "failures": 1, "successfulCalls": 4, "clientBytes": 7916, "relayBytes": 7197, "latencyMs": { "interruptedWarmPoll": 0.341917, "warmRequestDelivery": 48.980209, "warmResponseDelivery": 45.328292 }, "exactPollRetry": true, "deliveredOriginal": true }
+  },
+  "acceptance_evaluation": "local_fault_evidence_only_not_production"
+}

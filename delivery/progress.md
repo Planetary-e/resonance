@@ -382,3 +382,12 @@
 - **Qualification boundary:** No packet impairment, process-kill, physical-resource, independent deployment, model, UI or installer evidence. K5/K6, FEAT-001 and K1–K8 remain open; this is not production acceptance.
 - **Receipt:** `docs/evals/v04-dec023-live-integration-review-2026-11-22.md`.
 - **Next action:** Run real-network impairment and actual process-death qualification, then local resource profiles and independent review.
+
+## 2026-11-22T18:52:31Z — DEC-023 local process-death and loopback-fault evidence accepted
+
+- **Process evidence:** Nine tests record 15 actual SIGKILL exits across publication/refresh/withdrawal/repair, mailbox deposit/sync/inbox/ACK, queued-copy loss and online content. Exact reopen/retry produces no duplicate allocation, spend, inbox item or stale resurrection.
+- **Evidence correction:** Independent review caught an earlier 14-exit narrative; the current source and hashed parent log confirm 15. The sanitized record preserves every PID/barrier and the correction.
+- **Network scope:** Two ordered/backpressured TCP tests inject 5 ms forwarding latency and connection resets with actual counts, bytes and timings. They explicitly provide no below-TCP packet-loss/retransmission evidence.
+- **Validation:** Process 9/9, network 2/2, final live 7/7 and composed affected 51/51 tests pass; noEmit/build/diff checks pass. Independent review accepts the reconciled local fault evidence.
+- **Receipts:** `docs/evals/v04-dec023-local-fault-review-2026-11-22.md` and `delivery/results/client-held-local-fault-qualification.json`.
+- **Next action:** Establish packet-impairment capability and complete local resource profiles. External deployment and production/K/R acceptance remain open.
