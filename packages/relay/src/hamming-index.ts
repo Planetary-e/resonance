@@ -6,9 +6,10 @@
  * not float vectors. XOR + popcount is extremely fast on modern CPUs.
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { guardUnmanagedExport } from './unmanaged-export.js';
+import { writeAtomic } from './atomic-file.js';
 import type { ItemType } from '@resonance/core';
 
 export interface HashMetadata {
@@ -122,7 +123,7 @@ export class HammingIndex {
       metadata: this.metadata,
       createdAt: this.createdAt,
     };
-    writeFileSync(join(dir, `${prefix}-hamming.json`), JSON.stringify(data));
+    writeAtomic(join(dir, `${prefix}-hamming.json`), JSON.stringify(data));
   }
 
   load(dir: string, prefix: string): void {

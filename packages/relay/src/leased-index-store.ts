@@ -1,16 +1,11 @@
 import {
-  closeSync,
   existsSync,
-  fsyncSync,
   mkdirSync,
-  openSync,
   readFileSync,
-  renameSync,
   rmSync,
-  writeSync,
 } from 'node:fs';
-import { randomBytes } from 'node:crypto';
-import { basename, join } from 'node:path';
+import { join } from 'node:path';
+import { writeAtomic } from './atomic-file.js';
 import {
   createLeasedIndexGenerationIdV1,
   decodeBase64,
@@ -27,6 +22,8 @@ import {
 import type { HashMetadata } from './hamming-index.js';
 
 const STORE_FILENAME = 'leased-index-operations.json';
+const LOG_DIRECTORY = 'leased-index-log-v1';
+const LOG_COMPLETE_FILENAME = 'complete.json';
 const MIN_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 export type LeasedIndexApplyStatus =
@@ -64,9 +61,24 @@ interface StoredFile {
   publications: PublicationState[];
 }
 
+interface PendingPersistence {
+  bytes: string;
+  repair: boolean;
+}
+
+interface LogRecord extends PendingPersistence {
+  version: 1;
+  sequence: number;
+}
+
 export class LeasedIndexStore {
   private readonly assertExportAllowed = guardUnmanagedExport();
   private publications = new Map<string, PublicationState>();
+  private pendingPersistence: PendingPersistence[] = [];
+  private pendingDedup: LeasedMatchNotification[] = [];
+  private persistedBytes = new Set<string>();
+  private nextLogSequence = 1;
+  private incrementalReady = false;
   readonly matching: MatchingEngine;
 
   constructor(matching = new MatchingEngine()) {
@@ -113,6 +125,7 @@ export class LeasedIndexStore {
       };
       this.publications.set(operation.publicationId, next);
       this.matching.withdraw('', operation.publicationId);
+      this.pendingPersistence.push({ bytes, repair });
       return { status: 'accepted', current: operation, currentBytes: bytes, notifications: [] };
     }
 
@@ -136,6 +149,7 @@ export class LeasedIndexStore {
       }
       this.matching.removeLeased(operation.publicationId);
       const retained = state.conflicts.find(item => item.operation.leaseSequence === operation.leaseSequence)!;
+      this.pendingPersistence.push({ bytes, repair });
       return {
         status: 'conflict',
         current,
@@ -155,6 +169,7 @@ export class LeasedIndexStore {
       conflicts: state?.conflicts ?? [],
     });
     const notifications = this.updateMatching(current, operation, repair);
+    this.pendingPersistence.push({ bytes, repair });
     return { status: 'accepted', current: operation, currentBytes: bytes, notifications };
   }
 
@@ -173,6 +188,18 @@ export class LeasedIndexStore {
       item.operation.kind === 'leased-discovery-index'
       && createLeasedIndexGenerationIdV1(item.operation) === generationId
     ))?.bytes;
+  }
+
+  getActiveExactBytes(publicationId: string, generationId: string, now = Date.now()): string | undefined {
+    const state = this.publications.get(publicationId);
+    const current = state?.current.operation;
+    if (!state || current?.kind !== 'leased-discovery-index'
+      || createLeasedIndexGenerationIdV1(current) !== generationId
+      || !isLeasedIndexActiveV1(current, now)
+      || state.conflicts.some(item => item.operation.leaseSequence === current.leaseSequence)) {
+      return undefined;
+    }
+    return state.current.bytes;
   }
 
   currentByLease(clientLeaseId: string): LeasedIndexV1 | undefined {
@@ -225,7 +252,9 @@ export class LeasedIndexStore {
   repairFrom(source: LeasedIndexStore, publicationId: string, now = Date.now()): LeasedIndexApplyResult[] {
     const results = this.exportReplicaStateFrom(source, publicationId)
       .map(bytes => this.apply(bytes, now, true));
-    this.matching.importLeasedDedup(source.matching.exportLeasedDedup(publicationId));
+    const dedup = source.matching.exportLeasedDedup(publicationId);
+    this.matching.importLeasedDedup(dedup);
+    this.pendingDedup.push(...dedup);
     return results;
   }
 
@@ -249,28 +278,116 @@ export class LeasedIndexStore {
   save(directory: string): void {
     this.assertExportAllowed();
     mkdirSync(directory, { recursive: true });
-    const file: StoredFile = {
-      version: 1,
-      publications: Array.from(this.publications.values())
-        .sort((a, b) => a.current.operation.publicationId.localeCompare(b.current.operation.publicationId)),
-    };
-    writeAtomic(join(directory, STORE_FILENAME), JSON.stringify(file));
-    this.matching.save(directory);
+    const logDirectory = join(directory, LOG_DIRECTORY);
+    if (!this.incrementalReady) {
+      const file: StoredFile = {
+        version: 1,
+        publications: Array.from(this.publications.values())
+          .sort((a, b) => a.current.operation.publicationId.localeCompare(b.current.operation.publicationId)),
+      };
+      writeAtomic(join(directory, STORE_FILENAME), JSON.stringify(file));
+      this.matching.save(directory);
+      rmSync(logDirectory, { recursive: true, force: true });
+      mkdirSync(logDirectory, { recursive: true });
+      this.nextLogSequence = 1;
+      this.persistedBytes.clear();
+      this.incrementalReady = true;
+    } else {
+      mkdirSync(logDirectory, { recursive: true });
+    }
+    const pending = this.pendingPersistence.length > 0
+      ? this.pendingPersistence
+      : this.unpersistedOperations();
+    let changed = !existsSync(join(logDirectory, LOG_COMPLETE_FILENAME));
+    for (const item of pending) {
+      if (this.persistedBytes.has(item.bytes)) continue;
+      const sequence = this.nextLogSequence++;
+      const record: LogRecord = { version: 1, sequence, ...item };
+      writeAtomic(
+        join(logDirectory, `${String(sequence).padStart(20, '0')}.json`),
+        JSON.stringify(record),
+      );
+      this.persistedBytes.add(item.bytes);
+      changed = true;
+    }
+    for (const notification of this.pendingDedup) {
+      const sequence = this.nextLogSequence++;
+      writeAtomic(
+        join(logDirectory, `${String(sequence).padStart(20, '0')}.json`),
+        JSON.stringify({ version: 1, sequence, kind: 'dedup', notification }),
+      );
+      changed = true;
+    }
+    this.pendingDedup = [];
+    this.pendingPersistence = this.pendingPersistence.filter(item => !this.persistedBytes.has(item.bytes));
+    if (changed) {
+      writeAtomic(join(logDirectory, LOG_COMPLETE_FILENAME), JSON.stringify({
+        version: 1,
+        nextSequence: this.nextLogSequence,
+      }));
+    }
   }
 
   load(directory: string): void {
+    this.publications = new Map();
+    this.pendingPersistence = [];
+    this.pendingDedup = [];
+    this.persistedBytes.clear();
+    this.nextLogSequence = 1;
+    this.incrementalReady = false;
     const path = join(directory, STORE_FILENAME);
-    if (!existsSync(path)) return;
-    const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'));
-    if (!isStoredFile(parsed)) throw new Error('Invalid persisted leased index store');
-    const restored = new Map<string, PublicationState>();
-    for (const state of parsed.publications) {
-      const publicationId = state.current.operation.publicationId;
-      if (restored.has(publicationId)) throw new Error('Duplicate persisted leased index state');
-      restored.set(publicationId, state);
+    if (existsSync(path)) {
+      const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'));
+      if (!isStoredFile(parsed)) throw new Error('Invalid persisted leased index store');
+      for (const state of parsed.publications) {
+        const publicationId = state.current.operation.publicationId;
+        if (this.publications.has(publicationId)) throw new Error('Duplicate persisted leased index state');
+        this.publications.set(publicationId, state);
+      }
     }
-    this.publications = restored;
     this.matching.load(directory);
+    const completePath = join(directory, LOG_DIRECTORY, LOG_COMPLETE_FILENAME);
+    if (!existsSync(completePath)) return;
+    const complete: unknown = JSON.parse(readFileSync(completePath, 'utf8'));
+    if (!isObject(complete) || complete.version !== 1
+      || typeof complete.nextSequence !== 'number'
+      || !Number.isSafeInteger(complete.nextSequence) || complete.nextSequence < 1) {
+      throw new Error('Invalid leased index log commit marker');
+    }
+    const nextSequence = complete.nextSequence;
+    for (let sequence = 1; sequence < nextSequence; sequence++) {
+      const recordPath = join(directory, LOG_DIRECTORY, `${String(sequence).padStart(20, '0')}.json`);
+      const record: unknown = JSON.parse(readFileSync(recordPath, 'utf8'));
+      if (!isObject(record) || record.version !== 1 || record.sequence !== sequence) {
+        throw new Error('Invalid leased index log record');
+      }
+      if (record.kind === 'dedup') {
+        this.matching.importLeasedDedup([record.notification as LeasedMatchNotification]);
+        continue;
+      }
+      if (typeof record.bytes !== 'string' || typeof record.repair !== 'boolean') {
+        throw new Error('Invalid leased index log record');
+      }
+      const operation = parseLeasedIndexOperationV1(record.bytes);
+      const result = this.apply(record.bytes, operation.createdAt, record.repair);
+      if (!['accepted', 'conflict', 'duplicate'].includes(result.status)) {
+        throw new Error(`Invalid leased index log transition: ${result.status}`);
+      }
+      this.persistedBytes.add(record.bytes);
+    }
+    this.nextLogSequence = nextSequence;
+    this.pendingPersistence = [];
+    this.incrementalReady = true;
+  }
+
+  private unpersistedOperations(): PendingPersistence[] {
+    const pending: PendingPersistence[] = [];
+    for (const state of this.publications.values()) {
+      for (const item of [...state.history, ...state.conflicts]) {
+        if (!this.persistedBytes.has(item.bytes)) pending.push({ bytes: item.bytes, repair: false });
+      }
+    }
+    return pending;
   }
 
   private updateMatching(
@@ -393,26 +510,4 @@ function isStoredOperation(value: unknown): value is StoredOperation {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function writeAtomic(path: string, contents: string): void {
-  const temporary = join(path, '..', `.${basename(path)}.${randomBytes(8).toString('hex')}.tmp`);
-  const bytes = Buffer.from(contents);
-  let fd: number | undefined;
-  try {
-    fd = openSync(temporary, 'wx', 0o600);
-    let offset = 0;
-    while (offset < bytes.length) offset += writeSync(fd, bytes, offset, bytes.length - offset);
-    fsyncSync(fd);
-    closeSync(fd);
-    fd = undefined;
-    renameSync(temporary, path);
-    if (process.platform !== 'win32') {
-      const directoryFd = openSync(join(path, '..'), 'r');
-      try { fsyncSync(directoryFd); } finally { closeSync(directoryFd); }
-    }
-  } finally {
-    if (fd !== undefined) closeSync(fd);
-    rmSync(temporary, { force: true });
-  }
 }

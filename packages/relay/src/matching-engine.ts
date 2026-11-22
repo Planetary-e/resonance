@@ -5,9 +5,10 @@
  * Uses LSH binary hashes instead of float vectors — the relay never sees embeddings.
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { guardUnmanagedExport } from './unmanaged-export.js';
+import { writeAtomic } from './atomic-file.js';
 import { createDeterministicMatchId, createStableNotificationIdV1, type ItemType } from '@resonance/core';
 import { ComplementaryHammingIndex, type HashMetadata } from './hamming-index.js';
 
@@ -272,14 +273,14 @@ export class MatchingEngine {
     this.assertExportAllowed();
     mkdirSync(dir, { recursive: true });
     this.index.save(dir);
-    writeFileSync(join(dir, 'dedup.json'), JSON.stringify(Array.from(this.notifiedPairs)));
-    writeFileSync(join(dir, 'notification-dedup.json'), JSON.stringify(Array.from(this.leasedNotifications.values())));
-    writeFileSync(join(dir, 'withdrawn.json'), JSON.stringify(Array.from(this.withdrawnItems)));
-    writeFileSync(join(dir, 'stats.json'), JSON.stringify({
+    writeAtomic(join(dir, 'dedup.json'), JSON.stringify(Array.from(this.notifiedPairs)));
+    writeAtomic(join(dir, 'notification-dedup.json'), JSON.stringify(Array.from(this.leasedNotifications.values())));
+    writeAtomic(join(dir, 'withdrawn.json'), JSON.stringify(Array.from(this.withdrawnItems)));
+    writeAtomic(join(dir, 'stats.json'), JSON.stringify({
       matchesToday: this.matchesToday,
       matchesTodayDate: this.matchesTodayDate,
     }));
-    writeFileSync(join(dir, 'queue.json'), JSON.stringify(this.pendingNotifications));
+    writeAtomic(join(dir, 'queue.json'), JSON.stringify(this.pendingNotifications));
   }
 
   /** Load index + state from disk. */

@@ -1,4 +1,4 @@
-import { mkdtempSync, renameSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -310,5 +310,119 @@ describe('leased relay durability and replica repair', () => {
     reopened.load(directory);
     expect(reopened.getExactBytes(index.publicationId)).toBe(serialized(index));
     expect(reopened.activeRecords(NOW)).toEqual([index]);
+  });
+});
+
+describe('leased relay incremental persistence and exact active lookup', () => {
+  it('appends exact operations without rewriting the base publication or matching snapshots', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'resonance-leased-incremental-'));
+    directories.push(directory);
+    const { keys, index, originalCommitment } = fixture('need', 1);
+    const store = new LeasedIndexStore();
+    store.apply(serialized(index), NOW);
+    store.save(directory);
+    const basePath = join(directory, 'leased-index-operations.json');
+    const matchingPath = join(directory, 'needs-hamming.json');
+    const baseModified = statSync(basePath).mtimeMs;
+    const matchingModified = statSync(matchingPath).mtimeMs;
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    const next = revision(keys, originalCommitment, {
+      leaseSequence: 1,
+      semanticRevision: 0,
+      createdAt: NOW + DAY,
+      expiresAt: NOW + 8 * DAY,
+      fingerprintFill: 1,
+    });
+    store.apply(serialized(next), NOW + DAY);
+    store.save(directory);
+    expect(statSync(basePath).mtimeMs).toBe(baseModified);
+    expect(statSync(matchingPath).mtimeMs).toBe(matchingModified);
+    expect(readdirSync(join(directory, 'leased-index-log-v1')).filter(name => name.endsWith('.json'))).toHaveLength(3);
+
+    const restored = new LeasedIndexStore();
+    restored.load(directory);
+    expect(restored.getExactBytes(index.publicationId)).toBe(serialized(next));
+    expect(restored.getActiveExactBytes(index.publicationId, createLeasedIndexGenerationIdV1(next), NOW + DAY))
+      .toBe(serialized(next));
+    expect(restored.getActiveExactBytes(index.publicationId, createLeasedIndexGenerationIdV1(index), NOW + DAY))
+      .toBeUndefined();
+  });
+
+  it('preserves conflict, later convergence, and terminal ordering across incremental restarts', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'resonance-leased-incremental-conflict-'));
+    directories.push(directory);
+    const { keys, index, originalCommitment } = fixture('need', 1);
+    const conflict = revision(keys, originalCommitment, {
+      leaseSequence: 0,
+      semanticRevision: 0,
+      createdAt: NOW,
+      expiresAt: NOW + 6 * DAY,
+    });
+    const store = new LeasedIndexStore();
+    store.apply(serialized(index), NOW);
+    store.save(directory);
+    store.apply(serialized(conflict), NOW);
+    store.save(directory);
+
+    const quarantined = new LeasedIndexStore();
+    quarantined.load(directory);
+    expect(quarantined.isQuarantined(index.publicationId)).toBe(true);
+    expect(quarantined.getActiveExactBytes(index.publicationId, createLeasedIndexGenerationIdV1(index), NOW))
+      .toBeUndefined();
+    expect(quarantined.getExactBytes(index.publicationId, createLeasedIndexGenerationIdV1(conflict)))
+      .toBe(serialized(conflict));
+
+    const higher = revision(keys, originalCommitment, {
+      leaseSequence: 1,
+      semanticRevision: 1,
+      createdAt: NOW + 1_000,
+      expiresAt: NOW + 7 * DAY,
+    });
+    quarantined.apply(serialized(higher), NOW + 1_000);
+    quarantined.save(directory);
+    const converged = new LeasedIndexStore();
+    converged.load(directory);
+    expect(converged.getActiveExactBytes(index.publicationId, createLeasedIndexGenerationIdV1(higher), NOW + 1_000))
+      .toBe(serialized(higher));
+    expect(converged.getActiveExactBytes(index.publicationId, createLeasedIndexGenerationIdV1(higher), higher.expiresAt))
+      .toBeUndefined();
+
+    const withdrawal = createLeasedIndexWithdrawalV1(higher, keys, NOW + 2_000);
+    converged.apply(serialized(withdrawal), NOW + 2_000);
+    converged.save(directory);
+    const terminal = new LeasedIndexStore();
+    terminal.load(directory);
+    expect(terminal.get(index.publicationId)).toEqual(withdrawal);
+    expect(terminal.getActiveExactBytes(index.publicationId, createLeasedIndexGenerationIdV1(higher), NOW + 2_000))
+      .toBeUndefined();
+    expect(terminal.exportReplicaState(index.publicationId)).toContain(serialized(conflict));
+  });
+
+  it('persists notification dedup imported by an incremental replica repair', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'resonance-leased-incremental-dedup-'));
+    directories.push(directory);
+    const offer = fixture('offer', 0);
+    const need = fixture('need', 0);
+    const source = new LeasedIndexStore();
+    source.apply(serialized(offer.index), NOW);
+    expect(source.apply(serialized(need.index), NOW).notifications).toHaveLength(1);
+    const repair = new LeasedIndexStore();
+    repair.apply(serialized(offer.index), NOW);
+    repair.save(directory);
+    repair.repairFrom(source, need.index.publicationId, NOW);
+    repair.save(directory);
+
+    const restored = new LeasedIndexStore();
+    restored.load(directory);
+    const revised = revision(need.keys, need.originalCommitment, {
+      leaseSequence: 1,
+      semanticRevision: 1,
+      createdAt: NOW + 1_000,
+      expiresAt: NOW + 7 * DAY,
+      fingerprintFill: 0,
+    });
+    expect(restored.apply(serialized(revised), NOW + 1_000).notifications).toEqual([]);
+    expect(restored.matching.getPendingForDID(need.index.clientLeaseId)).toEqual([]);
   });
 });

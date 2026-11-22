@@ -532,18 +532,28 @@ async function runPublish(coordinator: Coordinator, record: SeedRecord, manifest
   if (replies.some(reply => reply.status !== 'ok')) throw new Error('publish_refused');
 }
 
-async function runSearch(coordinator: Coordinator, sequence: number): Promise<void> {
+async function runSearch(coordinator: Coordinator, sequence: number, expected: SeedRecord): Promise<void> {
   const request = createLeasedIndexSearchRequestV1({
     groupId: 'public',
     itemType: 'offer',
     fingerprintEpoch: 'epoch-1',
-    fingerprint: fingerprint(sequence % publicationCount),
+    fingerprint: decodeBase64(expected.index.fingerprint.value),
     limit: 10,
     createdAt: Date.now(),
     expiresAt: Date.now() + 10_000,
   }, generateSigningKeyPair());
   const results = await coordinator.clients[sequence % REPLICAS].searchLeasedIndexes(request);
-  if (!Array.isArray(results)) throw new Error('search_invalid_result');
+  if (results.length !== 1) throw new Error(`search_result_count:${results.length}`);
+  const operations = results.map(parseLeasedIndexOperationV1);
+  if (new Set(operations.map(operation => operation.publicationId)).size !== 1) {
+    throw new Error('search_result_publication_identity');
+  }
+  const operation = operations[0];
+  if (operation.kind !== 'leased-discovery-index'
+    || operation.publicationId !== expected.index.publicationId
+    || createLeasedIndexGenerationIdV1(operation) !== createLeasedIndexGenerationIdV1(expected.index)) {
+    throw new Error('search_result_generation_identity');
+  }
 }
 
 class MailboxState {
@@ -618,7 +628,7 @@ async function executeOperation(
   try {
     const seed = records[(record.sequence + (runNumber - 1) * operationCount) % records.length];
     if (record.kind === 'publish') await runPublish(coordinator, seed, manifest);
-    else if (record.kind === 'search') await runSearch(coordinator, record.sequence);
+    else if (record.kind === 'search') await runSearch(coordinator, record.sequence, seed);
     else await runMailbox(coordinator, seed, mailbox, record.sequence);
     record.latencyMs = performance.now() - started;
     record.outcome = record.latencyMs > TARGETS.privateOperationMs ? 'deadline_exceeded' : 'good';

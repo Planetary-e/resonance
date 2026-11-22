@@ -3582,12 +3582,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         );
         const operationBytes = matches.flatMap(match => {
           if (!match.publicationId || !match.generationId) return [];
-          const record = leasedIndexes.activeRecords(now).find(candidate => (
-            candidate.publicationId === match.publicationId
-            && createLeasedIndexGenerationIdV1(candidate) === match.generationId
-          ));
-          if (!record) return [];
-          const bytes = leasedIndexes.getExactBytes(record.publicationId, match.generationId);
+          const bytes = leasedIndexes.getActiveExactBytes(match.publicationId, match.generationId, now);
           return bytes ? [bytes] : [];
         });
         respondClientHeld(request.requestId, { kind: 'search', operationBytes });

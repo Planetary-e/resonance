@@ -399,3 +399,11 @@
 - **Root causes:** Full publication/index serialization per refresh, repeated active-record/history reconstruction during search, and fresh-TCP overhead. Production rate limits are not the cause. Search validation needs exact count/publication/generation checks.
 - **Evidence:** `delivery/results/client-held-local-resource-nominal-run-1.json`, `client-held-local-resource-idle-1800s.json`, and `docs/evals/v04-dec023-failed-local-resource-baseline-2026-11-22.md`.
 - **Next action:** Correct incremental persistence and exact search indexing, obtain independent review and rerun focused correctness before another nominal run. No smaller workload or weakened gate is allowed.
+
+## 2026-11-22T23:15:44Z — DEC-023 scaling corrections accepted for nominal rerun
+
+- **Corrections:** Atomic base migration with bounded incremental operation/dedup logs; committed-prefix recovery; direct exact-publication/generation lookup for search; exact search result validation. Fresh TCP, workload, deadlines, quotas and rate limits are unchanged.
+- **Validation:** Forty-six focused store/matching/live/process/mailbox tests, actual-source noEmit, build and diff checks pass. Independent review accepts a fresh measurement, not production qualification.
+- **Existing failures remain:** Previous nominal success/latency/memory and independent 30-minute idle CPU/startup-memory failures are preserved. New nominal and idle runs must establish the corrected resource result.
+- **Receipt:** `docs/evals/v04-dec023-scaling-corrections-review-2026-11-23.md`.
+- **Next action:** Run corrected nominal and idle measurements with unchanged workload and gates, then independent resource review.
