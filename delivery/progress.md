@@ -391,3 +391,11 @@
 - **Validation:** Process 9/9, network 2/2, final live 7/7 and composed affected 51/51 tests pass; noEmit/build/diff checks pass. Independent review accepts the reconciled local fault evidence.
 - **Receipts:** `docs/evals/v04-dec023-local-fault-review-2026-11-22.md` and `delivery/results/client-held-local-fault-qualification.json`.
 - **Next action:** Establish packet-impairment capability and complete local resource profiles. External deployment and production/K/R acceptance remain open.
+
+## 2026-11-22T22:55:08Z — DEC-023 local quantitative baseline fails K1/K7
+
+- **Nominal result:** One 10,000-publication/five-replica run submitted 1,002 operations with 455 good (45.41%) and 538 timeouts. All 334 searches timed out. Overall p95 9,315.823 ms exceeds 6 seconds; publish p95 9,354.585 ms and mailbox p95 4,831.385 ms also fail their budgets.
+- **Resource failures:** Per-relay peak RSS 629–683 MB exceeds 512 MiB; aggregate peak 2.899 GB exceeds startup 2 GiB; final aggregate 2.490 GB exceeds sustained 1.5 GiB. Thirty-minute idle CPU is 1.8307% of one core, above 1%. Network traffic is 167,691 B per good operation, within 1 MiB.
+- **Root causes:** Full publication/index serialization per refresh, repeated active-record/history reconstruction during search, and fresh-TCP overhead. Production rate limits are not the cause. Search validation needs exact count/publication/generation checks.
+- **Evidence:** `delivery/results/client-held-local-resource-nominal-run-1.json`, `client-held-local-resource-idle-1800s.json`, and `docs/evals/v04-dec023-failed-local-resource-baseline-2026-11-22.md`.
+- **Next action:** Correct incremental persistence and exact search indexing, obtain independent review and rerun focused correctness before another nominal run. No smaller workload or weakened gate is allowed.

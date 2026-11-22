@@ -12,12 +12,12 @@
   "worktree": {
     "path": "/Users/marcos/Documents/Codex/2026-09-15/i-x20/resonance-v04",
     "branch": "feature/client-held-discovery",
-    "head": "4be010d",
+    "head": "56a593c",
     "dirty_tree_preserved": true,
     "session_only_installation": true
   },
   "current_feature_id": "FEAT-001",
-  "next_action": "DEC-023 local fault evidence is accepted after exact 15-SIGKILL reconciliation. Continue packet-impairment capability and local resource-profile qualification. No production/K/R acceptance.",
+  "next_action": "DEC-023 local quantitative baseline fails K1/K7. Correct full-state persistence and search scaling, then review before another nominal run. No production/K/R acceptance.",
   "pending_decision_ids": [],
   "approvals": {
     "product_scope": "approved",
@@ -29,6 +29,6 @@
   "session": {
     "id": "kimi-resonance-v04-20261025T190412Z",
     "started_at": "2026-10-25T19:04:12Z",
-    "updated_at": "2026-11-22T18:52:31Z"
+    "updated_at": "2026-11-22T22:55:08Z"
   }
 }

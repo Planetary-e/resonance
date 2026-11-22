@@ -1,0 +1,320 @@
+{
+  "schema_version": 1,
+  "authorization_id": "DEC-023",
+  "qualification": "local-quantitative-run",
+  "profile": "nominal",
+  "run": 1,
+  "command": [
+    "node",
+    "--import",
+    "tsx",
+    "packages/eval/src/client-held-local-resources.ts",
+    "--mode",
+    "run",
+    "--profile",
+    "nominal",
+    "--run",
+    "1"
+  ],
+  "source": [
+    {
+      "path": "packages/eval/src/client-held-local-resources.ts",
+      "sha256": "141a0a3cfdec17f701df6edc22edd89c1c1896f1faf6dbf4e5f011055f8f27fb"
+    },
+    {
+      "path": "packages/eval/src/fixtures/client-held-resource-relay.ts",
+      "sha256": "8bbecc6a448816671d1718a392cbda67c7ff4d388bd541e7cab05966d839e3a0"
+    }
+  ],
+  "environment": {
+    "platform": "darwin",
+    "architecture": "arm64",
+    "node": "v24.19.0",
+    "cpuModel": "Apple M3 Pro",
+    "logicalCpuCount": 11,
+    "totalMemoryBytes": 19327352832,
+    "freeMemoryAtStartBytes": 309985280,
+    "tls": "WSS with NODE_EXTRA_CA_CERTS; certificate verification enabled; no external network",
+    "modelRuntime": "none; fixed derivation and deterministic 64-byte fingerprint fixtures"
+  },
+  "configuration": {
+    "retainedActivePublicationsPerRelay": 10000,
+    "replicaCount": 5,
+    "desiredReplicaCount": 5,
+    "minimumHealthyReplicaCount": 3,
+    "requestedLogicalOperations": 1002,
+    "balance": "publish/search/mailbox assigned round-robin 334/334/334 at the default 1002",
+    "concurrency": 2,
+    "publishPhysicalCallsPerLogicalOperation": 5,
+    "mailboxDepositAndAckReplicas": 3,
+    "rateLimits": "production defaults unchanged: publish 10/min, search 30/min, discovery 60/min, replica 120/min per source IP",
+    "prototypeQuotas": "unchanged",
+    "protectedDecisionBudgetMs": 3000,
+    "privateOperationBudgetMs": 10000
+  },
+  "operations": {
+    "submitted": 1002,
+    "good": 455,
+    "refused": 0,
+    "retries": 1,
+    "uncertain": 538,
+    "deadlineExceeded": 9,
+    "successFraction": 0.4540918163672655,
+    "errorClasses": {
+      "timeout": 538
+    },
+    "latency": {
+      "count": 455,
+      "p50Ms": 3589.327417000197,
+      "p95Ms": 9315.823291999986,
+      "p99Ms": 9915.522207999602,
+      "maximumMs": 9989.670207999996
+    },
+    "byKind": {
+      "publish": {
+        "submitted": 334,
+        "good": 316,
+        "refused": 0,
+        "retries": 0,
+        "uncertain": 18,
+        "deadlineExceeded": 0,
+        "latency": {
+          "count": 316,
+          "p50Ms": 4162.229292000178,
+          "p95Ms": 9354.584875,
+          "p99Ms": 9764.456250000047,
+          "maximumMs": 9989.670207999996
+        }
+      },
+      "search": {
+        "submitted": 334,
+        "good": 0,
+        "refused": 0,
+        "retries": 0,
+        "uncertain": 334,
+        "deadlineExceeded": 0,
+        "latency": {
+          "count": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "p99Ms": null,
+          "maximumMs": null
+        }
+      },
+      "mailbox": {
+        "submitted": 334,
+        "good": 139,
+        "refused": 0,
+        "retries": 0,
+        "uncertain": 186,
+        "deadlineExceeded": 9,
+        "latency": {
+          "count": 139,
+          "p50Ms": 2895.2402079999447,
+          "p95Ms": 4831.385375000071,
+          "p99Ms": 9967.334416999947,
+          "maximumMs": 9986.860291999765
+        }
+      }
+    },
+    "connectionClasses": {
+      "cold": 2,
+      "reconnecting": 6,
+      "warm-client-new-TCP": 995
+    }
+  },
+  "achieved": {
+    "elapsedMs": 3709466.0891659996,
+    "submittedOperationsPerSecond": 0.2701197358095488,
+    "goodOperationsPerSecond": 0.1226591614704039,
+    "reconnects": 6,
+    "intentionalExactRetries": 1,
+    "exactRetryFailures": 0,
+    "intentionalFailedAdmissionAttempts": 1,
+    "lateExactRetryPromotedToGood": 0
+  },
+  "content": {
+    "submitted": 4,
+    "good": 4,
+    "failures": 0,
+    "errors": [],
+    "warmPollConnections": 8,
+    "latency": {
+      "count": 4,
+      "p50Ms": 127.15654199989513,
+      "p95Ms": 141.68033300014213,
+      "p99Ms": 141.68033300014213,
+      "maximumMs": 141.68033300014213
+    }
+  },
+  "network": {
+    "connections": 3620,
+    "clientToProxyBytes": 21507994,
+    "proxyToClientBytes": 14645081,
+    "proxyToRelayBytes": 21507994,
+    "relayToProxyBytes": 14651661,
+    "totalPhysicalBytes": 76299442,
+    "relaySideBytes": 36159655,
+    "bytesPerGoodOperation": 167691.08131868133,
+    "relayTrafficDeltas": [
+      12664849,
+      10450155,
+      10435240,
+      3289915,
+      3306208
+    ],
+    "proxyRelayBytes": [
+      11781992,
+      9632451,
+      9622150,
+      2558566,
+      2564496
+    ],
+    "directDiscoveryBytes": [
+      882857,
+      817704,
+      813090,
+      731349,
+      741712
+    ],
+    "coverageMismatches": [
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "coverage": "all client-proxy and proxy-relay TCP directions plus directly metered discovery, including WSS handshake/TLS records, admission-bearing RPC, five-replica refresh, mailbox, retry and failed attempts",
+    "exclusions": "IPC is not a physical network edge; no separate issuer/witness/policy service was contacted; direct persisted seed generation has no network traffic"
+  },
+  "processTree": {
+    "peakAggregateRssBytes": 2899017728,
+    "finalAggregateRssBytes": 2489614336,
+    "parentRssBytes": 124600320,
+    "relays": [
+      {
+        "pid": 42788,
+        "rssBytes": 473792512,
+        "rssPeakBytes": 668680192,
+        "rssMeanBytes": 452231638.70622647,
+        "cpuMicros": 1431877825,
+        "fsyncCount": 1619,
+        "fsyncMicros": 11647539.552999597,
+        "writeCount": 4204,
+        "writeBytes": 15122403187,
+        "renameCount": 456
+      },
+      {
+        "pid": 42789,
+        "rssBytes": 454868992,
+        "rssPeakBytes": 682770432,
+        "rssMeanBytes": 456113737.73764175,
+        "cpuMicros": 1499025576,
+        "fsyncCount": 1709,
+        "fsyncMicros": 12188090.452991113,
+        "writeCount": 4390,
+        "writeBytes": 15124825866,
+        "renameCount": 454
+      },
+      {
+        "pid": 42790,
+        "rssBytes": 537165824,
+        "rssPeakBytes": 629374976,
+        "rssMeanBytes": 447658664.1823825,
+        "cpuMicros": 1495945211,
+        "fsyncCount": 1709,
+        "fsyncMicros": 11941358.797011368,
+        "writeCount": 4387,
+        "writeBytes": 15124774444,
+        "renameCount": 455
+      },
+      {
+        "pid": 42791,
+        "rssBytes": 439992320,
+        "rssPeakBytes": 629342208,
+        "rssMeanBytes": 421970439.9916753,
+        "cpuMicros": 862670484,
+        "fsyncCount": 897,
+        "fsyncMicros": 9238743.320009042,
+        "writeCount": 2728,
+        "writeBytes": 14739628633,
+        "renameCount": 448
+      },
+      {
+        "pid": 42793,
+        "rssBytes": 459194368,
+        "rssPeakBytes": 641892352,
+        "rssMeanBytes": 409764985.4945515,
+        "cpuMicros": 872801750,
+        "fsyncCount": 897,
+        "fsyncMicros": 9215447.944000088,
+        "writeCount": 2728,
+        "writeBytes": 14739628636,
+        "renameCount": 448
+      }
+    ],
+    "aggregateCpuSeconds": 6149.669131,
+    "rssSampleIntervalMs": 250,
+    "aggregateSampleIntervalMs": 1000
+  },
+  "disk": {
+    "finalBytes": 335566327,
+    "sampledPeakBytes": 497073833,
+    "sampleIntervalMs": 1000,
+    "includesTemporaryAndReplacementFilesWhenPresentAtSample": true,
+    "fsyncAndWrites": {
+      "parent": {
+        "fsyncCount": 3554,
+        "fsyncMicros": 10579971.69900376,
+        "writeCount": 1753,
+        "writeBytes": 833318424,
+        "renameCount": 1777
+      },
+      "relays": [
+        {
+          "fsyncCount": 1619,
+          "fsyncMicros": 11647539.552999597,
+          "writeCount": 4204,
+          "writeBytes": 15122403187,
+          "renameCount": 456
+        },
+        {
+          "fsyncCount": 1709,
+          "fsyncMicros": 12188090.452991113,
+          "writeCount": 4390,
+          "writeBytes": 15124825866,
+          "renameCount": 454
+        },
+        {
+          "fsyncCount": 1709,
+          "fsyncMicros": 11941358.797011368,
+          "writeCount": 4387,
+          "writeBytes": 15124774444,
+          "renameCount": 455
+        },
+        {
+          "fsyncCount": 897,
+          "fsyncMicros": 9238743.320009042,
+          "writeCount": 2728,
+          "writeBytes": 14739628633,
+          "renameCount": 448
+        },
+        {
+          "fsyncCount": 897,
+          "fsyncMicros": 9215447.944000088,
+          "writeCount": 2728,
+          "writeBytes": 14739628636,
+          "renameCount": 448
+        }
+      ]
+    }
+  },
+  "limitations": [
+    "One macOS host; loopback WSS only, no external deployment or packet impairment.",
+    "The 10000-publication reference was generated once with the real LeasedIndexStore and copied into five replica directories before listener startup; initialization network is therefore zero and excluded from operation traffic.",
+    "Direct RPC uses a fresh TCP connection per operation. Warm-client-new-TCP is not a persistent connection; only the separately reported content polls are warm connections.",
+    "Latency percentiles are conditional on good operations. Refusals, timeouts and uncertain outcomes remain failures in the success denominator.",
+    "Disk peaks are one-second samples and may miss shorter-lived temporary files.",
+    "No physical power samples were collected; CPU time is not watts."
+  ]
+}

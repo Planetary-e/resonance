@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "authorization_id": "DEC-023",
+  "qualification": "failed-no-substitution",
+  "mode": "run",
+  "profile": "nominal",
+  "run": 1,
+  "command": [
+    "node",
+    "--import",
+    "tsx",
+    "packages/eval/src/client-held-local-resources.ts",
+    "--mode",
+    "run",
+    "--profile",
+    "nominal",
+    "--run",
+    "1",
+    "--root",
+    "/tmp/resonance-client-held-resource-smoke",
+    "--publications",
+    "6",
+    "--operations",
+    "6"
+  ],
+  "source": [
+    {
+      "path": "packages/eval/src/client-held-local-resources.ts",
+      "sha256": "0e2166ac20368fc917c7d1177eccbee48c22b813c37603f760686bdae2513775"
+    },
+    {
+      "path": "packages/eval/src/fixtures/client-held-resource-relay.ts",
+      "sha256": "8bbecc6a448816671d1718a392cbda67c7ff4d388bd541e7cab05966d839e3a0"
+    }
+  ],
+  "environment": {
+    "platform": "darwin",
+    "architecture": "arm64",
+    "node": "v24.19.0",
+    "cpuModel": "Apple M3 Pro",
+    "logicalCpuCount": 11,
+    "totalMemoryBytes": 19327352832,
+    "freeMemoryAtStartBytes": 680984576,
+    "tls": "WSS with NODE_EXTRA_CA_CERTS; certificate verification enabled; no external network",
+    "modelRuntime": "none; fixed derivation and deterministic 64-byte fingerprint fixtures"
+  },
+  "requested": {
+    "publicationCount": 6,
+    "operationCount": 6,
+    "idleSeconds": 1800,
+    "replicas": 5
+  },
+  "stage": "load",
+  "error": "Network coverage mismatch: [5166,4925,4902,4806,4831]",
+  "stack": "Error: Network coverage mismatch: [5166,4925,4902,4806,4831]\n    at runLoad (/Users/marcos/Documents/Codex/2026-09-15/i-x20/resonance-v04/packages/eval/src/client-held-local-resources.ts:810:13)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async <anonymous> (/Users/marcos/Documents/Codex/2026-09-15/i-x20/resonance-v04/packages/eval/src/client-held-local-resources.ts:1188:28)"
+}

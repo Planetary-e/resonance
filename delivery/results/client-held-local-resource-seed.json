@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "authorization_id": "DEC-023",
+  "qualification": "reference-seed",
+  "command": [
+    "node",
+    "--import",
+    "tsx",
+    "packages/eval/src/client-held-local-resources.ts",
+    "--mode",
+    "seed"
+  ],
+  "source": [
+    {
+      "path": "packages/eval/src/client-held-local-resources.ts",
+      "sha256": "141a0a3cfdec17f701df6edc22edd89c1c1896f1faf6dbf4e5f011055f8f27fb"
+    },
+    {
+      "path": "packages/eval/src/fixtures/client-held-resource-relay.ts",
+      "sha256": "8bbecc6a448816671d1718a392cbda67c7ff4d388bd541e7cab05966d839e3a0"
+    }
+  ],
+  "environment": {
+    "platform": "darwin",
+    "architecture": "arm64",
+    "node": "v24.19.0",
+    "cpuModel": "Apple M3 Pro",
+    "logicalCpuCount": 11,
+    "totalMemoryBytes": 19327352832,
+    "freeMemoryAtStartBytes": 99794944,
+    "tls": "WSS with NODE_EXTRA_CA_CERTS; certificate verification enabled; no external network",
+    "modelRuntime": "none; fixed derivation and deterministic 64-byte fingerprint fixtures"
+  },
+  "requestedPublications": 10000,
+  "acceptedPublications": 10000,
+  "activeRecords": 10000,
+  "replicasMaterialized": 5,
+  "elapsedMs": 20616.405082999998,
+  "referenceBytes": 44890133,
+  "allReplicaBytes": 294400943,
+  "initializationNetworkBytes": 0,
+  "method": "One real LeasedIndexStore persisted once, then exact signed-state copies materialized in five relay directories. Every measured operation uses actual WSS listeners and Node clients."
+}

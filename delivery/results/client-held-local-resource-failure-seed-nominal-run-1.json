@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "authorization_id": "DEC-023",
+  "qualification": "failed-no-substitution",
+  "mode": "seed",
+  "profile": "nominal",
+  "run": 1,
+  "command": [
+    "node",
+    "--import",
+    "tsx",
+    "packages/eval/src/client-held-local-resources.ts",
+    "--mode",
+    "seed",
+    "--root",
+    "/tmp/resonance-client-held-resource-smoke",
+    "--publications",
+    "6",
+    "--operations",
+    "6"
+  ],
+  "source": [
+    {
+      "path": "packages/eval/src/client-held-local-resources.ts",
+      "sha256": "b42fa03e982766326c6764d4e45412510efe709cf0d48d1b6acc1df816395a2d"
+    },
+    {
+      "path": "packages/eval/src/fixtures/client-held-resource-relay.ts",
+      "sha256": "d72a26055f5b8a10dd622a20f3f5a5308d9dc162c136036005a5b936bb029580"
+    }
+  ],
+  "environment": {
+    "platform": "darwin",
+    "architecture": "arm64",
+    "node": "v24.19.0",
+    "cpuModel": "Apple M3 Pro",
+    "logicalCpuCount": 11,
+    "totalMemoryBytes": 19327352832,
+    "freeMemoryAtStartBytes": 85934080,
+    "tls": "WSS with NODE_EXTRA_CA_CERTS; certificate verification enabled; no external network",
+    "modelRuntime": "none; fixed derivation and deterministic 64-byte fingerprint fixtures"
+  },
+  "requested": {
+    "publicationCount": 6,
+    "operationCount": 6,
+    "idleSeconds": 1800,
+    "replicas": 5
+  },
+  "error": "value.writeUInt32BE is not a function",
+  "stack": "TypeError: value.writeUInt32BE is not a function\n    at fingerprint (/Users/marcos/Documents/Codex/2026-09-15/i-x20/resonance-v04/packages/eval/src/client-held-local-resources.ts:134:9)\n    at seed (/Users/marcos/Documents/Codex/2026-09-15/i-x20/resonance-v04/packages/eval/src/client-held-local-resources.ts:916:20)\n    at <anonymous> (/Users/marcos/Documents/Codex/2026-09-15/i-x20/resonance-v04/packages/eval/src/client-held-local-resources.ts:1171:30)\n    at ModuleJob.run (node:internal/modules/esm/module_job:439:25)\n    at async node:internal/modules/esm/loader:643:26\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)"
+}
