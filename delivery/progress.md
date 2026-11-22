@@ -341,3 +341,11 @@
 - **Quota:** Sixteen-request active+draining model remains 3,624,960 B with 569,344 B headroom under 4 MiB. Count/actual-byte overflow refuse independently; full-quota duplicate/ACK/withdrawal maintenance and lowering-refusal are covered.
 - **Files:** New core leased-index/offline-request modules and focused tests; core exports updated.
 - **Next action:** Implement leased-index state and stable notification identity, then the generation-aware mailbox. No production/K/R acceptance.
+
+## 2026-11-22T13:04:34Z — DEC-022 prototype stage 2 lease state and notifications
+
+- **Implemented:** Encrypted atomic client originals/keys/operations/outbox/writer/dedup state; terminal signed withdrawal; one-writer reconciliation; relay exact-byte duplicates, stale refusal, retained conflicts/quarantine, expiry and withdrawal convergence; exact-byte offline replica repair with stable notification dedup evidence.
+- **Refresh semantics:** Lease-only refresh changes no semantic fields and does not re-match or clear dedup. Semantic revisions use a separate controlled path without manufacturing a second logical notification. Legacy replaceAndMatch behavior remains unchanged.
+- **Verification:** Forty-two focused/affected core/relay/node tests and portable actual-source noEmit pass, including restart, atomic-rename failure, repair and notification cases.
+- **Integration boundary:** New stores are not yet wired into relay RPC/CLI; mailbox and original-content delivery are not implemented. Multi-device concurrent writing remains excluded.
+- **Next action:** Implement the generation-aware offline mailbox, receipts, drain/withdrawal, admission evidence and crash/compaction controls. No production/K/R acceptance.

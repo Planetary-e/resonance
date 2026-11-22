@@ -16,6 +16,7 @@ import {
 
 export const LEASED_INDEX_V1_VERSION = 1 as const;
 export const LEASED_INDEX_KIND = 'leased-discovery-index' as const;
+export const LEASED_INDEX_WITHDRAWAL_KIND = 'leased-discovery-withdrawal' as const;
 export const MAX_LEASED_INDEX_BYTES = 4096;
 export const MAX_LEASE_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
 export const MAX_ORIGINAL_BYTES = 8192;
@@ -91,6 +92,23 @@ export interface CreateLeasedIndexInputV1 {
   createdAt: number;
   expiresAt: number;
 }
+
+export interface LeasedIndexWithdrawalBodyV1 {
+  version: typeof LEASED_INDEX_V1_VERSION;
+  kind: typeof LEASED_INDEX_WITHDRAWAL_KIND;
+  publicationId: string;
+  clientLeaseId: string;
+  leaseSequence: number;
+  semanticRevision: number;
+  publicationKey: string;
+  createdAt: number;
+}
+
+export interface LeasedIndexWithdrawalV1 extends LeasedIndexWithdrawalBodyV1 {
+  signature: string;
+}
+
+export type LeasedIndexOperationV1 = LeasedIndexV1 | LeasedIndexWithdrawalV1;
 
 export type LeasedIndexReplayStatusV1 =
   | 'accepted'
@@ -243,6 +261,91 @@ export function isLeasedIndexActiveV1(record: LeasedIndexV1, now: number): boole
     && now < record.expiresAt;
 }
 
+export function createLeasedIndexWithdrawalV1(
+  record: LeasedIndexV1,
+  keys: LeasedIndexKeyMaterialV1,
+  createdAt: number,
+): LeasedIndexWithdrawalV1 {
+  if (!verifyLeasedIndexV1(record)
+    || encodeBase64(keys.signingKeyPair.publicKey) !== record.publicationKey
+    || keys.publicationId !== record.publicationId
+    || keys.clientLeaseId !== record.clientLeaseId
+    || !isTimestamp(createdAt)
+    || createdAt < record.createdAt) {
+    throw new Error('Invalid leased index withdrawal input');
+  }
+  const body: LeasedIndexWithdrawalBodyV1 = {
+    version: LEASED_INDEX_V1_VERSION,
+    kind: LEASED_INDEX_WITHDRAWAL_KIND,
+    publicationId: record.publicationId,
+    clientLeaseId: record.clientLeaseId,
+    leaseSequence: record.leaseSequence + 1,
+    semanticRevision: record.semanticRevision,
+    publicationKey: record.publicationKey,
+    createdAt,
+  };
+  if (!isSafeCounter(body.leaseSequence)) throw new Error('Invalid leased index withdrawal input');
+  return {
+    ...body,
+    signature: encodeBase64(sign(signableWithdrawal(body), keys.signingKeyPair.secretKey)),
+  };
+}
+
+export function verifyLeasedIndexWithdrawalV1(value: unknown): value is LeasedIndexWithdrawalV1 {
+  if (!isObject(value) || !hasOnlyKeys(value, [
+    'clientLeaseId', 'createdAt', 'kind', 'leaseSequence', 'publicationId',
+    'publicationKey', 'semanticRevision', 'signature', 'version',
+  ])) return false;
+  const { signature, ...body } = value;
+  if (typeof signature !== 'string' || !isBase64OfLength(signature, 64)
+    || body.version !== LEASED_INDEX_V1_VERSION
+    || body.kind !== LEASED_INDEX_WITHDRAWAL_KIND
+    || !isOpaqueId(body.publicationId, 'pub')
+    || !isOpaqueId(body.clientLeaseId, 'lease')
+    || !isSafeCounter(body.leaseSequence)
+    || body.leaseSequence < 1
+    || !isSafeCounter(body.semanticRevision)
+    || !isBase64OfLength(body.publicationKey, 32)
+    || !idMatchesKey(body.publicationId, 'pub', body.publicationKey)
+    || !isTimestamp(body.createdAt)
+    || serializedSize(value) > MAX_LEASED_INDEX_BYTES) return false;
+  try {
+    return verify(
+      signableWithdrawal(body as unknown as LeasedIndexWithdrawalBodyV1),
+      decodeBase64(signature),
+      decodeBase64(body.publicationKey),
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function serializeLeasedIndexOperationV1(operation: LeasedIndexOperationV1): string {
+  if (!verifyLeasedIndexV1(operation) && !verifyLeasedIndexWithdrawalV1(operation)) {
+    throw new Error('Cannot serialize an invalid leased index operation');
+  }
+  return canonicalize(operation);
+}
+
+export function parseLeasedIndexOperationV1(raw: string): LeasedIndexOperationV1 {
+  if (typeof raw !== 'string' || Buffer.byteLength(raw) > MAX_LEASED_INDEX_BYTES) {
+    throw new Error('Invalid leased index operation');
+  }
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw); } catch { throw new Error('Invalid leased index operation'); }
+  if (!verifyLeasedIndexV1(parsed) && !verifyLeasedIndexWithdrawalV1(parsed)) {
+    throw new Error('Invalid leased index operation');
+  }
+  return parsed;
+}
+
+export function createStableNotificationIdV1(matchId: string, notificationScope: string): string {
+  if (!isOpaqueId(matchId, 'match') || !isBoundedName(notificationScope)) {
+    throw new Error('Invalid notification identity input');
+  }
+  return derivedId('notification', `resonance:leased-notification:v1\n${canonicalize([matchId, notificationScope])}`);
+}
+
 export class LeasedIndexReplayV1 {
   private readonly records = new Map<string, Map<number, RetainedLeasedIndex>>();
   private retainedBytes = 0;
@@ -351,6 +454,10 @@ function signableBody(body: LeasedIndexBodyV1): Uint8Array {
   return decodeUTF8(`${LEASED_INDEX_SIGNATURE_DOMAIN}\n${canonicalize(body)}`);
 }
 
+function signableWithdrawal(body: LeasedIndexWithdrawalBodyV1): Uint8Array {
+  return decodeUTF8(`resonance:leased-discovery-withdrawal:v1\n${canonicalize(body)}`);
+}
+
 function validateOriginalInputs(originalBytes: Uint8Array, commitmentKey: Uint8Array): void {
   if (!(originalBytes instanceof Uint8Array) || originalBytes.byteLength > MAX_ORIGINAL_BYTES
     || !(commitmentKey instanceof Uint8Array) || commitmentKey.byteLength !== 32) {
@@ -376,11 +483,14 @@ function serializedSize(value: unknown): number {
   return Buffer.byteLength(canonicalize(value));
 }
 
-function derivedId(prefix: 'gen', input: string): string {
+function derivedId(prefix: 'gen' | 'notification', input: string): string {
   return opaqueIdFromBytes(prefix, sha512(decodeUTF8(input)).slice(0, 32));
 }
 
-function opaqueIdFromBytes(prefix: 'pub' | 'mbx' | 'lease' | 'gen', bytes: Uint8Array): string {
+function opaqueIdFromBytes(
+  prefix: 'pub' | 'mbx' | 'lease' | 'gen' | 'notification',
+  bytes: Uint8Array,
+): string {
   return `${prefix}_${encodeBase64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')}`;
 }
 
@@ -388,7 +498,10 @@ function idMatchesKey(id: string, prefix: 'pub' | 'mbx', encodedKey: string): bo
   try { return id === opaqueIdFromBytes(prefix, decodeBase64(encodedKey)); } catch { return false; }
 }
 
-function isOpaqueId(value: unknown, prefix: 'pub' | 'mbx' | 'lease' | 'gen'): value is string {
+function isOpaqueId(
+  value: unknown,
+  prefix: 'pub' | 'mbx' | 'lease' | 'gen' | 'match' | 'notification',
+): value is string {
   return typeof value === 'string' && new RegExp(`^${prefix}_[A-Za-z0-9_-]{43}$`).test(value);
 }
 

@@ -66,3 +66,13 @@ export { PROTECTED_ALLOCATION_AUTHORITY_RECOVERY_FILENAME, prepareProtectedAlloc
 export { openProtectedAllocationAuthorityRestoreResumption, type ProtectedAllocationAuthorityRestoreResumptionOptions,
   type ProtectedAllocationAuthorityRestoreResumptionReview, type ProtectedAllocationAuthorityRestoreResumptionResult,
   type ProtectedAllocationAuthorityRestoreResumption } from './admission-allocation-authority-restore-resumption.js';
+
+export {
+  LeasedIndexLocalStore,
+  type LeasedIndexOriginalStateV1,
+  type LeasedIndexLocalStateV1,
+  type CreateLeasedIndexLocalStoreOptionsV1,
+  type OpenLeasedIndexLocalStoreOptionsV1,
+  type ReviseLeasedIndexInputV1,
+  type LeaseWriterReconciliationResultV1,
+} from './leased-index-store.js';

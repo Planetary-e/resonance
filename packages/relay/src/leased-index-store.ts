@@ -1,0 +1,376 @@
+import {
+  closeSync,
+  existsSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeSync,
+} from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { basename, join } from 'node:path';
+import {
+  createLeasedIndexGenerationIdV1,
+  decodeBase64,
+  isLeasedIndexActiveV1,
+  parseLeasedIndexOperationV1,
+  type LeasedIndexOperationV1,
+  type LeasedIndexV1,
+} from '@resonance/core';
+import { guardUnmanagedExport } from './unmanaged-export.js';
+import {
+  MatchingEngine,
+  type LeasedMatchNotification,
+} from './matching-engine.js';
+import type { HashMetadata } from './hamming-index.js';
+
+const STORE_FILENAME = 'leased-index-operations.json';
+const MIN_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+export type LeasedIndexApplyStatus =
+  | 'accepted'
+  | 'duplicate'
+  | 'stale'
+  | 'conflict'
+  | 'terminal'
+  | 'invalid'
+  | 'invalid_transition'
+  | 'not_yet_valid'
+  | 'expired';
+
+export interface LeasedIndexApplyResult {
+  status: LeasedIndexApplyStatus;
+  current?: LeasedIndexOperationV1;
+  currentBytes?: string;
+  conflictBytes?: string;
+  notifications: LeasedMatchNotification[];
+}
+
+interface StoredOperation {
+  bytes: string;
+  operation: LeasedIndexOperationV1;
+}
+
+interface PublicationState {
+  current: StoredOperation;
+  history: StoredOperation[];
+  conflicts: StoredOperation[];
+}
+
+interface StoredFile {
+  version: 1;
+  publications: PublicationState[];
+}
+
+export class LeasedIndexStore {
+  private readonly assertExportAllowed = guardUnmanagedExport();
+  private publications = new Map<string, PublicationState>();
+  readonly matching: MatchingEngine;
+
+  constructor(matching = new MatchingEngine()) {
+    this.matching = matching;
+  }
+
+  apply(raw: string | Uint8Array, now = Date.now(), repair = false): LeasedIndexApplyResult {
+    let bytes: string;
+    let operation: LeasedIndexOperationV1;
+    try {
+      bytes = exactOperationBytes(raw);
+      operation = parseLeasedIndexOperationV1(bytes);
+    } catch {
+      return { status: 'invalid', notifications: [] };
+    }
+    const state = this.publications.get(operation.publicationId);
+    const duplicate = findExact(state?.history, bytes) ?? findExact(state?.conflicts, bytes);
+    if (duplicate) {
+      return {
+        status: findExact(state?.conflicts, bytes) ? 'conflict' : 'duplicate',
+        current: state?.current.operation,
+        currentBytes: state?.current.bytes,
+        conflictBytes: duplicate.bytes,
+        notifications: [],
+      };
+    }
+    if (state?.current.operation.kind === 'leased-discovery-withdrawal') {
+      return {
+        status: 'terminal',
+        current: state.current.operation,
+        currentBytes: state.current.bytes,
+        notifications: [],
+      };
+    }
+    if (operation.kind === 'leased-discovery-withdrawal') {
+      if (state && !sameWriter(state.current.operation, operation)) {
+        return { status: 'invalid', current: state.current.operation, notifications: [] };
+      }
+      const stored = { bytes, operation };
+      const next: PublicationState = {
+        current: stored,
+        history: [...state?.history ?? [], stored],
+        conflicts: state?.conflicts ?? [],
+      };
+      this.publications.set(operation.publicationId, next);
+      this.matching.withdraw('', operation.publicationId);
+      return { status: 'accepted', current: operation, currentBytes: bytes, notifications: [] };
+    }
+
+    const current = state?.current.operation;
+    if (current && current.kind === 'leased-discovery-index'
+      && operation.leaseSequence < current.leaseSequence) {
+      return { status: 'stale', current, currentBytes: state.current.bytes, notifications: [] };
+    }
+    if (!Number.isSafeInteger(now) || now < 0) return { status: 'invalid', notifications: [] };
+    if (now < operation.createdAt) {
+      return { status: 'not_yet_valid', current, currentBytes: state?.current.bytes, notifications: [] };
+    }
+    if (now >= operation.expiresAt) {
+      return { status: 'expired', current, currentBytes: state?.current.bytes, notifications: [] };
+    }
+    if (current && current.kind === 'leased-discovery-index'
+      && operation.leaseSequence === current.leaseSequence) {
+      const conflict = { bytes, operation };
+      if (!state.conflicts.some(item => item.operation.leaseSequence === operation.leaseSequence)) {
+        state.conflicts.push(conflict);
+      }
+      this.matching.removeLeased(operation.publicationId);
+      const retained = state.conflicts.find(item => item.operation.leaseSequence === operation.leaseSequence)!;
+      return {
+        status: 'conflict',
+        current,
+        currentBytes: state.current.bytes,
+        conflictBytes: retained.bytes,
+        notifications: [],
+      };
+    }
+    if (current && !isValidSuccessor(current, operation, now)) {
+      return { status: 'invalid_transition', current, currentBytes: state?.current.bytes, notifications: [] };
+    }
+
+    const stored = { bytes, operation };
+    this.publications.set(operation.publicationId, {
+      current: stored,
+      history: [...state?.history ?? [], stored],
+      conflicts: state?.conflicts ?? [],
+    });
+    const notifications = this.updateMatching(current, operation, repair);
+    return { status: 'accepted', current: operation, currentBytes: bytes, notifications };
+  }
+
+  get(publicationId: string): LeasedIndexOperationV1 | undefined {
+    return this.publications.get(publicationId)?.current.operation;
+  }
+
+  getExactBytes(publicationId: string, generationId?: string): string | undefined {
+    const state = this.publications.get(publicationId);
+    if (!state) return undefined;
+    if (generationId === undefined || state.current.operation.kind === 'leased-discovery-withdrawal') {
+      return state.current.bytes;
+    }
+    if (createLeasedIndexGenerationIdV1(state.current.operation) === generationId) return state.current.bytes;
+    return [...state.history, ...state.conflicts].find(item => (
+      item.operation.kind === 'leased-discovery-index'
+      && createLeasedIndexGenerationIdV1(item.operation) === generationId
+    ))?.bytes;
+  }
+
+  exportReplicaState(publicationId: string): string[] {
+    const state = this.publications.get(publicationId);
+    if (!state) return [];
+    return [state.current, ...state.conflicts].map(item => item.bytes);
+  }
+
+  repairFrom(source: LeasedIndexStore, publicationId: string, now = Date.now()): LeasedIndexApplyResult[] {
+    const results = this.exportReplicaStateFrom(source, publicationId)
+      .map(bytes => this.apply(bytes, now, true));
+    this.matching.importLeasedDedup(source.matching.exportLeasedDedup(publicationId));
+    return results;
+  }
+
+  activeRecords(now = Date.now()): LeasedIndexV1[] {
+    return Array.from(this.publications.values()).flatMap(state => {
+      const current = state.current.operation;
+      if (current.kind !== 'leased-discovery-index' || !isLeasedIndexActiveV1(current, now)) return [];
+      if (state.conflicts.some(item => item.operation.leaseSequence === current.leaseSequence)) return [];
+      return [current];
+    });
+  }
+
+  isQuarantined(publicationId: string): boolean {
+    const state = this.publications.get(publicationId);
+    if (!state) return false;
+    return state.conflicts.some(item => (
+      item.operation.leaseSequence === state.current.operation.leaseSequence
+    ));
+  }
+
+  save(directory: string): void {
+    this.assertExportAllowed();
+    mkdirSync(directory, { recursive: true });
+    const file: StoredFile = {
+      version: 1,
+      publications: Array.from(this.publications.values())
+        .sort((a, b) => a.current.operation.publicationId.localeCompare(b.current.operation.publicationId)),
+    };
+    writeAtomic(join(directory, STORE_FILENAME), JSON.stringify(file));
+    this.matching.save(directory);
+  }
+
+  load(directory: string): void {
+    const path = join(directory, STORE_FILENAME);
+    if (!existsSync(path)) return;
+    const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'));
+    if (!isStoredFile(parsed)) throw new Error('Invalid persisted leased index store');
+    const restored = new Map<string, PublicationState>();
+    for (const state of parsed.publications) {
+      const publicationId = state.current.operation.publicationId;
+      if (restored.has(publicationId)) throw new Error('Duplicate persisted leased index state');
+      restored.set(publicationId, state);
+    }
+    this.publications = restored;
+    this.matching.load(directory);
+  }
+
+  private updateMatching(
+    current: LeasedIndexOperationV1 | undefined,
+    next: LeasedIndexV1,
+    repair: boolean,
+  ): LeasedMatchNotification[] {
+    const hash = decodeBase64(next.fingerprint.value);
+    const meta = hashMetadata(next);
+    if (repair) {
+      this.matching.refreshLeased(hash, meta);
+      return [];
+    }
+    if (current?.kind === 'leased-discovery-index'
+      && current.semanticRevision === next.semanticRevision) {
+      this.matching.refreshLeased(hash, meta);
+      return [];
+    }
+    if (current?.kind === 'leased-discovery-index') {
+      return this.matching.reviseLeasedAndMatch(hash, meta, next.publicationId);
+    }
+    return this.matching.insertLeasedAndMatch(hash, meta, next.publicationId);
+  }
+
+  private exportReplicaStateFrom(source: LeasedIndexStore, publicationId: string): string[] {
+    return source.exportReplicaState(publicationId);
+  }
+}
+
+function isValidSuccessor(current: LeasedIndexOperationV1, next: LeasedIndexV1, now: number): boolean {
+  if (!sameWriter(current, next) || next.createdAt <= current.createdAt) return false;
+  if (current.kind === 'leased-discovery-withdrawal') return false;
+  if (next.semanticRevision < current.semanticRevision) return false;
+  if (next.semanticRevision > current.semanticRevision) return true;
+  return next.expiresAt > current.expiresAt
+    && next.createdAt - current.createdAt >= MIN_REFRESH_INTERVAL_MS
+    && now < current.expiresAt
+    && sameSemanticFields(current, next);
+}
+
+function sameSemanticFields(first: LeasedIndexV1, second: LeasedIndexV1): boolean {
+  return first.derivationId === second.derivationId
+    && first.groupId === second.groupId
+    && first.itemType === second.itemType
+    && first.mailbox.id === second.mailbox.id
+    && first.mailbox.encryptionKey === second.mailbox.encryptionKey
+    && first.original.commitmentAlgorithm === second.original.commitmentAlgorithm
+    && first.original.commitment === second.original.commitment
+    && JSON.stringify(first.fingerprint) === JSON.stringify(second.fingerprint);
+}
+
+function sameWriter(first: LeasedIndexOperationV1, second: LeasedIndexOperationV1): boolean {
+  return first.publicationId === second.publicationId
+    && first.clientLeaseId === second.clientLeaseId
+    && first.publicationKey === second.publicationKey;
+}
+
+function hashMetadata(record: LeasedIndexV1): HashMetadata {
+  return {
+    did: record.clientLeaseId,
+    itemType: record.itemType,
+    itemId: record.publicationId,
+    scope: `${record.groupId}\n${record.fingerprint.epoch}`,
+    expiresAt: record.expiresAt,
+  };
+}
+
+function exactOperationBytes(raw: string | Uint8Array): string {
+  if (typeof raw === 'string') return raw;
+  if (!(raw instanceof Uint8Array)) throw new Error('Invalid operation bytes');
+  return new TextDecoder('utf-8', { fatal: true }).decode(raw);
+}
+
+function findExact(operations: StoredOperation[] | undefined, bytes: string): StoredOperation | undefined {
+  return operations?.find(item => item.bytes === bytes);
+}
+
+function isStoredFile(value: unknown): value is StoredFile {
+  if (!isObject(value) || Object.keys(value).sort().join(',') !== 'publications,version'
+    || value.version !== 1 || !Array.isArray(value.publications)) return false;
+  return value.publications.every(isPublicationState);
+}
+
+function isPublicationState(value: unknown): value is PublicationState {
+  if (!isObject(value) || Object.keys(value).sort().join(',') !== 'conflicts,current,history'
+    || !Array.isArray(value.history) || !Array.isArray(value.conflicts)) return false;
+  try {
+    if (!isStoredOperation(value.current)) return false;
+    const history = value.history;
+    const conflicts = value.conflicts;
+    if (!history.every(isStoredOperation) || !conflicts.every(isStoredOperation)) return false;
+    const current = value.current;
+    const publicationId = current.operation.publicationId;
+    const all = [...history, ...conflicts, current];
+    if (!all.every(item => sameWriter(item.operation, current.operation))) return false;
+    if (!history.some(item => item.bytes === current.bytes)) return false;
+    if (new Set(history.map(item => item.operation.leaseSequence)).size !== history.length) return false;
+    if (new Set(conflicts.map(item => item.operation.leaseSequence)).size !== conflicts.length) return false;
+    if (!conflicts.every(item => history.some(accepted => (
+      accepted.operation.leaseSequence === item.operation.leaseSequence
+    )))) return false;
+    if (current.operation.kind === 'leased-discovery-withdrawal') return true;
+    return !history.some(item => item.operation.leaseSequence > current.operation.leaseSequence);
+  } catch {
+    return false;
+  }
+}
+
+function isStoredOperation(value: unknown): value is StoredOperation {
+  if (!isObject(value) || Object.keys(value).sort().join(',') !== 'bytes,operation'
+    || typeof value.bytes !== 'string') return false;
+  try {
+    const operation = parseLeasedIndexOperationV1(value.bytes);
+    return JSON.stringify(operation) === JSON.stringify(value.operation);
+  } catch {
+    return false;
+  }
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function writeAtomic(path: string, contents: string): void {
+  const temporary = join(path, '..', `.${basename(path)}.${randomBytes(8).toString('hex')}.tmp`);
+  const bytes = Buffer.from(contents);
+  let fd: number | undefined;
+  try {
+    fd = openSync(temporary, 'wx', 0o600);
+    let offset = 0;
+    while (offset < bytes.length) offset += writeSync(fd, bytes, offset, bytes.length - offset);
+    fsyncSync(fd);
+    closeSync(fd);
+    fd = undefined;
+    renameSync(temporary, path);
+    if (process.platform !== 'win32') {
+      const directoryFd = openSync(join(path, '..'), 'r');
+      try { fsyncSync(directoryFd); } finally { closeSync(directoryFd); }
+    }
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+    rmSync(temporary, { force: true });
+  }
+}

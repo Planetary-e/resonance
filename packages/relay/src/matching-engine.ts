@@ -8,7 +8,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { guardUnmanagedExport } from './unmanaged-export.js';
-import { createDeterministicMatchId, type ItemType } from '@resonance/core';
+import { createDeterministicMatchId, createStableNotificationIdV1, type ItemType } from '@resonance/core';
 import { ComplementaryHammingIndex, type HashMetadata } from './hamming-index.js';
 
 export interface MatchNotification {
@@ -21,6 +21,13 @@ export interface MatchNotification {
   matchedItemType: ItemType;
   similarity: number;
   expiry: number;
+  notificationId?: string;
+  notificationScope?: string;
+}
+
+export interface LeasedMatchNotification extends MatchNotification {
+  notificationId: string;
+  notificationScope: string;
 }
 
 export interface SearchResult {
@@ -40,6 +47,8 @@ export class MatchingEngine {
   private readonly assertExportAllowed = guardUnmanagedExport();
   private index = new ComplementaryHammingIndex();
   private notifiedPairs = new Set<string>();
+  private notifiedNotificationIds = new Set<string>();
+  private leasedNotifications = new Map<string, LeasedMatchNotification>();
   private withdrawnItems = new Set<string>();
   private pendingNotifications: MatchNotification[] = [];
   private matchesToday = 0;
@@ -122,6 +131,80 @@ export class MatchingEngine {
     return this.insertAndMatch(hash, meta, k, threshold, queueNotifications, trackStats);
   }
 
+  refreshLeased(hash: Uint8Array, meta: HashMetadata): void {
+    this.index.removeByItemId(meta.itemId);
+    this.index.addHash(hash, meta);
+  }
+
+  reviseLeasedAndMatch(
+    hash: Uint8Array,
+    meta: HashMetadata,
+    notificationScope: string,
+    k: number = 10,
+    threshold?: number,
+  ): LeasedMatchNotification[] {
+    this.index.removeByItemId(meta.itemId);
+    return this.insertLeasedAndMatch(hash, meta, notificationScope, k, threshold);
+  }
+
+  insertLeasedAndMatch(
+    hash: Uint8Array,
+    meta: HashMetadata,
+    notificationScope: string,
+    k: number = 10,
+    threshold?: number,
+  ): LeasedMatchNotification[] {
+    const { matches } = this.index.addAndMatch(hash, meta, k, threshold ?? this.matchThreshold);
+    const notifications: LeasedMatchNotification[] = [];
+    const now = Date.now();
+    for (const match of matches) {
+      const matchedMeta = match.metadata;
+      if (!matchedMeta || this.withdrawnItems.has(matchedMeta.itemId)) continue;
+      const matchId = createDeterministicMatchId(meta.itemId, matchedMeta.itemId);
+      const notificationId = createStableNotificationIdV1(matchId, notificationScope);
+      if (this.notifiedNotificationIds.has(notificationId)) continue;
+      this.notifiedNotificationIds.add(notificationId);
+      const notification = {
+        matchId,
+        notificationId,
+        notificationScope,
+        publisherDID: meta.did,
+        publisherItemId: meta.itemId,
+        publisherItemType: meta.itemType,
+        matchedDID: matchedMeta.did,
+        matchedItemId: matchedMeta.itemId,
+        matchedItemType: matchedMeta.itemType,
+        similarity: match.similarity,
+        expiry: now + this.matchExpiryMs,
+      };
+      notifications.push(notification);
+      this.leasedNotifications.set(notificationId, notification);
+    }
+    if (notifications.length > 0) this.updateDayCounter(notifications.length);
+    this.pendingNotifications.push(...notifications);
+    return notifications;
+  }
+
+  removeLeased(itemId: string): void {
+    this.index.removeByItemId(itemId);
+  }
+
+  exportLeasedDedup(publicationId: string): LeasedMatchNotification[] {
+    return Array.from(this.leasedNotifications.values())
+      .filter(notification => notification.publisherItemId === publicationId
+        || notification.matchedItemId === publicationId)
+      .map(notification => structuredClone(notification));
+  }
+
+  importLeasedDedup(notifications: readonly LeasedMatchNotification[]): void {
+    for (const notification of notifications) {
+      const expected = createStableNotificationIdV1(notification.matchId, notification.notificationScope);
+      if (expected !== notification.notificationId) throw new Error('Invalid leased notification evidence');
+      this.notifiedNotificationIds.add(notification.notificationId);
+      this.leasedNotifications.set(notification.notificationId, structuredClone(notification));
+    }
+  }
+
   /** Get pending notifications for a DID. */
   getPendingForDID(did: string): MatchNotification[] {
     const now = Date.now();
@@ -184,6 +267,7 @@ export class MatchingEngine {
     mkdirSync(dir, { recursive: true });
     this.index.save(dir);
     writeFileSync(join(dir, 'dedup.json'), JSON.stringify(Array.from(this.notifiedPairs)));
+    writeFileSync(join(dir, 'notification-dedup.json'), JSON.stringify(Array.from(this.leasedNotifications.values())));
     writeFileSync(join(dir, 'withdrawn.json'), JSON.stringify(Array.from(this.withdrawnItems)));
     writeFileSync(join(dir, 'stats.json'), JSON.stringify({
       matchesToday: this.matchesToday,
@@ -199,6 +283,17 @@ export class MatchingEngine {
     const dedupPath = join(dir, 'dedup.json');
     if (existsSync(dedupPath)) {
       this.notifiedPairs = new Set(JSON.parse(readFileSync(dedupPath, 'utf-8')));
+    }
+
+    const notificationDedupPath = join(dir, 'notification-dedup.json');
+    if (existsSync(notificationDedupPath)) {
+      const parsed: unknown = JSON.parse(readFileSync(notificationDedupPath, 'utf-8'));
+      if (!Array.isArray(parsed)) throw new Error('Invalid leased notification dedup state');
+      for (const entry of parsed) {
+        if (typeof entry === 'string') this.notifiedNotificationIds.add(entry);
+        else if (isLeasedNotification(entry)) this.importLeasedDedup([entry]);
+        else throw new Error('Invalid leased notification dedup state');
+      }
     }
 
     const withdrawnPath = join(dir, 'withdrawn.json');
@@ -236,5 +331,40 @@ export class MatchingEngine {
       this.matchesToday = 0;
       this.matchesTodayDate = today;
     }
+  }
+}
+
+function isLeasedNotification(value: unknown): value is LeasedMatchNotification {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const notification = value as Record<string, unknown>;
+  if (Object.keys(notification).sort().join(',') !== [
+    'expiry', 'matchId', 'matchedDID', 'matchedItemId', 'matchedItemType',
+    'notificationId', 'notificationScope', 'publisherDID', 'publisherItemId',
+    'publisherItemType', 'similarity',
+  ].sort().join(',')) return false;
+  if (typeof notification.matchId !== 'string'
+    || typeof notification.notificationId !== 'string'
+    || typeof notification.notificationScope !== 'string'
+    || typeof notification.publisherDID !== 'string'
+    || typeof notification.publisherItemId !== 'string'
+    || typeof notification.matchedDID !== 'string'
+    || typeof notification.matchedItemId !== 'string'
+    || (notification.publisherItemType !== 'need' && notification.publisherItemType !== 'offer')
+    || (notification.matchedItemType !== 'need' && notification.matchedItemType !== 'offer')
+    || typeof notification.similarity !== 'number'
+    || !Number.isFinite(notification.similarity)
+    || notification.similarity < 0
+    || notification.similarity > 1
+    || !Number.isSafeInteger(notification.expiry)) return false;
+  try {
+    return notification.matchId === createDeterministicMatchId(
+      notification.publisherItemId,
+      notification.matchedItemId,
+    ) && notification.notificationId === createStableNotificationIdV1(
+      notification.matchId,
+      notification.notificationScope,
+    );
+  } catch {
+    return false;
   }
 }

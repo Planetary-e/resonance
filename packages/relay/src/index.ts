@@ -1,5 +1,10 @@
 export { HammingIndex, ComplementaryHammingIndex, type HashMetadata, type HammingMatch } from './hamming-index.js';
-export { MatchingEngine, type MatchNotification, type SearchResult, type MatchingEngineConfig } from './matching-engine.js';
+export { MatchingEngine, type MatchNotification, type LeasedMatchNotification, type SearchResult, type MatchingEngineConfig } from './matching-engine.js';
+export {
+  LeasedIndexStore,
+  type LeasedIndexApplyResult,
+  type LeasedIndexApplyStatus,
+} from './leased-index-store.js';
 export { RateLimiter, type RateLimiterConfig } from './rate-limiter.js';
 export {
   createRelayServer,

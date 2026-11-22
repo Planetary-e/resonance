@@ -135,4 +135,15 @@ describe('MatchingEngine', () => {
     expect(stats.total).toBe(2);
     expect(stats.matchesToday).toBe(1);
   });
+
+  it('preserves legacy replaceAndMatch dedup-reset behavior', () => {
+    const hash = new Uint8Array(64);
+    const meta = { did: 'did:key:bob', itemType: 'need' as const, itemId: 'need-1' };
+    engine.insertAndMatch(hash, { did: 'did:key:alice', itemType: 'offer', itemId: 'offer-1' }, 10, 0.3);
+    expect(engine.insertAndMatch(hash, meta, 10, 0.3)).toHaveLength(1);
+
+    const notifications = engine.replaceAndMatch(hash, meta, 10, 0.3);
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0].notificationId).toBeUndefined();
+  });
 });

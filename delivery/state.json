@@ -12,12 +12,12 @@
   "worktree": {
     "path": "/Users/marcos/Documents/Codex/2026-09-15/i-x20/resonance-v04",
     "branch": "feature/client-held-discovery",
-    "head": "754a19c",
+    "head": "d3e8e9e",
     "dirty_tree_preserved": true,
     "session_only_installation": true
   },
   "current_feature_id": "FEAT-001",
-  "next_action": "DEC-022 prototype stage 1 schemas/quota passes 23 focused tests and noEmit. Continue leased-index state and mailbox implementation. No production/K/R acceptance.",
+  "next_action": "DEC-022 stages 1–2 pass 42 focused/affected tests and noEmit. Continue generation-aware mailbox implementation and fault controls. No production/K/R acceptance.",
   "pending_decision_ids": [],
   "approvals": {
     "product_scope": "approved",
@@ -29,6 +29,6 @@
   "session": {
     "id": "kimi-resonance-v04-20261025T190412Z",
     "started_at": "2026-10-25T19:04:12Z",
-    "updated_at": "2026-11-22T12:22:54Z"
+    "updated_at": "2026-11-22T13:04:34Z"
   }
 }
