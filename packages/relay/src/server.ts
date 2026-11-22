@@ -181,8 +181,38 @@ import {
   type RelayRelationshipMailboxEventV1,
   type RelayRelationshipMailboxSyncRequestV1,
 } from '@resonance/core';
+import {
+  CLIENT_HELD_RESPONSE_MESSAGE_TYPE,
+  CLIENT_HELD_REPAIR_FRAME_TYPE,
+  CONTENT_POLL_FRAME_TYPE,
+  CONTENT_SEND_FRAME_TYPE,
+  LEASED_INDEX_LOOKUP_FRAME_TYPE,
+  LEASED_INDEX_OPERATION_FRAME_TYPE,
+  LEASED_INDEX_SEARCH_FRAME_TYPE,
+  OFFLINE_ACK_FRAME_TYPE,
+  OFFLINE_DEPOSIT_FRAME_TYPE,
+  OFFLINE_FETCH_FRAME_TYPE,
+  OFFLINE_SYNC_FRAME_TYPE,
+  createLeasedIndexGenerationIdV1,
+  isLeasedIndexActiveV1,
+  parseClientHeldFrameV1,
+  parseContentChannelOperationV2,
+  parseLeasedIndexOperationV1,
+  parseOfflineDiscoveryAckV1,
+  parseOfflineDiscoveryDepositV1,
+  serializeOfflineDiscoveryDepositV1,
+  type ClientHeldFrameV1,
+  type ClientHeldResponsePayloadV1,
+  type LeasedIndexOperationV1,
+  type OfflineDiscoverySyncEventV1,
+} from '@resonance/core';
+import { join } from 'node:path';
+import { LeasedIndexStore } from './leased-index-store.js';
+import { MailboxGenerationStore } from './mailbox-generation-store.js';
 import { MatchingEngine, type MatchNotification } from './matching-engine.js';
 import { RateLimiter } from './rate-limiter.js';
+
+type WithoutRequestId<T> = T extends unknown ? Omit<T, 'requestId'> : never;
 import { log, diagnosticLogStatus } from './logger.js';
 import { PublicationOperationStore, type PublicationApplyStatus } from './publication-store.js';
 import { MailboxStore } from './mailbox-store.js';
@@ -603,6 +633,27 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
   const relayIdentity = loadOrCreateRelayIdentity(cfg.persistDir, cfg.identityPassphrase);
   try { cfg.historyLinks?.bindLocalIdentity(relayIdentity.did); }
   catch (error) { relayIdentity.secretKey.fill(0); throw error; }
+  const clientHeldDirectory = join(cfg.persistDir, 'client-held');
+  const leasedIndexes = new LeasedIndexStore();
+  leasedIndexes.load(clientHeldDirectory);
+  const generationMailbox = new MailboxGenerationStore({
+    directory: join(cfg.persistDir, 'generation-mailbox'),
+    relayIdentity,
+    currentIndex: (clientLeaseId, publicationId) => publicationId
+      ? leasedIndexes.currentByPublication(publicationId)
+      : leasedIndexes.currentByLease(clientLeaseId),
+    authorizedIndex: clientLeaseId => leasedIndexes.authorizedByLease(clientLeaseId),
+    indexForGeneration: generationId => leasedIndexes.byGeneration(generationId),
+    verifyAdmission: () => true,
+  });
+  const pendingContentPolls = new Map<string, {
+    pollId: string;
+    channelId: string;
+    relationshipId: string;
+    expiresAt: number;
+    deliver(raw: string): void;
+    timer: ReturnType<typeof setTimeout>;
+  }>();
   const replicaStorageLedger = new ReplicaStorageLedger();
   const trafficMeter = cfg.resourceMeter ?? new RelayTrafficMeter(cfg.persistDir);
 
@@ -3470,6 +3521,210 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       }).catch(() => ws.close(4000, 'private_response_failed'));
     }
 
+    function respondClientHeld(
+      requestId: string,
+      payload: WithoutRequestId<ClientHeldResponsePayloadV1>,
+    ): void {
+      sendClientResponse(serializeMessage(createMessage(
+        CLIENT_HELD_RESPONSE_MESSAGE_TYPE,
+        { ...payload, requestId },
+        relayIdentity,
+      )), 'client_held_complete');
+    }
+
+    async function handleClientHeld(frame: ClientHeldFrameV1): Promise<void> {
+      const now = Date.now();
+      if (frame.type === LEASED_INDEX_OPERATION_FRAME_TYPE) {
+        const operation = parseLeasedIndexOperationV1(frame.operationBytes);
+        if (operation.kind === 'leased-discovery-index' && !isLeasedIndexActiveV1(operation, now)) {
+          sendOperationAck(ws, operation.publicationId, 'error', 'expired'); return;
+        }
+        if (!await authorizeAdmission(
+          ws, operation.publicationId, frame.admission, 'publication-write', operation, now,
+        )) return;
+        if (!rateLimiter.check(`transport:${ip}`, 'publish')) {
+          sendOperationAck(ws, operation.publicationId, 'error', 'rate_limited'); return;
+        }
+        const result = leasedIndexes.apply(frame.operationBytes, now);
+        if (['accepted', 'conflict'].includes(result.status)) leasedIndexes.save(clientHeldDirectory);
+        if (operation.kind === 'leased-discovery-withdrawal'
+          && (result.status === 'accepted' || result.status === 'duplicate')) {
+          generationMailbox.withdraw(operation);
+        }
+        sendOperationAck(ws, operation.publicationId,
+          result.status === 'accepted' || result.status === 'duplicate' ? 'ok' : 'error', result.status);
+        return;
+      }
+      if (frame.type === LEASED_INDEX_LOOKUP_FRAME_TYPE) {
+        const request = frame.request;
+        if (now < request.createdAt || now >= request.expiresAt) {
+          sendOperationAck(ws, request.requestId, 'error', 'expired'); return;
+        }
+        if (!await authorizeAdmission(ws, request.requestId, frame.admission, 'search', request, now)) return;
+        respondClientHeld(request.requestId, {
+          kind: 'lookup',
+          operationBytes: leasedIndexes.getExactBytes(request.publicationId, request.generationId) ?? null,
+        });
+        return;
+      }
+      if (frame.type === LEASED_INDEX_SEARCH_FRAME_TYPE) {
+        const request = frame.request;
+        if (now < request.createdAt || now >= request.expiresAt) {
+          sendOperationAck(ws, request.requestId, 'error', 'expired'); return;
+        }
+        if (!await authorizeAdmission(ws, request.requestId, frame.admission, 'search', request, now)) return;
+        if (!rateLimiter.check(`transport:${ip}`, 'search')) {
+          sendOperationAck(ws, request.requestId, 'error', 'rate_limited'); return;
+        }
+        const matches = leasedIndexes.matching.search(
+          decodeBase64(request.fingerprint), request.itemType, request.limit, undefined,
+          `${request.groupId}\n${request.fingerprintEpoch}`,
+        );
+        const operationBytes = matches.flatMap(match => {
+          if (!match.publicationId || !match.generationId) return [];
+          const record = leasedIndexes.activeRecords(now).find(candidate => (
+            candidate.publicationId === match.publicationId
+            && createLeasedIndexGenerationIdV1(candidate) === match.generationId
+          ));
+          if (!record) return [];
+          const bytes = leasedIndexes.getExactBytes(record.publicationId, match.generationId);
+          return bytes ? [bytes] : [];
+        });
+        respondClientHeld(request.requestId, { kind: 'search', operationBytes });
+        return;
+      }
+      if (frame.type === OFFLINE_DEPOSIT_FRAME_TYPE) {
+        const deposit = parseOfflineDiscoveryDepositV1(frame.depositBytes);
+        let result = generationMailbox.preflightDeposit(frame.depositBytes, now);
+        if (result.status === 'admission_required') {
+          if (!await authorizeAdmission(
+            ws, deposit.requestId, frame.admission, 'mailbox-deposit', deposit, now,
+          )) return;
+          result = generationMailbox.depositPreauthorized(frame.depositBytes, frame.admission!, now);
+        } else if (result.status === 'conflicting_request') {
+          result = generationMailbox.commitConflict(frame.depositBytes, now);
+        }
+        respondClientHeld(deposit.requestId, {
+          kind: 'offline-deposit', status: result.status, ...(result.receipt ? { receipt: result.receipt } : {}),
+        });
+        return;
+      }
+      if (frame.type === OFFLINE_FETCH_FRAME_TYPE) {
+        const request = frame.request;
+        if (now < request.createdAt || now >= request.expiresAt) {
+          sendOperationAck(ws, request.requestId, 'error', 'expired'); return;
+        }
+        const current = leasedIndexes.currentByPublication(request.publicationId);
+        if (!current || createLeasedIndexGenerationIdV1(current) !== request.generationId) {
+          sendOperationAck(ws, request.requestId, 'error', 'stale_or_quarantined'); return;
+        }
+        if (generationMailbox.isGenerationQuarantined(request.clientLeaseId, request.generationId)) {
+          sendOperationAck(ws, request.requestId, 'error', 'conflicting_request'); return;
+        }
+        if (!await authorizeAdmission(ws, request.requestId, frame.admission, 'mailbox-fetch', request, now)) return;
+        respondClientHeld(request.requestId, {
+          kind: 'offline-fetch', depositBytes: generationMailbox.fetch(request.mailboxId, now),
+        });
+        return;
+      }
+      if (frame.type === OFFLINE_ACK_FRAME_TYPE) {
+        const ack = parseOfflineDiscoveryAckV1(frame.ackBytes);
+        const result = generationMailbox.acknowledge(frame.ackBytes, now);
+        sendOperationAck(ws, ack.ackId,
+          result.status === 'acknowledged' || result.status === 'duplicate' ? 'ok' : 'error', result.status);
+        return;
+      }
+      if (frame.type === CLIENT_HELD_REPAIR_FRAME_TYPE) {
+        const request = frame.request;
+        if (request.targetRelayId !== relayIdentity.did
+          || !approvedInboundTargets.has(request.senderRelayId)
+          || now < request.createdAt || now >= request.expiresAt) {
+          sendOperationAck(ws, request.requestId, 'error', 'repair_unauthorized'); return;
+        }
+        const result = leasedIndexes.apply(request.operationBytes, now, true);
+        if (['accepted', 'conflict'].includes(result.status)) leasedIndexes.save(clientHeldDirectory);
+        const repairedOperation = parseLeasedIndexOperationV1(request.operationBytes);
+        if (repairedOperation.kind === 'leased-discovery-withdrawal'
+          && (result.status === 'accepted' || result.status === 'duplicate')) {
+          generationMailbox.withdraw(repairedOperation);
+        }
+        sendOperationAck(ws, request.requestId,
+          ['accepted', 'duplicate', 'conflict'].includes(result.status) ? 'ok' : 'error', result.status);
+        return;
+      }
+      if (frame.type === OFFLINE_SYNC_FRAME_TYPE) {
+        const request = frame.request;
+        if (request.targetRelayId !== relayIdentity.did
+          || !approvedInboundTargets.has(request.senderRelayId)
+          || now < request.createdAt || now >= request.expiresAt) {
+          sendOperationAck(ws, request.requestId, 'error', 'sync_unauthorized'); return;
+        }
+        for (const event of request.events) {
+          if (event.kind === 'withdrawal') continue;
+          const raw = serializeOfflineDiscoveryDepositV1(event.deposit);
+          const preflight = generationMailbox.preflightDeposit(raw, now, true);
+          if (preflight.status === 'admission_required'
+            && !await authorizeAdmission(ws, request.requestId, event.admission, 'mailbox-deposit', event.deposit, now)) return;
+        }
+        for (const event of request.events) generationMailbox.applySyncEvent(event, now);
+        const page = generationMailbox.syncEvents(request.cursor, 8);
+        respondClientHeld(request.requestId, { kind: 'sync', events: page.events, nextCursor: page.nextCursor });
+        return;
+      }
+      if (frame.type === CONTENT_POLL_FRAME_TYPE) {
+        const request = frame.request;
+        if (now < request.createdAt || now >= request.expiresAt) {
+          sendOperationAck(ws, request.pollId, 'error', 'expired'); return;
+        }
+        if (!await authorizeAdmission(ws, request.pollId, frame.admission, 'mailbox-fetch', request, now)) return;
+        if (pendingContentPolls.size >= 256 && !pendingContentPolls.has(request.pollId)) {
+          sendOperationAck(ws, request.pollId, 'error', 'online_capacity'); return;
+        }
+        if (pendingContentPolls.has(request.pollId)) {
+          sendOperationAck(ws, request.pollId, 'error', 'duplicate_poll'); return;
+        }
+        const timer = setTimeout(() => {
+          pendingContentPolls.delete(request.pollId);
+          if (ws.readyState === WebSocket.OPEN) sendOperationAck(ws, request.pollId, 'error', 'poll_expired');
+        }, request.expiresAt - now);
+        pendingContentPolls.set(request.pollId, {
+          pollId: request.pollId,
+          channelId: request.channelId,
+          relationshipId: request.relationshipId,
+          expiresAt: request.expiresAt,
+          timer,
+          deliver(raw: string) {
+            respondClientHeld(request.pollId, { kind: 'content', operationBytes: raw });
+          },
+        });
+        ws.once('close', () => {
+          const pending = pendingContentPolls.get(request.pollId);
+          if (pending) { clearTimeout(pending.timer); pendingContentPolls.delete(request.pollId); }
+        });
+        return;
+      }
+      if (frame.type === CONTENT_SEND_FRAME_TYPE) {
+        const operation = parseContentChannelOperationV2(frame.operationBytes);
+        if (now < operation.createdAt || now >= operation.expiresAt) {
+          sendOperationAck(ws, operation.channelId, 'error', 'expired'); return;
+        }
+        if (!await authorizeAdmission(
+          ws, operation.channelId, frame.admission, 'mailbox-deposit', operation, now,
+        )) return;
+        const pending = Array.from(pendingContentPolls.values()).find(candidate => (
+          candidate.channelId === operation.channelId
+          && candidate.relationshipId === operation.recipientRelationshipId
+        ));
+        if (!pending) {
+          sendOperationAck(ws, operation.channelId, 'error', 'counterparty_offline'); return;
+        }
+        clearTimeout(pending.timer);
+        pendingContentPolls.delete(pending.pollId);
+        pending.deliver(frame.operationBytes);
+        sendOperationAck(ws, operation.channelId, 'ok', 'forwarded_online');
+      }
+    }
+
     const authTimeout = setTimeout(() => {
       ws.terminate();
     }, cfg.inboundHandshakeTimeoutMs);
@@ -3492,6 +3747,16 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
       // a short connection and never send the user's root identity.
       let frameCandidate: unknown;
       try { frameCandidate = JSON.parse(raw); } catch { /* handled by v1 parser below */ }
+      if (isObject(frameCandidate) && new Set<string>([
+        LEASED_INDEX_OPERATION_FRAME_TYPE, LEASED_INDEX_LOOKUP_FRAME_TYPE, LEASED_INDEX_SEARCH_FRAME_TYPE,
+        OFFLINE_DEPOSIT_FRAME_TYPE, OFFLINE_FETCH_FRAME_TYPE, OFFLINE_ACK_FRAME_TYPE,
+        CLIENT_HELD_REPAIR_FRAME_TYPE, OFFLINE_SYNC_FRAME_TYPE, CONTENT_SEND_FRAME_TYPE, CONTENT_POLL_FRAME_TYPE,
+      ]).has(String(frameCandidate.type))) {
+        clearTimeout(authTimeout);
+        try { await handleClientHeld(parseClientHeldFrameV1(raw)); }
+        catch { if (ws.readyState === WebSocket.OPEN) ws.close(4000, 'client_held_request_failed'); }
+        return;
+      }
       if (isObject(frameCandidate) && (frameCandidate.type === ADMISSION_POLICY_QUERY_TYPE || frameCandidate.type === ADMISSION_POLICY_CHUNK_TYPE || frameCandidate.type === ADMISSION_POLICY_EVIDENCE_TYPE)) {
         clearTimeout(authTimeout);
         const query = frameCandidate.type === ADMISSION_POLICY_QUERY_TYPE;
@@ -3577,6 +3842,14 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
               ADMISSION_POLICY_QUERY_TYPE,
               ADMISSION_POLICY_CHUNK_TYPE,
               ADMISSION_POLICY_EVIDENCE_TYPE,
+              LEASED_INDEX_OPERATION_FRAME_TYPE,
+              LEASED_INDEX_LOOKUP_FRAME_TYPE,
+              LEASED_INDEX_SEARCH_FRAME_TYPE,
+              OFFLINE_DEPOSIT_FRAME_TYPE,
+              OFFLINE_FETCH_FRAME_TYPE,
+              OFFLINE_ACK_FRAME_TYPE,
+              CONTENT_SEND_FRAME_TYPE,
+              CONTENT_POLL_FRAME_TYPE,
             ]).has(operation.type as string)) throw new Error('Unsupported private operation');
             privateReply = {
               responseKey: opened.responseKey,
@@ -4426,6 +4699,8 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         privateEntryMix?.cancelAll();
         privateReplyMix?.cancelAll();
         for (const controller of privateForwardControllers) controller.abort();
+        for (const pending of pendingContentPolls.values()) clearTimeout(pending.timer);
+        pendingContentPolls.clear();
         if (publicationExpiryTimer) clearTimeout(publicationExpiryTimer);
         if (cleanupTimer) clearInterval(cleanupTimer);
         if (resourceCheckpointTimer) clearInterval(resourceCheckpointTimer);

@@ -68,6 +68,31 @@ import {
   type ChannelMessagePayload,
   type ChannelForwardPayload,
 } from '@resonance/core';
+import {
+  CLIENT_HELD_REPAIR_FRAME_TYPE,
+  CONTENT_POLL_FRAME_TYPE,
+  CONTENT_SEND_FRAME_TYPE,
+  LEASED_INDEX_LOOKUP_FRAME_TYPE,
+  LEASED_INDEX_OPERATION_FRAME_TYPE,
+  LEASED_INDEX_SEARCH_FRAME_TYPE,
+  OFFLINE_ACK_FRAME_TYPE,
+  OFFLINE_DEPOSIT_FRAME_TYPE,
+  OFFLINE_FETCH_FRAME_TYPE,
+  OFFLINE_SYNC_FRAME_TYPE,
+  parseClientHeldResponsePayloadV1,
+  parseContentChannelOperationV2,
+  parseLeasedIndexOperationV1,
+  parseOfflineDiscoveryAckV1,
+  parseOfflineDiscoveryDepositV1,
+  type ClientHeldRepairRequestV1,
+  type LeasedIndexLookupRequestV1,
+  type LeasedIndexSearchRequestV1,
+  type OfflineFetchRequestV1,
+  type OfflineSyncRequestV1,
+  type ContentPollRequestV1,
+  type OfflineDiscoveryReplicaReceiptV1,
+  type OfflineDiscoverySyncEventV1,
+} from '@resonance/core';
 
 export interface RelayClientConfig {
   relayUrl: string;
@@ -166,6 +191,29 @@ export interface RelayClient {
   on(events: Partial<RelayClientEvents>): void;
 }
 
+export interface OfflineDepositNetworkResult {
+  status: string;
+  receipt?: OfflineDiscoveryReplicaReceiptV1;
+}
+
+export interface OfflineSyncNetworkResult {
+  events: OfflineDiscoverySyncEventV1[];
+  nextCursor: number;
+}
+
+export interface ClientHeldRelayClient extends RelayClient {
+  submitLeasedIndexOperation(operationBytes: string): Promise<AckPayload>;
+  lookupLeasedIndex(request: LeasedIndexLookupRequestV1): Promise<string | null>;
+  searchLeasedIndexes(request: LeasedIndexSearchRequestV1): Promise<string[]>;
+  depositOfflineDiscovery(depositBytes: string): Promise<OfflineDepositNetworkResult>;
+  fetchOfflineDiscovery(request: OfflineFetchRequestV1): Promise<string[]>;
+  acknowledgeOfflineDiscovery(ackBytes: string): Promise<AckPayload>;
+  repairClientHeld(request: ClientHeldRepairRequestV1): Promise<AckPayload>;
+  syncOfflineDiscovery(request: OfflineSyncRequestV1): Promise<OfflineSyncNetworkResult>;
+  sendContentOperation(operationBytes: string): Promise<AckPayload>;
+  pollContent(request: ContentPollRequestV1): Promise<string>;
+}
+
 export interface MailboxFetchResult {
   envelopes: EncryptedMailboxEnvelope[];
   notices: Message<MatchNoticePayload>[];
@@ -176,7 +224,7 @@ export interface RelationshipMailboxFetchResult {
   envelopes: EncryptedMailboxEnvelope[];
 }
 
-export function createRelayClient(config: RelayClientConfig): RelayClient {
+export function createRelayClient(config: RelayClientConfig): ClientHeldRelayClient {
   if (config.privateEntryUrls !== undefined) return createPrivateRelayClient(config);
   const allUrls = [config.relayUrl, ...(config.fallbackUrls ?? [])];
   if (allUrls.length > 16) throw new Error('Direct relay client supports at most 16 endpoints');
@@ -197,6 +245,7 @@ export function createRelayClient(config: RelayClientConfig): RelayClient {
 
   class DisconnectedOperation extends Error {}
   class OperationTimeout extends Error { constructor() { super('Direct relay operation timeout'); } }
+  let closed = false;
   const exchanges = new Set<(error: Error) => void>();
   function rememberFailure(error: unknown): unknown {
     if (error instanceof DisconnectedOperation || error instanceof OperationTimeout) throw error;
@@ -205,6 +254,7 @@ export function createRelayClient(config: RelayClientConfig): RelayClient {
   function directDeadline() { return performance.now() + 10_000; }
   function exchange<T>(url: string, raw: () => string, select: (message: Message) => T, deadline: number, valid = () => {}): Promise<T> {
     return new Promise((resolve, reject) => {
+      if (closed) throw new DisconnectedOperation('Direct relay client disconnected');
       if (exchanges.size >= 64) throw new Error('Direct relay client operation capacity exhausted');
       if (performance.now() >= deadline) throw new OperationTimeout();
       valid();
@@ -293,6 +343,51 @@ export function createRelayClient(config: RelayClientConfig): RelayClient {
     }, deadline);
   }
 
+  async function clientHeldToUrl(
+    url: string,
+    frame: unknown,
+    requestId: string,
+    kind: Parameters<typeof parseClientHeldResponsePayloadV1>[2],
+    deadline: number,
+  ) {
+    return exchange(url, () => JSON.stringify(frame), message => {
+      if (message.type === MessageTypes.ACK) {
+        const ack = parseRelayAcknowledgement(message.payload);
+        throw new Error(ack.message ?? 'Client-held relay rejected request');
+      }
+      return parseClientHeldResponsePayloadV1(message.payload, requestId, kind);
+    }, deadline);
+  }
+
+  async function clientHeldAll(
+    frame: (url: string) => unknown,
+    requestId: string,
+    kind: Parameters<typeof parseClientHeldResponsePayloadV1>[2],
+    deadline = directDeadline(),
+  ) {
+    let lastError: unknown;
+    for (const url of allUrls) {
+      try { return await clientHeldToUrl(url, frame(url), requestId, kind, deadline); }
+      catch (error) { lastError = rememberFailure(error); }
+    }
+    throw lastError instanceof Error ? lastError : new Error('All relay URLs failed');
+  }
+
+  async function clientHeldAck(
+    frame: (url: string) => unknown,
+    ref: string,
+    deadline = directDeadline(),
+  ): Promise<AckPayload> {
+    let lastError: unknown;
+    for (const url of allUrls) {
+      try {
+        return await exchange(url, () => JSON.stringify(frame(url)),
+          message => expectedAck(message, ref, true), deadline);
+      } catch (error) { lastError = rememberFailure(error); }
+    }
+    throw lastError instanceof Error ? lastError : new Error('All relay URLs failed');
+  }
+
   async function sendMailboxRequest(request: MailboxRequest, deadline = directDeadline()): Promise<Message> {
     let lastError: unknown;
     for (const url of allUrls) {
@@ -307,6 +402,7 @@ export function createRelayClient(config: RelayClientConfig): RelayClient {
     },
 
     disconnect(): void {
+      closed = true;
       for (const cancel of [...exchanges]) cancel(new DisconnectedOperation('Direct relay client disconnected'));
       events.onDisconnect?.('Direct relay client disconnected');
     },
@@ -452,6 +548,84 @@ export function createRelayClient(config: RelayClientConfig): RelayClient {
         try { return await searchV2ToUrl(url, request, deadline); } catch (error) { lastError = rememberFailure(error); }
       }
       throw lastError instanceof Error ? lastError : new Error('All relay URLs failed');
+    },
+
+    async submitLeasedIndexOperation(operationBytes: string): Promise<AckPayload> {
+      const operation = parseLeasedIndexOperationV1(operationBytes);
+      return clientHeldAck(url => ({
+        type: LEASED_INDEX_OPERATION_FRAME_TYPE,
+        operationBytes,
+        admission: admissionFor(url, 'publication-write', operation),
+      }), operation.publicationId);
+    },
+    async lookupLeasedIndex(request: LeasedIndexLookupRequestV1): Promise<string | null> {
+      const payload = await clientHeldAll(url => ({
+        type: LEASED_INDEX_LOOKUP_FRAME_TYPE,
+        request,
+        admission: admissionFor(url, 'search', request),
+      }), request.requestId, 'lookup');
+      return payload.kind === 'lookup' ? payload.operationBytes : null;
+    },
+    async searchLeasedIndexes(request: LeasedIndexSearchRequestV1): Promise<string[]> {
+      const payload = await clientHeldAll(url => ({
+        type: LEASED_INDEX_SEARCH_FRAME_TYPE,
+        request,
+        admission: admissionFor(url, 'search', request),
+      }), request.requestId, 'search');
+      if (payload.kind !== 'search') throw new Error('Invalid leased search response');
+      return payload.operationBytes;
+    },
+    async depositOfflineDiscovery(depositBytes: string): Promise<OfflineDepositNetworkResult> {
+      const deposit = parseOfflineDiscoveryDepositV1(depositBytes);
+      const payload = await clientHeldAll(url => ({
+        type: OFFLINE_DEPOSIT_FRAME_TYPE,
+        depositBytes,
+        admission: admissionFor(url, 'mailbox-deposit', deposit),
+      }), deposit.requestId, 'offline-deposit');
+      if (payload.kind !== 'offline-deposit') throw new Error('Invalid offline deposit response');
+      return {
+        status: payload.status,
+        ...(payload.receipt ? { receipt: payload.receipt as OfflineDiscoveryReplicaReceiptV1 } : {}),
+      };
+    },
+    async fetchOfflineDiscovery(request: OfflineFetchRequestV1): Promise<string[]> {
+      const payload = await clientHeldAll(url => ({
+        type: OFFLINE_FETCH_FRAME_TYPE,
+        request,
+        admission: admissionFor(url, 'mailbox-fetch', request),
+      }), request.requestId, 'offline-fetch');
+      if (payload.kind !== 'offline-fetch') throw new Error('Invalid offline fetch response');
+      return payload.depositBytes;
+    },
+    async acknowledgeOfflineDiscovery(ackBytes: string): Promise<AckPayload> {
+      const ack = parseOfflineDiscoveryAckV1(ackBytes);
+      return clientHeldAck(() => ({ type: OFFLINE_ACK_FRAME_TYPE, ackBytes }), ack.ackId);
+    },
+    async repairClientHeld(request: ClientHeldRepairRequestV1): Promise<AckPayload> {
+      return clientHeldAck(() => ({ type: CLIENT_HELD_REPAIR_FRAME_TYPE, request }), request.requestId);
+    },
+    async syncOfflineDiscovery(request: OfflineSyncRequestV1): Promise<OfflineSyncNetworkResult> {
+      const payload = await clientHeldAll(() => ({ type: OFFLINE_SYNC_FRAME_TYPE, request }),
+        request.requestId, 'sync');
+      if (payload.kind !== 'sync') throw new Error('Invalid offline sync response');
+      return { events: payload.events, nextCursor: payload.nextCursor };
+    },
+    async sendContentOperation(operationBytes: string): Promise<AckPayload> {
+      const operation = parseContentChannelOperationV2(operationBytes);
+      return clientHeldAck(url => ({
+        type: CONTENT_SEND_FRAME_TYPE,
+        operationBytes,
+        admission: admissionFor(url, 'mailbox-deposit', operation),
+      }), operation.channelId);
+    },
+    async pollContent(request: ContentPollRequestV1): Promise<string> {
+      const payload = await clientHeldAll(url => ({
+        type: CONTENT_POLL_FRAME_TYPE,
+        request,
+        admission: admissionFor(url, 'mailbox-fetch', request),
+      }), request.pollId, 'content');
+      if (payload.kind !== 'content') throw new Error('Invalid content poll response');
+      return payload.operationBytes;
     },
 
     search(): Promise<SearchResultsPayload> { return Promise.reject(new Error('Legacy search is unavailable; use searchV2')); },

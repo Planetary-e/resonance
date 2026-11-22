@@ -34,6 +34,8 @@ export interface SearchResult {
   did: string;
   similarity: number;
   itemType: ItemType;
+  publicationId?: string;
+  generationId?: string;
 }
 
 export interface MatchingEngineConfig {
@@ -238,6 +240,10 @@ export class MatchingEngine {
         did: match.metadata.did,
         similarity: match.similarity,
         itemType: match.metadata.itemType,
+        ...(match.metadata.generationId ? {
+          publicationId: match.metadata.itemId,
+          generationId: match.metadata.generationId,
+        } : {}),
       });
     }
 

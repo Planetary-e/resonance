@@ -175,6 +175,47 @@ export class LeasedIndexStore {
     ))?.bytes;
   }
 
+  currentByLease(clientLeaseId: string): LeasedIndexV1 | undefined {
+    for (const state of this.publications.values()) {
+      if (state.current.operation.kind === 'leased-discovery-index'
+        && state.current.operation.clientLeaseId === clientLeaseId
+        && !state.conflicts.some(item => (
+          item.operation.leaseSequence === state.current.operation.leaseSequence
+        ))) return state.current.operation;
+    }
+    return undefined;
+  }
+
+  currentByPublication(publicationId: string): LeasedIndexV1 | undefined {
+    const state = this.publications.get(publicationId);
+    if (!state || state.current.operation.kind !== 'leased-discovery-index') return undefined;
+    if (state.conflicts.some(item => (
+      item.operation.leaseSequence === state.current.operation.leaseSequence
+    ))) return undefined;
+    return state.current.operation;
+  }
+
+  authorizedByLease(clientLeaseId: string): LeasedIndexV1 | undefined {
+    for (const state of this.publications.values()) {
+      const latest = [...state.history].reverse().find(item => (
+        item.operation.kind === 'leased-discovery-index'
+        && item.operation.clientLeaseId === clientLeaseId
+      ))?.operation;
+      if (latest?.kind === 'leased-discovery-index') return latest;
+    }
+    return undefined;
+  }
+
+  byGeneration(generationId: string): LeasedIndexV1 | undefined {
+    for (const state of this.publications.values()) {
+      for (const item of [...state.history, ...state.conflicts]) {
+        if (item.operation.kind === 'leased-discovery-index'
+          && createLeasedIndexGenerationIdV1(item.operation) === generationId) return item.operation;
+      }
+    }
+    return undefined;
+  }
+
   exportReplicaState(publicationId: string): string[] {
     const state = this.publications.get(publicationId);
     if (!state) return [];
@@ -292,6 +333,7 @@ function hashMetadata(record: LeasedIndexV1): HashMetadata {
     did: record.clientLeaseId,
     itemType: record.itemType,
     itemId: record.publicationId,
+    generationId: createLeasedIndexGenerationIdV1(record),
     scope: `${record.groupId}\n${record.fingerprint.epoch}`,
     expiresAt: record.expiresAt,
   };

@@ -19,6 +19,8 @@ export interface HashMetadata {
   scope?: string;
   /** Signed publication expiry. Entries without it are legacy/test data. */
   expiresAt?: number;
+  /** Exact leased generation used for network result resolution. */
+  generationId?: string;
 }
 
 export interface HammingMatch {

@@ -71,13 +71,33 @@ import {
   type RelationshipMessageV2,
   type SearchResponsePayloadV2,
 } from '@resonance/core';
+import {
+  CONTENT_POLL_FRAME_TYPE,
+  CONTENT_SEND_FRAME_TYPE,
+  LEASED_INDEX_LOOKUP_FRAME_TYPE,
+  LEASED_INDEX_OPERATION_FRAME_TYPE,
+  LEASED_INDEX_SEARCH_FRAME_TYPE,
+  OFFLINE_ACK_FRAME_TYPE,
+  OFFLINE_DEPOSIT_FRAME_TYPE,
+  OFFLINE_FETCH_FRAME_TYPE,
+  parseClientHeldResponsePayloadV1,
+  parseContentChannelOperationV2,
+  parseLeasedIndexOperationV1,
+  parseOfflineDiscoveryAckV1,
+  parseOfflineDiscoveryDepositV1,
+  type ContentPollRequestV1,
+  type LeasedIndexLookupRequestV1,
+  type LeasedIndexSearchRequestV1,
+  type OfflineFetchRequestV1,
+  type OfflineDiscoveryReplicaReceiptV1,
+} from '@resonance/core';
 import { discoverRelayContactV1 } from './relay-discovery-client.js';
 import { verifyPrivateDestinationAddressV1 } from './private-destination-dns.js';
 import { createPrivateTrafficScheduler } from './private-traffic-scheduler.js';
 import { createPrivateOperation, PrivateOperationError, type PrivateOperation } from './private-operation.js';
 import type {
-  MailboxFetchResult, RelayClient, RelayClientConfig, RelayClientEvents,
-  RelationshipMailboxFetchResult,
+  MailboxFetchResult, ClientHeldRelayClient, RelayClientConfig, RelayClientEvents,
+  RelationshipMailboxFetchResult, OfflineDepositNetworkResult, OfflineSyncNetworkResult,
 } from './relay-client.js';
 
 interface PreparedPrivateRequest { raw: string; valid: () => void }
@@ -89,7 +109,7 @@ interface PrivateContact {
 }
 type DiscoveredPrivateRoute = { entry: PrivateContact; destination: PrivateContact };
 
-export function createPrivateRelayClient(config: RelayClientConfig): RelayClient {
+export function createPrivateRelayClient(config: RelayClientConfig): ClientHeldRelayClient {
   const destinations = [...new Set([config.relayUrl, ...(config.fallbackUrls ?? [])])];
   const entryUrls = [...new Set(config.privateEntryUrls ?? [])];
   if (entryUrls.length === 0 || destinations.some(url => entryUrls.includes(url))) {
@@ -101,8 +121,10 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
   const proofReservations = new WeakMap<PrivateOperation, (maximumBytes: number) => void>();
   const operations = new Set<PrivateOperation>();
   const operationRoutes = new WeakMap<PrivateOperation, Map<string, DiscoveredPrivateRoute>>();
+  let closed = false;
 
   async function runOperation<T>(work: (operation: PrivateOperation) => Promise<T>): Promise<T> {
+    if (closed) throw new PrivateOperationError('PRIVATE_OPERATION_CANCELLED', 'not-sent', new Error('Private client disconnected'));
     const operation = createPrivateOperation();
     operations.add(operation);
     operationRoutes.set(operation, new Map());
@@ -370,6 +392,20 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
     return parseRelayMailbox(message, requestId, mailboxId);
   }
 
+  async function clientHeldResponse(
+    operation: PrivateOperation,
+    requestId: string,
+    kind: Parameters<typeof parseClientHeldResponsePayloadV1>[2],
+    makeRaw: (url: string, signal: AbortSignal) => ReturnType<PrivateRequestBuilder>,
+  ) {
+    const reply = await firstReply(operation, makeRaw);
+    if (reply.type === MessageTypes.ACK) {
+      const ack = parseRelayAcknowledgement(reply.payload);
+      throw new Error(ack.message ?? 'Private client-held request rejected');
+    }
+    return parseClientHeldResponsePayloadV1(reply.payload, requestId, kind);
+  }
+
   // Bound asynchronous signature/page verification by the SAME private operation.
   async function evidenceWait<T>(operation: PrivateOperation, work: () => Promise<T>): Promise<T> {
     operation.check(); let abort!: () => void;
@@ -508,6 +544,7 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
       }, operation.signal));
     },
     disconnect() {
+      closed = true;
       for (const operation of operations) operation.cancel(new Error('Private client disconnected'));
       scheduler.cancelAll();
       events.onDisconnect?.('Private client disconnected');
@@ -527,6 +564,106 @@ export function createPrivateRelayClient(config: RelayClientConfig): RelayClient
         const ack = expectedAck(reply, publication.publicationId);
         operation.check();
         return ack;
+      });
+    },
+    async submitLeasedIndexOperation(operationBytes: string): Promise<AckPayload> {
+      return runOperation(async operation => {
+        const leased = parseLeasedIndexOperationV1(operationBytes);
+        const reply = await firstReply(operation, (url, signal) => admittedRequest(
+          url, 'publication-write', leased,
+          admission => JSON.stringify({
+            type: LEASED_INDEX_OPERATION_FRAME_TYPE, operationBytes, admission,
+          }), operation, signal,
+        ));
+        operation.check();
+        return expectedAck(reply, leased.publicationId);
+      });
+    },
+    async lookupLeasedIndex(request: LeasedIndexLookupRequestV1): Promise<string | null> {
+      return runOperation(async operation => {
+        const payload = await clientHeldResponse(operation, request.requestId, 'lookup',
+          (url, signal) => admittedRequest(url, 'search', request, admission => JSON.stringify({
+            type: LEASED_INDEX_LOOKUP_FRAME_TYPE, request, admission,
+          }), operation, signal));
+        operation.check();
+        return payload.kind === 'lookup' ? payload.operationBytes : null;
+      });
+    },
+    async searchLeasedIndexes(request: LeasedIndexSearchRequestV1): Promise<string[]> {
+      return runOperation(async operation => {
+        const payload = await clientHeldResponse(operation, request.requestId, 'search',
+          (url, signal) => admittedRequest(url, 'search', request, admission => JSON.stringify({
+            type: LEASED_INDEX_SEARCH_FRAME_TYPE, request, admission,
+          }), operation, signal));
+        if (payload.kind !== 'search') throw new Error('Invalid private leased search response');
+        operation.check();
+        return payload.operationBytes;
+      });
+    },
+    async depositOfflineDiscovery(depositBytes: string): Promise<OfflineDepositNetworkResult> {
+      return runOperation(async operation => {
+        const deposit = parseOfflineDiscoveryDepositV1(depositBytes);
+        const payload = await clientHeldResponse(operation, deposit.requestId, 'offline-deposit',
+          (url, signal) => admittedRequest(url, 'mailbox-deposit', deposit, admission => JSON.stringify({
+            type: OFFLINE_DEPOSIT_FRAME_TYPE, depositBytes, admission,
+          }), operation, signal));
+        if (payload.kind !== 'offline-deposit') throw new Error('Invalid private offline deposit response');
+        operation.check();
+        return {
+          status: payload.status,
+          ...(payload.receipt ? { receipt: payload.receipt as OfflineDiscoveryReplicaReceiptV1 } : {}),
+        };
+      });
+    },
+    async fetchOfflineDiscovery(request: OfflineFetchRequestV1): Promise<string[]> {
+      return runOperation(async operation => {
+        const payload = await clientHeldResponse(operation, request.requestId, 'offline-fetch',
+          (url, signal) => admittedRequest(url, 'mailbox-fetch', request, admission => JSON.stringify({
+            type: OFFLINE_FETCH_FRAME_TYPE, request, admission,
+          }), operation, signal));
+        if (payload.kind !== 'offline-fetch') throw new Error('Invalid private offline fetch response');
+        operation.check();
+        return payload.depositBytes;
+      });
+    },
+    async acknowledgeOfflineDiscovery(ackBytes: string): Promise<AckPayload> {
+      return runOperation(async operation => {
+        const ack = parseOfflineDiscoveryAckV1(ackBytes);
+        const reply = await firstReply(operation, url => maintenanceRequest(
+          url, JSON.stringify({ type: OFFLINE_ACK_FRAME_TYPE, ackBytes }),
+        ), undefined, url => config.admissionCapabilityProvider?.assertMaintenanceDestination?.(url));
+        operation.check();
+        return expectedAck(reply, ack.ackId);
+      });
+    },
+    repairClientHeld(): Promise<AckPayload> {
+      return Promise.reject(new Error('Relay repair uses an authenticated infrastructure link, not private client mode'));
+    },
+    syncOfflineDiscovery(): Promise<OfflineSyncNetworkResult> {
+      return Promise.reject(new Error('Relay sync uses an authenticated infrastructure link, not private client mode'));
+    },
+    async sendContentOperation(operationBytes: string): Promise<AckPayload> {
+      return runOperation(async operation => {
+        const content = parseContentChannelOperationV2(operationBytes);
+        const reply = await firstReply(operation, (url, signal) => admittedRequest(
+          url, 'mailbox-deposit', content,
+          admission => JSON.stringify({
+            type: CONTENT_SEND_FRAME_TYPE, operationBytes, admission,
+          }), operation, signal,
+        ));
+        operation.check();
+        return expectedAck(reply, content.channelId);
+      });
+    },
+    async pollContent(request: ContentPollRequestV1): Promise<string> {
+      return runOperation(async operation => {
+        const payload = await clientHeldResponse(operation, request.pollId, 'content',
+          (url, signal) => admittedRequest(url, 'mailbox-fetch', request, admission => JSON.stringify({
+            type: CONTENT_POLL_FRAME_TYPE, request, admission,
+          }), operation, signal));
+        if (payload.kind !== 'content') throw new Error('Invalid private content response');
+        operation.check();
+        return payload.operationBytes;
       });
     },
     async fetchMailbox(record: PublicationRecord, keys: PublicationKeyMaterial): Promise<MailboxFetchResult> {

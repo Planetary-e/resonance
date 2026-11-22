@@ -373,3 +373,12 @@
 - **Boundaries:** No live server RPC/network-client/UI integration, process-kill campaign, relay-global quota, external deployment or model arm. Client-loss, privacy, FEAT-001 recovery and all production/K/R gates remain open.
 - **Receipt:** `docs/evals/v04-dec022-prototype-review-2026-11-22.md`.
 - **Next action:** Owner decides whether to authorize live integration or further qualification; no acceptance is inherited from the in-process prototype.
+
+## 2026-11-22T18:25:26Z — DEC-023 live relay/client integration independently accepted
+
+- **Live scope:** Signed leased-index publication/search/refresh/withdrawal/repair, encrypted offline deposit/fetch/ACK, stored/queued receipts, anti-entropy/restart persistence, direct and two-relay private online content delivery, and disconnect fencing now run over actual relay listeners and Node network clients.
+- **Review corrections:** Repaired terminal withdrawal propagation, exact-publication conflict quarantine, durable live conflict commits without another admission spend, and exact search publication/generation identity were added with direct/repair/restart controls.
+- **Validation:** Seven final live tests and 211/211 affected tests across 32 files pass; actual-source noEmit, build and diff checks pass. Independent final review returns ACCEPT LIVE INTEGRATION.
+- **Qualification boundary:** No packet impairment, process-kill, physical-resource, independent deployment, model, UI or installer evidence. K5/K6, FEAT-001 and K1–K8 remain open; this is not production acceptance.
+- **Receipt:** `docs/evals/v04-dec023-live-integration-review-2026-11-22.md`.
+- **Next action:** Run real-network impairment and actual process-death qualification, then local resource profiles and independent review.

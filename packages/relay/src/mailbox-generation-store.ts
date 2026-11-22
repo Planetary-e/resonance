@@ -55,6 +55,7 @@ export type GenerationMailboxDepositStatus =
   | 'invalid'
   | 'invalid_link'
   | 'admission_rejected'
+  | 'admission_required'
   | 'verification_unavailable'
   | 'request_limit'
   | 'byte_limit';
@@ -114,7 +115,7 @@ interface JournalRecord {
 export interface MailboxGenerationStoreOptions {
   directory: string;
   relayIdentity: Identity;
-  currentIndex(clientLeaseId: string): LeasedIndexV1 | undefined;
+  currentIndex(clientLeaseId: string, publicationId?: string): LeasedIndexV1 | undefined;
   authorizedIndex?(clientLeaseId: string): LeasedIndexV1 | undefined;
   indexForGeneration(generationId: string): LeasedIndexV1 | undefined;
   verifyAdmission(capability: AdmissionCapabilityV2, binding: string): boolean;
@@ -144,6 +145,28 @@ export class MailboxGenerationStore {
     now: number,
     replicated = false,
   ): GenerationMailboxDepositResult {
+    return this.depositOperation(raw, admission, now, replicated, 'verify');
+  }
+
+  preflightDeposit(raw: string, now: number, replicated = false): GenerationMailboxDepositResult {
+    return this.depositOperation(raw, undefined, now, replicated, 'preflight');
+  }
+
+  depositPreauthorized(raw: string, admission: AdmissionCapabilityV2, now: number): GenerationMailboxDepositResult {
+    return this.depositOperation(raw, admission, now, false, 'preauthorized');
+  }
+
+  commitConflict(raw: string, now: number): GenerationMailboxDepositResult {
+    return this.depositOperation(raw, undefined, now, false, 'conflict');
+  }
+
+  private depositOperation(
+    raw: string,
+    admission: AdmissionCapabilityV2 | undefined,
+    now: number,
+    replicated: boolean,
+    mode: 'verify' | 'preflight' | 'preauthorized' | 'conflict',
+  ): GenerationMailboxDepositResult {
     this.ensureWritable();
     let deposit: OfflineDiscoveryDepositV1;
     try {
@@ -172,7 +195,7 @@ export class MailboxGenerationStore {
     const index = this.options.indexForGeneration(deposit.generationId);
     if (!index || !verifyLeasedIndexV1(index)) return { status: 'verification_unavailable' };
     if (!matchesIndex(deposit, index)) return { status: 'invalid' };
-    const current = this.options.currentIndex(deposit.clientLeaseId);
+    const current = this.options.currentIndex(deposit.clientLeaseId, deposit.publicationId);
     const currentMatches = current && createLeasedIndexGenerationIdV1(current) === deposit.generationId
       && isLeasedIndexActiveV1(current, now);
     if (!replicated && !currentMatches && !prior?.ack) return { status: 'stale_index' };
@@ -181,9 +204,10 @@ export class MailboxGenerationStore {
       if (prior.conflictBytes) {
         return { status: 'conflicting_request', conflictBytes: prior.conflictBytes };
       }
+      if (mode === 'preflight') return { status: 'conflicting_request' };
       const charge = this.conflictCharge(lease!, request!, prior, raw, deposit);
       if (charge.status === 'byte_limit') return { status: 'byte_limit' };
-      const record = this.admissionRecord(raw, admission, deposit, prior.actualBytes);
+      const record = this.admissionRecord(raw, admission ?? prior.admission, deposit, prior.actualBytes);
       this.append({ kind: 'conflict', record });
       prior.conflictBytes = raw;
       prior.conflictDeposit = deposit;
@@ -225,7 +249,9 @@ export class MailboxGenerationStore {
     const key = admissionKey(deposit.requestId, deposit.generationId);
     const priorAdmission = this.admissions.get(key);
     if (priorAdmission && priorAdmission.depositBytes !== raw) return { status: 'admission_rejected' };
-    if (!this.options.verifyAdmission(admission, offlineDiscoveryAdmissionBindingV1(deposit))) {
+    if (mode === 'preflight') return { status: 'admission_required' };
+    if (!admission || (mode === 'verify'
+      && !this.options.verifyAdmission(admission, offlineDiscoveryAdmissionBindingV1(deposit)))) {
       return { status: 'admission_rejected' };
     }
     const record: AdmissionRecord = { depositBytes: raw, admission, actualBytes, ackId };
@@ -389,6 +415,16 @@ export class MailboxGenerationStore {
     return { status: 'acknowledged' };
   }
 
+  isGenerationQuarantined(clientLeaseId: string, generationId: string): boolean {
+    const lease = this.leases.get(clientLeaseId);
+    if (!lease) return false;
+    for (const request of lease.requests.values()) {
+      const generation = request.generations.get(generationId);
+      if (generation?.conflictBytes) return true;
+    }
+    return false;
+  }
+
   fetch(mailboxId: string, now: number, limit = 64): string[] {
     const result: { key: string; bytes: string }[] = [];
     for (const lease of this.leases.values()) {
@@ -515,10 +551,11 @@ export class MailboxGenerationStore {
 
   private admissionRecord(
     depositBytes: string,
-    admission: AdmissionCapabilityV2,
+    admission: AdmissionCapabilityV2 | undefined,
     deposit: OfflineDiscoveryDepositV1,
     actualBytes: number,
   ): AdmissionRecord {
+    if (!admission) throw new Error('Missing admission capability');
     return { depositBytes, admission, actualBytes, ackId: ackIdForDeposit(deposit) };
   }
 
@@ -717,8 +754,8 @@ function ackIdForDeposit(deposit: OfflineDiscoveryDepositV1): string {
   });
 }
 
-function admissionBytes(raw: string, admission: AdmissionCapabilityV2): number {
-  return Buffer.byteLength(raw) + Buffer.byteLength(JSON.stringify(admission)) + 256;
+function admissionBytes(raw: string, admission: AdmissionCapabilityV2 | undefined): number {
+  return Buffer.byteLength(raw) + (admission ? Buffer.byteLength(JSON.stringify(admission)) : 0) + 256;
 }
 
 function syncEvent(record: JournalRecord): OfflineDiscoverySyncEventV1 | undefined {
