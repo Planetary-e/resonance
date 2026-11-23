@@ -516,9 +516,10 @@ describe('client-held process-death qualification', () => {
       expiresAt: Date.now() + 30_000,
     }, channel.ownerRelationship);
     const interruptedPoll = network.pollContent(pollRequest);
+    const interruptedPollRejected = expect(interruptedPoll).rejects.toThrow();
     await new Promise(resolve => setTimeout(resolve, 50));
     deaths.push(await relay.kill('content-poll-inflight'));
-    await expect(interruptedPoll).rejects.toThrow();
+    await interruptedPollRejected;
     network.disconnect();
     relay = await ProcessRelay.start(join(root, 'relay'));
     relays.push(relay);

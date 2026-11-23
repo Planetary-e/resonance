@@ -18,11 +18,9 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import {
   createContentPollRequestV1,
-  createLeasedIndexGenerationIdV1,
   createLeasedIndexV1,
   createLeasedIndexLookupRequestV1,
   createLeasedIndexSearchRequestV1,
-  parseLeasedIndexOperationV1,
   createOfflineFetchRequestV1,
   createOriginalCommitmentV1,
   createPairwiseChannelId,
@@ -49,6 +47,12 @@ import {
   type ClientHeldRelayClient,
 } from '@resonance/node';
 import { discoverRelayContactV1, LeasedIndexStore } from '@resonance/relay';
+import {
+  ActiveFixtureState,
+  ValidationInconclusiveError,
+  advanceFixtureOnAcknowledgment,
+  validateSearchResults,
+} from './client-held-search-validation.js';
 
 const DAY = 86_400_000;
 const REPLICAS = 5;
@@ -57,6 +61,7 @@ const DEFAULT_OPERATIONS = 1_002;
 const RESULT_DIR = resolve('delivery/results');
 const SOURCE_FILES = [
   'packages/eval/src/client-held-local-resources.ts',
+  'packages/eval/src/client-held-search-validation.ts',
   'packages/eval/src/fixtures/client-held-resource-relay.ts',
 ];
 const TARGETS = Object.freeze({
@@ -291,6 +296,7 @@ function summarizeOperations(records: OperationRecord[]) {
       refused: selected.filter(record => record.outcome === 'refused').length,
       retries: selected.filter(record => record.outcome === 'retry').length,
       uncertain: selected.filter(record => record.outcome === 'uncertain').length,
+      inconclusive: selected.filter(record => record.outcome === 'inconclusive').length,
       deadlineExceeded: selected.filter(record => record.outcome === 'deadline_exceeded').length,
       latency: latencySummary(selectedGood.map(record => record.latencyMs)),
     };
@@ -301,6 +307,7 @@ function summarizeOperations(records: OperationRecord[]) {
     refused: records.filter(record => record.outcome === 'refused').length,
     retries: records.filter(record => record.outcome === 'retry').length,
     uncertain: records.filter(record => record.outcome === 'uncertain').length,
+    inconclusive: records.filter(record => record.outcome === 'inconclusive').length,
     deadlineExceeded: records.filter(record => record.outcome === 'deadline_exceeded').length,
     successFraction: records.length ? good.length / records.filter(record => record.outcome !== 'retry').length : 0,
     errorClasses: Object.fromEntries([...new Set(records.map(record => record.errorClass).filter(Boolean))].map(category => [
@@ -308,6 +315,13 @@ function summarizeOperations(records: OperationRecord[]) {
       records.filter(record => record.errorClass === category).length,
     ])),
     latency: latencySummary(good.map(record => record.latencyMs)),
+    relayEvidence: records.filter(record => record.relayEvidence).map(record => ({
+      sequence: record.sequence,
+      kind: record.kind,
+      outcome: record.outcome,
+      ...(record.errorClass ? { errorClass: record.errorClass } : {}),
+      attempts: record.relayEvidence,
+    })),
     byKind,
     connectionClasses: Object.fromEntries(['cold', 'reconnecting', 'warm-client-new-TCP'].map(category => [
       category,
@@ -464,9 +478,10 @@ interface OperationRecord {
   sequence: number;
   kind: 'publish' | 'search' | 'mailbox';
   connectionClass: 'cold' | 'reconnecting' | 'warm-client-new-TCP';
-  outcome: 'good' | 'refused' | 'retry' | 'uncertain' | 'deadline_exceeded';
+  outcome: 'good' | 'refused' | 'retry' | 'uncertain' | 'deadline_exceeded' | 'inconclusive';
   latencyMs: number;
   errorClass?: string;
+  relayEvidence?: RelayAttemptEvidence[];
 }
 
 function errorClass(error: unknown): string {
@@ -514,7 +529,61 @@ async function discover(relays: ResourceRelay[]): Promise<void> {
   }
 }
 
-async function runPublish(coordinator: Coordinator, record: SeedRecord, manifest: SeedManifest): Promise<void> {
+interface RelayAttemptEvidence {
+  relayIndex: number;
+  outcome: 'ok' | 'error';
+  status?: string;
+  reason: string;
+  reconciliationRequired?: boolean;
+}
+
+class PublishFailure extends Error {
+  constructor(readonly acknowledgments: RelayAttemptEvidence[]) {
+    super('publish_refused');
+  }
+}
+
+async function submitPublishBytes(
+  coordinator: Coordinator,
+  operation: LeasedIndexV1,
+  states: ActiveFixtureState[],
+): Promise<RelayAttemptEvidence[]> {
+  const operationBytes = JSON.stringify(operation);
+  const acknowledgments: RelayAttemptEvidence[] = [];
+  await Promise.all(coordinator.clients.map(async (client, relayIndex) => {
+    let acknowledgment: RelayAttemptEvidence;
+    try {
+      const value = await client.submitLeasedIndexOperation(operationBytes);
+      acknowledgment = {
+        relayIndex,
+        outcome: value.status === 'ok' ? 'ok' : 'error',
+        status: value.status,
+        reason: value.message ?? value.status,
+      };
+    } catch (error) {
+      const reason = errorClass(error);
+      acknowledgment = {
+        relayIndex,
+        outcome: 'error',
+        reason,
+        ...(reason === 'timeout' || reason === 'connection_closed'
+          ? { reconciliationRequired: true }
+          : {}),
+      };
+    }
+    acknowledgments.push(acknowledgment);
+    advanceFixtureOnAcknowledgment(states[relayIndex], operation, acknowledgment);
+  }));
+  if (acknowledgments.some(result => result.outcome !== 'ok')) throw new PublishFailure(acknowledgments);
+  return acknowledgments;
+}
+
+async function runPublish(
+  coordinator: Coordinator,
+  record: SeedRecord,
+  manifest: SeedManifest,
+  states: ActiveFixtureState[],
+) {
   const refreshed = createLeasedIndexV1({
     leaseSequence: record.index.leaseSequence + 1,
     semanticRevision: record.index.semanticRevision,
@@ -527,12 +596,20 @@ async function runPublish(coordinator: Coordinator, record: SeedRecord, manifest
     createdAt: manifest.refreshCreatedAt,
     expiresAt: manifest.refreshExpiresAt,
   }, record.keys);
-  const bytes = JSON.stringify(refreshed);
-  const replies = await Promise.all(coordinator.clients.map(client => client.submitLeasedIndexOperation(bytes)));
-  if (replies.some(reply => reply.status !== 'ok')) throw new Error('publish_refused');
+  const operationBytes = JSON.stringify(refreshed);
+  const acknowledgments = await submitPublishBytes(coordinator, refreshed, states);
+  return { operation: refreshed, operationBytes, acknowledgments };
 }
 
-async function runSearch(coordinator: Coordinator, sequence: number, expected: SeedRecord): Promise<void> {
+async function runSearch(
+  coordinator: Coordinator,
+  sequence: number,
+  expected: SeedRecord,
+  states: ActiveFixtureState[],
+): Promise<void> {
+  const relayIndex = sequence % REPLICAS;
+  const state = states[relayIndex];
+  if (state.hasPendingUncertainty()) throw new ValidationInconclusiveError();
   const request = createLeasedIndexSearchRequestV1({
     groupId: 'public',
     itemType: 'offer',
@@ -542,18 +619,17 @@ async function runSearch(coordinator: Coordinator, sequence: number, expected: S
     createdAt: Date.now(),
     expiresAt: Date.now() + 10_000,
   }, generateSigningKeyPair());
-  const results = await coordinator.clients[sequence % REPLICAS].searchLeasedIndexes(request);
-  if (results.length !== 1) throw new Error(`search_result_count:${results.length}`);
-  const operations = results.map(parseLeasedIndexOperationV1);
-  if (new Set(operations.map(operation => operation.publicationId)).size !== 1) {
-    throw new Error('search_result_publication_identity');
-  }
-  const operation = operations[0];
-  if (operation.kind !== 'leased-discovery-index'
-    || operation.publicationId !== expected.index.publicationId
-    || createLeasedIndexGenerationIdV1(operation) !== createLeasedIndexGenerationIdV1(expected.index)) {
-    throw new Error('search_result_generation_identity');
-  }
+  const results = await coordinator.clients[relayIndex].searchLeasedIndexes(request);
+  const expectedGenerationId = state.currentGenerationId(expected.index.publicationId);
+  if (!expectedGenerationId) throw new Error('search_expected_inactive');
+  validateSearchResults({
+    request,
+    results,
+    state,
+    expectedPublicationId: expected.index.publicationId,
+    expectedGenerationId,
+    now: Date.now(),
+  });
 }
 
 class MailboxState {
@@ -617,27 +693,53 @@ async function runMailbox(
   if (sequence % 48 === 47) mailbox.rotate();
 }
 
+interface AcknowledgedPublish {
+  sequence: number;
+  coordinatorId: number;
+  operation: LeasedIndexV1;
+  operationBytes: string;
+  acknowledgments: RelayAttemptEvidence[];
+  completedAt: number;
+}
+
 async function executeOperation(
   coordinator: Coordinator,
   record: OperationRecord,
   records: SeedRecord[],
   manifest: SeedManifest,
   mailbox: MailboxState,
+  states: ActiveFixtureState[],
+  acknowledgedPublishes: AcknowledgedPublish[],
+  publishAttempts: number[],
 ): Promise<void> {
   const started = performance.now();
   try {
     const seed = records[(record.sequence + (runNumber - 1) * operationCount) % records.length];
-    if (record.kind === 'publish') await runPublish(coordinator, seed, manifest);
-    else if (record.kind === 'search') await runSearch(coordinator, record.sequence, seed);
+    if (record.kind === 'publish') {
+      publishAttempts.push(Date.now());
+      const published = await runPublish(coordinator, seed, manifest, states);
+      record.relayEvidence = published.acknowledgments;
+      acknowledgedPublishes.push({
+        sequence: record.sequence,
+        coordinatorId: coordinator.id,
+        operation: published.operation,
+        operationBytes: published.operationBytes,
+        acknowledgments: published.acknowledgments,
+        completedAt: Date.now(),
+      });
+    } else if (record.kind === 'search') await runSearch(coordinator, record.sequence, seed, states);
     else await runMailbox(coordinator, seed, mailbox, record.sequence);
     record.latencyMs = performance.now() - started;
     record.outcome = record.latencyMs > TARGETS.privateOperationMs ? 'deadline_exceeded' : 'good';
   } catch (error) {
+    if (error instanceof PublishFailure) record.relayEvidence = error.acknowledgments;
     record.latencyMs = performance.now() - started;
     record.errorClass = errorClass(error);
-    record.outcome = record.errorClass === 'timeout' || record.errorClass === 'connection_closed'
-      ? 'uncertain'
-      : 'refused';
+    record.outcome = error instanceof ValidationInconclusiveError
+      ? 'inconclusive'
+      : record.errorClass === 'timeout' || record.errorClass === 'connection_closed'
+        ? 'uncertain'
+        : 'refused';
   }
 }
 
@@ -736,6 +838,11 @@ async function runLoad(profile: string) {
   const localRoot = join(root, `local-${profile}-${runNumber}-${process.pid}`);
   mkdirSync(localRoot, { recursive: true });
   const { manifest, records } = loadSeed();
+  const fixtureStates = Array.from({ length: REPLICAS }, () => (
+    new ActiveFixtureState(records.map(record => record.index))
+  ));
+  const acknowledgedPublishes: AcknowledgedPublish[] = [];
+  const publishAttempts = Array.from({ length: concurrency }, () => [] as number[]);
   const relays: ResourceRelay[] = [];
   let initialStats: any[] = [];
   const proxies: ByteProxy[][] = [];
@@ -791,7 +898,10 @@ async function runLoad(profile: string) {
         sequence, kind, connectionClass, outcome: 'refused', latencyMs: 0,
       };
       operationRecords.push(record);
-      await executeOperation(coordinators[coordinatorId], record, records, manifest, mailboxes[coordinatorId]);
+      await executeOperation(
+        coordinators[coordinatorId], record, records, manifest, mailboxes[coordinatorId],
+        fixtureStates, acknowledgedPublishes, publishAttempts[coordinatorId],
+      );
     };
     if (profile === 'nominal') {
       await Promise.all(Array.from({ length: concurrency }, async (_, coordinatorId) => {
@@ -809,18 +919,57 @@ async function runLoad(profile: string) {
     }
     const elapsedMs = performance.now() - started;
     const content = await runContentMeasurements(coordinators[0], localRoot);
-    const retryRecord = records[((runNumber - 1) * operationCount) % records.length];
-    const retryStarted = performance.now();
+    const original = acknowledgedPublishes.at(-1);
+    let intentionalExactRetries = 0;
     let retryFailures = 0;
-    try { await runPublish(coordinators[0], retryRecord, manifest); } catch { retryFailures++; }
-    operationRecords.push({
-      sequence: operationCount,
-      kind: 'publish',
-      connectionClass: 'warm-client-new-TCP',
-      outcome: 'retry',
-      latencyMs: performance.now() - retryStarted,
-      ...(retryFailures ? { errorClass: 'exact_retry_failed' } : {}),
-    });
+    let exactRetryEvidence: Record<string, unknown>;
+    if (!original) {
+      retryFailures++;
+      exactRetryEvidence = { status: 'not_run', reason: 'no_fully_acknowledged_original' };
+    } else {
+      const attempts = publishAttempts[original.coordinatorId];
+      const recent = attempts.filter(timestamp => Date.now() - timestamp < 60_000).sort((a, b) => a - b);
+      const capacityWaitMs = recent.length >= 10 ? Math.max(0, recent[0] + 60_000 - Date.now()) : 0;
+      if (capacityWaitMs > 0) await new Promise(resolve => setTimeout(resolve, capacityWaitMs));
+      const remainingAttempts = attempts.filter(timestamp => Date.now() - timestamp < 60_000).length;
+      if (remainingAttempts >= 10) throw new Error('exact_retry_capacity_unavailable');
+      intentionalExactRetries = 1;
+      const retryStarted = performance.now();
+      let replayAcknowledgments: RelayAttemptEvidence[] = [];
+      let replayError: string | undefined;
+      try {
+        replayAcknowledgments = await submitPublishBytes(
+          coordinators[original.coordinatorId], original.operation, fixtureStates,
+        );
+      } catch (error) {
+        retryFailures++;
+        replayError = errorClass(error);
+        if (error instanceof PublishFailure) replayAcknowledgments = error.acknowledgments;
+      }
+      const latencyMs = performance.now() - retryStarted;
+      operationRecords.push({
+        sequence: operationCount,
+        kind: 'publish',
+        connectionClass: 'warm-client-new-TCP',
+        outcome: 'retry',
+        latencyMs,
+        relayEvidence: replayAcknowledgments,
+        ...(retryFailures ? { errorClass: 'exact_retry_failed' } : {}),
+      });
+      exactRetryEvidence = {
+        status: retryFailures ? 'failed' : 'acknowledged',
+        original: {
+          sequence: original.sequence,
+          coordinatorId: original.coordinatorId,
+          completedAt: original.completedAt,
+          acknowledgments: original.acknowledgments,
+        },
+        capacityWaitMs,
+        remainingAttemptsInWindow: remainingAttempts,
+        replayAcknowledgments,
+        ...(replayError ? { replayError } : {}),
+      };
+    }
     const invalidProvider: AdmissionCapabilityProviderV2 = Object.assign(
       (context: AdmissionCapabilityRequestContextV2): AdmissionCapabilityV2 => ({
         version: 2,
@@ -902,8 +1051,9 @@ async function runLoad(profile: string) {
         submittedOperationsPerSecond: (operations.submitted as number) / (elapsedMs / 1000),
         goodOperationsPerSecond: good / (elapsedMs / 1000),
         reconnects: coordinators.reduce((sum, coordinator) => sum + coordinator.reconnects, 0),
-        intentionalExactRetries: 1,
+        intentionalExactRetries,
         exactRetryFailures: retryFailures,
+        exactRetryEvidence,
         intentionalFailedAdmissionAttempts: failedAttempts,
         lateExactRetryPromotedToGood: 0,
       },
@@ -1178,6 +1328,7 @@ function summarize(): void {
         refused: run.operations.refused,
         retries: run.operations.retries,
         uncertain: run.operations.uncertain,
+        inconclusive: run.operations.inconclusive,
         deadlineExceeded: run.operations.deadlineExceeded,
         latency: run.operations.latency,
         achieved: run.achieved,

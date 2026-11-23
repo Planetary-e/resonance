@@ -12,12 +12,12 @@
   "worktree": {
     "path": "/Users/marcos/Documents/Codex/2026-09-15/i-x20/resonance-v04",
     "branch": "feature/client-held-discovery",
-    "head": "d50cc8c",
+    "head": "3c559a2",
     "dirty_tree_preserved": true,
     "session_only_installation": true
   },
   "current_feature_id": "FEAT-001",
-  "next_action": "DEC-023 scaling corrections pass focused review. Run corrected nominal and idle measurements with unchanged workload/gates, then independent resource review. No production/K/R acceptance.",
+  "next_action": "DEC-023 quantitative harness independently accepted after per-relay/oracle corrections. Rerun unchanged nominal workload, then resource review. No production/K/R acceptance.",
   "pending_decision_ids": [],
   "approvals": {
     "product_scope": "approved",
@@ -29,6 +29,6 @@
   "session": {
     "id": "kimi-resonance-v04-20261025T190412Z",
     "started_at": "2026-10-25T19:04:12Z",
-    "updated_at": "2026-11-22T23:15:44Z"
+    "updated_at": "2026-11-23T06:00:58Z"
   }
 }

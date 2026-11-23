@@ -407,3 +407,12 @@
 - **Existing failures remain:** Previous nominal success/latency/memory and independent 30-minute idle CPU/startup-memory failures are preserved. New nominal and idle runs must establish the corrected resource result.
 - **Receipt:** `docs/evals/v04-dec023-scaling-corrections-review-2026-11-23.md`.
 - **Next action:** Run corrected nominal and idle measurements with unchanged workload and gates, then independent resource review.
+
+## 2026-11-23T06:00:58Z — DEC-023 quantitative harness accepted after oracle corrections
+
+- **Search validation:** Complete expected top-10 identities/order, complementary need/offer semantics, scope/signature/expiry/current-state checks and false-positive/truncation rejection are enforced; no exact-one-result assumption remains.
+- **Independent relay state:** Definite accepted/duplicate acknowledgments advance only the corresponding relay in settlement order, including partial success. Sticky uncertainty makes dependent validation inconclusive without blaming a correct server or increasing good counts.
+- **Replay and identity:** Replay targets fully acknowledged originals with per-relay reasons retained. Validator code is included in artifact source identity.
+- **Validation:** Eight focused validator/partial-success/uncertainty controls, 6/6 development-smoke operations and 54/54 affected tests pass; noEmit/build/diff checks pass. Independent review accepts a nominal rerun.
+- **Receipt:** `docs/evals/v04-dec023-quantitative-harness-review-2026-11-23.md`.
+- **Next action:** Rerun the unchanged nominal workload and complete independent resource review. No production/K/R acceptance.
