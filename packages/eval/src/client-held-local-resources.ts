@@ -53,15 +53,22 @@ import {
   advanceFixtureOnAcknowledgment,
   validateSearchResults,
 } from './client-held-search-validation.js';
+import {
+  attemptsInFixedWindow,
+  waitForQuietWindowRetryCapacity,
+  type FixedWindowAttempt,
+} from './client-held-retry-capacity.js';
 
 const DAY = 86_400_000;
 const REPLICAS = 5;
+const RETRY_SOURCE_BUCKET = 'loopback:127.0.0.1';
 const DEFAULT_PUBLICATIONS = 10_000;
 const DEFAULT_OPERATIONS = 1_002;
 const RESULT_DIR = resolve('delivery/results');
 const SOURCE_FILES = [
   'packages/eval/src/client-held-local-resources.ts',
   'packages/eval/src/client-held-search-validation.ts',
+  'packages/eval/src/client-held-retry-capacity.ts',
   'packages/eval/src/fixtures/client-held-resource-relay.ts',
 ];
 const TARGETS = Object.freeze({
@@ -547,10 +554,15 @@ async function submitPublishBytes(
   coordinator: Coordinator,
   operation: LeasedIndexV1,
   states: ActiveFixtureState[],
+  attempts: FixedWindowAttempt[],
 ): Promise<RelayAttemptEvidence[]> {
   const operationBytes = JSON.stringify(operation);
   const acknowledgments: RelayAttemptEvidence[] = [];
   await Promise.all(coordinator.clients.map(async (client, relayIndex) => {
+    attempts.push({
+      bucket: `${RETRY_SOURCE_BUCKET}:relay-${relayIndex}`,
+      timestamp: Date.now(),
+    });
     let acknowledgment: RelayAttemptEvidence;
     try {
       const value = await client.submitLeasedIndexOperation(operationBytes);
@@ -583,6 +595,7 @@ async function runPublish(
   record: SeedRecord,
   manifest: SeedManifest,
   states: ActiveFixtureState[],
+  attempts: FixedWindowAttempt[],
 ) {
   const refreshed = createLeasedIndexV1({
     leaseSequence: record.index.leaseSequence + 1,
@@ -597,7 +610,7 @@ async function runPublish(
     expiresAt: manifest.refreshExpiresAt,
   }, record.keys);
   const operationBytes = JSON.stringify(refreshed);
-  const acknowledgments = await submitPublishBytes(coordinator, refreshed, states);
+  const acknowledgments = await submitPublishBytes(coordinator, refreshed, states, attempts);
   return { operation: refreshed, operationBytes, acknowledgments };
 }
 
@@ -710,14 +723,13 @@ async function executeOperation(
   mailbox: MailboxState,
   states: ActiveFixtureState[],
   acknowledgedPublishes: AcknowledgedPublish[],
-  publishAttempts: number[],
+  publishAttempts: FixedWindowAttempt[],
 ): Promise<void> {
   const started = performance.now();
   try {
     const seed = records[(record.sequence + (runNumber - 1) * operationCount) % records.length];
     if (record.kind === 'publish') {
-      publishAttempts.push(Date.now());
-      const published = await runPublish(coordinator, seed, manifest, states);
+      const published = await runPublish(coordinator, seed, manifest, states, publishAttempts);
       record.relayEvidence = published.acknowledgments;
       acknowledgedPublishes.push({
         sequence: record.sequence,
@@ -842,7 +854,7 @@ async function runLoad(profile: string) {
     new ActiveFixtureState(records.map(record => record.index))
   ));
   const acknowledgedPublishes: AcknowledgedPublish[] = [];
-  const publishAttempts = Array.from({ length: concurrency }, () => [] as number[]);
+  const publishAttempts: FixedWindowAttempt[] = [];
   const relays: ResourceRelay[] = [];
   let initialStats: any[] = [];
   const proxies: ByteProxy[][] = [];
@@ -900,7 +912,7 @@ async function runLoad(profile: string) {
       operationRecords.push(record);
       await executeOperation(
         coordinators[coordinatorId], record, records, manifest, mailboxes[coordinatorId],
-        fixtureStates, acknowledgedPublishes, publishAttempts[coordinatorId],
+        fixtureStates, acknowledgedPublishes, publishAttempts,
       );
     };
     if (profile === 'nominal') {
@@ -927,19 +939,25 @@ async function runLoad(profile: string) {
       retryFailures++;
       exactRetryEvidence = { status: 'not_run', reason: 'no_fully_acknowledged_original' };
     } else {
-      const attempts = publishAttempts[original.coordinatorId];
-      const recent = attempts.filter(timestamp => Date.now() - timestamp < 60_000).sort((a, b) => a - b);
-      const capacityWaitMs = recent.length >= 10 ? Math.max(0, recent[0] + 60_000 - Date.now()) : 0;
-      if (capacityWaitMs > 0) await new Promise(resolve => setTimeout(resolve, capacityWaitMs));
-      const remainingAttempts = attempts.filter(timestamp => Date.now() - timestamp < 60_000).length;
-      if (remainingAttempts >= 10) throw new Error('exact_retry_capacity_unavailable');
+      const waitStarted = performance.now();
+      const relayCapacityWaitsMs = await Promise.all(Array.from({ length: REPLICAS }, (_, relayIndex) => (
+        waitForQuietWindowRetryCapacity(
+          publishAttempts, `${RETRY_SOURCE_BUCKET}:relay-${relayIndex}`,
+        )
+      )));
+      const capacityWaitMs = performance.now() - waitStarted;
+      const remainingAttempts = Array.from({ length: REPLICAS }, (_, relayIndex) => (
+        attemptsInFixedWindow(
+          publishAttempts, `${RETRY_SOURCE_BUCKET}:relay-${relayIndex}`, Date.now(),
+        ).length
+      )).reduce((sum, count) => sum + count, 0);
       intentionalExactRetries = 1;
       const retryStarted = performance.now();
       let replayAcknowledgments: RelayAttemptEvidence[] = [];
       let replayError: string | undefined;
       try {
         replayAcknowledgments = await submitPublishBytes(
-          coordinators[original.coordinatorId], original.operation, fixtureStates,
+          coordinators[original.coordinatorId], original.operation, fixtureStates, publishAttempts,
         );
       } catch (error) {
         retryFailures++;
@@ -964,7 +982,9 @@ async function runLoad(profile: string) {
           completedAt: original.completedAt,
           acknowledgments: original.acknowledgments,
         },
+        sourceBucket: RETRY_SOURCE_BUCKET,
         capacityWaitMs,
+        relayCapacityWaitsMs,
         remainingAttemptsInWindow: remainingAttempts,
         replayAcknowledgments,
         ...(replayError ? { replayError } : {}),

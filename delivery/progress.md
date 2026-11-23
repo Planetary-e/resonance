@@ -416,3 +416,11 @@
 - **Validation:** Eight focused validator/partial-success/uncertainty controls, 6/6 development-smoke operations and 54/54 affected tests pass; noEmit/build/diff checks pass. Independent review accepts a nominal rerun.
 - **Receipt:** `docs/evals/v04-dec023-quantitative-harness-review-2026-11-23.md`.
 - **Next action:** Rerun the unchanged nominal workload and complete independent resource review. No production/K/R acceptance.
+
+## 2026-11-23T06:47:21Z — DEC-023 retry scheduler accepted after shared-window corrections
+
+- **Scheduling:** Attempts aggregate both coordinators within independent relay/source buckets. All five relay windows are awaited; unknown starts use a conservative quiet window. At exact expiry the scheduler waits 1 ms, matching production's strict reset comparison.
+- **Evidence:** Per-relay attempts/results/reasons and actual wait are retained. Offered workload, rate limits, primary/retry latency classification and all targets are unchanged.
+- **Validation:** Fourteen focused controls, 6/6 development-smoke operations and exact duplicate replay on all five relays pass after conservative waiting; noEmit/build/diff checks pass. Independent review accepts a nominal rerun.
+- **Receipt:** `docs/evals/v04-dec023-retry-scheduling-review-2026-11-23.md`.
+- **Next action:** Rerun the unchanged nominal workload and review resource results. No production/K/R acceptance.
