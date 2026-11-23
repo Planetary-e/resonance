@@ -82,6 +82,10 @@ export class HammingIndex {
     return this.metadata[id];
   }
 
+  entriesInInsertionOrder(): HashMetadata[] {
+    return this.metadata.map(metadata => ({ ...metadata }));
+  }
+
   /** Remove entries older than ttlMs. */
   expireOlderThan(ttlMs: number): number {
     const cutoff = Date.now() - ttlMs;
@@ -189,6 +193,10 @@ export class ComplementaryHammingIndex {
   getMetadata(id: number, itemType: ItemType): HashMetadata | undefined {
     if (itemType === 'need') return this.needsIndex.getMetadata(id);
     return this.offersIndex.getMetadata(id);
+  }
+
+  entriesInInsertionOrder(itemType: ItemType): HashMetadata[] {
+    return (itemType === 'need' ? this.needsIndex : this.offersIndex).entriesInInsertionOrder();
   }
 
   getCount(): { needs: number; offers: number; total: number } {

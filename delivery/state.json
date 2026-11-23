@@ -12,12 +12,12 @@
   "worktree": {
     "path": "/Users/marcos/Documents/Codex/2026-09-15/i-x20/resonance-v04",
     "branch": "feature/client-held-discovery",
-    "head": "cb08b3b",
+    "head": "e890965",
     "dirty_tree_preserved": true,
     "session_only_installation": true
   },
   "current_feature_id": "FEAT-001",
-  "next_action": "DEC-023 retry scheduler accepted after per-relay and strict-boundary corrections. Rerun unchanged nominal workload and review resource results. No production/K/R acceptance.",
+  "next_action": "DEC-023 persisted-oracle, raw-order and outbox corrections accepted. Rerun unchanged nominal workload and review resource results. No production/K/R acceptance.",
   "pending_decision_ids": [],
   "approvals": {
     "product_scope": "approved",
@@ -29,6 +29,6 @@
   "session": {
     "id": "kimi-resonance-v04-20261025T190412Z",
     "started_at": "2026-10-25T19:04:12Z",
-    "updated_at": "2026-11-23T06:47:21Z"
+    "updated_at": "2026-11-23T08:23:13Z"
   }
 }

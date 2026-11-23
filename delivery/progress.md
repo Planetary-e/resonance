@@ -424,3 +424,12 @@
 - **Validation:** Fourteen focused controls, 6/6 development-smoke operations and exact duplicate replay on all five relays pass after conservative waiting; noEmit/build/diff checks pass. Independent review accepts a nominal rerun.
 - **Receipt:** `docs/evals/v04-dec023-retry-scheduling-review-2026-11-23.md`.
 - **Next action:** Rerun the unchanged nominal workload and review resource results. No production/K/R acceptance.
+
+## 2026-11-23T08:23:13Z — DEC-023 persisted oracle and outbox corrections accepted
+
+- **Oracle reconstruction:** Each relay restores its current signed state and incremental matching order rather than the original seed or stale Hamming snapshot. Exact generation, expiry, conflict and withdrawal filtering are preserved.
+- **Ordering control:** Raw insertion order is used instead of zero-query similarity ranking. A corrected tied-query control proves order preservation with 96-bit differences for both candidates and rejects reversed results.
+- **Outbox:** Actual retained cardinality drives rotation at 48 entries without changing the production 64-entry cap; a 65-operation control verifies safe rotation.
+- **Validation:** Nineteen focused controls, 6/6 refreshed-state smoke and 57/57 affected tests pass; noEmit/build/diff checks pass. Independent review accepts a nominal rerun.
+- **Receipt:** `docs/evals/v04-dec023-oracle-and-outbox-review-2026-11-23.md`.
+- **Next action:** Rerun the unchanged nominal workload and review resource results. No production/K/R acceptance.

@@ -11,6 +11,7 @@ import {
 } from '@resonance/core';
 import {
   ActiveFixtureState,
+  SearchValidationError,
   advanceFixtureOnAcknowledgment,
   validateSearchResults,
 } from '../client-held-search-validation.js';
@@ -154,6 +155,33 @@ describe('client-held harness search validator', () => {
     expect(state.currentGenerationId(refreshed.index.publicationId)).toBe(
       createLeasedIndexGenerationIdV1(refreshed.index),
     );
+  });
+
+  it('captures the exact failed predicate and expected versus actual generation evidence', () => {
+    const initial = fixture(0);
+    const refreshed = nextGeneration(initial, 1);
+    const state = new ActiveFixtureState([refreshed.index]);
+    let error: unknown;
+    try { validate(state, [initial.index]); } catch (caught) { error = caught; }
+    expect(error).toBeInstanceOf(SearchValidationError);
+    expect((error as SearchValidationError).failure).toMatchObject({
+      predicate: 'current_generation_mismatch',
+      publicationId: initial.index.publicationId,
+      actualGenerationId: createLeasedIndexGenerationIdV1(initial.index),
+      expectedGenerationId: createLeasedIndexGenerationIdV1(refreshed.index),
+    });
+
+    const second = fixture(0);
+    const topState = new ActiveFixtureState([refreshed.index, second.index]);
+    try { validate(topState, [refreshed.index]); } catch (caught) { error = caught; }
+    expect((error as SearchValidationError).failure).toMatchObject({
+      predicate: 'search_top_generation_set_mismatch',
+      actualGenerationIds: [createLeasedIndexGenerationIdV1(refreshed.index)],
+      expectedGenerationIds: [
+        createLeasedIndexGenerationIdV1(refreshed.index),
+        createLeasedIndexGenerationIdV1(second.index),
+      ],
+    });
   });
 
   it('allows an empty result within the protocol range when no fixture match is required', () => {

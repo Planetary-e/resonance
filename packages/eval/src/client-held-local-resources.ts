@@ -49,6 +49,7 @@ import {
 import { discoverRelayContactV1, LeasedIndexStore } from '@resonance/relay';
 import {
   ActiveFixtureState,
+  SearchValidationError,
   ValidationInconclusiveError,
   advanceFixtureOnAcknowledgment,
   validateSearchResults,
@@ -58,6 +59,8 @@ import {
   waitForQuietWindowRetryCapacity,
   type FixedWindowAttempt,
 } from './client-held-retry-capacity.js';
+import { MailboxState } from './client-held-mailbox-rotation.js';
+import { reconstructRelayFixtureState } from './client-held-oracle-reconstruction.js';
 
 const DAY = 86_400_000;
 const REPLICAS = 5;
@@ -69,6 +72,8 @@ const SOURCE_FILES = [
   'packages/eval/src/client-held-local-resources.ts',
   'packages/eval/src/client-held-search-validation.ts',
   'packages/eval/src/client-held-retry-capacity.ts',
+  'packages/eval/src/client-held-mailbox-rotation.ts',
+  'packages/eval/src/client-held-oracle-reconstruction.ts',
   'packages/eval/src/fixtures/client-held-resource-relay.ts',
 ];
 const TARGETS = Object.freeze({
@@ -329,6 +334,11 @@ function summarizeOperations(records: OperationRecord[]) {
       ...(record.errorClass ? { errorClass: record.errorClass } : {}),
       attempts: record.relayEvidence,
     })),
+    validationFailures: records.filter(record => record.validationDetails).map(record => ({
+      sequence: record.sequence,
+      outcome: record.outcome,
+      failure: record.validationDetails,
+    })),
     byKind,
     connectionClasses: Object.fromEntries(['cold', 'reconnecting', 'warm-client-new-TCP'].map(category => [
       category,
@@ -488,6 +498,7 @@ interface OperationRecord {
   outcome: 'good' | 'refused' | 'retry' | 'uncertain' | 'deadline_exceeded' | 'inconclusive';
   latencyMs: number;
   errorClass?: string;
+  validationDetails?: SearchValidationError['failure'];
   relayEvidence?: RelayAttemptEvidence[];
 }
 
@@ -645,25 +656,6 @@ async function runSearch(
   });
 }
 
-class MailboxState {
-  store?: OfflineRequestStore;
-  generation = 0;
-  constructor(readonly root: string, readonly coordinator: number) {}
-  rotate(): OfflineRequestStore {
-    this.store?.close();
-    this.generation++;
-    this.store = OfflineRequestStore.open({
-      path: join(this.root, `mailbox-${this.coordinator}-${this.generation}.json`),
-      encryptionKey: randomBytes(32),
-    });
-    return this.store;
-  }
-  current(): OfflineRequestStore {
-    return this.store ?? this.rotate();
-  }
-  close(): void { this.store?.close(); }
-}
-
 async function runMailbox(
   coordinator: Coordinator,
   record: SeedRecord,
@@ -703,7 +695,6 @@ async function runMailbox(
   store.markAcknowledged(received.ackBytes);
   store.recordGenerationAck(value.requestId, received.ackBytes);
   if (store.listOutbox().at(-1)?.state !== 'acknowledged') throw new Error('mailbox_not_acknowledged');
-  if (sequence % 48 === 47) mailbox.rotate();
 }
 
 interface AcknowledgedPublish {
@@ -745,6 +736,7 @@ async function executeOperation(
     record.outcome = record.latencyMs > TARGETS.privateOperationMs ? 'deadline_exceeded' : 'good';
   } catch (error) {
     if (error instanceof PublishFailure) record.relayEvidence = error.acknowledgments;
+    if (error instanceof SearchValidationError) record.validationDetails = error.failure;
     record.latencyMs = performance.now() - started;
     record.errorClass = errorClass(error);
     record.outcome = error instanceof ValidationInconclusiveError
@@ -850,8 +842,8 @@ async function runLoad(profile: string) {
   const localRoot = join(root, `local-${profile}-${runNumber}-${process.pid}`);
   mkdirSync(localRoot, { recursive: true });
   const { manifest, records } = loadSeed();
-  const fixtureStates = Array.from({ length: REPLICAS }, () => (
-    new ActiveFixtureState(records.map(record => record.index))
+  const fixtureStates = Array.from({ length: REPLICAS }, (_, relayIndex) => (
+    reconstructRelayFixtureState(join(root, `relay-${relayIndex}`, 'client-held'), records.map(record => record.index))
   ));
   const acknowledgedPublishes: AcknowledgedPublish[] = [];
   const publishAttempts: FixedWindowAttempt[] = [];

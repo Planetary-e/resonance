@@ -223,6 +223,10 @@ export class MatchingEngine {
     );
   }
 
+  leasedEntriesInInsertionOrder(itemType: ItemType): HashMetadata[] {
+    return this.index.entriesInInsertionOrder(itemType);
+  }
+
   /** Ephemeral search — does NOT index the query. */
   search(
     hash: Uint8Array,

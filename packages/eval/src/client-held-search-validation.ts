@@ -79,6 +79,21 @@ export class ValidationInconclusiveError extends Error {
   }
 }
 
+export interface SearchValidationFailure {
+  predicate: string;
+  publicationId?: string;
+  actualGenerationId?: string;
+  expectedGenerationId?: string;
+  expectedGenerationIds?: string[];
+  actualGenerationIds?: string[];
+}
+
+export class SearchValidationError extends Error {
+  constructor(readonly failure: SearchValidationFailure) {
+    super(failure.predicate);
+  }
+}
+
 export function advanceFixtureOnAcknowledgment(
   state: ActiveFixtureState,
   operation: LeasedIndexV1,
@@ -107,39 +122,67 @@ export function validateSearchResults(options: {
   if (state.hasPendingUncertainty()) throw new ValidationInconclusiveError();
   const now = options.now ?? Date.now();
   if (results.length > request.limit || (options.expectedGenerationId !== undefined && results.length < 1)) {
-    throw new Error(`search_result_count:${results.length}/${request.limit}`);
+    throw new SearchValidationError({ predicate: 'search_result_count' });
   }
   const operations = results.map(raw => {
     const operation = parseLeasedIndexOperationV1(raw);
-    if (operation.kind !== 'leased-discovery-index') throw new Error('search_non_index_result');
+    if (operation.kind !== 'leased-discovery-index') {
+      throw new SearchValidationError({ predicate: 'search_non_index_result' });
+    }
     return operation;
   });
   const publicationIds = operations.map(operation => operation.publicationId);
-  const generationIds = operations.map(operation => createLeasedIndexGenerationIdV1(operation));
-  if (new Set(publicationIds).size !== publicationIds.length) throw new Error('search_duplicate_publication');
-  if (new Set(generationIds).size !== generationIds.length) throw new Error('search_duplicate_generation');
+  if (new Set(publicationIds).size !== publicationIds.length) {
+    throw new SearchValidationError({ predicate: 'search_duplicate_publication' });
+  }
   for (const operation of operations) {
-    const generationId = createLeasedIndexGenerationIdV1(operation);
-    if (operation.kind !== 'leased-discovery-index'
-      || operation.itemType === request.itemType
-      || operation.groupId !== request.groupId
-      || operation.fingerprint.epoch !== request.fingerprintEpoch
-      || !verifyLeasedIndexV1(operation)
-      || !isLeasedIndexActiveV1(operation, now)
-      || state.currentGenerationId(operation.publicationId) !== generationId) {
-      throw new Error(`search_inactive_or_invalid_result:${operation.publicationId}`);
+    let actualGenerationId: string | undefined;
+    let predicate: string | undefined;
+    if (operation.itemType === request.itemType) predicate = 'complementary_item_type';
+    else if (operation.groupId !== request.groupId
+      || operation.fingerprint.epoch !== request.fingerprintEpoch) predicate = 'group_epoch_scope';
+    else if (!verifyLeasedIndexV1(operation)) predicate = 'signature';
+    else {
+      actualGenerationId = createLeasedIndexGenerationIdV1(operation);
+      if (!isLeasedIndexActiveV1(operation, now)) predicate = 'expiry';
+      else if (state.currentGenerationId(operation.publicationId) !== actualGenerationId) {
+        predicate = 'current_generation_mismatch';
+      }
     }
+    if (predicate) {
+      throw new SearchValidationError({
+        predicate,
+        publicationId: operation.publicationId,
+        ...(actualGenerationId ? { actualGenerationId } : {}),
+        expectedGenerationId: state.currentGenerationId(operation.publicationId),
+      });
+    }
+  }
+  const generationIds = operations.map(operation => createLeasedIndexGenerationIdV1(operation));
+  if (new Set(generationIds).size !== generationIds.length) {
+    throw new SearchValidationError({ predicate: 'search_duplicate_generation' });
   }
   const expected = expectedTopGenerationIds(request, state, now);
   if (JSON.stringify(generationIds) !== JSON.stringify(expected)) {
-    throw new Error('search_top_generation_set_mismatch');
+    throw new SearchValidationError({
+      predicate: 'search_top_generation_set_mismatch',
+      expectedGenerationIds: expected,
+      actualGenerationIds: generationIds,
+    });
   }
   if (options.expectedGenerationId !== undefined
     && (options.expectedPublicationId === undefined
       || state.currentGenerationId(options.expectedPublicationId) !== options.expectedGenerationId
       || !operations.some(operation => operation.publicationId === options.expectedPublicationId
         && createLeasedIndexGenerationIdV1(operation) === options.expectedGenerationId))) {
-    throw new Error('search_expected_generation_missing');
+    throw new SearchValidationError({
+      predicate: 'search_expected_generation_missing',
+      publicationId: options.expectedPublicationId,
+      actualGenerationId: options.expectedPublicationId
+        ? state.currentGenerationId(options.expectedPublicationId)
+        : undefined,
+      expectedGenerationId: options.expectedGenerationId,
+    });
   }
   return operations;
 }
