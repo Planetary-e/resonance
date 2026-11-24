@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "authorization_id": "DEC-023",
+  "recorded_at": "2026-11-24T19:52:00Z",
+  "qualification": "local-idle-failed-not-production",
+  "candidate_head": "9b1ed1d21cab373b721a86dd3795f0f965e806fc",
+  "artifact": {
+    "path": "delivery/results/client-held-local-resource-idle-1800s.json",
+    "sha256": "6eaa4c8d4e00c4024db68c308e52aca686b1bc1ce0254f9c1d96432fdc32d07b"
+  },
+  "source_log": {
+    "path": "/tmp/client-held-idle-memory-fresh.log",
+    "sha256": "434e3e7c52014f67e41c353af8d89933b0b95fa949430d745ea76f3e639028c6"
+  },
+  "results": {
+    "achieved_idle_seconds": 1801.6904265,
+    "sample_count": 361,
+    "cpu_seconds": 98.257251,
+    "idle_cpu_percent_of_one_core": 5.453614536370519,
+    "mean_aggregate_rss_bytes": 420490367.6454294,
+    "peak_aggregate_rss_bytes": 1662369792,
+    "maximum_relay_peak_rss_bytes": 338231296,
+    "disk_final_bytes": 373038849
+  },
+  "evaluation": {
+    "duration": "pass",
+    "idle_cpu": "fail",
+    "per_relay_rss": "pass",
+    "measured_startup_rss": "pass-with-pre-exec-limitation",
+    "fixed_cardinality_sustained_rss": "unqualified-final-cardinality-not-recorded",
+    "disk_growth": "pass-local-observation",
+    "physical_power": "not-measured",
+    "production_acceptance": false,
+    "k1_k8_acceptance": false
+  },
+  "independent_review": "docs/evals/v04-dec024-fresh-idle-resource-review-2026-11-24.md",
+  "next_action": "Correct offered-load pacing, measurement overhead/cardinality evidence, and synchronous latency as one coherent block before fresh qualification runs."
+}
