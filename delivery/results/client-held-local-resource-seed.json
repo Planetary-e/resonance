@@ -8,16 +8,80 @@
     "tsx",
     "packages/eval/src/client-held-local-resources.ts",
     "--mode",
-    "seed"
+    "seed",
+    "--root",
+    "/tmp/resonance-client-held-local-resources-dec023-memory-fix"
   ],
   "source": [
     {
       "path": "packages/eval/src/client-held-local-resources.ts",
-      "sha256": "141a0a3cfdec17f701df6edc22edd89c1c1896f1faf6dbf4e5f011055f8f27fb"
+      "sha256": "d77dd78f882a8488930967b79b808e89954dfebab40e01b1eb1355e5c7c2fa7a"
+    },
+    {
+      "path": "packages/eval/src/client-held-search-validation.ts",
+      "sha256": "461b91865da48f601828f7bc0df7dfa4d9bc5c9fcd0f27773a0301dba560154e"
+    },
+    {
+      "path": "packages/eval/src/client-held-retry-capacity.ts",
+      "sha256": "f513eab339b8222ded76565587b7c54e124a3b2b6722a4886995b708c76140bd"
+    },
+    {
+      "path": "packages/eval/src/client-held-mailbox-rotation.ts",
+      "sha256": "d32ba4dc218ab964f48f36ff15a9b07c7fc52b06bffdb554d6c2a5a8f3f4b5a0"
+    },
+    {
+      "path": "packages/eval/src/client-held-oracle-reconstruction.ts",
+      "sha256": "fb4a5b6490b92b962cc8690e214e0f92c29198f260cbd49abdce843d2d263fd8"
     },
     {
       "path": "packages/eval/src/fixtures/client-held-resource-relay.ts",
-      "sha256": "8bbecc6a448816671d1718a392cbda67c7ff4d388bd541e7cab05966d839e3a0"
+      "sha256": "91e78107572ceedf47a0d213027231263b1b9fd596cffa63704a44dc35a5a981"
+    },
+    {
+      "path": "packages/relay/src/atomic-file.ts",
+      "sha256": "d85204f7e88db63c08fc6f9ebb6acbd71eb40d3af2b88c13e94f76fa1e099a2a"
+    },
+    {
+      "path": "packages/relay/src/leased-index-store.ts",
+      "sha256": "9e1513b6b9399c4f35f1941e10121d7a27bd7266ef3b3594ed7d256d5e2ae82a"
+    },
+    {
+      "path": "packages/relay/src/matching-engine.ts",
+      "sha256": "5974929c29029f04f6e383aeb5e2acd41a8734f46ba14d4d909a0c8a2988129f"
+    },
+    {
+      "path": "packages/relay/src/hamming-index.ts",
+      "sha256": "ff184ed955d9b0dcee2094698a61bc1f00565510fd791f8429fa822b554a6097"
+    },
+    {
+      "path": "packages/relay/src/mailbox-generation-store.ts",
+      "sha256": "013a465c6ba56dc0e881906a9fe8c3fefd6cd909db46517ab8aea00b57652e3e"
+    },
+    {
+      "path": "packages/relay/src/server.ts",
+      "sha256": "8bed120657b7299ef444cb9f264d60fb6599f0249ade43291788724bc153d1ab"
+    },
+    {
+      "path": "packages/node/src/offline-request-store.ts",
+      "sha256": "fdec058b2254f9f52ec256f4210a4b8fa7bf20d63c46c74f43c3523a026ac2a4"
+    },
+    {
+      "path": "packages/node/src/content-grant-store.ts",
+      "sha256": "34ec111a64d6966a23f6973d0aa7f40002a298388be1769cc88eb74487e6e660"
+    },
+    {
+      "path": "packages/node/src/relay-client.ts",
+      "sha256": "c3d0bac3e80638f3cd29615d19d8bc15bb9b9fd041f0eaf92f16d1ec8753226a"
+    }
+  ],
+  "seedData": [
+    {
+      "name": "seed-manifest.json",
+      "sha256": "48e0bcac811381cdd2de691fca249ca976dfca4640ea0cfc3c29d3eaf548f803"
+    },
+    {
+      "name": "seed-records.json",
+      "sha256": "feb804f673c9034e75c7091d6e1ca3db89c1df775e3f89bb8fe8d16398062dfb"
     }
   ],
   "environment": {
@@ -27,7 +91,7 @@
     "cpuModel": "Apple M3 Pro",
     "logicalCpuCount": 11,
     "totalMemoryBytes": 19327352832,
-    "freeMemoryAtStartBytes": 99794944,
+    "freeMemoryAtStartBytes": 77561856,
     "tls": "WSS with NODE_EXTRA_CA_CERTS; certificate verification enabled; no external network",
     "modelRuntime": "none; fixed derivation and deterministic 64-byte fingerprint fixtures"
   },
@@ -35,9 +99,9 @@
   "acceptedPublications": 10000,
   "activeRecords": 10000,
   "replicasMaterialized": 5,
-  "elapsedMs": 20616.405082999998,
-  "referenceBytes": 44890133,
-  "allReplicaBytes": 294400943,
+  "elapsedMs": 109453.591208,
+  "referenceBytes": 55849061,
+  "allReplicaBytes": 360154511,
   "initializationNetworkBytes": 0,
   "method": "One real LeasedIndexStore persisted once, then exact signed-state copies materialized in five relay directories. Every measured operation uses actual WSS listeners and Node clients."
 }

@@ -15,18 +15,12 @@
     "--profile",
     "nominal",
     "--run",
-    "1",
-    "--root",
-    "/tmp/resonance-client-held-resource-smoke-staggered-retry",
-    "--publications",
-    "6",
-    "--operations",
-    "6"
+    "1"
   ],
   "source": [
     {
       "path": "packages/eval/src/client-held-local-resources.ts",
-      "sha256": "e81d19bc2bd7eb914bdecc374e06de2a6508e0bc306ab7535561cf2a947fc141"
+      "sha256": "d77dd78f882a8488930967b79b808e89954dfebab40e01b1eb1355e5c7c2fa7a"
     },
     {
       "path": "packages/eval/src/client-held-search-validation.ts",
@@ -46,7 +40,7 @@
     },
     {
       "path": "packages/eval/src/fixtures/client-held-resource-relay.ts",
-      "sha256": "2b6b284364dce03b4133bd5a88740afe202a6ba6ba3405107f2875540bef454b"
+      "sha256": "91e78107572ceedf47a0d213027231263b1b9fd596cffa63704a44dc35a5a981"
     },
     {
       "path": "packages/relay/src/atomic-file.ts",
@@ -54,7 +48,7 @@
     },
     {
       "path": "packages/relay/src/leased-index-store.ts",
-      "sha256": "abaeb68f033aec9d401a17934972a4124a32878d2513129e7b15ce6a2fd53a42"
+      "sha256": "9e1513b6b9399c4f35f1941e10121d7a27bd7266ef3b3594ed7d256d5e2ae82a"
     },
     {
       "path": "packages/relay/src/matching-engine.ts",
@@ -66,7 +60,7 @@
     },
     {
       "path": "packages/relay/src/mailbox-generation-store.ts",
-      "sha256": "fecfd89ef4b2900e0ff59cded95773de9f85f7f20b114616f37d9afe57f25404"
+      "sha256": "013a465c6ba56dc0e881906a9fe8c3fefd6cd909db46517ab8aea00b57652e3e"
     },
     {
       "path": "packages/relay/src/server.ts",
@@ -92,17 +86,17 @@
     "cpuModel": "Apple M3 Pro",
     "logicalCpuCount": 11,
     "totalMemoryBytes": 19327352832,
-    "freeMemoryAtStartBytes": 886128640,
+    "freeMemoryAtStartBytes": 1933033472,
     "tls": "WSS with NODE_EXTRA_CA_CERTS; certificate verification enabled; no external network",
     "modelRuntime": "none; fixed derivation and deterministic 64-byte fingerprint fixtures"
   },
   "requested": {
-    "publicationCount": 6,
-    "operationCount": 6,
+    "publicationCount": 10000,
+    "operationCount": 1002,
     "idleSeconds": 1800,
     "replicas": 5
   },
   "stage": "initialization",
-  "error": "Reference load mismatch: 2/6",
-  "stack": "Error: Reference load mismatch: 2/6\n    at runLoad (/Users/marcos/Documents/Codex/2026-09-15/i-x20/resonance-v04/packages/eval/src/client-held-local-resources.ts:879:15)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async <anonymous> (/Users/marcos/Documents/Codex/2026-09-15/i-x20/resonance-v04/packages/eval/src/client-held-local-resources.ts:1435:28)"
+  "error": "Reference load mismatch: 334/10000",
+  "stack": "Error: Reference load mismatch: 334/10000\n    at runLoad (/Users/marcos/Documents/Codex/2026-09-15/i-x20/resonance-v04/packages/eval/src/client-held-local-resources.ts:885:15)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async <anonymous> (/Users/marcos/Documents/Codex/2026-09-15/i-x20/resonance-v04/packages/eval/src/client-held-local-resources.ts:1450:28)"
 }
