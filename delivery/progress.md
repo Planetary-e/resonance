@@ -433,3 +433,17 @@
 - **Validation:** Nineteen focused controls, 6/6 refreshed-state smoke and 57/57 affected tests pass; noEmit/build/diff checks pass. Independent review accepts a nominal rerun.
 - **Receipt:** `docs/evals/v04-dec023-oracle-and-outbox-review-2026-11-23.md`.
 - **Next action:** Rerun the unchanged nominal workload and review resource results. No production/K/R acceptance.
+
+## 2026-11-23T08:23:13Z — DEC-023 nominal protocol behavior clean; resources still fail
+
+- **Measured result:** All 334 searches and 334 mailbox operations validate and exact replay succeeds. Overall good is 807/1002 (80.54%) because 195 publishes hit unchanged production rate limits; no timeout or inconclusive results remain.
+- **Resource gates:** Overall p95 5,602.577 ms and p99 6,301.181 ms are within nominal limits, but mailbox p95 6,051.685 ms exceeds the 3-second protected-decision budget. Relay/aggregate RSS remain above limits and publish refusals keep success below 99.5%.
+- **Next action:** Reduce measured memory and preserve the unchanged rate-limit topology; do not increase limits to manufacture a pass.
+
+## 2026-11-24T18:40:01Z — DEC-023 memory and persistence corrections accepted for measurement
+
+- **Corrections:** Live stats instead of duplicate full-store reads; production/seed and startup-RSS identity; byte-preserved legacy base with empty incremental log; bounded JSON writing; single-parse signed-timestamp validation; streamed journal startup and two-pass bounded compaction.
+- **Validation:** Eighty focused persistence/mailbox/live/process/resource controls and 6/6 development-smoke operations pass; noEmit/build/diff checks pass. Independent review accepts a new nominal measurement.
+- **Resource claim:** Expected memory reductions are not measured claims. Historical offset eviction, full base JSON parsing, leased-log compaction, shared-source publish limits and physical power remain open.
+- **Receipt:** `docs/evals/v04-dec023-memory-corrections-review-2026-11-24.md`.
+- **Next action:** Rerun the unchanged nominal workload and review actual resource results. No production/K/R acceptance.

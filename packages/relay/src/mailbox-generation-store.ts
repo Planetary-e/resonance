@@ -5,11 +5,11 @@ import {
   fsyncSync,
   mkdirSync,
   openSync,
-  readFileSync,
+  readSync,
   renameSync,
   rmSync,
   truncateSync,
-  writeSync,
+  writeFileSync,
 } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { basename, join } from 'node:path';
@@ -43,6 +43,7 @@ import {
 
 const JOURNAL_FILENAME = 'generation-mailbox.ndjson';
 const MAX_SYNC_EVENTS = 8;
+const COMPACTION_RECORD_THRESHOLD = 256;
 
 export type GenerationMailboxDepositStatus =
   | 'stored'
@@ -112,6 +113,12 @@ interface JournalRecord {
   entry: JournalEntry;
 }
 
+interface JournalOffset {
+  sequence: number;
+  offset: number;
+  length: number;
+}
+
 export interface MailboxGenerationStoreOptions {
   directory: string;
   relayIdentity: Identity;
@@ -128,7 +135,8 @@ export class MailboxGenerationStore {
   private readonly options: MailboxGenerationStoreOptions;
   private leases = new Map<string, LeaseRecord>();
   private admissions = new Map<string, AdmissionRecord>();
-  private journal: JournalRecord[] = [];
+  private journal: JournalOffset[] = [];
+  private journalBytes = 0;
   private poisoned = false;
 
   constructor(options: MailboxGenerationStoreOptions) {
@@ -211,6 +219,7 @@ export class MailboxGenerationStore {
       this.append({ kind: 'conflict', record });
       prior.conflictBytes = raw;
       prior.conflictDeposit = deposit;
+      this.compactIfNeeded();
       return { status: 'conflicting_request', conflictBytes: raw };
     }
 
@@ -273,6 +282,7 @@ export class MailboxGenerationStore {
       actualBytes,
       ackId,
     });
+    this.compactIfNeeded();
     return {
       status: 'stored',
       receipt: createOfflineDiscoveryReceiptV1(deposit, 'stored', this.options.relayIdentity, now),
@@ -363,6 +373,7 @@ export class MailboxGenerationStore {
       ackId: evidence.ackId,
       ack: event.ack,
     });
+    this.compactIfNeeded();
     return { status: 'acknowledged' };
   }
 
@@ -412,6 +423,7 @@ export class MailboxGenerationStore {
     lease.withdrawalIndex = index;
     for (const request of lease.requests.values()) lease.quota.withdraw(request.requestId);
     if (!existing) this.leases.set(withdrawal.clientLeaseId, lease);
+    this.compactIfNeeded();
     return { status: 'acknowledged' };
   }
 
@@ -447,7 +459,7 @@ export class MailboxGenerationStore {
     let nextCursor = cursor;
     for (const record of this.journal) {
       if (record.sequence <= cursor) continue;
-      const event = syncEvent(record);
+      const event = syncEvent(this.readJournalRecord(record));
       if (!event) continue;
       if (events.length >= Math.max(0, Math.min(limit, MAX_SYNC_EVENTS))) break;
       events.push(event);
@@ -471,18 +483,30 @@ export class MailboxGenerationStore {
     }
   }
 
+  private compactIfNeeded(): void {
+    if (this.journal.length < COMPACTION_RECORD_THRESHOLD
+      || this.journal.length % COMPACTION_RECORD_THRESHOLD !== 0) return;
+    const now = Date.now();
+    const hasExpired = this.journal.some(offset => (
+      !journalLiveAfter(this.readJournalRecord(offset), now)
+    ));
+    if (hasExpired) this.compact(now);
+  }
+
   compact(now: number): void {
     this.ensureWritable();
-    const retained = this.journal.filter(record => journalLiveAfter(record, now));
-    if (retained.length === this.journal.length) return;
+    let hasExpired = false;
+    this.scanJournal(record => {
+      if (!journalLiveAfter(record, now)) hasExpired = true;
+    });
+    if (!hasExpired) return;
     const temporary = join(this.directory, `.${basename(this.journalPath)}.${randomBytes(8).toString('hex')}.tmp`);
     let fd: number | undefined;
     try {
       fd = openSync(temporary, 'wx', 0o600);
-      for (const record of retained) {
-        const bytes = Buffer.from(`${JSON.stringify(record)}\n`);
-        writeAll(fd, bytes);
-      }
+      this.scanJournal(record => {
+        if (journalLiveAfter(record, now)) writeFileSync(fd!, `${JSON.stringify(record)}\n`, 'utf8');
+      });
       fsyncSync(fd);
       closeSync(fd);
       fd = undefined;
@@ -530,6 +554,7 @@ export class MailboxGenerationStore {
     generation.ack = ack;
     const lease = this.leases.get(ack.clientLeaseId)!;
     lease.quota.acknowledge(ack.ackId);
+    this.compactIfNeeded();
     return { status: 'acknowledged' };
   }
 
@@ -575,38 +600,90 @@ export class MailboxGenerationStore {
 
   private append(entry: JournalEntry): void {
     this.ensureWritable();
-    const record = { sequence: (this.journal.at(-1)?.sequence ?? 0) + 1, entry };
+    const sequence = (this.journal.at(-1)?.sequence ?? 0) + 1;
+    const offset = this.journalBytes;
+    const raw = `${JSON.stringify({ sequence, entry })}\n`;
     try {
-      appendFileSync(this.journalPath, `${JSON.stringify(record)}\n`, { encoding: 'utf8', mode: 0o600 });
+      appendFileSync(this.journalPath, raw, { encoding: 'utf8', mode: 0o600 });
       const fd = openSync(this.journalPath, 'r');
       try { fsyncSync(fd); } finally { closeSync(fd); }
     } catch (error) {
       this.poisoned = true;
       throw error;
     }
-    this.journal.push(record);
+    this.journalBytes += Buffer.byteLength(raw);
+    this.journal.push({ sequence, offset, length: Buffer.byteLength(raw) });
   }
 
   private load(): void {
     this.leases = new Map();
     this.admissions = new Map();
     this.journal = [];
+    this.journalBytes = 0;
     this.poisoned = false;
-    if (!existsSync(this.journalPath)) return;
-    const data = readFileSync(this.journalPath);
-    const lastNewline = data.lastIndexOf(0x0a);
-    if (lastNewline + 1 !== data.length) truncateSync(this.journalPath, lastNewline + 1);
-    if (lastNewline < 0) return;
-    const lines = data.subarray(0, lastNewline).toString('utf8').split('\n');
-    for (const line of lines) {
-      const record = JSON.parse(line) as JournalRecord;
+    this.journalBytes = this.scanJournal((record, offset) => {
       if (!Number.isSafeInteger(record.sequence)
         || record.sequence <= (this.journal.at(-1)?.sequence ?? 0)) {
         throw new Error('Invalid generation mailbox journal sequence');
       }
       this.replay(record.entry);
-      this.journal.push(record);
+      this.journal.push({ sequence: record.sequence, offset: offset.offset, length: offset.length });
+    });
+  }
+
+  private scanJournal(visit: (record: JournalRecord, offset: JournalOffset) => void): number {
+    if (!existsSync(this.journalPath)) return 0;
+    const fd = openSync(this.journalPath, 'r');
+    const chunk = Buffer.alloc(64 * 1024);
+    let parts: Buffer[] = [];
+    let lineBytes = 0;
+    let lineOffset = 0;
+    let completeBytes = 0;
+    try {
+      while (true) {
+        const count = readSync(fd, chunk, 0, chunk.length, null);
+        if (count <= 0) break;
+        let start = 0;
+        while (start < count) {
+          const newline = chunk.indexOf(0x0a, start);
+          const end = newline < 0 ? count : newline;
+          if (end > start) {
+            parts.push(Buffer.from(chunk.subarray(start, end)));
+            lineBytes += end - start;
+          }
+          if (newline < 0) break;
+          const bytes = parts.length === 1 ? parts[0] : Buffer.concat(parts, lineBytes);
+          const record = JSON.parse(bytes.toString('utf8')) as JournalRecord;
+          const length = lineBytes + 1;
+          visit(record, { sequence: record.sequence, offset: lineOffset, length });
+          completeBytes = lineOffset + length;
+          parts = [];
+          lineBytes = 0;
+          lineOffset = completeBytes;
+          start = newline + 1;
+        }
+      }
+    } finally {
+      closeSync(fd);
     }
+    if (lineBytes > 0) truncateSync(this.journalPath, completeBytes);
+    return completeBytes;
+  }
+
+  private readJournalRecord(offset: JournalOffset): JournalRecord {
+    const bytes = Buffer.alloc(offset.length);
+    let used = 0;
+    const fd = openSync(this.journalPath, 'r');
+    try {
+      while (used < bytes.length) {
+        const count = readSync(fd, bytes, used, bytes.length - used, offset.offset + used);
+        if (count <= 0) throw new Error('Generation mailbox journal offset is not durable');
+        used += count;
+      }
+    } finally {
+      closeSync(fd);
+    }
+    return JSON.parse(bytes.toString('utf8')) as JournalRecord;
   }
 
   private replay(entry: JournalEntry): void {
@@ -783,10 +860,6 @@ function journalLiveAfter(record: JournalRecord, now: number): boolean {
   return parseOfflineDiscoveryDepositV1(evidence.depositBytes).expiresAt > now;
 }
 
-function writeAll(fd: number, bytes: Buffer): void {
-  let offset = 0;
-  while (offset < bytes.length) offset += writeSync(fd, bytes, offset, bytes.length - offset);
-}
 
 function fsyncDirectory(path: string): void {
   if (process.platform === 'win32') return;

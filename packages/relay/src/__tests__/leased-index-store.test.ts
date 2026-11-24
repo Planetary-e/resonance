@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -424,5 +424,50 @@ describe('leased relay incremental persistence and exact active lookup', () => {
     });
     expect(restored.apply(serialized(revised), NOW + 1_000).notifications).toEqual([]);
     expect(restored.matching.getPendingForDID(need.index.clientLeaseId)).toEqual([]);
+  });
+
+  it('preserves the authoritative legacy base during incremental migration', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'resonance-legacy-migration-'));
+    directories.push(directory);
+    const { keys, index, originalCommitment } = fixture('need', 1);
+    const store = new LeasedIndexStore();
+    store.apply(serialized(index), NOW);
+    store.save(directory);
+    const basePath = join(directory, 'leased-index-operations.json');
+    const originalBase = readFileSync(basePath);
+    const originalModified = statSync(basePath).mtimeMs;
+    rmSync(join(directory, 'leased-index-log-v1'), { recursive: true, force: true });
+    const legacy = new LeasedIndexStore();
+    legacy.load(directory);
+    const next = revision(keys, originalCommitment, {
+      leaseSequence: 1,
+      semanticRevision: 0,
+      createdAt: NOW + DAY,
+      expiresAt: NOW + 8 * DAY,
+      fingerprintFill: 1,
+    });
+    legacy.apply(serialized(next), NOW + DAY);
+    await new Promise(resolve => setTimeout(resolve, 10));
+    legacy.save(directory);
+    expect(readFileSync(basePath).equals(originalBase)).toBe(true);
+    expect(statSync(basePath).mtimeMs).toBe(originalModified);
+    const restored = new LeasedIndexStore();
+    restored.load(directory);
+    expect(restored.getExactBytes(index.publicationId)).toBe(serialized(next));
+  });
+
+  it('rejects an incremental timestamp that differs from the signed operation', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'resonance-corrupt-log-time-'));
+    directories.push(directory);
+    const { index } = fixture('need', 1);
+    const store = new LeasedIndexStore();
+    store.apply(serialized(index), NOW);
+    store.save(directory);
+    const path = join(directory, 'leased-index-log-v1', `${String(1).padStart(20, '0')}.json`);
+    const record = JSON.parse(readFileSync(path, 'utf8'));
+    record.createdAt++;
+    writeFileSync(path, JSON.stringify(record));
+    expect(() => new LeasedIndexStore().load(directory))
+      .toThrow('Leased index log timestamp does not match signed operation');
   });
 });

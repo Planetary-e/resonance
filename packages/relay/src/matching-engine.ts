@@ -8,7 +8,7 @@
 import { readFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { guardUnmanagedExport } from './unmanaged-export.js';
-import { writeAtomic } from './atomic-file.js';
+import { writeAtomicJson } from './atomic-file.js';
 import { createDeterministicMatchId, createStableNotificationIdV1, type ItemType } from '@resonance/core';
 import { ComplementaryHammingIndex, type HashMetadata } from './hamming-index.js';
 
@@ -277,14 +277,14 @@ export class MatchingEngine {
     this.assertExportAllowed();
     mkdirSync(dir, { recursive: true });
     this.index.save(dir);
-    writeAtomic(join(dir, 'dedup.json'), JSON.stringify(Array.from(this.notifiedPairs)));
-    writeAtomic(join(dir, 'notification-dedup.json'), JSON.stringify(Array.from(this.leasedNotifications.values())));
-    writeAtomic(join(dir, 'withdrawn.json'), JSON.stringify(Array.from(this.withdrawnItems)));
-    writeAtomic(join(dir, 'stats.json'), JSON.stringify({
+    writeAtomicJson(join(dir, 'dedup.json'), Array.from(this.notifiedPairs));
+    writeAtomicJson(join(dir, 'notification-dedup.json'), Array.from(this.leasedNotifications.values()));
+    writeAtomicJson(join(dir, 'withdrawn.json'), Array.from(this.withdrawnItems));
+    writeAtomicJson(join(dir, 'stats.json'), {
       matchesToday: this.matchesToday,
       matchesTodayDate: this.matchesTodayDate,
-    }));
-    writeAtomic(join(dir, 'queue.json'), JSON.stringify(this.pendingNotifications));
+    });
+    writeAtomicJson(join(dir, 'queue.json'), this.pendingNotifications);
   }
 
   /** Load index + state from disk. */

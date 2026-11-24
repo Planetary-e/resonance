@@ -374,6 +374,7 @@ export interface RelayStats {
   indexed_embeddings: number;
   stored_publications: number;
   active_publications: number;
+  leased_active_publications: number;
   retained_tombstones: number;
   publication_storage_quota_bytes: number;
   publication_storage_withdrawal_reserve_bytes: number;
@@ -2521,6 +2522,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         indexed_embeddings: stats.total,
         stored_publications: publicationStore.size,
         active_publications: publicationStore.activeRecords().length,
+        leased_active_publications: leasedIndexes.activeRecords(Date.now()).length,
         retained_tombstones: publicationStore.tombstoneCount,
         publication_storage_quota_bytes: publicationStorageQuotaBytes,
         publication_storage_withdrawal_reserve_bytes: Math.min(
@@ -4756,6 +4758,7 @@ export function createRelayServer(config?: Partial<RelayConfig>): RelayServer {
         indexed_embeddings: stats.total,
         stored_publications: publicationStore.size,
         active_publications: publicationStore.activeRecords().length,
+        leased_active_publications: leasedIndexes.activeRecords(Date.now()).length,
         retained_tombstones: publicationStore.tombstoneCount,
         publication_storage_quota_bytes: publicationStorageQuotaBytes,
         publication_storage_withdrawal_reserve_bytes: Math.min(

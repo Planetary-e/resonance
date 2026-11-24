@@ -9,7 +9,7 @@
 import { readFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { guardUnmanagedExport } from './unmanaged-export.js';
-import { writeAtomic } from './atomic-file.js';
+import { writeAtomicJson } from './atomic-file.js';
 import type { ItemType } from '@resonance/core';
 
 export interface HashMetadata {
@@ -127,7 +127,7 @@ export class HammingIndex {
       metadata: this.metadata,
       createdAt: this.createdAt,
     };
-    writeAtomic(join(dir, `${prefix}-hamming.json`), JSON.stringify(data));
+    writeAtomicJson(join(dir, `${prefix}-hamming.json`), data);
   }
 
   load(dir: string, prefix: string): void {

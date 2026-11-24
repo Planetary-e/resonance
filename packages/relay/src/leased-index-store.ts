@@ -5,7 +5,7 @@ import {
   rmSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { writeAtomic } from './atomic-file.js';
+import { writeAtomic, writeAtomicJson } from './atomic-file.js';
 import {
   createLeasedIndexGenerationIdV1,
   decodeBase64,
@@ -64,6 +64,7 @@ interface StoredFile {
 interface PendingPersistence {
   bytes: string;
   repair: boolean;
+  createdAt: number;
 }
 
 interface LogRecord extends PendingPersistence {
@@ -94,6 +95,15 @@ export class LeasedIndexStore {
     } catch {
       return { status: 'invalid', notifications: [] };
     }
+    return this.applyParsed(bytes, operation, now, repair);
+  }
+
+  private applyParsed(
+    bytes: string,
+    operation: LeasedIndexOperationV1,
+    now: number,
+    repair: boolean,
+  ): LeasedIndexApplyResult {
     const state = this.publications.get(operation.publicationId);
     const duplicate = findExact(state?.history, bytes) ?? findExact(state?.conflicts, bytes);
     if (duplicate) {
@@ -125,7 +135,7 @@ export class LeasedIndexStore {
       };
       this.publications.set(operation.publicationId, next);
       this.matching.withdraw('', operation.publicationId);
-      this.pendingPersistence.push({ bytes, repair });
+      this.pendingPersistence.push({ bytes, repair, createdAt: operation.createdAt });
       return { status: 'accepted', current: operation, currentBytes: bytes, notifications: [] };
     }
 
@@ -149,7 +159,7 @@ export class LeasedIndexStore {
       }
       this.matching.removeLeased(operation.publicationId);
       const retained = state.conflicts.find(item => item.operation.leaseSequence === operation.leaseSequence)!;
-      this.pendingPersistence.push({ bytes, repair });
+      this.pendingPersistence.push({ bytes, repair, createdAt: operation.createdAt });
       return {
         status: 'conflict',
         current,
@@ -169,7 +179,7 @@ export class LeasedIndexStore {
       conflicts: state?.conflicts ?? [],
     });
     const notifications = this.updateMatching(current, operation, repair);
-    this.pendingPersistence.push({ bytes, repair });
+    this.pendingPersistence.push({ bytes, repair, createdAt: operation.createdAt });
     return { status: 'accepted', current: operation, currentBytes: bytes, notifications };
   }
 
@@ -280,17 +290,20 @@ export class LeasedIndexStore {
     mkdirSync(directory, { recursive: true });
     const logDirectory = join(directory, LOG_DIRECTORY);
     if (!this.incrementalReady) {
-      const file: StoredFile = {
-        version: 1,
-        publications: Array.from(this.publications.values())
-          .sort((a, b) => a.current.operation.publicationId.localeCompare(b.current.operation.publicationId)),
-      };
-      writeAtomic(join(directory, STORE_FILENAME), JSON.stringify(file));
-      this.matching.save(directory);
+      const preserveExistingBase = existsSync(join(directory, STORE_FILENAME));
+      if (!preserveExistingBase) {
+        const file: StoredFile = {
+          version: 1,
+          publications: Array.from(this.publications.values())
+            .sort((a, b) => a.current.operation.publicationId.localeCompare(b.current.operation.publicationId)),
+        };
+        writeAtomicJson(join(directory, STORE_FILENAME), file);
+        this.matching.save(directory);
+        this.persistedBytes.clear();
+      }
       rmSync(logDirectory, { recursive: true, force: true });
       mkdirSync(logDirectory, { recursive: true });
       this.nextLogSequence = 1;
-      this.persistedBytes.clear();
       this.incrementalReady = true;
     } else {
       mkdirSync(logDirectory, { recursive: true });
@@ -343,6 +356,7 @@ export class LeasedIndexStore {
         const publicationId = state.current.operation.publicationId;
         if (this.publications.has(publicationId)) throw new Error('Duplicate persisted leased index state');
         this.publications.set(publicationId, state);
+        for (const item of [...state.history, ...state.conflicts]) this.persistedBytes.add(item.bytes);
       }
     }
     this.matching.load(directory);
@@ -369,7 +383,10 @@ export class LeasedIndexStore {
         throw new Error('Invalid leased index log record');
       }
       const operation = parseLeasedIndexOperationV1(record.bytes);
-      const result = this.apply(record.bytes, operation.createdAt, record.repair);
+      if (record.createdAt !== undefined && record.createdAt !== operation.createdAt) {
+        throw new Error('Leased index log timestamp does not match signed operation');
+      }
+      const result = this.applyParsed(record.bytes, operation, operation.createdAt, record.repair);
       if (!['accepted', 'conflict', 'duplicate'].includes(result.status)) {
         throw new Error(`Invalid leased index log transition: ${result.status}`);
       }
@@ -384,7 +401,9 @@ export class LeasedIndexStore {
     const pending: PendingPersistence[] = [];
     for (const state of this.publications.values()) {
       for (const item of [...state.history, ...state.conflicts]) {
-        if (!this.persistedBytes.has(item.bytes)) pending.push({ bytes: item.bytes, repair: false });
+        if (!this.persistedBytes.has(item.bytes)) {
+          pending.push({ bytes: item.bytes, repair: false, createdAt: item.operation.createdAt });
+        }
       }
     }
     return pending;

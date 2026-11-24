@@ -75,6 +75,15 @@ const SOURCE_FILES = [
   'packages/eval/src/client-held-mailbox-rotation.ts',
   'packages/eval/src/client-held-oracle-reconstruction.ts',
   'packages/eval/src/fixtures/client-held-resource-relay.ts',
+  'packages/relay/src/atomic-file.ts',
+  'packages/relay/src/leased-index-store.ts',
+  'packages/relay/src/matching-engine.ts',
+  'packages/relay/src/hamming-index.ts',
+  'packages/relay/src/mailbox-generation-store.ts',
+  'packages/relay/src/server.ts',
+  'packages/node/src/offline-request-store.ts',
+  'packages/node/src/content-grant-store.ts',
+  'packages/node/src/relay-client.ts',
 ];
 const TARGETS = Object.freeze({
   minimumNominalSuccess: 0.995,
@@ -259,6 +268,12 @@ function sourceIdentity() {
     sha256: createHash('sha256').update(readFileSync(resolve(path))).digest('hex'),
   }));
 }
+function seedDataIdentity() {
+  return ['seed-manifest.json', 'seed-records.json'].map(name => ({
+    name,
+    sha256: createHash('sha256').update(readFileSync(join(root, name))).digest('hex'),
+  }));
+}
 function command() {
   return ['node', '--import', 'tsx', 'packages/eval/src/client-held-local-resources.ts', ...process.argv.slice(2)];
 }
@@ -425,6 +440,7 @@ class ResourceRelay {
   descriptor!: RelayDescriptorV1;
   endpoint!: string;
   port!: number;
+  readySample: any;
   private nextId = 0;
   private pending = new Map<number, { accept: (value: any) => void; reject: (error: Error) => void }>();
   private exited: Promise<void>;
@@ -453,6 +469,7 @@ class ResourceRelay {
           this.descriptor = message.descriptor;
           this.endpoint = message.descriptor.endpoints[0];
           this.port = message.port;
+          this.readySample = message.sample;
           accept();
         } else if (message.event === 'failed') {
           clearTimeout(timer);
@@ -858,6 +875,10 @@ async function runLoad(profile: string) {
   let diskPeak = 0;
   try {
     for (let index = 0; index < REPLICAS; index++) relays.push(await ResourceRelay.start(index));
+    const postLoadReadyPeakSumBytes = process.memoryUsage().rss + relays.reduce(
+      (sum, relay) => sum + relay.readySample.rssPeakBytes, 0,
+    );
+    peakAggregateRss = Math.max(peakAggregateRss, postLoadReadyPeakSumBytes);
     initialStats = await Promise.all(relays.map(relay => relay.request('stats')));
     for (const stats of initialStats) {
       if (stats.leasedActivePublications !== publicationCount) {
@@ -1041,6 +1062,7 @@ async function runLoad(profile: string) {
       run: runNumber,
       command: command(),
       source: sourceIdentity(),
+      seedData: seedDataIdentity(),
       environment: environment(),
       configuration: {
         retainedActivePublicationsPerRelay: publicationCount,
@@ -1082,6 +1104,14 @@ async function runLoad(profile: string) {
       },
       processTree: {
         peakAggregateRssBytes: peakAggregateRss,
+        postLoadReadyPeakSumBytes,
+        preExecMeasurementAvailable: false,
+        startup: relays.map(relay => ({
+          pid: relay.child.pid,
+          moduleEntryRssBytes: relay.readySample.moduleEntryRssBytes,
+          readyRssBytes: relay.readySample.rssBytes,
+          readyPeakRssBytes: relay.readySample.rssPeakBytes,
+        })),
         finalAggregateRssBytes: process.memoryUsage().rss + finalSamples.reduce((sum, sample) => sum + sample.rssBytes, 0),
         parentRssBytes: process.memoryUsage().rss,
         relays: finalSamples,
@@ -1111,6 +1141,7 @@ async function runLoad(profile: string) {
         'Direct RPC uses a fresh TCP connection per operation. Warm-client-new-TCP is not a persistent connection; only the separately reported content polls are warm connections.',
         'Latency percentiles are conditional on good operations. Refusals, timeouts and uncertain outcomes remain failures in the success denominator.',
         'Disk peaks are one-second samples and may miss shorter-lived temporary files.',
+        'RSS begins at module entry and uses the ready sample for post-load startup peaks; pre-exec and dynamic-loader peaks are unavailable.',
         'No physical power samples were collected; CPU time is not watts.',
       ],
     };
@@ -1186,6 +1217,7 @@ async function seed(): Promise<void> {
     qualification: qualificationShape ? 'reference-seed' : 'development-smoke-not-qualification',
     command: command(),
     source: sourceIdentity(),
+    seedData: seedDataIdentity(),
     environment: environment(),
     requestedPublications: publicationCount,
     acceptedPublications: accepted,
@@ -1204,7 +1236,8 @@ async function seed(): Promise<void> {
 }
 
 async function idle(): Promise<void> {
-  const { manifest: _manifest, records: _records } = loadSeed();
+  const manifest = JSON.parse(readFileSync(seedPaths().manifest, 'utf8')) as SeedManifest;
+  if (manifest.publicationCount !== publicationCount) throw new Error('Idle seed cardinality mismatch');
   const relays = await Promise.all(Array.from({ length: REPLICAS }, (_, index) => ResourceRelay.start(index)));
   const samples: any[] = [];
   const started = performance.now();
@@ -1246,6 +1279,7 @@ async function idle(): Promise<void> {
       qualification: qualificationShape && idleSeconds === 1800 ? 'bounded-30-minute-idle' : 'development-idle-not-qualification',
       command: command(),
       source: sourceIdentity(),
+      seedData: seedDataIdentity(),
       environment: environment(),
       fixedActivePublicationsPerRelay: publicationCount,
       replicas: REPLICAS,
