@@ -66,7 +66,10 @@ import {
 import { MailboxState } from './client-held-mailbox-rotation.js';
 import { reconstructRelayFixtureState, reconcileFixtureWithCurrent } from './client-held-oracle-reconstruction.js';
 import {
+  attachDeadlineContention,
+  attachOperationContention,
   memorySample,
+  operationContentionEvidence,
   RpcTelemetry,
   RuntimeTelemetry,
 } from './client-held-runtime-telemetry.js';
@@ -364,13 +367,7 @@ function summarizeOperations(records: OperationRecord[]) {
       outcome: record.outcome,
       evidence: record.reconciliationEvidence,
     })),
-    contentionEvidence: records.filter(record => record.contention).map(record => ({
-      sequence: record.sequence,
-      kind: record.kind,
-      outcome: record.outcome,
-      errorClass: record.errorClass,
-      relays: record.contention,
-    })),
+    contentionEvidence: operationContentionEvidence(records),
     validationFailures: records.filter(record => record.validationDetails).map(record => ({
       sequence: record.sequence,
       outcome: record.outcome,
@@ -877,6 +874,7 @@ async function executeOperation(
     else record.phases = await runMailbox(coordinator, seed, mailbox, record.sequence);
     record.latencyMs = performance.now() - started;
     record.outcome = record.latencyMs > TARGETS.privateOperationMs ? 'deadline_exceeded' : 'good';
+    attachDeadlineContention(record, coordinator.relays);
   } catch (error) {
     if (error instanceof PublishFailure) {
       record.relayEvidence = error.acknowledgments;
@@ -886,10 +884,7 @@ async function executeOperation(
     record.latencyMs = performance.now() - started;
     record.errorClass = errorClass(error);
     if (error instanceof PublishFailure || record.errorClass === 'timeout' || record.errorClass === 'connection_closed') {
-      record.contention = coordinator.relays.map(relay => ({
-        relayIndex: relay.index,
-        samples: relay.contentionSnapshot(),
-      }));
+      attachOperationContention(record, coordinator.relays);
     }
     record.outcome = error instanceof ValidationInconclusiveError
       ? 'inconclusive'

@@ -117,3 +117,40 @@ export class RpcTelemetry {
     };
   }
 }
+
+export interface OperationContentionRecord {
+  sequence: number;
+  kind: 'publish' | 'search' | 'mailbox';
+  outcome: 'good' | 'refused' | 'retry' | 'uncertain' | 'deadline_exceeded' | 'inconclusive';
+  errorClass?: string;
+  phases?: Record<string, number>;
+  contention?: unknown;
+}
+
+export function attachOperationContention(
+  record: OperationContentionRecord,
+  relays: Array<{ index: number; contentionSnapshot(): unknown }>,
+): void {
+  record.contention = relays.map(relay => ({
+    relayIndex: relay.index,
+    samples: relay.contentionSnapshot(),
+  }));
+}
+
+export function attachDeadlineContention(
+  record: OperationContentionRecord,
+  relays: Array<{ index: number; contentionSnapshot(): unknown }>,
+): void {
+  if (record.outcome === 'deadline_exceeded') attachOperationContention(record, relays);
+}
+
+export function operationContentionEvidence(records: readonly OperationContentionRecord[]) {
+  return records.filter(record => record.contention).map(record => ({
+    sequence: record.sequence,
+    kind: record.kind,
+    outcome: record.outcome,
+    errorClass: record.errorClass,
+    phases: record.phases,
+    relays: record.contention,
+  }));
+}
