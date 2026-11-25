@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "authorization_id": "DEC-023",
+  "recorded_at": "2026-11-25T13:20:00Z",
+  "qualification": "three-run-nominal-local-k1-pass-existing-summary-rss-fail",
+  "candidate_head": "7ed66df",
+  "artifacts": [
+    { "run": 1, "path": "delivery/results/client-held-local-resource-nominal-run-1.json", "sha256": "971f21d56967881bf41208e4c9e0784e1170cfce48c2a929ab0d738f8c77987f" },
+    { "run": 2, "path": "delivery/results/client-held-local-resource-nominal-run-2.json", "sha256": "2c45eb96b0c8a7fbbad9bd356b30e1b25377afeafca6af9fd1bc4bf9b1564128" },
+    { "run": 3, "path": "delivery/results/client-held-local-resource-nominal-run-3.json", "sha256": "98b4a87663deb34fec48f70db3e3331fcaeda2281a260a468bb7b071edd4ce10" }
+  ],
+  "totals": {
+    "submitted": 3006,
+    "good": 3006,
+    "success_fraction": 1,
+    "physical_network_bytes": 288977934,
+    "bytes_per_good_operation": 96133.71057884232
+  },
+  "p95_ms": {
+    "runs": [2988.0524159998167, 3731.1202909999993, 3343.808958000038],
+    "mean": 3354.327221666618,
+    "student_t95_interval": [2431.1083463397867, 4277.546096993449]
+  },
+  "p99_ms": {
+    "runs": [3302.801290999865, 4304.269542000024, 3992.6432920000516],
+    "mean": 3866.57137499998,
+    "student_t95_interval": [2593.453115546253, 5139.689634453707]
+  },
+  "maximum_per_relay_rss_bytes": 391528448,
+  "maximum_aggregate_rss_bytes": 2004402176,
+  "evaluation": {
+    "operation_count_pass": true,
+    "independent_executions_pass": true,
+    "success_pass": true,
+    "warm_p95_pass": true,
+    "p99_pass": true,
+    "network_pass": true,
+    "relay_rss_pass": true,
+    "process_tree_rss_pass": false,
+    "network_coverage_pass": true,
+    "content_pass": true,
+    "refusal_free_pass": true,
+    "nominal_pass_under_existing_summary": false,
+    "production_acceptance": false,
+    "k1_k8_acceptance": false
+  },
+  "independent_review": "docs/evals/v04-dec025-three-run-nominal-review-2026-11-25.md",
+  "next_action": "Run three fresh-seed burst8 executions, then evaluate protected admission."
+}
