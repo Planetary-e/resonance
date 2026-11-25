@@ -10,7 +10,7 @@
     "--mode",
     "seed",
     "--root",
-    "/tmp/resonance-client-held-local-resources-dec025-run3-7ed66df"
+    "/tmp/resonance-client-held-local-resources-dec025-burst3-63e4c31"
   ],
   "source": [
     {
@@ -81,11 +81,11 @@
   "seedData": [
     {
       "name": "seed-manifest.json",
-      "sha256": "ae8cd3c8b9c07f355d2e7848085e0b4b6e9f1ed5865b4bf423313a4d32df35d6"
+      "sha256": "bb5a3aed354d7969e930a96f35aa96b145e60f07ae14d3515a04739cfba0338f"
     },
     {
       "name": "seed-records.json",
-      "sha256": "84444de50a4c000441729390b1a99c6f8ea609723cc7f39055efe96ee625e7e2"
+      "sha256": "e84275dc2218242d4007415b4a9894c8f1ab0c29a503d5fca700b6e7fa272c59"
     }
   ],
   "environment": {
@@ -95,7 +95,7 @@
     "cpuModel": "Apple M3 Pro",
     "logicalCpuCount": 11,
     "totalMemoryBytes": 19327352832,
-    "freeMemoryAtStartBytes": 70811648,
+    "freeMemoryAtStartBytes": 88227840,
     "tls": "WSS with NODE_EXTRA_CA_CERTS; certificate verification enabled; no external network",
     "modelRuntime": "none; fixed derivation and deterministic 64-byte fingerprint fixtures"
   },
@@ -103,7 +103,7 @@
   "acceptedPublications": 10000,
   "activeRecords": 10000,
   "replicasMaterialized": 5,
-  "elapsedMs": 132732.747459,
+  "elapsedMs": 124586.771834,
   "referenceBytes": 55849061,
   "allReplicaBytes": 360154511,
   "disk": {

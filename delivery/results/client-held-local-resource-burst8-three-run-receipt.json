@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "authorization_id": "DEC-023",
+  "recorded_at": "2026-11-25T15:00:00Z",
+  "qualification": "three-run-burst8-failed-not-production",
+  "candidate_head": "63e4c31",
+  "artifacts": [
+    { "run": 1, "path": "delivery/results/client-held-local-resource-burst8-run-1.json", "sha256": "7146847ef4b6c68fc8f129dbef9915da3df63c87fced2c2b8d6e9090b03226bf" },
+    { "run": 2, "path": "delivery/results/client-held-local-resource-burst8-run-2.json", "sha256": "083959f34379f936a483cf92ca62fcda5bb90f3fbd7a56609e014e15d306f7b6" },
+    { "run": 3, "path": "delivery/results/client-held-local-resource-burst8-run-3.json", "sha256": "0dff2c5d25f224efac0b0c2345c7e06841f0aded3205af4271ef665aebfffbe0" }
+  ],
+  "totals": { "submitted": 3006, "good": 2835, "success_fraction": 0.9431137724550899, "bytes_per_good_operation": 99998.6504409171 },
+  "p95_ms": { "runs": [4944.786208000034, 3807.892666999949, 3732.1591669998597], "student_t95_interval": [2474.1268907829494, 5849.09847055028] },
+  "p99_ms": { "runs": [5644.531874999986, 3942.658457999816, 3778.9197080000304], "student_t95_interval": [1889.0234926799712, 7021.716534653251] },
+  "maximum_aggregate_rss_bytes": 2389311488,
+  "maximum_per_relay_rss_bytes": 422346752,
+  "evaluation": {
+    "operation_count_pass": true,
+    "independent_executions_pass": true,
+    "success_pass": false,
+    "warm_p95_pass": true,
+    "p99_pass": true,
+    "network_pass": true,
+    "relay_rss_pass": true,
+    "process_tree_rss_pass": false,
+    "network_coverage_pass": true,
+    "content_pass": true,
+    "refusal_free_pass": false,
+    "burst8_pass": false,
+    "production_acceptance": false,
+    "k1_k8_acceptance": false
+  },
+  "independent_review": "docs/evals/v04-dec025-burst8-review-2026-11-25.md",
+  "next_action": "Diagnose and correct uncertain-state reconciliation, burst contention and startup allocation before another burst campaign."
+}
