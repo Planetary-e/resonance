@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "authorization_id": "DEC-023",
+  "recorded_at": "2026-11-25T17:50:00Z",
+  "qualification": "corrected-burst-diagnostic-improved-but-failed",
+  "candidate_head": "c740533",
+  "artifact": { "path": "delivery/results/client-held-local-resource-burst8-run-4.json", "sha256": "5d1fad92232a5753de1322d9536b5047ed2e0dc48e534b8afd3d94a2b8dcd780" },
+  "source_log": { "path": "/tmp/client-held-dec025-burst4.log", "sha256": "f0dfe1bb25c058ccb7f59fbd9f22ee495a85589c1e32696911633c302aba94a2" },
+  "results": {
+    "submitted": 1002,
+    "good": 1000,
+    "success_fraction": 0.998003992015968,
+    "refused": 0,
+    "uncertain": 0,
+    "inconclusive": 0,
+    "deadline_exceeded": 2,
+    "p95_ms": 4740.482792000053,
+    "p99_ms": 5124.556499999948,
+    "peak_aggregate_rss_bytes": 1882046464,
+    "maximum_relay_peak_rss_bytes": 364986368,
+    "network_bytes_per_good_operation": 96317.2,
+    "disk_final_reconciliation": true
+  },
+  "evaluation": {
+    "success": "pass-single-run",
+    "refusal_free": "fail",
+    "p95": "pass",
+    "p99": "pass",
+    "per_relay_rss": "pass",
+    "measured_startup_rss": "pass",
+    "process_tree_rss_pass": false,
+    "network": "pass",
+    "disk": "pass",
+    "production_acceptance": false
+  },
+  "independent_review": "docs/evals/v04-dec025-burst4-diagnostic-review-2026-11-25.md",
+  "next_action": "Attach per-operation phase/contention evidence to deadline overruns and run one fresh diagnostic."
+}

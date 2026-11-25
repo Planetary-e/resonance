@@ -10,16 +10,16 @@
     "--mode",
     "seed",
     "--root",
-    "/tmp/resonance-client-held-local-resources-dec025-burst3-63e4c31"
+    "/tmp/resonance-client-held-local-resources-dec025-burst4-c740533"
   ],
   "source": [
     {
       "path": "packages/eval/src/client-held-local-resources.ts",
-      "sha256": "647b4282fa11769c99c5b90367e352438b6b34c1e8acef7644957d305391eabb"
+      "sha256": "df3051362ca62c4470b92726a850218ef47717591f34dae3254237f39263b01d"
     },
     {
       "path": "packages/eval/src/client-held-search-validation.ts",
-      "sha256": "461b91865da48f601828f7bc0df7dfa4d9bc5c9fcd0f27773a0301dba560154e"
+      "sha256": "cc779a6cc689e5cb47f0cedc5522399b2ae39b6e8457aa582c0a9c660f49a890"
     },
     {
       "path": "packages/eval/src/client-held-retry-capacity.ts",
@@ -35,11 +35,15 @@
     },
     {
       "path": "packages/eval/src/client-held-oracle-reconstruction.ts",
-      "sha256": "fb4a5b6490b92b962cc8690e214e0f92c29198f260cbd49abdce843d2d263fd8"
+      "sha256": "9f682daef446d488b3a3ff11d08f28c585426ea54d2e5722db834ec9d18e32f9"
+    },
+    {
+      "path": "packages/eval/src/client-held-runtime-telemetry.ts",
+      "sha256": "dbaebb420f79e0d09fd1b4912d82786d432da40b04d2df7cecc5b1009df78e47"
     },
     {
       "path": "packages/eval/src/fixtures/client-held-resource-relay.ts",
-      "sha256": "ff321a8366feeb406e7d55745a39a5d46144faee4bb3fb3e67315940f0e2dfdf"
+      "sha256": "47feab8c89ee47e5e40ef30bf2e7adc5216fae6004bdd4c92e7ce3e3612693a4"
     },
     {
       "path": "packages/relay/src/atomic-file.ts",
@@ -81,11 +85,11 @@
   "seedData": [
     {
       "name": "seed-manifest.json",
-      "sha256": "bb5a3aed354d7969e930a96f35aa96b145e60f07ae14d3515a04739cfba0338f"
+      "sha256": "0c003cc0fff7a42a4bc30281a25e49d60cdedb0be5f2c20f158f18103981ccea"
     },
     {
       "name": "seed-records.json",
-      "sha256": "e84275dc2218242d4007415b4a9894c8f1ab0c29a503d5fca700b6e7fa272c59"
+      "sha256": "2b7f9c87bfc98e501c0919313f6f2856b6f3f22ff8c348a7bfd382d7c48a360f"
     }
   ],
   "environment": {
@@ -95,7 +99,7 @@
     "cpuModel": "Apple M3 Pro",
     "logicalCpuCount": 11,
     "totalMemoryBytes": 19327352832,
-    "freeMemoryAtStartBytes": 88227840,
+    "freeMemoryAtStartBytes": 182304768,
     "tls": "WSS with NODE_EXTRA_CA_CERTS; certificate verification enabled; no external network",
     "modelRuntime": "none; fixed derivation and deterministic 64-byte fingerprint fixtures"
   },
@@ -103,7 +107,7 @@
   "acceptedPublications": 10000,
   "activeRecords": 10000,
   "replicasMaterialized": 5,
-  "elapsedMs": 124586.771834,
+  "elapsedMs": 128915.074292,
   "referenceBytes": 55849061,
   "allReplicaBytes": 360154511,
   "disk": {
