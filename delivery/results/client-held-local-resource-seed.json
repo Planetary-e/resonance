@@ -10,12 +10,12 @@
     "--mode",
     "seed",
     "--root",
-    "/tmp/resonance-client-held-local-resources-dec023-memory-fix"
+    "/tmp/resonance-client-held-local-resources-dec024-corrected-432e0fc"
   ],
   "source": [
     {
       "path": "packages/eval/src/client-held-local-resources.ts",
-      "sha256": "d77dd78f882a8488930967b79b808e89954dfebab40e01b1eb1355e5c7c2fa7a"
+      "sha256": "a733ebd6eb478ada7c66151d2dce8ef010c9376500259cee79c713d2af3337c1"
     },
     {
       "path": "packages/eval/src/client-held-search-validation.ts",
@@ -23,7 +23,11 @@
     },
     {
       "path": "packages/eval/src/client-held-retry-capacity.ts",
-      "sha256": "f513eab339b8222ded76565587b7c54e124a3b2b6722a4886995b708c76140bd"
+      "sha256": "62db4c4a5b203237b5dcc9e13f1f3f09a10d169126f492654e8d9fce84e9ef00"
+    },
+    {
+      "path": "packages/eval/src/client-held-disk-accounting.ts",
+      "sha256": "9cf12a11e673d9fd4c6a71d96cc23d63e2425e60a81c687fa0faa254de8d358c"
     },
     {
       "path": "packages/eval/src/client-held-mailbox-rotation.ts",
@@ -35,7 +39,7 @@
     },
     {
       "path": "packages/eval/src/fixtures/client-held-resource-relay.ts",
-      "sha256": "91e78107572ceedf47a0d213027231263b1b9fd596cffa63704a44dc35a5a981"
+      "sha256": "a6c79eae4e973b691054a055b34dd567674d1bbd31a703d7d9f4886ec3016fc1"
     },
     {
       "path": "packages/relay/src/atomic-file.ts",
@@ -43,7 +47,7 @@
     },
     {
       "path": "packages/relay/src/leased-index-store.ts",
-      "sha256": "9e1513b6b9399c4f35f1941e10121d7a27bd7266ef3b3594ed7d256d5e2ae82a"
+      "sha256": "4aae61ed85853e8cc23f6ca1ce20ad0d00f75dd4bea7120d204f9048d9995aa5"
     },
     {
       "path": "packages/relay/src/matching-engine.ts",
@@ -77,11 +81,11 @@
   "seedData": [
     {
       "name": "seed-manifest.json",
-      "sha256": "48e0bcac811381cdd2de691fca249ca976dfca4640ea0cfc3c29d3eaf548f803"
+      "sha256": "02c08cc26c6fc6a803c6556686fa6abccc22fb97c1edd4029e87b9793632336a"
     },
     {
       "name": "seed-records.json",
-      "sha256": "feb804f673c9034e75c7091d6e1ca3db89c1df775e3f89bb8fe8d16398062dfb"
+      "sha256": "63d9138eb1e0bbb5130beaf9ab012e697b6ec383c665204d4ed5f4540060aff7"
     }
   ],
   "environment": {
@@ -91,7 +95,7 @@
     "cpuModel": "Apple M3 Pro",
     "logicalCpuCount": 11,
     "totalMemoryBytes": 19327352832,
-    "freeMemoryAtStartBytes": 77561856,
+    "freeMemoryAtStartBytes": 219627520,
     "tls": "WSS with NODE_EXTRA_CA_CERTS; certificate verification enabled; no external network",
     "modelRuntime": "none; fixed derivation and deterministic 64-byte fingerprint fixtures"
   },
@@ -99,9 +103,28 @@
   "acceptedPublications": 10000,
   "activeRecords": 10000,
   "replicasMaterialized": 5,
-  "elapsedMs": 109453.591208,
+  "elapsedMs": 125288.65425,
   "referenceBytes": 55849061,
   "allReplicaBytes": 360154511,
+  "disk": {
+    "method": "synchronous filesystem-event deltas with final real-walk reconciliation",
+    "baselineBytes": 0,
+    "finalBytes": 360154511,
+    "actualFinalBytes": 360154511,
+    "finalReconciliationPass": true,
+    "eventOrderedPeakBytes": 360154511,
+    "peakLowerBoundBytes": 360154511,
+    "peakUpperBoundBytes": 360154511,
+    "eventCount": 3270096,
+    "operationCounts": {
+      "mkdirSync": 6,
+      "openSync": 20018,
+      "writeFileSync": 3230048,
+      "renameSync": 10009,
+      "rmSync": 10010,
+      "cpSync": 5
+    }
+  },
   "initializationNetworkBytes": 0,
   "method": "One real LeasedIndexStore persisted once, then exact signed-state copies materialized in five relay directories. Every measured operation uses actual WSS listeners and Node clients."
 }

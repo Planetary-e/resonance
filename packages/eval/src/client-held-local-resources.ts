@@ -461,7 +461,9 @@ class ResourceRelay {
     });
     this.child.stderr?.on('data', chunk => { this.stderr += String(chunk); });
     this.exited = new Promise<void>((accept, reject) => {
-      this.child.once('exit', code => code === 0 ? accept() : reject(new Error(`Relay ${index} exited ${code}: ${this.stderr}`)));
+      this.child.once('exit', (code, signal) => (
+        code === 0 && signal === null ? accept() : reject(this.exitError(code, signal))
+      ));
     });
     this.ready = new Promise<void>((accept, reject) => {
       const timer = setTimeout(() => reject(new Error(`Relay ${index} startup timeout: ${this.stderr}`)), 60_000);
@@ -484,13 +486,17 @@ class ResourceRelay {
           else request.accept(message.result);
         }
       });
-      this.child.once('exit', code => {
+      this.child.once('exit', (code, signal) => {
         clearTimeout(timer);
-        reject(new Error(`Relay ${index} exited before ready (${code})`));
-        for (const request of this.pending.values()) request.reject(new Error('Relay exited'));
+        const error = this.exitError(code, signal);
+        reject(error);
+        for (const request of this.pending.values()) request.reject(error);
         this.pending.clear();
       });
     });
+  }
+  private exitError(code: number | null, signal: NodeJS.Signals | null): Error {
+    return new Error(`Relay ${this.index} exited (code=${code}, signal=${signal}): ${this.stderr}`);
   }
   static async start(index: number, rssSampleIntervalMs = 250): Promise<ResourceRelay> {
     const relay = new ResourceRelay(index, rssSampleIntervalMs);
@@ -506,7 +512,10 @@ class ResourceRelay {
   }
   async stop(): Promise<any> {
     if (this.child.exitCode !== null || this.child.signalCode !== null) return undefined;
-    try { return await this.request('stop'); } finally { await this.exited; }
+    const result = await this.request('stop');
+    this.child.send({ command: 'exit', token: this.token });
+    await this.exited;
+    return result;
   }
 }
 

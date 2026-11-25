@@ -156,9 +156,10 @@ process.on('message', async (message: any) => {
       clearInterval(sampler);
       await relay.stop({ graceful: false });
       result = { ...sample(), disk: diskAccounting.snapshot(), diskEvents: diskAccounting.events() };
-    } else throw new Error('Unknown resource fixture command');
+    }
+    else if (message.command === 'exit') process.exit(0);
+    else throw new Error('Unknown resource fixture command');
     process.send?.({ id: message.id, result });
-    if (message.command === 'stop') process.exit(0);
   } catch (error) {
     process.send?.({ id: message.id, error: String(error) });
   }

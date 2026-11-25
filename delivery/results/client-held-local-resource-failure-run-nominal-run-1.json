@@ -15,12 +15,14 @@
     "--profile",
     "nominal",
     "--run",
-    "1"
+    "1",
+    "--root",
+    "/tmp/resonance-client-held-local-resources-dec024-corrected-432e0fc"
   ],
   "source": [
     {
       "path": "packages/eval/src/client-held-local-resources.ts",
-      "sha256": "d77dd78f882a8488930967b79b808e89954dfebab40e01b1eb1355e5c7c2fa7a"
+      "sha256": "a733ebd6eb478ada7c66151d2dce8ef010c9376500259cee79c713d2af3337c1"
     },
     {
       "path": "packages/eval/src/client-held-search-validation.ts",
@@ -28,7 +30,11 @@
     },
     {
       "path": "packages/eval/src/client-held-retry-capacity.ts",
-      "sha256": "f513eab339b8222ded76565587b7c54e124a3b2b6722a4886995b708c76140bd"
+      "sha256": "62db4c4a5b203237b5dcc9e13f1f3f09a10d169126f492654e8d9fce84e9ef00"
+    },
+    {
+      "path": "packages/eval/src/client-held-disk-accounting.ts",
+      "sha256": "9cf12a11e673d9fd4c6a71d96cc23d63e2425e60a81c687fa0faa254de8d358c"
     },
     {
       "path": "packages/eval/src/client-held-mailbox-rotation.ts",
@@ -40,7 +46,7 @@
     },
     {
       "path": "packages/eval/src/fixtures/client-held-resource-relay.ts",
-      "sha256": "91e78107572ceedf47a0d213027231263b1b9fd596cffa63704a44dc35a5a981"
+      "sha256": "a6c79eae4e973b691054a055b34dd567674d1bbd31a703d7d9f4886ec3016fc1"
     },
     {
       "path": "packages/relay/src/atomic-file.ts",
@@ -48,7 +54,7 @@
     },
     {
       "path": "packages/relay/src/leased-index-store.ts",
-      "sha256": "9e1513b6b9399c4f35f1941e10121d7a27bd7266ef3b3594ed7d256d5e2ae82a"
+      "sha256": "4aae61ed85853e8cc23f6ca1ce20ad0d00f75dd4bea7120d204f9048d9995aa5"
     },
     {
       "path": "packages/relay/src/matching-engine.ts",
@@ -86,7 +92,7 @@
     "cpuModel": "Apple M3 Pro",
     "logicalCpuCount": 11,
     "totalMemoryBytes": 19327352832,
-    "freeMemoryAtStartBytes": 1933033472,
+    "freeMemoryAtStartBytes": 807124992,
     "tls": "WSS with NODE_EXTRA_CA_CERTS; certificate verification enabled; no external network",
     "modelRuntime": "none; fixed derivation and deterministic 64-byte fingerprint fixtures"
   },
@@ -96,7 +102,7 @@
     "idleSeconds": 1800,
     "replicas": 5
   },
-  "stage": "initialization",
-  "error": "Reference load mismatch: 334/10000",
-  "stack": "Error: Reference load mismatch: 334/10000\n    at runLoad (/Users/marcos/Documents/Codex/2026-09-15/i-x20/resonance-v04/packages/eval/src/client-held-local-resources.ts:885:15)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async <anonymous> (/Users/marcos/Documents/Codex/2026-09-15/i-x20/resonance-v04/packages/eval/src/client-held-local-resources.ts:1450:28)"
+  "stage": "load",
+  "error": "Relay exited",
+  "stack": "Error: Relay exited\n    at ChildProcess.<anonymous> (/Users/marcos/Documents/Codex/2026-09-15/i-x20/resonance-v04/packages/eval/src/client-held-local-resources.ts:490:69)\n    at Object.onceWrapper (node:events:631:26)\n    at ChildProcess.emit (node:events:521:24)\n    at ChildProcess._handle.onexit (node:internal/child_process:295:12)"
 }
