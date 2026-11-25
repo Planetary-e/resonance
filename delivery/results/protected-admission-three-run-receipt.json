@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "authorization_id": "DEC-023",
+  "recorded_at": "2026-11-26T00:05:00Z",
+  "qualification": "three-run-protected-admission-local-pass-production-incomplete",
+  "candidate_head": "55fa412",
+  "artifacts": [
+    { "run": 1, "path": "delivery/results/protected-admission-run-1.json", "sha256": "5e22775b91eff446629dbe297b418ecac65d22175f068bd3728fa80523c5b918" },
+    { "run": 2, "path": "delivery/results/protected-admission-run-2.json", "sha256": "47e1497f141e13bebb8980c8b4b7326d0dc66c1c5abfac0289a05d83ab7d4b0a" },
+    { "run": 3, "path": "delivery/results/protected-admission-run-3.json", "sha256": "784391269aaa9afcdaea07d40ce5af626ef92ec7e3907598c7641630806f86d6" }
+  ],
+  "span": "AdmissionDecisionQueue queued through settlement, including preparation/exclusive waits, policy/history reads, witness quorum, coordinator certificate and durable spend commitment",
+  "deadline_ms": 3000,
+  "runs": [
+    { "run": 1, "p95_ms": 197.09833300000014, "pass": true },
+    { "run": 2, "p95_ms": 208.00070800000003, "pass": true },
+    { "run": 3, "p95_ms": 199.238292, "pass": true }
+  ],
+  "mean_p95_ms": 201.44577766666671,
+  "student_t95_interval_ms": [187.095674142604, 215.79588119072943],
+  "maximum_ms": 208.00070800000003,
+  "expected_outcomes_pass": true,
+  "deadline_pass": true,
+  "history_pass": true,
+  "production_acceptance": false,
+  "kr_acceptance": false,
+  "process_tree_rss_pass": false,
+  "independent_review": "docs/evals/v04-dec025-protected-admission-campaign-review-2026-11-26.md",
+  "next_action": "Measure independent-host and impaired-network admission; preserve unresolved resource, privacy and deployment gates."
+}
