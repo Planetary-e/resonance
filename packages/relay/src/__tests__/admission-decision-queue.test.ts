@@ -49,3 +49,22 @@ it.each([900, 4000])('refuses queued work when the wall clock changes to %s', as
   const failures = Promise.all([expect(first).rejects.toThrow('timed out'), expect(second).rejects.toThrow('timed out')]);
   await delay(0); wall.mockReturnValue(time); blocked.release(); await failures; await queue.close();
 });
+
+it('emits ordered prepared-decision evidence with identity and monotonic timestamps', async () => {
+  const events: Array<{ decisionId: number; phase: string; atMs: number; metadata?: unknown }> = [];
+  const metadata = { action: 'search', requestBinding: 'binding' };
+  const queue = createAdmissionDecisionQueue({ onEvent: event => events.push(event) });
+  const result = await queue.runPrepared(
+    () => ({ ready: Promise.resolve('prepared'), drained: Promise.resolve() }),
+    async (prepared, assertLive) => { assertLive(); return { status: 'accepted', prepared }; },
+    metadata,
+  );
+  await queue.close();
+  expect(result).toEqual({ status: 'accepted', prepared: 'prepared' });
+  expect(events.map(event => event.phase)).toEqual([
+    'queued', 'preparation_started', 'preparation_ready', 'exclusive_started', 'settled', 'drained',
+  ]);
+  expect(new Set(events.map(event => event.decisionId))).toEqual(new Set([1]));
+  expect(events.every(event => event.metadata === metadata)).toBe(true);
+  expect(events.every((event, index) => index === 0 || event.atMs >= events[index - 1].atMs)).toBe(true);
+});

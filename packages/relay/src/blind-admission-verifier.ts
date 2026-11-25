@@ -36,7 +36,8 @@ export function createLocalBlindAdmissionVerifierV2(options: {
   withCurrentPolicy?: <T>(operation: (assertCurrent: () => void) => Promise<T>, signal?: AbortSignal) => Promise<T>;
   /** Serializes the whole protected decision after cryptographic verification,
    * before reading a history another accepted transaction may be updating. */
-  withDecision?: <T>(operation: (assertLive: () => void, signal: AbortSignal, preparedPolicy?: () => void) => Promise<T>) => Promise<T>;
+  withDecision?: <T>(operation: (assertLive: () => void, signal: AbortSignal, preparedPolicy?: () => void) => Promise<T>,
+    metadata?: { action: AdmissionVerificationContextV2['action']; requestBinding: string }) => Promise<T>;
   maxSpends?: number;
   /** Configured relays use an encrypted, key-attributed ledger. Omit only for legacy manual configuration. */
   history?: AdmissionSpendLedger;
@@ -105,7 +106,9 @@ export function createLocalBlindAdmissionVerifierV2(options: {
           return options.withCurrentPolicy ? options.withCurrentPolicy(assertCurrent => commit(() => { assertLive(); assertCurrent(); }), signal)
             : commit(assertLive);
         };
-        return options.withDecision ? options.withDecision(decide) : decide(() => {});
+        return options.withDecision ? options.withDecision(decide, {
+          action: context.action, requestBinding: context.requestBinding,
+        }) : decide(() => {});
       }
       return { status: 'rejected', reason: 'invalid_token' };
     },

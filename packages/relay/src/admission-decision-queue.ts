@@ -1,8 +1,27 @@
 /** Serialize a protected owner's spend transaction, including witness authorization
  * and journal commit. Read-only preparation may overlap the preceding transaction.
  * Call only after token verification. */
-export function createAdmissionDecisionQueue(options: { timeoutMs?: number; maximumOperations?: number } = {}) {
+export interface AdmissionDecisionQueueEvent {
+  decisionId: number;
+  phase: 'queued' | 'preparation_started' | 'preparation_ready' | 'exclusive_started' | 'settled' | 'drained';
+  atMs: number;
+  wallTimeMs: number;
+  metadata?: unknown;
+  outcome?: unknown;
+  error?: string;
+}
+
+export function createAdmissionDecisionQueue(options: {
+  timeoutMs?: number;
+  maximumOperations?: number;
+  onEvent?: (event: AdmissionDecisionQueueEvent) => void;
+} = {}) {
   const timeoutMs = options.timeoutMs ?? 3000, maximumOperations = options.maximumOperations ?? 8;
+  let nextDecisionId = 0;
+  const emit = (decisionId: number, phase: AdmissionDecisionQueueEvent['phase'], metadata?: unknown, outcome?: unknown, error?: string) => {
+    try { options.onEvent?.({ decisionId, phase, atMs: performance.now(), wallTimeMs: Date.now(), metadata, outcome, error }); }
+    catch { /* Measurement cannot alter admission behavior. */ }
+  };
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 50 || timeoutMs > 30000
     || !Number.isSafeInteger(maximumOperations) || maximumOperations < 1 || maximumOperations > 8) {
     throw new Error('Invalid admission decision queue bounds');
@@ -11,9 +30,11 @@ export function createAdmissionDecisionQueue(options: { timeoutMs?: number; maxi
   let closed = false, tail = Promise.resolve(), preparationTail = Promise.resolve();
   return {
     health: () => ({ operations: jobs.size, maximumOperations }),
-    run<T>(operation: (assertLive: () => void, signal: AbortSignal) => Promise<T>): Promise<T> {
+    run<T>(operation: (assertLive: () => void, signal: AbortSignal) => Promise<T>, metadata?: unknown): Promise<T> {
       if (closed) return Promise.reject(new Error('Admission decision queue is closed'));
       if (jobs.size >= maximumOperations) return Promise.reject(new Error('Admission decision queue capacity exhausted'));
+      const decisionId = ++nextDecisionId;
+      emit(decisionId, 'queued', metadata);
       const began = performance.now(), issuedAt = Date.now(), controller = new AbortController();
       const assertLive = () => {
         if (closed || controller.signal.aborted || performance.now() - began >= timeoutMs
@@ -25,19 +46,24 @@ export function createAdmissionDecisionQueue(options: { timeoutMs?: number; maxi
       const job = { abort, drained: Promise.resolve() }; jobs.add(job);
       const timer = setTimeout(abort, timeoutMs);
       const work = tail.then(async () => {
+        emit(decisionId, 'exclusive_started', metadata);
         assertLive(); const value = await operation(assertLive, controller.signal); assertLive(); return value;
+      }).then(value => { emit(decisionId, 'settled', metadata, value); return value; }, error => {
+        emit(decisionId, 'settled', metadata, undefined, String(error)); throw error;
       }).finally(() => { clearTimeout(timer); controller.abort(); jobs.delete(job); });
       // Timeout may return to the caller before an uncooperative transport
       // settles. Keep its slot charged and the writer serialized until it does.
-      job.drained = tail = work.then(() => {}, () => {});
+      job.drained = tail = work.then(() => {}, () => {}).then(() => { emit(decisionId, 'drained', metadata); });
       return Promise.race([work, cancelled]);
     },
     /** One preparation at a time may overlap an earlier exclusive operation.
      * Ready evidence can be used before late preparation transports have drained. */
     runPrepared<P, T>(prepare: (assertLive: () => void, signal: AbortSignal) => { ready: Promise<P>; drained: Promise<void> },
-      operation: (prepared: P, assertLive: () => void, signal: AbortSignal) => Promise<T>): Promise<T> {
+      operation: (prepared: P, assertLive: () => void, signal: AbortSignal) => Promise<T>, metadata?: unknown): Promise<T> {
       if (closed) return Promise.reject(new Error('Admission decision queue is closed'));
       if (jobs.size >= maximumOperations) return Promise.reject(new Error('Admission decision queue capacity exhausted'));
+      const decisionId = ++nextDecisionId;
+      emit(decisionId, 'queued', metadata);
       const began = performance.now(), issuedAt = Date.now(), controller = new AbortController();
       const assertLive = () => {
         if (closed || controller.signal.aborted || performance.now() - began >= timeoutMs
@@ -49,8 +75,12 @@ export function createAdmissionDecisionQueue(options: { timeoutMs?: number; maxi
       const job = { abort, drained: Promise.resolve() }; jobs.add(job);
       const timer = setTimeout(abort, timeoutMs);
       const preparation = preparationTail.then(() => {
+        emit(decisionId, 'preparation_started', metadata);
         assertLive(); const handle = prepare(assertLive, controller.signal);
-        const ready = Promise.resolve(handle.ready).then(value => { assertLive(); return value; });
+        const ready = Promise.resolve(handle.ready).then(value => {
+          emit(decisionId, 'preparation_ready', metadata);
+          assertLive(); return value;
+        });
         // Observe both outcomes immediately. A malformed early drain cannot
         // release the preparation lane while its ready work is still unsettled.
         const drained = Promise.allSettled([ready, handle.drained]).then(() => {});
@@ -61,11 +91,17 @@ export function createAdmissionDecisionQueue(options: { timeoutMs?: number; maxi
       preparationTail = preparationDrained;
       const work = tail.then(async () => {
         const prepared = await ready;
+        emit(decisionId, 'exclusive_started', metadata);
         assertLive(); const value = await operation(prepared, assertLive, controller.signal); assertLive(); return value;
+      }).then(value => { emit(decisionId, 'settled', metadata, value); return value; }, error => {
+        emit(decisionId, 'settled', metadata, undefined, String(error)); throw error;
       }).finally(() => { clearTimeout(timer); controller.abort(); });
       // Releasing the writer does not uncharge a late preparation transport.
       tail = work.then(() => {}, () => {});
-      job.drained = Promise.allSettled([work, preparationDrained]).then(() => { jobs.delete(job); });
+      job.drained = Promise.allSettled([work, preparationDrained]).then(() => {
+        jobs.delete(job);
+        emit(decisionId, 'drained', metadata);
+      });
       return new Promise<T>((resolve, reject) => {
         void ready.catch(reject);
         void Promise.race([work, cancelled]).then(resolve, reject);

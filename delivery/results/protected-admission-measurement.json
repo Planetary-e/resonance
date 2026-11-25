@@ -1,0 +1,522 @@
+{
+  "schema_version": 1,
+  "qualification": "bounded-real-protected-admission-not-qualification",
+  "command": [
+    "node",
+    "--import",
+    "tsx",
+    "packages/eval/src/protected-admission-measurement.ts"
+  ],
+  "source": [
+    {
+      "path": "packages/eval/src/protected-admission-measurement.ts",
+      "sha256": "d026b7dbbffa748c7194a92080235bfb5c47ba6cb9f6413cb8c9a4bba146b0eb"
+    },
+    {
+      "path": "packages/relay/src/admission-decision-queue.ts",
+      "sha256": "d0b6a683781e7b6e6a5d0634e999bf4d63feab5344f91b8036409620e188c836"
+    },
+    {
+      "path": "packages/relay/src/configured-admission-verifier.ts",
+      "sha256": "65f51866b799770cc3c07ffb5d5eb0642263ab0c0b39b47c7e5ed00361d8fa89"
+    },
+    {
+      "path": "packages/relay/src/blind-admission-verifier.ts",
+      "sha256": "cdde1d8423f4188c2722ba8e0e3a980fff0780293f17f08a60517a188239d68a"
+    },
+    {
+      "path": "packages/relay/src/protected-admission-history.ts",
+      "sha256": "8d5c745806d84e7fb256099a0b51d0f18c51178204a7a2714aad4b958c7a9e40"
+    },
+    {
+      "path": "packages/relay/src/admission-witness.ts",
+      "sha256": "9607e1e577203836ea46d0cb86a92610c7ec7e4bee2c492074f58d9e9369b858"
+    },
+    {
+      "path": "packages/relay/src/protected-admission-roles.ts",
+      "sha256": "84c94e52f36088a12c28bf5983dedd3af7b73ad4d1b335cf3536060ac3bd4eab"
+    },
+    {
+      "path": "packages/relay/src/__tests__/fixtures/admission-witness-fixture.ts",
+      "sha256": "1e90f4df3081076ac5e48db6a782bc098d485b3eef262c4883e4a273cf93f219"
+    },
+    {
+      "path": "packages/relay/src/__tests__/fixtures/protected-role-fixture.ts",
+      "sha256": "6dfe9a31a71292750f142eb0a75d08c95a7613bcbedb61b72baf88f088ff306b"
+    }
+  ],
+  "policy": {
+    "authority": "H1pvso_eg4kwu-g9-eMbtH01LKw0tyREl6hOphRXzfg",
+    "scope": {
+      "issuer": "witness-community",
+      "community": "public",
+      "epoch": "witness-period-one"
+    },
+    "sha256": "dc257ba31bb7799b3f291025ed0f08d1381ccd908a7b9f2c66fa908f1cf488f4",
+    "quorum": "4-of-5 witness votes with coordinator certificate"
+  },
+  "spanDefinition": "performance.now() at AdmissionDecisionQueue queued through operation settlement. Includes preparation-lane waits, exclusive-lane waits, policy/history reads, witness votes, coordinator certificate work, and durable authorized-spend commitment. Drained is reported separately and is not substituted for settlement.",
+  "deadlineMs": 3000,
+  "outcomes": [
+    {
+      "name": "new-spend-a",
+      "requestBinding": "admreq_Sr2oClLu1sT8IYp04W8VRdAOl2YuefI8No7lDiYfQtXKSPlxnftbk7Mr2jxKSS7H_3oGDtB51k1ViXdvTlOo9A",
+      "expected": "accepted",
+      "outcome": {
+        "status": "accepted"
+      },
+      "decisionId": 1,
+      "durationMs": 161.1384169999999,
+      "queueToExclusiveMs": 4.6782499999999345,
+      "preparationMs": 4.607333000000153,
+      "exclusiveToSettlementMs": 156.46016699999996,
+      "settlementToDrainMs": 0.035833000000366155,
+      "withinDeadline": true,
+      "phases": [
+        {
+          "decisionId": 1,
+          "phase": "queued",
+          "atMs": 1921.322375,
+          "wallTimeMs": 1795647315954,
+          "metadata": {
+            "action": "search",
+            "requestBinding": "admreq_Sr2oClLu1sT8IYp04W8VRdAOl2YuefI8No7lDiYfQtXKSPlxnftbk7Mr2jxKSS7H_3oGDtB51k1ViXdvTlOo9A"
+          }
+        },
+        {
+          "decisionId": 1,
+          "phase": "preparation_started",
+          "atMs": 1921.385292,
+          "wallTimeMs": 1795647315954,
+          "metadata": {
+            "action": "search",
+            "requestBinding": "admreq_Sr2oClLu1sT8IYp04W8VRdAOl2YuefI8No7lDiYfQtXKSPlxnftbk7Mr2jxKSS7H_3oGDtB51k1ViXdvTlOo9A"
+          }
+        },
+        {
+          "decisionId": 1,
+          "phase": "preparation_ready",
+          "atMs": 1925.992625,
+          "wallTimeMs": 1795647315959,
+          "metadata": {
+            "action": "search",
+            "requestBinding": "admreq_Sr2oClLu1sT8IYp04W8VRdAOl2YuefI8No7lDiYfQtXKSPlxnftbk7Mr2jxKSS7H_3oGDtB51k1ViXdvTlOo9A"
+          }
+        },
+        {
+          "decisionId": 1,
+          "phase": "exclusive_started",
+          "atMs": 1926.000625,
+          "wallTimeMs": 1795647315959,
+          "metadata": {
+            "action": "search",
+            "requestBinding": "admreq_Sr2oClLu1sT8IYp04W8VRdAOl2YuefI8No7lDiYfQtXKSPlxnftbk7Mr2jxKSS7H_3oGDtB51k1ViXdvTlOo9A"
+          }
+        },
+        {
+          "decisionId": 1,
+          "phase": "settled",
+          "atMs": 2082.460792,
+          "wallTimeMs": 1795647316115,
+          "metadata": {
+            "action": "search",
+            "requestBinding": "admreq_Sr2oClLu1sT8IYp04W8VRdAOl2YuefI8No7lDiYfQtXKSPlxnftbk7Mr2jxKSS7H_3oGDtB51k1ViXdvTlOo9A"
+          },
+          "outcome": {
+            "status": "accepted"
+          }
+        },
+        {
+          "decisionId": 1,
+          "phase": "drained",
+          "atMs": 2082.496625,
+          "wallTimeMs": 1795647316115,
+          "metadata": {
+            "action": "search",
+            "requestBinding": "admreq_Sr2oClLu1sT8IYp04W8VRdAOl2YuefI8No7lDiYfQtXKSPlxnftbk7Mr2jxKSS7H_3oGDtB51k1ViXdvTlOo9A"
+          }
+        }
+      ]
+    },
+    {
+      "name": "exact-replay-a",
+      "requestBinding": "admreq_Sr2oClLu1sT8IYp04W8VRdAOl2YuefI8No7lDiYfQtXKSPlxnftbk7Mr2jxKSS7H_3oGDtB51k1ViXdvTlOo9A",
+      "expected": "replay",
+      "outcome": {
+        "status": "replay"
+      },
+      "decisionId": 2,
+      "durationMs": 101.2192500000001,
+      "queueToExclusiveMs": 99.595417,
+      "preparationMs": 4.152290999999877,
+      "exclusiveToSettlementMs": 1.6238330000001042,
+      "settlementToDrainMs": 0.009000000000014552,
+      "withinDeadline": true,
+      "phases": [
+        {
+          "decisionId": 2,
+          "phase": "queued",
+          "atMs": 1982.90225,
+          "wallTimeMs": 1795647316016,
+          "metadata": {
+            "action": "search",
+            "requestBinding": "admreq_Sr2oClLu1sT8IYp04W8VRdAOl2YuefI8No7lDiYfQtXKSPlxnftbk7Mr2jxKSS7H_3oGDtB51k1ViXdvTlOo9A"
+          }
+        },
+        {
+          "decisionId": 2,
+          "phase": "preparation_started",
+          "atMs": 1982.916834,
+          "wallTimeMs": 1795647316016,
+          "metadata": {
+            "action": "search",
+            "requestBinding": "admreq_Sr2oClLu1sT8IYp04W8VRdAOl2YuefI8No7lDiYfQtXKSPlxnftbk7Mr2jxKSS7H_3oGDtB51k1ViXdvTlOo9A"
+          }
+        },
+        {
+          "decisionId": 2,
+          "phase": "preparation_ready",
+          "atMs": 1987.069125,
+          "wallTimeMs": 1795647316020,
+          "metadata": {
+            "action": "search",
+            "requestBinding": "admreq_Sr2oClLu1sT8IYp04W8VRdAOl2YuefI8No7lDiYfQtXKSPlxnftbk7Mr2jxKSS7H_3oGDtB51k1ViXdvTlOo9A"
+          }
+        },
+        {
+          "decisionId": 2,
+          "phase": "exclusive_started",
+          "atMs": 2082.497667,
+          "wallTimeMs": 1795647316115,
+          "metadata": {
+            "action": "search",
+            "requestBinding": "admreq_Sr2oClLu1sT8IYp04W8VRdAOl2YuefI8No7lDiYfQtXKSPlxnftbk7Mr2jxKSS7H_3oGDtB51k1ViXdvTlOo9A"
+          }
+        },
+        {
+          "decisionId": 2,
+          "phase": "settled",
+          "atMs": 2084.1215,
+          "wallTimeMs": 1795647316117,
+          "metadata": {
+            "action": "search",
+            "requestBinding": "admreq_Sr2oClLu1sT8IYp04W8VRdAOl2YuefI8No7lDiYfQtXKSPlxnftbk7Mr2jxKSS7H_3oGDtB51k1ViXdvTlOo9A"
+          },
+          "outcome": {
+            "status": "replay"
+          }
+        },
+        {
+          "decisionId": 2,
+          "phase": "drained",
+          "atMs": 2084.1305,
+          "wallTimeMs": 1795647316117,
+          "metadata": {
+            "action": "search",
+            "requestBinding": "admreq_Sr2oClLu1sT8IYp04W8VRdAOl2YuefI8No7lDiYfQtXKSPlxnftbk7Mr2jxKSS7H_3oGDtB51k1ViXdvTlOo9A"
+          }
+        }
+      ]
+    },
+    {
+      "name": "new-spend-b",
+      "requestBinding": "admreq_alzajJeRVxX_nx1z50C1DWRhwVVrs6y-i_-M9A3izufwlpW5KNac9bkSur44JhEXiTQhjrjhJeLytD0V29P4hA",
+      "expected": "accepted",
+      "outcome": {
+        "status": "accepted"
+      },
+      "decisionId": 3,
+      "durationMs": 252.78137500000003,
+      "queueToExclusiveMs": 97.04975000000013,
+      "preparationMs": 3.7940840000001117,
+      "exclusiveToSettlementMs": 155.7316249999999,
+      "settlementToDrainMs": 0.04216600000017934,
+      "withinDeadline": true,
+      "phases": [
+        {
+          "decisionId": 3,
+          "phase": "queued",
+          "atMs": 1987.081459,
+          "wallTimeMs": 1795647316020,
+          "metadata": {
+            "action": "search",
+            "requestBinding": "admreq_alzajJeRVxX_nx1z50C1DWRhwVVrs6y-i_-M9A3izufwlpW5KNac9bkSur44JhEXiTQhjrjhJeLytD0V29P4hA"
+          }
+        },
+        {
+          "decisionId": 3,
+          "phase": "preparation_started",
+          "atMs": 1987.091,
+          "wallTimeMs": 1795647316020,
+          "metadata": {
+            "action": "search",
+            "requestBinding": "admreq_alzajJeRVxX_nx1z50C1DWRhwVVrs6y-i_-M9A3izufwlpW5KNac9bkSur44JhEXiTQhjrjhJeLytD0V29P4hA"
+          }
+        },
+        {
+          "decisionId": 3,
+          "phase": "preparation_ready",
+          "atMs": 1990.885084,
+          "wallTimeMs": 1795647316024,
+          "metadata": {
+            "action": "search",
+            "requestBinding": "admreq_alzajJeRVxX_nx1z50C1DWRhwVVrs6y-i_-M9A3izufwlpW5KNac9bkSur44JhEXiTQhjrjhJeLytD0V29P4hA"
+          }
+        },
+        {
+          "decisionId": 3,
+          "phase": "exclusive_started",
+          "atMs": 2084.131209,
+          "wallTimeMs": 1795647316117,
+          "metadata": {
+            "action": "search",
+            "requestBinding": "admreq_alzajJeRVxX_nx1z50C1DWRhwVVrs6y-i_-M9A3izufwlpW5KNac9bkSur44JhEXiTQhjrjhJeLytD0V29P4hA"
+          }
+        },
+        {
+          "decisionId": 3,
+          "phase": "settled",
+          "atMs": 2239.862834,
+          "wallTimeMs": 1795647316273,
+          "metadata": {
+            "action": "search",
+            "requestBinding": "admreq_alzajJeRVxX_nx1z50C1DWRhwVVrs6y-i_-M9A3izufwlpW5KNac9bkSur44JhEXiTQhjrjhJeLytD0V29P4hA"
+          },
+          "outcome": {
+            "status": "accepted"
+          }
+        },
+        {
+          "decisionId": 3,
+          "phase": "drained",
+          "atMs": 2239.905,
+          "wallTimeMs": 1795647316273,
+          "metadata": {
+            "action": "search",
+            "requestBinding": "admreq_alzajJeRVxX_nx1z50C1DWRhwVVrs6y-i_-M9A3izufwlpW5KNac9bkSur44JhEXiTQhjrjhJeLytD0V29P4hA"
+          }
+        }
+      ]
+    },
+    {
+      "name": "exact-replay-b",
+      "requestBinding": "admreq_alzajJeRVxX_nx1z50C1DWRhwVVrs6y-i_-M9A3izufwlpW5KNac9bkSur44JhEXiTQhjrjhJeLytD0V29P4hA",
+      "expected": "replay",
+      "outcome": {
+        "status": "replay"
+      },
+      "decisionId": 4,
+      "durationMs": 252.6289999999999,
+      "queueToExclusiveMs": 249.00812499999984,
+      "preparationMs": 3.6165829999999914,
+      "exclusiveToSettlementMs": 3.620875000000069,
+      "settlementToDrainMs": 0.019416000000092026,
+      "withinDeadline": true,
+      "phases": [
+        {
+          "decisionId": 4,
+          "phase": "queued",
+          "atMs": 1990.898209,
+          "wallTimeMs": 1795647316024,
+          "metadata": {
+            "action": "search",
+            "requestBinding": "admreq_alzajJeRVxX_nx1z50C1DWRhwVVrs6y-i_-M9A3izufwlpW5KNac9bkSur44JhEXiTQhjrjhJeLytD0V29P4hA"
+          }
+        },
+        {
+          "decisionId": 4,
+          "phase": "preparation_started",
+          "atMs": 1990.905917,
+          "wallTimeMs": 1795647316024,
+          "metadata": {
+            "action": "search",
+            "requestBinding": "admreq_alzajJeRVxX_nx1z50C1DWRhwVVrs6y-i_-M9A3izufwlpW5KNac9bkSur44JhEXiTQhjrjhJeLytD0V29P4hA"
+          }
+        },
+        {
+          "decisionId": 4,
+          "phase": "preparation_ready",
+          "atMs": 1994.5225,
+          "wallTimeMs": 1795647316027,
+          "metadata": {
+            "action": "search",
+            "requestBinding": "admreq_alzajJeRVxX_nx1z50C1DWRhwVVrs6y-i_-M9A3izufwlpW5KNac9bkSur44JhEXiTQhjrjhJeLytD0V29P4hA"
+          }
+        },
+        {
+          "decisionId": 4,
+          "phase": "exclusive_started",
+          "atMs": 2239.906334,
+          "wallTimeMs": 1795647316273,
+          "metadata": {
+            "action": "search",
+            "requestBinding": "admreq_alzajJeRVxX_nx1z50C1DWRhwVVrs6y-i_-M9A3izufwlpW5KNac9bkSur44JhEXiTQhjrjhJeLytD0V29P4hA"
+          }
+        },
+        {
+          "decisionId": 4,
+          "phase": "settled",
+          "atMs": 2243.527209,
+          "wallTimeMs": 1795647316276,
+          "metadata": {
+            "action": "search",
+            "requestBinding": "admreq_alzajJeRVxX_nx1z50C1DWRhwVVrs6y-i_-M9A3izufwlpW5KNac9bkSur44JhEXiTQhjrjhJeLytD0V29P4hA"
+          },
+          "outcome": {
+            "status": "replay"
+          }
+        },
+        {
+          "decisionId": 4,
+          "phase": "drained",
+          "atMs": 2243.546625,
+          "wallTimeMs": 1795647316276,
+          "metadata": {
+            "action": "search",
+            "requestBinding": "admreq_alzajJeRVxX_nx1z50C1DWRhwVVrs6y-i_-M9A3izufwlpW5KNac9bkSur44JhEXiTQhjrjhJeLytD0V29P4hA"
+          }
+        }
+      ]
+    },
+    {
+      "name": "conflicting-spend-a",
+      "requestBinding": "admreq_al8u47UqZyf3SBzxRnBJLYsJZOrMKHo31n2vB2DPI-I3Il7I1kG1mH8KNwsxXkxxBw-jv1-OMIFNjfP5YOcaNw",
+      "expected": "rejected",
+      "outcome": {
+        "status": "rejected",
+        "reason": "double_spend"
+      },
+      "decisionId": 5,
+      "durationMs": 248.57683399999996,
+      "queueToExclusiveMs": 248.51900000000023,
+      "preparationMs": 3.6207500000000437,
+      "exclusiveToSettlementMs": 0.05783399999972971,
+      "settlementToDrainMs": 0.021666000000095664,
+      "withinDeadline": true,
+      "phases": [
+        {
+          "decisionId": 5,
+          "phase": "queued",
+          "atMs": 1995.028875,
+          "wallTimeMs": 1795647316028,
+          "metadata": {
+            "action": "search",
+            "requestBinding": "admreq_al8u47UqZyf3SBzxRnBJLYsJZOrMKHo31n2vB2DPI-I3Il7I1kG1mH8KNwsxXkxxBw-jv1-OMIFNjfP5YOcaNw"
+          }
+        },
+        {
+          "decisionId": 5,
+          "phase": "preparation_started",
+          "atMs": 1995.0375,
+          "wallTimeMs": 1795647316028,
+          "metadata": {
+            "action": "search",
+            "requestBinding": "admreq_al8u47UqZyf3SBzxRnBJLYsJZOrMKHo31n2vB2DPI-I3Il7I1kG1mH8KNwsxXkxxBw-jv1-OMIFNjfP5YOcaNw"
+          }
+        },
+        {
+          "decisionId": 5,
+          "phase": "preparation_ready",
+          "atMs": 1998.65825,
+          "wallTimeMs": 1795647316031,
+          "metadata": {
+            "action": "search",
+            "requestBinding": "admreq_al8u47UqZyf3SBzxRnBJLYsJZOrMKHo31n2vB2DPI-I3Il7I1kG1mH8KNwsxXkxxBw-jv1-OMIFNjfP5YOcaNw"
+          }
+        },
+        {
+          "decisionId": 5,
+          "phase": "exclusive_started",
+          "atMs": 2243.547875,
+          "wallTimeMs": 1795647316276,
+          "metadata": {
+            "action": "search",
+            "requestBinding": "admreq_al8u47UqZyf3SBzxRnBJLYsJZOrMKHo31n2vB2DPI-I3Il7I1kG1mH8KNwsxXkxxBw-jv1-OMIFNjfP5YOcaNw"
+          }
+        },
+        {
+          "decisionId": 5,
+          "phase": "settled",
+          "atMs": 2243.605709,
+          "wallTimeMs": 1795647316276,
+          "metadata": {
+            "action": "search",
+            "requestBinding": "admreq_al8u47UqZyf3SBzxRnBJLYsJZOrMKHo31n2vB2DPI-I3Il7I1kG1mH8KNwsxXkxxBw-jv1-OMIFNjfP5YOcaNw"
+          },
+          "outcome": {
+            "status": "rejected",
+            "reason": "double_spend"
+          }
+        },
+        {
+          "decisionId": 5,
+          "phase": "drained",
+          "atMs": 2243.627375,
+          "wallTimeMs": 1795647316276,
+          "metadata": {
+            "action": "search",
+            "requestBinding": "admreq_al8u47UqZyf3SBzxRnBJLYsJZOrMKHo31n2vB2DPI-I3Il7I1kG1mH8KNwsxXkxxBw-jv1-OMIFNjfP5YOcaNw"
+          }
+        }
+      ]
+    },
+    {
+      "name": "invalid-token-a",
+      "requestBinding": "admreq_Pvi0nzEuh_pdM5jtB_3LuSZ5ArKBuCsgJH3UlxWXMGVrehYLMrRLD3FvD8hFCoXYIwhMfe4-7N4wRklinLnKGw",
+      "expected": "rejected",
+      "outcome": {
+        "status": "rejected",
+        "reason": "invalid_token"
+      },
+      "decisionId": null,
+      "durationMs": null,
+      "queueToExclusiveMs": null,
+      "preparationMs": null,
+      "exclusiveToSettlementMs": null,
+      "settlementToDrainMs": null,
+      "withinDeadline": false,
+      "phases": []
+    }
+  ],
+  "summary": {
+    "submitted": 6,
+    "measuredDecisions": 5,
+    "expectedOutcomes": true,
+    "deadlinePass": true,
+    "historyPass": true,
+    "accepted": 2,
+    "replay": 2,
+    "rejected": 2,
+    "errors": 0,
+    "duration": {
+      "count": 5,
+      "p50Ms": 248.57683399999996,
+      "p95Ms": 252.78137500000003,
+      "p99Ms": 252.78137500000003,
+      "maximumMs": 252.78137500000003
+    }
+  },
+  "historyEvidence": {
+    "before": {
+      "sequence": 1,
+      "spendCount": 0,
+      "certificateCount": 1
+    },
+    "after": {
+      "sequence": 3,
+      "spendCount": 2,
+      "certificateCount": 3
+    }
+  },
+  "pass": true,
+  "processTreeRssPass": false,
+  "productionAcceptance": false,
+  "krAcceptance": false,
+  "limitations": [
+    "One bounded concurrent batch on one host, not a three-run campaign or K1/K4 qualification.",
+    "Real signed policy, blind tokens, freshness preparation, witness quorum, and durable protected stores; fixture transports are in-process rather than independent-host or impaired-network paths.",
+    "Invalid-token evidence is separate: no protected decision is entered, so it has no queue duration and is not included in the five timed decisions.",
+    "Concurrent exact duplicates are evaluated as accepted-plus-replay pairs because caller order does not determine which submission receives the accepted disposition.",
+    "The existing processTreeRssPass failure and allocator/RSS variability remain unchanged and unresolved."
+  ]
+}

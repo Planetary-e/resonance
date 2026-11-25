@@ -18,7 +18,7 @@ import type { AdmissionPolicyObservers } from '@resonance/core/admission-policy-
 import { createAdmissionPolicyFreshnessGate } from './admission-policy-freshness-gate.js';
 import type { AdmissionPolicyObservationTransport } from './admission-policy-observation-transport.js';
 import type { OwnedPolicyObservationTransport } from './admission-policy-observation-pool.js';
-import { createAdmissionDecisionQueue } from './admission-decision-queue.js';
+import { createAdmissionDecisionQueue, type AdmissionDecisionQueueEvent } from './admission-decision-queue.js';
 
 export async function createConfiguredAdmissionVerifier(options: {
   directory: string; authority: string; policy: unknown; encryptionKey: Uint8Array; initialize?: boolean;
@@ -28,6 +28,7 @@ export async function createConfiguredAdmissionVerifier(options: {
   onWitnessSocket?: (socket: Socket) => void;
   policyObservers?: AdmissionPolicyObservers; policyAdvance?: unknown;
   policyObservationTransport?: AdmissionPolicyObservationTransport; policyObservationTimeoutMs?: number;
+  decisionObserver?: (event: AdmissionDecisionQueueEvent) => void;
   /** Trusted owner-scoped adapter, recreated and closed with this verifier. */
   policyObservationTransportFactory?: (context: AdmissionPolicyObservers) => OwnedPolicyObservationTransport;
   onPolicySocket?: (socket: Socket) => void;
@@ -124,7 +125,9 @@ export async function createConfiguredAdmissionVerifier(options: {
     const entries: Array<AdmissionPolicyKey & { issuerPublicKey: CryptoKey }> = [];
     for (const entry of policy.keys) entries.push({ ...entry, issuerPublicKey: (await parseAdmissionWalletProfile(entry.profile)).publicKey });
     if (options.historyProtection) decisions = createAdmissionDecisionQueue({
-      timeoutMs: options.policyObservationTimeoutMs ?? options.witnessTimeoutMs ?? 3000 });
+      timeoutMs: options.policyObservationTimeoutMs ?? options.witnessTimeoutMs ?? 3000,
+      onEvent: options.decisionObserver,
+    });
     const protectedHistory = 'roleState' in history ? history : undefined;
     const spendHooks: Pick<Parameters<typeof createLocalBlindAdmissionVerifierV2>[0], 'beforeSpend' | 'withSpendCommit'> = protectedHistory ? {
       async withSpendCommit(spend, context, publicKey, finish) {
@@ -146,9 +149,10 @@ export async function createConfiguredAdmissionVerifier(options: {
     };
     const verifier = createLocalBlindAdmissionVerifierV2({ directory: options.directory, maxSpends: options.maxSpends, history,
       withCurrentPolicy: freshness ? (operation, signal) => freshness!.run(check => authorizations.run(check, () => operation(check)), signal) : undefined,
-      withDecision: decisions && freshness ? operation => decisions!.runPrepared(
+      withDecision: decisions && freshness ? (operation, metadata) => decisions!.runPrepared(
         (_assertLive, signal) => freshness!.prepare(signal),
-        (prepared, assertLive, signal) => authorizations.run(prepared, () => operation(assertLive, signal, prepared))) : decisions?.run,
+        (prepared, assertLive, signal) => authorizations.run(prepared, () => operation(assertLive, signal, prepared)), metadata)
+        : decisions ? (operation, metadata) => decisions!.run(operation, metadata) : undefined,
       ...spendHooks,
       keyPolicies() {
         const time = now(); assertArchivedAdmissionPolicyCurrent(policy, time);
