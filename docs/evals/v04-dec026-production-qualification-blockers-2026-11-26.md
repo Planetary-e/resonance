@@ -39,3 +39,7 @@ Three process/seed executions on one host are not independent deployments, devic
 7. After local qualification, independently operated deployment and the K8 pilot.
 
 Committing or pushing further local evidence does not close these gaps.
+
+## Independent path audit
+
+Independent review at `72d241b27a326d9d5ff4b801ec606b489056c0ea` accepts this record and confirms that no meaningful action within the existing local scope can close production qualification without new external inputs or separate protocol/resource decisions. Further nominal or burst reruns, additional descriptive diagnostics, forced GC, threshold relaxation or speculative allocation changes would not satisfy the missing gates. The next inputs are external measurement environments, independent deployment evidence, and the recovery, privacy, fairness and resource decisions listed above.
