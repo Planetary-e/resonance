@@ -10,12 +10,12 @@
     "--mode",
     "seed",
     "--root",
-    "/tmp/resonance-client-held-local-resources-dec025-burst5-7acba9c"
+    "/tmp/resonance-client-held-local-resources-dec025-burst6-f8938ae"
   ],
   "source": [
     {
       "path": "packages/eval/src/client-held-local-resources.ts",
-      "sha256": "0593f7da9f789418e32134e09c358023ce6d8815a9f7b6fd40ef4a02b46a8d56"
+      "sha256": "0a5743f029d1df74ff6201a1615e4e147c72d4a002a9b5e989f302d826c4eb58"
     },
     {
       "path": "packages/eval/src/client-held-search-validation.ts",
@@ -43,7 +43,7 @@
     },
     {
       "path": "packages/eval/src/fixtures/client-held-resource-relay.ts",
-      "sha256": "47feab8c89ee47e5e40ef30bf2e7adc5216fae6004bdd4c92e7ce3e3612693a4"
+      "sha256": "7ae4ac470cb7d5b01bce6ed3ee2675f74e77fb741460f4971e3ca26e4819c3dc"
     },
     {
       "path": "packages/relay/src/atomic-file.ts",
@@ -51,7 +51,7 @@
     },
     {
       "path": "packages/relay/src/leased-index-store.ts",
-      "sha256": "4aae61ed85853e8cc23f6ca1ce20ad0d00f75dd4bea7120d204f9048d9995aa5"
+      "sha256": "4f0f584829a91d25dec67d2790d268f057a90a61f79242ece5850750a8e2bac9"
     },
     {
       "path": "packages/relay/src/matching-engine.ts",
@@ -85,11 +85,11 @@
   "seedData": [
     {
       "name": "seed-manifest.json",
-      "sha256": "2be7c1fdf2e359be7583017a121e011249320155b7413bf261caa05c9fd8bba6"
+      "sha256": "9f51b341391fd4cf12063b72c310e430311f3e625526ad65530239fb641d65da"
     },
     {
       "name": "seed-records.json",
-      "sha256": "75c1c2e0e9c15b003a37b2273af53de8763879f8ef6074f78848c09f93464610"
+      "sha256": "05bc7becde5abbae9d2f8f67f55646664ccbf2b0c79f7f57868c49bd8584ecd2"
     }
   ],
   "environment": {
@@ -99,7 +99,7 @@
     "cpuModel": "Apple M3 Pro",
     "logicalCpuCount": 11,
     "totalMemoryBytes": 19327352832,
-    "freeMemoryAtStartBytes": 90898432,
+    "freeMemoryAtStartBytes": 83476480,
     "tls": "WSS with NODE_EXTRA_CA_CERTS; certificate verification enabled; no external network",
     "modelRuntime": "none; fixed derivation and deterministic 64-byte fingerprint fixtures"
   },
@@ -107,7 +107,7 @@
   "acceptedPublications": 10000,
   "activeRecords": 10000,
   "replicasMaterialized": 5,
-  "elapsedMs": 123679.64916700001,
+  "elapsedMs": 124356.68925000001,
   "referenceBytes": 55849061,
   "allReplicaBytes": 360154511,
   "disk": {

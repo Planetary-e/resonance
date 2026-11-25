@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "authorization_id": "DEC-023",
+  "recorded_at": "2026-11-25T20:20:00Z",
+  "qualification": "single-burst-diagnostic-pass-campaign-pending",
+  "candidate_head": "f8938ae",
+  "artifact": { "path": "delivery/results/client-held-local-resource-burst8-run-6.json", "sha256": "54019e33abd3f3bcfea9248f8dae0a7035b34707c8104f0cf1109becc30ba0dc" },
+  "source_log": { "path": "/tmp/client-held-dec025-burst6.log", "sha256": "88e90abd8bd2e85b42a1422b75941d8972686f7a2122cc7fa4f065bdb1a8aeec" },
+  "results": {
+    "submitted": 1002,
+    "good": 1002,
+    "refused": 0,
+    "uncertain": 0,
+    "inconclusive": 0,
+    "deadline_exceeded": 0,
+    "p95_ms": 5500.558457999956,
+    "p99_ms": 6449.645707999996,
+    "peak_aggregate_rss_bytes": 1543045120,
+    "maximum_relay_peak_rss_bytes": 314884096,
+    "network_bytes_per_good_operation": 96125.87924151696,
+    "disk_final_reconciliation": true
+  },
+  "evaluation": {
+    "success": "pass-single-run",
+    "refusal_free": "pass-single-run",
+    "p95": "pass",
+    "p99": "pass",
+    "per_relay_rss": "pass",
+    "process_tree_rss_pass": true,
+    "network": "pass",
+    "disk": "pass",
+    "three_run_campaign": "authorized",
+    "production_acceptance": false
+  },
+  "independent_review": "docs/evals/v04-dec025-burst6-diagnostic-review-2026-11-25.md",
+  "next_action": "Run three fresh-seed burst8 executions on this candidate."
+}
