@@ -991,13 +991,14 @@ async function runLoad(profile: string) {
   const startupStarted = performance.now();
   const startupAllocation: any[] = [{ stage: 'module-entry', elapsedMs: 0, memory: moduleEntryParentMemory }];
   const parentTelemetry: any[] = [];
-  const captureParent = (stage: string) => {
+  const captureParent = (stage: string, details: Record<string, unknown> = {}) => {
     const sample = {
       stage,
       atMicros: Math.floor((performance.timeOrigin + performance.now()) * 1000),
       elapsedMs: performance.now() - startupStarted,
       memory: memorySample(),
       ...runtimeTelemetry.sample(),
+      ...details,
     };
     parentTelemetry.push(sample);
     if (parentTelemetry.length > 30) parentTelemetry.shift();
@@ -1007,11 +1008,15 @@ async function runLoad(profile: string) {
   startupAllocation.push(captureParent('seed-loaded'));
   const canonicalOperations = new Map<string, LeasedIndexV1>();
   const fixtureOperations = records.map(record => record.index);
-  const fixtureStates = Array.from({ length: REPLICAS }, (_, relayIndex) => (
-    reconstructRelayFixtureState(
+  const fixtureStates = Array.from({ length: REPLICAS }, (_, relayIndex) => {
+    const diagnostics = {};
+    const state = reconstructRelayFixtureState(
       join(root, `relay-${relayIndex}`, 'client-held'), fixtureOperations, Date.now, canonicalOperations,
-    )
-  ));
+      diagnostics,
+    );
+    startupAllocation.push(captureParent(`oracle-relay-${relayIndex}-reconstructed`, { diagnostics }));
+    return state;
+  });
   startupAllocation.push(captureParent('oracle-reconstructed'));
   const acknowledgedPublishes: AcknowledgedPublish[] = [];
   const publishAttempts: FixedWindowAttempt[] = [];
@@ -1025,7 +1030,11 @@ async function runLoad(profile: string) {
   let monitor: ReturnType<typeof setInterval> | undefined;
   let peakAggregateRss = process.memoryUsage().rss;
   try {
-    for (let index = 0; index < REPLICAS; index++) relays.push(await ResourceRelay.start(index));
+    startupAllocation.push(captureParent('listener-start'));
+    for (let index = 0; index < REPLICAS; index++) {
+      relays.push(await ResourceRelay.start(index));
+      startupAllocation.push(captureParent(`relay-${index}-ready`));
+    }
     const readyParent = captureParent('relay-ready');
     startupAllocation.push(readyParent);
     const postLoadReadyPeakSumBytes = readyParent.memory.rssBytes + relays.reduce(
@@ -1320,6 +1329,7 @@ async function runLoad(profile: string) {
           moduleEntryRssBytes: relay.readySample.moduleEntryRssBytes,
           readyRssBytes: relay.readySample.rssBytes,
           readyPeakRssBytes: relay.readySample.rssPeakBytes,
+          memory: relay.readySample.memory,
           eventLoopDelay: relay.readySample.eventLoopDelay,
           gc: relay.readySample.gc,
           persistenceSpans: relay.readySample.persistenceSpans,

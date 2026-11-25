@@ -7,11 +7,24 @@ import {
 import { LeasedIndexStore } from '@resonance/relay';
 import { ActiveFixtureState } from './client-held-search-validation.js';
 
+export interface OracleReconstructionDiagnostics {
+  publicationCount: number;
+  historyEntryCount: number;
+  conflictEntryCount: number;
+  operationBytes: number;
+  generationCount: number;
+  persistedByteCount: number;
+  canonicalOperationCount: number;
+  activeOperationCount: number;
+  matching: { needs: number; offers: number; total: number };
+}
+
 export function reconstructRelayFixtureState(
   directory: string,
   fixtureOperations: readonly LeasedIndexV1[],
   now = Date.now,
   canonicalOperations = new Map<string, LeasedIndexV1>(),
+  diagnostics?: Partial<OracleReconstructionDiagnostics>,
 ): ActiveFixtureState {
   for (const operation of fixtureOperations) {
     const generationId = createLeasedIndexGenerationIdV1(operation);
@@ -43,6 +56,25 @@ export function reconstructRelayFixtureState(
         state.accept(retained);
       }
     }
+  }
+  if (diagnostics) {
+    const states = [...(store as any).publications.values()] as Array<{
+      history: Array<{ bytes: string }>;
+      conflicts: Array<{ bytes: string }>;
+    }>;
+    Object.assign(diagnostics, {
+      publicationCount: states.length,
+      historyEntryCount: states.reduce((sum, state) => sum + state.history.length, 0),
+      conflictEntryCount: states.reduce((sum, state) => sum + state.conflicts.length, 0),
+      operationBytes: states.reduce((sum, state) => (
+        sum + [...state.history, ...state.conflicts].reduce((bytes, item) => bytes + Buffer.byteLength(item.bytes), 0)
+      ), 0),
+      generationCount: (store as any).generations.size,
+      persistedByteCount: (store as any).persistedBytes.size,
+      canonicalOperationCount: canonicalOperations.size,
+      activeOperationCount: state.activeOperations(now()).length,
+      matching: store.matching.getStats(),
+    });
   }
   return state;
 }

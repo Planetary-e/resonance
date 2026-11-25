@@ -8,7 +8,7 @@ import { LeasedIndexStore } from '../../../relay/src/leased-index-store.js';
 import { MailboxGenerationStore } from '../../../relay/src/mailbox-generation-store.js';
 import { RelayOperationLog } from '../../../relay/src/operation-log.js';
 import { HarnessDiskAccounting } from '../client-held-disk-accounting.js';
-import { RuntimeTelemetry } from '../client-held-runtime-telemetry.js';
+import { RuntimeTelemetry, memorySample } from '../client-held-runtime-telemetry.js';
 
 const moduleEntryRssBytes = process.memoryUsage().rss;
 const config = JSON.parse(process.env.RESONANCE_RESOURCE_RELAY!);
@@ -160,6 +160,7 @@ function sample() {
     rssBytes: rss,
     rssPeakBytes: rssPeak,
     rssMeanBytes: rssSamples ? rssTotal / rssSamples : rss,
+    memory: memorySample(),
     rssSampleIntervalMs,
     cpuMicros: cpu.user + cpu.system,
     ...metrics,

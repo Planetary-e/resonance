@@ -72,7 +72,18 @@ describe('client-held replayed oracle reconstruction', () => {
     expect(store.apply(serializeLeasedIndexOperationV1(refreshed), NOW + DAY).status).toBe('accepted');
     store.save(directory);
 
-    const state = reconstructRelayFixtureState(directory, operations, () => NOW + DAY, new Map());
+    const diagnostics = {};
+    const state = reconstructRelayFixtureState(directory, operations, () => NOW + DAY, new Map(), diagnostics);
+    expect(diagnostics).toMatchObject({
+      publicationCount: 3,
+      historyEntryCount: 4,
+      conflictEntryCount: 0,
+      generationCount: 4,
+      persistedByteCount: 4,
+      canonicalOperationCount: 4,
+      activeOperationCount: 3,
+      matching: { needs: 3, offers: 0, total: 3 },
+    });
     expect(state.activeOperations(NOW + DAY)[0]).toBe(first.index);
     expect(state.activeOperations(NOW + DAY)[1]).toBe(third.index);
     expect(state.currentGenerationId(second.index.publicationId)).toBe(createLeasedIndexGenerationIdV1(refreshed));
