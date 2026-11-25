@@ -21,6 +21,7 @@ import {
   createLeasedIndexSearchRequestV1,
   createOfflineFetchRequestV1,
   createOriginalCommitmentV1,
+  parseLeasedIndexOperationV1,
   createPairwiseChannelId,
   deriveSharedSecret,
   generateLeasedIndexKeyMaterialV1,
@@ -63,7 +64,12 @@ import {
   realDirectoryBytes as directoryBytes,
 } from './client-held-disk-accounting.js';
 import { MailboxState } from './client-held-mailbox-rotation.js';
-import { reconstructRelayFixtureState } from './client-held-oracle-reconstruction.js';
+import { reconstructRelayFixtureState, reconcileFixtureWithCurrent } from './client-held-oracle-reconstruction.js';
+import {
+  memorySample,
+  RpcTelemetry,
+  RuntimeTelemetry,
+} from './client-held-runtime-telemetry.js';
 
 const DAY = 86_400_000;
 const REPLICAS = 5;
@@ -78,6 +84,7 @@ const SOURCE_FILES = [
   'packages/eval/src/client-held-disk-accounting.ts',
   'packages/eval/src/client-held-mailbox-rotation.ts',
   'packages/eval/src/client-held-oracle-reconstruction.ts',
+  'packages/eval/src/client-held-runtime-telemetry.ts',
   'packages/eval/src/fixtures/client-held-resource-relay.ts',
   'packages/relay/src/atomic-file.ts',
   'packages/relay/src/leased-index-store.ts',
@@ -101,6 +108,9 @@ const TARGETS = Object.freeze({
   maximumStartupRssBytes: 2 * 1024 ** 3,
   maximumIdleCpuPercentOfOneCore: 1,
 });
+const runtimeTelemetry = new RuntimeTelemetry();
+const rpcTelemetry = new RpcTelemetry();
+const moduleEntryParentMemory = memorySample();
 const localIo = { fsyncCount: 0, fsyncMicros: 0, writeCount: 0, writeBytes: 0, renameCount: 0 };
 const parentFsync = fs.fsyncSync;
 fs.fsyncSync = function (fd) {
@@ -348,6 +358,19 @@ function summarizeOperations(records: OperationRecord[]) {
       ...(record.errorClass ? { errorClass: record.errorClass } : {}),
       attempts: record.relayEvidence,
     })),
+    reconciliationEvidence: records.filter(record => record.reconciliationEvidence?.length).map(record => ({
+      sequence: record.sequence,
+      kind: record.kind,
+      outcome: record.outcome,
+      evidence: record.reconciliationEvidence,
+    })),
+    contentionEvidence: records.filter(record => record.contention).map(record => ({
+      sequence: record.sequence,
+      kind: record.kind,
+      outcome: record.outcome,
+      errorClass: record.errorClass,
+      relays: record.contention,
+    })),
     validationFailures: records.filter(record => record.validationDetails).map(record => ({
       sequence: record.sequence,
       outcome: record.outcome,
@@ -444,6 +467,7 @@ class ResourceRelay {
   private pending = new Map<number, { accept: (value: any) => void; reject: (error: Error) => void }>();
   private exited: Promise<void>;
   private stderr = '';
+  private telemetry: any[] = [];
   constructor(readonly index: number, readonly rssSampleIntervalMs = 250) {
     const fixture = fileURLToPath(new URL('./fixtures/client-held-resource-relay.ts', import.meta.url));
     this.child = fork(fixture, [], {
@@ -474,6 +498,7 @@ class ResourceRelay {
           this.endpoint = message.descriptor.endpoints[0];
           this.port = message.port;
           this.readySample = message.sample;
+          this.rememberSample(message.sample);
           accept();
         } else if (message.event === 'failed') {
           clearTimeout(timer);
@@ -503,6 +528,17 @@ class ResourceRelay {
     await relay.ready;
     return relay;
   }
+  rememberSample(sample: any): void {
+    this.telemetry.push({
+      atMicros: Math.floor((performance.timeOrigin + performance.now()) * 1000),
+      ...sample,
+      rpc: rpcTelemetry.snapshot(this.index),
+    });
+    if (this.telemetry.length > 30) this.telemetry.shift();
+  }
+  contentionSnapshot() {
+    return this.telemetry.map(sample => ({ ...sample }));
+  }
   request(command: string): Promise<any> {
     const id = ++this.nextId;
     return new Promise((accept, reject) => {
@@ -528,6 +564,8 @@ interface OperationRecord {
   errorClass?: string;
   validationDetails?: SearchValidationError['failure'];
   relayEvidence?: RelayAttemptEvidence[];
+  reconciliationEvidence?: unknown[];
+  contention?: unknown;
   phases?: Record<string, number>;
 }
 
@@ -585,9 +623,52 @@ interface RelayAttemptEvidence {
 }
 
 class PublishFailure extends Error {
-  constructor(readonly acknowledgments: RelayAttemptEvidence[]) {
+  constructor(
+    readonly acknowledgments: RelayAttemptEvidence[],
+    readonly reconciliationEvidence: unknown[],
+  ) {
     super('publish_refused');
   }
+}
+
+async function reconcileUncertainty(
+  coordinator: Coordinator,
+  relayIndex: number,
+  state: ActiveFixtureState,
+): Promise<unknown[]> {
+  const evidence: unknown[] = [];
+  for (const publicationId of state.uncertainPublicationIds()) {
+    try {
+      const createdAt = Date.now();
+      const bytes = await rpcTelemetry.measure(relayIndex, 'lookup', () => (
+        coordinator.clients[relayIndex].lookupLeasedIndex(createLeasedIndexLookupRequestV1({
+          publicationId, createdAt, expiresAt: createdAt + 10_000,
+        }, generateSigningKeyPair()))
+      ));
+      if (!bytes) {
+        evidence.push({ publicationId, status: 'unresolved', reason: 'current_not_found' });
+        continue;
+      }
+      const operation = parseLeasedIndexOperationV1(bytes);
+      if (operation.kind !== 'leased-discovery-index') {
+        evidence.push({ publicationId, status: 'unresolved', reason: 'current_not_active' });
+        continue;
+      }
+      evidence.push(reconcileFixtureWithCurrent(state, operation, Date.now()));
+    } catch (error) {
+      evidence.push({ publicationId, status: 'unresolved', reason: errorClass(error) });
+    }
+  }
+  if (evidence.some(item => (item as any).status === 'reconciled')) {
+    state.replaceWith(reconstructRelayFixtureState(
+      join(root, `relay-${relayIndex}`, 'client-held'), state.allOperations(), Date.now, new Map(),
+    ));
+    evidence.push({
+      status: 'order_reconstructed',
+      proof: 'complete relay oracle rebuilt once from the persisted incremental log in actual commit order',
+    });
+  }
+  return evidence;
 }
 
 async function submitPublishBytes(
@@ -595,6 +676,7 @@ async function submitPublishBytes(
   operation: LeasedIndexV1,
   states: ActiveFixtureState[],
   attempts: FixedWindowAttempt[],
+  reconciliationEvidence: unknown[] = [],
 ): Promise<RelayAttemptEvidence[]> {
   const operationBytes = JSON.stringify(operation);
   const acknowledgments: RelayAttemptEvidence[] = [];
@@ -605,7 +687,9 @@ async function submitPublishBytes(
     });
     let acknowledgment: RelayAttemptEvidence;
     try {
-      const value = await client.submitLeasedIndexOperation(operationBytes);
+      const value = await rpcTelemetry.measure(relayIndex, 'publish', () => (
+        client.submitLeasedIndexOperation(operationBytes)
+      ));
       acknowledgment = {
         relayIndex,
         outcome: value.status === 'ok' ? 'ok' : 'error',
@@ -626,7 +710,14 @@ async function submitPublishBytes(
     acknowledgments.push(acknowledgment);
     advanceFixtureOnAcknowledgment(states[relayIndex], operation, acknowledgment);
   }));
-  if (acknowledgments.some(result => result.outcome !== 'ok')) throw new PublishFailure(acknowledgments);
+  for (let relayIndex = 0; relayIndex < states.length; relayIndex++) {
+    if (states[relayIndex].hasPendingUncertainty()) {
+      reconciliationEvidence.push(...await reconcileUncertainty(coordinator, relayIndex, states[relayIndex]));
+    }
+  }
+  if (acknowledgments.some(result => result.outcome !== 'ok')) {
+    throw new PublishFailure(acknowledgments, reconciliationEvidence);
+  }
   return acknowledgments;
 }
 
@@ -636,6 +727,7 @@ async function runPublish(
   manifest: SeedManifest,
   states: ActiveFixtureState[],
   attempts: FixedWindowAttempt[],
+  reconciliationEvidence: unknown[] = [],
 ) {
   const refreshed = createLeasedIndexV1({
     leaseSequence: record.index.leaseSequence + 1,
@@ -650,8 +742,8 @@ async function runPublish(
     expiresAt: manifest.refreshExpiresAt,
   }, record.keys);
   const operationBytes = JSON.stringify(refreshed);
-  const acknowledgments = await submitPublishBytes(coordinator, refreshed, states, attempts);
-  return { operation: refreshed, operationBytes, acknowledgments };
+  const acknowledgments = await submitPublishBytes(coordinator, refreshed, states, attempts, reconciliationEvidence);
+  return { operation: refreshed, operationBytes, acknowledgments, reconciliationEvidence };
 }
 
 async function runSearch(
@@ -672,7 +764,9 @@ async function runSearch(
     createdAt: Date.now(),
     expiresAt: Date.now() + 10_000,
   }, generateSigningKeyPair());
-  const results = await coordinator.clients[relayIndex].searchLeasedIndexes(request);
+  const results = await rpcTelemetry.measure(relayIndex, 'search', () => (
+    coordinator.clients[relayIndex].searchLeasedIndexes(request)
+  ));
   const expectedGenerationId = state.currentGenerationId(expected.index.publicationId);
   if (!expectedGenerationId) throw new Error('search_expected_inactive');
   validateSearchResults({
@@ -712,8 +806,8 @@ async function runMailbox(
     selectedRelayIds: relayIds,
   });
   mark('localCreateMs');
-  const receipts = await Promise.all(coordinator.clients.slice(0, 3).map(client => (
-    client.depositOfflineDiscovery(value.depositBytes)
+  const receipts = await Promise.all(coordinator.clients.slice(0, 3).map((client, relayIndex) => (
+    rpcTelemetry.measure(relayIndex, 'mailbox-deposit', () => client.depositOfflineDiscovery(value.depositBytes))
   )));
   mark('depositNetworkMs');
   if (receipts.some(receipt => receipt.status !== 'stored' || !receipt.receipt)) {
@@ -727,12 +821,16 @@ async function runMailbox(
     expiresAt: Date.now() + 10_000,
   }, record.keys);
   mark('localReceiptPersistenceMs');
-  const deposits = await coordinator.clients[0].fetchOfflineDiscovery(fetch);
+  const deposits = await rpcTelemetry.measure(0, 'mailbox-fetch', () => (
+    coordinator.clients[0].fetchOfflineDiscovery(fetch)
+  ));
   mark('fetchNetworkMs');
   if (deposits.length !== 1 || deposits[0] !== value.depositBytes) throw new Error('mailbox_fetch_mismatch');
   const received = store.receive(deposits[0], Date.now());
   mark('localReceiveMs');
-  await Promise.all(coordinator.clients.slice(0, 3).map(client => client.acknowledgeOfflineDiscovery(received.ackBytes)));
+  await Promise.all(coordinator.clients.slice(0, 3).map((client, relayIndex) => (
+    rpcTelemetry.measure(relayIndex, 'mailbox-ack', () => client.acknowledgeOfflineDiscovery(received.ackBytes))
+  )));
   mark('acknowledgeNetworkMs');
   store.markAcknowledged(received.ackBytes);
   store.recordGenerationAck(value.requestId, received.ackBytes);
@@ -766,6 +864,7 @@ async function executeOperation(
     if (record.kind === 'publish') {
       const published = await runPublish(coordinator, seed, manifest, states, publishAttempts);
       record.relayEvidence = published.acknowledgments;
+      record.reconciliationEvidence = published.reconciliationEvidence;
       acknowledgedPublishes.push({
         sequence: record.sequence,
         coordinatorId: coordinator.id,
@@ -779,10 +878,19 @@ async function executeOperation(
     record.latencyMs = performance.now() - started;
     record.outcome = record.latencyMs > TARGETS.privateOperationMs ? 'deadline_exceeded' : 'good';
   } catch (error) {
-    if (error instanceof PublishFailure) record.relayEvidence = error.acknowledgments;
+    if (error instanceof PublishFailure) {
+      record.relayEvidence = error.acknowledgments;
+      record.reconciliationEvidence = error.reconciliationEvidence;
+    }
     if (error instanceof SearchValidationError) record.validationDetails = error.failure;
     record.latencyMs = performance.now() - started;
     record.errorClass = errorClass(error);
+    if (error instanceof PublishFailure || record.errorClass === 'timeout' || record.errorClass === 'connection_closed') {
+      record.contention = coordinator.relays.map(relay => ({
+        relayIndex: relay.index,
+        samples: relay.contentionSnapshot(),
+      }));
+    }
     record.outcome = error instanceof ValidationInconclusiveError
       ? 'inconclusive'
       : record.errorClass === 'timeout' || record.errorClass === 'connection_closed'
@@ -885,10 +993,31 @@ async function runLoad(profile: string) {
   const concurrency = profile === 'nominal' ? 2 : 8;
   const localRoot = join(root, `local-${profile}-${runNumber}-${process.pid}`);
   mkdirSync(localRoot, { recursive: true });
+  const startupStarted = performance.now();
+  const startupAllocation: any[] = [{ stage: 'module-entry', elapsedMs: 0, memory: moduleEntryParentMemory }];
+  const parentTelemetry: any[] = [];
+  const captureParent = (stage: string) => {
+    const sample = {
+      stage,
+      atMicros: Math.floor((performance.timeOrigin + performance.now()) * 1000),
+      elapsedMs: performance.now() - startupStarted,
+      memory: memorySample(),
+      ...runtimeTelemetry.sample(),
+    };
+    parentTelemetry.push(sample);
+    if (parentTelemetry.length > 30) parentTelemetry.shift();
+    return sample;
+  };
   const { manifest, records } = loadSeed();
+  startupAllocation.push(captureParent('seed-loaded'));
+  const canonicalOperations = new Map<string, LeasedIndexV1>();
+  const fixtureOperations = records.map(record => record.index);
   const fixtureStates = Array.from({ length: REPLICAS }, (_, relayIndex) => (
-    reconstructRelayFixtureState(join(root, `relay-${relayIndex}`, 'client-held'), records.map(record => record.index))
+    reconstructRelayFixtureState(
+      join(root, `relay-${relayIndex}`, 'client-held'), fixtureOperations, Date.now, canonicalOperations,
+    )
   ));
+  startupAllocation.push(captureParent('oracle-reconstructed'));
   const acknowledgedPublishes: AcknowledgedPublish[] = [];
   const publishAttempts: FixedWindowAttempt[] = [];
   const publishScheduler = new FixedWindowOfferScheduler();
@@ -902,7 +1031,9 @@ async function runLoad(profile: string) {
   let peakAggregateRss = process.memoryUsage().rss;
   try {
     for (let index = 0; index < REPLICAS; index++) relays.push(await ResourceRelay.start(index));
-    const postLoadReadyPeakSumBytes = process.memoryUsage().rss + relays.reduce(
+    const readyParent = captureParent('relay-ready');
+    startupAllocation.push(readyParent);
+    const postLoadReadyPeakSumBytes = readyParent.memory.rssBytes + relays.reduce(
       (sum, relay) => sum + relay.readySample.rssPeakBytes, 0,
     );
     peakAggregateRss = Math.max(peakAggregateRss, postLoadReadyPeakSumBytes);
@@ -926,10 +1057,14 @@ async function runLoad(profile: string) {
       mailboxes.push(new MailboxState(localRoot, id));
     }
     const initialSamples = await Promise.all(relays.map(relay => relay.request('sample')));
+    for (let index = 0; index < relays.length; index++) relays[index].rememberSample(initialSamples[index]);
+    captureParent('load-start');
     const initialCpu = initialSamples.reduce((sum, sample) => sum + sample.cpuMicros, 0) + process.cpuUsage().user + process.cpuUsage().system;
     monitor = setInterval(async () => {
       try {
         const samples = await Promise.all(relays.map(relay => relay.request('sample')));
+        for (let index = 0; index < relays.length; index++) relays[index].rememberSample(samples[index]);
+        captureParent('load');
         peakAggregateRss = Math.max(peakAggregateRss,
           process.memoryUsage().rss + samples.reduce((sum, sample) => sum + sample.rssBytes, 0));
       } catch { /* Final relay exit reports the defect. */ }
@@ -1003,10 +1138,12 @@ async function runLoad(profile: string) {
       intentionalExactRetries = 1;
       const retryStarted = performance.now();
       let replayAcknowledgments: RelayAttemptEvidence[] = [];
+      const replayReconciliationEvidence: unknown[] = [];
       let replayError: string | undefined;
       try {
         replayAcknowledgments = await submitPublishBytes(
           coordinators[original.coordinatorId], original.operation, fixtureStates, publishAttempts,
+          replayReconciliationEvidence,
         );
       } catch (error) {
         retryFailures++;
@@ -1036,6 +1173,7 @@ async function runLoad(profile: string) {
         relayCapacityWaitsMs,
         remainingAttemptsInWindow: remainingAttempts,
         replayAcknowledgments,
+        replayReconciliationEvidence,
         ...(replayError ? { replayError } : {}),
       };
     }
@@ -1063,6 +1201,8 @@ async function runLoad(profile: string) {
     await new Promise(accept => setTimeout(accept, 50));
     const finalStats = await Promise.all(relays.map(relay => relay.request('stats')));
     const finalSamples = finalStats.map(stats => stats.sample);
+    for (let index = 0; index < relays.length; index++) relays[index].rememberSample(finalSamples[index]);
+    captureParent('final-stats');
     const finalCpu = finalSamples.reduce((sum, sample) => sum + sample.cpuMicros, 0) + process.cpuUsage().user + process.cpuUsage().system;
     const proxyRows = proxies.flat().map(proxy => proxy.snapshot());
     const network = proxyRows.reduce((sum, row) => {
@@ -1159,6 +1299,23 @@ async function runLoad(profile: string) {
         coverage: 'all client-proxy and proxy-relay TCP directions plus directly metered discovery, including WSS handshake/TLS records, admission-bearing RPC, five-replica refresh, mailbox, retry and failed attempts',
         exclusions: 'IPC is not a physical network edge; no separate issuer/witness/policy service was contacted; direct persisted seed generation has no network traffic',
       },
+      contention: {
+        bounds: {
+          recentSamplesPerRelay: 30,
+          persistenceSpansPerSample: 32,
+          gcEntriesPerSample: 128,
+          completedRpcEntries: 256,
+        },
+        parent: parentTelemetry,
+        rpc: rpcTelemetry.snapshot(),
+        relays: finalIoSamples.map((sample, relayIndex) => ({
+          relayIndex,
+          eventLoopDelay: sample.eventLoopDelay,
+          gc: sample.gc,
+          persistenceSpans: sample.persistenceSpans,
+          persistenceDroppedEntries: sample.persistenceDroppedEntries,
+        })),
+      },
       processTree: {
         peakAggregateRssBytes: peakAggregateRss,
         postLoadReadyPeakSumBytes,
@@ -1168,7 +1325,12 @@ async function runLoad(profile: string) {
           moduleEntryRssBytes: relay.readySample.moduleEntryRssBytes,
           readyRssBytes: relay.readySample.rssBytes,
           readyPeakRssBytes: relay.readySample.rssPeakBytes,
+          eventLoopDelay: relay.readySample.eventLoopDelay,
+          gc: relay.readySample.gc,
+          persistenceSpans: relay.readySample.persistenceSpans,
+          persistenceDroppedEntries: relay.readySample.persistenceDroppedEntries,
         })),
+        allocation: startupAllocation,
         finalAggregateRssBytes: process.memoryUsage().rss + finalSamples.reduce((sum, sample) => sum + sample.rssBytes, 0),
         parentRssBytes: process.memoryUsage().rss,
         relays: finalSamples,
@@ -1207,6 +1369,8 @@ async function runLoad(profile: string) {
         'The 10000-publication reference was generated once with the real LeasedIndexStore and copied into five replica directories before listener startup; initialization network is therefore zero and excluded from operation traffic.',
         'Direct RPC uses a fresh TCP connection per operation. Warm-client-new-TCP is not a persistent connection; only the separately reported content polls are warm connections.',
         'Latency percentiles are conditional on good operations. Refusals, timeouts and uncertain outcomes remain failures in the success denominator.',
+        'Original operation outcomes are never relabeled by reconciliation; searches remain inconclusive until exact-current production replay clears every uncertainty.',
+        'Runtime telemetry retention is bounded as recorded; totals are cumulative where provided, retained entries are recent windows, and dropped-entry counters are explicit.',
         'Disk accounting covers synchronous filesystem mutations through the instrumented parent and five relay fixture modules. Async fs APIs, streams, descriptors not opened through instrumented openSync, and changes by external/uninstrumented processes are not covered; a final real-walk mismatch fails the run.',
         'RSS begins at module entry and uses the ready sample for post-load startup peaks; pre-exec and dynamic-loader peaks are unavailable.',
         'No physical power samples were collected; CPU time is not watts.',
@@ -1628,4 +1792,6 @@ try {
   const path = writeResult(`client-held-local-resource-failure-${mode}-${args.profile}-run-${runNumber}.json`, failure);
   console.error(JSON.stringify({ failure: path, error: failure.error }, null, 2));
   process.exitCode = 1;
+} finally {
+  runtimeTelemetry.stop();
 }

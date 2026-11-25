@@ -3,8 +3,9 @@ import { syncBuiltinESMExports } from 'node:module';
 import { readFileSync } from 'node:fs';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { verifyAdmissionCapabilityV2, type AdmissionCapabilityV2 } from '@resonance/core';
-import { createRelayServer } from '@resonance/relay';
+import { createRelayServer, LeasedIndexStore, MailboxGenerationStore, RelayOperationLog } from '@resonance/relay';
 import { HarnessDiskAccounting } from '../client-held-disk-accounting.js';
+import { RuntimeTelemetry } from '../client-held-runtime-telemetry.js';
 
 const moduleEntryRssBytes = process.memoryUsage().rss;
 const config = JSON.parse(process.env.RESONANCE_RESOURCE_RELAY!);
@@ -20,13 +21,29 @@ const metrics = {
   writeBytes: 0,
   renameCount: 0,
 };
+const runtimeTelemetry = new RuntimeTelemetry();
+const persistenceSpans: Array<{ atMicros: number; kind: string; durationMicros: number }> = [];
+let persistenceDroppedEntries = 0;
+function recordPersistenceSpan(kind: string, durationMicros: number): void {
+  persistenceSpans.push({
+    atMicros: Math.floor((performance.timeOrigin + performance.now()) * 1000),
+    kind,
+    durationMicros,
+  });
+  if (persistenceSpans.length > 32) {
+    persistenceSpans.shift();
+    persistenceDroppedEntries++;
+  }
+}
 const originalFsync = fs.fsyncSync;
 fs.fsyncSync = function (fd) {
   const started = performance.now();
   try { return originalFsync(fd); }
   finally {
+    const elapsed = (performance.now() - started) * 1000;
     metrics.fsyncCount++;
-    metrics.fsyncMicros += (performance.now() - started) * 1000;
+    metrics.fsyncMicros += elapsed;
+    recordPersistenceSpan('fsync', elapsed);
   }
 };
 const originalWriteFile = fs.writeFileSync;
@@ -58,6 +75,18 @@ fs.renameSync = function (from, to) {
 };
 syncBuiltinESMExports();
 const diskAccounting = new HarnessDiskAccounting(config.persistDir);
+
+function instrumentPersistence(prototype: any, name: string, kind: string): void {
+  const original = prototype[name];
+  prototype[name] = function (...args: any[]) {
+    const started = performance.now();
+    try { return original.apply(this, args); }
+    finally { recordPersistenceSpan(kind, (performance.now() - started) * 1000); }
+  };
+}
+instrumentPersistence(LeasedIndexStore.prototype, 'save', 'leased-index-save');
+instrumentPersistence(MailboxGenerationStore.prototype, 'compact', 'mailbox-compaction');
+instrumentPersistence(RelayOperationLog.prototype, 'compact', 'operation-log-compaction');
 
 function digest(value: string): string {
   return createHash('sha256').update(value).digest('base64url');
@@ -131,6 +160,9 @@ function sample() {
     rssSampleIntervalMs,
     cpuMicros: cpu.user + cpu.system,
     ...metrics,
+    ...runtimeTelemetry.sample(),
+    persistenceSpans: persistenceSpans.splice(0),
+    persistenceDroppedEntries,
   };
 }
 

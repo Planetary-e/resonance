@@ -16,8 +16,8 @@ import {
   type LeasedIndexV1,
 } from '@resonance/core';
 import { LeasedIndexStore } from '@resonance/relay';
-import { reconstructRelayFixtureState } from '../client-held-oracle-reconstruction.js';
-import { validateSearchResults } from '../client-held-search-validation.js';
+import { reconstructRelayFixtureState, reconcileFixtureWithCurrent } from '../client-held-oracle-reconstruction.js';
+import { ActiveFixtureState, advanceFixtureOnAcknowledgment, validateSearchResults } from '../client-held-search-validation.js';
 
 const NOW = 1_800_000_000_000;
 const DAY = 86_400_000;
@@ -72,7 +72,9 @@ describe('client-held replayed oracle reconstruction', () => {
     expect(store.apply(serializeLeasedIndexOperationV1(refreshed), NOW + DAY).status).toBe('accepted');
     store.save(directory);
 
-    const state = reconstructRelayFixtureState(directory, operations, () => NOW + DAY);
+    const state = reconstructRelayFixtureState(directory, operations, () => NOW + DAY, new Map());
+    expect(state.activeOperations(NOW + DAY)[0]).toBe(first.index);
+    expect(state.activeOperations(NOW + DAY)[1]).toBe(third.index);
     expect(state.currentGenerationId(second.index.publicationId)).toBe(createLeasedIndexGenerationIdV1(refreshed));
     expect(state.activeOperations(NOW + DAY).map(operation => operation.publicationId)).toEqual([
       first.index.publicationId, third.index.publicationId, second.index.publicationId,
@@ -153,5 +155,83 @@ describe('client-held replayed oracle reconstruction', () => {
       state,
       now: NOW,
     })).toThrow('search_top_generation_set_mismatch');
+  });
+
+  it('clears uncertainty only after production-order current replay and refuses stale regression', () => {
+    const initial = fixture();
+    const refreshed = refresh(initial);
+    const state = new ActiveFixtureState([initial.index]);
+
+    const originalOutcome = advanceFixtureOnAcknowledgment(state, refreshed, {
+      outcome: 'error', reason: 'timeout',
+    });
+    expect(originalOutcome).toBe(false);
+    expect(state.hasPendingUncertainty()).toBe(true);
+    const reconciled = reconcileFixtureWithCurrent(state, refreshed, NOW + DAY);
+    expect(reconciled).toMatchObject({ status: 'reconciled', activeExactMatch: true });
+    expect(state.hasPendingUncertainty()).toBe(false);
+    expect(state.currentGenerationId(initial.index.publicationId)).toBe(createLeasedIndexGenerationIdV1(refreshed));
+
+    expect(advanceFixtureOnAcknowledgment(state, initial.index, {
+      outcome: 'error', reason: 'timeout',
+    })).toBe(false);
+    const stale = reconcileFixtureWithCurrent(state, initial.index, NOW + DAY);
+    expect(stale).toMatchObject({ status: 'unresolved', productionApplyStatus: 'stale', activeExactMatch: false });
+    expect(state.hasPendingUncertainty()).toBe(true);
+    expect(state.currentGenerationId(initial.index.publicationId)).toBe(createLeasedIndexGenerationIdV1(refreshed));
+  });
+
+  it('preserves production order when A loses its ACK after B commits and A later reconciles', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'resonance-oracle-reconcile-order-'));
+    directories.push(directory);
+    const first = fixture();
+    const second = fixture();
+    const firstRefresh = refresh(first);
+    const secondRefresh = refresh(second);
+    const store = new LeasedIndexStore();
+    store.apply(serializeLeasedIndexOperationV1(first.index), NOW);
+    store.apply(serializeLeasedIndexOperationV1(second.index), NOW);
+    store.apply(serializeLeasedIndexOperationV1(firstRefresh), NOW + DAY);
+    store.apply(serializeLeasedIndexOperationV1(secondRefresh), NOW + DAY);
+    store.save(directory);
+
+    const state = new ActiveFixtureState([first.index, second.index]);
+    const originalOutcome = advanceFixtureOnAcknowledgment(state, firstRefresh, {
+      outcome: 'error', reason: 'timeout',
+    });
+    expect(originalOutcome).toBe(false);
+    expect(advanceFixtureOnAcknowledgment(state, secondRefresh, {
+      outcome: 'ok', reason: 'accepted',
+    })).toBe(true);
+    expect(reconcileFixtureWithCurrent(state, firstRefresh, NOW + DAY)).toMatchObject({
+      status: 'reconciled', activeExactMatch: true,
+    });
+    expect(state.activeOperations(NOW + DAY).map(operation => operation.publicationId)).toEqual([
+      first.index.publicationId, second.index.publicationId,
+    ]);
+
+    state.replaceWith(reconstructRelayFixtureState(directory, state.allOperations(), () => NOW + DAY, new Map()));
+    const restarted = reconstructRelayFixtureState(directory, state.allOperations(), () => NOW + DAY, new Map());
+    for (const candidate of [state, restarted]) {
+      expect(candidate.activeOperations(NOW + DAY).map(operation => operation.publicationId)).toEqual([
+        first.index.publicationId, second.index.publicationId,
+      ]);
+      const request = createLeasedIndexSearchRequestV1({
+        groupId: 'public', itemType: 'offer', fingerprintEpoch: 'epoch-1', fingerprint: new Uint8Array(64),
+        limit: 10, createdAt: NOW + DAY, expiresAt: NOW + DAY + 10_000,
+      }, generateSigningKeyPair());
+      expect(validateSearchResults({
+        request,
+        results: [firstRefresh, secondRefresh].map(serializeLeasedIndexOperationV1),
+        state: candidate,
+        now: NOW + DAY,
+      })).toHaveLength(2);
+      expect(() => validateSearchResults({
+        request,
+        results: [secondRefresh, firstRefresh].map(serializeLeasedIndexOperationV1),
+        state: candidate,
+        now: NOW + DAY,
+      })).toThrow('search_top_generation_set_mismatch');
+    }
   });
 });

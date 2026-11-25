@@ -1,5 +1,7 @@
 import {
+  createLeasedIndexGenerationIdV1,
   parseLeasedIndexOperationV1,
+  serializeLeasedIndexOperationV1,
   type LeasedIndexV1,
 } from '@resonance/core';
 import { LeasedIndexStore } from '@resonance/relay';
@@ -9,7 +11,12 @@ export function reconstructRelayFixtureState(
   directory: string,
   fixtureOperations: readonly LeasedIndexV1[],
   now = Date.now,
+  canonicalOperations = new Map<string, LeasedIndexV1>(),
 ): ActiveFixtureState {
+  for (const operation of fixtureOperations) {
+    const generationId = createLeasedIndexGenerationIdV1(operation);
+    if (!canonicalOperations.has(generationId)) canonicalOperations.set(generationId, operation);
+  }
   const store = new LeasedIndexStore();
   store.load(directory);
   const state = new ActiveFixtureState();
@@ -25,9 +32,52 @@ export function reconstructRelayFixtureState(
         const bytes = store.getActiveExactBytes(match.itemId, match.generationId, now());
         if (!bytes) continue;
         const operation = parseLeasedIndexOperationV1(bytes);
-        if (operation.kind === 'leased-discovery-index') state.accept(operation);
+        if (operation.kind !== 'leased-discovery-index') continue;
+        const canonical = canonicalOperations.get(match.generationId);
+        if (canonical && JSON.stringify(canonical) !== bytes
+          && serializeLeasedIndexOperationV1(canonical) !== bytes) {
+          throw new Error('Canonical fixture operation differs from relay evidence');
+        }
+        const retained = canonical ?? operation;
+        canonicalOperations.set(match.generationId, retained);
+        state.accept(retained);
       }
     }
   }
   return state;
+}
+
+export function reconcileFixtureWithCurrent(
+  state: ActiveFixtureState,
+  operation: LeasedIndexV1,
+  now: number,
+  directory?: string,
+) {
+  const generationId = createLeasedIndexGenerationIdV1(operation);
+  const prior = state.operationForPublication(operation.publicationId);
+  const store = new LeasedIndexStore();
+  if (prior) store.apply(serializeLeasedIndexOperationV1(prior), prior.createdAt);
+  const result = store.apply(serializeLeasedIndexOperationV1(operation), now);
+  const activeBytes = store.getActiveExactBytes(operation.publicationId, generationId, now);
+  const proven = ['accepted', 'duplicate'].includes(result.status)
+    && activeBytes === serializeLeasedIndexOperationV1(operation);
+  let applied = false;
+  if (proven && directory) {
+    state.replaceWith(reconstructRelayFixtureState(
+      directory, [...state.allOperations(), operation], () => now, new Map(),
+    ));
+    applied = true;
+  } else if (proven) {
+    applied = state.acceptReconciled(operation);
+  }
+  if (applied) state.resolveUncertainty(operation.publicationId);
+  return {
+    publicationId: operation.publicationId,
+    priorGenerationId: prior ? createLeasedIndexGenerationIdV1(prior) : null,
+    currentGenerationId: generationId,
+    productionApplyStatus: result.status,
+    activeExactMatch: activeBytes === serializeLeasedIndexOperationV1(operation),
+    status: applied ? 'reconciled' : 'unresolved',
+    proof: 'current lookup followed by production-order LeasedIndexStore replay and active exact-byte comparison',
+  } as const;
 }

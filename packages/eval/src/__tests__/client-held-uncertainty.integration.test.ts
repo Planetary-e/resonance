@@ -5,8 +5,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   createLeasedIndexGenerationIdV1,
   createLeasedIndexSearchRequestV1,
+  createLeasedIndexLookupRequestV1,
   generateLeasedIndexKeyMaterialV1,
   generateSigningKeyPair,
+  parseLeasedIndexOperationV1,
   serializeLeasedIndexOperationV1,
 } from '@resonance/core';
 import { createRelayClient } from '@resonance/node';
@@ -16,6 +18,7 @@ import {
   advanceFixtureOnAcknowledgment,
   validateSearchResults,
 } from '../client-held-search-validation.js';
+import { reconcileFixtureWithCurrent } from '../client-held-oracle-reconstruction.js';
 import {
   ProcessRelay,
   admissionProvider,
@@ -80,5 +83,24 @@ describe('client-held uncertain oracle integration', () => {
       expectedGenerationId: createLeasedIndexGenerationIdV1(operation),
       now: Date.now(),
     })).toThrow(ValidationInconclusiveError);
+
+    const currentBytes = await network.lookupLeasedIndex(createLeasedIndexLookupRequestV1({
+      publicationId: operation.publicationId,
+      createdAt: Date.now(), expiresAt: Date.now() + 10_000,
+    }, generateSigningKeyPair()));
+    expect(currentBytes).toBe(operationBytes);
+    const current = parseLeasedIndexOperationV1(currentBytes!);
+    if (current.kind !== 'leased-discovery-index') throw new Error('Expected current discovery index');
+    expect(reconcileFixtureWithCurrent(state, current, Date.now(), join(directory, 'relay', 'client-held'))).toMatchObject({
+      status: 'reconciled', activeExactMatch: true,
+    });
+    expect(validateSearchResults({
+      request,
+      results,
+      state,
+      expectedPublicationId: operation.publicationId,
+      expectedGenerationId: createLeasedIndexGenerationIdV1(operation),
+      now: Date.now(),
+    })).toHaveLength(1);
   }, 30_000);
 });

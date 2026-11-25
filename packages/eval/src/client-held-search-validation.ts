@@ -36,6 +36,23 @@ export class ActiveFixtureState {
     this.publications.set(operation.publicationId, { operation, generationId, status });
   }
 
+  acceptReconciled(operation: LeasedIndexV1): boolean {
+    const generationId = createLeasedIndexGenerationIdV1(operation);
+    const current = this.publications.get(operation.publicationId);
+    if (!current || operation.leaseSequence < current.operation.leaseSequence) return false;
+    const status = operation.leaseSequence === current.operation.leaseSequence ? 'conflict' : 'active';
+    this.publications.set(operation.publicationId, { operation, generationId, status });
+    return true;
+  }
+
+  replaceWith(other: ActiveFixtureState): void {
+    this.publications = new Map(other.publications);
+  }
+
+  allOperations(): LeasedIndexV1[] {
+    return [...this.publications.values()].map(current => current.operation);
+  }
+
   mark(publicationId: string, status: Exclude<FixturePublicationStatus, 'active'>): void {
     const current = this.publications.get(publicationId);
     if (!current) throw new Error('Unknown fixture publication');
@@ -52,6 +69,18 @@ export class ActiveFixtureState {
 
   isUncertain(publicationId: string): boolean {
     return this.pendingUncertainty.has(publicationId);
+  }
+
+  uncertainPublicationIds(): string[] {
+    return [...this.pendingUncertainty];
+  }
+
+  operationForPublication(publicationId: string): LeasedIndexV1 | undefined {
+    return this.publications.get(publicationId)?.operation;
+  }
+
+  resolveUncertainty(publicationId: string): void {
+    this.pendingUncertainty.delete(publicationId);
   }
 
   currentGenerationId(publicationId: string): string | undefined {
