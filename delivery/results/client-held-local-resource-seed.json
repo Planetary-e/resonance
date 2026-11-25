@@ -10,12 +10,12 @@
     "--mode",
     "seed",
     "--root",
-    "/tmp/resonance-client-held-local-resources-dec024-corrected-432e0fc"
+    "/tmp/resonance-client-held-local-resources-dec024-final-1ba1fc2"
   ],
   "source": [
     {
       "path": "packages/eval/src/client-held-local-resources.ts",
-      "sha256": "a733ebd6eb478ada7c66151d2dce8ef010c9376500259cee79c713d2af3337c1"
+      "sha256": "647b4282fa11769c99c5b90367e352438b6b34c1e8acef7644957d305391eabb"
     },
     {
       "path": "packages/eval/src/client-held-search-validation.ts",
@@ -39,7 +39,7 @@
     },
     {
       "path": "packages/eval/src/fixtures/client-held-resource-relay.ts",
-      "sha256": "a6c79eae4e973b691054a055b34dd567674d1bbd31a703d7d9f4886ec3016fc1"
+      "sha256": "ff321a8366feeb406e7d55745a39a5d46144faee4bb3fb3e67315940f0e2dfdf"
     },
     {
       "path": "packages/relay/src/atomic-file.ts",
@@ -81,11 +81,11 @@
   "seedData": [
     {
       "name": "seed-manifest.json",
-      "sha256": "02c08cc26c6fc6a803c6556686fa6abccc22fb97c1edd4029e87b9793632336a"
+      "sha256": "a1902eab3642c0177bea2bf5342037ee3acb801686734f8e952e58391d5e720e"
     },
     {
       "name": "seed-records.json",
-      "sha256": "63d9138eb1e0bbb5130beaf9ab012e697b6ec383c665204d4ed5f4540060aff7"
+      "sha256": "e759a4d6e37d8f0a85e1470f3481a4c349568208088353b2198575c8f581ecb1"
     }
   ],
   "environment": {
@@ -95,7 +95,7 @@
     "cpuModel": "Apple M3 Pro",
     "logicalCpuCount": 11,
     "totalMemoryBytes": 19327352832,
-    "freeMemoryAtStartBytes": 219627520,
+    "freeMemoryAtStartBytes": 87638016,
     "tls": "WSS with NODE_EXTRA_CA_CERTS; certificate verification enabled; no external network",
     "modelRuntime": "none; fixed derivation and deterministic 64-byte fingerprint fixtures"
   },
@@ -103,7 +103,7 @@
   "acceptedPublications": 10000,
   "activeRecords": 10000,
   "replicasMaterialized": 5,
-  "elapsedMs": 125288.65425,
+  "elapsedMs": 127183.982917,
   "referenceBytes": 55849061,
   "allReplicaBytes": 360154511,
   "disk": {

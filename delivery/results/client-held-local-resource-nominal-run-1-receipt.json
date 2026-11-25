@@ -1,51 +1,50 @@
 {
   "schema_version": 1,
   "authorization_id": "DEC-023",
-  "recorded_at": "2026-11-24T19:16:36Z",
-  "qualification": "local-nominal-failed-not-production",
-  "candidate_head": "2bcd87730f7c33bd05d6d5406dacb8d49e32d2b2",
+  "recorded_at": "2026-11-25T10:46:33Z",
+  "qualification": "single-run-local-pass-production-incomplete",
+  "candidate_head": "1ba1fc2",
   "artifact": {
     "path": "delivery/results/client-held-local-resource-nominal-run-1.json",
-    "sha256": "c316ff1584e02c36eaab33a8ff79b8e102ac853377fd2df7663e6f44fc8c0914"
+    "sha256": "971f21d56967881bf41208e4c9e0784e1170cfce48c2a929ab0d738f8c77987f"
   },
   "source_log": {
-    "path": "/tmp/client-held-nominal-memory-fresh.log",
-    "sha256": "37a0559285b840b19944e1100c324da19fee445940b23163909bd35054231956"
+    "path": "/tmp/client-held-dec024-final-nominal.log",
+    "sha256": "eeddfe3b00682f7bcccc388f3e66de32ee46661c60e10121bdda1ac52804d5e2"
   },
-  "seed": {
-    "path": "delivery/results/client-held-local-resource-seed.json",
-    "seed_manifest_sha256": "48e0bcac811381cdd2de691fca249ca976dfca4640ea0cfc3c29d3eaf548f803",
-    "seed_records_sha256": "feb804f673c9034e75c7091d6e1ca3db89c1df775e3f89bb8fe8d16398062dfb"
-  },
+  "seed_artifact_sha256": "5ab386945fb70e75f11c9d8c37251d6626109c636adaa9b3885057217606f71e",
   "results": {
     "submitted": 1002,
-    "good": 861,
-    "success_fraction": 0.8592814371257484,
-    "refused": 140,
-    "deadline_exceeded": 1,
-    "p95_ms": 6809.722124999971,
-    "p99_ms": 8529.057124999934,
-    "peak_aggregate_rss_bytes": 1832353792,
-    "maximum_relay_peak_rss_bytes": 495058944,
-    "network_bytes_per_good_operation": 111869.27526132404
+    "good": 1002,
+    "refused": 0,
+    "deadline_exceeded": 0,
+    "p95_ms": 2988.0524159998167,
+    "p99_ms": 3302.801290999865,
+    "maximum_ms": 4854.151457999949,
+    "peak_aggregate_rss_bytes": 2004402176,
+    "maximum_relay_peak_rss_bytes": 391528448,
+    "network_bytes_per_good_operation": 96134.52794411177,
+    "disk_final_bytes": 371333423,
+    "disk_peak_bytes": 391345035,
+    "disk_final_reconciliation": true
   },
   "evaluation": {
-    "single_run_operation_count": "pass",
-    "three_independent_executions": "not-run",
-    "nominal_success": "fail",
-    "nominal_p95": "fail",
-    "nominal_p99_conditional_good": "pass",
-    "private_operation_deadline": "fail",
+    "single_run_success": "pass",
+    "single_run_p95": "pass",
+    "single_run_p99": "pass",
+    "private_operation_deadline": "pass",
     "per_relay_rss": "pass",
     "measured_startup_rss": "pass-with-pre-exec-limitation",
-    "sustained_rss": "pending-fresh-idle",
-    "idle_cpu": "pending-fresh-idle",
     "network": "pass",
+    "disk": "pass-with-disclosed-instrumentation-boundary",
+    "three_executions": "incomplete",
+    "protected_decision_span": "not-independently-established",
+    "sustained_idle": "pending",
     "physical_power": "not-measured",
     "packet_impairment": "not-qualified",
     "production_acceptance": false,
     "k1_k8_acceptance": false
   },
-  "independent_review": "docs/evals/v04-dec024-fresh-nominal-resource-review-2026-11-24.md",
-  "next_action": "Run one fresh 1800-second idle measurement on the same full-scale root; do not repeat nominal runs on the unchanged failing candidate."
+  "independent_review": "docs/evals/v04-dec025-corrected-nominal-review-2026-11-25.md",
+  "next_action": "Run one fresh 1800-second idle measurement on the same nominal state."
 }
