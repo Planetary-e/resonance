@@ -474,4 +474,34 @@ describe('leased relay incremental persistence and exact active lookup', () => {
     expect(() => new LeasedIndexStore().load(directory))
       .toThrow('Leased index log timestamp does not match signed operation');
   });
+
+  it('streams canonical state with escapes and preserves fallback and truncation checks', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'resonance-streamed-leased-base-'));
+    directories.push(directory);
+    const { keys, index } = fixture('need', 1);
+    const custom = revision(keys, index.original.commitment, {
+      leaseSequence: 0,
+      semanticRevision: 0,
+      createdAt: NOW,
+      expiresAt: NOW + 7 * DAY,
+      fingerprintFill: 1,
+      derivationId: 'quoted"slash\\emoji😀',
+    });
+    const store = new LeasedIndexStore();
+    store.apply(serialized(custom), NOW);
+    store.save(directory);
+    const path = join(directory, 'leased-index-operations.json');
+    const canonical = readFileSync(path, 'utf8');
+    expect(canonical.startsWith('{"version":1,"publications":[')).toBe(true);
+
+    const restored = new LeasedIndexStore();
+    restored.load(directory);
+    expect(restored.getExactBytes(custom.publicationId)).toBe(serialized(custom));
+
+    const parsed = JSON.parse(canonical);
+    writeFileSync(path, JSON.stringify({ publications: parsed.publications, version: 1 }));
+    expect(() => new LeasedIndexStore().load(directory)).not.toThrow();
+    writeFileSync(path, canonical.slice(0, -20));
+    expect(() => new LeasedIndexStore().load(directory)).toThrow('Incomplete leased index store');
+  });
 });

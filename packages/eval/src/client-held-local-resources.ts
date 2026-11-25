@@ -862,14 +862,14 @@ async function executeOperation(
       const published = await runPublish(coordinator, seed, manifest, states, publishAttempts);
       record.relayEvidence = published.acknowledgments;
       record.reconciliationEvidence = published.reconciliationEvidence;
-      acknowledgedPublishes.push({
+      acknowledgedPublishes[0] = {
         sequence: record.sequence,
         coordinatorId: coordinator.id,
         operation: published.operation,
         operationBytes: published.operationBytes,
         acknowledgments: published.acknowledgments,
         completedAt: Date.now(),
-      });
+      };
     } else if (record.kind === 'search') await runSearch(coordinator, record.sequence, seed, states);
     else record.phases = await runMailbox(coordinator, seed, mailbox, record.sequence);
     record.latencyMs = performance.now() - started;

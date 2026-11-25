@@ -1,9 +1,13 @@
 import {
+  closeSync,
   existsSync,
   mkdirSync,
+  openSync,
   readFileSync,
+  readSync,
   rmSync,
 } from 'node:fs';
+import { StringDecoder } from 'node:string_decoder';
 import { join } from 'node:path';
 import { writeAtomic, writeAtomicJson } from './atomic-file.js';
 import {
@@ -353,7 +357,7 @@ export class LeasedIndexStore {
     this.incrementalReady = false;
     const path = join(directory, STORE_FILENAME);
     if (existsSync(path)) {
-      const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'));
+      const parsed = readStoredFile(path);
       if (!isStoredFile(parsed)) throw new Error('Invalid persisted leased index store');
       for (const state of parsed.publications) {
         const publicationId = state.current.operation.publicationId;
@@ -489,6 +493,76 @@ function exactOperationBytes(raw: string | Uint8Array): string {
 
 function findExact(operations: StoredOperation[] | undefined, bytes: string): StoredOperation | undefined {
   return operations?.find(item => item.bytes === bytes);
+}
+
+function readStoredFile(path: string): unknown {
+  const prefix = '{"version":1,"publications":[';
+  const fd = openSync(path, 'r');
+  try {
+    const marker = Buffer.alloc(prefix.length);
+    const count = readSync(fd, marker, 0, marker.length, null);
+    if (count !== marker.length || marker.toString('utf8') !== prefix) {
+      return JSON.parse(readFileSync(path, 'utf8'));
+    }
+    const decoder = new StringDecoder('utf8');
+    const chunk = Buffer.alloc(64 * 1024);
+    const publications: unknown[] = [];
+    let item = '';
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    let arrayDone = false;
+    let fileDone = false;
+    const consume = (text: string) => {
+      for (const char of text) {
+        if (fileDone) {
+          if (/\s/.test(char)) continue;
+          throw new Error('Trailing content in leased index store');
+        }
+        if (arrayDone) {
+          if (char === '}') fileDone = true;
+          else if (!/\s/.test(char)) throw new Error('Invalid leased index store suffix');
+          continue;
+        }
+        if (depth === 0) {
+          if (/\s/.test(char) || char === ',') continue;
+          if (char === ']') {
+            arrayDone = true;
+            continue;
+          }
+          if (char !== '{') throw new Error('Invalid publication in leased index store');
+          item = '{';
+          depth = 1;
+          inString = false;
+          escaped = false;
+          continue;
+        }
+        item += char;
+        if (inString) {
+          if (escaped) escaped = false;
+          else if (char === '\\') escaped = true;
+          else if (char === '"') inString = false;
+          continue;
+        }
+        if (char === '"') inString = true;
+        else if (char === '{') depth++;
+        else if (char === '}') {
+          depth--;
+          if (depth === 0) publications.push(JSON.parse(item));
+        }
+      }
+    };
+    while (true) {
+      const read = readSync(fd, chunk, 0, chunk.length, null);
+      if (read <= 0) break;
+      consume(decoder.write(chunk.subarray(0, read)));
+    }
+    consume(decoder.end());
+    if (!arrayDone || !fileDone || depth !== 0 || inString) throw new Error('Incomplete leased index store');
+    return { version: 1, publications };
+  } finally {
+    closeSync(fd);
+  }
 }
 
 function isStoredFile(value: unknown): value is StoredFile {

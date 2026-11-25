@@ -3,7 +3,10 @@ import { syncBuiltinESMExports } from 'node:module';
 import { readFileSync } from 'node:fs';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { verifyAdmissionCapabilityV2, type AdmissionCapabilityV2 } from '@resonance/core';
-import { createRelayServer, LeasedIndexStore, MailboxGenerationStore, RelayOperationLog } from '@resonance/relay';
+import { createRelayServer } from '../../../relay/src/server.js';
+import { LeasedIndexStore } from '../../../relay/src/leased-index-store.js';
+import { MailboxGenerationStore } from '../../../relay/src/mailbox-generation-store.js';
+import { RelayOperationLog } from '../../../relay/src/operation-log.js';
 import { HarnessDiskAccounting } from '../client-held-disk-accounting.js';
 import { RuntimeTelemetry } from '../client-held-runtime-telemetry.js';
 
