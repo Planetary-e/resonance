@@ -10,12 +10,12 @@
     "--mode",
     "seed",
     "--root",
-    "/tmp/resonance-client-held-local-resources-dec025-burst4-c740533"
+    "/tmp/resonance-client-held-local-resources-dec025-burst5-7acba9c"
   ],
   "source": [
     {
       "path": "packages/eval/src/client-held-local-resources.ts",
-      "sha256": "df3051362ca62c4470b92726a850218ef47717591f34dae3254237f39263b01d"
+      "sha256": "0593f7da9f789418e32134e09c358023ce6d8815a9f7b6fd40ef4a02b46a8d56"
     },
     {
       "path": "packages/eval/src/client-held-search-validation.ts",
@@ -39,7 +39,7 @@
     },
     {
       "path": "packages/eval/src/client-held-runtime-telemetry.ts",
-      "sha256": "dbaebb420f79e0d09fd1b4912d82786d432da40b04d2df7cecc5b1009df78e47"
+      "sha256": "1c7090c53218ffd6ed1e71dbe808535463c2dc61980bb041c055039c214fe662"
     },
     {
       "path": "packages/eval/src/fixtures/client-held-resource-relay.ts",
@@ -85,11 +85,11 @@
   "seedData": [
     {
       "name": "seed-manifest.json",
-      "sha256": "0c003cc0fff7a42a4bc30281a25e49d60cdedb0be5f2c20f158f18103981ccea"
+      "sha256": "2be7c1fdf2e359be7583017a121e011249320155b7413bf261caa05c9fd8bba6"
     },
     {
       "name": "seed-records.json",
-      "sha256": "2b7f9c87bfc98e501c0919313f6f2856b6f3f22ff8c348a7bfd382d7c48a360f"
+      "sha256": "75c1c2e0e9c15b003a37b2273af53de8763879f8ef6074f78848c09f93464610"
     }
   ],
   "environment": {
@@ -99,7 +99,7 @@
     "cpuModel": "Apple M3 Pro",
     "logicalCpuCount": 11,
     "totalMemoryBytes": 19327352832,
-    "freeMemoryAtStartBytes": 182304768,
+    "freeMemoryAtStartBytes": 90898432,
     "tls": "WSS with NODE_EXTRA_CA_CERTS; certificate verification enabled; no external network",
     "modelRuntime": "none; fixed derivation and deterministic 64-byte fingerprint fixtures"
   },
@@ -107,7 +107,7 @@
   "acceptedPublications": 10000,
   "activeRecords": 10000,
   "replicasMaterialized": 5,
-  "elapsedMs": 128915.074292,
+  "elapsedMs": 123679.64916700001,
   "referenceBytes": 55849061,
   "allReplicaBytes": 360154511,
   "disk": {

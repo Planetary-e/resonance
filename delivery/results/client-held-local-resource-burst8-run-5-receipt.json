@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "authorization_id": "DEC-023",
+  "recorded_at": "2026-11-25T18:55:00Z",
+  "qualification": "burst-diagnostic-operations-pass-memory-fail",
+  "candidate_head": "7acba9c",
+  "artifact": { "path": "delivery/results/client-held-local-resource-burst8-run-5.json", "sha256": "aa708d04f5822f76ac7620768238c05ab031b7bb98d914a7297de617fe840354" },
+  "source_log": { "path": "/tmp/client-held-dec025-burst5.log", "sha256": "91b9cc3c70271834f6996b7c2837729351c39435591b59234bc6cce628eaca4b" },
+  "results": {
+    "submitted": 1002,
+    "good": 1002,
+    "refused": 0,
+    "uncertain": 0,
+    "inconclusive": 0,
+    "deadline_exceeded": 0,
+    "p95_ms": 3750.60037499998,
+    "p99_ms": 3825.913709000044,
+    "maximum_ms": 4008.083875000011,
+    "peak_aggregate_rss_bytes": 1914650624,
+    "maximum_relay_peak_rss_bytes": 386777088,
+    "network_bytes_per_good_operation": 96127.91916167665,
+    "disk_final_reconciliation": true
+  },
+  "evaluation": {
+    "success": "pass-single-run",
+    "refusal_free": "pass-single-run",
+    "p95": "pass",
+    "p99": "pass",
+    "per_relay_rss": "pass",
+    "measured_startup_rss": "pass-under-2-gib",
+    "process_tree_rss_pass": false,
+    "network": "pass",
+    "disk": "pass",
+    "three_run_campaign": "not-justified-until-memory-correction",
+    "production_acceptance": false
+  },
+  "independent_review": "docs/evals/v04-dec025-burst5-diagnostic-review-2026-11-25.md",
+  "next_action": "Correct startup allocation and demonstrate clean operations with aggregate peak below 1.5 GiB."
+}
