@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   attemptsInFixedWindow,
   fixedWindowRetryDelayMs,
+  FixedWindowOfferScheduler,
   quietWindowRetryDelayMs,
   waitForFixedWindowRetryCapacity,
   waitForQuietWindowRetryCapacity,
@@ -82,5 +83,45 @@ describe('client-held exact-retry fixed-window capacity', () => {
     const waited = await waitForFixedWindowRetryCapacity(shared, bucket, { limit: 2, windowMs: 10 });
     expect(waited).toBeGreaterThanOrEqual(0);
     expect(fixedWindowRetryDelayMs(shared, bucket, Date.now(), { limit: 2, windowMs: 10 })).toBe(0);
+  });
+
+  it('serializes concurrent coordinators without overfilling any relay source bucket', async () => {
+    const scheduler = new FixedWindowOfferScheduler({ limit: 2, windowMs: 20 });
+    const buckets = [`${bucket}:relay-0`, `${bucket}:relay-1`];
+    const scheduled = await Promise.all(Array.from({ length: 6 }, async () => {
+      const offer = await scheduler.schedule(buckets);
+      offer.complete();
+      return offer;
+    }));
+    const reservations = scheduler.snapshot();
+    expect(reservations).toHaveLength(12);
+    for (const relayBucket of buckets) {
+      const selected = reservations.filter(attempt => attempt.bucket === relayBucket);
+      expect(selected).toHaveLength(6);
+      for (let index = 0; index < selected.length; index++) {
+        expect(attemptsInFixedWindow(
+          selected.slice(0, index + 1), relayBucket, scheduled[index].scheduledAt,
+          { limit: 2, windowMs: 20 },
+        ).length).toBeLessThanOrEqual(2);
+      }
+    }
+    expect(scheduled.some(value => value.waitedMs > 0)).toBe(true);
+  });
+
+  it('holds a full source window until its in-flight offered publish completes', async () => {
+    const scheduler = new FixedWindowOfferScheduler({ limit: 1, windowMs: 20 });
+    const first = await scheduler.schedule([bucket]);
+    let secondScheduled = false;
+    const secondPromise = scheduler.schedule([bucket]).then(offer => {
+      secondScheduled = true;
+      offer.complete();
+      return offer;
+    });
+    await new Promise(resolve => setTimeout(resolve, 5));
+    expect(secondScheduled).toBe(false);
+    expect(scheduler.snapshot()).toHaveLength(1);
+    first.complete();
+    await secondPromise;
+    expect(scheduler.snapshot()).toHaveLength(2);
   });
 });

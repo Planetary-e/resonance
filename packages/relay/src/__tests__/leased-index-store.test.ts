@@ -107,6 +107,8 @@ describe('leased relay refresh and stable notifications', () => {
     expect(refreshed.derivationId).toBe(need.index.derivationId);
     expect(refreshed.fingerprint).toEqual(need.index.fingerprint);
     expect(refreshed.original).toEqual(need.index.original);
+    expect(store.byGeneration(createLeasedIndexGenerationIdV1(need.index))).toEqual(need.index);
+    expect(store.byGeneration(createLeasedIndexGenerationIdV1(refreshed))).toEqual(refreshed);
     expect(store.matching.getPendingForDID(need.index.clientLeaseId)).toHaveLength(1);
   });
 
@@ -255,6 +257,8 @@ describe('leased relay durability and replica repair', () => {
     expect(restored.getExactBytes(index.publicationId)).toBe(serialized(index));
     expect(restored.getExactBytes(index.publicationId, createLeasedIndexGenerationIdV1(conflict)))
       .toBe(serialized(conflict));
+    expect(restored.byGeneration(createLeasedIndexGenerationIdV1(index))).toEqual(index);
+    expect(restored.byGeneration(createLeasedIndexGenerationIdV1(conflict))).toEqual(conflict);
     expect(restored.isQuarantined(index.publicationId)).toBe(true);
 
     const repair = new LeasedIndexStore();

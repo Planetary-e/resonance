@@ -4,9 +4,14 @@ import { readFileSync } from 'node:fs';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { verifyAdmissionCapabilityV2, type AdmissionCapabilityV2 } from '@resonance/core';
 import { createRelayServer } from '@resonance/relay';
+import { HarnessDiskAccounting } from '../client-held-disk-accounting.js';
 
 const moduleEntryRssBytes = process.memoryUsage().rss;
 const config = JSON.parse(process.env.RESONANCE_RESOURCE_RELAY!);
+const rssSampleIntervalMs = config.rssSampleIntervalMs ?? 250;
+if (!Number.isSafeInteger(rssSampleIntervalMs) || rssSampleIntervalMs < 250) {
+  throw new Error('Invalid resource fixture RSS sample interval');
+}
 const token = Buffer.from(process.env.RESONANCE_RESOURCE_TOKEN!, 'base64url');
 const metrics = {
   fsyncCount: 0,
@@ -52,6 +57,7 @@ fs.renameSync = function (from, to) {
   return result;
 };
 syncBuiltinESMExports();
+const diskAccounting = new HarnessDiskAccounting(config.persistDir);
 
 function digest(value: string): string {
   return createHash('sha256').update(value).digest('base64url');
@@ -109,7 +115,7 @@ const sampler = setInterval(() => {
   rssPeak = Math.max(rssPeak, rss);
   rssTotal += rss;
   rssSamples++;
-}, 250);
+}, rssSampleIntervalMs);
 sampler.unref();
 
 function sample() {
@@ -122,6 +128,7 @@ function sample() {
     rssBytes: rss,
     rssPeakBytes: rssPeak,
     rssMeanBytes: rssSamples ? rssTotal / rssSamples : rss,
+    rssSampleIntervalMs,
     cpuMicros: cpu.user + cpu.system,
     ...metrics,
   };
@@ -141,12 +148,14 @@ process.on('message', async (message: any) => {
         sample: sample(),
         relay: stats,
         leasedActivePublications: stats.leased_active_publications,
+        disk: diskAccounting.snapshot(),
+        diskEvents: diskAccounting.events(),
       };
     }
     else if (message.command === 'stop') {
       clearInterval(sampler);
       await relay.stop({ graceful: false });
-      result = sample();
+      result = { ...sample(), disk: diskAccounting.snapshot(), diskEvents: diskAccounting.events() };
     } else throw new Error('Unknown resource fixture command');
     process.send?.({ id: message.id, result });
     if (message.command === 'stop') process.exit(0);

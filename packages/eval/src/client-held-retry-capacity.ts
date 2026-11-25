@@ -84,3 +84,67 @@ export async function waitForQuietWindowRetryCapacity(
   }
   return performance.now() - started;
 }
+
+export class FixedWindowOfferScheduler {
+  private readonly reservations: FixedWindowAttempt[] = [];
+  private readonly completions: FixedWindowAttempt[] = [];
+  private readonly pending = new Set<Promise<void>>();
+  private queue: Promise<void> = Promise.resolve();
+
+  constructor(private readonly options: RetryCapacityOptions = {}) {}
+
+  schedule(buckets: readonly string[]): Promise<{ scheduledAt: number; waitedMs: number; complete: () => void }> {
+    const unique = [...new Set(buckets)];
+    if (unique.length === 0) return Promise.reject(new Error('Offered-load schedule requires a source bucket'));
+    const result = this.queue.then(() => this.reserve(unique));
+    this.queue = result.then(() => undefined, () => undefined);
+    return result;
+  }
+
+  snapshot(): FixedWindowAttempt[] {
+    return this.reservations.map(attempt => ({ ...attempt }));
+  }
+
+  private async reserve(
+    buckets: readonly string[],
+  ): Promise<{ scheduledAt: number; waitedMs: number; complete: () => void }> {
+    const started = performance.now();
+    while (true) {
+      const now = Date.now();
+      const delay = Math.max(0, ...buckets.map(bucket => this.capacityDelayMs(bucket, now)));
+      if (delay === 0) break;
+      if (this.pending.size > 0) {
+        await Promise.all([...this.pending]);
+        continue;
+      }
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+    const scheduledAt = Date.now();
+    for (const bucket of buckets) this.reservations.push({ bucket, timestamp: scheduledAt });
+    let accept!: () => void;
+    const completion = new Promise<void>(resolve => { accept = resolve; });
+    this.pending.add(completion);
+    let completed = false;
+    return {
+      scheduledAt,
+      waitedMs: performance.now() - started,
+      complete: () => {
+        if (completed) return;
+        completed = true;
+        const timestamp = Date.now();
+        for (const bucket of buckets) this.completions.push({ bucket, timestamp });
+        this.pending.delete(completion);
+        accept();
+      },
+    };
+  }
+
+  private capacityDelayMs(bucket: string, now: number): number {
+    const limit = this.options.limit ?? 10;
+    if (attemptsInFixedWindow(this.reservations, bucket, now, this.options).length < limit) return 0;
+    return Math.max(
+      fixedWindowRetryDelayMs(this.reservations, bucket, now, this.options),
+      quietWindowRetryDelayMs(this.completions, bucket, now, this.options),
+    );
+  }
+}

@@ -7,8 +7,6 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  readdirSync,
-  statSync,
   writeFileSync,
 } from 'node:fs';
 import { createServer, connect, type Server, type Socket } from 'node:net';
@@ -56,9 +54,14 @@ import {
 } from './client-held-search-validation.js';
 import {
   attemptsInFixedWindow,
+  FixedWindowOfferScheduler,
   waitForQuietWindowRetryCapacity,
   type FixedWindowAttempt,
 } from './client-held-retry-capacity.js';
+import {
+  HarnessDiskAccounting,
+  realDirectoryBytes as directoryBytes,
+} from './client-held-disk-accounting.js';
 import { MailboxState } from './client-held-mailbox-rotation.js';
 import { reconstructRelayFixtureState } from './client-held-oracle-reconstruction.js';
 
@@ -72,6 +75,7 @@ const SOURCE_FILES = [
   'packages/eval/src/client-held-local-resources.ts',
   'packages/eval/src/client-held-search-validation.ts',
   'packages/eval/src/client-held-retry-capacity.ts',
+  'packages/eval/src/client-held-disk-accounting.ts',
   'packages/eval/src/client-held-mailbox-rotation.ts',
   'packages/eval/src/client-held-oracle-reconstruction.ts',
   'packages/eval/src/fixtures/client-held-resource-relay.ts',
@@ -149,6 +153,7 @@ const { values: args } = parseArgs({
 const mode = args.mode!;
 let measurementStage = 'initialization';
 const root = resolve(args.root!);
+const diskAccounting = new HarnessDiskAccounting(root);
 const publicationCount = Number(args.publications);
 const operationCount = Number(args.operations);
 const runNumber = Number(args.run);
@@ -283,20 +288,6 @@ function writeResult(name: string, value: unknown): string {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
   return path;
 }
-function directoryBytes(path: string): number {
-  let total = 0;
-  let entries;
-  try { entries = readdirSync(path, { withFileTypes: true }); }
-  catch { return 0; }
-  for (const entry of entries) {
-    const child = join(path, entry.name);
-    if (entry.isDirectory()) total += directoryBytes(child);
-    else if (entry.isFile()) {
-      try { total += statSync(child).size; } catch { /* Concurrent replacement. */ }
-    }
-  }
-  return total;
-}
 function percentile(values: number[], fraction: number): number | null {
   if (!values.length) return null;
   const sorted = [...values].sort((a, b) => a - b);
@@ -310,6 +301,14 @@ function latencySummary(values: number[]) {
     p99Ms: percentile(values, 0.99),
     maximumMs: values.length ? Math.max(...values) : null,
   };
+}
+function operationPhaseSummary(records: OperationRecord[]) {
+  const selected = records.filter(record => record.kind === 'mailbox' && record.phases);
+  const names = [...new Set(selected.flatMap(record => Object.keys(record.phases!)))];
+  return Object.fromEntries(names.map(name => [
+    name,
+    latencySummary(selected.map(record => record.phases![name]).filter(Number.isFinite)),
+  ]));
 }
 function summarizeOperations(records: OperationRecord[]) {
   const good = records.filter(record => record.outcome === 'good');
@@ -445,14 +444,17 @@ class ResourceRelay {
   private pending = new Map<number, { accept: (value: any) => void; reject: (error: Error) => void }>();
   private exited: Promise<void>;
   private stderr = '';
-  constructor(readonly index: number) {
+  constructor(readonly index: number, readonly rssSampleIntervalMs = 250) {
     const fixture = fileURLToPath(new URL('./fixtures/client-held-resource-relay.ts', import.meta.url));
     this.child = fork(fixture, [], {
       cwd: process.cwd(),
       execArgv: ['--import', 'tsx'],
       env: {
         ...process.env,
-        RESONANCE_RESOURCE_RELAY: JSON.stringify({ persistDir: join(root, `relay-${index}`) }),
+        RESONANCE_RESOURCE_RELAY: JSON.stringify({
+          persistDir: join(root, `relay-${index}`),
+          rssSampleIntervalMs,
+        }),
         RESONANCE_RESOURCE_TOKEN: this.token,
       },
       stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
@@ -490,8 +492,8 @@ class ResourceRelay {
       });
     });
   }
-  static async start(index: number): Promise<ResourceRelay> {
-    const relay = new ResourceRelay(index);
+  static async start(index: number, rssSampleIntervalMs = 250): Promise<ResourceRelay> {
+    const relay = new ResourceRelay(index, rssSampleIntervalMs);
     await relay.ready;
     return relay;
   }
@@ -502,9 +504,9 @@ class ResourceRelay {
       this.child.send({ id, command, token: this.token });
     });
   }
-  async stop(): Promise<void> {
-    if (this.child.exitCode !== null || this.child.signalCode !== null) return;
-    try { await this.request('stop'); } finally { await this.exited; }
+  async stop(): Promise<any> {
+    if (this.child.exitCode !== null || this.child.signalCode !== null) return undefined;
+    try { return await this.request('stop'); } finally { await this.exited; }
   }
 }
 
@@ -517,6 +519,7 @@ interface OperationRecord {
   errorClass?: string;
   validationDetails?: SearchValidationError['failure'];
   relayEvidence?: RelayAttemptEvidence[];
+  phases?: Record<string, number>;
 }
 
 function errorClass(error: unknown): string {
@@ -678,9 +681,16 @@ async function runMailbox(
   record: SeedRecord,
   mailbox: MailboxState,
   sequence: number,
-): Promise<void> {
+): Promise<Record<string, number>> {
+  const phases: Record<string, number> = {};
+  let phaseStarted = performance.now();
+  const mark = (name: string) => {
+    phases[name] = performance.now() - phaseStarted;
+    phaseStarted = performance.now();
+  };
   const store = mailbox.current();
   store.retainGeneration(record.index, record.keys);
+  mark('localRetainMs');
   const relayIds = coordinator.relays.slice(0, 3).map(relay => relay.descriptor.relayId);
   const value = store.createDeposit({
     index: record.index,
@@ -692,9 +702,11 @@ async function runMailbox(
     admission: LOCAL_ADMISSION,
     selectedRelayIds: relayIds,
   });
+  mark('localCreateMs');
   const receipts = await Promise.all(coordinator.clients.slice(0, 3).map(client => (
     client.depositOfflineDiscovery(value.depositBytes)
   )));
+  mark('depositNetworkMs');
   if (receipts.some(receipt => receipt.status !== 'stored' || !receipt.receipt)) {
     throw new Error(`mailbox_deposit_refused:${receipts.map(receipt => receipt.status).join(',')}`);
   }
@@ -705,13 +717,19 @@ async function runMailbox(
     createdAt: Date.now(),
     expiresAt: Date.now() + 10_000,
   }, record.keys);
+  mark('localReceiptPersistenceMs');
   const deposits = await coordinator.clients[0].fetchOfflineDiscovery(fetch);
+  mark('fetchNetworkMs');
   if (deposits.length !== 1 || deposits[0] !== value.depositBytes) throw new Error('mailbox_fetch_mismatch');
   const received = store.receive(deposits[0], Date.now());
+  mark('localReceiveMs');
   await Promise.all(coordinator.clients.slice(0, 3).map(client => client.acknowledgeOfflineDiscovery(received.ackBytes)));
+  mark('acknowledgeNetworkMs');
   store.markAcknowledged(received.ackBytes);
   store.recordGenerationAck(value.requestId, received.ackBytes);
   if (store.listOutbox().at(-1)?.state !== 'acknowledged') throw new Error('mailbox_not_acknowledged');
+  mark('localAcknowledgePersistenceMs');
+  return phases;
 }
 
 interface AcknowledgedPublish {
@@ -748,7 +766,7 @@ async function executeOperation(
         completedAt: Date.now(),
       });
     } else if (record.kind === 'search') await runSearch(coordinator, record.sequence, seed, states);
-    else await runMailbox(coordinator, seed, mailbox, record.sequence);
+    else record.phases = await runMailbox(coordinator, seed, mailbox, record.sequence);
     record.latencyMs = performance.now() - started;
     record.outcome = record.latencyMs > TARGETS.privateOperationMs ? 'deadline_exceeded' : 'good';
   } catch (error) {
@@ -864,15 +882,15 @@ async function runLoad(profile: string) {
   ));
   const acknowledgedPublishes: AcknowledgedPublish[] = [];
   const publishAttempts: FixedWindowAttempt[] = [];
+  const publishScheduler = new FixedWindowOfferScheduler();
+  const offeredPublishWaitsMs: number[] = [];
   const relays: ResourceRelay[] = [];
   let initialStats: any[] = [];
   const proxies: ByteProxy[][] = [];
   const coordinators: Coordinator[] = [];
   const mailboxes: MailboxState[] = [];
   let monitor: ReturnType<typeof setInterval> | undefined;
-  let diskMonitor: ReturnType<typeof setInterval> | undefined;
   let peakAggregateRss = process.memoryUsage().rss;
-  let diskPeak = 0;
   try {
     for (let index = 0; index < REPLICAS; index++) relays.push(await ResourceRelay.start(index));
     const postLoadReadyPeakSumBytes = process.memoryUsage().rss + relays.reduce(
@@ -900,7 +918,6 @@ async function runLoad(profile: string) {
     }
     const initialSamples = await Promise.all(relays.map(relay => relay.request('sample')));
     const initialCpu = initialSamples.reduce((sum, sample) => sum + sample.cpuMicros, 0) + process.cpuUsage().user + process.cpuUsage().system;
-    diskPeak = directoryBytes(root);
     monitor = setInterval(async () => {
       try {
         const samples = await Promise.all(relays.map(relay => relay.request('sample')));
@@ -909,8 +926,6 @@ async function runLoad(profile: string) {
       } catch { /* Final relay exit reports the defect. */ }
     }, 1_000);
     monitor.unref();
-    diskMonitor = setInterval(() => { diskPeak = Math.max(diskPeak, directoryBytes(root)); }, 1_000);
-    diskMonitor.unref();
     const operationRecords: OperationRecord[] = [];
     let next = 0;
     const started = performance.now();
@@ -922,11 +937,23 @@ async function runLoad(profile: string) {
       const record: OperationRecord = {
         sequence, kind, connectionClass, outcome: 'refused', latencyMs: 0,
       };
+      let completeOffer: (() => void) | undefined;
+      if (kind === 'publish') {
+        const scheduled = await publishScheduler.schedule(Array.from({ length: REPLICAS }, (_, relayIndex) => (
+          `${RETRY_SOURCE_BUCKET}:relay-${relayIndex}`
+        )));
+        completeOffer = scheduled.complete;
+        offeredPublishWaitsMs.push(scheduled.waitedMs);
+      }
       operationRecords.push(record);
-      await executeOperation(
-        coordinators[coordinatorId], record, records, manifest, mailboxes[coordinatorId],
-        fixtureStates, acknowledgedPublishes, publishAttempts,
-      );
+      try {
+        await executeOperation(
+          coordinators[coordinatorId], record, records, manifest, mailboxes[coordinatorId],
+          fixtureStates, acknowledgedPublishes, publishAttempts,
+        );
+      } finally {
+        completeOffer?.();
+      }
     };
     if (profile === 'nominal') {
       await Promise.all(Array.from({ length: concurrency }, async (_, coordinatorId) => {
@@ -1052,6 +1079,15 @@ async function runLoad(profile: string) {
     if (coverageMismatches.some(value => value !== 0)) {
       throw new Error(`Network coverage mismatch: ${JSON.stringify(coverageMismatches)}`);
     }
+    for (const mailbox of mailboxes) mailbox.close();
+    await Promise.all(proxies.flat().map(proxy => proxy.stop()));
+    const stopSamples = await Promise.all(relays.map(relay => relay.stop()));
+    const relayDiskEvents = stopSamples.map((sample, index) => sample?.diskEvents ?? finalStats[index].diskEvents);
+    const disk = diskAccounting.reconcile(relayDiskEvents.flat());
+    if (!disk.matchesActualFinalBytes) {
+      throw new Error(`Disk event reconciliation mismatch: ${disk.finalBytes}/${disk.actualFinalBytes}`);
+    }
+    const finalIoSamples = stopSamples.map((sample, index) => sample ?? finalSamples[index]);
     const operations = summarizeOperations(operationRecords);
     const good = operations.good as number;
     const artifact = {
@@ -1085,6 +1121,18 @@ async function runLoad(profile: string) {
         submittedOperationsPerSecond: (operations.submitted as number) / (elapsedMs / 1000),
         goodOperationsPerSecond: good / (elapsedMs / 1000),
         reconnects: coordinators.reduce((sum, coordinator) => sum + coordinator.reconnects, 0),
+        offeredPublishPacing: {
+          scheduledPublishes: offeredPublishWaitsMs.length,
+          scheduledRelayReservations: publishScheduler.snapshot().length,
+          capacityWaitMs: offeredPublishWaitsMs.reduce((sum, value) => sum + value, 0),
+          maximumCapacityWaitMs: offeredPublishWaitsMs.length ? Math.max(...offeredPublishWaitsMs) : 0,
+          sourceBucketLimit: 10,
+          sourceBucketWindowMs: 60_000,
+          includedInOperationLatency: false,
+          fullWindowWaitsForCompletionAndQuietReset: true,
+          exactReplayUsesSeparateSubmissionAccounting: true,
+        },
+        mailboxPhaseProfile: operationPhaseSummary(operationRecords),
         intentionalExactRetries,
         exactRetryFailures: retryFailures,
         exactRetryEvidence,
@@ -1120,13 +1168,23 @@ async function runLoad(profile: string) {
         aggregateSampleIntervalMs: 1000,
       },
       disk: {
-        finalBytes: directoryBytes(root),
-        sampledPeakBytes: diskPeak,
-        sampleIntervalMs: 1000,
-        includesTemporaryAndReplacementFilesWhenPresentAtSample: true,
+        method: 'synchronous filesystem-event deltas from module instrumentation through relay stop; no periodic recursive walks',
+        baselineBytes: disk.baselineBytes,
+        finalBytes: disk.finalBytes,
+        actualFinalBytes: disk.actualFinalBytes,
+        finalReconciliationPass: disk.matchesActualFinalBytes,
+        eventOrderedPeakBytes: disk.eventOrderedPeakBytes,
+        peakLowerBoundBytes: disk.peakLowerBoundBytes,
+        peakUpperBoundBytes: disk.peakUpperBoundBytes,
+        eventCount: disk.eventCount,
+        operationCounts: disk.operationCounts,
+        processes: stopSamples.map((sample, index) => ({
+          pid: relays[index].child.pid,
+          ...(sample?.disk ?? finalStats[index].disk),
+        })),
         fsyncAndWrites: {
           parent: { ...localIo },
-          relays: finalSamples.map(sample => ({
+          relays: finalIoSamples.map(sample => ({
             fsyncCount: sample.fsyncCount,
             fsyncMicros: sample.fsyncMicros,
             writeCount: sample.writeCount,
@@ -1140,7 +1198,7 @@ async function runLoad(profile: string) {
         'The 10000-publication reference was generated once with the real LeasedIndexStore and copied into five replica directories before listener startup; initialization network is therefore zero and excluded from operation traffic.',
         'Direct RPC uses a fresh TCP connection per operation. Warm-client-new-TCP is not a persistent connection; only the separately reported content polls are warm connections.',
         'Latency percentiles are conditional on good operations. Refusals, timeouts and uncertain outcomes remain failures in the success denominator.',
-        'Disk peaks are one-second samples and may miss shorter-lived temporary files.',
+        'Disk accounting covers synchronous filesystem mutations through the instrumented parent and five relay fixture modules. Async fs APIs, streams, descriptors not opened through instrumented openSync, and changes by external/uninstrumented processes are not covered; a final real-walk mismatch fails the run.',
         'RSS begins at module entry and uses the ready sample for post-load startup peaks; pre-exec and dynamic-loader peaks are unavailable.',
         'No physical power samples were collected; CPU time is not watts.',
       ],
@@ -1152,7 +1210,6 @@ async function runLoad(profile: string) {
     console.log(JSON.stringify({ path, profile, run: runNumber, operations, elapsedMs, networkBytes: network.totalPhysicalBytes }, null, 2));
   } finally {
     if (monitor) clearInterval(monitor);
-    if (diskMonitor) clearInterval(diskMonitor);
     for (const coordinator of coordinators) coordinator.disconnect();
     for (const mailbox of mailboxes) mailbox.close();
     await Promise.allSettled(proxies.flat().map(proxy => proxy.stop()));
@@ -1211,6 +1268,10 @@ async function seed(): Promise<void> {
   };
   writeFileSync(paths.manifest, JSON.stringify(manifest));
   writeFileSync(paths.records, JSON.stringify(records));
+  const disk = diskAccounting.reconcile();
+  if (!disk.matchesActualFinalBytes) {
+    throw new Error(`Disk event reconciliation mismatch: ${disk.finalBytes}/${disk.actualFinalBytes}`);
+  }
   const artifact = {
     schema_version: 1,
     authorization_id: 'DEC-023',
@@ -1225,7 +1286,19 @@ async function seed(): Promise<void> {
     replicasMaterialized: REPLICAS,
     elapsedMs: performance.now() - started,
     referenceBytes: directoryBytes(paths.reference),
-    allReplicaBytes: directoryBytes(root),
+    allReplicaBytes: disk.actualFinalBytes,
+    disk: {
+      method: 'synchronous filesystem-event deltas with final real-walk reconciliation',
+      baselineBytes: disk.baselineBytes,
+      finalBytes: disk.finalBytes,
+      actualFinalBytes: disk.actualFinalBytes,
+      finalReconciliationPass: disk.matchesActualFinalBytes,
+      eventOrderedPeakBytes: disk.eventOrderedPeakBytes,
+      peakLowerBoundBytes: disk.peakLowerBoundBytes,
+      peakUpperBoundBytes: disk.peakUpperBoundBytes,
+      eventCount: disk.eventCount,
+      operationCounts: disk.operationCounts,
+    },
     initializationNetworkBytes: 0,
     method: 'One real LeasedIndexStore persisted once, then exact signed-state copies materialized in five relay directories. Every measured operation uses actual WSS listeners and Node clients.',
   };
@@ -1238,41 +1311,77 @@ async function seed(): Promise<void> {
 async function idle(): Promise<void> {
   const manifest = JSON.parse(readFileSync(seedPaths().manifest, 'utf8')) as SeedManifest;
   if (manifest.publicationCount !== publicationCount) throw new Error('Idle seed cardinality mismatch');
-  const relays = await Promise.all(Array.from({ length: REPLICAS }, (_, index) => ResourceRelay.start(index)));
+  const fixtureRssSampleIntervalMs = 250;
+  const relays = await Promise.all(Array.from({ length: REPLICAS }, (_, index) => (
+    ResourceRelay.start(index, fixtureRssSampleIntervalMs)
+  )));
   const samples: any[] = [];
-  const started = performance.now();
   let monitor: ReturnType<typeof setInterval> | undefined;
+  let activeSample: Promise<void> | undefined;
   try {
     const initialStats = await Promise.all(relays.map(relay => relay.request('stats')));
-    for (const stats of initialStats) {
-      if (stats.leasedActivePublications !== publicationCount) throw new Error('Idle reference cardinality mismatch');
+    const initialLeasedActivePublications = initialStats.map(stats => stats.leasedActivePublications);
+    for (const active of initialLeasedActivePublications) {
+      if (active !== publicationCount) throw new Error('Idle reference cardinality mismatch');
     }
-    const startedCpu = process.cpuUsage();
-    const initialCpu = initialStats.reduce((sum, stats) => sum + stats.sample.cpuMicros, 0)
-      + startedCpu.user + startedCpu.system;
+    const initialRelaySamples = await Promise.all(relays.map(relay => relay.request('sample')));
+    const initialRelayCpuMicros = initialRelaySamples.map(sample => sample.cpuMicros);
+    const startedParentCpu = process.cpuUsage();
+    const initialParentCpuMicros = startedParentCpu.user + startedParentCpu.system;
+    const started = performance.now();
+    const measurementStartedAt = Date.now();
+    if (manifest.expiresAt <= measurementStartedAt) throw new Error('Idle signed seed expires inside measurement window');
+    let samplingError: unknown;
     const sample = async () => {
       const relaySamples = await Promise.all(relays.map(relay => relay.request('sample')));
+      const parentRssBytes = process.memoryUsage().rss;
+      const parentCpu = process.cpuUsage();
+      const parentCpuMicros = parentCpu.user + parentCpu.system;
       samples.push({
         elapsedMs: performance.now() - started,
-        parentRssBytes: process.memoryUsage().rss,
+        parentRssBytes,
+        parentCpuMicros,
         relayRssBytes: relaySamples.map(value => value.rssBytes),
-        aggregateRssBytes: process.memoryUsage().rss + relaySamples.reduce((sum, value) => sum + value.rssBytes, 0),
-        aggregateCpuMicros: relaySamples.reduce((sum, value) => sum + value.cpuMicros, 0)
-          + process.cpuUsage().user + process.cpuUsage().system,
-        diskBytes: directoryBytes(root),
+        relayCpuMicros: relaySamples.map(value => value.cpuMicros),
+        aggregateRssBytes: parentRssBytes + relaySamples.reduce((sum, value) => sum + value.rssBytes, 0),
+        aggregateCpuMicros: parentCpuMicros + relaySamples.reduce((sum, value) => sum + value.cpuMicros, 0),
       });
     };
+    const requestSample = () => {
+      if (activeSample) return;
+      activeSample = sample().catch(error => { samplingError = error; }).finally(() => { activeSample = undefined; });
+    };
     await sample();
-    monitor = setInterval(() => { void sample().catch(error => { throw error; }); }, 5_000);
+    monitor = setInterval(requestSample, 5_000);
     const remaining = idleSeconds * 1000 - (performance.now() - started);
     if (remaining > 0) await new Promise(accept => setTimeout(accept, remaining));
     if (monitor) clearInterval(monitor);
+    if (activeSample) await activeSample;
+    if (samplingError) throw samplingError;
     await sample();
-    const finalStats = await Promise.all(relays.map(relay => relay.request('stats')));
-    const finalCpu = finalStats.reduce((sum, stats) => sum + stats.sample.cpuMicros, 0)
-      + process.cpuUsage().user + process.cpuUsage().system;
     const elapsedMs = performance.now() - started;
-    const cpuSeconds = (finalCpu - initialCpu) / 1e6;
+    const measurementEndedAt = Date.now();
+    const finalTimedSample = samples.at(-1);
+    const finalStats = await Promise.all(relays.map(relay => relay.request('stats')));
+    const finalLeasedActivePublications = finalStats.map(stats => stats.leasedActivePublications);
+    for (const active of finalLeasedActivePublications) {
+      if (active !== publicationCount) throw new Error('Idle final cardinality mismatch');
+    }
+    if (manifest.expiresAt <= measurementEndedAt) throw new Error('Idle signed seed expired during measurement window');
+    const stopSamples = await Promise.all(relays.map(relay => relay.stop()));
+    const relayDiskEvents = stopSamples.map((sample, index) => sample?.diskEvents ?? finalStats[index].diskEvents);
+    const disk = diskAccounting.reconcile(relayDiskEvents.flat());
+    if (!disk.matchesActualFinalBytes) {
+      throw new Error(`Disk event reconciliation mismatch: ${disk.finalBytes}/${disk.actualFinalBytes}`);
+    }
+    const finalIoSamples = stopSamples.map((sample, index) => sample ?? finalStats[index].sample);
+    const relayCpuSeconds = finalTimedSample.relayCpuMicros.map((value: number, index: number) => (
+      (value - initialRelayCpuMicros[index]) / 1e6
+    ));
+    const parentCpuSeconds = (finalTimedSample.parentCpuMicros - initialParentCpuMicros) / 1e6;
+    const cpuSeconds = parentCpuSeconds + relayCpuSeconds.reduce((sum: number, value: number) => sum + value, 0);
+    const cardinalityStability = initialLeasedActivePublications.every((active: number) => active === publicationCount)
+      && finalLeasedActivePublications.every((active: number) => active === publicationCount);
     const artifact = {
       schema_version: 1,
       authorization_id: 'DEC-023',
@@ -1282,23 +1391,56 @@ async function idle(): Promise<void> {
       seedData: seedDataIdentity(),
       environment: environment(),
       fixedActivePublicationsPerRelay: publicationCount,
+      initialLeasedActivePublications,
+      finalLeasedActivePublications,
+      cardinalityStability,
+      signedSeedExpiry: {
+        expiresAt: manifest.expiresAt,
+        measurementStartedAt,
+        measurementEndedAt,
+        expiresAfterMeasurementWindow: manifest.expiresAt > measurementEndedAt,
+        marginAfterMeasurementMs: manifest.expiresAt - measurementEndedAt,
+      },
       replicas: REPLICAS,
       requestedIdleSeconds: idleSeconds,
       achievedIdleSeconds: elapsedMs / 1000,
       sampleCount: samples.length,
       sampleIntervalMs: 5000,
+      fixtureRssSampleIntervalMs,
       cpuSeconds,
+      cpuAttribution: {
+        parentCpuSeconds,
+        relayCpuSeconds: relayCpuSeconds.reduce((sum: number, value: number) => sum + value, 0),
+        relays: finalStats.map((stats, index) => ({ pid: stats.sample.pid, cpuSeconds: relayCpuSeconds[index] })),
+      },
       idleCpuPercentOfOneCore: cpuSeconds / (elapsedMs / 1000) * 100,
       meanAggregateRssBytes: samples.reduce((sum, value) => sum + value.aggregateRssBytes, 0) / samples.length,
       peakAggregateRssBytes: Math.max(...samples.map(value => value.aggregateRssBytes)),
       peakPerRelayRssBytes: finalStats.map(stats => stats.sample.rssPeakBytes),
-      diskPeakBytes: Math.max(...samples.map(value => value.diskBytes)),
-      diskFinalBytes: samples.at(-1).diskBytes,
-      fsyncAndWrites: finalStats.map(stats => stats.sample),
+      disk: {
+        method: 'synchronous filesystem-event deltas from module instrumentation through relay stop; no periodic recursive walks',
+        baselineBytes: disk.baselineBytes,
+        finalBytes: disk.finalBytes,
+        actualFinalBytes: disk.actualFinalBytes,
+        finalReconciliationPass: disk.matchesActualFinalBytes,
+        growthBytes: disk.finalBytes - disk.baselineBytes,
+        eventOrderedPeakBytes: disk.eventOrderedPeakBytes,
+        peakLowerBoundBytes: disk.peakLowerBoundBytes,
+        peakUpperBoundBytes: disk.peakUpperBoundBytes,
+        eventCount: disk.eventCount,
+        operationCounts: disk.operationCounts,
+        processes: stopSamples.map((sample, index) => ({
+          pid: relays[index].child.pid,
+          ...(sample?.disk ?? finalStats[index].disk),
+        })),
+      },
+      fsyncAndWrites: finalIoSamples,
       samples,
       physicalPower: 'not measured; no power samples; CPU seconds are not watts',
       limitations: [
         'No new user work; ordinary relay timers remained active. No external issuer, witness, policy, or relay-peer service was enrolled.',
+        'Initial/final active-cardinality scans and stats are outside the timed CPU window; no per-sample active-record scans are performed.',
+        'Disk accounting covers synchronous filesystem mutations through the instrumented parent and five relay fixture modules. Async fs APIs, streams, descriptors not opened through instrumented openSync, and changes by external/uninstrumented processes are not covered; a final real-walk mismatch fails the run.',
         'One loopback host; no production, deployment, power, or K/R acceptance.',
       ],
     };
@@ -1419,6 +1561,13 @@ function summarize(): void {
     idle: idleArtifact ? {
       achievedIdleSeconds: idleArtifact.achievedIdleSeconds,
       sampleCount: idleArtifact.sampleCount,
+      initialLeasedActivePublications: idleArtifact.initialLeasedActivePublications,
+      finalLeasedActivePublications: idleArtifact.finalLeasedActivePublications,
+      cardinalityStability: idleArtifact.cardinalityStability,
+      signedSeedExpiry: idleArtifact.signedSeedExpiry,
+      sustainedCardinalityPass: idleArtifact.cardinalityStability === true
+        && idleArtifact.signedSeedExpiry?.expiresAfterMeasurementWindow === true,
+      cpuAttribution: idleArtifact.cpuAttribution,
       idleCpuPercentOfOneCore: idleArtifact.idleCpuPercentOfOneCore,
       idleCpuPass: idleArtifact.idleCpuPercentOfOneCore <= TARGETS.maximumIdleCpuPercentOfOneCore,
       meanAggregateRssBytes: idleArtifact.meanAggregateRssBytes,

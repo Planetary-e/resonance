@@ -75,6 +75,7 @@ interface LogRecord extends PendingPersistence {
 export class LeasedIndexStore {
   private readonly assertExportAllowed = guardUnmanagedExport();
   private publications = new Map<string, PublicationState>();
+  private generations = new Map<string, LeasedIndexV1>();
   private pendingPersistence: PendingPersistence[] = [];
   private pendingDedup: LeasedMatchNotification[] = [];
   private persistedBytes = new Set<string>();
@@ -156,6 +157,7 @@ export class LeasedIndexStore {
       const conflict = { bytes, operation };
       if (!state.conflicts.some(item => item.operation.leaseSequence === operation.leaseSequence)) {
         state.conflicts.push(conflict);
+        this.rememberGeneration(operation);
       }
       this.matching.removeLeased(operation.publicationId);
       const retained = state.conflicts.find(item => item.operation.leaseSequence === operation.leaseSequence)!;
@@ -178,6 +180,7 @@ export class LeasedIndexStore {
       history: [...state?.history ?? [], stored],
       conflicts: state?.conflicts ?? [],
     });
+    this.rememberGeneration(operation);
     const notifications = this.updateMatching(current, operation, repair);
     this.pendingPersistence.push({ bytes, repair, createdAt: operation.createdAt });
     return { status: 'accepted', current: operation, currentBytes: bytes, notifications };
@@ -244,13 +247,12 @@ export class LeasedIndexStore {
   }
 
   byGeneration(generationId: string): LeasedIndexV1 | undefined {
-    for (const state of this.publications.values()) {
-      for (const item of [...state.history, ...state.conflicts]) {
-        if (item.operation.kind === 'leased-discovery-index'
-          && createLeasedIndexGenerationIdV1(item.operation) === generationId) return item.operation;
-      }
-    }
-    return undefined;
+    return this.generations.get(generationId);
+  }
+
+  private rememberGeneration(operation: LeasedIndexV1): void {
+    const generationId = createLeasedIndexGenerationIdV1(operation);
+    if (!this.generations.has(generationId)) this.generations.set(generationId, operation);
   }
 
   exportReplicaState(publicationId: string): string[] {
@@ -343,6 +345,7 @@ export class LeasedIndexStore {
 
   load(directory: string): void {
     this.publications = new Map();
+    this.generations = new Map();
     this.pendingPersistence = [];
     this.pendingDedup = [];
     this.persistedBytes.clear();
@@ -356,7 +359,10 @@ export class LeasedIndexStore {
         const publicationId = state.current.operation.publicationId;
         if (this.publications.has(publicationId)) throw new Error('Duplicate persisted leased index state');
         this.publications.set(publicationId, state);
-        for (const item of [...state.history, ...state.conflicts]) this.persistedBytes.add(item.bytes);
+        for (const item of [...state.history, ...state.conflicts]) {
+          this.persistedBytes.add(item.bytes);
+          if (item.operation.kind === 'leased-discovery-index') this.rememberGeneration(item.operation);
+        }
       }
     }
     this.matching.load(directory);
