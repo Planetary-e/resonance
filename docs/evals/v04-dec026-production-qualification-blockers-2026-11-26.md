@@ -16,7 +16,7 @@
 
 | Gate | Current evidence and exact gap |
 | --- | --- |
-| K1/K7 resource envelope | `processTreeRssPass` fails. Burst aggregate peak reaches 2,141,306,880 B. Attribution supports allocator/RSS retention and GC timing variability, with no demonstrated duplicate retention; variability is unresolved, not fixed. |
+| K1/K7 resource envelope | Under the original 1.5 GiB target, `processTreeRssPass` failed with a 2,141,306,880 B burst peak. DEC-024 subsequently sets the application limit to 2 GiB; that observed peak passes by only 5.89 MiB (6,176,768 B). Attribution supports allocator/RSS retention and GC timing variability, with no demonstrated duplicate retention. Thin headroom remains an operational risk. |
 | Physical power | No physical idle-power measurement. `sudo -n powermetrics` fails because a password is required. CPU seconds are not watts. |
 | Protected admission deployment | Three local process/seed runs pass, but independent-host and impaired-network admission measurements are absent. |
 | Packet impairment | Host has no accepted below-TCP loss/delay/retransmission profile. Existing proxy supplies ordered TCP latency and resets only. |
@@ -35,7 +35,7 @@ Three process/seed executions on one host are not independent deployments, devic
 3. An independently labeled admission eligibility/fairness corpus and threat model.
 4. Separate R3/K5 and R4/K6 protocol decisions and implementations; current privacy approaches do not qualify.
 5. A new owner-authorized authority/recovery model for FEAT-001 and its independent review.
-6. A resource decision based on the unresolved RSS variability; no threshold change or forced-GC workaround is inferred.
+6. Operational monitoring of the thin 2 GiB headroom; the original 1.5 GiB failures remain history and no forced-GC workaround is authorized.
 7. After local qualification, independently operated deployment and the K8 pilot.
 
 Committing or pushing further local evidence does not close these gaps.

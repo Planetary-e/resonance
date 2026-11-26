@@ -1,0 +1,1543 @@
+{
+  "schema_version": 1,
+  "authorization_id": "DEC-023",
+  "recorded_at": "2026-11-26T09:56:30.698Z",
+  "candidate_head": "f8938ae plus later measurement-only changes; exact source hashes below",
+  "source": [
+    {
+      "path": "packages/eval/src/client-held-local-resources.ts",
+      "sha256": "f4239aba14e48baef467f606412f41e7c87f9d998ccadedbc70f887ddd5713c5"
+    },
+    {
+      "path": "packages/eval/src/client-held-search-validation.ts",
+      "sha256": "cc779a6cc689e5cb47f0cedc5522399b2ae39b6e8457aa582c0a9c660f49a890"
+    },
+    {
+      "path": "packages/eval/src/client-held-retry-capacity.ts",
+      "sha256": "62db4c4a5b203237b5dcc9e13f1f3f09a10d169126f492654e8d9fce84e9ef00"
+    },
+    {
+      "path": "packages/eval/src/client-held-disk-accounting.ts",
+      "sha256": "9cf12a11e673d9fd4c6a71d96cc23d63e2425e60a81c687fa0faa254de8d358c"
+    },
+    {
+      "path": "packages/eval/src/client-held-mailbox-rotation.ts",
+      "sha256": "d32ba4dc218ab964f48f36ff15a9b07c7fc52b06bffdb554d6c2a5a8f3f4b5a0"
+    },
+    {
+      "path": "packages/eval/src/client-held-oracle-reconstruction.ts",
+      "sha256": "2994f36705b7b0e823bb85be8808c8eb6993287b726b896ca8749132c6f426d0"
+    },
+    {
+      "path": "packages/eval/src/client-held-runtime-telemetry.ts",
+      "sha256": "1c7090c53218ffd6ed1e71dbe808535463c2dc61980bb041c055039c214fe662"
+    },
+    {
+      "path": "packages/eval/src/fixtures/client-held-resource-relay.ts",
+      "sha256": "e9051f6593c0e0bb0014b72473c1c5c21c6d8e7e595f355877df4c81842caba0"
+    },
+    {
+      "path": "packages/relay/src/atomic-file.ts",
+      "sha256": "d85204f7e88db63c08fc6f9ebb6acbd71eb40d3af2b88c13e94f76fa1e099a2a"
+    },
+    {
+      "path": "packages/relay/src/leased-index-store.ts",
+      "sha256": "4f0f584829a91d25dec67d2790d268f057a90a61f79242ece5850750a8e2bac9"
+    },
+    {
+      "path": "packages/relay/src/matching-engine.ts",
+      "sha256": "5974929c29029f04f6e383aeb5e2acd41a8734f46ba14d4d909a0c8a2988129f"
+    },
+    {
+      "path": "packages/relay/src/hamming-index.ts",
+      "sha256": "ff184ed955d9b0dcee2094698a61bc1f00565510fd791f8429fa822b554a6097"
+    },
+    {
+      "path": "packages/relay/src/mailbox-generation-store.ts",
+      "sha256": "013a465c6ba56dc0e881906a9fe8c3fefd6cd909db46517ab8aea00b57652e3e"
+    },
+    {
+      "path": "packages/relay/src/server.ts",
+      "sha256": "8bed120657b7299ef444cb9f264d60fb6599f0249ade43291788724bc153d1ab"
+    },
+    {
+      "path": "packages/node/src/offline-request-store.ts",
+      "sha256": "fdec058b2254f9f52ec256f4210a4b8fa7bf20d63c46c74f43c3523a026ac2a4"
+    },
+    {
+      "path": "packages/node/src/content-grant-store.ts",
+      "sha256": "34ec111a64d6966a23f6973d0aa7f40002a298388be1769cc88eb74487e6e660"
+    },
+    {
+      "path": "packages/node/src/relay-client.ts",
+      "sha256": "c3d0bac3e80638f3cd29615d19d8bc15bb9b9fd041f0eaf92f16d1ec8753226a"
+    }
+  ],
+  "commands": [
+    "NODE_EXTRA_CA_CERTS=packages/relay/src/__tests__/fixtures/tls/test-ca.crt node --import tsx packages/eval/src/client-held-local-resources.ts --mode seed",
+    "NODE_EXTRA_CA_CERTS=packages/relay/src/__tests__/fixtures/tls/test-ca.crt node --import tsx packages/eval/src/client-held-local-resources.ts --mode run --profile nominal --run 1|2|3",
+    "NODE_EXTRA_CA_CERTS=packages/relay/src/__tests__/fixtures/tls/test-ca.crt node --import tsx packages/eval/src/client-held-local-resources.ts --mode run --profile burst8 --run 1|2|3",
+    "NODE_EXTRA_CA_CERTS=packages/relay/src/__tests__/fixtures/tls/test-ca.crt node --import tsx packages/eval/src/client-held-local-resources.ts --mode idle --idle-seconds 1800"
+  ],
+  "environment": {
+    "platform": "darwin",
+    "architecture": "arm64",
+    "node": "v24.19.0",
+    "cpuModel": "Apple M3 Pro",
+    "logicalCpuCount": 11,
+    "totalMemoryBytes": 19327352832,
+    "freeMemoryAtStartBytes": 80281600,
+    "tls": "WSS with NODE_EXTRA_CA_CERTS; certificate verification enabled; no external network",
+    "modelRuntime": "none; fixed derivation and deterministic 64-byte fingerprint fixtures"
+  },
+  "targets": {
+    "minimumNominalSuccess": 0.995,
+    "warmP95Ms": 6000,
+    "p99Ms": 10000,
+    "protectedDecisionMs": 3000,
+    "privateOperationMs": 10000,
+    "maximumBytesPerGoodOperation": 1048576,
+    "maximumRelayRssBytes": 536870912,
+    "maximumApplicationRssBytes": 2147483648,
+    "maximumStartupRssBytes": 2147483648,
+    "maximumIdleCpuPercentOfOneCore": 1
+  },
+  "reference": {
+    "schema_version": 1,
+    "authorization_id": "DEC-023",
+    "qualification": "reference-seed",
+    "command": [
+      "node",
+      "--import",
+      "tsx",
+      "packages/eval/src/client-held-local-resources.ts",
+      "--mode",
+      "seed",
+      "--root",
+      "/tmp/resonance-client-held-local-resources-dec025-final-burst3-42c343a"
+    ],
+    "source": [
+      {
+        "path": "packages/eval/src/client-held-local-resources.ts",
+        "sha256": "0a5743f029d1df74ff6201a1615e4e147c72d4a002a9b5e989f302d826c4eb58"
+      },
+      {
+        "path": "packages/eval/src/client-held-search-validation.ts",
+        "sha256": "cc779a6cc689e5cb47f0cedc5522399b2ae39b6e8457aa582c0a9c660f49a890"
+      },
+      {
+        "path": "packages/eval/src/client-held-retry-capacity.ts",
+        "sha256": "62db4c4a5b203237b5dcc9e13f1f3f09a10d169126f492654e8d9fce84e9ef00"
+      },
+      {
+        "path": "packages/eval/src/client-held-disk-accounting.ts",
+        "sha256": "9cf12a11e673d9fd4c6a71d96cc23d63e2425e60a81c687fa0faa254de8d358c"
+      },
+      {
+        "path": "packages/eval/src/client-held-mailbox-rotation.ts",
+        "sha256": "d32ba4dc218ab964f48f36ff15a9b07c7fc52b06bffdb554d6c2a5a8f3f4b5a0"
+      },
+      {
+        "path": "packages/eval/src/client-held-oracle-reconstruction.ts",
+        "sha256": "9f682daef446d488b3a3ff11d08f28c585426ea54d2e5722db834ec9d18e32f9"
+      },
+      {
+        "path": "packages/eval/src/client-held-runtime-telemetry.ts",
+        "sha256": "1c7090c53218ffd6ed1e71dbe808535463c2dc61980bb041c055039c214fe662"
+      },
+      {
+        "path": "packages/eval/src/fixtures/client-held-resource-relay.ts",
+        "sha256": "7ae4ac470cb7d5b01bce6ed3ee2675f74e77fb741460f4971e3ca26e4819c3dc"
+      },
+      {
+        "path": "packages/relay/src/atomic-file.ts",
+        "sha256": "d85204f7e88db63c08fc6f9ebb6acbd71eb40d3af2b88c13e94f76fa1e099a2a"
+      },
+      {
+        "path": "packages/relay/src/leased-index-store.ts",
+        "sha256": "4f0f584829a91d25dec67d2790d268f057a90a61f79242ece5850750a8e2bac9"
+      },
+      {
+        "path": "packages/relay/src/matching-engine.ts",
+        "sha256": "5974929c29029f04f6e383aeb5e2acd41a8734f46ba14d4d909a0c8a2988129f"
+      },
+      {
+        "path": "packages/relay/src/hamming-index.ts",
+        "sha256": "ff184ed955d9b0dcee2094698a61bc1f00565510fd791f8429fa822b554a6097"
+      },
+      {
+        "path": "packages/relay/src/mailbox-generation-store.ts",
+        "sha256": "013a465c6ba56dc0e881906a9fe8c3fefd6cd909db46517ab8aea00b57652e3e"
+      },
+      {
+        "path": "packages/relay/src/server.ts",
+        "sha256": "8bed120657b7299ef444cb9f264d60fb6599f0249ade43291788724bc153d1ab"
+      },
+      {
+        "path": "packages/node/src/offline-request-store.ts",
+        "sha256": "fdec058b2254f9f52ec256f4210a4b8fa7bf20d63c46c74f43c3523a026ac2a4"
+      },
+      {
+        "path": "packages/node/src/content-grant-store.ts",
+        "sha256": "34ec111a64d6966a23f6973d0aa7f40002a298388be1769cc88eb74487e6e660"
+      },
+      {
+        "path": "packages/node/src/relay-client.ts",
+        "sha256": "c3d0bac3e80638f3cd29615d19d8bc15bb9b9fd041f0eaf92f16d1ec8753226a"
+      }
+    ],
+    "seedData": [
+      {
+        "name": "seed-manifest.json",
+        "sha256": "cfd0356e4985373fa80a991d5a45bb91065e544179c5699ae05f7a9d2d369dfa"
+      },
+      {
+        "name": "seed-records.json",
+        "sha256": "175a3f52614afdb1cca4d556850c58e6f053b18a3ee4e3ab41c5188b68b11673"
+      }
+    ],
+    "environment": {
+      "platform": "darwin",
+      "architecture": "arm64",
+      "node": "v24.19.0",
+      "cpuModel": "Apple M3 Pro",
+      "logicalCpuCount": 11,
+      "totalMemoryBytes": 19327352832,
+      "freeMemoryAtStartBytes": 117899264,
+      "tls": "WSS with NODE_EXTRA_CA_CERTS; certificate verification enabled; no external network",
+      "modelRuntime": "none; fixed derivation and deterministic 64-byte fingerprint fixtures"
+    },
+    "requestedPublications": 10000,
+    "acceptedPublications": 10000,
+    "activeRecords": 10000,
+    "replicasMaterialized": 5,
+    "elapsedMs": 131262.40470900002,
+    "referenceBytes": 55849061,
+    "allReplicaBytes": 360154511,
+    "disk": {
+      "method": "synchronous filesystem-event deltas with final real-walk reconciliation",
+      "baselineBytes": 0,
+      "finalBytes": 360154511,
+      "actualFinalBytes": 360154511,
+      "finalReconciliationPass": true,
+      "eventOrderedPeakBytes": 360154511,
+      "peakLowerBoundBytes": 360154511,
+      "peakUpperBoundBytes": 360154511,
+      "eventCount": 3270096,
+      "operationCounts": {
+        "mkdirSync": 6,
+        "openSync": 20018,
+        "writeFileSync": 3230048,
+        "renameSync": 10009,
+        "rmSync": 10010,
+        "cpSync": 5
+      }
+    },
+    "initializationNetworkBytes": 0,
+    "method": "One real LeasedIndexStore persisted once, then exact signed-state copies materialized in five relay directories. Every measured operation uses actual WSS listeners and Node clients."
+  },
+  "profiles": {
+    "nominal": {
+      "runs": [
+        {
+          "run": 1,
+          "submitted": 1002,
+          "good": 1002,
+          "refused": 0,
+          "retries": 1,
+          "uncertain": 0,
+          "inconclusive": 0,
+          "deadlineExceeded": 0,
+          "latency": {
+            "count": 1002,
+            "p50Ms": 1279.7147920000134,
+            "p95Ms": 2988.0524159998167,
+            "p99Ms": 3302.801290999865,
+            "maximumMs": 4854.151457999949
+          },
+          "achieved": {
+            "elapsedMs": 2408986.978458,
+            "submittedOperationsPerSecond": 0.4159424724833437,
+            "goodOperationsPerSecond": 0.4159424724833437,
+            "reconnects": 6,
+            "offeredPublishPacing": {
+              "scheduledPublishes": 334,
+              "scheduledRelayReservations": 1670,
+              "capacityWaitMs": 1931916.2298380001,
+              "maximumCapacityWaitMs": 58745.031709,
+              "sourceBucketLimit": 10,
+              "sourceBucketWindowMs": 60000,
+              "includedInOperationLatency": false,
+              "fullWindowWaitsForCompletionAndQuietReset": true,
+              "exactReplayUsesSeparateSubmissionAccounting": true
+            },
+            "mailboxPhaseProfile": {
+              "localRetainMs": {
+                "count": 334,
+                "p50Ms": 8.795874999952503,
+                "p95Ms": 14.838416999904439,
+                "p99Ms": 40.51716599997599,
+                "maximumMs": 373.83487500000047
+              },
+              "localCreateMs": {
+                "count": 334,
+                "p50Ms": 12.946457999991253,
+                "p95Ms": 18.157250000163913,
+                "p99Ms": 24.778333000009297,
+                "maximumMs": 71.97412500006612
+              },
+              "depositNetworkMs": {
+                "count": 334,
+                "p50Ms": 50.48033299995586,
+                "p95Ms": 1560.4427079999587,
+                "p99Ms": 1934.1309159999946,
+                "maximumMs": 2109.8811250000726
+              },
+              "localReceiptPersistenceMs": {
+                "count": 334,
+                "p50Ms": 31.803749999962747,
+                "p95Ms": 62.65337499999441,
+                "p99Ms": 87.70154200005345,
+                "maximumMs": 130.08720899990294
+              },
+              "fetchNetworkMs": {
+                "count": 334,
+                "p50Ms": 9.952499999897555,
+                "p95Ms": 60.64241700001003,
+                "p99Ms": 104.30825000000186,
+                "maximumMs": 1330.9108750000014
+              },
+              "localReceiveMs": {
+                "count": 334,
+                "p50Ms": 18.298291999963112,
+                "p95Ms": 25.080791999935172,
+                "p99Ms": 38.73970899998676,
+                "maximumMs": 138.5555839999579
+              },
+              "acknowledgeNetworkMs": {
+                "count": 334,
+                "p50Ms": 28.622958000050858,
+                "p95Ms": 1536.5757500000764,
+                "p99Ms": 1753.3239170000888,
+                "maximumMs": 3074.055833999999
+              },
+              "localAcknowledgePersistenceMs": {
+                "count": 334,
+                "p50Ms": 17.78524999995716,
+                "p95Ms": 27.64254100015387,
+                "p99Ms": 43.50733399996534,
+                "maximumMs": 111.5525829999242
+              }
+            },
+            "intentionalExactRetries": 1,
+            "exactRetryFailures": 0,
+            "exactRetryEvidence": {
+              "status": "acknowledged",
+              "original": {
+                "sequence": 999,
+                "coordinatorId": 1,
+                "completedAt": 1795603372638,
+                "acknowledgments": [
+                  {
+                    "relayIndex": 3,
+                    "outcome": "ok",
+                    "status": "ok",
+                    "reason": "accepted"
+                  },
+                  {
+                    "relayIndex": 4,
+                    "outcome": "ok",
+                    "status": "ok",
+                    "reason": "accepted"
+                  },
+                  {
+                    "relayIndex": 1,
+                    "outcome": "ok",
+                    "status": "ok",
+                    "reason": "accepted"
+                  },
+                  {
+                    "relayIndex": 0,
+                    "outcome": "ok",
+                    "status": "ok",
+                    "reason": "accepted"
+                  },
+                  {
+                    "relayIndex": 2,
+                    "outcome": "ok",
+                    "status": "ok",
+                    "reason": "accepted"
+                  }
+                ]
+              },
+              "sourceBucket": "loopback:127.0.0.1",
+              "capacityWaitMs": 57805.685667000245,
+              "relayCapacityWaitsMs": [
+                57805.19437499996,
+                57804.92066600034,
+                57804.77545899991,
+                57804.850250000134,
+                57804.92941700015
+              ],
+              "remainingAttemptsInWindow": 0,
+              "replayAcknowledgments": [
+                {
+                  "relayIndex": 0,
+                  "outcome": "ok",
+                  "status": "ok",
+                  "reason": "duplicate"
+                },
+                {
+                  "relayIndex": 2,
+                  "outcome": "ok",
+                  "status": "ok",
+                  "reason": "duplicate"
+                },
+                {
+                  "relayIndex": 1,
+                  "outcome": "ok",
+                  "status": "ok",
+                  "reason": "duplicate"
+                },
+                {
+                  "relayIndex": 3,
+                  "outcome": "ok",
+                  "status": "ok",
+                  "reason": "duplicate"
+                },
+                {
+                  "relayIndex": 4,
+                  "outcome": "ok",
+                  "status": "ok",
+                  "reason": "duplicate"
+                }
+              ]
+            },
+            "intentionalFailedAdmissionAttempts": 1,
+            "lateExactRetryPromotedToGood": 0
+          },
+          "networkBytes": 96326797,
+          "peakAggregateRssBytes": 2004402176
+        },
+        {
+          "run": 2,
+          "submitted": 1002,
+          "good": 1002,
+          "refused": 0,
+          "retries": 1,
+          "uncertain": 0,
+          "inconclusive": 0,
+          "deadlineExceeded": 0,
+          "latency": {
+            "count": 1002,
+            "p50Ms": 1508.9787920000963,
+            "p95Ms": 3731.1202909999993,
+            "p99Ms": 4304.269542000024,
+            "maximumMs": 5622.332791999914
+          },
+          "achieved": {
+            "elapsedMs": 2507084.4327089996,
+            "submittedOperationsPerSecond": 0.3996674331854477,
+            "goodOperationsPerSecond": 0.3996674331854477,
+            "reconnects": 6,
+            "offeredPublishPacing": {
+              "scheduledPublishes": 334,
+              "scheduledRelayReservations": 1670,
+              "capacityWaitMs": 1921387.6018329975,
+              "maximumCapacityWaitMs": 58561.93658299977,
+              "sourceBucketLimit": 10,
+              "sourceBucketWindowMs": 60000,
+              "includedInOperationLatency": false,
+              "fullWindowWaitsForCompletionAndQuietReset": true,
+              "exactReplayUsesSeparateSubmissionAccounting": true
+            },
+            "mailboxPhaseProfile": {
+              "localRetainMs": {
+                "count": 334,
+                "p50Ms": 9.307333000004292,
+                "p95Ms": 14.623666999978013,
+                "p99Ms": 44.09074999997392,
+                "maximumMs": 183.93116700008977
+              },
+              "localCreateMs": {
+                "count": 334,
+                "p50Ms": 14.112916999991285,
+                "p95Ms": 19.96212500007823,
+                "p99Ms": 26.215165999979945,
+                "maximumMs": 92.03641699999571
+              },
+              "depositNetworkMs": {
+                "count": 334,
+                "p50Ms": 65.58854199992493,
+                "p95Ms": 1990.8381250000093,
+                "p99Ms": 2333.979875000019,
+                "maximumMs": 2993.444000000134
+              },
+              "localReceiptPersistenceMs": {
+                "count": 334,
+                "p50Ms": 33.631625000038184,
+                "p95Ms": 63.736375000327826,
+                "p99Ms": 149.0852920000907,
+                "maximumMs": 262.16487500001676
+              },
+              "fetchNetworkMs": {
+                "count": 334,
+                "p50Ms": 13.018000000040047,
+                "p95Ms": 68.80304099991918,
+                "p99Ms": 144.9317919999594,
+                "maximumMs": 203.00075000012293
+              },
+              "localReceiveMs": {
+                "count": 334,
+                "p50Ms": 19.640999999828637,
+                "p95Ms": 30.456292000133544,
+                "p99Ms": 91.95908299996518,
+                "maximumMs": 187.21662500000093
+              },
+              "acknowledgeNetworkMs": {
+                "count": 334,
+                "p50Ms": 26.056957999942824,
+                "p95Ms": 1976.293374999892,
+                "p99Ms": 2527.1781660001725,
+                "maximumMs": 3382.5332909999415
+              },
+              "localAcknowledgePersistenceMs": {
+                "count": 334,
+                "p50Ms": 18.856249999953434,
+                "p95Ms": 30.738375000073574,
+                "p99Ms": 83.24974999995902,
+                "maximumMs": 140.0680000000866
+              }
+            },
+            "intentionalExactRetries": 1,
+            "exactRetryFailures": 0,
+            "exactRetryEvidence": {
+              "status": "acknowledged",
+              "original": {
+                "sequence": 999,
+                "coordinatorId": 0,
+                "completedAt": 1795608880740,
+                "acknowledgments": [
+                  {
+                    "relayIndex": 2,
+                    "outcome": "ok",
+                    "status": "ok",
+                    "reason": "accepted"
+                  },
+                  {
+                    "relayIndex": 1,
+                    "outcome": "ok",
+                    "status": "ok",
+                    "reason": "accepted"
+                  },
+                  {
+                    "relayIndex": 4,
+                    "outcome": "ok",
+                    "status": "ok",
+                    "reason": "accepted"
+                  },
+                  {
+                    "relayIndex": 0,
+                    "outcome": "ok",
+                    "status": "ok",
+                    "reason": "accepted"
+                  },
+                  {
+                    "relayIndex": 3,
+                    "outcome": "ok",
+                    "status": "ok",
+                    "reason": "accepted"
+                  }
+                ]
+              },
+              "sourceBucket": "loopback:127.0.0.1",
+              "capacityWaitMs": 57716.642458999995,
+              "relayCapacityWaitsMs": [
+                57711.34787499998,
+                57713.36375000002,
+                57712.823166999966,
+                57714.59641599981,
+                57715.58716600016
+              ],
+              "remainingAttemptsInWindow": 0,
+              "replayAcknowledgments": [
+                {
+                  "relayIndex": 1,
+                  "outcome": "ok",
+                  "status": "ok",
+                  "reason": "duplicate"
+                },
+                {
+                  "relayIndex": 0,
+                  "outcome": "ok",
+                  "status": "ok",
+                  "reason": "duplicate"
+                },
+                {
+                  "relayIndex": 2,
+                  "outcome": "ok",
+                  "status": "ok",
+                  "reason": "duplicate"
+                },
+                {
+                  "relayIndex": 3,
+                  "outcome": "ok",
+                  "status": "ok",
+                  "reason": "duplicate"
+                },
+                {
+                  "relayIndex": 4,
+                  "outcome": "ok",
+                  "status": "ok",
+                  "reason": "duplicate"
+                }
+              ]
+            },
+            "intentionalFailedAdmissionAttempts": 1,
+            "lateExactRetryPromotedToGood": 0
+          },
+          "networkBytes": 96325143,
+          "peakAggregateRssBytes": 1807679488
+        },
+        {
+          "run": 3,
+          "submitted": 1002,
+          "good": 1002,
+          "refused": 0,
+          "retries": 1,
+          "uncertain": 0,
+          "inconclusive": 0,
+          "deadlineExceeded": 0,
+          "latency": {
+            "count": 1002,
+            "p50Ms": 1415.6542909999844,
+            "p95Ms": 3343.808958000038,
+            "p99Ms": 3992.6432920000516,
+            "maximumMs": 5550.979832999874
+          },
+          "achieved": {
+            "elapsedMs": 2466425.615625,
+            "submittedOperationsPerSecond": 0.4062559169237666,
+            "goodOperationsPerSecond": 0.4062559169237666,
+            "reconnects": 6,
+            "offeredPublishPacing": {
+              "scheduledPublishes": 334,
+              "scheduledRelayReservations": 1670,
+              "capacityWaitMs": 1926140.7789500048,
+              "maximumCapacityWaitMs": 58573.33612500003,
+              "sourceBucketLimit": 10,
+              "sourceBucketWindowMs": 60000,
+              "includedInOperationLatency": false,
+              "fullWindowWaitsForCompletionAndQuietReset": true,
+              "exactReplayUsesSeparateSubmissionAccounting": true
+            },
+            "mailboxPhaseProfile": {
+              "localRetainMs": {
+                "count": 334,
+                "p50Ms": 9.376915999921039,
+                "p95Ms": 15.567499999888241,
+                "p99Ms": 39.888749999998254,
+                "maximumMs": 47.240457999985665
+              },
+              "localCreateMs": {
+                "count": 334,
+                "p50Ms": 13.896207999903709,
+                "p95Ms": 20.049000000115484,
+                "p99Ms": 32.897750000003725,
+                "maximumMs": 89.54795800009742
+              },
+              "depositNetworkMs": {
+                "count": 334,
+                "p50Ms": 56.564417000161484,
+                "p95Ms": 1912.9902500000026,
+                "p99Ms": 2783.6139579999726,
+                "maximumMs": 2969.195458999835
+              },
+              "localReceiptPersistenceMs": {
+                "count": 334,
+                "p50Ms": 33.52804199978709,
+                "p95Ms": 63.69854200002737,
+                "p99Ms": 122.19129200000316,
+                "maximumMs": 371.87429199996404
+              },
+              "fetchNetworkMs": {
+                "count": 334,
+                "p50Ms": 12.051083999918774,
+                "p95Ms": 62.71562500006985,
+                "p99Ms": 88.39600000018254,
+                "maximumMs": 147.3436249999795
+              },
+              "localReceiveMs": {
+                "count": 334,
+                "p50Ms": 19.386249999981374,
+                "p95Ms": 29.29937499994412,
+                "p99Ms": 53.34833399998024,
+                "maximumMs": 128.51499999989755
+              },
+              "acknowledgeNetworkMs": {
+                "count": 334,
+                "p50Ms": 24.57287499983795,
+                "p95Ms": 1919.655500000008,
+                "p99Ms": 2218.6708339999896,
+                "maximumMs": 2423.202583000064
+              },
+              "localAcknowledgePersistenceMs": {
+                "count": 334,
+                "p50Ms": 18.932541999965906,
+                "p95Ms": 31.693582999985665,
+                "p99Ms": 78.31345800007693,
+                "maximumMs": 147.09029199997894
+              }
+            },
+            "intentionalExactRetries": 1,
+            "exactRetryFailures": 0,
+            "exactRetryEvidence": {
+              "status": "acknowledged",
+              "original": {
+                "sequence": 999,
+                "coordinatorId": 0,
+                "completedAt": 1795611661177,
+                "acknowledgments": [
+                  {
+                    "relayIndex": 0,
+                    "outcome": "ok",
+                    "status": "ok",
+                    "reason": "accepted"
+                  },
+                  {
+                    "relayIndex": 4,
+                    "outcome": "ok",
+                    "status": "ok",
+                    "reason": "accepted"
+                  },
+                  {
+                    "relayIndex": 1,
+                    "outcome": "ok",
+                    "status": "ok",
+                    "reason": "accepted"
+                  },
+                  {
+                    "relayIndex": 3,
+                    "outcome": "ok",
+                    "status": "ok",
+                    "reason": "accepted"
+                  },
+                  {
+                    "relayIndex": 2,
+                    "outcome": "ok",
+                    "status": "ok",
+                    "reason": "accepted"
+                  }
+                ]
+              },
+              "sourceBucket": "loopback:127.0.0.1",
+              "capacityWaitMs": 57896.62966700038,
+              "relayCapacityWaitsMs": [
+                57894.25479200017,
+                57894.44362499984,
+                57894.93687500013,
+                57895.11154099973,
+                57895.40758299967
+              ],
+              "remainingAttemptsInWindow": 0,
+              "replayAcknowledgments": [
+                {
+                  "relayIndex": 1,
+                  "outcome": "ok",
+                  "status": "ok",
+                  "reason": "duplicate"
+                },
+                {
+                  "relayIndex": 0,
+                  "outcome": "ok",
+                  "status": "ok",
+                  "reason": "duplicate"
+                },
+                {
+                  "relayIndex": 4,
+                  "outcome": "ok",
+                  "status": "ok",
+                  "reason": "duplicate"
+                },
+                {
+                  "relayIndex": 3,
+                  "outcome": "ok",
+                  "status": "ok",
+                  "reason": "duplicate"
+                },
+                {
+                  "relayIndex": 2,
+                  "outcome": "ok",
+                  "status": "ok",
+                  "reason": "duplicate"
+                }
+              ]
+            },
+            "intentionalFailedAdmissionAttempts": 1,
+            "lateExactRetryPromotedToGood": 0
+          },
+          "networkBytes": 96325994,
+          "peakAggregateRssBytes": 1864024064
+        }
+      ],
+      "totals": {
+        "submitted": 3006,
+        "good": 3006,
+        "successFraction": 1,
+        "physicalNetworkBytes": 288977934,
+        "bytesPerGoodOperation": 96133.71057884232
+      },
+      "runVariation": {
+        "p95Ms": {
+          "runs": [
+            2988.0524159998167,
+            3731.1202909999993,
+            3343.808958000038
+          ],
+          "mean": 3354.327221666618,
+          "minimum": 2988.0524159998167,
+          "maximum": 3731.1202909999993,
+          "range": 743.0678750001825,
+          "studentT95HalfWidth": 923.2188753268312,
+          "studentT95Interval": [
+            2431.1083463397867,
+            4277.546096993449
+          ]
+        },
+        "p99Ms": {
+          "runs": [
+            3302.801290999865,
+            4304.269542000024,
+            3992.6432920000516
+          ],
+          "mean": 3866.57137499998,
+          "minimum": 3302.801290999865,
+          "maximum": 4304.269542000024,
+          "range": 1001.4682510001585,
+          "studentT95HalfWidth": 1273.1182594537272,
+          "studentT95Interval": [
+            2593.453115546253,
+            5139.689634453707
+          ]
+        },
+        "throughputGoodPerSecond": {
+          "runs": [
+            0.4159424724833437,
+            0.3996674331854477,
+            0.4062559169237666
+          ],
+          "mean": 0.4072886075308526,
+          "minimum": 0.3996674331854477,
+          "maximum": 0.4159424724833437,
+          "range": 0.016275039297896032,
+          "studentT95HalfWidth": 0.020336437319329274,
+          "studentT95Interval": [
+            0.38695217021152334,
+            0.4276250448501819
+          ]
+        }
+      },
+      "maximumPerRelayRssBytes": 391528448,
+      "evaluation": {
+        "operationCountPass": true,
+        "independentExecutionsPass": true,
+        "successPass": true,
+        "warmP95Pass": true,
+        "p99Pass": true,
+        "networkPass": true,
+        "relayRssPass": true,
+        "processTreeRssPass": true,
+        "networkCoveragePass": true,
+        "contentPass": true,
+        "refusalFreePass": true
+      },
+      "pass": true
+    },
+    "burst8": {
+      "runs": [
+        {
+          "run": 1,
+          "submitted": 1002,
+          "good": 1002,
+          "refused": 0,
+          "retries": 1,
+          "uncertain": 0,
+          "inconclusive": 0,
+          "deadlineExceeded": 0,
+          "latency": {
+            "count": 1002,
+            "p50Ms": 2658.9153750000987,
+            "p95Ms": 4045.185207999981,
+            "p99Ms": 4381.619458000001,
+            "maximumMs": 4951.2503329999745
+          },
+          "achieved": {
+            "elapsedMs": 2352704.590083,
+            "submittedOperationsPerSecond": 0.4258928231889287,
+            "goodOperationsPerSecond": 0.4258928231889287,
+            "reconnects": 24,
+            "offeredPublishPacing": {
+              "scheduledPublishes": 334,
+              "scheduledRelayReservations": 1670,
+              "capacityWaitMs": 2028882.4001240025,
+              "maximumCapacityWaitMs": 64162.31429099999,
+              "sourceBucketLimit": 10,
+              "sourceBucketWindowMs": 60000,
+              "includedInOperationLatency": false,
+              "fullWindowWaitsForCompletionAndQuietReset": true,
+              "exactReplayUsesSeparateSubmissionAccounting": true
+            },
+            "mailboxPhaseProfile": {
+              "localRetainMs": {
+                "count": 334,
+                "p50Ms": 8.584917000029236,
+                "p95Ms": 13.705374999903142,
+                "p99Ms": 34.6516249999986,
+                "maximumMs": 36.23170899999968
+              },
+              "localCreateMs": {
+                "count": 334,
+                "p50Ms": 13.847959000151604,
+                "p95Ms": 19.836707999929786,
+                "p99Ms": 26.00166600011289,
+                "maximumMs": 73.39983400003985
+              },
+              "depositNetworkMs": {
+                "count": 334,
+                "p50Ms": 2430.4799590000184,
+                "p95Ms": 3803.610665999993,
+                "p99Ms": 4142.121542000008,
+                "maximumMs": 4552.875666999957
+              },
+              "localReceiptPersistenceMs": {
+                "count": 334,
+                "p50Ms": 26.094583000056446,
+                "p95Ms": 35.928249999997206,
+                "p99Ms": 82.99399999994785,
+                "maximumMs": 92.02354199998081
+              },
+              "fetchNetworkMs": {
+                "count": 334,
+                "p50Ms": 67.08154199970886,
+                "p95Ms": 2350.0732080000453,
+                "p99Ms": 2496.6883749999106,
+                "maximumMs": 3226.2556670000195
+              },
+              "localReceiveMs": {
+                "count": 334,
+                "p50Ms": 17.009582999860868,
+                "p95Ms": 21.447291999589652,
+                "p99Ms": 26.49854200007394,
+                "maximumMs": 58.23866700002691
+              },
+              "acknowledgeNetworkMs": {
+                "count": 334,
+                "p50Ms": 52.9400420000311,
+                "p95Ms": 71.56012499984354,
+                "p99Ms": 169.96295800001826,
+                "maximumMs": 270.8782079999801
+              },
+              "localAcknowledgePersistenceMs": {
+                "count": 334,
+                "p50Ms": 16.98270899988711,
+                "p95Ms": 27.146582999965176,
+                "p99Ms": 40.195000000006985,
+                "maximumMs": 96.51987499999814
+              }
+            },
+            "intentionalExactRetries": 1,
+            "exactRetryFailures": 0,
+            "exactRetryEvidence": {
+              "status": "acknowledged",
+              "original": {
+                "sequence": 999,
+                "coordinatorId": 7,
+                "completedAt": 1795638358492,
+                "acknowledgments": [
+                  {
+                    "relayIndex": 0,
+                    "outcome": "ok",
+                    "status": "ok",
+                    "reason": "accepted"
+                  },
+                  {
+                    "relayIndex": 3,
+                    "outcome": "ok",
+                    "status": "ok",
+                    "reason": "accepted"
+                  },
+                  {
+                    "relayIndex": 4,
+                    "outcome": "ok",
+                    "status": "ok",
+                    "reason": "accepted"
+                  },
+                  {
+                    "relayIndex": 2,
+                    "outcome": "ok",
+                    "status": "ok",
+                    "reason": "accepted"
+                  },
+                  {
+                    "relayIndex": 1,
+                    "outcome": "ok",
+                    "status": "ok",
+                    "reason": "accepted"
+                  }
+                ]
+              },
+              "sourceBucket": "loopback:127.0.0.1",
+              "capacityWaitMs": 55548.96545799961,
+              "relayCapacityWaitsMs": [
+                55548.81391700031,
+                55545.90791699989,
+                55545.969082999974,
+                55545.9554580003,
+                55546.02887500031
+              ],
+              "remainingAttemptsInWindow": 0,
+              "replayAcknowledgments": [
+                {
+                  "relayIndex": 1,
+                  "outcome": "ok",
+                  "status": "ok",
+                  "reason": "duplicate"
+                },
+                {
+                  "relayIndex": 4,
+                  "outcome": "ok",
+                  "status": "ok",
+                  "reason": "duplicate"
+                },
+                {
+                  "relayIndex": 0,
+                  "outcome": "ok",
+                  "status": "ok",
+                  "reason": "duplicate"
+                },
+                {
+                  "relayIndex": 2,
+                  "outcome": "ok",
+                  "status": "ok",
+                  "reason": "duplicate"
+                },
+                {
+                  "relayIndex": 3,
+                  "outcome": "ok",
+                  "status": "ok",
+                  "reason": "duplicate"
+                }
+              ],
+              "replayReconciliationEvidence": []
+            },
+            "intentionalFailedAdmissionAttempts": 1,
+            "lateExactRetryPromotedToGood": 0
+          },
+          "networkBytes": 96320586,
+          "peakAggregateRssBytes": 1576271872
+        },
+        {
+          "run": 2,
+          "submitted": 1002,
+          "good": 1002,
+          "refused": 0,
+          "retries": 1,
+          "uncertain": 0,
+          "inconclusive": 0,
+          "deadlineExceeded": 0,
+          "latency": {
+            "count": 1002,
+            "p50Ms": 3077.4251660001464,
+            "p95Ms": 4445.01729099988,
+            "p99Ms": 5190.658124999958,
+            "maximumMs": 5826.6077499999665
+          },
+          "achieved": {
+            "elapsedMs": 2392587.096917,
+            "submittedOperationsPerSecond": 0.418793531609002,
+            "goodOperationsPerSecond": 0.418793531609002,
+            "reconnects": 24,
+            "offeredPublishPacing": {
+              "scheduledPublishes": 334,
+              "scheduledRelayReservations": 1670,
+              "capacityWaitMs": 2033164.1685889985,
+              "maximumCapacityWaitMs": 64253.023832999635,
+              "sourceBucketLimit": 10,
+              "sourceBucketWindowMs": 60000,
+              "includedInOperationLatency": false,
+              "fullWindowWaitsForCompletionAndQuietReset": true,
+              "exactReplayUsesSeparateSubmissionAccounting": true
+            },
+            "mailboxPhaseProfile": {
+              "localRetainMs": {
+                "count": 334,
+                "p50Ms": 8.89408400002867,
+                "p95Ms": 15.203042000066489,
+                "p99Ms": 35.28949999999895,
+                "maximumMs": 84.08279199991375
+              },
+              "localCreateMs": {
+                "count": 334,
+                "p50Ms": 13.967208000132814,
+                "p95Ms": 21.208624999970198,
+                "p99Ms": 27.954917000140995,
+                "maximumMs": 112.59137499995995
+              },
+              "depositNetworkMs": {
+                "count": 334,
+                "p50Ms": 2727.1395420001354,
+                "p95Ms": 4226.376291999826,
+                "p99Ms": 5029.998957999982,
+                "maximumMs": 5582.635917000007
+              },
+              "localReceiptPersistenceMs": {
+                "count": 334,
+                "p50Ms": 28.537958999862894,
+                "p95Ms": 46.468542000046,
+                "p99Ms": 95.52187500009313,
+                "maximumMs": 135.50829099980183
+              },
+              "fetchNetworkMs": {
+                "count": 334,
+                "p50Ms": 77.0317919999361,
+                "p95Ms": 2539.745957999956,
+                "p99Ms": 3254.6410410000244,
+                "maximumMs": 4197.623583999928
+              },
+              "localReceiveMs": {
+                "count": 334,
+                "p50Ms": 18.63145800001803,
+                "p95Ms": 25.54824999999255,
+                "p99Ms": 41.63354100007564,
+                "maximumMs": 55.067832999979146
+              },
+              "acknowledgeNetworkMs": {
+                "count": 334,
+                "p50Ms": 57.48916700016707,
+                "p95Ms": 80.55016600014642,
+                "p99Ms": 201.5175000000745,
+                "maximumMs": 273.87054100004025
+              },
+              "localAcknowledgePersistenceMs": {
+                "count": 334,
+                "p50Ms": 18.232249999884516,
+                "p95Ms": 30.461374999955297,
+                "p99Ms": 37.18941699992865,
+                "maximumMs": 148.96283399988897
+              }
+            },
+            "intentionalExactRetries": 1,
+            "exactRetryFailures": 0,
+            "exactRetryEvidence": {
+              "status": "acknowledged",
+              "original": {
+                "sequence": 999,
+                "coordinatorId": 7,
+                "completedAt": 1795641028612,
+                "acknowledgments": [
+                  {
+                    "relayIndex": 4,
+                    "outcome": "ok",
+                    "status": "ok",
+                    "reason": "accepted"
+                  },
+                  {
+                    "relayIndex": 3,
+                    "outcome": "ok",
+                    "status": "ok",
+                    "reason": "accepted"
+                  },
+                  {
+                    "relayIndex": 1,
+                    "outcome": "ok",
+                    "status": "ok",
+                    "reason": "accepted"
+                  },
+                  {
+                    "relayIndex": 0,
+                    "outcome": "ok",
+                    "status": "ok",
+                    "reason": "accepted"
+                  },
+                  {
+                    "relayIndex": 2,
+                    "outcome": "ok",
+                    "status": "ok",
+                    "reason": "accepted"
+                  }
+                ]
+              },
+              "sourceBucket": "loopback:127.0.0.1",
+              "capacityWaitMs": 54651.04183400003,
+              "relayCapacityWaitsMs": [
+                54649.14366699988,
+                54649.847792000044,
+                54649.42616699962,
+                54649.858833000064,
+                54650.00562500022
+              ],
+              "remainingAttemptsInWindow": 0,
+              "replayAcknowledgments": [
+                {
+                  "relayIndex": 0,
+                  "outcome": "ok",
+                  "status": "ok",
+                  "reason": "duplicate"
+                },
+                {
+                  "relayIndex": 4,
+                  "outcome": "ok",
+                  "status": "ok",
+                  "reason": "duplicate"
+                },
+                {
+                  "relayIndex": 3,
+                  "outcome": "ok",
+                  "status": "ok",
+                  "reason": "duplicate"
+                },
+                {
+                  "relayIndex": 1,
+                  "outcome": "ok",
+                  "status": "ok",
+                  "reason": "duplicate"
+                },
+                {
+                  "relayIndex": 2,
+                  "outcome": "ok",
+                  "status": "ok",
+                  "reason": "duplicate"
+                }
+              ],
+              "replayReconciliationEvidence": []
+            },
+            "intentionalFailedAdmissionAttempts": 1,
+            "lateExactRetryPromotedToGood": 0
+          },
+          "networkBytes": 96317113,
+          "peakAggregateRssBytes": 2141306880
+        },
+        {
+          "run": 3,
+          "submitted": 1002,
+          "good": 1002,
+          "refused": 0,
+          "retries": 1,
+          "uncertain": 0,
+          "inconclusive": 0,
+          "deadlineExceeded": 0,
+          "latency": {
+            "count": 1002,
+            "p50Ms": 3214.4741249999497,
+            "p95Ms": 4714.762124999892,
+            "p99Ms": 5126.1756659999955,
+            "maximumMs": 5347.834541999968
+          },
+          "achieved": {
+            "elapsedMs": 2414424.7438339996,
+            "submittedOperationsPerSecond": 0.41500568719688835,
+            "goodOperationsPerSecond": 0.41500568719688835,
+            "reconnects": 24,
+            "offeredPublishPacing": {
+              "scheduledPublishes": 334,
+              "scheduledRelayReservations": 1670,
+              "capacityWaitMs": 2035761.4513299991,
+              "maximumCapacityWaitMs": 64506.069875000045,
+              "sourceBucketLimit": 10,
+              "sourceBucketWindowMs": 60000,
+              "includedInOperationLatency": false,
+              "fullWindowWaitsForCompletionAndQuietReset": true,
+              "exactReplayUsesSeparateSubmissionAccounting": true
+            },
+            "mailboxPhaseProfile": {
+              "localRetainMs": {
+                "count": 334,
+                "p50Ms": 9.212292000185698,
+                "p95Ms": 19.61583399993833,
+                "p99Ms": 33.35274999999092,
+                "maximumMs": 37.82070899999235
+              },
+              "localCreateMs": {
+                "count": 334,
+                "p50Ms": 14.048166000051424,
+                "p95Ms": 21.91620800003875,
+                "p99Ms": 30.190874999854714,
+                "maximumMs": 36.32766699977219
+              },
+              "depositNetworkMs": {
+                "count": 334,
+                "p50Ms": 2891.473417000001,
+                "p95Ms": 4470.959499999881,
+                "p99Ms": 4925.274624999991,
+                "maximumMs": 5090.472416999983
+              },
+              "localReceiptPersistenceMs": {
+                "count": 334,
+                "p50Ms": 29.97308300016448,
+                "p95Ms": 70.64775000000373,
+                "p99Ms": 94.72662500012666,
+                "maximumMs": 303.68708299985155
+              },
+              "fetchNetworkMs": {
+                "count": 334,
+                "p50Ms": 90.19329199986532,
+                "p95Ms": 2865.8681250000373,
+                "p99Ms": 4236.813832999906,
+                "maximumMs": 4679.718707999913
+              },
+              "localReceiveMs": {
+                "count": 334,
+                "p50Ms": 19.031791999936104,
+                "p95Ms": 26.115833000047132,
+                "p99Ms": 54.02074999990873,
+                "maximumMs": 62.33833299996331
+              },
+              "acknowledgeNetworkMs": {
+                "count": 334,
+                "p50Ms": 58.959499999997206,
+                "p95Ms": 88.40891700005159,
+                "p99Ms": 195.53962499997579,
+                "maximumMs": 311.1100419999566
+              },
+              "localAcknowledgePersistenceMs": {
+                "count": 334,
+                "p50Ms": 18.397875000024214,
+                "p95Ms": 29.622207999927923,
+                "p99Ms": 46.605624999967404,
+                "maximumMs": 93.7469160000328
+              }
+            },
+            "intentionalExactRetries": 1,
+            "exactRetryFailures": 0,
+            "exactRetryEvidence": {
+              "status": "acknowledged",
+              "original": {
+                "sequence": 999,
+                "coordinatorId": 7,
+                "completedAt": 1795643752383,
+                "acknowledgments": [
+                  {
+                    "relayIndex": 4,
+                    "outcome": "ok",
+                    "status": "ok",
+                    "reason": "accepted"
+                  },
+                  {
+                    "relayIndex": 3,
+                    "outcome": "ok",
+                    "status": "ok",
+                    "reason": "accepted"
+                  },
+                  {
+                    "relayIndex": 1,
+                    "outcome": "ok",
+                    "status": "ok",
+                    "reason": "accepted"
+                  },
+                  {
+                    "relayIndex": 0,
+                    "outcome": "ok",
+                    "status": "ok",
+                    "reason": "accepted"
+                  },
+                  {
+                    "relayIndex": 2,
+                    "outcome": "ok",
+                    "status": "ok",
+                    "reason": "accepted"
+                  }
+                ]
+              },
+              "sourceBucket": "loopback:127.0.0.1",
+              "capacityWaitMs": 54877.29204099998,
+              "relayCapacityWaitsMs": [
+                54877.206458999775,
+                54875.02804199979,
+                54875.178000000305,
+                54876.35162500013,
+                54876.33620800031
+              ],
+              "remainingAttemptsInWindow": 0,
+              "replayAcknowledgments": [
+                {
+                  "relayIndex": 3,
+                  "outcome": "ok",
+                  "status": "ok",
+                  "reason": "duplicate"
+                },
+                {
+                  "relayIndex": 1,
+                  "outcome": "ok",
+                  "status": "ok",
+                  "reason": "duplicate"
+                },
+                {
+                  "relayIndex": 0,
+                  "outcome": "ok",
+                  "status": "ok",
+                  "reason": "duplicate"
+                },
+                {
+                  "relayIndex": 4,
+                  "outcome": "ok",
+                  "status": "ok",
+                  "reason": "duplicate"
+                },
+                {
+                  "relayIndex": 2,
+                  "outcome": "ok",
+                  "status": "ok",
+                  "reason": "duplicate"
+                }
+              ],
+              "replayReconciliationEvidence": []
+            },
+            "intentionalFailedAdmissionAttempts": 1,
+            "lateExactRetryPromotedToGood": 0
+          },
+          "networkBytes": 96317067,
+          "peakAggregateRssBytes": 1793523712
+        }
+      ],
+      "totals": {
+        "submitted": 3006,
+        "good": 3006,
+        "successFraction": 1,
+        "physicalNetworkBytes": 288954766,
+        "bytesPerGoodOperation": 96126.00332667997
+      },
+      "runVariation": {
+        "p95Ms": {
+          "runs": [
+            4045.185207999981,
+            4445.01729099988,
+            4714.762124999892
+          ],
+          "mean": 4401.654874666584,
+          "minimum": 4045.185207999981,
+          "maximum": 4714.762124999892,
+          "range": 669.5769169999112,
+          "studentT95HalfWidth": 836.8762813711451,
+          "studentT95Interval": [
+            3564.778593295439,
+            5238.531156037729
+          ]
+        },
+        "p99Ms": {
+          "runs": [
+            4381.619458000001,
+            5190.658124999958,
+            5126.1756659999955
+          ],
+          "mean": 4899.484416333318,
+          "minimum": 4381.619458000001,
+          "maximum": 5190.658124999958,
+          "range": 809.0386669999571,
+          "studentT95HalfWidth": 1116.9717661820027,
+          "studentT95Interval": [
+            3782.5126501513155,
+            6016.456182515321
+          ]
+        },
+        "throughputGoodPerSecond": {
+          "runs": [
+            0.4258928231889287,
+            0.418793531609002,
+            0.41500568719688835
+          ],
+          "mean": 0.41989734733160633,
+          "minimum": 0.41500568719688835,
+          "maximum": 0.4258928231889287,
+          "range": 0.010887135992040331,
+          "studentT95HalfWidth": 0.013729495234658438,
+          "studentT95Interval": [
+            0.4061678520969479,
+            0.43362684256626477
+          ]
+        }
+      },
+      "maximumPerRelayRssBytes": 363626496,
+      "evaluation": {
+        "operationCountPass": true,
+        "independentExecutionsPass": true,
+        "successPass": true,
+        "warmP95Pass": true,
+        "p99Pass": true,
+        "networkPass": true,
+        "relayRssPass": true,
+        "processTreeRssPass": true,
+        "networkCoveragePass": true,
+        "contentPass": true,
+        "refusalFreePass": true
+      },
+      "pass": true
+    }
+  },
+  "idle": {
+    "achievedIdleSeconds": 1800.0036951250001,
+    "sampleCount": 361,
+    "initialLeasedActivePublications": [
+      10000,
+      10000,
+      10000,
+      10000,
+      10000
+    ],
+    "finalLeasedActivePublications": [
+      10000,
+      10000,
+      10000,
+      10000,
+      10000
+    ],
+    "cardinalityStability": true,
+    "signedSeedExpiry": {
+      "expiresAt": 1795687124932,
+      "measurementStartedAt": 1795603668733,
+      "measurementEndedAt": 1795605468738,
+      "expiresAfterMeasurementWindow": true,
+      "marginAfterMeasurementMs": 81656194
+    },
+    "sustainedCardinalityPass": true,
+    "cpuAttribution": {
+      "parentCpuSeconds": 0.291755,
+      "relayCpuSeconds": 5.458698,
+      "relays": [
+        {
+          "pid": 73638,
+          "cpuSeconds": 1.085988
+        },
+        {
+          "pid": 73639,
+          "cpuSeconds": 1.078638
+        },
+        {
+          "pid": 73640,
+          "cpuSeconds": 1.090425
+        },
+        {
+          "pid": 73641,
+          "cpuSeconds": 1.087866
+        },
+        {
+          "pid": 73642,
+          "cpuSeconds": 1.115781
+        }
+      ]
+    },
+    "idleCpuPercentOfOneCore": 0.3194689552901536,
+    "idleCpuPass": true,
+    "meanAggregateRssBytes": 265795226.5927978,
+    "peakAggregateRssBytes": 1710309376,
+    "physicalPower": "not measured; no power samples; CPU seconds are not watts"
+  },
+  "packetImpairment": "not qualified; no below-TCP packet loss/retransmission profile was run",
+  "productionAcceptance": false,
+  "krAcceptance": false,
+  "limitations": [
+    "Local macOS loopback evidence only; no external deployment, independent operators, or production/K/R acceptance.",
+    "Seed initialization used real store persistence and exact replica copies, not network placement; all measured refresh traffic did use five actual relay listeners.",
+    "No physical power measurement and no separate online issuer/witness/policy service measurement.",
+    "Three runs on one host do not provide independent deployment/device/day samples."
+  ]
+}

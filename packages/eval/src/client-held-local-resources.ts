@@ -107,7 +107,7 @@ const TARGETS = Object.freeze({
   privateOperationMs: 10_000,
   maximumBytesPerGoodOperation: 1024 ** 2,
   maximumRelayRssBytes: 512 * 1024 ** 2,
-  maximumApplicationRssBytes: 1536 * 1024 ** 2,
+  maximumApplicationRssBytes: 2 * 1024 ** 3,
   maximumStartupRssBytes: 2 * 1024 ** 3,
   maximumIdleCpuPercentOfOneCore: 1,
 });
@@ -1724,7 +1724,7 @@ function summarize(): void {
     schema_version: 1,
     authorization_id: 'DEC-023',
     recorded_at: new Date().toISOString(),
-    candidate_head: '56a593c plus uncommitted measurement harness identified by source hashes',
+    candidate_head: 'f8938ae plus later measurement-only changes; exact source hashes below',
     source: sourceIdentity(),
     commands: [
       'NODE_EXTRA_CA_CERTS=packages/relay/src/__tests__/fixtures/tls/test-ca.crt node --import tsx packages/eval/src/client-held-local-resources.ts --mode seed',
