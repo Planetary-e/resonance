@@ -4,9 +4,21 @@ import PackageDescription
 let package = Package(
   name: "ResonancePacketImpairment",
   platforms: [.macOS(.v13)],
-  products: [.library(name: "PacketShaper", targets: ["PacketShaper"])],
+  products: [
+    .library(name: "PacketShaper", targets: ["PacketShaper"]),
+    .library(name: "PacketTunnelControl", targets: ["PacketTunnelControl"]),
+  ],
   targets: [
     .target(name: "PacketShaper", path: "Sources/PacketShaper"),
-    .testTarget(name: "PacketShaperTests", dependencies: ["PacketShaper"], path: "Tests/PacketShaperTests"),
+    .target(
+      name: "PacketTunnelControl",
+      dependencies: ["PacketShaper"],
+      path: "Sources/TunnelControl"
+    ),
+    .testTarget(
+      name: "PacketShaperTests",
+      dependencies: ["PacketShaper", "PacketTunnelControl"],
+      path: "Tests/PacketShaperTests"
+    ),
   ]
 )

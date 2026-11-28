@@ -15,7 +15,32 @@
 		B10000000000000000000006 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000007 /* main.swift */; };
 		B10000000000000000000007 /* PacketTunnelProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000009 /* PacketTunnelProvider.swift */; };
 		B10000000000000000000008 /* PacketShaper in Frameworks */ = {isa = PBXBuildFile; fileRef = P10000000000000000000001 /* libPacketShaper.a */; };
+		B10000000000000000000009 /* ProviderConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1000000000000000000000B /* ProviderConfiguration.swift */; };
+		B1000000000000000000000A /* AppGroupCounterStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1000000000000000000000C /* AppGroupCounterStore.swift */; };
+		B1000000000000000000000B /* PacketTunnelBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1000000000000000000000D /* PacketTunnelBridge.swift */; };
+		B1000000000000000000000C /* PacketTunnelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1000000000000000000000E /* PacketTunnelController.swift */; };
+		B1000000000000000000000D /* TunnelIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1000000000000000000000F /* TunnelIntegrationTests.swift */; };
+		B1000000000000000000000E /* PacketTunnelControl in Frameworks */ = {isa = PBXBuildFile; fileRef = P10000000000000000000005 /* libPacketTunnelControl.a */; };
+		B1000000000000000000000F /* PacketTunnelControl in Frameworks */ = {isa = PBXBuildFile; fileRef = P10000000000000000000005 /* libPacketTunnelControl.a */; };
+		B10000000000000000000010 /* PacketTunnelControl in Frameworks */ = {isa = PBXBuildFile; fileRef = P10000000000000000000005 /* libPacketTunnelControl.a */; };
+		B10000000000000000000011 /* PacketShaper in Frameworks */ = {isa = PBXBuildFile; fileRef = P10000000000000000000001 /* libPacketShaper.a */; };
+		B10000000000000000000012 /* PacketShaper in Frameworks */ = {isa = PBXBuildFile; fileRef = P10000000000000000000001 /* libPacketShaper.a */; };
+		B10000000000000000000013 /* PacketShaper in Frameworks */ = {isa = PBXBuildFile; fileRef = P10000000000000000000001 /* libPacketShaper.a */; };
+		B10000000000000000000014 /* PacketTunnel.systemextension in Embed PacketTunnel */ = {isa = PBXBuildFile; fileRef = P10000000000000000000004 /* PacketTunnel.systemextension */; };
+		B10000000000000000000015 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000012 /* main.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		Q10000000000000000000001 /* Embed PacketTunnel */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "Contents/Library/SystemExtensions";
+			dstSubfolderSpec = 1;
+			files = (B10000000000000000000014 /* PacketTunnel.systemextension in Embed PacketTunnel */, );
+			name = "Embed PacketTunnel";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXContainerItemProxy section */
 		X10000000000000000000001 /* PBXContainerItemProxy */ = {
@@ -24,6 +49,41 @@
 			proxyType = 1;
 			remoteGlobalIDString = T10000000000000000000001;
 			remoteInfo = PacketShaper;
+		};
+		X10000000000000000000002 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = J10000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = T10000000000000000000005;
+			remoteInfo = PacketTunnelControl;
+		};
+		X10000000000000000000003 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = J10000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = T10000000000000000000005;
+			remoteInfo = PacketTunnelControl;
+		};
+		X10000000000000000000004 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = J10000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = T10000000000000000000005;
+			remoteInfo = PacketTunnelControl;
+		};
+		X10000000000000000000005 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = J10000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = T10000000000000000000001;
+			remoteInfo = PacketShaper;
+		};
+		X10000000000000000000006 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = J10000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = T10000000000000000000004;
+			remoteInfo = PacketTunnel;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -38,17 +98,27 @@
 		F10000000000000000000008 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		F10000000000000000000009 /* PacketTunnelProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PacketTunnelProvider.swift; sourceTree = "<group>"; };
 		F1000000000000000000000A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		F1000000000000000000000B /* ProviderConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderConfiguration.swift; sourceTree = "<group>"; };
+		F1000000000000000000000C /* AppGroupCounterStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppGroupCounterStore.swift; sourceTree = "<group>"; };
+		F1000000000000000000000D /* PacketTunnelBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PacketTunnelBridge.swift; sourceTree = "<group>"; };
+		F1000000000000000000000E /* PacketTunnelController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PacketTunnelController.swift; sourceTree = "<group>"; };
+		F1000000000000000000000F /* TunnelIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TunnelIntegrationTests.swift; sourceTree = "<group>"; };
+		F10000000000000000000010 /* ControllerApp.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ControllerApp.entitlements; sourceTree = "<group>"; };
+		F10000000000000000000011 /* PacketTunnel.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PacketTunnel.entitlements; sourceTree = "<group>"; };
+		F10000000000000000000012 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		P10000000000000000000001 /* libPacketShaper.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libPacketShaper.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		P10000000000000000000002 /* PacketShaperTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PacketShaperTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		P10000000000000000000003 /* ControllerApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ControllerApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		P10000000000000000000004 /* PacketTunnel.appex */ = {isa = PBXFileReference; explicitFileType = wrapper.app-extension; includeInIndex = 0; path = PacketTunnel.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		P10000000000000000000004 /* PacketTunnel.systemextension */ = {isa = PBXFileReference; explicitFileType = wrapper.system-extension; includeInIndex = 0; path = PacketTunnel.systemextension; sourceTree = BUILT_PRODUCTS_DIR; };
+		P10000000000000000000005 /* libPacketTunnelControl.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libPacketTunnelControl.a; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		H10000000000000000000001 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
-		H10000000000000000000002 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (B10000000000000000000008 /* PacketShaper in Frameworks */, ); runOnlyForDeploymentPostprocessing = 0; };
-		H10000000000000000000003 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
-		H10000000000000000000004 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		H10000000000000000000002 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (B10000000000000000000008 /* PacketShaper in Frameworks */, B1000000000000000000000E /* PacketTunnelControl in Frameworks */, ); runOnlyForDeploymentPostprocessing = 0; };
+		H10000000000000000000003 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (B10000000000000000000011 /* PacketShaper in Frameworks */, B1000000000000000000000F /* PacketTunnelControl in Frameworks */, ); runOnlyForDeploymentPostprocessing = 0; };
+		H10000000000000000000004 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (B10000000000000000000012 /* PacketShaper in Frameworks */, B10000000000000000000010 /* PacketTunnelControl in Frameworks */, ); runOnlyForDeploymentPostprocessing = 0; };
+		H10000000000000000000005 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (B10000000000000000000013 /* PacketShaper in Frameworks */, ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -66,7 +136,10 @@
 		};
 		G10000000000000000000002 /* Sources */ = {
 			isa = PBXGroup;
-			children = (G10000000000000000000003 /* PacketShaper */, );
+			children = (
+				G10000000000000000000003 /* PacketShaper */,
+				G10000000000000000000009 /* TunnelControl */,
+			);
 			path = Sources;
 			sourceTree = "<group>";
 		};
@@ -81,6 +154,18 @@
 			path = PacketShaper;
 			sourceTree = "<group>";
 		};
+		G10000000000000000000009 /* TunnelControl */ = {
+			isa = PBXGroup;
+			children = (
+				F1000000000000000000000B /* ProviderConfiguration.swift */,
+				F1000000000000000000000C /* AppGroupCounterStore.swift */,
+				F1000000000000000000000D /* PacketTunnelBridge.swift */,
+				F1000000000000000000000E /* PacketTunnelController.swift */,
+				F10000000000000000000009 /* PacketTunnelProvider.swift */,
+			);
+			path = TunnelControl;
+			sourceTree = "<group>";
+		};
 		G10000000000000000000004 /* Tests */ = {
 			isa = PBXGroup;
 			children = (G10000000000000000000005 /* PacketShaperTests */, );
@@ -89,7 +174,10 @@
 		};
 		G10000000000000000000005 /* PacketShaperTests */ = {
 			isa = PBXGroup;
-			children = (F10000000000000000000006 /* PacketShaperTests.swift */, );
+			children = (
+				F10000000000000000000006 /* PacketShaperTests.swift */,
+				F1000000000000000000000F /* TunnelIntegrationTests.swift */,
+			);
 			path = PacketShaperTests;
 			sourceTree = "<group>";
 		};
@@ -98,6 +186,7 @@
 			children = (
 				F10000000000000000000007 /* main.swift */,
 				F10000000000000000000008 /* Info.plist */,
+				F10000000000000000000010 /* ControllerApp.entitlements */,
 			);
 			path = ControllerApp;
 			sourceTree = "<group>";
@@ -105,8 +194,9 @@
 		G10000000000000000000007 /* PacketTunnel */ = {
 			isa = PBXGroup;
 			children = (
-				F10000000000000000000009 /* PacketTunnelProvider.swift */,
+				F10000000000000000000012 /* main.swift */,
 				F1000000000000000000000A /* Info.plist */,
+				F10000000000000000000011 /* PacketTunnel.entitlements */,
 			);
 			path = PacketTunnel;
 			sourceTree = "<group>";
@@ -115,9 +205,10 @@
 			isa = PBXGroup;
 			children = (
 				P10000000000000000000001 /* libPacketShaper.a */,
+				P10000000000000000000005 /* libPacketTunnelControl.a */,
 				P10000000000000000000002 /* PacketShaperTests.xctest */,
 				P10000000000000000000003 /* ControllerApp.app */,
-				P10000000000000000000004 /* PacketTunnel.appex */,
+				P10000000000000000000004 /* PacketTunnel.systemextension */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -139,6 +230,20 @@
 			productReference = P10000000000000000000001 /* libPacketShaper.a */;
 			productType = "com.apple.product-type.library.static";
 		};
+		T10000000000000000000005 /* PacketTunnelControl */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = L10000000000000000000005 /* Build configuration list for PBXNativeTarget "PacketTunnelControl" */;
+			buildPhases = (
+				S10000000000000000000005 /* Sources */,
+				H10000000000000000000005 /* Frameworks */,
+			);
+			buildRules = ();
+			dependencies = (D10000000000000000000005 /* PBXTargetDependency */, );
+			name = PacketTunnelControl;
+			productName = PacketTunnelControl;
+			productReference = P10000000000000000000005 /* libPacketTunnelControl.a */;
+			productType = "com.apple.product-type.library.static";
+		};
 		T10000000000000000000002 /* PacketShaperTests */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = L10000000000000000000002 /* Build configuration list for PBXNativeTarget "PacketShaperTests" */;
@@ -147,7 +252,10 @@
 				H10000000000000000000002 /* Frameworks */,
 			);
 			buildRules = ();
-			dependencies = (D10000000000000000000001 /* PBXTargetDependency */, );
+			dependencies = (
+				D10000000000000000000001 /* PBXTargetDependency */,
+				D10000000000000000000002 /* PBXTargetDependency */,
+			);
 			name = PacketShaperTests;
 			productName = PacketShaperTests;
 			productReference = P10000000000000000000002 /* PacketShaperTests.xctest */;
@@ -159,9 +267,13 @@
 			buildPhases = (
 				S10000000000000000000003 /* Sources */,
 				H10000000000000000000003 /* Frameworks */,
+				Q10000000000000000000001 /* Embed PacketTunnel */,
 			);
 			buildRules = ();
-			dependencies = ();
+			dependencies = (
+				D10000000000000000000003 /* PBXTargetDependency */,
+				D10000000000000000000006 /* PBXTargetDependency */,
+			);
 			name = ControllerApp;
 			productName = ControllerApp;
 			productReference = P10000000000000000000003 /* ControllerApp.app */;
@@ -175,11 +287,11 @@
 				H10000000000000000000004 /* Frameworks */,
 			);
 			buildRules = ();
-			dependencies = ();
+			dependencies = (D10000000000000000000004 /* PBXTargetDependency */, );
 			name = PacketTunnel;
 			productName = PacketTunnel;
-			productReference = P10000000000000000000004 /* PacketTunnel.appex */;
-			productType = "com.apple.product-type.app-extension";
+			productReference = P10000000000000000000004 /* PacketTunnel.systemextension */;
+			productType = "com.apple.product-type.system-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -195,6 +307,7 @@
 					T10000000000000000000002 = { CreatedOnToolsVersion = 27.2; };
 					T10000000000000000000003 = { CreatedOnToolsVersion = 27.2; };
 					T10000000000000000000004 = { CreatedOnToolsVersion = 27.2; };
+					T10000000000000000000005 = { CreatedOnToolsVersion = 27.2; };
 				};
 			};
 			buildConfigurationList = L10000000000000000000000 /* Build configuration list for PBXProject "ResonancePacketImpairment" */;
@@ -208,6 +321,7 @@
 			projectRoot = "";
 			targets = (
 				T10000000000000000000001 /* PacketShaper */,
+				T10000000000000000000005 /* PacketTunnelControl */,
 				T10000000000000000000002 /* PacketShaperTests */,
 				T10000000000000000000003 /* ControllerApp */,
 				T10000000000000000000004 /* PacketTunnel */,
@@ -230,7 +344,10 @@
 		S10000000000000000000002 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
-			files = (B10000000000000000000005 /* PacketShaperTests.swift in Sources */, );
+			files = (
+				B10000000000000000000005 /* PacketShaperTests.swift in Sources */,
+				B1000000000000000000000D /* TunnelIntegrationTests.swift in Sources */,
+			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		S10000000000000000000003 /* Sources */ = {
@@ -242,7 +359,19 @@
 		S10000000000000000000004 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
-			files = (B10000000000000000000007 /* PacketTunnelProvider.swift in Sources */, );
+			files = (B10000000000000000000015 /* main.swift in Sources */, );
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		S10000000000000000000005 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B10000000000000000000009 /* ProviderConfiguration.swift in Sources */,
+				B1000000000000000000000A /* AppGroupCounterStore.swift in Sources */,
+				B1000000000000000000000B /* PacketTunnelBridge.swift in Sources */,
+				B1000000000000000000000C /* PacketTunnelController.swift in Sources */,
+				B10000000000000000000007 /* PacketTunnelProvider.swift in Sources */,
+			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
@@ -252,6 +381,31 @@
 			isa = PBXTargetDependency;
 			target = T10000000000000000000001 /* PacketShaper */;
 			targetProxy = X10000000000000000000001 /* PBXContainerItemProxy */;
+		};
+		D10000000000000000000002 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = T10000000000000000000005 /* PacketTunnelControl */;
+			targetProxy = X10000000000000000000002 /* PBXContainerItemProxy */;
+		};
+		D10000000000000000000003 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = T10000000000000000000005 /* PacketTunnelControl */;
+			targetProxy = X10000000000000000000003 /* PBXContainerItemProxy */;
+		};
+		D10000000000000000000004 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = T10000000000000000000005 /* PacketTunnelControl */;
+			targetProxy = X10000000000000000000004 /* PBXContainerItemProxy */;
+		};
+		D10000000000000000000005 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = T10000000000000000000001 /* PacketShaper */;
+			targetProxy = X10000000000000000000005 /* PBXContainerItemProxy */;
+		};
+		D10000000000000000000006 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = T10000000000000000000004 /* PacketTunnel */;
+			targetProxy = X10000000000000000000006 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -264,8 +418,11 @@
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
 				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
-				CODE_SIGNING_ALLOWED = NO;
-				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = YES;
+				DEVELOPMENT_TEAM = RT86W9R3J5;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -291,8 +448,11 @@
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
 				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
-				CODE_SIGNING_ALLOWED = NO;
-				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = YES;
+				DEVELOPMENT_TEAM = RT86W9R3J5;
 				COPY_PHASE_STRIP = NO;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
@@ -351,7 +511,9 @@
 		C1000000000000000000003D /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ControllerApp/ControllerApp.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = ControllerApp/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/../Frameworks", );
@@ -364,7 +526,9 @@
 		C1000000000000000000003R /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ControllerApp/ControllerApp.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = ControllerApp/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/../Frameworks", );
@@ -378,11 +542,13 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = PacketTunnel/PacketTunnel.entitlements;
+				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = PacketTunnel/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/../Frameworks", "@executable_path/../../../../Frameworks", );
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = org.planetary.resonance.packetimpairment.tunnel;
+				PRODUCT_BUNDLE_IDENTIFIER = org.planetary.resonance.packetimpairment.controller.tunnel;
 				PRODUCT_NAME = PacketTunnel;
 				SKIP_INSTALL = YES;
 			};
@@ -392,12 +558,34 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = PacketTunnel/PacketTunnel.entitlements;
+				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = PacketTunnel/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/../Frameworks", "@executable_path/../../../../Frameworks", );
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = org.planetary.resonance.packetimpairment.tunnel;
+				PRODUCT_BUNDLE_IDENTIFIER = org.planetary.resonance.packetimpairment.controller.tunnel;
 				PRODUCT_NAME = PacketTunnel;
+				SKIP_INSTALL = YES;
+			};
+			name = Release;
+		};
+		C1000000000000000000005D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				DEFINES_MODULE = YES;
+				EXECUTABLE_PREFIX = lib;
+				PRODUCT_NAME = PacketTunnelControl;
+				SKIP_INSTALL = YES;
+			};
+			name = Debug;
+		};
+		C1000000000000000000005R /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				DEFINES_MODULE = YES;
+				EXECUTABLE_PREFIX = lib;
+				PRODUCT_NAME = PacketTunnelControl;
 				SKIP_INSTALL = YES;
 			};
 			name = Release;
@@ -432,6 +620,12 @@
 		L10000000000000000000004 /* Build configuration list for PBXNativeTarget "PacketTunnel" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (C1000000000000000000004D /* Debug */, C1000000000000000000004R /* Release */, );
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		L10000000000000000000005 /* Build configuration list for PBXNativeTarget "PacketTunnelControl" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (C1000000000000000000005D /* Debug */, C1000000000000000000005R /* Release */, );
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};

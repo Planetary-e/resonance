@@ -1,1 +1,3 @@
-import Foundation
+import PacketTunnelControl
+
+let packetTunnelController = PacketTunnelController()

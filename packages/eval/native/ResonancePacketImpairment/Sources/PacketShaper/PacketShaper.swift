@@ -27,7 +27,21 @@ public struct ShaperCounters: Equatable, Sendable {
   public internal(set) var delayed = 0
   public internal(set) var cancelled = 0
 
-  public init() {}
+  public init(
+    profileDrop: Int = 0,
+    overflowDrop: Int = 0,
+    forwarded: Int = 0,
+    malformed: Int = 0,
+    delayed: Int = 0,
+    cancelled: Int = 0
+  ) {
+    self.profileDrop = profileDrop
+    self.overflowDrop = overflowDrop
+    self.forwarded = forwarded
+    self.malformed = malformed
+    self.delayed = delayed
+    self.cancelled = cancelled
+  }
 }
 
 public final class PacketShaper {

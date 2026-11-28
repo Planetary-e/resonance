@@ -5,6 +5,9 @@
          <BuildActionEntry buildForTesting="YES" buildForRunning="YES" buildForProfiling="YES" buildForArchiving="YES" buildForAnalyzing="YES">
             <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="T10000000000000000000001" BuildableName="libPacketShaper.a" BlueprintName="PacketShaper" ReferencedContainer="container:ResonancePacketImpairment.xcodeproj"/>
          </BuildActionEntry>
+         <BuildActionEntry buildForTesting="YES" buildForRunning="YES" buildForProfiling="YES" buildForArchiving="YES" buildForAnalyzing="YES">
+            <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="T10000000000000000000005" BuildableName="libPacketTunnelControl.a" BlueprintName="PacketTunnelControl" ReferencedContainer="container:ResonancePacketImpairment.xcodeproj"/>
+         </BuildActionEntry>
          <BuildActionEntry buildForTesting="YES" buildForRunning="NO" buildForProfiling="NO" buildForArchiving="NO" buildForAnalyzing="YES">
             <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="T10000000000000000000002" BuildableName="PacketShaperTests.xctest" BlueprintName="PacketShaperTests" ReferencedContainer="container:ResonancePacketImpairment.xcodeproj"/>
          </BuildActionEntry>
@@ -12,7 +15,7 @@
             <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="T10000000000000000000003" BuildableName="ControllerApp.app" BlueprintName="ControllerApp" ReferencedContainer="container:ResonancePacketImpairment.xcodeproj"/>
          </BuildActionEntry>
          <BuildActionEntry buildForTesting="YES" buildForRunning="YES" buildForProfiling="YES" buildForArchiving="YES" buildForAnalyzing="YES">
-            <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="T10000000000000000000004" BuildableName="PacketTunnel.appex" BlueprintName="PacketTunnel" ReferencedContainer="container:ResonancePacketImpairment.xcodeproj"/>
+            <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="T10000000000000000000004" BuildableName="PacketTunnel.systemextension" BlueprintName="PacketTunnel" ReferencedContainer="container:ResonancePacketImpairment.xcodeproj"/>
          </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
